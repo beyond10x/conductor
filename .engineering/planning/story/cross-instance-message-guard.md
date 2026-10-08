@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:cross-instance-message-guard
 kind: story
-status: draft
+status: archived
 title: The guard keeps messages inside one instance
 relations:
 - decomposes: epic:multi-instance-host
@@ -12,7 +12,9 @@ scope:
   path: crates/conductor/src/guard/rules.rs
 - confidence: cited
   path: crates/conductor/tests/guard_rules.rs
-revision: 3
+revision: 4
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-08T22:02:39Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

@@ -10,33 +10,41 @@ relations:
 - depends_on: story:instance-session-names
 scope:
 - confidence: cited
+  path: crates/conductor-model
+- confidence: cited
   path: crates/conductor/src/dashboard
+- confidence: cited
+  path: crates/conductor/src/lib.rs
 - confidence: cited
   path: crates/conductor/src/usage_metrics.rs
 - confidence: cited
   path: crates/conductor/src/watch.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 6
+revision: 9
 ---
 ## Why
 
 The host is shared; nothing attributes load to an instance or a session, and the operator's
 complaint about host load had to be investigated by hand (`specification:multi-instance-host`,
-finding 7).
+finding 7). Today every session shares one cgroup (`session-3.scope`, design critic round 2), so
+per-session numbers come from the processes, until `instance-cgroup-limits` gives each instance a
+cgroup of its own.
 
 ## Acceptance
 
-- The dashboard shows, per instance and per session: CPU time, memory current and peak, io bytes
-  and process count, with the read time. Two sources, each tested: the session's cgroup v2 files
-  (fixture cgroup directories), and substrate's `GET /v1/metrics` response for a session that runs
-  under substrate (a fixture response body in the shape of substrate's `run-a-command` guide § 5).
-- The watch prints one line when an instance's memory or CPU passes a config threshold (spec
-  first); a test with fixture readings.
+- The dashboard shows, per instance and per session: CPU time, resident memory, io bytes and
+  process count, with the read time. Source today: the session's process tree from `/proc`
+  (`/proc/<pid>/stat`, `status`, `io`, children through `/proc/<pid>/task/*/children`), the
+  session's pid from `claude agents --json`; a session in a cgroup of its own (later) reads that
+  cgroup's v2 files instead; a session run under substrate reads `GET /v1/metrics`. Each source is
+  tested with fixtures (a fixture `/proc` tree, a fixture cgroup directory, a fixture metrics body).
+- The watch prints one line when an instance's resident memory or CPU passes a config threshold
+  (spec first); a test with fixture readings.
 
 ## Scope
 
 `spec/domains/config.yaml`, `crates/conductor/src/usage_metrics.rs` (new),
-`crates/conductor/src/dashboard/`, `crates/conductor/src/watch.rs`,
-`crates/conductor/tests/usage_metrics.rs` (new). After `instance-session-names` (shared
-`watch.rs`, `config.yaml`).
+`crates/conductor/src/dashboard/`, `crates/conductor/src/watch.rs`, `crates/conductor/src/lib.rs`,
+`crates/conductor/tests/usage_metrics.rs` (new), `crates/conductor-model/`.
+After `instance-session-names` (shared `config.yaml`, `watch.rs`, the generated crate).

@@ -11,14 +11,24 @@ scope:
 - confidence: cited
   path: .agents/conductor.md
 - confidence: cited
+  path: crates/conductor-model
+- confidence: cited
   path: crates/conductor/cli.yaml
 - confidence: cited
   path: crates/conductor/src/cli.rs
 - confidence: cited
+  path: crates/conductor/src/config.rs
+- confidence: cited
   path: crates/conductor/src/host.rs
 - confidence: cited
+  path: crates/conductor/tests/host.rs
+- confidence: cited
   path: spec/domains/host.yaml
-revision: 7
+- confidence: cited
+  path: spec/ess-inputs.yaml
+- confidence: cited
+  path: spec/system.yaml
+revision: 12
 ---
 ## Why
 
