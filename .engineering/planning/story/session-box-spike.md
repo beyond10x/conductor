@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:session-box-spike
 kind: story
-status: draft
+status: active
 title: 'Spike: how a controller session lives in a box conductor controls'
 relations:
 - decomposes: epic:session-confinement
 scope:
 - confidence: cited
   path: docs/analysis/session-box-spike.md
-revision: 4
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":1}}}
+- {from: "proposed", to: "active", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":1}}}
 ---
 ## Why
 
@@ -28,6 +31,15 @@ user unit, and each session's `bg-pty-host` is moved into a child cgroup.
   `bwrap` wrapper around it keep it working (credentials under `~/.claude`, network, its own child
   processes).
 - A go/no-go per way and the one conductor's other stories build on.
+
+## Safety on a shared host
+
+This host runs conductor and its controllers under the same Claude Code daemon. The spike never
+restarts, stops or moves that daemon, and never stops a session it did not start. Every session it
+starts runs in a scratch directory under `~/.cache/conductor-spikes/`, and is stopped and removed
+(`claude stop`, `claude rm`) before the page is written; the page lists their ids. A way that can
+only be tried by touching the running daemon is tried with a separate daemon (its own
+`CLAUDE_CONFIG_DIR`), or recorded as not tried and why.
 
 ## Scope
 

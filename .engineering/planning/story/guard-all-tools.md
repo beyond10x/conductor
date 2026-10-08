@@ -17,7 +17,7 @@ scope:
   path: crates/conductor/tests/guard_hook.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 3
+revision: 4
 ---
 ## Why
 
@@ -29,7 +29,9 @@ tool Claude Code adds later, is never checked. Found by the pre-publication secu
 
 ## Acceptance
 
-- The settings route every tool to the hook (matcher `*`).
+- The settings in this repository route every tool to the hook (matcher `*`). The instance's own
+  settings files (`~/.b10x/conductor/<instance>/settings/`) are outside the repository: the wave's
+  close copies the matcher there and reports it.
 - The guard allows a tool outside its ruled set only if it is on a read-only allowlist the config
   can extend per role; every other tool is denied with a reason naming the allowlist.
 - A test sends a payload for an unknown tool and expects a denial; one for an allowlisted read

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:instance-session-names
 kind: story
-status: draft
+status: active
 title: Every session an instance starts carries the instance's prefix
 relations:
 - decomposes: epic:multi-instance-host
@@ -28,7 +28,10 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: spec/domains/dispatch.yaml
-revision: 13
+revision: 16
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 14, decided_on: {"recorded":{"review_outcome":5}}}
+- {from: "proposed", to: "active", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 15, decided_on: {"recorded":{"review_outcome":5}}}
 ---
 ## Why
 
@@ -41,12 +44,17 @@ renaming conductor alone cuts controllers off, because the guard allows only `co
 ## Acceptance
 
 - Spec first: this story owns `SessionPrefix` and `SessionName` in `spec/domains/config.yaml`
-  (`spec/drafts/host.yaml` imports them): `instances[].session_prefix` (default the instance
-  name; letters, digits, `-`), `Controller.session_name` typed `SessionName`, set to
-  `<prefix>-<repository>`. `config validate` refuses two instances with one prefix (test).
+  (`spec/drafts/host.yaml` imports them): `instances[].session_prefix` (optional; letters, digits,
+  `-`), `Controller.session_name` typed `SessionName`, set to `<prefix>-<repository>`, or to
+  `<repository>` when the instance has no prefix. `config validate` refuses two instances with one
+  prefix, and two instances without one (tests).
+- An instance without a prefix keeps today's names and today's guard rules, so installing this
+  changes nothing for a running instance: the switch is a config change conductor makes at a
+  restart of its choosing (a test: a one-instance config without a prefix starts `conductor` and
+  allows a controller's SendMessage to `conductor`).
 - Sessions start under the prefixed names: `Taskfile.yml` `conductor:start` passes
   `-n <prefix>-conductor`, `dev:start` `-n <prefix>-conductor-dev`; the profile's controller start
-  and resume commands `-n <prefix>-<repository>`. Tests read the Taskfile commands and the profile.
+  and resume commands `-n <controller session name>`, read from `conductor config show`. Tests read the Taskfile commands and the profile.
 - The guard: a controller's SendMessage is allowed to `<its prefix>-conductor` (and its own
   sub-agents), denied to a session of another prefix naming both instances; conductor's only to
   sessions of its own prefix. Tests with two instances in one config (this absorbs
@@ -54,8 +62,8 @@ renaming conductor alone cuts controllers off, because the guard allows only `co
 - The sessions collector places a session whose name carries the instance's prefix, wherever its
   directory is, and leaves a session with another prefix redacted; a test with two fixture
   sessions shows one placed and one not.
-- The separator is `-`: before the code, a probe starts `claude --bg -n <prefix>-probe` once in a
-  scratch directory and removes it; if Claude Code refuses the name the unit stops and reports.
+- The separator is `-`: Claude Code accepts it in a background session name today
+  (`claude agents --json` lists the running session `conductor-dev`, started by `task dev:start`).
 
 Lookups by name in the other tasks (attach, restart, sessions) are story `instance-scoped-tasks`.
 

@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:substrate-tool-spike
 kind: story
-status: draft
+status: active
 title: 'Spike: a session''s commands run inside substrate through an MCP server'
 relations:
 - decomposes: epic:session-confinement
 scope:
 - confidence: cited
   path: docs/analysis/substrate-tool-spike.md
-revision: 4
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 6}
+- {from: "proposed", to: "active", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 7}
 ---
 ## Why
 
@@ -30,6 +33,16 @@ an adopted tree. Each step records:
   --mcp-config <file>`: the verbs seen, SendMessage delivered, listed in `claude agents --json`,
   a long `run` blocking a sub-agent or not, the MCP client's timeout on a 15-minute call.
 
+## Safety on a shared host
+
+This host runs conductor and its controllers under the same Claude Code daemon. The spike never
+restarts, stops or moves that daemon, and never stops a session it did not start. Every session it
+starts runs in a scratch directory under `~/.cache/conductor-spikes/`, and is stopped and removed
+(`claude stop`, `claude rm`) before the page is written; the page lists their ids. A way that can
+only be tried by touching the running daemon is tried with a separate daemon (its own
+`CLAUDE_CONFIG_DIR`), or recorded as not tried and why.
+
 ## Scope
 
-`docs/analysis/substrate-tool-spike.md` (new); scratch code outside the repository, not committed.
+`docs/analysis/substrate-tool-spike.md` (new); scratch code under `~/.cache/conductor-spikes/`,
+not committed, built only with 10G or more free on `/` (`df -h /`).
