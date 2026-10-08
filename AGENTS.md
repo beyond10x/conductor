@@ -6,8 +6,7 @@ design is [`docs/design/conductor.md`](docs/design/conductor.md); the config fie
 
 ## Serves
 
-The objectives, by id from `atlas/ROADMAP.md`
-([GitHub](https://github.com/beyond10x/atlas/blob/main/ROADMAP.md)):
+The organization-wide objectives this repository serves, by the id the organization's catalog gives them:
 
 - **O2 — decisions as data, with evidence.** Every decision conductor takes or relays is a record
   with an id, a class, a reason and the evidence it rests on, in the instance's decision log and
