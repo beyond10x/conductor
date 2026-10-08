@@ -5,8 +5,8 @@ kind: story
 status: draft
 title: An instance's trees and builds stay under a storage quota
 relations:
-- decomposes: epic:multi-instance-host
 - depends_on: story:host-grants
+- decomposes: epic:session-confinement
 scope:
 - confidence: cited
   path: crates/conductor-model

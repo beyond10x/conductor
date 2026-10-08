@@ -5,9 +5,10 @@ kind: story
 status: draft
 title: The dashboard and the watch show CPU, memory and io per instance and session
 relations:
-- decomposes: epic:multi-instance-host
 - informed_by: story:substrate-session-spike
 - depends_on: story:instance-session-names
+- decomposes: epic:session-confinement
+- depends_on: story:session-limits-systemd
 scope:
 - confidence: cited
   path: crates/conductor-model

@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:bash-sandbox
 kind: story
-status: draft
+status: archived
 title: Bash writes are bounded by the harness sandbox, not by parsing shell
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-08T22:08:28Z", actor: "human:timo", revision: 2}
 ---
 # Bash writes are bounded by the harness sandbox, not by parsing shell
 

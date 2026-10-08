@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:substrate-session-spike
 kind: story
-status: active
+status: implemented
 title: 'Spike: run a controller session inside substrate'
 relations:
 - decomposes: epic:multi-instance-host
 scope:
 - confidence: cited
   path: docs/analysis
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-08T22:02:56Z", actor: "human:timo", revision: 3, decided_on: {"recorded":{"review_outcome":1}}}
 - {from: "proposed", to: "active", at: "2026-10-08T22:02:56Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"review_outcome":1}}}
+- {from: "active", to: "implemented", at: "2026-10-08T22:14:06Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1,"artifact":1,"review_outcome":1}}}
 ---
 ## Why
 

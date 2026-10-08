@@ -5,8 +5,8 @@ kind: story
 status: draft
 title: conductor doctor says whether the trees' filesystem supports project quotas
 relations:
-- decomposes: epic:multi-instance-host
 - depends_on: story:install-prerequisites
+- decomposes: epic:session-confinement
 scope:
 - confidence: cited
   path: crates/conductor/src/doctor.rs

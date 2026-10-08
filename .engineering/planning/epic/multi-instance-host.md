@@ -7,7 +7,7 @@ title: Several conductor instances share one host safely
 relations:
 - designs: specification:multi-instance-host
 - informed_by: specification:multi-instance-host
-revision: 2
+revision: 3
 ---
 ## Outcome
 
@@ -25,8 +25,7 @@ With two instances in one config file on one host, each checked by a test:
   (story `cross-instance-message-guard`);
 - a host grant the second instance asks for beyond the host's floor or slot count is refused with
   the numbers (story `host-grants`);
-- the dashboard shows CPU time, memory and io per instance (story `instance-usage-metrics`).
+- usage per instance and the limits that bound it are epic `session-confinement`.
 
-Out of this epic's acceptance: enforced CPU, memory and storage limits. They depend on the
-substrate spike and on the operator's project-quota decision (`instance-cgroup-limits`,
-`instance-storage-quota`).
+Confinement (limits, writes, usage, quotas, substrate) moved to epic `session-confinement`
+(architecture-decision-record:external-confinement).

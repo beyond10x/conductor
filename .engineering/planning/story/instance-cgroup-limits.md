@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:instance-cgroup-limits
 kind: story
-status: draft
+status: archived
 title: Each instance's sessions run under CPU, memory and process limits
 relations:
 - decomposes: epic:multi-instance-host
@@ -15,7 +15,9 @@ scope:
   path: Taskfile.yml
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 4
+revision: 5
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-08T22:13:44Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 

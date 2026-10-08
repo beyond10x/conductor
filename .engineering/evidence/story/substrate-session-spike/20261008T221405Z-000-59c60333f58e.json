@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-08T22:14:05Z",
+  "actor": "human:timo",
+  "artifact": "story:substrate-session-spike",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "recorded runs on this host 2026-10-09 (docs/analysis/2026-10-09-substrate-sessions.md): claude -p exit 0 under 1 GiB/64 pids; exec.memory-limit under 64 MiB; claude --bg refused (workspace trust); /v1/metrics exec.metrics-unserved (no io controller)"
+  }
+}
