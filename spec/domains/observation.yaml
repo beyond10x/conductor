@@ -356,8 +356,8 @@ entities:
       states: [Recorded]
       terminal: [Recorded]
 
-  # One repository's ESS specification status, read at origin/main, for every repository the
-  # instance tracks. Present means an
+  # One repository's ESS specification status, for every repository the instance tracks from
+  # any source: read at origin/main, or at HEAD for a local source's. Present means an
   # `ess-inputs.yaml` or `system.yaml` outside build output; OptedOut means the repository's
   # AGENTS.md records an ESS opt-out; Missing means neither.
   - name: conductor.observation.SpecificationObservation

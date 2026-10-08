@@ -24,8 +24,12 @@ use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::store;
 use conductor_model::behaviour::Generated;
 use conductor_model::config::Instance;
-use conductor_model::observation::obligations::{ReleasesQuery, RepositoriesQuery};
-use conductor_model::observation::{Repositories, SnapshotState, Visibility};
+use conductor_model::observation::obligations::{
+    ReleasesQuery, RepositoriesQuery, SpecificationsQuery,
+};
+use conductor_model::observation::{
+    Repositories, SnapshotState, SpecificationPresence, ValidationResult, Visibility,
+};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -876,6 +880,172 @@ fn a_local_sources_checkouts_are_read_as_they_are() {
     );
     assert_eq!(row.unreleased_commits, Some(1));
     assert_eq!(row.planning_store_version.as_deref(), Some("aep.project/6"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:specifications-every-source: the specifications collector reads every source
+// ---------------------------------------------------------------------------------------------
+
+/// The specifications collector lists the repositories the repositories collector lists: each
+/// owner's through `gh`, asked only for their archived flag, and each repository under a `local:`
+/// source but those its `exclude` names, read at its `HEAD` with no fetch. None of them is a
+/// member of the instance's workspace. Each gets one row: `alpha`, whose `ess/` holds a
+/// specification, `Present` and validated with the installed `ess`; `beta`, whose only
+/// `ess/system.yaml` is uncommitted, `Missing`; the grouped `team/gamma`, whose `AGENTS.md` opts
+/// out, `OptedOut`. No checkout is changed.
+#[test]
+fn the_specifications_collector_gives_each_repository_of_a_local_source_a_row() {
+    let case = Case::new("local-specifications");
+    let local = case.dir.join("local");
+    let checkout = |name: &str, files: &[(&str, &str)]| {
+        let dir = local.join(name);
+        fs::create_dir_all(&dir).expect("create the checkout");
+        git(&dir, OLD, &["init", "--quiet", "--initial-branch=main"]);
+        commit(&dir, OLD, "Start the repository", files);
+        dir
+    };
+    let alpha = checkout(
+        "alpha",
+        &[
+            ("README.md", "# alpha\n"),
+            (
+                "ess/system.yaml",
+                "format: ess/22\nsystem: alpha\nversion: v1\n\ndomains: []\n",
+            ),
+            (
+                "ess/ess-inputs.yaml",
+                "format: ess-inputs/2\nrequires: ess 0.55\nspecification:\n  - system.yaml\n\
+                 scenarios: []\n",
+            ),
+        ],
+    );
+    let beta = checkout("beta", &[("README.md", "# beta\n")]);
+    fs::create_dir_all(beta.join("ess")).expect("create beta's ess/");
+    fs::write(beta.join("ess/system.yaml"), "format: ess/22\n").expect("leave a file uncommitted");
+    let gamma = checkout(
+        "team/gamma",
+        &[(
+            "AGENTS.md",
+            "# gamma\n\nESS opt-out: it publishes documents only.\n",
+        )],
+    );
+    checkout("skipped", &[("ess/system.yaml", "format: ess/22\n")]);
+    let untouched = || {
+        [&alpha, &beta, &gamma].map(|dir| {
+            (
+                git(dir, OLD, &["rev-parse", "HEAD"]),
+                git(
+                    dir,
+                    OLD,
+                    &["status", "--porcelain", "--untracked-files=all"],
+                ),
+            )
+        })
+    };
+    let before = untouched();
+
+    let instance = case.instance(&format!(
+        "[{{github: acme}}, {{local: {}, exclude: [skipped]}}]",
+        quoted(&local)
+    ));
+    let active = Active {
+        instance,
+        from_file: true,
+    };
+    let mut sources =
+        specifications::Sources::of(&active, &case.state()).expect("the instance's sources");
+    let log = case.log("gh");
+    sources.repositories = logged_os(&sources.repositories, &log, "empty.json");
+    sources.workspace.members = shell("printf '%s' '{\"members\": []}'");
+    sources.workspace.list = shell("printf '%s' '{\"artifacts\": []}'");
+    sources.workspace.fetch = shell(&format!("pwd >> '{}'; exit 1", text(&case.log("fetch"))));
+    let taken = case.take("specifications", move |record| {
+        specifications::collect_from(&sources, record)
+    });
+    complete(&taken);
+
+    assert_eq!(
+        case.lines("gh"),
+        ["repo list acme --limit 200 --json name,isArchived"],
+        "GitHub is asked for acme's list only"
+    );
+    assert_eq!(
+        case.lines("fetch"),
+        Vec::<String>::new(),
+        "nothing is fetched"
+    );
+    let generated = case.generated();
+    let mut rows: Vec<_> = generated
+        .specifications()
+        .expect("the specifications view answers")
+        .into_iter()
+        .filter(|row| row.snapshot_id == taken.snapshot_id)
+        .collect();
+    generated.ports.check().expect("the store read every row");
+    rows.sort_by(|a, b| a.repository.0.cmp(&b.repository.0));
+    let observed: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            (
+                row.repository.0.as_str(),
+                row.presence,
+                row.path.as_deref(),
+                row.format.as_deref(),
+                row.required_ess.as_deref(),
+                row.validation,
+                row.validation_refusals,
+                row.scenarios,
+                row.synthesis_refusals,
+                row.conformance_status.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        observed,
+        [
+            (
+                "alpha",
+                SpecificationPresence::Present,
+                Some("ess"),
+                Some("ess/22"),
+                Some("ess 0.55"),
+                ValidationResult::Valid,
+                0,
+                Some(0),
+                Some(0),
+                None,
+            ),
+            (
+                "beta",
+                SpecificationPresence::Missing,
+                None,
+                None,
+                None,
+                ValidationResult::NotRun,
+                0,
+                None,
+                None,
+                None,
+            ),
+            (
+                "team/gamma",
+                SpecificationPresence::OptedOut,
+                None,
+                None,
+                None,
+                ValidationResult::NotRun,
+                0,
+                None,
+                None,
+                None,
+            ),
+        ]
+    );
+    assert_eq!(
+        untouched(),
+        before,
+        "a checkout's HEAD or working tree changed"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
