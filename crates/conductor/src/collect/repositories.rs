@@ -13,7 +13,9 @@
 //! it is: at `HEAD`, with no fetch, and with nothing asked of GitHub, so it is `Private`, not
 //! archived, and has no issue and no GitHub Release. A `gitlab:` source's repositories are not
 //! read here. A name two origins list is one checkout and one recorded repository, so the
-//! collector fails naming it and both origins. Each field has one source:
+//! collector fails naming it and both origins. The specifications collector lists a local
+//! source's repositories through this collector's own listing ([`local_names`]). Each field has
+//! one source:
 //!
 //! | fields | source |
 //! |---|---|
@@ -463,6 +465,21 @@ fn local_repositories(dir: &Path, exclude: &[String]) -> Result<Vec<Listed>> {
         }
     }
     Ok(listed)
+}
+
+/// The names of the repositories of the local source `dir`, but those `exclude` names or holds,
+/// as [`collect_over`] lists them: the one listing the specifications collector reads too
+/// (`story:specifications-every-source`). A name is `<repo>` or `<group>/<repo>`, the checkout
+/// `<dir>/<name>`.
+///
+/// # Errors
+///
+/// `dir` or a group under it cannot be listed, or a directory's name is no repository name.
+pub(crate) fn local_names(dir: &Path, exclude: &[String]) -> Result<Vec<String>> {
+    Ok(local_repositories(dir, exclude)?
+        .into_iter()
+        .map(|listed| listed.name)
+        .collect())
 }
 
 /// Whether the checkout at `dir` has a commit at `HEAD`: `HEAD` names a commit, or a branch whose

@@ -2,13 +2,22 @@
 //! `snapshot record-specification`'s command (both in [`crate::snapshot`]).
 //!
 //! The collector is filled by `story:collect-specifications`, in this file only. It records one
-//! `RecordSpecification` per repository each GitHub owner of the instance lists that is not
-//! archived (`gh repo list`), read in the export of its `origin/main` that [`blockers::read`]
-//! makes under `<exports>/<repo>/`: `<cache>/exports` of the instance when a config file names it,
-//! else `<state>/exports`, `<state>` being the recorder's state directory ([`Recorder::state`]).
-//! A local source has no GitHub list, so its repositories are not listed here. A name two owners
-//! list fails the collector naming it and both owners. Run after the blockers collector in one
-//! snapshot, it reads that collector's exports and fetches nothing. The export holds what
+//! `RecordSpecification` per repository of the instance the repositories collector lists
+//! (`story:specifications-every-source`), archived ones aside:
+//!
+//! - each `github:` owner's repositories that are not archived, the one thing `gh repo list` is
+//!   asked here, read in the export of its `origin/main` that [`blockers::read`] makes under
+//!   `<exports>/<repo>/`: `<cache>/exports` of the instance when a config file names it, else
+//!   `<state>/exports`, `<state>` being the recorder's state directory ([`Recorder::state`]). Run
+//!   after the blockers collector in one snapshot, it reads that collector's exports and fetches
+//!   nothing;
+//! - each repository under a `local:` source's directory, but those its `exclude` entries name, as
+//!   [`repositories::local_names`] lists it (`<repo>` or `<group>/<repo>`): read as that collector
+//!   reads it, at `HEAD`, with no fetch and nothing asked of GitHub, in an export of its `HEAD` this
+//!   collector makes under `<heads>/<repo>/`, `<heads>` beside `<exports>`. Its conformance status
+//!   is its workspace member's, when one names it as its source.
+//!
+//! A name two origins list fails the collector naming it and both origins. An export holds what
 //! [`read_paths`] names. It never runs in a checkout, and never builds.
 //!
 //! - `presence`: `Present` when the export holds a file named `ess-inputs.yaml` or `system.yaml`
@@ -34,8 +43,8 @@
 //!
 //! A command that fails (another exit status, no answer in time, no summary line) is tried once
 //! more; failing again, the collector answers an error naming the repository and the command. A
-//! repository that is not archived and is no member of the workspace is an error naming it, raised
-//! before anything is recorded.
+//! repository an owner lists that is not archived and is no member of the workspace is an error
+//! naming it, raised before anything is recorded; a local source's repository needs no member.
 
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
@@ -44,14 +53,14 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Output;
 use std::time::Duration;
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::observation::{
     RecordSpecification, RepositoryName, SnapshotId, SpecificationPresence, ValidationResult,
 };
 use serde_json::Value;
 
-use crate::collect::blockers::{self, Member, Workspace};
-use crate::collect::repositories::one_of_each;
+use crate::collect::blockers::{self, Workspace};
+use crate::collect::repositories::{self, one_of_each};
 use crate::collect::{self, Origins};
 use crate::config::{self, Active};
 use crate::snapshot::Recorder;
@@ -85,6 +94,13 @@ pub struct Sources {
     /// The owners whose repositories are listed, each once through [`Sources::repositories`], in
     /// this order.
     pub owners: Vec<String>,
+    /// Each `local:` source's directory, with the `exclude` entries of the instance under it,
+    /// whose repositories are listed as [`repositories::local_names`] lists them and read at
+    /// `HEAD`.
+    pub local: Vec<(PathBuf, Vec<String>)>,
+    /// The directory a local source's repository's `HEAD` is exported under, as `<repo>/`. An
+    /// absolute path.
+    pub heads: PathBuf,
     /// The program, and any arguments, that `specify validate …` and
     /// `verify conform synthesize …` are appended to.
     pub ess: Vec<OsString>,
@@ -107,25 +123,36 @@ impl Sources {
     }
 
     /// [`Sources::over`] the blockers collector's sources of the instance `active` names
-    /// ([`blockers::Sources::of`]) and its owners. `state` is an absolute path.
+    /// ([`blockers::Sources::of`]) and its owners, with its local sources' directories and the
+    /// `exclude` entries under each ([`collect::excluded_under`]). `state` is an absolute path.
     ///
     /// # Errors
     ///
     /// What [`blockers::Sources::of`] answers.
     pub fn of(active: &Active, state: &Path) -> Result<Self> {
-        Ok(Self::over(
-            blockers::Sources::of(active, state)?,
-            Origins::of(&active.instance).owners,
-            state,
-        ))
+        let instance = &active.instance;
+        let origins = Origins::of(instance);
+        let mut sources = Self::over(blockers::Sources::of(active, state)?, origins.owners, state);
+        sources.local = origins
+            .local
+            .into_iter()
+            .map(|dir| {
+                let exclude = collect::excluded_under(instance, &dir);
+                (dir, exclude)
+            })
+            .collect();
+        Ok(sources)
     }
 
     /// `workspace`; each of `owners` through
-    /// `gh repo list {organization} --limit 200 --json name,isArchived`; the installed `ess`;
-    /// synthesis under `state/specs/`; and [`collect::BOUND`] for each command.
+    /// `gh repo list {organization} --limit 200 --json name,isArchived`; no local source, and
+    /// `heads` beside the workspace's exports; the installed `ess`; synthesis under
+    /// `state/specs/`; and [`collect::BOUND`] for each command.
     #[must_use]
     pub fn over(workspace: blockers::Sources, owners: Vec<String>, state: &Path) -> Self {
         Self {
+            local: Vec::new(),
+            heads: workspace.exports.with_file_name("heads"),
             workspace,
             repositories: blockers::words(&[
                 "gh",
@@ -145,10 +172,10 @@ impl Sources {
     }
 }
 
-/// Records one `RecordSpecification` per non-archived repository of each GitHub owner of the
-/// instance the process runs into the recorder's snapshot, over that instance's workspace
-/// ([`Sources::of`] over [`config::active`]), writing under the recorder's state directory
-/// ([`Recorder::state`]).
+/// Records one `RecordSpecification` per non-archived repository of the instance the process runs
+/// into the recorder's snapshot, each GitHub owner's and each local source's, over that instance's
+/// workspace ([`Sources::of`] over [`config::active`]), writing under the recorder's state
+/// directory ([`Recorder::state`]).
 ///
 /// # Errors
 ///
@@ -159,18 +186,78 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
     collect_from(&sources, record)
 }
 
-/// Records one `RecordSpecification` per repository the owners of `sources` list as not
-/// archived, read in the export of its `origin/main`.
+/// Records one `RecordSpecification` per repository of `sources`, by name: each its owners list
+/// as not archived, read in the export of its `origin/main`, and each under one of its local
+/// directories, read in an export of its `HEAD`.
 ///
 /// # Errors
 ///
-/// An owner's repository list failed twice or is not the JSON `gh` prints; two owners list one
-/// name; a repository is no member of the workspace; what [`blockers::read`] answers; a command
-/// that failed twice, naming the repository and the command; or an observation the recorder
-/// refused.
+/// An owner's repository list failed twice or is not the JSON `gh` prints; a local directory
+/// cannot be listed; two origins list one name; a repository an owner lists is no member of the
+/// workspace; what [`blockers::read`] answers; a command that failed twice, naming the repository
+/// and the command; or an observation the recorder refused.
 pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> {
-    // Each repository as `(name, owner)`, by name.
-    let mut listed: Vec<(String, String)> = Vec::new();
+    let listed = enumerated(sources)?;
+    let snapshot = record.snapshot().clone();
+    let workspace = blockers::read(&sources.workspace, &snapshot)?;
+    let member = |name: &str| {
+        workspace
+            .members
+            .iter()
+            .find(|member| member.repository == name)
+    };
+    // Every repository an owner lists is a member: checked before anything is exported or
+    // recorded.
+    for (name, origin) in &listed {
+        if matches!(origin, Origin::Owner(_)) && member(name).is_none() {
+            bail!(
+                "repository {name} is not archived, and no member of {} has it as its source",
+                sources.workspace.root.join(blockers::WORKSPACE).display()
+            );
+        }
+    }
+    fs::create_dir_all(&sources.specs)
+        .with_context(|| format!("create {}", sources.specs.display()))?;
+    for (name, origin) in &listed {
+        let conformance_status =
+            member(name).and_then(|member| conformance(&workspace, &member.name));
+        let export = match origin {
+            Origin::Owner(_) => member(name)
+                .map(|member| member.export.clone())
+                .ok_or_else(|| anyhow!("repository {name} is no member"))?,
+            Origin::Local(dir) => blockers::twice(|| export_head(sources, name, &dir.join(name)))
+                .with_context(|| format!("repository {name}, tried twice"))?,
+        };
+        let observed = observe(sources, name, &export, conformance_status, &snapshot)?;
+        record
+            .specification(observed)
+            .with_context(|| format!("record the specification of {name}"))?;
+    }
+    Ok(())
+}
+
+/// Where a listed repository comes from.
+enum Origin {
+    /// An owner's list: it is read in its workspace member's export of `origin/main`.
+    Owner(String),
+    /// A local source's directory, which holds its checkout `<directory>/<name>`, read at `HEAD`.
+    Local(PathBuf),
+}
+
+impl Origin {
+    /// The origin, as an error names it.
+    fn named(&self) -> String {
+        match self {
+            Self::Owner(owner) => format!("owner {owner}"),
+            Self::Local(dir) => format!("the local source {}", dir.display()),
+        }
+    }
+}
+
+/// The repositories of `sources`, by name: each its owners list as not archived, and each under
+/// one of its local directories but those its `exclude` entries name.
+fn enumerated(sources: &Sources) -> Result<Vec<(String, Origin)>> {
+    let mut listed: Vec<(String, Origin)> = Vec::new();
     for owner in &sources.owners {
         let command = filled(&sources.repositories, owner);
         let answered = blockers::twice(|| {
@@ -182,43 +269,64 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
         listed.extend(
             not_archived(&answered)?
                 .into_iter()
-                .map(|name| (name, owner.clone())),
+                .map(|name| (name, Origin::Owner(owner.clone()))),
         );
     }
-    listed.sort();
-    one_of_each(
-        &listed,
-        |(name, _)| name,
-        |(_, owner)| format!("owner {owner}"),
-    )?;
-    let repositories: Vec<String> = listed.into_iter().map(|(name, _)| name).collect();
-    let snapshot = record.snapshot().clone();
-    let workspace = blockers::read(&sources.workspace, &snapshot)?;
-    let members = repositories
-        .iter()
-        .map(|repository| {
-            workspace
-                .members
-                .iter()
-                .find(|member| &member.repository == repository)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "repository {repository} is not archived, and no member of {} has it as \
-                         its source",
-                        sources.workspace.root.join(blockers::WORKSPACE).display()
-                    )
-                })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    fs::create_dir_all(&sources.specs)
-        .with_context(|| format!("create {}", sources.specs.display()))?;
-    for member in members {
-        let observed = observe(sources, &workspace, member, &snapshot)?;
-        record
-            .specification(observed)
-            .with_context(|| format!("record the specification of {}", member.repository))?;
+    for (dir, exclude) in &sources.local {
+        listed.extend(
+            repositories::local_names(dir, exclude)?
+                .into_iter()
+                .map(|name| (name, Origin::Local(dir.clone()))),
+        );
     }
-    Ok(())
+    listed.sort_by(|(one, _), (other, _)| one.cmp(other));
+    one_of_each(&listed, |(name, _)| name, |(_, origin)| origin.named())?;
+    Ok(listed)
+}
+
+/// Exports what this collector reads of `HEAD` in the local checkout `checkout` ([`read_paths`])
+/// into `<heads>/<repository>/`, replacing what an earlier export left there. Nothing is fetched,
+/// and nothing runs in the working tree but git's reads of `HEAD`.
+fn export_head(sources: &Sources, repository: &str, checkout: &Path) -> Result<PathBuf> {
+    let list = blockers::words(&["git", "ls-tree", "-r", "-z", "--name-only", "HEAD"]);
+    let files: Vec<String> =
+        String::from_utf8_lossy(&blockers::succeed(&list, Some(checkout), sources.bound)?)
+            .split('\0')
+            .filter(|file| !file.is_empty())
+            .map(str::to_owned)
+            .collect();
+    let paths = read_paths(&files, |manifest| {
+        let mut show = blockers::words(&["git", "show"]);
+        show.push(OsString::from(format!("HEAD:{manifest}")));
+        let text = blockers::succeed(&show, Some(checkout), sources.bound)?;
+        Ok(String::from_utf8_lossy(&text).into_owned())
+    })?;
+    let export = sources.heads.join(repository);
+    if fs::symlink_metadata(&export).is_ok() {
+        fs::remove_dir_all(&export)
+            .with_context(|| format!("remove the earlier export {}", export.display()))?;
+    }
+    fs::create_dir_all(&export).with_context(|| format!("create {}", export.display()))?;
+    if paths.as_ref().is_some_and(BTreeSet::is_empty) {
+        return Ok(export);
+    }
+    let tar = sources.heads.join(format!("{repository}.tar"));
+    let mut archive = blockers::words(&["git", "archive", "--format=tar", "-o"]);
+    archive.push(tar.clone().into_os_string());
+    archive.push(OsString::from("HEAD"));
+    if let Some(paths) = paths {
+        archive.push(OsString::from("--"));
+        archive.extend(paths.into_iter().map(OsString::from));
+    }
+    blockers::succeed(&archive, Some(checkout), sources.bound)?;
+    let mut extract = blockers::words(&["tar", "-x", "-f"]);
+    extract.push(tar.clone().into_os_string());
+    extract.push(OsString::from("-C"));
+    extract.push(export.clone().into_os_string());
+    let extracted = blockers::succeed(&extract, None, sources.bound);
+    fs::remove_file(&tar).with_context(|| format!("remove {}", tar.display()))?;
+    extracted?;
+    Ok(export)
 }
 
 /// The names of the repositories `listed` holds that are not archived, sorted.
@@ -252,25 +360,25 @@ fn filled(template: &[OsString], owner: &str) -> Vec<OsString> {
         .collect()
 }
 
-/// The specification status of `member`'s export.
+/// The specification status of `repository`, read in its export `export`, with its conformance
+/// status `conformance_status`.
 fn observe(
     sources: &Sources,
-    workspace: &Workspace,
-    member: &Member,
+    repository: &str,
+    export: &Path,
+    conformance_status: Option<String>,
     snapshot: &SnapshotId,
 ) -> Result<RecordSpecification> {
-    let repository = &member.repository;
-    let conformance_status = conformance(workspace, &member.name);
-    let files = specification_files(&member.export)?;
+    let files = specification_files(export)?;
     let Some(root) = root_of(&files) else {
-        let presence = if opted_out(&member.export.join(AGENTS)) {
+        let presence = if opted_out(&export.join(AGENTS)) {
             SpecificationPresence::OptedOut
         } else {
             SpecificationPresence::Missing
         };
         return Ok(RecordSpecification {
             snapshot_id: snapshot.clone(),
-            repository: RepositoryName(repository.clone()),
+            repository: RepositoryName(repository.to_owned()),
             presence,
             path: None,
             format: None,
@@ -282,7 +390,7 @@ fn observe(
             conformance_status,
         });
     };
-    let dir = member.export.join(&root);
+    let dir = export.join(&root);
     let (validation, validation_refusals) = blockers::twice(|| validate(sources, &dir))
         .with_context(|| format!("repository {repository}, tried twice"))?;
     let (scenarios, synthesis_refusals) = if validation == ValidationResult::Valid {
@@ -295,10 +403,10 @@ fn observe(
     };
     Ok(RecordSpecification {
         snapshot_id: snapshot.clone(),
-        repository: RepositoryName(repository.clone()),
+        repository: RepositoryName(repository.to_owned()),
         presence: SpecificationPresence::Present,
         path: Some(shown_path(&root)),
-        format: format_of(&member.export, &root),
+        format: format_of(export, &root),
         required_ess: top_level(&dir.join(INPUTS), "requires"),
         validation,
         validation_refusals,
