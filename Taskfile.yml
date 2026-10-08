@@ -123,6 +123,17 @@ tasks:
       - cargo fmt --check
       - cargo clippy --all-targets -- -D warnings
       - cargo test
+      - task: docs-check
+
+  docs-generate:
+    desc: Regenerate the derived documentation pages (website/docs/reference/, website/docs/status.md, website/data/status.json)
+    cmds:
+      - cargo run --locked -p conductor-docs -- generate
+
+  docs-check:
+    desc: Fail when a derived documentation page is missing, stale or edited, or a page under website/docs is not passive Markdown
+    cmds:
+      - cargo run --locked -p conductor-docs -- generate --check
 
   regen:
     desc: Regenerate crates/conductor-model from spec/; every byte of it is generated

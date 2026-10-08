@@ -1,0 +1,426 @@
+{
+  "asOf": "2026-10-08",
+  "format": "b10x-status/1",
+  "items": [
+    {
+      "area": "Snapshot collectors",
+      "detail": "A snapshot records each repository of the instance's GitHub owners with its open pull requests and the latest runs on main, read with gh.",
+      "href": "/docs/reference/cli#conductor-snapshot-start-snapshot",
+      "label": "GitHub repositories, pull requests and CI",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "A repository with a checkout is recorded with its local state, its latest release and its planning store.",
+      "label": "Local checkout state",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "Each live agent session is recorded with the repository its working directory lies in.",
+      "label": "Live sessions",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "The open blocker artifacts each repository's planning store holds on origin/main are recorded after a fetch.",
+      "label": "Blockers",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "Each repository's specification is read on origin/main, one per repository, archived ones left out.",
+      "label": "Specifications",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "A snapshot records the releases and merged pull requests of its window.",
+      "label": "Releases and merged pull requests",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "When the instance names a catalog, each recorded repository says whether the catalog lists it.",
+      "href": "/docs/reference/config",
+      "label": "Catalog membership",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "A source that does not answer fails the snapshot and keeps what was already recorded.",
+      "label": "A silent source fails the snapshot",
+      "status": "shipped"
+    },
+    {
+      "area": "Store and views",
+      "detail": "Each observation kind a snapshot records is answered by its view.",
+      "label": "Every observation reads back",
+      "status": "shipped"
+    },
+    {
+      "area": "Store and views",
+      "detail": "A view on a missing store exits 1 and creates nothing.",
+      "label": "Views create nothing",
+      "status": "shipped"
+    },
+    {
+      "area": "Store and views",
+      "detail": "store migrate moves an older store into the tree store, and every view answers as before.",
+      "href": "/docs/reference/cli#conductor-store-migrate",
+      "label": "Store migration",
+      "status": "shipped"
+    },
+    {
+      "area": "Store and views",
+      "detail": "Only the observations of the newest complete snapshots are kept, 12 unless the instance says otherwise.",
+      "href": "/docs/reference/config",
+      "label": "Observation retention",
+      "status": "shipped"
+    },
+    {
+      "area": "Store and views",
+      "detail": "repository shipped lists each release with what merged before it, and the rest as not released.",
+      "href": "/docs/reference/cli#conductor-repository-shipped",
+      "label": "Release digest",
+      "status": "shipped"
+    },
+    {
+      "area": "Store and views",
+      "detail": "A mark overrides the activity computed from the newest complete snapshot.",
+      "href": "/docs/reference/cli#conductor-repository-activity",
+      "label": "Repository activity and marks",
+      "status": "shipped"
+    },
+    {
+      "area": "Goals, resources and controllers",
+      "detail": "A goal is proposed, confirmed and met, and a goal confirmed twice is refused.",
+      "label": "Goals",
+      "status": "shipped"
+    },
+    {
+      "area": "Goals, resources and controllers",
+      "detail": "Build slots and other resources are requested, granted, released and refused through one ledger.",
+      "label": "Resource ledger",
+      "status": "shipped"
+    },
+    {
+      "area": "Goals, resources and controllers",
+      "detail": "One controller runs per repository, through pause, resume, charter revision and stop.",
+      "label": "Controller records",
+      "status": "shipped"
+    },
+    {
+      "area": "Decisions",
+      "detail": "A decision request is escalated to the operator and answered.",
+      "label": "Requests, escalation and answers",
+      "status": "shipped"
+    },
+    {
+      "area": "Decisions",
+      "detail": "A class-O decision recorded as conductor's is refused and nothing is kept.",
+      "label": "Decision authority",
+      "status": "shipped"
+    },
+    {
+      "area": "Decisions",
+      "detail": "Decision ids are allocated per UTC date, and concurrent records get distinct ones.",
+      "label": "Decision ids",
+      "status": "shipped"
+    },
+    {
+      "area": "Dispatches and messages",
+      "detail": "A dispatch moves from sent through started, blocked and done, and another is cancelled.",
+      "label": "Dispatch lifecycle",
+      "status": "shipped"
+    },
+    {
+      "area": "Dispatches and messages",
+      "detail": "Dispatch ids are allocated per UTC day, and a hand-given id that exists is refused.",
+      "label": "Dispatch ids",
+      "status": "shipped"
+    },
+    {
+      "area": "Dispatches and messages",
+      "detail": "Each first-line message format is parsed into its kind.",
+      "label": "Message formats",
+      "status": "shipped"
+    },
+    {
+      "area": "Dispatches and messages",
+      "detail": "A message whose first line names no format is rejected with the format, not acted on.",
+      "label": "A message that does not parse is answered with the format",
+      "status": "shipped"
+    },
+    {
+      "area": "Guard",
+      "detail": "A controller writes in its own checkout and its managed worktrees, and nowhere else.",
+      "label": "Controller write boundary",
+      "status": "shipped"
+    },
+    {
+      "area": "Guard",
+      "detail": "A controller messages conductor and the agents it started, and no one else.",
+      "label": "Message boundary",
+      "status": "shipped"
+    },
+    {
+      "area": "Guard",
+      "detail": "A controller reads GitHub and makes no write there.",
+      "label": "No GitHub writes from a controller",
+      "status": "shipped"
+    },
+    {
+      "area": "Guard",
+      "detail": "The hook denies with exit 2, allows with exit 0, and records each denial.",
+      "href": "/docs/reference/cli#conductor-guard-record-guard-decision",
+      "label": "The hook and its record",
+      "status": "shipped"
+    },
+    {
+      "area": "Guard",
+      "detail": "An allowed tool call is answered with exit 0 without opening the store.",
+      "label": "An allowance never opens the store",
+      "status": "shipped"
+    },
+    {
+      "area": "Guard",
+      "detail": "The controller settings file wires the guard on the five tools it checks.",
+      "label": "Settings wire the guard",
+      "status": "shipped"
+    },
+    {
+      "area": "Watch",
+      "detail": "A session gone from the session list is reported, and a start is not.",
+      "href": "/docs/reference/cli#conductor-watch-run",
+      "label": "Session exits",
+      "status": "shipped"
+    },
+    {
+      "area": "Watch",
+      "detail": "A fresh rate limit is reported once a day, with a notification.",
+      "label": "Rate limits",
+      "status": "shipped"
+    },
+    {
+      "area": "Watch",
+      "detail": "Conductor's context above the hand-over threshold is reported once per session.",
+      "label": "Context threshold",
+      "status": "shipped"
+    },
+    {
+      "area": "Watch",
+      "detail": "Main's CI turning red, and green again, is reported on a CI pass.",
+      "label": "Main CI",
+      "status": "shipped"
+    },
+    {
+      "area": "Watch",
+      "detail": "Free disk under the low threshold is reported, and reported again only after it has recovered past the clear threshold.",
+      "href": "/docs/reference/config",
+      "label": "Free disk",
+      "status": "shipped"
+    },
+    {
+      "area": "Dashboard",
+      "detail": "The dashboard's data holds one row per session under the checkouts root, with its dispatch.",
+      "href": "/docs/reference/cli#conductor-dashboard-serve",
+      "label": "Session table",
+      "status": "shipped"
+    },
+    {
+      "area": "Dashboard",
+      "detail": "Every request reads the sources afresh and writes nothing.",
+      "label": "Read-only",
+      "status": "shipped"
+    },
+    {
+      "area": "Dashboard",
+      "detail": "The disk panel lists the reclaimable rows largest first, with their total.",
+      "label": "Disk waste",
+      "status": "shipped"
+    },
+    {
+      "area": "Dashboard",
+      "detail": "The dashboard listens on a free port of 127.0.0.1 and prints its address first.",
+      "label": "Loopback only",
+      "status": "shipped"
+    },
+    {
+      "area": "Config and instances",
+      "detail": "config validate refuses an unknown key, naming its YAML path.",
+      "href": "/docs/reference/config",
+      "label": "Problems named by YAML path",
+      "status": "shipped"
+    },
+    {
+      "area": "Config and instances",
+      "detail": "config show prints the effective instance after defaults, with every path absolute.",
+      "href": "/docs/reference/cli#conductor-config-show",
+      "label": "Effective config",
+      "status": "shipped"
+    },
+    {
+      "area": "Config and instances",
+      "detail": "Without a config file, config validate says the built-in defaults apply.",
+      "href": "/docs/reference/cli#conductor-config-validate",
+      "label": "Built-in instance",
+      "status": "shipped"
+    },
+    {
+      "area": "Config and instances",
+      "detail": "A file's default selects the instance, and the instance setting beats it.",
+      "href": "/docs/reference/config",
+      "label": "Several instances",
+      "status": "shipped"
+    },
+    {
+      "area": "Config and instances",
+      "detail": "A local source lists repositories one or two levels deep and places their sessions.",
+      "href": "/docs/reference/config",
+      "label": "Local sources, grouped repositories",
+      "status": "shipped"
+    },
+    {
+      "area": "Usage",
+      "detail": "resource usage counts each message once per repository and session.",
+      "href": "/docs/reference/cli#conductor-resource-usage",
+      "label": "Token usage per repository",
+      "status": "shipped"
+    },
+    {
+      "area": "Usage",
+      "detail": "Every output format prints the same rows and nothing from the conversations.",
+      "label": "Nothing private printed",
+      "status": "shipped"
+    },
+    {
+      "area": "Product",
+      "detail": "No file of the product names an organization; an organization is a config file.",
+      "label": "No organization in the product",
+      "status": "shipped"
+    },
+    {
+      "area": "Product",
+      "detail": "The clap command tree is compared with the specification's command block on every test run.",
+      "href": "/docs/reference/cli",
+      "label": "The command line is the specification's",
+      "status": "shipped"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "A snapshot reads the operator's Codex thread goals, read-only.",
+      "label": "Codex thread goals",
+      "status": "planned"
+    },
+    {
+      "area": "Snapshot collectors",
+      "detail": "Which repository depends on which, read from their manifests rather than declared.",
+      "label": "Dependency map",
+      "status": "planned"
+    },
+    {
+      "area": "Store and views",
+      "detail": "The store's append-cost test holds on a busy machine instead of failing the gate.",
+      "label": "Append-cost test on a loaded host",
+      "status": "planned"
+    },
+    {
+      "area": "Store and views",
+      "detail": "snapshot publish-board writes STATUS.md from the newest complete snapshot.",
+      "label": "Status board",
+      "status": "planned"
+    },
+    {
+      "area": "Store and views",
+      "detail": "The board says what the organization is working on, one line per goal.",
+      "label": "Focus per goal",
+      "status": "planned"
+    },
+    {
+      "area": "Goals, resources and controllers",
+      "detail": "start-controller starts the controller's session, not only its record.",
+      "label": "Starting a controller launches its session",
+      "status": "planned"
+    },
+    {
+      "area": "Goals, resources and controllers",
+      "detail": "A controller profile for Codex sessions, beside the Claude one.",
+      "label": "Codex controller profile",
+      "status": "planned"
+    },
+    {
+      "area": "Goals, resources and controllers",
+      "detail": "A controller's start-of-session reading shrinks, so it reaches its hand-over later.",
+      "label": "A controller starts on less reading",
+      "status": "planned"
+    },
+    {
+      "area": "Decisions",
+      "detail": "A decision records the goal it serves and the value or principle it rests on.",
+      "label": "A decision names its goal and value",
+      "status": "planned"
+    },
+    {
+      "area": "Dispatches and messages",
+      "detail": "Messages between sessions travel as files, so sessions of different harnesses reach each other.",
+      "label": "Harness-neutral mailbox",
+      "status": "planned"
+    },
+    {
+      "area": "Dispatches and messages",
+      "detail": "The restart message, the ready report and the conductor-dev actor are in the specification.",
+      "label": "Restart and ready messages",
+      "status": "planned"
+    },
+    {
+      "area": "Guard",
+      "detail": "Every tool call reaches the guard, and a tool it does not know is denied.",
+      "label": "Every tool call is guarded",
+      "status": "planned"
+    },
+    {
+      "area": "Guard",
+      "detail": "Shell writes are bounded by the harness sandbox rather than by parsing commands.",
+      "label": "Bash writes bounded by the sandbox",
+      "status": "planned"
+    },
+    {
+      "area": "Guard",
+      "detail": "When the guard cannot record its verdict in time it says so, rather than deny the tool call.",
+      "label": "A store timeout is not a denial",
+      "status": "planned"
+    },
+    {
+      "area": "Guard",
+      "detail": "A relative cd into another managed tree of the same repository is not taken for another repository.",
+      "label": "Sibling trees of one repository",
+      "status": "planned"
+    },
+    {
+      "area": "Watch",
+      "detail": "The watch's free-disk reading agrees with df on the same filesystem.",
+      "label": "Free-disk reading matches df",
+      "status": "planned"
+    },
+    {
+      "area": "Watch",
+      "detail": "The watch reports the largest managed trees by size.",
+      "label": "Largest managed trees",
+      "status": "planned"
+    },
+    {
+      "area": "Config and instances",
+      "detail": "Each key config validate accepts is read by a command, the watch or a profile.",
+      "label": "Every config key has an effect",
+      "status": "planned"
+    },
+    {
+      "area": "Product",
+      "detail": "The specification's conformance suite runs against the conductor binary.",
+      "label": "Conformance suite against the CLI",
+      "status": "planned"
+    }
+  ],
+  "source": "conductor-docs, from its capability list; every shipped item names the test that holds it"
+}
