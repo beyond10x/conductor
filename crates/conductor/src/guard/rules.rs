@@ -10,13 +10,14 @@
 //! cannot give itself conductor's rules or a wider checkout.
 //!
 //! `<settings>` is the `settings` file of any role of the instance (`config::active`), the files
-//! that wire the guard.
+//! that wire the guard, and `<profile>` the `profile` file of any role, the system prompt its
+//! sessions start with.
 //!
 //! | tool | controller: denied when | conductor: denied when |
 //! |---|---|---|
-//! | Edit, Write, NotebookEdit | the target is `<config>` or under `<config-dir>`, wherever they are; is outside `<root>/<repo>/` and `<trees>/<repo>/`; is in `<records>`; is a `<settings>`; or is a `.claude/` settings file (a `.json` whose name holds `settings`: `settings.json`, `settings.local.json`, `controller-settings.json`, `conductor-settings.json`) inside them | the target is a `<settings>` or a `.claude/` settings file, or is not one of conductor's records |
+//! | Edit, Write, NotebookEdit | the target is `<config>` or under `<config-dir>`, wherever they are; is outside `<root>/<repo>/` and `<trees>/<repo>/`; is in `<records>`; is a `<settings>` or a `<profile>`; or is a `.claude/` settings file (a `.json` whose name holds `settings`: `settings.json`, `settings.local.json`, `controller-settings.json`, `conductor-settings.json`) inside them | the target is a `<settings>`, a `<profile>` or a `.claude/` settings file, or is not one of conductor's records |
 //! | SendMessage | the recipient is anyone but `conductor` or `conductor [<ref>]` ([`conductor_name`]); an agent the session started, by its id ([`is_own_agent_id`]); or a socket address `uds:<path>/<pid>.sock` whose pid, where the path lands, the session list ([`SessionList`]) gives a live session named `conductor` | never |
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names `<config>` or `<config-dir>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); or it runs a `conductor` leaf that is not one of [`READ_LEAVES`] ([`conductor_write`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` or `<config-dir>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); or it runs a `conductor` leaf that is not one of [`READ_LEAVES`] ([`conductor_write`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
 //! The Bash row is a heuristic over the command line (design § 7: it catches the common forms,
 //! not all). Its accepted limits are pinned by `tests/adv_guard.rs`. The two write-form tests are
@@ -108,6 +109,9 @@ pub struct Places {
     /// The `settings` file of each role of the instance: the files that wire the guard, which no
     /// session writes.
     settings: Vec<PathBuf>,
+    /// The `profile` file of each role of the instance: the system prompt its sessions start with,
+    /// which no session writes.
+    profiles: Vec<PathBuf>,
 }
 
 impl Places {
@@ -141,6 +145,12 @@ impl Places {
                 .iter()
                 .filter_map(|role| role.settings.as_ref())
                 .map(|settings| PathBuf::from(&settings.0))
+                .collect(),
+            profiles: instance
+                .roles
+                .iter()
+                .filter_map(|role| role.profile.as_ref())
+                .map(|profile| PathBuf::from(&profile.0))
                 .collect(),
         }
     }
@@ -327,6 +337,26 @@ impl Places {
         named && holds_write_form(command)
     }
 
+    /// Whether the absolute `path` is the `profile` file of a role of the instance, as written
+    /// ([`lexical`]) or where it lands ([`real`]).
+    fn is_role_profile(&self, path: &Path) -> bool {
+        self.profiles
+            .iter()
+            .any(|profile| path == lexical(profile) || path == real(profile))
+    }
+
+    /// Whether the Bash `command` writes the `profile` file of a role of the instance: it names one
+    /// by any of its [`Places::spellings`] and holds a write form ([`holds_write_form`]). A plain
+    /// substring test, as [`Places::writes_settings`] is: a profile written by a path relative to
+    /// the cwd is not caught.
+    fn writes_profile(&self, command: &str) -> bool {
+        self.profiles.iter().any(|profile| {
+            self.spellings(profile)
+                .iter()
+                .any(|spelling| command.contains(spelling.as_str()))
+        }) && holds_write_form(command)
+    }
+
     /// Conductor's config, for a denial to name: the config file, and `<config-dir>`.
     fn config_described(&self) -> String {
         match self.config_dir() {
@@ -486,8 +516,8 @@ impl Session<'_> {
     /// Whether the landing `path` is a session's scratch (`story:guard-scratch`): under `$TMPDIR`
     /// for every session, or for a controller also under `~/.cache/<repo>-<anything>/`, `<repo>`
     /// its repository with `/` written `-`. Never a repository's checkout or managed tree,
-    /// conductor's records, its config, a `.claude/` settings file or a role's settings file,
-    /// wherever the temporary directory points.
+    /// conductor's records, its config, a `.claude/` settings file, a role's settings file or a
+    /// role's profile file, wherever the temporary directory points.
     fn is_scratch(&self, landing: &Path) -> bool {
         let places = self.places;
         if places.repository_of(landing).is_some()
@@ -495,6 +525,7 @@ impl Session<'_> {
             || places.is_config(landing)
             || settings_file(landing)
             || places.is_role_settings(landing)
+            || places.is_role_profile(landing)
         {
             return false;
         }
@@ -555,6 +586,18 @@ impl Session<'_> {
                         format!(
                             "{tool} target {target}{resolves} is the settings file of a role of \
                              the config, which wires the guard: a controller does not write it"
+                        ),
+                    )
+                // A role's profile is the system prompt its sessions start with, wherever it is.
+                } else if places.is_role_profile(&lexical(&written))
+                    || places.is_role_profile(&landing)
+                {
+                    (
+                        Verdict::Deny,
+                        format!(
+                            "{tool} target {target}{resolves} is the profile file of a role of the \
+                             config, the system prompt its sessions start with: a controller does \
+                             not write it"
                         ),
                     )
                 // Both as written and where it lands: Claude Code reads the settings by name, so a
@@ -619,6 +662,16 @@ impl Session<'_> {
                             "{tool} target {target}{resolves} is a settings file, which can wire \
                              or switch off the guard: conductor writes only its records, and no \
                              settings file among them"
+                        ),
+                    );
+                }
+                if places.is_role_profile(&as_written) || places.is_role_profile(&landing) {
+                    return (
+                        Verdict::Deny,
+                        format!(
+                            "{tool} target {target}{resolves} is the profile file of a role of the \
+                             config, the system prompt its sessions start with: conductor writes \
+                             only its records, and no role's profile among them"
                         ),
                     );
                 }
@@ -770,6 +823,14 @@ impl Session<'_> {
                 "the command names a .claude/ settings file or a role's settings file and holds a \
                  write form: no session writes Claude Code's project settings or the settings \
                  that wire the guard, which can switch it off"
+                    .to_owned(),
+            );
+        }
+        if self.places.writes_profile(command) {
+            return (
+                Verdict::Deny,
+                "the command names a role's profile file and holds a write form: no session \
+                 writes the system prompt a role's sessions start with"
                     .to_owned(),
             );
         }

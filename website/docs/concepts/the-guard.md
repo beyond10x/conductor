@@ -20,7 +20,7 @@ Read this page before you start sessions on repositories you care about.
 | no `gh` writes; writes to the forge go through the repository's own route | the guard |
 | no `cd`, `pushd` or `git -C` into another repository or into conductor's records | the guard (a heuristic) |
 | no write to conductor's records or conductor's config | the guard: file tools; Bash only for the config |
-| no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`) or a role's `settings` file, by a file tool or a Bash write form that names it | the guard |
+| no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`), a role's `settings` file or a role's `profile` file, by a file tool or a Bash write form that names it | the guard |
 | no `conductor` command that writes, only its views | the guard |
 | conductor's Edit, Write, NotebookEdit only to its records, or in its scratch | the guard |
 | a build over `thresholds.build_size` while free disk is under `thresholds.build_slot` asks for a slot | the profile and `[RESOURCE]` |
@@ -68,9 +68,10 @@ answered without opening the store, because every tool call of every guarded ses
 - The guard does not check where a Bash command writes. A controller can write, overwrite or
   delete any file its user can: other checkouts, conductor's records and the `conductor` binary
   included. For Bash the guard denies only a `cd`, `pushd` or `git -C` into another checkout or
-  the records, a `gh` write, a `conductor` write, and a write that names a settings file or
-  conductor's config, and a command written to avoid those forms is allowed. A controller that
-  reads an issue or pull request written by someone else can be told to run such a command.
+  the records, a `gh` write, a `conductor` write, and a write that names a settings file, a
+  role's profile file or conductor's config, and a command written to avoid those forms is
+  allowed. A controller that reads an issue or pull request written by someone else can be told
+  to run such a command.
 - `git push` is not checked; the forge's branch protection is the place for that.
 - The conductor-dev session starts without the guard.
 - `task trust` marks every checkout under `checkouts.root` as a trusted Claude Code workspace, so
