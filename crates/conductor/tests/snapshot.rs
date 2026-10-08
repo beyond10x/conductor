@@ -7,6 +7,7 @@
 //! `--state-dir` naming that `state/`; every run leaves `work/` empty.
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -56,20 +57,36 @@ fn run(cwd: &Path, args: &[&str]) -> Output {
 /// given.
 fn run_with(cwd: &Path, path_env: Option<&Path>, args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
-    command.current_dir(cwd).args(args).stdin(Stdio::null());
+    command
+        .current_dir(cwd)
+        .args(args)
+        .stdin(Stdio::null())
+        // Never the operator's config: the built-in instance, with the case directory as home.
+        .env("HOME", cwd)
+        .env_remove("CONDUCTOR_CONFIG")
+        .env_remove("CONDUCTOR_INSTANCE");
     if let Some(path) = path_env {
         command.env("PATH", path);
     }
     command.output().expect("the conductor binary runs")
 }
 
-/// A `PATH` for `start-snapshot` that holds no program: the free disk is read through `statvfs`,
-/// and the registered collectors reach no live source. With no `gh` the `repositories` collector
-/// fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a real
-/// checkout.
+/// A `PATH` for `start-snapshot` that holds, for each program the collectors start, a fake that
+/// prints `offline` on standard error and exits 1: the free disk is read through `statvfs`, the
+/// start-time check finds every program (`story:install-prerequisites`), and the registered
+/// collectors reach no live source. The `repositories` collector fails at its first command, so
+/// nothing asks GitHub and nothing runs `git fetch` in a real checkout.
 fn offline(root: &Path) -> PathBuf {
     let bin = root.join("offline");
     fs::create_dir_all(&bin).expect("create the offline PATH");
+    for program in ["git", "gh", "aep", "ess", "claude"] {
+        let fake = bin.join(program);
+        fs::write(&fake, "#!/bin/sh
+echo offline >&2
+exit 1
+").expect("write a fake");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
     bin
 }
 

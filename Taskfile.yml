@@ -142,33 +142,9 @@ tasks:
       - claude attach "$({{.SESSION_ID}} --arg n conductor-dev)"
 
   trust:
-    desc: Mark the instance's records directory (by its physical path) and every git checkout directly under its checkouts root (conductor config show) as trusted Claude Code workspaces, so conductor and a controller can start there; refuses a records path that holds a line break
-    vars:
-      CFG: '{{.CFG | default (printf "%s/.claude.json" .HOME)}}'
-      ROOT:
-        sh: conductor config show --format json | jq -r '.instances[0].checkouts.root'
-      RECORDS:
-        sh: conductor config show --format json | jq -r '.instances[0].records'
-    preconditions:
-      - sh: test -d {{shellQuote .ROOT}}
-        msg: the checkouts root {{.ROOT}} of conductor config show is not a directory
-      - sh: test "$(printf %s {{shellQuote .RECORDS}} | wc -l)" -eq 0
-        msg: the records directory of conductor config show holds a line break; trust refuses it and trusts nothing
-      - sh: test -d {{shellQuote .RECORDS}}
-        msg: the records directory {{.RECORDS}} of conductor config show is not a directory
+    desc: Mark the instance's records directory (by its physical path) and every git checkout directly under its checkouts root (conductor config show) as trusted Claude Code workspaces in ~/.claude.json, so conductor and a controller can start there (conductor trust); refuses a records path that holds a line break or is not a directory, and writes nothing when ~/.claude.json changed during the run
     cmds:
-      - |
-        cfg={{shellQuote .CFG}}
-        records=$(cd {{shellQuote .RECORDS}} && pwd -P)
-        checkouts=$(for d in {{shellQuote .ROOT}}/*/; do d=${d%/}; if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf '%s\n' "$d"; fi; done)
-        paths=$(printf '%s\n%s\n' "$checkouts" "$records" | grep .)
-        before=$(stat -c %Y "$cfg"); tmp=$(mktemp "$cfg.trust.XXXXXX"); chmod --reference="$cfg" "$tmp"
-        printf '%s\n' "$paths" | jq -R . | jq -sc . > "$tmp.paths"
-        jq --slurpfile p "$tmp.paths" 'reduce $p[0][] as $k (.; .projects[$k].hasTrustDialogAccepted = true)' "$cfg" > "$tmp"
-        rm -f "$tmp.paths"
-        if [ "$(stat -c %Y "$cfg")" != "$before" ]; then rm -f "$tmp"; echo "$cfg changed during the edit; run task trust again" >&2; exit 1; fi
-        mv "$tmp" "$cfg"
-        echo "trusted: the records directory $records and $(printf '%s\n' "$checkouts" | grep -c .) checkouts under" {{shellQuote .ROOT}}
+      - conductor trust
 
   agents:link:
     desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into ~/.claude/agents/, so a session started in another directory finds them; a link to the same file is kept, and any other file there is refused, never overwritten

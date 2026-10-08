@@ -96,6 +96,35 @@ pub fn registered() -> Vec<Collector> {
     ]
 }
 
+/// The programs the [`registered`] collectors start on every run for `instance`
+/// (`story:install-prerequisites`): `gh` when it has a `github` source, `git` when its checkouts
+/// root or a `local` source holds a repository (a directory holding `.git`, at depth 1 or in a
+/// group at depth 2), and `aep` and `claude` always. `ess` is not among them: the
+/// `specifications` collector starts it only for a repository whose export holds a
+/// specification, which is known only once the export is made.
+#[must_use]
+pub fn programs(instance: &Instance) -> Vec<&'static str> {
+    let origins = Origins::of(instance);
+    let mut programs = Vec::new();
+    if !origins.owners.is_empty() {
+        programs.push("gh");
+    }
+    let roots = std::iter::once(PathBuf::from(&instance.checkouts.root)).chain(origins.local);
+    let holds_repository = |root: &Path| {
+        std::fs::read_dir(root).is_ok_and(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .any(|dir| holds_git(&dir) || is_group(&dir))
+        })
+    };
+    if roots.into_iter().any(|root| holds_repository(&root)) {
+        programs.push("git");
+    }
+    programs.extend(["aep", "claude"]);
+    programs
+}
+
 /// Where an instance's repositories come from, its `sources` (`conductor.config.Source`): the
 /// GitHub owners whose repositories are listed, and the local directories whose checkouts are
 /// read as they are. The live collectors read them from [`config::active`].

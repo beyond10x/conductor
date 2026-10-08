@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "da7f223adaed415012785783afd834b78fee21f26d65fe9977c5813f8c3f9b33",
-    "contract_digest": "2cad3a53f65176fd47da0cb4583a9f915aca1519194cf0b0d6ce4fcde6f0b33c"
+    "source_digest": "91b1e04b9d3f40c554bf0e78f07a6160c885b7e7f6864fec9da0ee72675cfe04",
+    "contract_digest": "af130e1a335a2c4eb9139d6a63b92dd42a89d0b92bb1c80ec5e4354e782de74a"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -96,6 +96,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.InitRecords",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Instance",
       "disposition": {
         "disposition": "generated"
@@ -111,6 +118,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.LocalSource",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.Prerequisite",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.PrerequisiteState",
       "disposition": {
         "disposition": "generated"
       }
@@ -174,6 +195,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Tokens",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.TrustWorkspaces",
       "disposition": {
         "disposition": "generated"
       }

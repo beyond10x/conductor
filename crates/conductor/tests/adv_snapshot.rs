@@ -66,13 +66,22 @@ fn state(root: &Path) -> PathBuf {
     root.join("state")
 }
 
-/// A `PATH` for `start-snapshot` that holds no program: the free disk is read through `statvfs`,
-/// and the registered collectors reach no live source. With no `gh` the `repositories` collector
-/// fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a real
-/// checkout.
+/// A `PATH` for `start-snapshot` that holds, for each program the collectors start, a fake that
+/// prints `offline` on standard error and exits 1: the free disk is read through `statvfs`, the
+/// start-time check finds every program (`story:install-prerequisites`), and the registered
+/// collectors reach no live source. The `repositories` collector fails at its first command, so
+/// nothing asks GitHub and nothing runs `git fetch` in a real checkout.
 fn offline(root: &Path) -> PathBuf {
     let bin = root.join("offline");
     fs::create_dir_all(&bin).expect("create the offline PATH");
+    for program in ["git", "gh", "aep", "ess", "claude"] {
+        let fake = bin.join(program);
+        fs::write(&fake, "#!/bin/sh
+echo offline >&2
+exit 1
+").expect("write a fake");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
     bin
 }
 
@@ -90,6 +99,10 @@ fn conductor_with(root: &Path, path_env: Option<&Path>, args: &[&str]) -> Output
     let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
     command
         .current_dir(root.join("work"))
+        // Never the operator's config: the built-in instance, with this case as home.
+        .env("HOME", root)
+        .env_remove("CONDUCTOR_CONFIG")
+        .env_remove("CONDUCTOR_INSTANCE")
         .arg("--state-dir")
         .arg(state(root))
         .args(args)
@@ -490,8 +503,8 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
     );
 }
 
-/// `collect::registered` runs in the order its documentation gives, and `start-snapshot` with no
-/// `gh` on `PATH` fails naming the first of them, which could not start its first command.
+/// `collect::registered` runs in the order its documentation gives, and `start-snapshot` with a
+/// `gh` that fails fails naming the first of them, stopped at its first command.
 #[test]
 fn adv_the_registered_collectors_run_in_the_documented_order() {
     let names: Vec<&str> = collect::registered().iter().map(Collector::name).collect();
@@ -519,7 +532,8 @@ fn adv_the_registered_collectors_run_in_the_documented_order() {
         stderr.contains(&format!(
             "snapshot {} failed: repositories: ",
             stdout(&output)
-        )) && stderr.contains("start `gh`"),
+        )) && stderr.contains("`gh repo list")
+            && stderr.contains("exited 1: offline"),
         "the first registered collector is the one named, stopped at its first command: {}",
         describe(&output)
     );
@@ -994,8 +1008,8 @@ fn adv_a_df_that_cannot_answer_does_not_stop_start_snapshot() {
     let mut problems = Vec::new();
     for (case, df) in fakes {
         let root = case_dir(&format!("df-{case}"));
-        let bin = root.join("bin");
-        fs::create_dir_all(&bin).expect("create the fake PATH");
+        // The programs the start-time check requires, as offline fakes (story:install-prerequisites).
+        let bin = offline(&root);
         if let Some(script) = df {
             let fake = bin.join("df");
             fs::write(&fake, script).expect("write the fake df");
@@ -1017,7 +1031,8 @@ fn adv_a_df_that_cannot_answer_does_not_stop_start_snapshot() {
                 "snapshot {} failed: repositories: ",
                 stdout(&output)
             ))
-            || stderr.contains("df")
+            || stderr.contains("`df")
+            || stderr.contains("df:")
             || snapshots.len() != 1
             || !free.is_some_and(|free| free > 0)
         {

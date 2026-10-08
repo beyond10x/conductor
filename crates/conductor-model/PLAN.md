@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest da7f223adaed415012785783afd834b78fee21f26d65fe9977c5813f8c3f9b33
-  contract digest 2cad3a53f65176fd47da0cb4583a9f915aca1519194cf0b0d6ce4fcde6f0b33c
+  model digest 91b1e04b9d3f40c554bf0e78f07a6160c885b7e7f6864fec9da0ee72675cfe04
+  contract digest af130e1a335a2c4eb9139d6a63b92dd42a89d0b92bb1c80ec5e4354e782de74a
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-347 capabilities: **338 generated**, **1 obligations**, **8 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+351 capabilities: **342 generated**, **1 obligations**, **8 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -26,9 +26,12 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.GitHubSource` |
 | domain type | `conductor.config.GitLabSource` |
 | domain type | `conductor.config.Harness` |
+| domain type | `conductor.config.InitRecords` |
 | domain type | `conductor.config.Instance` |
 | domain type | `conductor.config.InstanceName` |
 | domain type | `conductor.config.LocalSource` |
+| domain type | `conductor.config.Prerequisite` |
+| domain type | `conductor.config.PrerequisiteState` |
 | domain type | `conductor.config.Report` |
 | domain type | `conductor.config.RepositoryRule` |
 | domain type | `conductor.config.Retention` |
@@ -38,6 +41,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.Thresholds` |
 | domain type | `conductor.config.TimeOfDay` |
 | domain type | `conductor.config.Tokens` |
+| domain type | `conductor.config.TrustWorkspaces` |
 | domain type | `conductor.config.ValidateConfig` |
 | domain type | `conductor.decision.Decider` |
 | domain type | `conductor.decision.Decision.State` |

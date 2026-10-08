@@ -1,7 +1,8 @@
 //! `story:instance-records-start`: the tasks of `Taskfile.yml` that run conductor run it in the
 //! active instance's records directory, `task trust` trusts that directory, and `task
 //! agents:link` links this checkout's Claude Code adapters into `~/.claude/agents/` without
-//! overwriting anything.
+//! overwriting anything. `task trust` runs `conductor trust` (`story:portable-trust`), whose own
+//! cases are `tests/trust.rs`.
 //!
 //! The first tests read `Taskfile.yml` as YAML. The others run the tasks with `task` against a
 //! case directory under this test target's temporary directory: `HOME` names the case's home,
@@ -160,23 +161,26 @@ fn the_dashboard_reads_the_instances_records_not_this_checkout() {
     );
 }
 
+/// `task trust` is `conductor trust`, with no shell of its own (`story:portable-trust`): the
+/// records directory's physical path and the refusals are the command's, `tests/trust.rs`.
 #[test]
-fn trust_covers_the_records_directory() {
+fn trust_runs_the_conductor_command() {
     let taskfile = taskfile();
     let task = &taskfile["tasks"]["trust"];
-    assert_eq!(task["vars"]["RECORDS"]["sh"].as_str(), Some(RECORDS));
-    let commands = shell_commands(task).join("\n");
-    // By its physical path, the key a session's working directory has (coordinator decision 1,
-    // pass 1).
+    let commands: Vec<&str> = task["cmds"]
+        .as_sequence()
+        .expect("trust has cmds")
+        .iter()
+        .map(|cmd| cmd.as_str().expect("a shell command"))
+        .collect();
+    assert_eq!(commands, ["conductor trust"], "{task:?}");
     assert!(
-        commands.contains("records=$(cd {{shellQuote .RECORDS}} && pwd -P)"),
-        "trust names the records directory by its physical path: {commands}"
+        task["vars"].is_null(),
+        "trust reads nothing itself: {task:?}"
     );
-    let preconditions =
-        serde_yaml::to_string(&task["preconditions"]).expect("preconditions as text");
     assert!(
-        preconditions.contains("test -d {{shellQuote .RECORDS}}"),
-        "trust refuses a records directory that is not there: {preconditions}"
+        task["preconditions"].is_null(),
+        "trust refuses through the command: {task:?}"
     );
 }
 
@@ -599,100 +603,6 @@ fn adv_config(case: &Case, records: &str, role_extra: &str) -> PathBuf {
     let file = case.dir.join("conductor.yaml");
     fs::write(&file, text).expect("write the config file");
     file
-}
-
-/// The `projects` keys `task trust` left in the case's `~/.claude.json`, sorted.
-fn adv_trusted(case: &Case) -> Vec<String> {
-    let file = case.dir.join("home/.claude.json");
-    let written: Value =
-        serde_json::from_str(&fs::read_to_string(&file).expect("read .claude.json"))
-            .expect(".claude.json is JSON");
-    let mut keys: Vec<String> = written["projects"]
-        .as_object()
-        .expect("projects")
-        .keys()
-        .cloned()
-        .collect();
-    keys.sort_unstable();
-    keys
-}
-
-/// A session's working directory never ends in `/` (getcwd(3) does not write one, and neither
-/// does the shell's `cd`), and Claude Code keys `~/.claude.json` `projects` by it; the checkout
-/// loop of `trust` strips the slash (`d=${d%/}`) for that reason. A records directory written
-/// with a trailing slash, which the config accepts and `config show` repeats, must be trusted
-/// under the key the conductor session started there looks up.
-#[test]
-fn adv_trust_writes_a_records_directory_with_a_trailing_slash_by_the_key_its_session_has() {
-    let Some(case) = Case::new("adv-trust-trailing-slash") else {
-        return;
-    };
-    let records = case.records().display().to_string();
-    let config = adv_config(&case, &format!("{records}/"), "");
-    fs::write(case.dir.join("home/.claude.json"), "{\"projects\": {}}\n")
-        .expect("write .claude.json");
-
-    let output = case.task("trust", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(adv_trusted(&case), vec![records], "{}", shown(&output));
-}
-
-/// `trust` trusts the records directory and the checkouts under the root, and nothing else: a
-/// records path holding a line break (the config limits a role's model, agent and settings to
-/// one shell word and the records path to nothing but "absolute") is one directory, not two.
-#[test]
-fn adv_trust_trusts_no_directory_the_records_path_only_contains() {
-    let Some(case) = Case::new("adv-trust-newline") else {
-        return;
-    };
-    let outside = case.dir.join("outside");
-    fs::create_dir_all(&outside).expect("create a directory outside");
-    let records = format!("{}\nrecords", outside.display());
-    fs::create_dir_all(&records).expect("create the records directory");
-    let config = adv_config(&case, &records, "");
-    fs::write(case.dir.join("home/.claude.json"), "{\"projects\": {}}\n")
-        .expect("write .claude.json");
-
-    // Coordinator decision 2 (pass 1): such a records path is refused, with a message, and
-    // nothing is trusted in that run.
-    let output = case.task("trust", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("line break"),
-        "the refusal says why: {}",
-        shown(&output)
-    );
-    let trusted = adv_trusted(&case);
-    assert!(
-        !trusted.contains(&outside.display().to_string()),
-        "trust marked {} trusted, which is neither the records directory nor a checkout: \
-         {trusted:?}",
-        outside.display()
-    );
-    assert!(trusted.is_empty(), "trusted in a refused run: {trusted:?}");
-}
-
-/// A records directory reached through a symlink is trusted by its physical path, the key a
-/// session started there has (coordinator decision 1, pass 1).
-#[test]
-fn trust_writes_a_symlinked_records_directory_by_its_physical_path() {
-    let Some(case) = Case::new("trust-symlinked-records") else {
-        return;
-    };
-    let link = case.dir.join("records-link");
-    std::os::unix::fs::symlink(case.records(), &link).expect("link the records");
-    let config = adv_config(&case, &link.display().to_string(), "");
-    fs::write(case.dir.join("home/.claude.json"), "{\"projects\": {}}\n")
-        .expect("write .claude.json");
-
-    let output = case.task("trust", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(
-        adv_trusted(&case),
-        vec![case.records().display().to_string()],
-        "{}",
-        shown(&output)
-    );
 }
 
 /// The agent is found in the records directory's own `.claude/agents/` as well as in

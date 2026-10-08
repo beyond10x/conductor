@@ -30,6 +30,10 @@
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
 //!
+//! Three such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
+//! (`story:first-run-seed`), which read the config file themselves as `config show` does, and
+//! `doctor` (`story:install-prerequisites`), which reads none.
+//!
 //! [`Cli::run`] wires every subcommand to its handler, in the module of the story that fills it.
 //! Until that story lands, the handler answers [`NotImplemented`](crate::NotImplemented).
 
@@ -80,7 +84,7 @@ impl Cli {
         // the file themselves, to report each problem; the guard hook falls back to the built-in
         // instance rather than deny every tool call over a file that does not load.
         match &self.group {
-            Group::Config(_) => {}
+            Group::Config(_) | Group::Trust(_) | Group::Init(_) | Group::Doctor => {}
             Group::Guard(_) => {
                 let _ = crate::config::set_active(self.config.as_deref());
             }
@@ -227,6 +231,9 @@ impl Cli {
             Group::Dashboard(command) => match command {
                 DashboardCommand::Serve(args) => dashboard::dashboard_serve(&args),
             },
+            Group::Doctor => crate::doctor::doctor(),
+            Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
+            Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
             Group::Store(command) => match command {
                 StoreCommand::Migrate(args) => crate::store::migrate::store_migrate(state, &args),
             },
@@ -285,9 +292,21 @@ pub enum Group {
     #[command(subcommand)]
     Dashboard(DashboardCommand),
 
+    /// Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin
+    #[command(name = "doctor")]
+    Doctor,
+
+    /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
+    #[command(name = "init")]
+    Init(InitArgs),
+
     // No help, as for `dashboard`: the binding declares the group only through `store migrate`.
     #[command(subcommand)]
     Store(StoreCommand),
+
+    /// Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json
+    #[command(name = "trust")]
+    Trust(TrustArgs),
 
     // No help, as for `dashboard`: the binding declares the group only through `watch run`.
     #[command(subcommand)]
@@ -767,6 +786,24 @@ pub enum ConfigCommand {
 #[derive(Debug, Clone, Args)]
 pub struct ValidateConfigArgs {
     /// An instance the config must name. Default: $CONDUCTOR_INSTANCE, else none is checked
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+}
+
+/// The input of the binding's `trust` callable, `conductor.config.TrustWorkspaces`.
+#[derive(Debug, Clone, Args)]
+pub struct TrustArgs {
+    /// The instance whose checkouts and records directory are trusted. Default:
+    /// $CONDUCTOR_INSTANCE, else the file's default, else its only instance
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+}
+
+/// The input of the binding's `init` callable, `conductor.config.InitRecords`.
+#[derive(Debug, Clone, Args)]
+pub struct InitArgs {
+    /// The instance whose records directory is written. Default: $CONDUCTOR_INSTANCE, else the
+    /// file's default, else its only instance
     #[arg(long, value_name = "NAME")]
     pub instance: Option<String>,
 }

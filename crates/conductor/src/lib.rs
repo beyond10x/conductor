@@ -18,8 +18,10 @@ pub mod dashboard;
 pub mod decide;
 pub mod disk;
 pub mod dispatch;
+pub mod doctor;
 pub mod goal;
 pub mod guard;
+pub mod init;
 pub mod message;
 pub mod repository;
 pub mod resource;
@@ -29,6 +31,7 @@ pub mod spawn;
 pub mod state;
 pub mod status;
 pub mod store;
+pub mod trust;
 pub mod usage;
 pub mod watch;
 
