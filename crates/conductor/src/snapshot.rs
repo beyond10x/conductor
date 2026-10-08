@@ -35,9 +35,9 @@ use std::fmt::Display;
 use std::io::{self, Write as _};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{
     BlockerObservationStorage, Generated, MergedPullRequestObservationStorage,
     PullRequestObservationStorage, ReleaseObservationStorage, RepositoryObservationStorage,
@@ -1417,28 +1417,12 @@ fn now() -> Result<String> {
         .context("format the current time")
 }
 
-/// The bytes an unprivileged writer has free on the file system holding `path`, as `df` reads them
-/// from `statvfs` (the crate forbids `unsafe`, and has no dependency that wraps the call).
+/// The bytes an unprivileged writer has free on the file system holding `path`
+/// ([`crate::disk::space`]).
 fn disk_free_bytes(path: &Path) -> Result<i64> {
-    let output = Command::new("df")
-        .args(["-B1", "--output=avail"])
-        .arg(path)
-        .output()
-        .with_context(|| format!("run `df {}`", path.display()))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() {
-        bail!(
-            "`df {}` exited {:?}: {}",
-            path.display(),
-            output.status.code(),
-            one_line(&String::from_utf8_lossy(&output.stderr))
-        );
-    }
-    stdout
-        .lines()
-        .last()
-        .and_then(|line| line.trim().parse::<i64>().ok())
-        .ok_or_else(|| anyhow!("`df {}` printed no byte count: {stdout:?}", path.display()))
+    let available = crate::disk::space(path)?.available;
+    i64::try_from(available)
+        .with_context(|| format!("{available} bytes free on {} overflow", path.display()))
 }
 
 /// Writes `text` and a line break to standard output.

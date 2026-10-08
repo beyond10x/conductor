@@ -161,6 +161,7 @@ dependencies = [
  "eventlog-core",
  "eventlog-file",
  "eventlog-tree",
+ "nix",
  "serde",
  "serde_json",
  "serde_yaml",

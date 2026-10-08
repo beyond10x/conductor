@@ -2,13 +2,13 @@
 //! that panics, one that records into a snapshot it was not given, the registered order), the
 //! lifecycle through the binary (a complete snapshot, a snapshot a crash left collecting), the
 //! views (an unreadable record, a missing state directory, stable output) and the free-disk read
-//! (`df` missing, failing or answering no number; a full disk).
+//! (a `df` that cannot answer, which is never run; a full disk).
 //!
 //! Each case keeps its store under `state/` in its own directory in this test target's temporary
 //! directory, and runs the binary from that directory's empty `work/` with `--state-dir`.
 
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::PermissionsExt as _;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -66,21 +66,13 @@ fn state(root: &Path) -> PathBuf {
     root.join("state")
 }
 
-/// A `PATH` for `start-snapshot` that holds only the `df` this process finds: the free disk is
-/// measured, and the registered collectors reach no live source. With no `gh` the `repositories`
-/// collector fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a
-/// real checkout.
+/// A `PATH` for `start-snapshot` that holds no program: the free disk is read through `statvfs`,
+/// and the registered collectors reach no live source. With no `gh` the `repositories` collector
+/// fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a real
+/// checkout.
 fn offline(root: &Path) -> PathBuf {
     let bin = root.join("offline");
     fs::create_dir_all(&bin).expect("create the offline PATH");
-    let df = std::env::var_os("PATH")
-        .and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join("df"))
-                .find(|df| df.is_file())
-        })
-        .expect("df is on PATH");
-    symlink(df, bin.join("df")).expect("link df");
     bin
 }
 
@@ -980,34 +972,53 @@ fn adv_views_are_byte_identical_across_runs() {
 // The free disk
 // ---------------------------------------------------------------------------------------------
 
-/// `df` missing, failing, or printing no number: `start-snapshot` exits 1 with one line naming
-/// `df`, and no snapshot is started.
+/// `story:portable-free-space`: the free disk is read through `statvfs`, so a `df` that is
+/// missing, fails, refuses GNU's options as macOS's does (`df: invalid option -- B`, exit 64), or
+/// prints no number changes nothing: `start-snapshot` starts the snapshot with the bytes free,
+/// runs no `df`, and stops only at the first collector, which finds no `gh`.
 #[test]
-fn adv_a_free_disk_df_cannot_answer_starts_no_snapshot() {
-    let fakes: [(&str, Option<&str>); 3] = [
+fn adv_a_df_that_cannot_answer_does_not_stop_start_snapshot() {
+    let fakes: [(&str, Option<&str>); 4] = [
         ("missing", None),
-        ("failing", Some("/usr/bin/false")),
-        ("not-a-number", Some("/usr/bin/echo")),
+        ("failing", Some("#!/bin/sh\nexit 1\n")),
+        (
+            "bsd",
+            Some("#!/bin/sh\necho 'df: invalid option -- B' >&2\nexit 64\n"),
+        ),
+        ("not-a-number", Some("#!/bin/sh\necho Avail\n")),
     ];
     let mut problems = Vec::new();
     for (case, df) in fakes {
         let root = case_dir(&format!("df-{case}"));
         let bin = root.join("bin");
         fs::create_dir_all(&bin).expect("create the fake PATH");
-        if let Some(target) = df {
-            symlink(target, bin.join("df")).expect("link the fake df");
+        if let Some(script) = df {
+            let fake = bin.join("df");
+            fs::write(&fake, script).expect("write the fake df");
+            fs::set_permissions(&fake, fs::Permissions::from_mode(0o755))
+                .expect("make the fake df executable");
         }
         let output = conductor_with(&root, Some(&bin), &["snapshot", "start-snapshot"]);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let started = state(&root).join("tree").exists() && !view(&root, "snapshots").is_empty();
+        let snapshots = if state(&root).join("tree").exists() {
+            view(&root, "snapshots")
+        } else {
+            Vec::new()
+        };
+        let free = snapshots
+            .first()
+            .and_then(|snapshot| snapshot["disk_free_bytes"].as_i64());
         if output.status.code() != Some(1)
-            || stderr.lines().count() != 1
-            || !stderr.contains("df")
-            || !output.stdout.is_empty()
-            || started
+            || !stderr.contains(&format!(
+                "snapshot {} failed: repositories: ",
+                stdout(&output)
+            ))
+            || stderr.contains("df")
+            || snapshots.len() != 1
+            || !free.is_some_and(|free| free > 0)
         {
             problems.push(format!(
-                "df {case}: snapshot started: {started}; {}",
+                "df {case}: snapshots {snapshots:?}; {}",
                 describe(&output)
             ));
         }

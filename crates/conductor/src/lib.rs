@@ -16,6 +16,7 @@ pub mod config;
 pub mod controller;
 pub mod dashboard;
 pub mod decide;
+pub mod disk;
 pub mod dispatch;
 pub mod goal;
 pub mod guard;
