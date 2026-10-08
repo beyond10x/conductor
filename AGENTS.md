@@ -4,6 +4,17 @@ Operating guide for agents in this repository. Humans start at [`README.md`](REA
 design is [`docs/design/conductor.md`](docs/design/conductor.md); the config fields are
 [`docs/config.md`](docs/config.md).
 
+## Serves
+
+The objectives, by id from `atlas/ROADMAP.md`
+([GitHub](https://github.com/beyond10x/atlas/blob/main/ROADMAP.md)):
+
+- **O2 — decisions as data, with evidence.** Every decision conductor takes or relays is a record
+  with an id, a class, a reason and the evidence it rests on, in the instance's decision log and
+  store.
+- **O6 — self-improvement, built into all of it.** conductor-dev reads conductor's records and
+  transcripts, files what went wrong as stories, and delivers the fixes in waves.
+
 ## Who reads this
 
 - **The conductor session** (`task conductor:start`). It runs one instance. Profile:
