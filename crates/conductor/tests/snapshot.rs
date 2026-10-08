@@ -63,21 +63,13 @@ fn run_with(cwd: &Path, path_env: Option<&Path>, args: &[&str]) -> Output {
     command.output().expect("the conductor binary runs")
 }
 
-/// A `PATH` for `start-snapshot` that holds only the `df` this process finds: the free disk is
-/// measured, and the registered collectors reach no live source. With no `gh` the `repositories`
-/// collector fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a
-/// real checkout.
+/// A `PATH` for `start-snapshot` that holds no program: the free disk is read through `statvfs`,
+/// and the registered collectors reach no live source. With no `gh` the `repositories` collector
+/// fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a real
+/// checkout.
 fn offline(root: &Path) -> PathBuf {
     let bin = root.join("offline");
     fs::create_dir_all(&bin).expect("create the offline PATH");
-    let df = std::env::var_os("PATH")
-        .and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join("df"))
-                .find(|df| df.is_file())
-        })
-        .expect("df is on PATH");
-    std::os::unix::fs::symlink(df, bin.join("df")).expect("link df");
     bin
 }
 

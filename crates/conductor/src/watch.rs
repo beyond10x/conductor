@@ -20,7 +20,7 @@
 //! | usage limit | the last [`TAIL`] lines of each such session's transcript | `usage limit: <text>; <n> sessions: <names>` |
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
-//! | free disk | `df` on `/` | `disk low: <n>G free on /` |
+//! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /` |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
@@ -80,7 +80,7 @@ use std::process::{Command, ExitCode};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
@@ -180,13 +180,16 @@ pub struct Sources {
     /// Prints one repository's `main` runs as one JSON array of objects with `databaseId`,
     /// `workflowName`, `status`, `conclusion` and `createdAt`; `{repository}` is filled in.
     pub runs: Vec<String>,
-    /// The program and arguments that print the free bytes on `/` as the last line.
-    pub disk: Vec<OsString>,
+    /// The path on whose file system free disk is read: `/`.
+    pub disk: PathBuf,
+    /// Reads the bytes free on the file system holding [`Sources::disk`]: the `available` of
+    /// [`crate::disk::space`].
+    pub free_bytes: fn(&Path) -> Result<u64>,
     /// The program and arguments of the desktop notifier; a title and a body are added.
     pub notify: Vec<OsString>,
     /// The current time.
     pub clock: fn() -> OffsetDateTime,
-    /// How long the session list, `df` and one run list may take before they are stopped.
+    /// How long the session list and one run list may take before they are stopped.
     pub bound: Duration,
 }
 
@@ -197,8 +200,8 @@ impl Sources {
     /// under the records when a config file names them, else under `conductor/` of the checkouts
     /// root, as before a config file existed; the owner of the instance's first `github` source,
     /// whose run lists `gh` prints for the Active repositories of the store under `state` (none
-    /// for an instance without a `github` source); `df` on `/`; `notify-send -u critical`; the
-    /// system clock; and [`BOUND`].
+    /// for an instance without a `github` source); the free bytes `statvfs` reads on `/`;
+    /// `notify-send -u critical`; the system clock; and [`BOUND`].
     #[must_use]
     pub fn new(home: PathBuf, active: &Active, state: PathBuf) -> Self {
         let instance = &active.instance;
@@ -235,9 +238,8 @@ impl Sources {
                 "--json",
                 "workflowName,conclusion,status,createdAt,databaseId",
             ]),
-            disk: ["df", "-B1", "--output=avail", "/"]
-                .map(OsString::from)
-                .to_vec(),
+            disk: PathBuf::from("/"),
+            free_bytes: |path| crate::disk::space(path).map(|space| space.available),
             notify: ["notify-send", "-u", "critical"]
                 .map(OsString::from)
                 .to_vec(),
@@ -1018,23 +1020,8 @@ impl Watch {
     }
 
     fn free_bytes(&self) -> Result<u64> {
-        let shown = command_line(&self.sources.disk);
-        let (program, arguments) = self
-            .sources
-            .disk
-            .split_first()
-            .context("no free-disk command is given")?;
-        let output = collect::run(Command::new(program).args(arguments), self.sources.bound)
-            .with_context(|| format!("read free disk `{shown}`"))?;
-        if !output.status.success() {
-            bail!("`{shown}` exited {:?}", output.status.code());
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        stdout
-            .lines()
-            .last()
-            .and_then(|line| line.trim().parse::<u64>().ok())
-            .ok_or_else(|| anyhow!("`{shown}` printed no byte count"))
+        (self.sources.free_bytes)(&self.sources.disk)
+            .with_context(|| format!("read free disk on {}", self.sources.disk.display()))
     }
 }
 

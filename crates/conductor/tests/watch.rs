@@ -1,13 +1,15 @@
 //! `story:watch-command`: `conductor watch run` wakes conductor on the first change.
 //!
 //! The pass cases run [`Watch::pass`] in this process through its one seam, [`Sources`]: the
-//! session list, `df` and each repository's run list are the output of `cat` on a file the case
-//! writes, the transcripts are fixtures under `tests/fixtures/watch/`, the clock stands at
-//! 2026-10-07T12:00:00Z, and the notifier appends its arguments to a file of the case. The loop
-//! cases run [`Watch::run`] on a thread with a 1 s interval and read its lines as they are
-//! printed. The last cases start the built binary with `--state-dir` and a `PATH` that holds no
-//! program at all, or only fake `claude`, `df` and `gh` programs the case writes under its own
-//! directory, so it reaches no live session list, transcript, `gh` or `notify-send`. A case that
+//! session list and each repository's run list are the output of `cat` on a file the case
+//! writes, the free disk is the number of bytes in a file it writes, the transcripts are fixtures
+//! under `tests/fixtures/watch/`, the clock stands at 2026-10-07T12:00:00Z, and the notifier
+//! appends its arguments to a file of the case. The loop cases run [`Watch::run`] on a thread with
+//! a 1 s interval and read its lines as they are printed. The last cases start the built binary
+//! with `--state-dir` and a `PATH` that holds no program at all, or only fake `claude` and `gh`
+//! programs the case writes under its own directory, so it reaches no live session list,
+//! transcript, `gh` or `notify-send`; the binary reads the free disk of `/` through `statvfs`, so
+//! those cases set thresholds around what the case reads there itself. A case that
 //! gives the binary an instance writes a config file under its directory and names it in
 //! `CONDUCTOR_CONFIG`; a case without one removes that variable, so no case reads the real home's
 //! config. A snapshot the watch reads is taken through the library over a fake collector.
@@ -25,6 +27,7 @@ use std::time::{Duration, Instant};
 use conductor_cli::cli::WatchRunArgs;
 use conductor_cli::collect::Collector;
 use conductor_cli::config;
+use conductor_cli::disk;
 use conductor_cli::snapshot;
 use conductor_cli::store;
 use conductor_cli::watch::{Options, Settings, Sources, Watch};
@@ -128,7 +131,7 @@ fn stopped(mut entry: Value) -> Value {
 }
 
 /// One case's directory under this test target's temporary directory: the session list, the
-/// dispatch log, the run lists, `df`'s answer, the notifier's record and `state/`.
+/// dispatch log, the run lists, the free disk, the notifier's record and `state/`.
 struct Case {
     dir: PathBuf,
 }
@@ -183,9 +186,9 @@ impl Case {
         );
     }
 
-    /// `df -B1 --output=avail` answering `bytes`.
+    /// The free disk read as `bytes`.
     fn disk(&self, bytes: u64) {
-        replace(&self.dir.join("df.txt"), &format!("    Avail\n{bytes}\n"));
+        replace(&self.dir.join("free.txt"), &format!("{bytes}\n"));
     }
 
     fn state(&self) -> PathBuf {
@@ -221,7 +224,8 @@ impl Case {
                 "cat".to_owned(),
                 format!("{}/runs/{{repository}}.json", self.dir.display()),
             ],
-            disk: cat("df.txt"),
+            disk: self.dir.join("free.txt"),
+            free_bytes: written_bytes,
             notify: vec![
                 OsString::from("sh"),
                 OsString::from("-c"),
@@ -236,6 +240,11 @@ impl Case {
     fn watch(&self, projects: Option<&str>) -> Watch {
         Watch::new(self.sources(projects), self.state())
     }
+}
+
+/// The free disk of a case: the number of bytes `file` holds, which [`Case::disk`] writes.
+fn written_bytes(file: &Path) -> anyhow::Result<u64> {
+    Ok(fs::read_to_string(file)?.trim().parse()?)
 }
 
 /// Writes `text` to `file` through a sibling file and a rename.
@@ -1449,6 +1458,7 @@ fn follow_prints_each_change_and_goes_on() {
 // The binary
 // ---------------------------------------------------------------------------------------------
 
+/// No program answers; the free disk of `/`, which `statvfs` reads, is over the instance's 1G.
 #[test]
 fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
     let case = Case::new("binary");
@@ -1458,6 +1468,9 @@ fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
     for dir in [&home, &bin, &work] {
         fs::create_dir_all(dir).expect("create the case's directories");
     }
+    let config = case.config(&acme_config(
+        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G}\n",
+    ));
     let state = case.dir.join("state");
     let mut child = Command::new(env!("CARGO_BIN_EXE_conductor"))
         .arg("--state-dir")
@@ -1466,6 +1479,8 @@ fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
         .current_dir(&work)
         .env("PATH", &bin)
         .env("HOME", &home)
+        .env(config::CONFIG_VARIABLE, &config)
+        .env_remove(config::INSTANCE_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1551,17 +1566,38 @@ fn program(bin: &Path, name: &str, script: &str) {
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("make it executable");
 }
 
-/// A fake `df -B1 --output=avail /` that answers `gib` GiB free and appends a line to `calls`
-/// each time it runs.
-fn fake_df(bin: &Path, gib: u64, calls: &Path) {
+/// A fake `claude` whose session list is empty and which appends a line to `calls` each time it
+/// runs: once a pass.
+fn fake_claude(bin: &Path, calls: &Path) {
     program(
         bin,
-        "df",
+        "claude",
         &format!(
-            "#!/bin/sh\nprintf 'df\\n' >> '{}'\nprintf '    Avail\\n{}\\n'\n",
-            calls.display(),
-            gib * GIB
+            "#!/bin/sh\nprintf 'claude\\n' >> '{}'\nprintf '[]\\n'\n",
+            calls.display()
         ),
+    );
+}
+
+/// The free GiB on `/`, rounded up as the watch rounds them, read the way the binary reads them.
+fn free_gib() -> u64 {
+    disk::space(Path::new("/"))
+        .expect("read the free space of /")
+        .available
+        .div_ceil(GIB)
+}
+
+/// `stdout` is the one line `disk low: <n>G free on /`, `<n>` within 5G of `free`: the binary
+/// reads `/` a moment after the case did, and other processes write to it meanwhile.
+fn assert_disk_low(stdout: &str, free: u64, stderr: &str) {
+    let read = stdout
+        .strip_prefix("disk low: ")
+        .and_then(|rest| rest.strip_suffix("G free on /\n"))
+        .and_then(|n| n.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("not one disk-low line: {stdout:?}; {stderr}"));
+    assert!(
+        read.abs_diff(free) <= 5,
+        "{read}G against {free}G: {stderr}"
     );
 }
 
@@ -1666,7 +1702,9 @@ fn the_binary_on_an_acme_config_asks_gh_about_exactly_the_two_active_repositorie
             calls.display()
         ),
     );
-    let config = case.config(&acme_config(""));
+    let config = case.config(&acme_config(
+        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G}\n",
+    ));
     let watch = case.start_watch(Some(&config), &[]);
     wait_for("two run-list calls", || sorted_lines(&calls).len() >= 2);
     thread::sleep(Duration::from_millis(500));
@@ -1689,48 +1727,69 @@ fn the_binary_on_an_acme_config_asks_gh_about_exactly_the_two_active_repositorie
 }
 
 /// Acceptance: the config's thresholds change when the watch reports disk low; without a file
-/// the default is now 100G.
+/// the default is now 100G. The binary reads `/` through `statvfs`, so each threshold is set
+/// around the free GiB this case reads there: 1000G above it is reported, 1G is not, and the
+/// built-in 100G is reported exactly when `/` has less free.
 #[test]
 fn the_binary_reports_disk_low_under_100g_without_a_file_and_under_the_instances_disk_low() {
+    let free = free_gib();
     let without = Case::new("binary-disk-built-in");
-    let (_, _, bin) = without.binary_dirs();
-    fake_df(&bin, 50, &without.dir.join("df-calls.txt"));
     let built_in = without.start_watch(None, &["--every", "1"]);
+
+    let under = Case::new("binary-disk-acme-under");
+    let config = under.config(&acme_config(&format!(
+        "\x20   thresholds: {{disk_low: {}G, disk_clear: {}G}}\n",
+        free + 1000,
+        free + 1001
+    )));
+    let reported = under.start_watch(Some(&config), &["--every", "1"]);
 
     let acme = Case::new("binary-disk-acme");
     let (_, _, bin) = acme.binary_dirs();
-    let calls = acme.dir.join("df-calls.txt");
-    fake_df(&bin, 50, &calls);
+    let calls = acme.dir.join("claude-calls.txt");
+    fake_claude(&bin, &calls);
     let config = acme.config(&acme_config(
-        "\x20   thresholds: {disk_low: 40G, disk_clear: 45G}\n",
+        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G}\n",
     ));
     let configured = acme.start_watch(Some(&config), &["--every", "1"]);
 
-    let (code, stdout, stderr) = finish(built_in, Duration::from_secs(30));
+    if free < 100 {
+        let (code, stdout, stderr) = finish(built_in, Duration::from_secs(30));
+        assert_eq!(code, Some(0), "{stderr}");
+        assert_disk_low(&stdout, free, &stderr);
+    } else {
+        let (code, stdout, stderr) = finish(built_in, Duration::from_millis(3500));
+        assert_eq!(code, None, "the watch ended: {stdout} {stderr}");
+        assert_eq!(stdout, "", "{free}G free is not under 100G: {stderr}");
+    }
+
+    let (code, stdout, stderr) = finish(reported, Duration::from_secs(30));
     assert_eq!(code, Some(0), "{stderr}");
-    assert_eq!(stdout, "disk low: 50G free on /\n", "{stderr}");
+    assert_disk_low(&stdout, free, &stderr);
 
     let (code, stdout, stderr) = finish(configured, Duration::from_millis(3500));
     assert_eq!(code, None, "the watch ended: {stdout} {stderr}");
     assert_eq!(
         stdout, "",
-        "50G free is not under the instance's 40G: {stderr}"
+        "{free}G free is not under the instance's 1G: {stderr}"
     );
     assert!(
         sorted_lines(&calls).len() >= 2,
-        "the disk was read on every pass: {stderr}"
+        "the watch passed more than once: {stderr}"
     );
 }
 
 /// W4 decision 2: the interval is the instance's `cadence.watch`, and `--every` overrides it.
+/// Each watch follows, so a disk-low line on the real `/` does not end it, and a pass is a run
+/// of the session list.
 #[test]
 fn the_binary_passes_at_the_instances_cadence_and_a_flag_overrides_it() {
     let start = |name: &str, extra: Option<&str>, args: &[&str]| {
         let case = Case::new(name);
         let (_, _, bin) = case.binary_dirs();
-        fake_df(&bin, 500, &case.dir.join("df-calls.txt"));
+        fake_claude(&bin, &case.dir.join("claude-calls.txt"));
         let config = extra.map(|extra| case.config(&acme_config(extra)));
-        let watch = case.start_watch(config.as_deref(), args);
+        let watch = case.start_watch(config.as_deref(), &[args, &["--follow"]].concat());
         (case, watch)
     };
     let cases = [
@@ -1751,7 +1810,7 @@ fn the_binary_passes_at_the_instances_cadence_and_a_flag_overrides_it() {
     for (case, watch) in cases {
         let (code, stdout, stderr) = finish(watch, Duration::ZERO);
         assert_eq!(code, None, "the watch ended: {stdout} {stderr}");
-        passes.push(sorted_lines(&case.dir.join("df-calls.txt")).len());
+        passes.push(sorted_lines(&case.dir.join("claude-calls.txt")).len());
     }
     assert!(passes[0] >= 2, "cadence.watch 1s: {passes:?}");
     assert_eq!(passes[1], 1, "without a file, 180 s: {passes:?}");
@@ -1832,7 +1891,7 @@ fn the_binary_reports_the_context_of_the_sessions_in_the_instance_over_its_thres
         &trees,
         &format!(
             "\x20   records: {}\n\
-             \x20   thresholds: {{context_handover: 400k}}\n",
+             \x20   thresholds: {{context_handover: 400k, disk_low: 1G, disk_clear: 2G}}\n",
             records.display()
         ),
     ));

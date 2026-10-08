@@ -6,7 +6,7 @@
 //!
 //! Each case is a directory of its own in this test target's temporary directory: `home/` (the
 //! binary's `HOME`, which holds no config file), `work/` (its working directory), an empty `bin/`
-//! (the dashboard's `PATH`, so no case runs a real session list, `df` or `worktree`) and the config
+//! (the dashboard's `PATH`, so no case runs a real session list or `worktree`) and the config
 //! file `conductor.yaml`, whose one instance names `~/state`, `~/records` and `~/checkouts`. The
 //! binary runs with both settings' variables removed, and `CONDUCTOR_CONFIG` naming the file when
 //! the case has one, so no case reads the real home's config.

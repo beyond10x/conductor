@@ -1,12 +1,13 @@
 //! Adversary cases for `story:watch-command` (wave 07 U4, pass 1), against `351dbdf`.
 //!
 //! Each case drives [`Watch`] through its one seam, [`Sources`], as `tests/watch.rs` does: the
-//! session list, `df` and each run list are `cat` of a file the case writes, the clock is a fixed
-//! instant per watch, and the notifier appends its arguments to a file of the case. A watch that
-//! is "restarted" is a second [`Watch`] over the same state directory, which is what a second
-//! `conductor watch run` is. The one binary case gives the built `conductor` a `PATH` holding only
-//! fake `claude`, `df`, `gh` and `notify-send` programs it writes under the case's directory, so
-//! no live session list, `gh` or notifier is reached.
+//! session list and each run list are `cat` of a file the case writes, the free disk is the
+//! number of bytes in a file it writes, the clock is a fixed instant per watch, and the notifier
+//! appends its arguments to a file of the case. A watch that is "restarted" is a second [`Watch`]
+//! over the same state directory, which is what a second `conductor watch run` is. The one binary
+//! case gives the built `conductor` a `PATH` holding only fake `claude`, `gh` and `notify-send`
+//! programs it writes under the case's directory, so no live session list, `gh` or notifier is
+//! reached; it reads the free disk of `/` through `statvfs`.
 
 use std::ffi::OsString;
 use std::fs;
@@ -147,7 +148,7 @@ impl Case {
     }
 
     fn disk(&self, bytes: u64) {
-        replace(&self.dir.join("df.txt"), &format!("    Avail\n{bytes}\n"));
+        replace(&self.dir.join("free.txt"), &format!("{bytes}\n"));
     }
 
     fn state(&self) -> PathBuf {
@@ -184,7 +185,8 @@ impl Case {
                 "cat".to_owned(),
                 format!("{}/runs/{{repository}}.json", self.dir.display()),
             ],
-            disk: cat("df.txt"),
+            disk: self.dir.join("free.txt"),
+            free_bytes: written_bytes,
             notify: vec![
                 OsString::from("sh"),
                 OsString::from("-c"),
@@ -218,6 +220,11 @@ impl Case {
         let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
         fs::write(dir.join(format!("{id}.jsonl")), text).expect("write the transcript");
     }
+}
+
+/// The free disk of a case: the number of bytes `file` holds, which [`Case::disk`] writes.
+fn written_bytes(file: &Path) -> anyhow::Result<u64> {
+    Ok(fs::read_to_string(file)?.trim().parse()?)
 }
 
 fn replace(file: &Path, text: &str) {
@@ -294,11 +301,6 @@ fn adv_the_dashboard_reads_main_ci_where_the_watch_run_from_the_conductor_reposi
     program(&bin, "claude", "#!/bin/sh\nprintf '[]\\n'\n");
     program(
         &bin,
-        "df",
-        "#!/bin/sh\nprintf '    Avail\\n1073741824\\n'\n",
-    );
-    program(
-        &bin,
         "gh",
         "#!/bin/sh\nprintf '%s\\n' '[{\"databaseId\":1,\"workflowName\":\"CI\",\"status\":\"completed\",\"conclusion\":\"success\",\"createdAt\":\"2026-10-07T10:00:00Z\"}]'\n",
     );
@@ -312,30 +314,37 @@ fn adv_the_dashboard_reads_main_ci_where_the_watch_run_from_the_conductor_reposi
         .current_dir(&root)
         .env("PATH", &bin)
         .env("HOME", &home)
+        .env_remove(conductor_cli::config::CONFIG_VARIABLE)
+        .env_remove(conductor_cli::config::INSTANCE_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("the conductor binary starts");
+    // The first pass keeps main's CI; it ends the watch only when the real `/` has less than the
+    // built-in 100G free, which the binary reads through `statvfs`, so the case stops it once the
+    // file is there.
+    let written = root.join("state/watch/ci.state");
     let started = Instant::now();
-    while child.try_wait().expect("ask after the watch").is_none() {
+    while !written.is_file() && child.try_wait().expect("ask after the watch").is_none() {
         if started.elapsed() > Duration::from_secs(60) {
-            let _ = child.kill();
             break;
         }
         thread::sleep(Duration::from_millis(50));
     }
+    let _ = child.kill();
     let output = child
         .wait_with_output()
         .expect("collect the watch's output");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(0), "stderr {stderr:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "disk low: 1G free on /\n",
-        "the first pass finds the fake disk low and exits 0"
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.is_empty()
+            || (stdout.starts_with("disk low: ")
+                && stdout.ends_with("G free on /\n")
+                && stdout.lines().count() == 1),
+        "stdout {stdout:?}, stderr {stderr:?}"
     );
-    let written = root.join("state/watch/ci.state");
     assert!(
         written.is_file(),
         "the watch kept main's CI under <state>/watch/"

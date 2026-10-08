@@ -18,7 +18,7 @@
 //! - `dispatches/*.jsonl` and `decisions/*.jsonl` under the records root;
 //! - the CI watch's state file, one `repo|workflow|run id|conclusion|time` per line;
 //! - the watch's usage-limit and context files (`limit.new`, `limit.seen`, `context-reported`);
-//! - free space on `/`, as `df` reads it.
+//! - free space on `/`, through `statvfs` ([`crate::disk::space`]).
 //!
 //! When a config file names the instance this process runs ([`crate::config::active`]), the
 //! records root is its `records` unless `--root` names another, and the watch's directory is the
@@ -748,37 +748,17 @@ fn watch(dir: &Path, rows: &[Value], now: OffsetDateTime, errors: &mut Vec<Strin
     json!({"usage_limit": limits, "usage_limit_today": seen, "context": context})
 }
 
-/// Free and total bytes of the file system holding `path`, as `df` reads them; both null when it
-/// cannot.
+/// Free and total bytes of the file system holding `path` ([`crate::disk::space`]); both null
+/// when they cannot be read.
 fn disk(path: &Path, errors: &mut Vec<String>) -> Value {
-    let output = Command::new("df")
-        .args(["-B1", "--output=avail,size"])
-        .arg(path)
-        .output();
-    let numbers = output
-        .as_ref()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|output| {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let line = text.lines().last()?.to_owned();
-            let mut words = line.split_whitespace().map(str::parse::<u64>);
-            Some((words.next()?.ok()?, words.next()?.ok()?))
-        });
-    match (numbers, output) {
-        (Some((free, size)), _) => json!({
-            "path": path.display().to_string(), "free_bytes": free, "size_bytes": size,
+    match crate::disk::space(path) {
+        Ok(space) => json!({
+            "path": path.display().to_string(),
+            "free_bytes": space.available,
+            "size_bytes": space.total,
         }),
-        (None, Ok(output)) => {
-            errors.push(format!(
-                "`df {}`: {}",
-                path.display(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-            json!({"path": path.display().to_string(), "free_bytes": null, "size_bytes": null})
-        }
-        (None, Err(error)) => {
-            errors.push(format!("`df {}`: {error}", path.display()));
+        Err(error) => {
+            errors.push(format!("{error:#}"));
             json!({"path": path.display().to_string(), "free_bytes": null, "size_bytes": null})
         }
     }

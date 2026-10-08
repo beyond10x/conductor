@@ -277,7 +277,7 @@ runs it with `--follow` under the harness `Monitor` tool.
 | usage limit | the tail of each such session's transcript | `usage limit: …`; also a desktop notification (`notify-send`) |
 | context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
 | `main` CI | `gh run list` for each Active repository of the newest complete snapshot | `CI red on main: …`, `CI green again on main: …` |
-| free disk | `df` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, again only after it was back at `disk_clear` |
+| free disk | `statvfs` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, again only after it was back at `disk_clear` |
 
 A pass runs every `cadence.watch` (`--every <SECONDS>`), and CI is read every `cadence.ci`
 (`--ci-every <SECONDS>`). A session exit that a dispatch log line explains is not reported. The
