@@ -1,0 +1,164 @@
+domain: conductor.host
+
+summary: >
+  The machine several conductor instances share. Each instance keeps its own records, state, cache
+  and sessions; what they share is one disk, one CPU and memory budget, and one machine-wide
+  namespace of harness session names. The host holds the resource grants every instance's
+  conductor takes before it starts a controller or a large build, so two instances cannot each
+  grant the same free space. DRAFT (story:multi-instance-host): UNMAPPED markers name what is not
+  decided.
+
+naming:
+  wire: host
+  display: Host
+
+types:
+  # The prefix every session of one instance carries: `<prefix>-conductor`, `<prefix>-<repository>`,
+  # `<prefix>-conductor-dev`. Default: the instance name. Letters, digits, `-`; unique per host.
+  - name: conductor.host.SessionPrefix
+    kind: newtype
+    of: String
+
+  # A harness session name on this machine. Always `<SessionPrefix>-<role or repository>`.
+  - name: conductor.host.SessionName
+    kind: newtype
+    of: String
+
+  - name: conductor.host.GrantId
+    kind: newtype
+    of: String
+
+  - name: conductor.host.GrantKind
+    kind: enum
+    variants: [ControllerSlot, BuildSlot]
+
+entities:
+  # One resource grant on the host: a controller slot (counts against the host's most working
+  # controllers across all instances) or a build slot (reserves gibibytes of the host's disk).
+  - name: conductor.host.HostGrant
+    identity:
+      name: grant_id
+      type: conductor.host.GrantId
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: kind
+        type: conductor.host.GrantKind
+      - name: gibibytes
+        type: Optional<conductor.config.Gibibytes>
+      - name: session_name
+        type: conductor.host.SessionName
+      - name: granted_at
+        type: Timestamp
+    # UNMAPPED: whether a grant expires by time, or only when its session leaves the session list.
+    lifecycle:
+      initial: Granted
+      states: [Granted, Released]
+      terminal: [Released]
+      transitions:
+        - name: release
+          from: [Granted]
+          to: Released
+
+errors:
+  - name: conductor.host.HostGrantNotFound
+    summary: No host grant has that id.
+    fields:
+      - name: grant_id
+        type: conductor.host.GrantId
+
+  - name: conductor.host.HostGrantAlreadyReleased
+    summary: The host grant was released already.
+    fields:
+      - name: grant_id
+        type: conductor.host.GrantId
+
+events:
+  - name: conductor.host.HostGrantTaken
+    fields:
+      - name: grant_id
+        type: conductor.host.GrantId
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: kind
+        type: conductor.host.GrantKind
+
+  - name: conductor.host.HostGrantReleased
+    fields:
+      - name: grant_id
+        type: conductor.host.GrantId
+
+commands:
+  # Taken by an instance's conductor before it starts a controller or grants a large build.
+  # UNMAPPED: the refusal rules (the host's most working controllers across instances, the disk
+  # floor) as outcomes with when_related guards; drafted in the story, not here.
+  - name: conductor.host.TakeHostGrant
+    naming:
+      wire: take-host-grant
+      display: Take a host grant
+    input:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: kind
+        type: conductor.host.GrantKind
+      - name: gibibytes
+        type: Optional<conductor.config.Gibibytes>
+      - name: session_name
+        type: conductor.host.SessionName
+      - name: granted_at
+        type: Timestamp
+    outcomes:
+      - name: granted
+        creates: conductor.host.HostGrant
+        instance: grant_id
+        sets:
+          instance: input.instance
+          repository: input.repository
+          kind: input.kind
+          gibibytes: input.gibibytes
+          session_name: input.session_name
+          granted_at: input.granted_at
+        emits:
+          - conductor.host.HostGrantTaken
+        payload:
+          conductor.host.HostGrantTaken:
+            grant_id: {generated: true}
+            instance: input.instance
+            kind: input.kind
+        summary: The grant counts against the host until it is released.
+
+  - name: conductor.host.ReleaseHostGrant
+    naming:
+      wire: release-host-grant
+      display: Release a host grant
+    input:
+      - name: grant_id
+        type: conductor.host.GrantId
+    outcomes:
+      - name: released
+        moves: conductor.host.HostGrant.release
+        instance: grant_id
+        emits:
+          - conductor.host.HostGrantReleased
+        payload:
+          conductor.host.HostGrantReleased:
+            grant_id: input.grant_id
+        summary: The slot or the space is free for any instance again.
+      - name: no-such-grant
+        unknown_instance: true
+        error: conductor.host.HostGrantNotFound
+        payload:
+          conductor.host.HostGrantNotFound:
+            grant_id: input.grant_id
+        summary: No grant with that id.
+      - name: already-released
+        wrong_state: true
+        error: conductor.host.HostGrantAlreadyReleased
+        payload:
+          conductor.host.HostGrantAlreadyReleased:
+            grant_id: input.grant_id
+        summary: The grant was released before; nothing changes.
