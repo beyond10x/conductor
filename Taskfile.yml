@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   CONDUCTOR_PROMPT: Start of session. Read the hand-over committed last (git log -1 --name-only --format= -- docs/handoff/), act on its first task, then run one cycle.
-  DEV_PROMPT: Start of session. Read the newest docs/waves/handoff-conductor-dev-*.md, the plan it names, the hand-over committed last in docs/handoff/ (conductor's) and docs/design/conductor.md section 12, then begin.
+  DEV_PROMPT: Start of session. Read the newest docs/waves/handoff-conductor-dev-*.md, the plan it names, the hand-over committed last in docs/handoff/ of the instance's records directory (conductor config show) and docs/design/conductor.md section 12, then begin.
   SESSION_ID: claude agents --json | jq -r '.[] | select(.kind=="background" and .name==$n and .pid != null) | .id'
 
 tasks:
@@ -162,7 +162,7 @@ tasks:
     desc: Start the dashboard on 127.0.0.1:7313 as the user service conductor-dashboard unless it is active, and print its URL
     silent: true
     cmds:
-      - systemctl --user is-active --quiet conductor-dashboard || systemd-run --user --unit conductor-dashboard --collect --setenv=PATH="$PATH" "$(command -v conductor)" dashboard serve --root "$(git -C {{shellQuote .ROOT_DIR}} worktree list --porcelain | sed -n "1s/^worktree //p")" --port 7313
+      - systemctl --user is-active --quiet conductor-dashboard || systemd-run --user --unit conductor-dashboard --collect --setenv=PATH="$PATH" "$(command -v conductor)" dashboard serve --port 7313
       - echo "Open http://127.0.0.1:7313/"
 
   dashboard:stop:

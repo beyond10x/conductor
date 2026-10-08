@@ -134,6 +134,22 @@ fn conductor_starts_as_the_conductor_agent_with_the_role_settings_or_this_checko
 }
 
 #[test]
+fn the_dashboard_reads_the_instances_records_not_this_checkout() {
+    let taskfile = taskfile();
+    let commands = shell_commands(&taskfile["tasks"]["dashboard"]).join("\n");
+    assert!(
+        commands.contains("dashboard serve"),
+        "the dashboard task serves the dashboard: {commands}"
+    );
+    // Without --root the dashboard reads the active instance's records (`dashboard serve --help`);
+    // this checkout holds no decisions/ or dispatches/ once the records live apart.
+    assert!(
+        !commands.contains("--root"),
+        "the dashboard task passes no --root: {commands}"
+    );
+}
+
+#[test]
 fn trust_covers_the_records_directory() {
     let taskfile = taskfile();
     let task = &taskfile["tasks"]["trust"];
