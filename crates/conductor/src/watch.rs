@@ -25,9 +25,14 @@
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
 //!   stopped at the usage limit; **gone** when it leaves the list, unless it was already
-//!   exited. Either only when no line of the dispatch log names its id, or its pid as a word,
-//!   written since the kept list was taken or in the last [`EXPLAINED_WITHIN`], whichever is
-//!   earlier, since conductor itself stopped it then; and each session id once (`exited.seen`)
+//!   exited. Either only when no line of the dispatch log written since the kept list was taken
+//!   or in the last [`EXPLAINED_WITHIN`], whichever is earlier, names its id, or its pid as a
+//!   word, or is of a dispatch (has the `id` of one) a line of which names its id, however old:
+//!   conductor's `sent` line names the session in `session`, and the `done` line it writes
+//!   before it stops the session names only the dispatch. A pid in an older line links no
+//!   dispatch, since another process may have had it. The log is read from the month before
+//!   that instant's, which holds the `sent` line of any dispatch shorter than a month. Conductor
+//!   itself stopped such a session; and each session id once (`exited.seen`)
 //!   until the list shows it with a `pid` again, so its next exit is reported once more. A start
 //!   is no change.
 //! - **usage limit** for a `"error":"rate_limit"` line of the last [`LIMIT_WITHIN`], once per
@@ -648,11 +653,20 @@ impl Watch {
         replace(&file, &format!("{kept}\n"))
     }
 
-    /// The lines of the dispatch log written from `since` on, by their `at`, else `sent_at`, else
-    /// `decided_at`, read from the months of `since` through `now`.
-    fn dispatches_since(&self, since: OffsetDateTime, now: OffsetDateTime) -> Vec<String> {
-        let mut recent = Vec::new();
-        for month in months(since, now) {
+    /// The dispatch log read from the month before the month of `since` through the month of
+    /// `now`: every line read, and the lines written from `since` on, by their `at`, else
+    /// `sent_at`, else `decided_at`. The month before is enough for the line that names a
+    /// session: it is its dispatch's `sent` line, which no dispatch outlives by a month.
+    fn dispatches_since(&self, since: OffsetDateTime, now: OffsetDateTime) -> Dispatches {
+        let since_utc = since.to_offset(UtcOffset::UTC);
+        let earlier = since_utc
+            .date()
+            .replace_day(1)
+            .ok()
+            .and_then(time::Date::previous_day)
+            .map_or(since_utc, |day| day.midnight().assume_utc());
+        let mut log = Dispatches::default();
+        for month in months(earlier, now) {
             let Ok(text) =
                 fs::read_to_string(self.sources.dispatches.join(format!("{month}.jsonl")))
             else {
@@ -666,12 +680,17 @@ impl Watch {
                     .iter()
                     .find_map(|key| record.get(*key).and_then(Value::as_str))
                     .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok());
+                let line = DispatchLine {
+                    id: record.get("id").and_then(Value::as_str).map(str::to_owned),
+                    text: line.to_owned(),
+                };
                 if written.is_some_and(|at| at >= since) {
-                    recent.push(line.to_owned());
+                    log.recent.push(line.clone());
                 }
+                log.read.push(line);
             }
         }
-        recent
+        log
     }
 
     /// Whether the session `id` was reported already; marks it reported when it was not.
@@ -1127,12 +1146,48 @@ fn repository_of(cwd: &str, places: &[&Path]) -> Option<String> {
         })
 }
 
-/// Whether a line of `recent` names the session `id`, or its `pid` as a word.
-fn explained(recent: &[String], id: &str, pid: Option<u64>) -> bool {
+/// The dispatch log as a session probe reads it ([`Watch::dispatches_since`]).
+#[derive(Debug, Default)]
+struct Dispatches {
+    /// The lines written since the probe's instant.
+    recent: Vec<DispatchLine>,
+    /// Every line read, `recent` among them.
+    read: Vec<DispatchLine>,
+}
+
+/// One line of the dispatch log: its `id`, the dispatch it is of, and its text.
+#[derive(Debug, Clone)]
+struct DispatchLine {
+    id: Option<String>,
+    text: String,
+}
+
+/// Whether the dispatch log explains the exit of the session `id` with `pid`: a recent line
+/// names its id, or its `pid` as a word; or a recent line is of a dispatch (has its `id`) one of
+/// whose lines read, however old, names the session id (as a `sent` line's `session` names the
+/// session a later `done` line of the same dispatch stops). A pid links no dispatch: an older
+/// line naming it may name another process that had it.
+fn explained(log: &Dispatches, id: &str, pid: Option<u64>) -> bool {
     let pid = pid.map(|pid| pid.to_string());
-    recent
+    if log.recent.iter().any(|line| {
+        line.text.contains(id)
+            || pid
+                .as_deref()
+                .is_some_and(|pid| holds_word(&line.text, pid))
+    }) {
+        return true;
+    }
+    let dispatches: BTreeSet<&str> = log
+        .read
         .iter()
-        .any(|line| line.contains(id) || pid.as_deref().is_some_and(|pid| holds_word(line, pid)))
+        .filter(|line| line.text.contains(id))
+        .filter_map(|line| line.id.as_deref())
+        .collect();
+    log.recent.iter().any(|line| {
+        line.id
+            .as_deref()
+            .is_some_and(|dispatch| dispatches.contains(dispatch))
+    })
 }
 
 /// Whether `word` occurs in `line` with no letter, digit or `_` on either side.

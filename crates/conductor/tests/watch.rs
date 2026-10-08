@@ -165,10 +165,15 @@ impl Case {
     }
 
     fn dispatches(&self, lines: &[Value]) {
+        self.dispatches_of("2026-10", lines);
+    }
+
+    /// Replaces the dispatch log of `month` (`YYYY-MM`).
+    fn dispatches_of(&self, month: &str, lines: &[Value]) {
         let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
         let dir = self.dir.join("dispatches");
         fs::create_dir_all(&dir).expect("create dispatches/");
-        replace(&dir.join("2026-10.jsonl"), &text);
+        replace(&dir.join(format!("{month}.jsonl")), &text);
     }
 
     fn runs(&self, repository: &str, runs: &Value) {
@@ -356,6 +361,73 @@ fn a_dispatch_line_of_the_last_fifteen_minutes_naming_the_session_explains_its_e
         pass(&mut watch),
         ["session gone: gamma e5e5e5e5"],
         "a line of twenty minutes ago explains nothing, and 21050 or pid_2105 is not the word 2105"
+    );
+}
+
+#[test]
+fn a_recent_done_line_of_the_dispatch_whose_sent_line_names_the_session_explains_its_exit() {
+    let case = Case::new("explained-by-dispatch");
+    case.dispatches(&[
+        json!({"id": "DSP-20261007-11", "event": "sent", "at": "2026-10-07T11:00:00Z",
+               "to": "beta", "session": "b2b2b2b2", "brief": "one wave"}),
+        json!({"id": "DSP-20261007-12", "event": "sent", "at": "2026-10-07T11:00:00Z",
+               "to": "gamma", "session": "e5e5e5e5", "brief": "one wave"}),
+        json!({"id": "DSP-20261007-11", "event": "done", "at": "2026-10-07T11:59:00Z",
+               "reported_by": "beta", "evidence": "released; stopped and removed"}),
+        json!({"id": "DSP-20261007-13", "event": "done", "at": "2026-10-07T11:59:00Z",
+               "reported_by": "gamma", "evidence": "released; stopped and removed"}),
+        json!({"id": "DSP-20260930-01", "event": "done", "at": "2026-10-07T11:59:30Z",
+               "reported_by": "alpha", "evidence": "released; stopped and removed"}),
+        json!({"id": "DSP-20261007-14", "event": "sent", "at": "2026-10-07T11:00:00Z",
+               "to": "delta", "brief": "stop pid 2107 after the gate"}),
+        json!({"id": "DSP-20261007-14", "event": "done", "at": "2026-10-07T11:59:00Z",
+               "reported_by": "delta", "evidence": "released; stopped and removed"}),
+    ]);
+    let delta = || {
+        session(
+            "a7a7a7a7-0000-4000-8000-000000000007",
+            "delta",
+            2107,
+            "/fixture-home/example-org/delta",
+        )
+    };
+    case.dispatches_of(
+        "2026-09",
+        &[
+            json!({"id": "DSP-20260930-01", "event": "sent", "at": "2026-09-30T23:00:00Z",
+                   "to": "alpha", "session": "a1a1a1a1", "brief": "one wave"}),
+        ],
+    );
+    case.sessions(&[alpha(), beta(), gamma(), delta(), conductor()]);
+    let mut watch = case.watch(None);
+    assert_eq!(pass(&mut watch), NOTHING);
+
+    case.sessions(&[alpha(), gamma(), delta(), conductor()]);
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "the done line of a minute ago is of the dispatch whose sent line of an hour ago names beta"
+    );
+
+    case.sessions(&[gamma(), delta(), conductor()]);
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "the sent line naming alpha is in the previous month's log"
+    );
+
+    case.sessions(&[gamma(), conductor()]);
+    assert_eq!(
+        pass(&mut watch),
+        ["session gone: delta a7a7a7a7"],
+        "a line of an hour ago that names only delta's pid links no dispatch to delta"
+    );
+
+    case.sessions(&[conductor()]);
+    assert_eq!(
+        pass(&mut watch),
+        ["session gone: gamma e5e5e5e5"],
+        "no recent line is of the dispatch that names gamma; the recent done line is another's"
     );
 }
 

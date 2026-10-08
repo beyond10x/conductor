@@ -215,7 +215,7 @@ A `[RESOURCE]` request is granted or refused against the instance's thresholds
 |---|---|
 | a controller's cwd is its checkout | the session is started there |
 | a controller's Edit, Write, NotebookEdit only inside its repository's checkout and managed worktrees, or in its scratch | the guard |
-| a controller's SendMessage only to `conductor` or to a sub-agent it started | the guard |
+| a controller's SendMessage only to `conductor` or to a sub-agent it started | the guard; a sub-agent by the shape of its id, not by who started it |
 | no `gh` writes; writes to the forge go through the repository's own route | the guard |
 | no `cd`, `pushd` or `git -C` into another repository or into conductor's records | the guard (a heuristic) |
 | no write to conductor's records or conductor's config | the guard: file tools; Bash only for the config |
