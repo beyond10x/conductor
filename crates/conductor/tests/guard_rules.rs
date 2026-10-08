@@ -2932,3 +2932,185 @@ fn no_session_writes_a_configured_role_s_settings_file() {
         assert_verdict(&control, Verdict::Allow, "");
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// The `profile` file of each configured role (`story:guard-profile-files`): the system prompt its
+// sessions start with, which no session writes, as no session writes a role's `settings` file.
+// -------------------------------------------------------------------------------------------------
+
+/// The case's checkouts root and conductor's records, beside `home`.
+fn case_dirs(home: &Path) -> (PathBuf, PathBuf) {
+    let case = home.parent().expect("the case's directory");
+    (case.join("root"), case.join("records"))
+}
+
+/// A config file's places beside `home`, with the checkout `root/probe/`, whose roles name the
+/// `profile` files of `profiles`: the controller's, conductor-dev's and conductor's. The root and
+/// the records start empty, so that the links a case plants are its own.
+fn places_with_profiles(home: &Path, profiles: [&str; 3]) -> Places {
+    let case = home.parent().expect("the case's directory");
+    let (root, records) = case_dirs(home);
+    for dir in [&root, &records] {
+        if dir.exists() {
+            fs::remove_dir_all(dir).expect("clear the case's directory");
+        }
+    }
+    fs::create_dir_all(root.join("probe/.git")).expect("create the probe checkout");
+    let [controller, dev, conductor] = profiles;
+    let text = format!(
+        "{}\x20   roles:\n\
+         \x20     - {{role: controller, harness: claude, model: opus, profile: {controller}}}\n\
+         \x20     - {{role: conductor-dev, harness: claude, model: opus, profile: {dev}}}\n\
+         \x20     - {{role: conductor, harness: claude, model: opus, profile: {conductor}}}\n",
+        config_text(&root, &case.join("trees"), &records),
+    );
+    places_from_file(home, &text)
+}
+
+/// The decision on the recorded payload `name` in `places`, from `cwd`, with its `field` set to
+/// `value` as written.
+fn decide_in_places(
+    places: &Places,
+    home: &Path,
+    name: &str,
+    cwd: &Path,
+    field: &str,
+    value: &str,
+) -> Decision {
+    let mut raw = localise(fixture(name), home);
+    raw["cwd"] = Value::String(cwd.display().to_string());
+    raw["tool_input"][field] = Value::String(value.to_owned());
+    guard::decide_in(&raw, places, &unlisted())
+}
+
+/// The `profile` file each role of the config names is written by no session, however the path
+/// is spelled: a controller's file tools do not write one in its checkout or outside it, absolute,
+/// relative to the cwd or through a link; conductor's do not write one among its records; and no
+/// session's Bash writes one by any spelling of its path. Reading it is allowed.
+#[test]
+fn no_session_writes_a_configured_role_s_profile_file() {
+    let home = home("guard-profile-configured");
+    let (root, records) = case_dirs(&home);
+    let dev = root.join("probe/ops/dev.md").display().to_string();
+    let charter = records.join("charters/conductor.md").display().to_string();
+    let places = places_with_profiles(
+        &home,
+        ["~/.config/fixture-roles/controller.md", &dev, &charter],
+    );
+    let user = home
+        .join(".config/fixture-roles/controller.md")
+        .display()
+        .to_string();
+    let controller = root.join("probe");
+    fs::create_dir_all(root.join("probe/ops")).expect("create the profile's directory");
+    std::os::unix::fs::symlink(&dev, root.join("probe/alias.md")).expect("plant a link");
+    fs::create_dir_all(records.join("docs/handoff")).expect("create the handoff directory");
+    std::os::unix::fs::symlink(&charter, records.join("docs/handoff/alias.md"))
+        .expect("plant a link");
+    for (name, field) in FILE_TOOLS {
+        for target in [
+            dev.as_str(),
+            "ops/dev.md",
+            "ops/x/../dev.md",
+            "alias.md",
+            user.as_str(),
+            "~/.config/fixture-roles/controller.md",
+        ] {
+            let decision = decide_in_places(&places, &home, name, &controller, field, target);
+            assert_verdict(&decision, Verdict::Deny, "profile");
+        }
+        for target in [
+            charter.as_str(),
+            "charters/conductor.md",
+            "docs/handoff/alias.md",
+        ] {
+            let decision = decide_in_places(&places, &home, name, &records, field, target);
+            assert_verdict(&decision, Verdict::Deny, "profile");
+        }
+        let control = decide_in_places(&places, &home, name, &controller, field, "ops/other.md");
+        assert_verdict(&control, Verdict::Allow, "inside");
+        let control = decide_in_places(&places, &home, name, &records, field, "charters/other.md");
+        assert_verdict(&control, Verdict::Allow, "records");
+    }
+    for cwd in [&controller, &records] {
+        for command in [
+            format!("echo x > {user}"),
+            "echo x > ~/.config/fixture-roles/controller.md".to_owned(),
+            "cp x $HOME/.config/fixture-roles/controller.md".to_owned(),
+            "cp x ${HOME}/.config/fixture-roles/controller.md".to_owned(),
+            format!("tee {dev} < x"),
+            format!("sed -i 's/a/b/' {charter}"),
+        ] {
+            let decision = decide_in_places(&places, &home, "bash", cwd, "command", &command);
+            assert_verdict(&decision, Verdict::Deny, "profile");
+        }
+        for command in [
+            "cat ~/.config/fixture-roles/controller.md".to_owned(),
+            format!("cat {dev}"),
+        ] {
+            let decision = decide_in_places(&places, &home, "bash", cwd, "command", &command);
+            assert_verdict(&decision, Verdict::Allow, "");
+        }
+    }
+}
+
+/// A role's `profile` file is no scratch: not under `$TMPDIR`, for any session, and not under a
+/// controller's `~/.cache/<repo>-*/`.
+#[test]
+fn a_role_s_profile_file_is_no_scratch() {
+    let home = home("guard-profile-scratch");
+    let (root, records) = case_dirs(&home);
+    let tmp = home.join(".cache/claude-tmp");
+    fs::create_dir_all(&tmp).expect("create the temporary directory");
+    let charter = records.join("charters/conductor.md").display().to_string();
+    let places = places_with_profiles(
+        &home,
+        [
+            "~/.cache/probe-notes/controller.md",
+            "~/.cache/claude-tmp/profiles/dev.md",
+            &charter,
+        ],
+    )
+    .with_tmp(Some(&tmp));
+    let controller = root.join("probe");
+    for (name, field) in FILE_TOOLS {
+        let decision = decide_in_places(
+            &places,
+            &home,
+            name,
+            &controller,
+            field,
+            "~/.cache/probe-notes/controller.md",
+        );
+        assert_verdict(&decision, Verdict::Deny, "profile");
+        let control = decide_in_places(
+            &places,
+            &home,
+            name,
+            &controller,
+            field,
+            "~/.cache/probe-notes/other.md",
+        );
+        assert_verdict(&control, Verdict::Allow, "scratch");
+        for cwd in [&controller, &records] {
+            let decision = decide_in_places(
+                &places,
+                &home,
+                name,
+                cwd,
+                field,
+                "~/.cache/claude-tmp/profiles/dev.md",
+            );
+            assert_verdict(&decision, Verdict::Deny, "profile");
+            let control = decide_in_places(
+                &places,
+                &home,
+                name,
+                cwd,
+                field,
+                "~/.cache/claude-tmp/profiles/other.md",
+            );
+            assert_verdict(&control, Verdict::Allow, "scratch");
+        }
+    }
+}
