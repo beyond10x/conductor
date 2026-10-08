@@ -63,8 +63,8 @@ accepted, defaulted and shown by `config show`.
 | `roles[].role` | string | required | | the role name; the tasks, the watch and the profiles know `conductor`, `conductor-dev` and `controller` |
 | `roles[].harness` | `claude` \| `codex` | required | | the harness the role runs on; the start tasks start `claude` only |
 | `roles[].model` | string | required | | the model name passed to the harness |
-| `roles[].agent` | string | none | conductor profile | the harness agent the role starts with, such as `repo-controller` |
-| `roles[].settings` | path | none | conductor profile | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard |
+| `roles[].agent` | string | none | conductor profile, `task conductor:start` | the harness agent the role starts with, such as `repo-controller`; for the `conductor` role the start tasks default to `conductor` |
+| `roles[].settings` | path | none | conductor profile, `task conductor:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard |
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
 | `controllers.max_subagents` | integer ≥ 1 | `4` | controller profile | most sub-agents one controller runs at once |
 | `repositories` | list of rule | `[]` | nothing yet | activity overrides by repository name |
@@ -131,9 +131,12 @@ when none does. When the instance names no catalog, or the catalog repository ha
 
 ## Roles, agents and settings
 
-The start tasks read the `conductor` and `conductor-dev` roles' `harness` and `model`, and start
-the sessions with the repository's own adapters (`--agent conductor`, `--agent conductor-dev`) and,
-for conductor, `.claude/conductor-settings.json`.
+The start tasks read the `conductor` and `conductor-dev` roles' `harness` and `model`.
+`task conductor:start` starts conductor in the instance's `records` directory with the
+`conductor` role's `agent` (default `conductor`) and `settings` (default this checkout's
+`.claude/conductor-settings.json`), and refuses unless the agent is a file in
+`~/.claude/agents/` or `<records>/.claude/agents/` (`task agents:link` links the shipped
+adapters there). `task dev:start` starts conductor-dev in this checkout with `--agent conductor-dev`.
 
 Conductor starts each controller with the `controller` role's `model`, `agent` and `settings`. The
 repository ships the adapter `.claude/agents/repo-controller.md` and the settings file
