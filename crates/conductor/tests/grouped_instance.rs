@@ -317,6 +317,7 @@ fn placed(id: &str, cwd: &Path, repository: Option<&str>) -> Value {
         "name": null,
         "cwd": text(cwd),
         "repository": repository,
+        "role": null,
         "activity": "Busy",
     })
 }
@@ -329,6 +330,7 @@ fn unplaced() -> Value {
         "name": null,
         "cwd": "",
         "repository": null,
+        "role": null,
         "activity": "Busy",
     })
 }

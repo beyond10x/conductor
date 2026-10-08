@@ -16,15 +16,22 @@
 //! `<root>/` or in `<trees>/`, the deeper of the two when both hold it: the directory holding
 //! `.git` at depth 1 or 2, `<repo>` or `<group>/<repo>` ([`collect::repository_of`],
 //! `story:grouped-instance`), and absent for the root itself or a group directory; `cwd` is the
-//! directory with the home directory written `~`. A session whose working directory lies in
-//! neither, or under an `exclude` entry of the instance's sources under the checkouts root, keeps
-//! its harness and activity only: its `session_ref` and `cwd` are recorded empty and its `name`
-//! absent, because they may name the operator's employer or its customers. No error names any of
-//! them: an error names the command, an entry's position in the list, or a Codex file's path.
+//! directory with the home directory written `~`. A session whose working directory is the
+//! instance's records directory or lies under it is conductor's own
+//! (`story:sessions-outside-root-explained`): it is placed, its `role` is `conductor`, and its
+//! `repository` is absent unless the records directory lies in a checkout too; every other
+//! session's `role` is absent. A records directory that is the home directory or above it places
+//! no session, nor does the built-in instance's, which is only the process's working directory. A session whose working directory lies in none of the three, or
+//! under an `exclude` entry of the instance's sources under the checkouts root, keeps its harness
+//! and activity only: its `session_ref` and `cwd` are recorded empty and its `name` absent,
+//! because they may name the operator's employer or its customers. Such a redacted row is by
+//! design, not a defect. No error names any of them: an error names the command, an entry's
+//! position in the list, or a Codex file's path.
 //!
 //! [`collect`] places against the instance the process runs ([`config::active`]), its excluded
-//! repositories left out, [`collect_in`] against any checkouts, and [`collect_from`] against the
-//! built-in instance's under [`Sources::home`] ([`collect::built_in_checkouts`]).
+//! repositories left out and its records directory conductor's, [`collect_in`] against any
+//! checkouts, and [`collect_from`] against the built-in instance's under [`Sources::home`]
+//! ([`collect::built_in_checkouts`]); the last two place no session as conductor's.
 //!
 //! Both sources are read whole before anything is recorded, so a collector that fails records no
 //! session. A Codex file whose first line is not written to its end yet is left for the next
@@ -100,9 +107,19 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         .map(PathBuf::from)
         .filter(|home| home.is_absolute())
         .context("HOME is not an absolute path; a recorded working directory writes it `~`")?;
-    let instance = &config::active().instance;
+    let active = config::active();
+    let instance = &active.instance;
     let exclude = collect::excluded_under(instance, Path::new(&instance.checkouts.root));
-    collect_excluding(&Sources::new(home), &instance.checkouts, &exclude, record)
+    // Without a config file the records directory is the process's working directory, which says
+    // nothing about where conductor's session runs.
+    let records = active.from_file.then(|| Path::new(&instance.records));
+    collect_excluding(
+        &Sources::new(home),
+        &instance.checkouts,
+        records,
+        &exclude,
+        record,
+    )
 }
 
 /// [`collect_in`], placed against the built-in instance's checkouts under [`Sources::home`].
@@ -128,11 +145,12 @@ pub fn collect_in(
     checkouts: &Checkouts,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
-    collect_excluding(sources, checkouts, &[], record)
+    collect_excluding(sources, checkouts, None, &[], record)
 }
 
-/// [`collect_in`], a session under one of the `exclude` entries under the checkouts root kept
-/// to its harness and activity, as one outside the checkouts is.
+/// [`collect_in`], a session whose working directory is `records` or lies under it placed as
+/// conductor's own, and a session under one of the `exclude` entries under the checkouts root
+/// kept to its harness and activity, as one outside the checkouts is.
 ///
 /// # Errors
 ///
@@ -140,6 +158,7 @@ pub fn collect_in(
 pub fn collect_excluding(
     sources: &Sources,
     checkouts: &Checkouts,
+    records: Option<&Path>,
     exclude: &[String],
     record: &mut Recorder<'_>,
 ) -> Result<()> {
@@ -147,6 +166,7 @@ pub fn collect_excluding(
         home: &sources.home,
         root: Path::new(&checkouts.root),
         trees: Path::new(&checkouts.trees),
+        records,
     };
     let mut sessions = claude(sources)?;
     sessions.extend(codex(sources)?);
@@ -157,12 +177,17 @@ pub fn collect_excluding(
     Ok(())
 }
 
+/// The `role` of a session placed in the instance's records directory: the instance role
+/// `conductor`, whose session runs there.
+const CONDUCTOR: &str = "conductor";
+
 /// What a working directory is placed against: the home directory, written `~`, the checkouts
-/// root and the directory of their managed trees.
+/// root, the directory of their managed trees, and the instance's records directory, if any.
 struct Places<'a> {
     home: &'a Path,
     root: &'a Path,
     trees: &'a Path,
+    records: Option<&'a Path>,
 }
 
 /// One live session as its source shows it, before it is placed.
@@ -175,9 +200,9 @@ struct Live {
 }
 
 impl Live {
-    /// The observation of this session for `snapshot`, placed against `places`: outside the
-    /// checkouts root and their managed trees, or under one of the `exclude` entries, only its
-    /// harness and activity.
+    /// The observation of this session for `snapshot`, placed against `places`: in the records
+    /// directory, conductor's role; outside the checkouts root, their managed trees and the
+    /// records directory, or under one of the `exclude` entries, only its harness and activity.
     fn observation(
         self,
         snapshot: SnapshotId,
@@ -185,9 +210,12 @@ impl Live {
         exclude: &[String],
     ) -> RecordSession {
         let placed = place(&self.cwd, places).filter(|_| !excluded(&self.cwd, places, exclude));
-        let (session_ref, name, cwd, repository) = match placed {
-            Some((cwd, repository)) => (self.reference, self.name, cwd, repository),
-            None => (String::new(), None, String::new(), None),
+        let (session_ref, name, cwd, repository, role) = match placed {
+            Some((cwd, repository)) => {
+                let role = conductors(Path::new(&self.cwd), places).then(|| CONDUCTOR.to_owned());
+                (self.reference, self.name, cwd, repository, role)
+            }
+            None => (String::new(), None, String::new(), None, None),
         };
         RecordSession {
             snapshot_id: snapshot,
@@ -196,6 +224,7 @@ impl Live {
             name,
             cwd,
             repository: repository.map(RepositoryName),
+            role,
             activity: self.activity,
         }
     }
@@ -366,13 +395,18 @@ fn session_meta(line: &[u8]) -> Result<Live> {
 
 /// Where the working directory `cwd` lies: the `cwd` to record, with the home directory written
 /// `~`, and the repository it is bound to ([`collect::repository_of`]) by its steps under the
-/// checkouts root or under the managed trees, whichever of the two is deeper when both hold it.
-/// `None` when it lies under neither, is no absolute path free of `..`, or holds a step that is
-/// not UTF-8.
+/// checkouts root or under the managed trees, whichever of the two is deeper when both hold it;
+/// in the records directory and neither of those, no repository. `None` when it lies under none
+/// of the three, is no absolute path free of `..`, or holds a step that is not UTF-8.
 fn place(cwd: &str, places: &Places<'_>) -> Option<(String, Option<String>)> {
     let cwd = Path::new(cwd);
-    let (under, rest) = root_of(cwd, places)?;
-    let repository = collect::repository_of(places.root, places.trees, under, &steps(rest)?);
+    let repository = match root_of(cwd, places) {
+        Some((under, rest)) => {
+            collect::repository_of(places.root, places.trees, under, &steps(rest)?)
+        }
+        None if conductors(cwd, places) => None,
+        None => return None,
+    };
     let (start, under) = match cwd.strip_prefix(places.home) {
         Ok(under) => ("~", under),
         Err(_) => ("", cwd),
@@ -400,6 +434,18 @@ fn root_of<'c>(cwd: &'c Path, places: &Places<'_>) -> Option<(Under, &'c Path)> 
         .filter_map(|(under, dir)| Some((dir, under, cwd.strip_prefix(dir).ok()?)))
         .max_by_key(|(dir, _, _)| dir.components().count())
         .map(|(_, under, rest)| (under, rest))
+}
+
+/// Whether the working directory `cwd` is the instance's records directory or lies under it,
+/// step by step: a sibling whose name only begins with the records directory's is not. No
+/// records directory, one that is the home directory or above it, or a `cwd` that is no absolute
+/// path free of `..`, holds no such session.
+fn conductors(cwd: &Path, places: &Places<'_>) -> bool {
+    cwd.is_absolute()
+        && !cwd.components().any(|part| part == Component::ParentDir)
+        && places.records.is_some_and(|records| {
+            records.is_absolute() && !places.home.starts_with(records) && cwd.starts_with(records)
+        })
 }
 
 /// Whether the working directory `cwd` lies under one of the `exclude` entries, each a path
@@ -444,7 +490,7 @@ mod tests {
 
     use conductor_model::observation::SessionState;
 
-    use super::{Places, claude_activity, place};
+    use super::{Places, claude_activity, conductors, place};
 
     #[test]
     fn a_claude_session_reads_its_status_before_its_state() {
@@ -481,6 +527,7 @@ mod tests {
                 home: Path::new("/h"),
                 root: Path::new("/h/src"),
                 trees: Path::new("/h/.local/state/worktree/trees/acme"),
+                records: None,
             },
         )
     }
@@ -528,6 +575,7 @@ mod tests {
             home: Path::new("/h"),
             root: Path::new("/srv/src"),
             trees: Path::new("/srv/src/.trees"),
+            records: None,
         };
         assert_eq!(
             place("/srv/src/alpha/x", &places),
@@ -538,5 +586,56 @@ mod tests {
             at("/srv/src/.trees/beta/fix-1", Some("beta"))
         );
         assert_eq!(place("/h/src/alpha", &places), None);
+    }
+
+    /// The places of [`placed`], with the records directory `records`.
+    fn with_records(records: &str) -> Places<'_> {
+        Places {
+            home: Path::new("/h"),
+            root: Path::new("/h/src"),
+            trees: Path::new("/h/.local/state/worktree/trees/acme"),
+            records: Some(Path::new(records)),
+        }
+    }
+
+    #[test]
+    fn the_records_directory_places_conductors_session_and_nothing_beside_it() {
+        let places = with_records("/h/.b10x/conductor/acme/records");
+        for inside in [
+            "/h/.b10x/conductor/acme/records",
+            "/h/.b10x/conductor/acme/records/",
+            "/h/.b10x/conductor/acme/records/docs/handoff",
+        ] {
+            assert!(conductors(Path::new(inside), &places), "{inside:?}");
+            assert!(place(inside, &places).is_some_and(|(_, repository)| repository.is_none()));
+        }
+        assert_eq!(
+            place("/h/.b10x/conductor/acme/records/docs", &places),
+            at("~/.b10x/conductor/acme/records/docs", None)
+        );
+        for beside in [
+            "/h/.b10x/conductor/acme",
+            "/h/.b10x/conductor/acme/records-old",
+            "/h/.b10x/conductor/acme/state",
+            "/h/.b10x/conductor/acme/records/../state",
+            "h/.b10x/conductor/acme/records",
+            "",
+        ] {
+            assert!(!conductors(Path::new(beside), &places), "{beside:?}");
+            assert_eq!(place(beside, &places), None, "{beside:?}");
+        }
+        assert!(!conductors(Path::new("/h/src/alpha"), &places));
+    }
+
+    #[test]
+    fn a_records_directory_at_or_above_the_home_directory_places_nothing() {
+        for records in ["/h", "/h/", "/", "h/records"] {
+            let places = with_records(records);
+            assert!(
+                !conductors(Path::new("/h/elsewhere"), &places),
+                "{records:?}"
+            );
+            assert_eq!(place("/h/elsewhere", &places), None, "{records:?}");
+        }
     }
 }

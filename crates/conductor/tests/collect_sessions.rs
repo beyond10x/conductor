@@ -194,6 +194,7 @@ fn row(
         "name": name,
         "cwd": cwd,
         "repository": repository,
+        "role": null,
         "activity": activity,
     })
 }

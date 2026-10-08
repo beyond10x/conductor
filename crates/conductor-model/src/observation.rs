@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 298028d4cd4c8fa7088c153c7f80b2fcfb36824bffdc5d86ae6c2e6b3922d4fe
-// contract digest 3410c49a39867585867a81c4f8c1cbfd8d98f180f9c6b710689c42ff6125eb0b
+// model digest 4cdc1583c495815bb1f15bbff67865887fce3772221709ce841063639727baec
+// contract digest 5e6c57bf0e16880ffc89e58f486bbcb4b52c9695c9634aba27a490a2530b3eb7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -1207,6 +1207,8 @@ pub struct SessionObservationData {
     pub cwd: String,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<RepositoryName>,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
     /// `activity` — `conductor.observation.SessionState`.
     pub activity: SessionState,
 }
@@ -2278,6 +2280,8 @@ pub struct RecordSession {
     pub cwd: String,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<RepositoryName>,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
     /// `activity` — `conductor.observation.SessionState`.
     pub activity: SessionState,
 }
@@ -2827,6 +2831,8 @@ pub struct Sessions {
     pub cwd: String,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<RepositoryName>,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
     /// `activity` — `conductor.observation.SessionState`.
     pub activity: SessionState,
 }

@@ -211,6 +211,7 @@ fn everything() -> Collector {
             name: Some("one".to_owned()),
             cwd: "~/example-org/alpha".to_owned(),
             repository: Some(alpha.clone()),
+            role: None,
             activity: SessionState::Idle,
         })?;
         record.blocker(RecordBlocker {
@@ -395,6 +396,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             name: None,
             cwd: "~/example-org/alpha".to_owned(),
             repository: Some(alpha.clone()),
+            role: None,
             activity: SessionState::Idle,
         })?;
         record.blocker(RecordBlocker {
@@ -622,6 +624,8 @@ fn record_flags() -> [(&'static str, Vec<&'static str>); 5] {
                 "~/example-org/beta",
                 "--repository",
                 "beta",
+                "--role",
+                "conductor",
                 "--activity",
                 "Waiting",
             ],
@@ -690,7 +694,7 @@ fn adv_each_record_command_reads_back_through_its_view() {
             json!({
                 "snapshot_id": STALE, "harness": "Codex", "session_ref": "session-9",
                 "name": "nine", "cwd": "~/example-org/beta", "repository": "beta",
-                "activity": "Waiting",
+                "role": "conductor", "activity": "Waiting",
             }),
         ),
         (

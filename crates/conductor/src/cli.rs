@@ -1175,6 +1175,9 @@ pub struct RecordSessionArgs {
     /// RepositoryName, optional
     #[arg(long)]
     pub repository: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub role: Option<String>,
     /// SessionState
     #[arg(long, value_parser = ["Busy", "Idle", "Waiting", "Background", "Unknown"])]
     pub activity: Option<String>,

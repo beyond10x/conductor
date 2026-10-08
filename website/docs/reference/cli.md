@@ -293,6 +293,7 @@ Usage: conductor snapshot record-session [OPTIONS]
 | `--name <NAME>` | no | none | string, optional |
 | `--cwd <CWD>` | no | none | string |
 | `--repository <REPOSITORY>` | no | none | RepositoryName, optional |
+| `--role <ROLE>` | no | none | string, optional |
 | `--activity <ACTIVITY>` | no | none | SessionState One of `Busy`, `Idle`, `Waiting`, `Background`, `Unknown`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 

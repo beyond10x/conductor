@@ -372,6 +372,7 @@ fn every_kind() -> Collector {
             name: None,
             cwd: "~/alpha".to_owned(),
             repository: Some(alpha.clone()),
+            role: None,
             activity: SessionState::Idle,
         })?;
         record.blocker(RecordBlocker {
