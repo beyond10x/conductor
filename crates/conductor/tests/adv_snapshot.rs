@@ -76,10 +76,7 @@ fn offline(root: &Path) -> PathBuf {
     fs::create_dir_all(&bin).expect("create the offline PATH");
     for program in ["git", "gh", "aep", "ess", "claude"] {
         let fake = bin.join(program);
-        fs::write(&fake, "#!/bin/sh
-echo offline >&2
-exit 1
-").expect("write a fake");
+        fs::write(&fake, "#!/bin/sh\necho offline >&2\nexit 1\n").expect("write a fake");
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
     }
     bin
