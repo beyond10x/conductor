@@ -56,6 +56,21 @@ callables:
     input: conductor.observation.StoreMigrate
     result: String
     errors: {}
+  trust:
+    target: {kind: local, owner: conductor-cli, action: trust}
+    input: conductor.config.TrustWorkspaces
+    result: List<String>
+    errors: {}
+  init:
+    target: {kind: local, owner: conductor-cli, action: init}
+    input: conductor.config.InitRecords
+    result: List<String>
+    errors: {}
+  doctor:
+    target: {kind: local, owner: conductor-cli, action: doctor}
+    input: null
+    result: List<conductor.config.Prerequisite>
+    errors: {}
 commands:
   - path: [goal, goals]
     callable: goals
@@ -129,3 +144,19 @@ commands:
     arguments:
       - field: format
         source: {kind: option, long: format}
+  - path: [trust]
+    callable: trust
+    about: Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+  - path: [init]
+    callable: init
+    about: Write and commit the instance's records directory skeleton; refuse to overwrite any file
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+  - path: [doctor]
+    callable: doctor
+    about: Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin
+    arguments: []

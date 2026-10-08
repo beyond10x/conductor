@@ -9,7 +9,9 @@
 //!   instance directories, and `.cache/b10x/conductor`, the default cache of an instance;
 //! - `b10x-gates`, the name of the Gates scanner the guard and `task check` call, and
 //!   `B10X_GATES_POLICY`, the variable that names its policy;
-//! - `github.com/beyond10x/eventlog`, where the store's crates are published.
+//! - `github.com/beyond10x/eventlog`, where the store's crates are published;
+//! - `b10x.toml`, the file the ecosystem installer writes its CLI pins to, which
+//!   `conductor doctor` reads (`story:install-prerequisites`).
 //!
 //! `tests/fixtures/store/`, the eventlog-file store an earlier build wrote and the views that build
 //! answered over it, is read like every other file: its repositories belong to `example-org`
@@ -18,7 +20,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const ALLOWED: [&str; 8] = [
+const ALLOWED: [&str; 9] = [
     ".b10x/conductor",
     ".b10x/./conductor",
     "~/.b10x",
@@ -27,6 +29,7 @@ const ALLOWED: [&str; 8] = [
     "b10x-gates",
     "b10x_gates_policy",
     "github.com/beyond10x/eventlog",
+    "b10x.toml",
 ];
 
 /// The files read for the check: everything under `dir`, but this file.

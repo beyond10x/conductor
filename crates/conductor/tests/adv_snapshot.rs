@@ -8,6 +8,7 @@
 //! directory, and runs the binary from that directory's empty `work/` with `--state-dir`.
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::fs::symlink;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -66,10 +67,11 @@ fn state(root: &Path) -> PathBuf {
     root.join("state")
 }
 
-/// A `PATH` for `start-snapshot` that holds only the `df` this process finds: the free disk is
-/// measured, and the registered collectors reach no live source. With no `gh` the `repositories`
-/// collector fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a
-/// real checkout.
+/// A `PATH` for `start-snapshot` that holds the `df` this process finds and, for each program the
+/// collectors start, a fake that prints `offline` on standard error and exits 1: the free disk is
+/// measured, the start-time check finds every program (`story:install-prerequisites`), and the
+/// registered collectors reach no live source. The `repositories` collector fails at its first
+/// command, so nothing asks GitHub and nothing runs `git fetch` in a real checkout.
 fn offline(root: &Path) -> PathBuf {
     let bin = root.join("offline");
     fs::create_dir_all(&bin).expect("create the offline PATH");
@@ -81,6 +83,11 @@ fn offline(root: &Path) -> PathBuf {
         })
         .expect("df is on PATH");
     symlink(df, bin.join("df")).expect("link df");
+    for program in ["git", "gh", "aep", "ess", "claude"] {
+        let fake = bin.join(program);
+        fs::write(&fake, "#!/bin/sh\necho offline >&2\nexit 1\n").expect("write a fake");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
     bin
 }
 
@@ -496,8 +503,8 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
     );
 }
 
-/// `collect::registered` runs in the order its documentation gives, and `start-snapshot` with no
-/// `gh` on `PATH` fails naming the first of them, which could not start its first command.
+/// `collect::registered` runs in the order its documentation gives, and `start-snapshot` with a
+/// `gh` that fails fails naming the first of them, stopped at its first command.
 #[test]
 fn adv_the_registered_collectors_run_in_the_documented_order() {
     let names: Vec<&str> = collect::registered().iter().map(Collector::name).collect();
@@ -525,7 +532,8 @@ fn adv_the_registered_collectors_run_in_the_documented_order() {
         stderr.contains(&format!(
             "snapshot {} failed: repositories: ",
             stdout(&output)
-        )) && stderr.contains("start `gh`"),
+        )) && stderr.contains("`gh repo list")
+            && stderr.contains("exited 1: offline"),
         "the first registered collector is the one named, stopped at its first command: {}",
         describe(&output)
     );

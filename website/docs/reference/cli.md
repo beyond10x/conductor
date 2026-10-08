@@ -117,8 +117,11 @@ Every command takes these, before or after its name.
 | [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
+| [`conductor doctor`](#conductor-doctor) | Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin |
+| [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved |
+| [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
 | [`conductor watch`](#conductor-watch) |  |
 | [`conductor watch run`](#conductor-watch-run) | Watch sessions, usage limits, conductor's context, free disk and main's CI; exit after the first pass that finds a change |
 
@@ -1347,6 +1350,26 @@ Usage: conductor dashboard serve [OPTIONS]
 | `--port <PORT>` | no | none | The port on 127.0.0.1; 0 picks a free one. Default: 7313 |
 | `--root <DIR>` | no | none | The conductor repository, whose dispatches/ and decisions/ are read. Default: the instance's records when a config file names it, else the nearest directory holding both, from the working directory up |
 
+## `conductor doctor`
+
+Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin
+
+```text
+Usage: conductor doctor [OPTIONS]
+```
+
+## `conductor init`
+
+Write and commit the instance's records directory skeleton; refuse to overwrite any file
+
+```text
+Usage: conductor init [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance whose records directory is written. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
+
 ## `conductor store`
 
 ```text
@@ -1364,6 +1387,18 @@ Usage: conductor store migrate [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the counts moved are printed: text or json. Default: text |
+
+## `conductor trust`
+
+Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json
+
+```text
+Usage: conductor trust [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance whose checkouts and records directory are trusted. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
 
 ## `conductor watch`
 

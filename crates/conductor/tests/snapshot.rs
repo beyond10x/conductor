@@ -7,6 +7,7 @@
 //! `--state-dir` naming that `state/`; every run leaves `work/` empty.
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -63,10 +64,11 @@ fn run_with(cwd: &Path, path_env: Option<&Path>, args: &[&str]) -> Output {
     command.output().expect("the conductor binary runs")
 }
 
-/// A `PATH` for `start-snapshot` that holds only the `df` this process finds: the free disk is
-/// measured, and the registered collectors reach no live source. With no `gh` the `repositories`
-/// collector fails at its first command, so nothing asks GitHub and nothing runs `git fetch` in a
-/// real checkout.
+/// A `PATH` for `start-snapshot` that holds the `df` this process finds and, for each program the
+/// collectors start, a fake that prints `offline` on standard error and exits 1: the free disk is
+/// measured, the start-time check finds every program (`story:install-prerequisites`), and the
+/// registered collectors reach no live source. The `repositories` collector fails at its first
+/// command, so nothing asks GitHub and nothing runs `git fetch` in a real checkout.
 fn offline(root: &Path) -> PathBuf {
     let bin = root.join("offline");
     fs::create_dir_all(&bin).expect("create the offline PATH");
@@ -78,6 +80,11 @@ fn offline(root: &Path) -> PathBuf {
         })
         .expect("df is on PATH");
     std::os::unix::fs::symlink(df, bin.join("df")).expect("link df");
+    for program in ["git", "gh", "aep", "ess", "claude"] {
+        let fake = bin.join(program);
+        fs::write(&fake, "#!/bin/sh\necho offline >&2\nexit 1\n").expect("write a fake");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
     bin
 }
 

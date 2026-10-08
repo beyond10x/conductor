@@ -567,11 +567,13 @@ pub(crate) fn record(
 /// the measured free bytes.
 ///
 /// Prints the snapshot's id. Exits 0 when it completed, and 1 with one line naming the collector
-/// that did not answer when it failed.
+/// that did not answer when it failed. Takes no snapshot when a program the collectors start for
+/// the instance ([`collect::programs`]) is not on `PATH`.
 ///
 /// # Errors
 ///
-/// `InvalidCount` for negative free bytes, or what [`take`] answers.
+/// `InvalidCount` for negative free bytes, a program the collectors start is missing (named), or
+/// what [`take`] answers.
 pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<ExitCode> {
     const COMMAND: &str = "snapshot start-snapshot";
     no_input_json(args.input_json, "snapshot start-snapshot --input-json")?;
@@ -589,12 +591,14 @@ pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<E
             disk_free_bytes,
         };
         let dir = absolute(&crate::state::dir(state)?)?;
-        let taken = drive(
-            crate::store::open(&dir)?,
-            Some(&dir),
-            start,
-            &collect::registered(),
+        let store = crate::store::open(&dir)?;
+        // Refuse at start, naming each program a collector would start and cannot
+        // (`story:install-prerequisites`), rather than fail inside that collector.
+        crate::doctor::require(
+            &collect::programs(&crate::config::active().instance),
+            "a snapshot's collectors",
         )?;
+        let taken = drive(store, Some(&dir), start, &collect::registered())?;
         line(&taken.snapshot_id.0.0)?;
         Ok(taken)
     })?;

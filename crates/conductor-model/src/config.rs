@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest a61944b1d962028b0aff537f36be397359d5ec8be287a7db0368ad0bad816597
-// contract digest cf5dcfb046d79cfcab8cd24240fae61c3aac1f945b760367fefff77c0d5a1bd1
+// model digest a6d07551d06c8b1241f3b316b33112dc1c770463debc8cb523a8cc7bb57a4f62
+// contract digest 7095a3983cb4d71be652260664afd1026e111a68a7b7949335a8e3d8a2e92ba9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -122,6 +122,13 @@ pub enum Harness {
     Codex,
 }
 
+/// InitRecords — `conductor.config.InitRecords`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InitRecords {
+    /// `instance` — `Optional<String>`.
+    pub instance: Option<String>,
+}
+
 /// Instance — `conductor.config.Instance`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instance {
@@ -170,6 +177,34 @@ pub struct LocalSource {
     pub path: String,
     /// `exclude` — `List<String>`.
     pub exclude: Vec<String>,
+}
+
+/// Prerequisite — `conductor.config.Prerequisite`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prerequisite {
+    /// `program` — `String`.
+    pub program: String,
+    /// `state` — `conductor.config.PrerequisiteState`.
+    pub state: PrerequisiteState,
+    /// `version_line` — `Optional<String>`.
+    pub version_line: Option<String>,
+    /// `version` — `Optional<String>`.
+    pub version: Option<String>,
+    /// `pin` — `Optional<String>`.
+    pub pin: Option<String>,
+}
+
+/// PrerequisiteState — `conductor.config.PrerequisiteState`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrerequisiteState {
+    /// `Present`.
+    Present,
+    /// `Missing`.
+    Missing,
+    /// `OlderThanPin`.
+    OlderThanPin,
+    /// `VersionUnread`.
+    VersionUnread,
 }
 
 /// Report — `conductor.config.Report`.
@@ -272,6 +307,13 @@ pub struct TimeOfDay(pub String);
 /// Tokens — `conductor.config.Tokens`: a distinct wrapper around `Integer`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tokens(pub i64);
+
+/// TrustWorkspaces — `conductor.config.TrustWorkspaces`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustWorkspaces {
+    /// `instance` — `Optional<String>`.
+    pub instance: Option<String>,
+}
 
 /// ValidateConfig — `conductor.config.ValidateConfig`.
 #[derive(Debug, Clone, PartialEq, Eq)]

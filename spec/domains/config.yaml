@@ -261,3 +261,43 @@ types:
     fields:
       - {name: format, type: Optional<String>}
       - {name: instance, type: Optional<String>}
+
+  # The input of `conductor trust` (story:portable-trust), which marks every git checkout
+  # directly under the instance's `checkouts.root`, and its `records` directory by its physical
+  # path, as trusted Claude Code workspaces in `~/.claude.json`. `instance` is selected as for
+  # `config show`; a config file must name it. The records path may hold no line break and must
+  # be a directory.
+  - name: conductor.config.TrustWorkspaces
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<String>}
+
+  # The input of `conductor init` (story:first-run-seed), which writes the instance's records
+  # directory skeleton — a git repository holding `NORTHSTAR.md`, `docs/handoff/<date>.md` with a
+  # first task, `rules.md` with one section per role, a `README.md`, and `decisions/`,
+  # `dispatches/` and `charters/` — and commits it, refusing to overwrite any file. `instance` is
+  # selected as for `config show`; a config file must name it.
+  - name: conductor.config.InitRecords
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<String>}
+
+  # What `conductor doctor` found of one program conductor starts (story:install-prerequisites):
+  # `Present`, on `PATH` and runnable, at or above its pin when the nearest `b10x.toml` pins it;
+  # `Missing`; `OlderThanPin`, present and older than that pin; `VersionUnread`, present and
+  # pinned, with no version read from what `--version` printed.
+  - name: conductor.config.PrerequisiteState
+    kind: enum
+    variants: [Present, Missing, OlderThanPin, VersionUnread]
+
+  # One program conductor starts, as `conductor doctor` reports it: the first line its
+  # `--version` printed, the version read from that line, and its `b10x.toml` pin, `x.y.z` or
+  # `x.y`, when one is written.
+  - name: conductor.config.Prerequisite
+    kind: struct
+    fields:
+      - {name: program, type: String}
+      - {name: state, type: conductor.config.PrerequisiteState}
+      - {name: version_line, type: Optional<String>}
+      - {name: version, type: Optional<String>}
+      - {name: pin, type: Optional<String>}

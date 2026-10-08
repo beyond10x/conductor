@@ -20,7 +20,8 @@
 //! - besides the `cli:` block, each command the binding declares over a `local` callable
 //!   (`story:live-dashboard`), at its binding path, with its `about` as help and exactly the
 //!   option flags the binding maps its input fields to. Its group is the block's group of that
-//!   name, or a new one after the block's groups, with no help, when the block has none.
+//!   name, or a new one after the block's groups, with no help, when the block has none; a
+//!   one-word such command (`conductor trust`) is a word of its own after the block's groups.
 //!
 //! No other word parses: no catch-all, no inferred prefix, no `help` word, no positional. The
 //! binding's `globals` must also name an output flag (`ess-cli/1` refuses a binding without
@@ -98,6 +99,10 @@ struct Group {
     name: String,
     summary: Option<String>,
     leaves: Vec<Leaf>,
+    /// For a one-word command the binding declares over a `local` callable (`conductor trust`):
+    /// the option flags it takes. Such a group is itself the command, with its `about` as
+    /// `summary`, and has no leaves.
+    leaf: Option<Vec<LocalFlag>>,
 }
 
 #[derive(Debug)]
@@ -246,20 +251,30 @@ fn placed(spec: &Spec, path: &[String]) -> bool {
     }
 }
 
-/// The groups the derive tree presents: the `cli:` block's, then each two-word command the
-/// binding declares over a `local` callable outside the block, in the binding's order. Such a
+/// The groups the derive tree presents: the `cli:` block's, then each command the binding
+/// declares over a `local` callable outside the block, in the binding's order. A two-word such
 /// command joins the block's group of its first word, or opens a new group, with no help, after
-/// the block's. `the_binding_presents_only_placed_leaves_and_local_commands` reports every other
-/// binding command outside the block.
+/// the block's; a one-word one is a word of its own after the block's groups, with its `about`
+/// as help and its flags. `the_binding_presents_only_placed_leaves_and_local_commands` reports
+/// every other binding command outside the block.
 fn presented(spec: &Spec, binding: &Binding) -> Vec<Group> {
     let mut groups = spec.groups.clone();
     for command in &binding.commands {
-        let [group, wire] = command.path.as_slice() else {
-            continue;
-        };
         if command.target != "local" || placed(spec, &command.path) {
             continue;
         }
+        if let [word] = command.path.as_slice() {
+            groups.push(Group {
+                name: word.clone(),
+                summary: command.about.clone(),
+                leaves: Vec::new(),
+                leaf: Some(command.flags.clone()),
+            });
+            continue;
+        }
+        let [group, wire] = command.path.as_slice() else {
+            continue;
+        };
         let leaf = Leaf {
             qualified: format!("binding command `{}`", command.path.join(" ")),
             wire: wire.clone(),
@@ -274,6 +289,7 @@ fn presented(spec: &Spec, binding: &Binding) -> Vec<Group> {
                 name: group.clone(),
                 summary: None,
                 leaves: vec![leaf],
+                leaf: None,
             }),
         }
     }
@@ -425,6 +441,7 @@ fn read_spec() -> Spec {
             name,
             summary,
             leaves,
+            leaf: None,
         });
     }
     Spec {
@@ -625,7 +642,18 @@ fn derive_tree_is_the_cli_block() {
         let path = format!("{} {}", spec.binary, group.name);
         check_about(&path, actual, group.summary.as_deref(), &mut problems);
         let group_flags = flag_words(&path, actual, &mut problems);
-        compare_flags(&path, &global, &group_flags, &mut problems);
+        // A one-word local command takes the binding's flags beside the global ones; a group
+        // takes the global ones only.
+        let mut expected_flags = global.clone();
+        for flag in group.leaf.iter().flatten() {
+            if !expected_flags.insert(flag.long.clone()) {
+                problems.push(format!(
+                    "`{path}`: binding flag `--{}` collides with another word",
+                    flag.long
+                ));
+            }
+        }
+        compare_flags(&path, &expected_flags, &group_flags, &mut problems);
 
         let expected_leaves: Vec<&str> =
             group.leaves.iter().map(|leaf| leaf.wire.as_str()).collect();
@@ -914,37 +942,34 @@ fn every_flag_accepts_what_its_field_holds() {
                     }
                     expect_value_refused(&argv(&base, &["--format", "yaml"]), &mut problems);
                 }
-                // A local handler may narrow what its field holds (a port is an `Integer` the
-                // flag holds to 0..=65535), so only values every such flag takes are accepted
-                // here, and only values its field cannot hold are refused.
-                Kind::Local { flags } => {
-                    for flag in flags {
-                        let (accepted, refused): (&[&str], &[&str]) = match flag.holds.as_str() {
-                            "integer" => (&["42"], &["4.2", "x"]),
-                            "string" => (&["a value"], &[]),
-                            "boolean" => (&["true", "false"], &["maybe"]),
-                            other => {
-                                problems.push(format!(
-                                    "`{} {} {} --{}` holds {other}, which this test does not \
-                                     map onto a flag; teach it before declaring such a field",
-                                    spec.binary, group.name, leaf.wire, flag.long
-                                ));
-                                continue;
-                            }
-                        };
-                        let word = format!("--{}", flag.long);
-                        for value in accepted {
-                            expect_accepted(&argv(&base, &[word.as_str(), value]), &mut problems);
-                        }
-                        for value in refused {
-                            expect_value_refused(
-                                &argv(&base, &[word.as_str(), value]),
-                                &mut problems,
-                            );
-                        }
-                    }
-                }
+                Kind::Local { flags } => local_flags_accept(&base, flags, &mut problems),
             }
+        }
+        // A one-word local command: the global flags before and after it, and its own flags.
+        if let Some(flags) = &group.leaf {
+            if root.find_subcommand(&group.name).is_none() {
+                problems.push(format!(
+                    "`{} {}` (binding command `{}`) cannot be parsed: it is not in the derive \
+                     tree",
+                    spec.binary, group.name, group.name
+                ));
+                continue;
+            }
+            checked += 1;
+            let base = [spec.binary.as_str(), group.name.as_str()];
+            expect_accepted(&base, &mut problems);
+            for (flag, value) in [
+                (state_flag.as_str(), "some/state"),
+                (config_flag.as_str(), "some/config.yaml"),
+            ] {
+                expect_accepted(
+                    &[spec.binary.as_str(), flag, value, group.name.as_str()],
+                    &mut problems,
+                );
+                expect_accepted(&argv(&base, &[flag, value]), &mut problems);
+                expect_value_refused(&argv(&base, &[flag, ""]), &mut problems);
+            }
+            local_flags_accept(&base, flags, &mut problems);
         }
     }
     fail(
@@ -955,6 +980,36 @@ fn every_flag_accepts_what_its_field_holds() {
         checked > 0,
         "the cli block places no command or view, so nothing was checked"
     );
+}
+
+/// The flags of a command the binding declares over a `local` callable, at `base`, accept what
+/// their fields hold. A local handler may narrow what its field holds (a port is an `Integer` the
+/// flag holds to 0..=65535), so only values every such flag takes are accepted here, and only
+/// values its field cannot hold are refused.
+fn local_flags_accept(base: &[&str], flags: &[LocalFlag], problems: &mut Vec<String>) {
+    for flag in flags {
+        let (accepted, refused): (&[&str], &[&str]) = match flag.holds.as_str() {
+            "integer" => (&["42"], &["4.2", "x"]),
+            "string" => (&["a value"], &[]),
+            "boolean" => (&["true", "false"], &["maybe"]),
+            other => {
+                problems.push(format!(
+                    "`{} --{}` holds {other}, which this test does not map onto a flag; teach it \
+                     before declaring such a field",
+                    base.join(" "),
+                    flag.long
+                ));
+                continue;
+            }
+        };
+        let word = format!("--{}", flag.long);
+        for value in accepted {
+            expect_accepted(&argv(base, &[word.as_str(), value]), problems);
+        }
+        for value in refused {
+            expect_value_refused(&argv(base, &[word.as_str(), value]), problems);
+        }
+    }
 }
 
 fn expect_refused_as(argv: &[&str], wanted: ErrorKind, why: &str, problems: &mut Vec<String>) {
@@ -989,6 +1044,42 @@ fn no_word_outside_the_cli_block_parses() {
         groups.iter().map(|group| group.name.as_str()).collect(),
     )];
     for group in &groups {
+        if group.leaf.is_some() {
+            // A one-word command has no subcommand level: a word after it is a stray word, and
+            // so is `help`.
+            let Some(command) = root.find_subcommand(&group.name) else {
+                problems.push(format!(
+                    "`{} {}` (binding command `{}`) is not in the derive tree",
+                    spec.binary, group.name, group.name
+                ));
+                continue;
+            };
+            let base = [spec.binary.as_str(), group.name.as_str()];
+            for stray in ["stray-word", "help"] {
+                expect_refused_as(
+                    &argv(&base, &[stray]),
+                    ErrorKind::UnknownArgument,
+                    "a one-word command takes no positional word",
+                    &mut problems,
+                );
+            }
+            let flags: Vec<&str> = command
+                .get_arguments()
+                .filter_map(|arg| arg.get_long())
+                .collect();
+            for flag in &flags {
+                if let Some(short) = shortened(flag, &flags) {
+                    let word = format!("--{short}");
+                    expect_refused_as(
+                        &argv(&base, &[word.as_str()]),
+                        ErrorKind::UnknownArgument,
+                        "a prefix of a flag is not that flag",
+                        &mut problems,
+                    );
+                }
+            }
+            continue;
+        }
         levels.push((
             vec![spec.binary.as_str(), group.name.as_str()],
             group.leaves.iter().map(|leaf| leaf.wire.as_str()).collect(),
@@ -1066,8 +1157,8 @@ fn no_word_outside_the_cli_block_parses() {
 /// `cli:` block does not place validates too. So every command the binding presents is checked
 /// here to be a placed leaf of the block, under the block's binary and with its display as help,
 /// or a command over a `local` callable, which the derive tree presents beside the block
-/// (`story:live-dashboard`). Such a command has two words, no alias and only option flags: those
-/// are what `derive_tree_is_the_cli_block` compares.
+/// (`story:live-dashboard`). Such a command has one or two words, no alias and only option flags:
+/// those are what `derive_tree_is_the_cli_block` compares.
 #[test]
 fn the_binding_presents_only_placed_leaves_and_local_commands() {
     let spec = read_spec();
@@ -1102,11 +1193,18 @@ fn the_binding_presents_only_placed_leaves_and_local_commands() {
                 leaf.qualified, leaf.display
             )),
             None if command.target == "local" => {
-                if command.path.len() != 2 {
+                if !matches!(command.path.len(), 1 | 2) {
                     problems.push(format!(
                         "local binding command `{path}` has {} word(s); the derive tree presents \
-                         two (group, command)",
+                         one (command) or two (group, command)",
                         command.path.len()
+                    ));
+                }
+                if let [word] = command.path.as_slice()
+                    && spec.groups.iter().any(|group| group.name == *word)
+                {
+                    problems.push(format!(
+                        "local binding command `{path}` is the name of a group of the cli block"
                     ));
                 }
                 if command.aliases > 0 {
