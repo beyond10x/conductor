@@ -4,6 +4,8 @@ id: story:spawn
 kind: story
 status: draft
 title: Starting a controller launches its session
+relations:
+- depends_on: story:instance-session-names
 revision: 1
 ---
 # Starting a controller launches its session

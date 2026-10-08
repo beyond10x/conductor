@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-08T22:34:10Z",
+  "actor": "human:timo",
+  "artifact": "story:substrate-session-provider",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision a03e0ee7d (bodies, edges, new seam and substrate stories)",
+    "review": "review-result:conf-parallel-round-1",
+    "outcome": "fixed"
+  }
+}

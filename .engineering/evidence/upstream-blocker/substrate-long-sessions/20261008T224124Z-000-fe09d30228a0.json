@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-08T22:41:24Z",
+  "actor": "human:timo",
+  "artifact": "upstream-blocker:substrate-long-sessions",
+  "kind": "upstream-blocker",
+  "revision": 2,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "kept open: an upstream blocker has no retired state; its body records that it parks the archived route",
+    "review": "review-result:conf-scope-round-2",
+    "outcome": "no-op"
+  }
+}

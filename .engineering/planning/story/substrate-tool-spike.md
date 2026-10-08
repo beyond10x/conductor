@@ -6,7 +6,10 @@ status: draft
 title: 'Spike: a session''s commands run inside substrate through an MCP server'
 relations:
 - decomposes: epic:session-confinement
-revision: 1
+scope:
+- confidence: cited
+  path: docs/analysis/substrate-tool-spike.md
+revision: 4
 ---
 ## Why
 
@@ -17,9 +20,9 @@ SendMessage and sub-agents beside an MCP server.
 
 ## Acceptance
 
-A page in `docs/analysis/` with the commands and their output for the three steps of docs/analysis/2026-10-09-substrate-benefits.md § 5.4,
-and a go/no-go for: the tool route, and gates run through the in-process host on an adopted tree.
-Each step records:
+A page `docs/analysis/substrate-tool-spike.md` with the commands and their output for the three
+steps of docs/analysis/2026-10-09-substrate-benefits.md § 5.4, and a go/no-go for: the tool route, and gates run through the in-process host on
+an adopted tree. Each step records:
 - `b10x-harness tools … --substrate-embedded` under a delegated scope: `run` published or withheld;
 - a scratch binary on `b10x-harness-substrate`: `git status`, `cargo test --offline -p conductor`
   (wall time, CPU, memory peak), a write outside `target` refused or not;
@@ -29,4 +32,4 @@ Each step records:
 
 ## Scope
 
-`docs/analysis/` (new page); scratch code outside the repository, not committed.
+`docs/analysis/substrate-tool-spike.md` (new); scratch code outside the repository, not committed.

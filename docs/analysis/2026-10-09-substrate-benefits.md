@@ -145,7 +145,12 @@ Builds on their own fit better. A `cargo test` can get a read-only toolchain roo
    - bubblewrap or Landlock around each controller for write confinement.
 
    `setquota -P` follows once the `prjquota` decision is taken.
-2. **Adopt from substrate, later:** run large gates (`task check`, `cargo test`) as substrate execs, for exact usage, no network and hard `/scratch` quotas. Wait until execs can run in an adopted directory (`STATUS.md:144-150`) and the one-core-per-exec CPU cap is lifted or documented (`process.rs:3058-3071`). Reconsider remote controllers when an Identity service exists.
+2. **Adopt from substrate, later**, with Claude Code itself staying outside (§ 5):
+   - first a spike (§ 5.4): does the in-process host publish `run` for an adopted managed tree, and do git, offline cargo, SendMessage and sub-agents work beside the tool server;
+   - a session's commands through a tool server conductor owns (§ 5.3), for per-call write confinement, no network per call and per-call usage;
+   - large gates (`task check`, `cargo test`) as substrate execs, for exact usage, no network and hard `/scratch` quotas. The daemon needs execs in an adopted directory (`STATUS.md:144-150`); the in-process host adopts one today (§ 5.1), which the spike checks. The one-core-per-exec cap (`process.rs:3058-3071`) makes them slow, not impossible.
+
+   Reconsider remote controllers when an Identity service exists.
 3. **Substrate does not help with:**
    - usage limits (HTTP 429) and context hand-overs;
    - `--bg` sessions living under Claude Code's daemon;

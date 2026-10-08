@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-08T22:41:23Z",
+  "actor": "human:timo",
+  "artifact": "story:session-writes-bwrap",
+  "kind": "story",
+  "revision": 8,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2 (bodies, scopes, edges; see the wave/03 commit)",
+    "review": "review-result:conf-design-round-2",
+    "outcome": "fixed"
+  }
+}

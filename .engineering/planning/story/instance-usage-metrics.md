@@ -3,7 +3,7 @@ format: aep.planning-md/3
 id: story:instance-usage-metrics
 kind: story
 status: draft
-title: The dashboard and the watch show CPU, memory and io per instance and session
+title: The dashboard shows CPU, memory and io per instance and session
 relations:
 - informed_by: story:substrate-session-spike
 - depends_on: story:instance-session-names
@@ -20,10 +20,12 @@ scope:
 - confidence: cited
   path: crates/conductor/src/usage_metrics.rs
 - confidence: cited
-  path: crates/conductor/src/watch.rs
+  path: crates/conductor/tests/usage_metrics.rs
 - confidence: cited
-  path: spec/domains/config.yaml
-revision: 10
+  path: docs/analysis/usage-metrics-run.md
+- confidence: cited
+  path: spec/domains/observation.yaml
+revision: 14
 ---
 ## Why
 
@@ -34,21 +36,26 @@ from the processes until `story:session-limits-systemd` gives each session a cgr
 
 ## Acceptance
 
+- Before any code: `claude agents --json` is checked for a pid per background session. If it has
+  none, the unit stops and reports, and the `/proc` source is redrawn.
 - Spec first, in `spec/domains/observation.yaml`: a session's usage (CPU time, resident memory, io
   bytes, process count, read time, source).
-- Sources, each tested with fixtures:
+- Sources, each tested with fixtures (`crates/conductor/tests/usage_metrics.rs`):
   - the session's process tree from `/proc` (`/proc/<pid>/stat`, `status`, `io`, children through
-    `/proc/<pid>/task/*/children`), the pid from `claude agents --json`; a fixture `/proc` tree;
+    `/proc/<pid>/task/*/children`); a fixture `/proc` tree;
   - the session's cgroup v2 files when the envelope measurement names a cgroup; a fixture cgroup
     directory.
 - The dashboard shows the usage per session and summed per instance: a render test with fixture
   readings finds each value in the output.
-- Not here: a threshold line in the watch (alerting is not in the epic), and substrate's
-  `/v1/metrics` (that reading belongs to `story:substrate-client`).
+- One recorded run (`docs/analysis/usage-metrics-run.md`): the dashboard page for a live controller
+  on this host, beside `systemctl --user show` or `ps` for the same session in the same minute.
+- Not here: a threshold line in the watch (alerting is not in the epic), and substrate's usage
+  (that reading belongs to `story:substrate-client`).
 
 ## Scope
 
 `spec/domains/observation.yaml`, `crates/conductor-model/`, `crates/conductor/src/usage_metrics.rs`
 (new), `crates/conductor/src/dashboard/`, `crates/conductor/src/lib.rs`,
-`crates/conductor/tests/usage_metrics.rs` (new). After `session-limits-systemd` (cgroup per
-session) and `session-envelope-model` (shared `observation.yaml` and generated crate).
+`crates/conductor/tests/usage_metrics.rs` (new), `docs/analysis/usage-metrics-run.md` (new). After
+`session-limits-systemd` (cgroup per session) and `session-envelope-model` (shared
+`observation.yaml` and generated crate).

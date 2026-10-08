@@ -8,6 +8,7 @@ relations:
 - depends_on: story:host-grants
 - decomposes: epic:session-confinement
 - depends_on: story:quota-support-report
+- depends_on: story:substrate-tool-server
 scope:
 - confidence: cited
   path: crates/conductor-model
@@ -16,8 +17,14 @@ scope:
 - confidence: cited
   path: crates/conductor/src/quota.rs
 - confidence: cited
+  path: crates/conductor/tests/quota.rs
+- confidence: cited
+  path: docs/analysis/storage-quota-run.md
+- confidence: cited
+  path: docs/config.md
+- confidence: cited
   path: spec/domains/config.yaml
-revision: 8
+revision: 11
 ---
 ## Why
 
@@ -33,11 +40,13 @@ Once that blocker is cleared with option A or B:
   the commands conductor builds with a fake `setquota`;
 - a manual check the operator runs once on the chosen filesystem: write past the limit in an
   instance's tree and observe `EDQUOT` (a test can't reach the real quota without root). The
-  commands and output go into `docs/analysis/`.
+  commands and output go into `docs/analysis/storage-quota-run.md`.
 
 ## Scope
 
 `spec/domains/config.yaml`, `crates/conductor/src/config.rs`, `crates/conductor/src/quota.rs` (new),
-`crates/conductor/tests/quota.rs` (new), `crates/conductor-model/`, `docs/config.md`. After
-`host-grants` and `quota-support-report` (shared `config.yaml`, `config.rs`, generated crate, by way
-of `session-envelope-model`).
+`crates/conductor/tests/quota.rs` (new), `crates/conductor-model/`, `docs/config.md`,
+`docs/analysis/storage-quota-run.md` (new). After `host-grants`, `quota-support-report` and
+`substrate-tool-server`: they and the stories before them change `config.yaml`, `config.rs` and the
+generated crate. This story is blocked on a decision, so it goes last; if the decision lands first,
+the edge to `substrate-tool-server` is turned around.

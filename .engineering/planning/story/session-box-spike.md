@@ -8,8 +8,8 @@ relations:
 - decomposes: epic:session-confinement
 scope:
 - confidence: cited
-  path: docs/analysis
-revision: 2
+  path: docs/analysis/session-box-spike.md
+revision: 4
 ---
 ## Why
 
@@ -21,7 +21,7 @@ user unit, and each session's `bg-pty-host` is moved into a child cgroup.
 
 ## Acceptance
 
-- A page in `docs/analysis/` with, for each way, the commands run in a scratch checkout and their
+- A page `docs/analysis/session-box-spike.md` with, for each way, the commands run in a scratch checkout and their
   output: does the session run in the intended cgroup (`/proc/<pid>/cgroup`), does it appear in
   `claude agents --json`, does it receive a SendMessage from another session, does it survive the
   starting shell ending, can it be resumed (`claude --resume`) and stopped cleanly, and does a
@@ -31,4 +31,4 @@ user unit, and each session's `bg-pty-host` is moved into a child cgroup.
 
 ## Scope
 
-`docs/analysis/` (new page); no product code.
+`docs/analysis/session-box-spike.md` (new); no product code.

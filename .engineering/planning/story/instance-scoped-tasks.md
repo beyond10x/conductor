@@ -7,16 +7,19 @@ title: Every task acts on the active instance's sessions only
 relations:
 - decomposes: epic:multi-instance-host
 - depends_on: story:instance-session-names
+- depends_on: story:guard-all-tools
 scope:
 - confidence: cited
   path: Taskfile.yml
+- confidence: cited
+  path: crates/conductor-model
 - confidence: cited
   path: crates/conductor/src/config.rs
 - confidence: cited
   path: crates/conductor/tests/taskfile.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 7
+revision: 8
 ---
 ## Why
 

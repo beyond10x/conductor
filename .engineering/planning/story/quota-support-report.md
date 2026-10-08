@@ -11,7 +11,9 @@ relations:
 scope:
 - confidence: cited
   path: crates/conductor/src/doctor.rs
-revision: 3
+- confidence: cited
+  path: crates/conductor/tests/doctor.rs
+revision: 4
 ---
 ## Why
 
