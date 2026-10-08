@@ -10,6 +10,7 @@ the sessions.
 
 - Design: [`docs/design/conductor.md`](docs/design/conductor.md)
 - Config reference: [`docs/config.md`](docs/config.md)
+- Documentation site: built from [`website/`](website/); not published yet
 - Working on this repository (agents and contributors): [`AGENTS.md`](AGENTS.md)
 
 ## How it works
@@ -103,8 +104,9 @@ instances:
 ```
 
 `records` is the directory the conductor session runs in, and the guard gives conductor its rules
-only there. `task conductor:start` starts the session in this checkout, so the example sets
-`records` to this checkout (`~/example-org/conductor`). The controller role's `agent` and
+only there. `task conductor:start` starts the session in that directory, wherever it is: a git
+repository of the instance's own, kept apart from this checkout (default
+`~/.b10x/conductor/<name>/records`). The controller role's `agent` and
 `settings` are the adapter and the settings file conductor starts each controller with.
 
 [`conductor.example.yaml`](conductor.example.yaml) has two instances, one with a catalog and one
@@ -125,8 +127,9 @@ Then write the instance's `rules.md` in its records directory.
 From this checkout:
 
 ```console
-task trust                # mark every checkout under checkouts.root as a trusted Claude Code workspace
-task conductor:start      # start the conductor session in the background
+task agents:link          # link the three Claude Code adapters into ~/.claude/agents
+task trust                # trust every checkout under checkouts.root and the records directory
+task conductor:start      # start the conductor session in the records directory, in the background
 task conductor:attach     # open it in this terminal
 task sessions             # which conductor sessions are running
 task dashboard            # a read-only page on http://127.0.0.1:7313/
@@ -157,7 +160,7 @@ Read this before you start sessions on repositories you care about.
 - `task trust` marks every checkout under `checkouts.root` as a trusted Claude Code workspace, so
   the project settings and hooks of each of those repositories run without a prompt.
 - Run conductor under a user account, and with forge credentials, whose reach you accept for an
-  unattended agent. An operating-system sandbox for Bash is planned (story `bash-sandbox`).
+  unattended agent. An operating-system sandbox for Bash is planned.
 
 ## Licence
 

@@ -31,6 +31,9 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | `crates/conductor/` | the `conductor` CLI: handlers, collectors, guard, watch, dashboard, store |
 | `crates/conductor/cli.yaml` | the `ess-cli/1` binding: global flags and the local commands outside the `cli:` block |
 | `crates/conductor/tests/` | integration tests and fixtures |
+| `crates/conductor-docs/` | the documentation generator: reference pages, status page, site provenance |
+| `website/` | the documentation site (Docusaurus on the shared Docs System); `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json` are generated |
+| `docs/waves/` | one page per wave: selection, units, outcome |
 | `.agents/` | the generic profiles: `conductor.md`, `conductor-dev.md`, `repo-controller.md` |
 | `.claude/agents/` | Claude Code adapters, one per profile; each keeps the agent frontmatter and points at its `.agents/` file |
 | `.claude/conductor-settings.json`, `.claude/controller-settings.json` | the settings conductor and each controller start with; both wire the guard as a PreToolUse hook |
@@ -51,8 +54,10 @@ Each session commits only the files it writes, with a pathspec.
 
 | command | does |
 |---|---|
-| `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` |
+| `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check` |
 | `task regen` | regenerates `crates/conductor-model` from `spec/` |
+| `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
+| `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
 | `task install` | `cargo install --path crates/conductor --locked` |
 
 Run `task check` on the exact commit before you push or merge. For a quick loop,
@@ -120,11 +125,12 @@ mode `bypassPermissions`, so messages between sessions are not held for approval
 
 | task | does |
 |---|---|
-| `task conductor:start`, `task dev:start` | start the session with its adapter (`--agent conductor`, `--agent conductor-dev`) on the model of its role in `conductor config show`; refuse unless the role's harness is `claude`, and while a session of that name runs. Conductor starts with `.claude/conductor-settings.json` |
+| `task conductor:start`, `task dev:start` | start the session with its adapter (`--agent conductor`, `--agent conductor-dev`) on the model of its role in `conductor config show`; refuse unless the role's harness is `claude`, and while a session of that name runs. Conductor starts in the active instance's `records` directory with its role's `settings`, by default this checkout's `.claude/conductor-settings.json`; conductor-dev starts in this checkout |
+| `task agents:link` | link `.claude/agents/{conductor,repo-controller,conductor-dev}.md` into `~/.claude/agents/`, so a session started in another directory finds its adapter; refuses to overwrite a different file |
 | `task conductor:attach`, `task dev:attach` | open a session in this terminal |
 | `task conductor:restart` | stop conductor and start a new one that reads the newest hand-over; conductor-dev runs it after `[RESTART conductor]` |
 | `task sessions` | list both sessions |
-| `task trust` | mark every checkout under `checkouts.root` as a trusted Claude Code workspace, so a controller can start there |
+| `task trust` | mark every checkout under `checkouts.root` and the instance's `records` directory as trusted Claude Code workspaces, so conductor and each controller can start there |
 | `task dashboard`, `task dashboard:stop` | the read-only page on 127.0.0.1:7313 |
 
 ## CLI quick reference
