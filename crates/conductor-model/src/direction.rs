@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 298028d4cd4c8fa7088c153c7f80b2fcfb36824bffdc5d86ae6c2e6b3922d4fe
-// contract digest 3410c49a39867585867a81c4f8c1cbfd8d98f180f9c6b710689c42ff6125eb0b
+// model digest a61944b1d962028b0aff537f36be397359d5ec8be287a7db0368ad0bad816597
+// contract digest cf5dcfb046d79cfcab8cd24240fae61c3aac1f945b760367fefff77c0d5a1bd1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.

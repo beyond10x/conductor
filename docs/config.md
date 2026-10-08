@@ -18,7 +18,7 @@ does not validate stops the command.
 `conductor config validate` checks the file and names each problem by its YAML path, such as
 `instances[0].cadence.watch`. `conductor config show --format text|json|yaml` prints the effective
 instance after defaults, with every path absolute. It writes an absent optional value (`operator`,
-`catalog`, a role's `agent` and `settings`) as `null`.
+`catalog`, a role's `agent`, `settings` and `profile`) as `null`.
 
 The profiles in `.agents/` refer to config values as `section.key`, such as
 `thresholds.disk_low`: that is the field of `conductor config show --format json` for the
@@ -59,12 +59,13 @@ accepted, defaulted and shown by `config show`.
 | `records` | path | `~/.b10x/conductor/<name>/records` | guard, watch, dashboard, blockers collector, every session | conductor's records: logs, charters, hand-overs, and the instance's `rules.md`. The conductor session runs here |
 | `state` | path | `~/.b10x/conductor/<name>/state` | every store command, guard, watch, dashboard | the state directory; `--state-dir` overrides it |
 | `cache` | path | `~/.cache/b10x/conductor/<name>` | blockers and specifications collectors, dashboard | exports of `origin/main` and other rebuildable data |
-| `roles` | list of role | `conductor`, `conductor-dev`, `controller`, each `claude` / `opus`, no agent, no settings | start tasks, watch, conductor profile | one entry per session role; a list given replaces the whole default |
+| `roles` | list of role | `conductor`, `conductor-dev`, `controller`, each `claude` / `opus`, no agent, no settings, no profile | start tasks, watch, conductor profile | one entry per session role; a list given replaces the whole default |
 | `roles[].role` | string | required | | the role name; the tasks, the watch and the profiles know `conductor`, `conductor-dev` and `controller` |
 | `roles[].harness` | `claude` \| `codex` | required | | the harness the role runs on; the start tasks start `claude` only |
 | `roles[].model` | string | required | | the model name passed to the harness |
-| `roles[].agent` | string | none | conductor profile, `task conductor:start` | the harness agent the role starts with, such as `repo-controller`; for the `conductor` role the start tasks default to `conductor` |
-| `roles[].settings` | path | none | conductor profile, `task conductor:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard |
+| `roles[].agent` | string | none | conductor profile, `task conductor:start` | the harness agent the role starts with, such as `repo-controller`, when it names no `profile`; for the `conductor` role the start tasks default to `conductor`, for `conductor-dev` to `conductor-dev` |
+| `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below) |
+| `roles[].profile` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter needs linking |
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
 | `controllers.max_subagents` | integer ≥ 1 | `4` | controller profile | most sub-agents one controller runs at once |
 | `repositories` | list of rule | `[]` | nothing yet | activity overrides by repository name |
@@ -129,24 +130,85 @@ tree. Each recorded repository then carries `in_catalog`: `true` when an entry n
 when none does. When the instance names no catalog, or the catalog repository has no checkout under
 `checkouts.root`, `in_catalog` is absent for every repository (`null` in JSON).
 
-## Roles, agents and settings
+## Roles, agents, profiles and settings
 
-The start tasks read the `conductor` and `conductor-dev` roles' `harness` and `model`.
-`task conductor:start` starts conductor in the instance's `records` directory with the
-`conductor` role's `agent` (default `conductor`) and `settings` (default this checkout's
-`.claude/conductor-settings.json`), and refuses unless the agent is a file in
-`~/.claude/agents/` or `<records>/.claude/agents/` (`task agents:link` links the shipped
-adapters there). `task dev:start` starts conductor-dev in this checkout with `--agent conductor-dev`.
+Every session start passes `--setting-sources project,local`, so the user's own settings
+(`~/.claude/settings.json`) are not loaded, and the role's `settings` file with `--settings`.
+When a role names a `profile`, its session starts with `--append-system-prompt-file <profile>` and
+no `--agent`; otherwise with `--agent <agent>`.
 
-Conductor starts each controller with the `controller` role's `model`, `agent` and `settings`. The
-repository ships the adapter `.claude/agents/repo-controller.md` and the settings file
+The start tasks read the `conductor` and `conductor-dev` roles' `harness`, `model`, `settings`
+and `profile`. `task conductor:start` starts conductor in the instance's `records` directory with
+the `conductor` role's `settings` (default this checkout's `.claude/conductor-settings.json`) and
+its `profile`, or without one its `agent` (default `conductor`). It refuses a `profile` that is
+not a file and, without a profile, an agent that is not a file in `~/.claude/agents/` or
+`<records>/.claude/agents/` (`task agents:link` links the shipped adapters there).
+`task dev:start` starts conductor-dev in this checkout with the `conductor-dev` role's `settings`
+(default none) and its `profile`, or without one `--agent conductor-dev`; it refuses a `profile`
+that is not a file.
+
+Conductor starts each controller with the `controller` role's `model`, `settings` and `profile`,
+or without a profile its `agent`. The repository ships the profile `.agents/repo-controller.md`,
+its adapter `.claude/agents/repo-controller.md` and the settings file
 `.claude/controller-settings.json`, which wires the guard. A controller starts in another
-repository's checkout, so the adapter must be reachable from there, for example linked into
-`~/.claude/agents/`, and `settings` must be an absolute or `~/` path. A start command passes
-`model`, `agent` and `settings` to the harness as single shell words, so each holds only letters,
-digits and `.`, `_`, `:`, `/`, `-` (`conductor.config.CommandWord`). The guard denies every session a file-tool write to any
-role's `settings` file, and a Bash write form that names it; it does not check where other Bash
-commands write (README, Security model).
+repository's checkout: a `profile` is read from its path, while an adapter must be reachable from
+there, for example linked into `~/.claude/agents/`. `settings` and `profile` must be absolute or
+`~/` paths. A start command passes `model`, `agent`, `settings` and `profile` to the harness as
+single shell words, so each holds only letters, digits and `.`, `_`, `:`, `/`, `-`
+(`conductor.config.CommandWord`). The guard denies every session a file-tool write to any role's
+`settings` file, and a Bash write form that names it; it does not check where other Bash commands
+write (README, Security model).
+
+## Sessions without the user's config
+
+With `--setting-sources project,local` a session reads no user settings, and the shipped
+`.claude/conductor-settings.json` and `.claude/controller-settings.json` carry only the guard
+wiring. An instance that needs more gives each role its own `settings` file, outside this
+repository, that carries everything its sessions used to take from the user's settings:
+
+| key | what |
+|---|---|
+| `env` | the environment the sessions need, such as `TMPDIR` and `TMPPREFIX`; each path absolute, since a settings file expands no `~` |
+| `attribution` | what the harness adds to commits and pull requests |
+| `enabledPlugins`, `extraKnownMarketplaces` | the plugins the sessions use and the marketplaces they come from |
+| `skipDangerousModePermissionPrompt` | `true`: the sessions run in `bypassPermissions` and start in the background, where no prompt is answered |
+| `claudeMdExcludes` | the absolute path of the user's `~/.claude/CLAUDE.md`, which is otherwise loaded into every session |
+| `hooks` | the guard, as in the shipped settings files |
+
+```json
+{
+  "env": {
+    "TMPDIR": "<absolute path>",
+    "TMPPREFIX": "<absolute path>"
+  },
+  "attribution": { "commit": "", "pr": "" },
+  "extraKnownMarketplaces": {
+    "example-marketplace": {
+      "source": { "source": "github", "repo": "example-org/example-marketplace" }
+    }
+  },
+  "enabledPlugins": { "example-plugin@example-marketplace": true },
+  "skipDangerousModePermissionPrompt": true,
+  "claudeMdExcludes": ["<absolute path of ~/.claude/CLAUDE.md>"],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "conductor guard record-guard-decision --from-pre-tool-use || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The example shows one matcher; copy all of them (`Edit`, `Write`, `NotebookEdit`,
+`SendMessage`, `Bash`) from the shipped file. Give the role a `profile` as well, and its sessions
+need nothing in `~/.claude/agents/`.
 
 ## Built-in instance
 

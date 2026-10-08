@@ -43,12 +43,13 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `records` | string | `~/.b10x/conductor/<name>/records` |  |
 | `state` | string | `~/.b10x/conductor/<name>/state` |  |
 | `cache` | string | `~/.cache/b10x/conductor/<name>` |  |
-| `roles` | list of [Role](#role) | `[{role: conductor, harness: claude, model: opus, agent: null, settings: null}, {role: conductor-dev, harness: claude, model: opus, agent: null, settings: null}, {role: controller, harness: claude, model: opus, agent: null, settings: null}]` |  |
+| `roles` | list of [Role](#role) | `[{role: conductor, harness: claude, model: opus, agent: null, settings: null, profile: null}, {role: conductor-dev, harness: claude, model: opus, agent: null, settings: null, profile: null}, {role: controller, harness: claude, model: opus, agent: null, settings: null, profile: null}]` |  |
 | `roles[].role` | string | required |  |
 | `roles[].harness` | `claude` \| `codex` | required |  |
 | `roles[].model` | [CommandWord](#commandword) | required | letters, digits, `._:/-` only |
 | `roles[].agent` | [CommandWord](#commandword) | none | letters, digits, `._:/-` only |
 | `roles[].settings` | [CommandWord](#commandword) | none | letters, digits, `._:/-` only |
+| `roles[].profile` | [CommandWord](#commandword) | none | letters, digits, `._:/-` only |
 | `controllers.max_working` | integer | `5` | `max_working >= 1` |
 | `controllers.max_subagents` | integer | `4` | `max_subagents >= 1` |
 | `repositories` | list of [RepositoryRule](#repositoryrule) | `[]` |  |
@@ -157,15 +158,15 @@ Keys: `repository`, `path`, `names`. Specified as `conductor.config.Catalog`.
 
 ### CommandWord
 
-A value a start command passes to the harness as one shell word, unquoted: a role's model, agent or settings file. Letters, digits and `.`, `_`, `:`, `/`, `-` only, so that no shell reads it as more than that word.
+A value a start command passes to the harness as one shell word, unquoted: a role's model, agent, settings file or profile file. Letters, digits and `.`, `_`, `:`, `/`, `-` only, so that no shell reads it as more than that word.
 
 Written as string. Specified as `conductor.config.CommandWord`.
 
 ### Role
 
-The harness and model one session role runs on, such as `conductor` or `controller`; the harness agent the role starts with, such as `repo-controller`; and the settings file it starts with, written absolute or under `~`. Absent, a role names no agent and no settings file.
+The harness and model one session role runs on, such as `conductor` or `controller`; the harness agent the role starts with, such as `repo-controller`; the settings file it starts with; and the profile file its session starts with through `--append-system-prompt-file`, in place of the agent. The settings and profile files are written absolute or under `~`. Absent, a role names no agent, no settings file and no profile.
 
-Keys: `role`, `harness`, `model`, `agent`, `settings`. Specified as `conductor.config.Role`.
+Keys: `role`, `harness`, `model`, `agent`, `settings`, `profile`. Specified as `conductor.config.Role`.
 
 ### Controllers
 

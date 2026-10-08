@@ -105,16 +105,18 @@ types:
       - {name: names, type: conductor.config.CatalogNames}
 
   # A value a start command passes to the harness as one shell word, unquoted: a role's model,
-  # agent or settings file. Letters, digits and `.`, `_`, `:`, `/`, `-` only, so that no shell
-  # reads it as more than that word.
+  # agent, settings file or profile file. Letters, digits and `.`, `_`, `:`, `/`, `-` only, so
+  # that no shell reads it as more than that word.
   - name: conductor.config.CommandWord
     kind: newtype
     of: String
     alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-"
 
   # The harness and model one session role runs on, such as `conductor` or `controller`; the
-  # harness agent the role starts with, such as `repo-controller`; and the settings file it starts
-  # with, written absolute or under `~`. Absent, a role names no agent and no settings file.
+  # harness agent the role starts with, such as `repo-controller`; the settings file it starts
+  # with; and the profile file its session starts with through `--append-system-prompt-file`, in
+  # place of the agent. The settings and profile files are written absolute or under `~`. Absent,
+  # a role names no agent, no settings file and no profile.
   - name: conductor.config.Role
     kind: struct
     fields:
@@ -123,6 +125,7 @@ types:
       - {name: model, type: conductor.config.CommandWord}
       - {name: agent, type: Optional<conductor.config.CommandWord>}
       - {name: settings, type: Optional<conductor.config.CommandWord>}
+      - {name: profile, type: Optional<conductor.config.CommandWord>}
 
   # How many controllers of the instance work at once, at most, and how many sub-agents one
   # controller runs at once, at most. Absent, they are 5 and 4.

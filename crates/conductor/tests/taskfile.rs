@@ -111,11 +111,22 @@ fn conductor_starts_as_the_conductor_agent_with_the_role_settings_or_this_checko
         Some(AGENT),
         "{task:?}"
     );
+    // The role's `profile` when it names one (W02 U1).
+    assert_eq!(
+        task["vars"]["PROFILE"]["sh"].as_str(),
+        Some(
+            "conductor config show --format json | jq -r '.instances[0].roles[] | \
+             select(.role == \"conductor\") | .profile // empty'"
+        ),
+        "{task:?}"
+    );
     let commands = shell_commands(task).join("\n");
     for part in [
-        "claude --bg -n conductor --agent {{shellQuote .AGENT}} ",
+        "if [ -n {{shellQuote .PROFILE}} ]; then flag=--append-system-prompt-file; \
+         who={{shellQuote .PROFILE}}; else flag=--agent; who={{shellQuote .AGENT}}; fi",
+        "claude --bg -n conductor \"$flag\" \"$who\" ",
         "--model {{shellQuote .MODEL}}",
-        "--settings {{shellQuote .SETTINGS}}",
+        "--setting-sources project,local --settings {{shellQuote .SETTINGS}}",
         "{{shellQuote .CONDUCTOR_PROMPT}}",
     ] {
         assert!(commands.contains(part), "{part}: {commands}");
@@ -366,7 +377,7 @@ fn conductor_start_runs_claude_in_the_records_directory_with_this_checkouts_sett
     assert!(
         args.starts_with(&format!(
             "--bg -n conductor --agent conductor --model sonnet --permission-mode \
-             bypassPermissions --settings {} Start of session.",
+             bypassPermissions --setting-sources project,local --settings {} Start of session.",
             settings.display()
         )),
         "{args}"
@@ -705,6 +716,305 @@ fn conductor_restart_stops_nothing_when_the_agent_is_not_found() {
     assert!(
         case.dir.join("claude/live").exists(),
         "the session was stopped"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sessions without the user's global config (wave 02, U1)
+// ---------------------------------------------------------------------------------------------
+
+/// The flag every session start passes so that the user's own settings (`~/.claude/settings.json`)
+/// are not loaded: only the project's and the local ones, beside the `--settings` file.
+const SETTING_SOURCES: &str = "--setting-sources project,local";
+
+/// Writes a config file of one instance `alpha` whose records are the case's `records/`, whose
+/// role conductor carries `conductor` and whose role conductor-dev carries `dev` (each such as
+/// `, profile: /abs/p.md`).
+fn w02_config(case: &Case, conductor: &str, dev: &str) -> PathBuf {
+    let text = format!(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   sources:\n\
+         \x20     - github: example-org\n\
+         \x20   checkouts:\n\
+         \x20     root: {root}\n\
+         \x20     trees: {trees}\n\
+         \x20   records: {records}\n\
+         \x20   roles:\n\
+         \x20     - {{role: conductor, harness: claude, model: opus{conductor}}}\n\
+         \x20     - {{role: conductor-dev, harness: claude, model: sonnet{dev}}}\n\
+         \x20     - {{role: controller, harness: claude, model: opus}}\n",
+        root = case.dir.join("checkouts").display(),
+        trees = case.dir.join("trees").display(),
+        records = case.records().display(),
+    );
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    file
+}
+
+/// Writes a profile file under the case's home and returns its path.
+fn w02_profile(case: &Case, name: &str) -> PathBuf {
+    let dir = case.dir.join("home/profiles");
+    fs::create_dir_all(&dir).expect("create the profiles directory");
+    let file = dir.join(name);
+    fs::write(&file, "a profile\n").expect("write the profile");
+    file
+}
+
+/// With a role `profile`, conductor starts with that file appended to its system prompt and no
+/// `--agent`, so no adapter in `~/.claude/agents/` is needed; and it starts without the user's
+/// settings, with the role's settings file (by default this checkout's).
+#[test]
+fn conductor_start_with_a_role_profile_appends_it_and_passes_no_agent() {
+    let Some(case) = Case::new("w02-start-profile") else {
+        return;
+    };
+    let profile = w02_profile(&case, "conductor.md");
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+    assert!(!case.dir.join("home/.claude/agents/conductor.md").exists());
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let (cwd, args) = &calls[0];
+    assert_eq!(cwd, &case.records(), "{args}");
+    assert!(
+        args.starts_with(&format!(
+            "--bg -n conductor --append-system-prompt-file {} --model opus --permission-mode \
+             bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
+            profile.display(),
+            root().join(".claude/conductor-settings.json").display()
+        )),
+        "{args}"
+    );
+    assert!(!args.contains("--agent"), "{args}");
+}
+
+/// A role `profile` that is not a file is refused before anything starts, by its path, even when
+/// the agent is linked.
+#[test]
+fn conductor_start_refuses_a_role_profile_that_is_not_a_file() {
+    let Some(case) = Case::new("w02-start-profile-missing") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let profile = case.dir.join("home/profiles/missing.md");
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(&profile.display().to_string()),
+        "the refusal names the profile: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+}
+
+/// Without a profile, conductor keeps `--agent` and still starts without the user's settings.
+#[test]
+fn conductor_start_without_a_profile_keeps_the_agent_and_drops_user_settings() {
+    let Some(case) = Case::new("w02-start-no-profile") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let settings = case.dir.join("home/conductor-settings.json");
+    let config = w02_config(&case, &format!(", settings: {}", settings.display()), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let args = &calls[0].1;
+    assert!(
+        args.starts_with(&format!(
+            "--bg -n conductor --agent conductor --model opus --permission-mode \
+             bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
+            settings.display()
+        )),
+        "{args}"
+    );
+    assert!(!args.contains("--append-system-prompt-file"), "{args}");
+}
+
+/// `conductor:restart` with a role profile needs no linked agent: it stops the running conductor
+/// and starts one with the profile.
+#[test]
+fn conductor_restart_with_a_role_profile_needs_no_agent() {
+    let Some(case) = Case::new("w02-restart-profile") else {
+        return;
+    };
+    let profile = w02_profile(&case, "conductor.md");
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case.task("conductor:restart", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    let verbs: Vec<&str> = calls
+        .iter()
+        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
+        .collect();
+    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
+    let start = &calls[2].1;
+    assert!(
+        start.contains(&format!(
+            "--append-system-prompt-file {} ",
+            profile.display()
+        )) && start.contains(SETTING_SOURCES)
+            && !start.contains("--agent"),
+        "{start}"
+    );
+}
+
+/// `conductor:restart` stops nothing when the role profile its new session would start with is
+/// not a file.
+#[test]
+fn conductor_restart_stops_nothing_when_the_role_profile_is_not_a_file() {
+    let Some(case) = Case::new("w02-restart-profile-missing") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let profile = case.dir.join("home/profiles/missing.md");
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case.task("conductor:restart", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(&profile.display().to_string()),
+        "the refusal names the profile: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+    assert!(
+        case.dir.join("claude/live").exists(),
+        "the session was stopped"
+    );
+}
+
+/// Without a settings file or profile on the role conductor-dev, conductor-dev starts in this
+/// checkout as the agent conductor-dev, without the user's settings and with no `--settings`.
+#[test]
+fn dev_start_drops_user_settings() {
+    let Some(case) = Case::new("w02-dev-start") else {
+        return;
+    };
+    let config = w02_config(&case, "", "");
+
+    let output = case.task("dev:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let (cwd, args) = &calls[0];
+    assert_eq!(cwd, &root(), "{args}");
+    assert!(
+        args.starts_with(&format!(
+            "--bg -n conductor-dev --agent conductor-dev --model sonnet --permission-mode \
+             bypassPermissions {SETTING_SOURCES} Start of session."
+        )),
+        "{args}"
+    );
+    assert!(!args.contains("--settings "), "{args}");
+}
+
+/// The role conductor-dev's `settings` and `profile` reach its start command: the profile in
+/// place of `--agent`.
+#[test]
+fn dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev() {
+    let Some(case) = Case::new("w02-dev-start-role") else {
+        return;
+    };
+    let profile = w02_profile(&case, "conductor-dev.md");
+    let settings = case.dir.join("home/dev-settings.json");
+    let config = w02_config(
+        &case,
+        "",
+        &format!(
+            ", settings: {}, profile: {}",
+            settings.display(),
+            profile.display()
+        ),
+    );
+
+    let output = case.task("dev:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let args = &calls[0].1;
+    assert!(
+        args.starts_with(&format!(
+            "--bg -n conductor-dev --append-system-prompt-file {} --model sonnet \
+             --permission-mode bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
+            profile.display(),
+            settings.display()
+        )),
+        "{args}"
+    );
+    assert!(!args.contains("--agent"), "{args}");
+}
+
+/// A conductor-dev profile that is not a file is refused before anything starts.
+#[test]
+fn dev_start_refuses_a_role_profile_that_is_not_a_file() {
+    let Some(case) = Case::new("w02-dev-start-profile-missing") else {
+        return;
+    };
+    let profile = case.dir.join("home/profiles/missing.md");
+    let config = w02_config(&case, "", &format!(", profile: {}", profile.display()));
+
+    let output = case.task("dev:start", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(&profile.display().to_string()),
+        "the refusal names the profile: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+}
+
+/// Every session start command conductor's profile writes (a controller's start and its resume
+/// after a usage limit) runs without the user's settings and with the controller settings file,
+/// and names the profile form beside the agent form.
+#[test]
+fn the_conductor_profile_starts_and_resumes_controllers_without_user_settings() {
+    let text = fs::read_to_string(root().join(".agents/conductor.md")).expect("read the profile");
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let commands: Vec<&str> = flat
+        .match_indices("claude --bg")
+        .map(|(at, _)| {
+            let rest = &flat[at..];
+            &rest[..rest.find('`').unwrap_or(rest.len())]
+        })
+        .collect();
+    let starts = commands
+        .iter()
+        .filter(|command| !command.contains("--resume"))
+        .count();
+    let resumes = commands
+        .iter()
+        .filter(|command| command.contains("--resume"))
+        .count();
+    assert!(
+        starts >= 1 && resumes >= 1,
+        "a controller start and a resume command: {commands:#?}"
+    );
+    for command in &commands {
+        for part in [
+            "--setting-sources project,local --settings <controller settings>",
+            "--append-system-prompt-file <controller profile>",
+            "--permission-mode bypassPermissions",
+        ] {
+            assert!(command.contains(part), "{part}: {command}");
+        }
+        assert!(!command.contains("--agent"), "the profile form: {command}");
+    }
+    assert!(
+        flat.contains("--agent <controller agent>"),
+        "the agent form, when the controller role names no profile: {flat}"
     );
 }
 
