@@ -40,6 +40,10 @@ const RECORDS: &str = "conductor config show --format json | jq -r '.instances[0
 /// The prefix every shell command of a conductor task starts with.
 const CD_RECORDS: &str = "cd {{shellQuote .RECORDS}} && ";
 
+/// The agent the role conductor starts with: its `agent`, else `conductor`.
+const AGENT: &str = "conductor config show --format json | jq -r '.instances[0].roles[] | \
+                     select(.role == \"conductor\") | .agent // \"conductor\"'";
+
 /// The adapters `task agents:link` links.
 const AGENTS: [&str; 3] = ["conductor", "repo-controller", "conductor-dev"];
 
@@ -101,9 +105,15 @@ fn conductor_starts_as_the_conductor_agent_with_the_role_settings_or_this_checko
         ),
         "{task:?}"
     );
+    // The role's `agent` when it names one, else `conductor` (coordinator decision 4, pass 1).
+    assert_eq!(
+        task["vars"]["AGENT"]["sh"].as_str(),
+        Some(AGENT),
+        "{task:?}"
+    );
     let commands = shell_commands(task).join("\n");
     for part in [
-        "claude --bg -n conductor --agent conductor ",
+        "claude --bg -n conductor --agent {{shellQuote .AGENT}} ",
         "--model {{shellQuote .MODEL}}",
         "--settings {{shellQuote .SETTINGS}}",
         "{{shellQuote .CONDUCTOR_PROMPT}}",
@@ -129,9 +139,17 @@ fn trust_covers_the_records_directory() {
     let task = &taskfile["tasks"]["trust"];
     assert_eq!(task["vars"]["RECORDS"]["sh"].as_str(), Some(RECORDS));
     let commands = shell_commands(task).join("\n");
+    // By its physical path, the key a session's working directory has (coordinator decision 1,
+    // pass 1).
     assert!(
-        commands.contains("records={{shellQuote .RECORDS}}"),
-        "trust names the records directory: {commands}"
+        commands.contains("records=$(cd {{shellQuote .RECORDS}} && pwd -P)"),
+        "trust names the records directory by its physical path: {commands}"
+    );
+    let preconditions =
+        serde_yaml::to_string(&task["preconditions"]).expect("preconditions as text");
+    assert!(
+        preconditions.contains("test -d {{shellQuote .RECORDS}}"),
+        "trust refuses a records directory that is not there: {preconditions}"
     );
 }
 
@@ -296,6 +314,14 @@ impl Case {
             })
             .collect()
     }
+
+    /// Puts the agent `name` where claude finds it from any directory, as `task agents:link`
+    /// does: `~/.claude/agents/<name>.md` of the case's home.
+    fn link_agent(&self, name: &str) {
+        let agents = self.dir.join("home/.claude/agents");
+        fs::create_dir_all(&agents).expect("create ~/.claude/agents");
+        fs::write(agents.join(format!("{name}.md")), "an agent\n").expect("write the agent");
+    }
 }
 
 fn shown(output: &Output) -> String {
@@ -312,6 +338,7 @@ fn conductor_start_runs_claude_in_the_records_directory_with_this_checkouts_sett
     let Some(case) = Case::new("start-default-settings") else {
         return;
     };
+    case.link_agent("conductor");
     let config = case.config("sonnet", None);
     let output = case.task("conductor:start", Some(&config));
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
@@ -335,6 +362,7 @@ fn conductor_start_takes_the_settings_of_the_role_conductor() {
     let Some(case) = Case::new("start-role-settings") else {
         return;
     };
+    case.link_agent("conductor");
     let settings = case.dir.join("home/settings.json");
     let config = case.config("opus", Some(&settings));
     let output = case.task("conductor:start", Some(&config));
@@ -367,6 +395,7 @@ fn conductor_attach_and_restart_run_in_the_records_directory() {
     let Some(case) = Case::new("attach-restart") else {
         return;
     };
+    case.link_agent("conductor");
     let config = case.config("opus", None);
     fs::write(case.dir.join("claude/live"), "").expect("a live session");
 
@@ -480,5 +509,398 @@ fn agents_link_links_each_adapter_once_and_refuses_a_different_file() {
     assert!(
         fs::symlink_metadata(&missing).is_err(),
         "nothing is linked while one file is refused"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Adversary cases (wave 01, U2, pass 1)
+// ---------------------------------------------------------------------------------------------
+
+/// Writes a config file of one instance `alpha` whose `records` is the text `records`, written
+/// as a JSON string (which YAML reads as a double-quoted scalar), and whose role conductor
+/// carries `role_extra` (such as `, agent: other`).
+fn adv_config(case: &Case, records: &str, role_extra: &str) -> PathBuf {
+    let text = format!(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   sources:\n\
+         \x20     - github: example-org\n\
+         \x20   checkouts:\n\
+         \x20     root: {root}\n\
+         \x20     trees: {trees}\n\
+         \x20   records: {records}\n\
+         \x20   roles:\n\
+         \x20     - {{role: conductor, harness: claude, model: opus{role_extra}}}\n\
+         \x20     - {{role: conductor-dev, harness: claude, model: opus}}\n\
+         \x20     - {{role: controller, harness: claude, model: opus}}\n",
+        root = case.dir.join("checkouts").display(),
+        trees = case.dir.join("trees").display(),
+        records = serde_json::to_string(records).expect("records as a JSON string"),
+    );
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    file
+}
+
+/// The `projects` keys `task trust` left in the case's `~/.claude.json`, sorted.
+fn adv_trusted(case: &Case) -> Vec<String> {
+    let file = case.dir.join("home/.claude.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&file).expect("read .claude.json"))
+            .expect(".claude.json is JSON");
+    let mut keys: Vec<String> = written["projects"]
+        .as_object()
+        .expect("projects")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// A session's working directory never ends in `/` (getcwd(3) does not write one, and neither
+/// does the shell's `cd`), and Claude Code keys `~/.claude.json` `projects` by it; the checkout
+/// loop of `trust` strips the slash (`d=${d%/}`) for that reason. A records directory written
+/// with a trailing slash, which the config accepts and `config show` repeats, must be trusted
+/// under the key the conductor session started there looks up.
+#[test]
+fn adv_trust_writes_a_records_directory_with_a_trailing_slash_by_the_key_its_session_has() {
+    let Some(case) = Case::new("adv-trust-trailing-slash") else {
+        return;
+    };
+    let records = case.records().display().to_string();
+    let config = adv_config(&case, &format!("{records}/"), "");
+    fs::write(case.dir.join("home/.claude.json"), "{\"projects\": {}}\n")
+        .expect("write .claude.json");
+
+    let output = case.task("trust", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(adv_trusted(&case), vec![records], "{}", shown(&output));
+}
+
+/// `trust` trusts the records directory and the checkouts under the root, and nothing else: a
+/// records path holding a line break (the config limits a role's model, agent and settings to
+/// one shell word and the records path to nothing but "absolute") is one directory, not two.
+#[test]
+fn adv_trust_trusts_no_directory_the_records_path_only_contains() {
+    let Some(case) = Case::new("adv-trust-newline") else {
+        return;
+    };
+    let outside = case.dir.join("outside");
+    fs::create_dir_all(&outside).expect("create a directory outside");
+    let records = format!("{}\nrecords", outside.display());
+    fs::create_dir_all(&records).expect("create the records directory");
+    let config = adv_config(&case, &records, "");
+    fs::write(case.dir.join("home/.claude.json"), "{\"projects\": {}}\n")
+        .expect("write .claude.json");
+
+    // Coordinator decision 2 (pass 1): such a records path is refused, with a message, and
+    // nothing is trusted in that run.
+    let output = case.task("trust", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("line break"),
+        "the refusal says why: {}",
+        shown(&output)
+    );
+    let trusted = adv_trusted(&case);
+    assert!(
+        !trusted.contains(&outside.display().to_string()),
+        "trust marked {} trusted, which is neither the records directory nor a checkout: \
+         {trusted:?}",
+        outside.display()
+    );
+    assert!(trusted.is_empty(), "trusted in a refused run: {trusted:?}");
+}
+
+/// A records directory reached through a symlink is trusted by its physical path, the key a
+/// session started there has (coordinator decision 1, pass 1).
+#[test]
+fn trust_writes_a_symlinked_records_directory_by_its_physical_path() {
+    let Some(case) = Case::new("trust-symlinked-records") else {
+        return;
+    };
+    let link = case.dir.join("records-link");
+    std::os::unix::fs::symlink(case.records(), &link).expect("link the records");
+    let config = adv_config(&case, &link.display().to_string(), "");
+    fs::write(case.dir.join("home/.claude.json"), "{\"projects\": {}}\n")
+        .expect("write .claude.json");
+
+    let output = case.task("trust", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(
+        adv_trusted(&case),
+        vec![case.records().display().to_string()],
+        "{}",
+        shown(&output)
+    );
+}
+
+/// The agent is found in the records directory's own `.claude/agents/` as well as in
+/// `~/.claude/agents/` (coordinator decision 3, pass 1).
+#[test]
+fn conductor_start_finds_the_agent_in_the_records_directory() {
+    let Some(case) = Case::new("start-agent-in-records") else {
+        return;
+    };
+    let agents = case.records().join(".claude/agents");
+    fs::create_dir_all(&agents).expect("create the records' agents");
+    fs::write(agents.join("conductor.md"), "an agent\n").expect("write the agent");
+    let config = case.config("opus", None);
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+}
+
+/// The refusal names the task that puts the agent in place.
+#[test]
+fn conductor_start_without_the_agent_names_agents_link() {
+    let Some(case) = Case::new("start-no-agent-message") else {
+        return;
+    };
+    let config = case.config("opus", None);
+    let output = case.task("conductor:start", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("task agents:link"),
+        "{}",
+        shown(&output)
+    );
+}
+
+/// `conductor:restart` refuses before it stops anything when the agent its new session would
+/// start with is not found (coordinator decision 3, pass 1): the running conductor is kept.
+#[test]
+fn conductor_restart_stops_nothing_when_the_agent_is_not_found() {
+    let Some(case) = Case::new("restart-no-agent") else {
+        return;
+    };
+    let config = case.config("opus", None);
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+    let output = case.task("conductor:restart", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("task agents:link"),
+        "{}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+    assert!(
+        case.dir.join("claude/live").exists(),
+        "the session was stopped"
+    );
+}
+
+/// `conductor:start` now runs claude outside this checkout, where the project-level
+/// `.claude/agents/conductor.md` is not found; `--agent conductor` resolves only when `task
+/// agents:link` has run (or the records carry their own adapter). With neither, start must
+/// refuse rather than start a bypass-permissions session without conductor's agent; this is the
+/// first `conductor:restart` after the merge, which conductor-dev runs on its own.
+#[test]
+fn adv_conductor_start_refuses_when_the_conductor_agent_is_not_found_from_the_records() {
+    let Some(case) = Case::new("adv-start-no-agent") else {
+        return;
+    };
+    let config = case.config("opus", None);
+    assert!(!case.dir.join("home/.claude/agents/conductor.md").exists());
+    assert!(!case.records().join(".claude/agents/conductor.md").exists());
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "started with --agent conductor where no conductor agent is found: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+}
+
+/// The specification's `conductor.config.Role`: "the harness agent the role starts with". The
+/// task reads the role's model and settings and ignores its `agent`.
+#[test]
+fn adv_conductor_start_uses_the_agent_the_role_conductor_names() {
+    let Some(case) = Case::new("adv-start-role-agent") else {
+        return;
+    };
+    case.link_agent("alt-conductor");
+    let records = case.records().display().to_string();
+    let config = adv_config(&case, &records, ", agent: alt-conductor");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert!(
+        calls[0].1.contains("--agent alt-conductor "),
+        "the role conductor names the agent alt-conductor: {calls:?}"
+    );
+}
+
+/// The refusal of `agents:link` is all or nothing: when only the last adapter is in the way,
+/// the first two are not linked either. The unit's own case puts the conflict on the first
+/// adapter, where `ln -s` failing on it stops the loop anyway, so it stays green with the
+/// `[ "$refused" = 0 ] || exit 1` gate deleted; this one does not.
+#[test]
+fn adv_agents_link_links_nothing_when_only_the_last_adapter_is_in_the_way() {
+    let Some(case) = Case::new("adv-agents-link-last") else {
+        return;
+    };
+    let agents = case.dir.join("home/.claude/agents");
+    fs::create_dir_all(&agents).expect("create ~/.claude/agents");
+    let last = agents.join("conductor-dev.md");
+    fs::write(&last, "the user's own\n").expect("write a different file");
+
+    let output = case.task("agents:link", None);
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    for agent in ["conductor", "repo-controller"] {
+        assert!(
+            fs::symlink_metadata(agents.join(format!("{agent}.md"))).is_err(),
+            "{agent}.md was linked while conductor-dev.md is refused: {}",
+            shown(&output)
+        );
+    }
+    assert_eq!(fs::read_to_string(&last).expect("read"), "the user's own\n");
+}
+
+/// A records path with a space, a quote and a command substitution reaches the shell as one
+/// word: claude starts in that directory and nothing runs.
+#[test]
+fn adv_conductor_start_quotes_a_records_path_with_shell_metacharacters() {
+    let Some(case) = Case::new("adv-start-metachar") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let records = case.dir.join("rec ords 'q' $(touch pwned) `touch pwned2`");
+    fs::create_dir_all(&records).expect("create the records directory");
+    let config = adv_config(&case, &records.display().to_string(), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0].0, records, "{calls:?}");
+    for planted in ["pwned", "pwned2"] {
+        assert!(!case.dir.join(planted).exists(), "{planted} ran");
+        assert!(!root().join(planted).exists(), "{planted} ran");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Adversary cases (wave 01, U2, pass 2)
+// ---------------------------------------------------------------------------------------------
+
+/// Writes a config file of one instance `alpha` whose checkouts root is the text `checkouts`,
+/// whose records are the case's `records/`, and whose role conductor is `{role: conductor,
+/// <conductor>}`.
+fn adv2_config(case: &Case, checkouts: &str, conductor: &str) -> PathBuf {
+    let text = format!(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   sources:\n\
+         \x20     - github: example-org\n\
+         \x20   checkouts:\n\
+         \x20     root: {checkouts}\n\
+         \x20     trees: {trees}\n\
+         \x20   records: {records}\n\
+         \x20   roles:\n\
+         \x20     - {{role: conductor, {conductor}}}\n\
+         \x20     - {{role: conductor-dev, harness: claude, model: opus}}\n\
+         \x20     - {{role: controller, harness: claude, model: opus}}\n",
+        checkouts = serde_json::to_string(checkouts).expect("checkouts as a JSON string"),
+        trees = case.dir.join("trees").display(),
+        records = case.records().display(),
+    );
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    file
+}
+
+/// The config lets a role's `agent` hold `.` and `/`, so `../../stray` is a valid agent. The
+/// precondition tests `"$HOME"/.claude/agents/../../stray.md`, which is `~/stray.md`: a file
+/// outside `~/.claude/agents/` satisfies the check whose message says the agent is in
+/// `~/.claude/agents/`, and start runs `claude --agent ../../stray`.
+#[test]
+fn adv2_conductor_start_refuses_an_agent_found_only_outside_the_agents_directories() {
+    let Some(case) = Case::new("adv2-start-agent-climbs-out") else {
+        return;
+    };
+    fs::write(case.dir.join("home/stray.md"), "not an agent\n").expect("write a stray file");
+    let config = adv2_config(
+        &case,
+        &case.dir.join("checkouts").display().to_string(),
+        "harness: claude, model: opus, agent: ../../stray",
+    );
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "started with an agent in neither agents directory: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+}
+
+/// `conductor:restart` checks the agent before it stops (pass 1, decision 3) but not the other
+/// preconditions of the `conductor:start` it ends with: with the role conductor on another
+/// harness, it stops and removes the running conductor and then `conductor:start` refuses, so
+/// no conductor runs.
+#[test]
+fn adv2_conductor_restart_stops_nothing_when_start_would_refuse() {
+    let Some(case) = Case::new("adv2-restart-start-refuses") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = adv2_config(
+        &case,
+        &case.dir.join("checkouts").display().to_string(),
+        "harness: codex, model: opus",
+    );
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case.task("conductor:restart", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        case.calls().is_empty(),
+        "restart stopped the running conductor and started none: {:?}\n{}",
+        case.calls(),
+        shown(&output)
+    );
+    assert!(
+        case.dir.join("claude/live").exists(),
+        "the session was stopped"
+    );
+}
+
+/// `conductor:restart` keeps its own copy of the `AGENT` variable for its pre-stop check, and no
+/// case runs it with a role agent other than the default: with `AGENT` there replaced by the
+/// constant `conductor`, the suite stays green. The role conductor names `alt-conductor`, only
+/// `conductor.md` is linked: restart must stop nothing.
+#[test]
+fn adv2_conductor_restart_checks_the_agent_the_role_conductor_names() {
+    let Some(case) = Case::new("adv2-restart-role-agent") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = adv2_config(
+        &case,
+        &case.dir.join("checkouts").display().to_string(),
+        "harness: claude, model: opus, agent: alt-conductor",
+    );
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case.task("conductor:restart", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("alt-conductor"),
+        "the refusal names the role's agent: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+    assert!(
+        case.dir.join("claude/live").exists(),
+        "the session was stopped"
     );
 }

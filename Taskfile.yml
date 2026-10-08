@@ -12,10 +12,12 @@ tasks:
       - claude agents --json | jq -r '.[] | select(.name=="conductor" or .name=="conductor-dev") | [.name, .kind, (.id // (.pid|tostring)), (.state // .status)] | @tsv'
 
   conductor:start:
-    desc: Start conductor in the background in the instance's records directory, as the agent conductor on the harness, model and settings of the role conductor in conductor config show (settings default to this checkout's .claude/conductor-settings.json); refuses while a live session named conductor exists
+    desc: Start conductor in the background in the instance's records directory, on the harness, model, agent and settings of the role conductor in conductor config show (agent default conductor, settings default this checkout's .claude/conductor-settings.json); refuses while a live session named conductor exists, and when the agent is in neither ~/.claude/agents/ nor the records' .claude/agents/ (task agents:link)
     vars:
       RECORDS:
         sh: conductor config show --format json | jq -r '.instances[0].records'
+      AGENT:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .agent // "conductor"'
       HARNESS:
         sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .harness'
       MODEL:
@@ -30,10 +32,14 @@ tasks:
         msg: the role conductor runs on {{.HARNESS}} (conductor config show); this task starts claude only
       - sh: test -d {{shellQuote .RECORDS}}
         msg: the records directory {{.RECORDS}} of conductor config show is not a directory
+      - sh: case {{shellQuote .AGENT}} in '' | */* | .*) exit 1 ;; esac
+        msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in ~/.claude/agents/ or {{.RECORDS}}/.claude/agents/
+      - sh: test -f "$HOME"/.claude/agents/{{shellQuote .AGENT}}.md || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
+        msg: the agent {{.AGENT}} is in neither ~/.claude/agents/ nor {{.RECORDS}}/.claude/agents/ (the agent must be a file <agent>.md in one of them); run task agents:link
       - sh: claude agents --json | jq -e 'all(.[]; .name != "conductor" or .pid == null)' >/dev/null
         msg: a session named conductor is already running; see task sessions
     cmds:
-      - cd {{shellQuote .RECORDS}} && claude --bg -n conductor --agent conductor --model {{shellQuote .MODEL}} --permission-mode bypassPermissions --settings {{shellQuote .SETTINGS}} {{shellQuote .CONDUCTOR_PROMPT}}
+      - cd {{shellQuote .RECORDS}} && claude --bg -n conductor --agent {{shellQuote .AGENT}} --model {{shellQuote .MODEL}} --permission-mode bypassPermissions --settings {{shellQuote .SETTINGS}} {{shellQuote .CONDUCTOR_PROMPT}}
 
   conductor:attach:
     desc: Open the background conductor session in this terminal, in the instance's records directory
@@ -48,15 +54,29 @@ tasks:
       - cd {{shellQuote .RECORDS}} && claude attach "$({{.SESSION_ID}} --arg n conductor)"
 
   conductor:restart:
-    desc: Stop the background conductor, remove it from the session list (its transcript stays; claude --resume reopens it) and start a new one in the instance's records directory that reads the newest handoff (conductor-dev runs this after [RESTART])
+    desc: Stop the background conductor, remove it from the session list (its transcript stays; claude --resume reopens it) and start a new one in the instance's records directory that reads the newest handoff (conductor-dev runs this after [RESTART]); stops nothing when conductor:start would refuse the new one (role, harness, records directory, agent)
     preconditions:
       - sh: test -n "$({{.SESSION_ID}} --arg n conductor)"
         msg: no background session named conductor
+      - sh: test -n {{shellQuote .MODEL}}
+        msg: conductor config show names no role conductor; add it to the instance's roles
+      - sh: test {{shellQuote .HARNESS}} = claude
+        msg: the role conductor runs on {{.HARNESS}} (conductor config show); this task starts claude only
       - sh: test -d {{shellQuote .RECORDS}}
         msg: the records directory {{.RECORDS}} of conductor config show is not a directory
+      - sh: case {{shellQuote .AGENT}} in '' | */* | .*) exit 1 ;; esac
+        msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in ~/.claude/agents/ or {{.RECORDS}}/.claude/agents/
+      - sh: test -f "$HOME"/.claude/agents/{{shellQuote .AGENT}}.md || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
+        msg: the agent {{.AGENT}} is in neither ~/.claude/agents/ nor {{.RECORDS}}/.claude/agents/ (the agent must be a file <agent>.md in one of them); run task agents:link
     vars:
       RECORDS:
         sh: conductor config show --format json | jq -r '.instances[0].records'
+      AGENT:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .agent // "conductor"'
+      HARNESS:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .harness'
+      MODEL:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .model'
       OLD:
         sh: claude agents --json | jq -r '.[] | select(.kind=="background" and .name=="conductor" and .pid != null) | .id'
     cmds:
@@ -89,7 +109,7 @@ tasks:
       - claude attach "$({{.SESSION_ID}} --arg n conductor-dev)"
 
   trust:
-    desc: Mark the instance's records directory and every git checkout directly under its checkouts root (conductor config show) as trusted Claude Code workspaces, so conductor and a controller can start there
+    desc: Mark the instance's records directory (by its physical path) and every git checkout directly under its checkouts root (conductor config show) as trusted Claude Code workspaces, so conductor and a controller can start there; refuses a records path that holds a line break
     vars:
       CFG: '{{.CFG | default (printf "%s/.claude.json" .HOME)}}'
       ROOT:
@@ -99,10 +119,14 @@ tasks:
     preconditions:
       - sh: test -d {{shellQuote .ROOT}}
         msg: the checkouts root {{.ROOT}} of conductor config show is not a directory
+      - sh: test "$(printf %s {{shellQuote .RECORDS}} | wc -l)" -eq 0
+        msg: the records directory of conductor config show holds a line break; trust refuses it and trusts nothing
+      - sh: test -d {{shellQuote .RECORDS}}
+        msg: the records directory {{.RECORDS}} of conductor config show is not a directory
     cmds:
       - |
         cfg={{shellQuote .CFG}}
-        records={{shellQuote .RECORDS}}
+        records=$(cd {{shellQuote .RECORDS}} && pwd -P)
         checkouts=$(for d in {{shellQuote .ROOT}}/*/; do d=${d%/}; if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf '%s\n' "$d"; fi; done)
         paths=$(printf '%s\n%s\n' "$checkouts" "$records" | grep .)
         before=$(stat -c %Y "$cfg"); tmp=$(mktemp "$cfg.trust.XXXXXX"); chmod --reference="$cfg" "$tmp"
