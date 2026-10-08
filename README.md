@@ -10,7 +10,7 @@ the sessions.
 
 - Design: [`docs/design/conductor.md`](docs/design/conductor.md)
 - Config reference: [`docs/config.md`](docs/config.md)
-- Documentation site: built from [`website/`](website/); not published yet
+- Documentation: [beyond10x.github.io/conductor](https://beyond10x.github.io/conductor/): [getting started](https://beyond10x.github.io/conductor/docs/getting-started/), [CLI reference](https://beyond10x.github.io/conductor/docs/reference/cli/), [status](https://beyond10x.github.io/conductor/docs/status/)
 - Working on this repository (agents and contributors): [`AGENTS.md`](AGENTS.md)
 
 ## How it works
