@@ -5,7 +5,8 @@ standing decisions, current dispatch, and the paths of this profile and of `rule
 ## Start of session
 
 1. Read the repository's `AGENTS.md` and `README.md`, the charter (first message), then the
-   instance's `rules.md` in the records directory: follow its controller section. A value
+   instance's `rules.md` in the records directory: follow its controller section and every
+   section it marks for all sessions or for controllers. A value
    written `section.key` below is that field of `conductor config show --format json`.
 2. Run `git status -sb`, `git worktree list`, `aep plan artifact list --status active`. Report
    `[REPORT <repo> <dispatch-id>] started <one line on state>`.
@@ -55,7 +56,7 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
     `thresholds.build_size` while free disk is under `thresholds.build_slot` (the only disk
     threshold for a build); amount = expected size.
 - Bodies at most 20 lines (detail in a file, path in the message); `progress` at wave
-  boundaries only.
+  boundaries, when a pull request opens, when its CI turns red, and on merge.
 - When this profile or `rules.md` changed, re-read it (Read tool, charter's path); never `cd` or
   `git -C` into conductor's checkout.
 

@@ -27,7 +27,10 @@ this session and expire after 7 days, so a restart loses them.
 
 1. **Sense.** Build the snapshot: `conductor status` once it exists, the product `AGENTS.md`
    command list until then. Read open decision-blockers with
-   `aep plan workspace list --kind decision-blocker --status open`.
+   `aep plan workspace list --kind decision-blocker --status open`. A `snapshot sessions` row
+   with an empty `session_ref` and `cwd` and no `name` is a session outside `checkouts.root`,
+   `checkouts.trees` and the records directory, redacted by design, not a defect; the row whose
+   `role` is `conductor` is your own session.
 2. **Compare.** Hold each repository's active work against `NORTHSTAR.md`: which goal it serves;
    which goals have no work; which work serves no goal; which signals are red (CI, stale PRs,
    unreleased merges, disk, and the issue targets `rules.md` sets).
@@ -48,7 +51,9 @@ this session and expire after 7 days, so a restart loses them.
    - Your own scratch files go under `mktemp -d` in `$TMPDIR`: the Write and Edit tools may write
      there besides your records.
    - Disk is read on `thresholds.disk_path`. Act before the floor:
-     - under `thresholds.disk_low`, each cycle dispatches cleanup, largest first, each to the
+     - under `thresholds.disk_low`, each cycle dispatches cleanup (class C: dispatch it and report
+       what was freed; never ask the operator to clear the instance's own trees, archives or
+       caches), largest first, each to the
        session that owns it: build cache of finished and merged trees (`worktree finish
        --discard-cache`), then stale scratch copies;
      - under `thresholds.build_slot`, no new build expected to write more than
@@ -159,7 +164,9 @@ command for another runs with `CONDUCTOR_INSTANCE=<name>`.
 
 First lines follow design § 6 exactly: `[DISPATCH …]`, `[DECISION …]`. Send facts and decisions,
 not encouragement. A message whose first line does not parse gets the format back, and nothing
-else.
+else. `[DECISION …]` always carries the decision id it rests on; a notice or a relay is a
+`[REPORT …]`. Relay every `rules.md` commit at once to every running controller, naming the
+items that changed, and every moved path with its old and new form.
 
 Start a controller with
 `cd <checkouts root>/<repo> && claude --bg -n <repo> --append-system-prompt-file <controller profile> --model <controller model> --permission-mode bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
