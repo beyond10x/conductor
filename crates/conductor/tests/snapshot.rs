@@ -441,6 +441,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             name: None,
             cwd: "~/example-org/alpha".to_owned(),
             repository: Some(repository.clone()),
+            role: Some("conductor".to_owned()),
             activity: SessionState::Background,
         })?;
         record.blocker(RecordBlocker {
@@ -503,6 +504,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             "name": null,
             "cwd": "~/example-org/alpha",
             "repository": "alpha",
+            "role": "conductor",
             "activity": "Background",
         })]
     );

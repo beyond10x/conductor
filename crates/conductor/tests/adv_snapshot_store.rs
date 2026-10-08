@@ -137,6 +137,7 @@ fn everything() -> Collector {
             name: None,
             cwd: "~/example-org/alpha".to_owned(),
             repository: Some(alpha.clone()),
+            role: None,
             activity: SessionState::Idle,
         })?;
         record.blocker(RecordBlocker {

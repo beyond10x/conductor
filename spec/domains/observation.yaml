@@ -320,6 +320,12 @@ entities:
       # workspace root or anything outside it. That absence is how an unbound session shows (P6).
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
+      # The instance role the session's place shows: `conductor` for a session whose cwd is the
+      # instance's records directory or lies under it. Absent for every other session; a session
+      # outside the checkouts root, their managed trees and the records directory is redacted by
+      # design, not by a defect.
+      - name: role
+        type: Optional<String>
       - name: activity
         type: conductor.observation.SessionState
     lifecycle:
@@ -888,6 +894,9 @@ commands:
         example: "~/example-org/x"
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
+      - name: role
+        type: Optional<String>
+        example: "conductor"
       - name: activity
         type: conductor.observation.SessionState
     outcomes:
@@ -915,6 +924,7 @@ commands:
           name: input.name
           cwd: input.cwd
           repository: input.repository
+          role: input.role
           activity: input.activity
         emits:
           - conductor.observation.SessionRecorded
@@ -1538,6 +1548,8 @@ views:
         type: String
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
+      - name: role
+        type: Optional<String>
       - name: activity
         type: conductor.observation.SessionState
     naming:

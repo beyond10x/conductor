@@ -10,7 +10,9 @@
 //! build's answer to every view over it, with `--format json`, but for one column:
 //! `story:catalog-source` named the repositories view's `in_atlas_catalog` `in_catalog`, so
 //! `snapshot-repositories.json` holds the same values under the new name, while the store's
-//! records keep the old one, which this build still reads.
+//! records keep the old one, which this build still reads. `story:sessions-outside-root-explained`
+//! added the sessions view's `role` column after `repository`: `snapshot-sessions.json` holds it
+//! as `null` in every row, which is what this build reads from a record written without one.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not

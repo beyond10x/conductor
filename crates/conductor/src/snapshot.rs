@@ -832,6 +832,7 @@ pub fn record_session(state: Option<&Path>, args: RecordSessionArgs) -> Result<E
             name: args.name,
             cwd: given(args.cwd, "cwd")?,
             repository: args.repository.map(RepositoryName),
+            role: args.role,
             activity: given_named(args.activity, "activity", session_state_named)?,
         };
         record(state, &snapshot, |recorder| recorder.session(input))
@@ -1113,7 +1114,7 @@ pub fn workflow_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 8] = [
+    const COLUMNS: [&str; 9] = [
         "observation_id",
         "snapshot_id",
         "harness",
@@ -1121,6 +1122,7 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "name",
         "cwd",
         "repository",
+        "role",
         "activity",
     ];
     let generated = Generated::new(crate::state::open_existing(state)?);
@@ -1138,6 +1140,7 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.name),
                 Value::from(row.cwd),
                 Value::from(row.repository.map(|repository| repository.0)),
+                Value::from(row.role),
                 Value::from(session_state_name(row.activity)),
             ]
         })

@@ -455,6 +455,7 @@ fn encode_session(observation: &SessionObservationSnapshot) -> Value {
         "name": data.name,
         "cwd": data.cwd,
         "repository": data.repository.as_ref().map(|repository| &repository.0),
+        "role": data.role,
         "activity": session_state_name(data.activity),
     })
 }
@@ -471,6 +472,7 @@ fn decode_session(body: &Value) -> Result<SessionObservationSnapshot, String> {
             name: optional_text(body, "name")?,
             cwd: text(body, "cwd")?,
             repository: optional_text(body, "repository")?.map(RepositoryName),
+            role: optional_text(body, "role")?,
             activity: named(body, "activity", session_state_named)?,
         },
     })

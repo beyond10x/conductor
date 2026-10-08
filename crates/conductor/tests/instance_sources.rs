@@ -397,8 +397,16 @@ fn session(
         "name": name,
         "cwd": cwd,
         "repository": repository,
+        "role": null,
         "activity": activity,
     })
+}
+
+/// [`session`], of a session the instance's records directory places as conductor's own.
+fn conductor_session(session_ref: &str, name: Option<&str>, cwd: &str, activity: &str) -> Value {
+    let mut row = session(session_ref, name, cwd, None, activity);
+    row["role"] = json!("conductor");
+    row
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -459,6 +467,92 @@ fn the_checkouts_root_and_trees_place_sessions() {
             session("", None, "", None, "Busy"),
         ]
     );
+}
+
+/// `story:sessions-outside-root-explained`: a session whose working directory is the instance's
+/// records directory, or a directory under it, is conductor's own. It keeps its reference and
+/// name, its working directory is recorded, it is bound to no repository, and its role is
+/// `conductor`.
+#[test]
+fn a_session_in_the_records_directory_is_conductors_own() {
+    let case = Case::new("conductor-session");
+    fs::create_dir_all(case.records().join("docs/handoff")).expect("create a records directory");
+    case.programs(&json!([
+        {"id": "s-conductor", "name": "conductor", "pid": 101, "status": "busy",
+         "cwd": text(&case.records())},
+        {"id": "s-handoff", "pid": 102, "status": "idle",
+         "cwd": text(&case.records().join("docs/handoff"))},
+        {"id": "s-root", "name": "alpha-controller", "pid": 103, "status": "waiting",
+         "cwd": text(&case.root().join("alpha"))},
+    ]));
+    let config = case.config("[{github: acme}]");
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(
+        case.rows(&config, "sessions"),
+        [
+            conductor_session(
+                "s-conductor",
+                Some("conductor"),
+                &text(&case.records()),
+                "Busy"
+            ),
+            conductor_session(
+                "s-handoff",
+                None,
+                &text(&case.records().join("docs/handoff")),
+                "Idle"
+            ),
+            session(
+                "s-root",
+                Some("alpha-controller"),
+                "~/src/alpha",
+                Some("alpha"),
+                "Waiting"
+            ),
+        ]
+    );
+}
+
+/// `story:sessions-outside-root-explained`: a session outside the checkouts root, their managed
+/// trees and the records directory stays redacted, also beside the records directory: the state
+/// directory, a sibling whose name begins with the records directory's, and the directory above
+/// it. Nothing of it reaches the store.
+#[test]
+fn a_session_beside_the_records_directory_stays_redacted() {
+    let case = Case::new("beside-records");
+    let beside = [
+        case.state().join("x"),
+        case.dir.join("records-old"),
+        case.dir.clone(),
+    ];
+    case.programs(&json!([
+        {"id": "s-private-1", "name": "private-name-1", "pid": 101, "status": "busy",
+         "cwd": text(&beside[0])},
+        {"id": "s-private-2", "name": "private-name-2", "pid": 102, "status": "busy",
+         "cwd": text(&beside[1])},
+        {"id": "s-private-3", "name": "private-name-3", "pid": 103, "status": "busy",
+         "cwd": text(&beside[2])},
+    ]));
+    let config = case.config("[{github: acme}]");
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(
+        case.rows(&config, "sessions"),
+        [
+            session("", None, "", None, "Busy"),
+            session("", None, "", None, "Busy"),
+            session("", None, "", None, "Busy"),
+        ]
+    );
+    let output = case.conductor(&config, &["snapshot", "sessions", "--format", "json"]);
+    let shown = String::from_utf8_lossy(&output.stdout);
+    for private in ["s-private", "private-name", "records-old"] {
+        assert!(
+            !shown.contains(private),
+            "the view shows {private:?}: {shown}"
+        );
+    }
 }
 
 /// With a config file, the blockers and specifications collectors read the workspace under the

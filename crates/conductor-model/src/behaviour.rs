@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest a61944b1d962028b0aff537f36be397359d5ec8be287a7db0368ad0bad816597
-// contract digest cf5dcfb046d79cfcab8cd24240fae61c3aac1f945b760367fefff77c0d5a1bd1
+// model digest da7f223adaed415012785783afd834b78fee21f26d65fe9977c5813f8c3f9b33
+// contract digest 2cad3a53f65176fd47da0cb4583a9f915aca1519194cf0b0d6ce4fcde6f0b33c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2021,6 +2021,7 @@ where
             name: input.name.clone(),
             cwd: input.cwd.clone(),
             repository: input.repository.clone(),
+            role: input.role.clone(),
             activity: input.activity.clone(),
         };
         let answer = crate::observation::RecordSessionOutcome::Recorded { session_recorded: crate::observation::SessionRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), harness: input.harness.clone(), session_ref: input.session_ref.clone() } };
@@ -2558,6 +2559,7 @@ where
                 name: held.data.name,
                 cwd: held.data.cwd,
                 repository: held.data.repository,
+                role: held.data.role,
                 activity: held.data.activity,
             })
             .collect())
