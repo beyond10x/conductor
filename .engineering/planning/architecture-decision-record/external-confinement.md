@@ -6,7 +6,7 @@ status: accepted
 title: Harness sessions run unconfined inside; conductor confines them from outside
 relations:
 - supersedes: story:bash-sandbox
-revision: 2
+revision: 3
 transitions:
 - {from: "proposed", to: "accepted", at: "2026-10-08T22:08:31Z", actor: "human:timo", revision: 2}
 ---
@@ -34,8 +34,11 @@ metaharness (`~/beyond10x/metaharness`, read 2026-10-09):
   `ProcessEnvelope`); strict mode refuses a child whose envelope evidence does not match the request
   (`process.rs:182-193`).
 - Optionally the harness's tools are metaharness's own MCP server (`mcp-serve --workspace <cwd>
-  --writable --allow-program …`, `launch.rs:1143-1152`), which executes inside substrate; "The
-  fences are the hooks and the confinement, not the approver" (`AGENTS.md:246`).
+  --writable --allow-program …`, `launch.rs:1143-1152`); "The fences are the hooks and the
+  confinement, not the approver" (`AGENTS.md:246`). Corrected 2026-10-09: for Claude Code that
+  server runs its tools unconfined (`metaharness-cli/src/lib.rs:172-175`), and metaharness refuses
+  substrate for vendor harnesses (`builder.rs:1587-1595`); only its own b10x loop runs tools inside
+  substrate (`docs/analysis/2026-10-09-substrate-benefits.md` § 5).
 - The runner re-execs itself under `systemd-run --user --scope` so its own cgroup sits inside the
   delegated root substrate requires (`AGENTS.md:213-215`).
 
@@ -47,7 +50,7 @@ metaharness (`~/beyond10x/metaharness`, read 2026-10-09):
 - Story `bash-sandbox` (Claude Code's own sandbox) is not the route: archived.
 - Conductor needs an envelope provider seam like metaharness's: a request (limits, writable and
   readable paths, programs, network), a provider that starts the harness in it, and measurements
-  at the boundary. Providers: substrate (when the spike shows a Claude Code session runs under it),
-  and a plain Linux provider (`systemd-run --user --scope` for limits, `bwrap` for the filesystem).
+  at the boundary. Providers: a plain Linux provider (`systemd-run --user --scope` for limits, `bwrap` for the filesystem) first; substrate later, for builds and for a session's commands
+  through a tool server conductor owns, the harness itself staying outside (benefits page § 5).
 - Epic `session-confinement` carries the work; epic `multi-instance-host` keeps names, tasks and the
   host ledger.

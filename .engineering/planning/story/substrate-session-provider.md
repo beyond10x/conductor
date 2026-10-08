@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:substrate-session-provider
 kind: story
-status: draft
+status: archived
 title: Controller sessions run under substrate
 relations:
 - decomposes: epic:session-confinement
@@ -11,7 +11,9 @@ scope:
   path: crates/conductor/src/substrate.rs
 - confidence: cited
   path: docs/config.md
-revision: 3
+revision: 4
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-08T22:26:56Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

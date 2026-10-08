@@ -2,13 +2,15 @@
 format: aep.planning-md/3
 id: story:guard-bash-write-targets
 kind: story
-status: draft
+status: archived
 title: The guard checks where a Bash write form writes, like a Write
 tags:
 - session-review
 relations:
 - depends_on: story:guard-write-forms-and-config-scope
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-08T22:26:55Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 

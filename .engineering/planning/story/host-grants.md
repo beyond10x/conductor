@@ -7,6 +7,7 @@ title: Instances on one host take grants from one ledger
 relations:
 - decomposes: epic:multi-instance-host
 - depends_on: story:instance-session-names
+- depends_on: story:instance-scoped-tasks
 scope:
 - confidence: cited
   path: .agents/conductor.md
@@ -28,7 +29,7 @@ scope:
   path: spec/ess-inputs.yaml
 - confidence: cited
   path: spec/system.yaml
-revision: 12
+revision: 13
 ---
 ## Why
 
@@ -55,5 +56,6 @@ two instances can each grant the same space (`specification:multi-instance-host`
 
 `spec/domains/host.yaml` (new), `spec/ess-inputs.yaml`, `spec/system.yaml`,
 `crates/conductor/cli.yaml`, `crates/conductor/src/host.rs` (new), `crates/conductor/src/cli.rs`,
-`crates/conductor/tests/host.rs` (new), `.agents/conductor.md`. After `instance-session-names`
-(shared `.agents/conductor.md`; the `SessionName` type).
+`crates/conductor/tests/host.rs` (new), `.agents/conductor.md`, `crates/conductor-model/`. After `instance-session-names`
+(shared `.agents/conductor.md`; the `SessionName` type) and `instance-scoped-tasks` (shared
+the generated crate).

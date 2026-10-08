@@ -16,6 +16,7 @@ Read 2026-10-09. `substrate/` is `~/beyond10x/substrate` at `2743daadc` (tag `0.
 | observability for dashboard and watch | `/v1/metrics`, a 1 Hz stream, retained events, absent facts kept absent | cgroup files, `systemctl --user show`, `statvfs` | plain Linux. Substrate's honest labels cover only what runs inside it |
 | network control | no egress by default; one operator-declared aperture per run, address pinned at startup | nothing comparable without root (nftables per cgroup) | substrate's real gain, but one aperture cannot serve the model API and the forge together |
 | `claude` itself inside substrate | exec: argv only, no stdin, at most 24 h, env names containing `token` refused, HOME must be in `/workspace`, AF_UNIX denied. PTY session: killed after 1 h | runs unchanged | does not fit today. Builds fit better, but only in copied trees |
+| `claude` unconfined, its tools inside substrate through an MCP server (§ 5) | per-call write confinement, no network per call, exact usage per call, a tool withheld when the host cannot confine. Nothing implements it for Claude Code; metaharness refuses substrate for vendor harnesses | bubblewrap around the session gives the write boundary, without per-call usage or network | the better substrate route, second step and for builds and tests only: git in linked trees, the forge, `worktree`, offline cargo and the loss of the shell are open |
 
 ## 1. Capability inventory
 
@@ -152,3 +153,142 @@ Builds on their own fit better. A `cargo test` can get a read-only toolchain roo
    - per-instance aggregate limits and grants;
    - model-token cost;
    - the disk already full outside its workspaces.
+
+## 5. The tools-in-substrate route (metaharness)
+
+Read 2026-10-09. `metaharness/` is `~/beyond10x/metaharness` at `4155db5` (0.9.3; 0.9.1 is installed). `harness/` is `~/beyond10x/harness` at `798325f` (0.13.3), the revision metaharness pins. Claude Code is 2.1.295. "Observed" means run on this host today. "Inference" means not run.
+
+**Correction first: metaharness does not run Claude Code's tools inside substrate.** The route the brief describes is assembled from two separate metaharness paths. Neither path does all of it.
+
+| path | harness | where tools run | confined? |
+|---|---|---|---|
+| Claude, `--tool-surface owned` | Claude Code; built-ins off; MCP server `metaharness mcp-serve` | in the server process, through `LocalOperations::unconfined` (`metaharness/crates/metaharness-cli/src/lib.rs:309-313`) | **no.** "nothing under this confines the process … A run that wants the effects actually confined is a b10x run against substrate, not this" (`metaharness-cli/src/lib.rs:172-175`; `harness/crates/harness-tools/src/local.rs:1-29`) |
+| b10x, `--substrate-embedded` | b10x's own loop, which is not Claude Code | substrate's host driver inside the loop's own process (`harness/crates/harness-substrate/src/embedded.rs:1-19`) | yes |
+
+metaharness refuses substrate for Claude outright. `--substrate`, `--substrate-embedded`, `--cgroup-root` and `--toolchain` are refused for any kind except b10x: "substrate confines the tools **we** publish. The vendor harnesses bring their own" (`metaharness/crates/metaharness/src/builder.rs:1587-1595`). `--process-write-subtree` is also b10x-only (`builder.rs:1555-1566`). The design states it directly: "Claude Code's CLI cannot [constrain the process]" (`metaharness/docs/design/metaharness-protocol-v0.1.md:1115`).
+
+So the route below, "Claude Code outside, its tools inside substrate", does not exist anywhere. The parts for it do exist and could be put together:
+- metaharness's MCP server shell (`metaharness-tools/src/server.rs`);
+- harness's catalogue (`harness-tools`);
+- harness's confined provider (`harness-substrate::ConfinedOperations` over `Embedded`).
+
+`metaharness-tools` deliberately links no substrate (`metaharness/crates/metaharness-tools/Cargo.toml:14-24`).
+
+### 5.1 How the parts work
+
+**Claude Code launch flags** (`metaharness/crates/metaharness-claude/src/launch.rs`):
+
+| flag | effect | line |
+|---|---|---|
+| `--tools ""` | disables every built-in tool: no Bash, Write, Edit, Read, and also no SendMessage or Agent | 1107-1115 |
+| `--mcp-config <file>` | one stdio server: `<this binary> mcp-serve --workspace <cwd> --writable [--allow-program P]…` | 1116-1117, 1132-1163 |
+| `--allowedTools mcp__metaharness` | grants the whole server | 1118-1119 |
+| `--strict-mcp-config` | account-level MCP servers excluded, always | 1057-1059 |
+| `-p … --output-format stream-json --setting-sources "" --settings <file>` | print mode, hermetic: no user, project or local settings | 1051-1066 |
+
+Further launch constraints:
+- The environment is reduced to 7 inherited keys and PATH to `~/.local/bin:/usr/local/bin:/usr/bin:/bin` (`launch.rs:129-132`, `:1269-1273`).
+- A `CLAUDE.md` in any ancestor directory refuses the run (`launch.rs:190-193`).
+
+`claude --help` (observed) says `--tools` also takes a list of names, so the built-ins a session keeps can be chosen ("Bash,Edit,Read").
+
+**What the server publishes.** Three verbs: `tool_search`, `tool_describe` and `tool_invoke`. The model sees them as `mcp__metaharness__tool_*` (`metaharness-tools/src/lib.rs:12-16`; `server.rs:9-13`). `tool_invoke` names one catalogue entry (`harness/crates/harness-tools/src/catalogue.rs:738-899`, `:931-939`):
+
+| entry | operation | under `unconfined` (Claude path) | under `ConfinedOperations` (b10x path) |
+|---|---|---|---|
+| `file_read`, `dir_list`, `search`, `find` | read | std filesystem with the module's own path containment | reads come from the local provider beside the confined one (`harness-substrate/src/tools.rs:405-409`) |
+| `file_write`, `file_edit` | write | std filesystem, containment by path arithmetic only (`local.rs:5-7`) | substrate guarded file API (`openat2` beneath the root, links refused) |
+| `run` | shell | `Command::new(argv[0])` in the workspace (`local.rs:556-587`) | substrate `exec.start` (`harness-substrate/src/lib.rs:218-277`) |
+
+Harness also has `Flat`, which publishes one tool per entry (`harness-tools/src/lib.rs:29-32`). metaharness serves only the three verbs (`server.rs:5`, `:119`).
+
+**How a `run` call executes.** `run` is argv only, from a declared program set. "This is not a shell: … nothing is composed, redirected or substituted" (`catalogue.rs:896-905`).
+
+| | unconfined (Claude path today) | confined (b10x path) |
+|---|---|---|
+| process | child of the MCP server, own process group (`local.rs:567-573`) | substrate exec in the in-process host driver, current-thread tokio (`embedded.rs:29-45`) |
+| workspace | the real cwd | the real directory, **adopted**: its parent becomes substrate's root, and it must be one ASCII `[A-Za-z0-9_-]` path component (`embedded.rs:213-251`; `harness/crates/harness-cli/src/lib.rs:3380-3445`) |
+| writable | whatever the user can write; containment applies only to the file tools | file tools: the workspace. `run` processes: **read-only** unless `--process-write-subtree` names directories (`tools.rs:105`; `harness-substrate/src/lib.rs:94-104`) |
+| programs | exact `argv[0]` match, else `ProgramNotDeclared` (`local.rs:545-553`) | the same refusal (`tools.rs:422-430`). Only `/usr`, `/bin`, `/lib`, `/lib64`, the workspace and staged roots are visible; a host binary must be staged at `/toolchain/driver` (`metaharness/AGENTS.md:247-250`; `harness-substrate/src/toolchain.rs:36-42`) |
+| environment | cleared, then 12 path-like names (`local.rs:108-121`, `:563`) | substrate's cleared environment plus toolchain env (`harness/crates/harness-toolchain/builtins/rust.yaml:22-27`) |
+| network | the host's | `NetworkMode::None`, `aperture: None`, hard-coded (`harness-substrate/src/lib.rs:244-245`) |
+| limits | 600 s wall time, 64 KiB output (`local.rs:52`, `:92`) | 900 s, 1 MiB, 2048 pids, 8 GiB, CPU 3,600 s (`lib.rs:206`, `:258-269`). The host clamps `cpu.max` to one period, so the requested 4 cores become **1** (`substrate/crates/substrate-host/src/process.rs:3056-3074`) |
+| measured | exit, stdout, stderr, `timed_out`, `timeout_ms` (`local.rs:625-639`) | `ExecMeasurement::ResourceUsage` requested (`lib.rs:273`); the observation's resource record goes back in the tool result (`embedded.rs:497-505`) |
+| refused | undeclared program, path escape | also: a machine that cannot confine publishes **no** `run` and no writes, and the withheld tool is recorded (`harness-substrate/src/lib.rs:13-22`; `tools.rs:94-106`) |
+
+A confined `run` needs a delegated cgroup that the calling process sits inside. Otherwise "the loop publishes six tools instead of seven, with no error anywhere". The eval runner re-execs under `systemd-run --user --scope` for that reason (`metaharness/AGENTS.md:213-216`).
+
+**The server is strictly sequential.** It reads one line, answers it, then reads the next (`metaharness-tools/src/server.rs:155-173`). Inference: one 15-minute `cargo test` blocks every other tool call of that session, including its sub-agents' calls.
+
+### 5.2 What this route would gain over section 2
+
+Assumed shape: a controller runs `claude --bg` unconfined as today. Its write-capable built-ins are switched off. A confined MCP server supplies `run`, `file_write` and `file_edit`.
+
+| section 2 row | gain | label |
+|---|---|---|
+| write confinement (Bash gap) | every command a controller runs goes through `run`. It writes only the workspace subtrees it is given, and other checkouts, records and the `conductor` binary are unreachable. The guard's Bash heuristic (`conductor/docs/design/conductor.md:265-277`) is no longer needed for commands | inference from code |
+| network control | per call: `run` has none. A separate tool could pick a named aperture, since the host's config carries `egress_apertures` (`substrate/crates/substrate-host/src/lib.rs:148-150`). The harness provider never sets one today | code; aperture use not built |
+| attribution | exact CPU, memory and io per tool call | code |
+| honest refusal | a missing confinement means a missing tool, recorded, never a weaker run | code |
+| lifecycle, resource limits per session, model-token cost | no change. The session itself is still unconfined under Claude Code's daemon | — |
+
+**Page blockers this route avoids.** Claude Code stays outside the sandbox, so these no longer apply to it:
+- AF_UNIX: SendMessage and `claude agents` keep working.
+- The credentials file: the OAuth login stays where it is.
+- The 1-hour PTY session.
+- One aperture per session: the model API is reached from outside.
+- The exec-in-checkout blocker: it applies only to the daemon (`substrate/crates/substrate-daemon/src/app/operations.rs:416`; `STATUS.md:144-150`). The in-process host adopts an existing directory. Section 1's "half done" row holds for the socket, not for this route.
+
+| remaining blocker | detail |
+|---|---|
+| one core per exec | the clamp above. A workspace gate on 1 of 20 cores, under a 900 s ceiling |
+| git in a managed tree | a linked tree's `.git` is a file pointing outside the workspace (observed: `cw03-int/.git` holds `gitdir: …/conductor/.git/worktrees/cw03-int`). Inference: git fails inside the exec, and a commit needs the shared object store writable, which defeats the confinement |
+| `git push`, `gh` | need the forge, a credential and often AF_UNIX (ssh-agent, keyring). Env names containing `token` are refused, so a credential arrives only through a secret slot |
+| cargo | the rust provider is `--offline` with `CARGO_HOME={workspace}/.cargo` (`rust.yaml:25`, `:46`). Neither checks out has one (observed), so every tree needs its own crate cache or a custom read-only registry root (unverified) |
+| host CLIs | `aep`, `ess`, `conductor` live in `~/.cargo/bin` and `worktree` in `~/.local/bin` (observed), so each must be staged. `worktree` and `conductor` write state outside the workspace and cannot work inside it |
+| no shell | pipes, heredocs, `$(cat …)`, `&&` and redirection all stop working. Charters, skills and conductor's own start command use them (`conductor/.agents/conductor.md:172`) |
+| sub-agents | inference: they share the parent session's MCP connection, so the sequential server queues them behind one another |
+
+### 5.3 What conductor would need
+
+1. **A confined MCP tool server.** `metaharness mcp-serve` cannot be reused for this: it is unconfined by design (`lib.rs:172-175`), and metaharness's position is that confinement is b10x's job.
+   - Options: an upstream feature in metaharness, or a `conductor tools-serve` subcommand built on `b10x-harness-tools` + `b10x-harness-substrate` + `metaharness-tools::Server`.
+   - Coupling for the second option: two git-pinned repositories, plus substrate 0.7.8 at `0569597` (`harness/crates/harness-substrate/Cargo.toml:29-30`), which is 3 releases behind 0.7.11. It also imports `substrate-host`, crossing substrate's consumer rule (`embedded.rs:16-19`).
+   - The server needs concurrent dispatch. The current one is sequential.
+   - Spec-first: the tool config (programs, write subtrees, apertures, toolchains) goes into conductor's ESS specification first.
+2. **Per-controller launch flags.** `claude --bg … --tools "<kept built-ins>" --strict-mcp-config --mcp-config <file>`. The kept list must include at least SendMessage and Agent; `--tools ""` would remove conductor's channel. Unverified: whether `--tools` accepts deferred tools such as SendMessage.
+   - The MCP command must be wrapped as `systemd-run --user --scope -p Delegate=yes …`, because the server inherits `session-3.scope` from Claude Code's daemon (section 2). Otherwise `run` is withheld without an error.
+   - A daemon `--bg` session keeping stdio through `systemd-run --scope` is unverified.
+3. **The guard.**
+   - It loses the Bash rule (no Bash).
+   - It keeps SendMessage.
+   - It must match `mcp__<server>__.*` to see tool calls at all, since today it sees only five tools (`conductor/README.md:172-173`). That is story `guard-all-tools`.
+   - It becomes the check on the host-side tools below.
+4. **Toolchain staging.**
+   - `--toolchain rust,taskfile`.
+   - `--driver` for `aep` and `ess`.
+   - Write subtrees: `target`, `.engineering`, generated directories.
+   - A crate cache per tree.
+5. **Host-side tools, argv-only and checked by the guard.** Git (status, diff, add, commit, log), forge (`git push`, `gh`), `worktree` and `conductor`. These stay unconfined, so the gain is that the *open shell* is gone, not that every effect is confined.
+6. **What breaks daily.** Every skill, charter and brief that composes shell, which is most AEP and worktree instructions. Gates slow to one core. Controllers would have to learn the catalogue's names.
+
+### 5.4 Verdict and first spike
+
+**Verdict.** This is the better substrate route for conductor, better than running `claude` inside substrate: it keeps login, network to the model API, SendMessage and `claude agents`, and it confines exactly the Bash gap. It is not ready.
+- No component implements it. metaharness rejects it for Claude.
+- Git in managed trees, the forge, `worktree`, `conductor` and offline cargo all have to become host-side or staged tools.
+- One core per exec makes gates slow.
+
+Against section 4's plain-Linux recommendation (bubblewrap or Landlock around the whole session, Claude Code's own sandbox), it adds two things: per-call usage and per-call network. It costs a new server, two pins and the loss of the shell. Inference: plain Linux stays the first step, and this route is the second, for builds and tests only.
+
+**Spike on this host, in increasing cost:**
+1. **No model, no code.** Run `systemd-run --user --scope -p Delegate=yes b10x-harness tools --workspace <a conductor tree> --substrate-embedded --cgroup-root <delegated subtree> --toolchain rust,taskfile --allow-program cargo --allow-program git --allow-program task --process-write-subtree target`.
+   - Settles: is `run` published or withheld for an adopted, non-`ws_` tree, and which toolchain roots are applied.
+2. **Scratch binary on `b10x-harness-substrate` at `798325f`, no commits.** Adopt the same tree and exec:
+   - `git status`, expected to fail on the linked `.git`;
+   - `cargo test --offline -p conductor`, to read wall time, the 1-core clamp and the resource record;
+   - a write outside `target`, expected to be refused.
+3. **Wrap step 2 in `metaharness_tools::Server`.** Launch a throwaway `claude --bg --tools "SendMessage,Agent,Read,Grep,Glob" --strict-mcp-config --mcp-config <file>`.
+   - Settles: does the session see the verbs, does SendMessage still deliver, does `claude agents --json` list it, does a long `run` block a sub-agent, and does Claude Code's MCP client time out a 15-minute call.
+
+`/` has 28G free (observed). Step 2's `target/` plus a crate cache should stay under the 10G floor.

@@ -9,6 +9,7 @@ relations:
 - depends_on: story:session-box-spike
 - depends_on: story:session-envelope-model
 - supersedes: story:instance-cgroup-limits
+- depends_on: story:session-envelope-seam
 scope:
 - confidence: cited
   path: .agents/conductor.md
@@ -16,7 +17,7 @@ scope:
   path: Taskfile.yml
 - confidence: cited
   path: crates/conductor/src/confine.rs
-revision: 4
+revision: 5
 ---
 ## Why
 
@@ -26,14 +27,17 @@ proportional CPU sharing across all cores, which substrate's one-core-per-exec c
 
 ## Acceptance
 
-- Using the way `session-box-spike` chose: each instance has a user slice
-  `conductor-<prefix>.slice`; each session it starts runs in its own unit or scope inside it, with
-  the role's `limits` from the envelope request (story `session-envelope-model`).
-- The measurement is recorded: the cgroup path and the limits read back from the unit.
-- Tests read the command lines and properties through a fake `systemd-run`/`systemctl`; one recorded
-  live run on this host in `docs/analysis/`.
+- The `systemd` provider behind `story:session-envelope-seam`, using the way `session-box-spike`
+  chose: each instance has a user slice `conductor-<prefix>.slice` with the instance's `limits`;
+  each session runs in its own unit or scope inside it with its role's `limits`.
+- Its measurement is the cgroup path and the limits read back from the unit.
+- Its doctor probe: a user manager is reachable and `cpu`, `memory` and `pids` are delegated.
+- Tests read the command lines, properties and probe through a fake `systemd-run`/`systemctl`.
+- One recorded live run on this host, in `docs/analysis/`: a controller started through the provider
+  shows its cgroup and limits (`systemctl --user show`), answers a SendMessage from another session,
+  appears in `claude agents --json`, and resumes with `claude --resume` after a stop.
 
 ## Scope
 
-`Taskfile.yml`, `.agents/conductor.md`, `crates/conductor/src/` (a `confine` module),
-`crates/conductor/tests/`. After `session-box-spike`, `session-envelope-model`.
+`crates/conductor/src/confine/systemd.rs` (new), `crates/conductor/tests/`, `docs/analysis/`. After
+`session-envelope-seam`.

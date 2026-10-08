@@ -16,7 +16,7 @@ scope:
   path: crates/conductor/tests/taskfile.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 6
+revision: 7
 ---
 ## Why
 
@@ -35,5 +35,5 @@ revision: 6
 ## Scope
 
 `Taskfile.yml`, `spec/domains/config.yaml`, `crates/conductor/src/config.rs`,
-`crates/conductor/tests/taskfile.rs`. After `instance-session-names` (shared `config.yaml`,
+`crates/conductor/tests/taskfile.rs`, `crates/conductor-model/`. After `instance-session-names` (shared `config.yaml`,
 `config.rs`).

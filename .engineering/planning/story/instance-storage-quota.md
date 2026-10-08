@@ -7,6 +7,7 @@ title: An instance's trees and builds stay under a storage quota
 relations:
 - depends_on: story:host-grants
 - decomposes: epic:session-confinement
+- depends_on: story:quota-support-report
 scope:
 - confidence: cited
   path: crates/conductor-model
@@ -16,25 +17,27 @@ scope:
   path: crates/conductor/src/quota.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 7
+revision: 8
 ---
 ## Why
 
 Worktree builds are the host's disk hog; quotas would enforce what the host ledger only polices
-(`specification:multi-instance-host`, findings 6, 7, 8). Blocked by
+(`specification:multi-instance-host`, findings 6, 7, 8). The epic's disk line. Blocked by
 `decision-blocker:project-quota-filesystem`: this host's `/` has no `prjquota`.
 
 ## Acceptance
 
-Once the operator chose option A or B:
+Once that blocker is cleared with option A or B:
 - an instance's managed trees and build directories carry the instance's project quota id, set
   with `setquota -P`, with the limit from `instances[].storage_quota` (spec first); unit tests check
   the commands conductor builds with a fake `setquota`;
 - a manual check the operator runs once on the chosen filesystem: write past the limit in an
-  instance's tree and observe `EDQUOT` (a test can't mount or reach the real quota without root;
-  acceptance critic round 2). The commands and output go into `docs/analysis/`.
+  instance's tree and observe `EDQUOT` (a test can't reach the real quota without root). The
+  commands and output go into `docs/analysis/`.
 
 ## Scope
 
 `spec/domains/config.yaml`, `crates/conductor/src/config.rs`, `crates/conductor/src/quota.rs` (new),
-`crates/conductor/tests/quota.rs` (new), `crates/conductor-model/`. After `host-grants`.
+`crates/conductor/tests/quota.rs` (new), `crates/conductor-model/`, `docs/config.md`. After
+`host-grants` and `quota-support-report` (shared `config.yaml`, `config.rs`, generated crate, by way
+of `session-envelope-model`).
