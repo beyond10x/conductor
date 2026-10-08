@@ -269,7 +269,31 @@ impl Case {
         )
         .expect("write a fake claude");
         fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).expect("make it runnable");
-        Some(Self { dir })
+        let case = Self { dir };
+        case.accept_disclaimer();
+        Some(case)
+    }
+
+    /// The case's user settings, where accepting Claude Code's bypass-permissions disclaimer
+    /// interactively records `skipDangerousModePermissionPrompt: true`.
+    fn user_settings(&self) -> PathBuf {
+        self.dir.join("home/.claude/settings.json")
+    }
+
+    /// Records the disclaimer as accepted, as a first interactive `claude
+    /// --dangerously-skip-permissions` does; every case starts with it.
+    fn accept_disclaimer(&self) {
+        fs::create_dir_all(self.dir.join("home/.claude")).expect("create ~/.claude");
+        fs::write(
+            self.user_settings(),
+            "{\"skipDangerousModePermissionPrompt\": true}\n",
+        )
+        .expect("write ~/.claude/settings.json");
+    }
+
+    /// Removes the record of the disclaimer: a home that never ran claude interactively.
+    fn withdraw_disclaimer(&self) {
+        fs::remove_file(self.user_settings()).expect("remove ~/.claude/settings.json");
     }
 
     fn records(&self) -> PathBuf {
@@ -307,9 +331,14 @@ impl Case {
 
     /// `task <name>` on this checkout's `Taskfile.yml`, isolated as the module says.
     fn task(&self, name: &str, config: Option<&Path>) -> Output {
+        self.command(name, config).output().expect("task runs")
+    }
+
+    /// The command [`Case::task`] runs, for a case that changes its environment further.
+    fn command(&self, name: &str, config: Option<&Path>) -> Command {
         let mut path = vec![self.dir.join("bin")];
         path.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
-        let mut command = Command::new("task");
+        let mut command = Command::new(which("task").expect("task is on PATH"));
         command
             .arg("--taskfile")
             .arg(root().join("Taskfile.yml"))
@@ -323,11 +352,13 @@ impl Case {
             .env_remove("CONDUCTOR_CONFIG")
             .env_remove("CONDUCTOR_INSTANCE")
             .env_remove("CFG")
+            // Claude Code reads its user settings and `.claude.json` there instead of `~`.
+            .env_remove("CLAUDE_CONFIG_DIR")
             .stdin(Stdio::null());
         if let Some(config) = config {
             command.env("CONDUCTOR_CONFIG", config);
         }
-        command.output().expect("task runs")
+        command
     }
 
     /// The calls the fake claude logged: working directory and arguments.
@@ -1222,6 +1253,414 @@ fn adv2_conductor_restart_checks_the_agent_the_role_conductor_names() {
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("alt-conductor"),
         "the refusal names the role's agent: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+    assert!(
+        case.dir.join("claude/live").exists(),
+        "the session was stopped"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The dashboard without systemd (wave 02, U6, `story:portable-dashboard-service`)
+// ---------------------------------------------------------------------------------------------
+
+/// The programs the dashboard tasks and the fake `conductor` run, besides `conductor` itself.
+/// `systemctl` is not among them.
+const DASHBOARD_TOOLS: [&str; 9] = [
+    "sh", "jq", "nohup", "ps", "cat", "mkdir", "rm", "sleep", "grep",
+];
+
+/// The pid file and log of the dashboard in the state directory `conductor config show` names
+/// for the case's instance (`~/.b10x/conductor/alpha/state` by default).
+fn dashboard_files(case: &Case) -> (PathBuf, PathBuf) {
+    let state = case.dir.join("home/.b10x/conductor/alpha/state");
+    (state.join("dashboard.pid"), state.join("dashboard.log"))
+}
+
+/// Replaces the case's `conductor` with one that logs a `dashboard ...` call to
+/// `claude/conductor-log` and then runs until it is killed, without binding a port, and passes
+/// every other call to the built `conductor`.
+fn fake_dashboard_conductor(case: &Case) {
+    let conductor = case.dir.join("bin/conductor");
+    fs::remove_file(&conductor).expect("remove the linked conductor");
+    fs::write(
+        &conductor,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = dashboard ]; then\n\
+             \x20 printf '%s\\n' \"$*\" >> '{log}'\n\
+             \x20 while :; do sleep 1; done\n\
+             fi\n\
+             exec '{real}' \"$@\"\n",
+            log = case.dir.join("claude/conductor-log").display(),
+            real = env!("CARGO_BIN_EXE_conductor"),
+        ),
+    )
+    .expect("write a fake conductor");
+    fs::set_permissions(&conductor, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+}
+
+/// A `PATH` of one directory, `nosystemd/`, holding links to [`DASHBOARD_TOOLS`] and the case's
+/// `conductor`: no `systemctl`, whatever the host has.
+fn path_without_systemctl(case: &Case) -> PathBuf {
+    let dir = case.dir.join("nosystemd");
+    fs::create_dir_all(&dir).expect("create nosystemd/");
+    for tool in DASHBOARD_TOOLS {
+        let found = which(tool).unwrap_or_else(|| panic!("{tool} is not on PATH"));
+        std::os::unix::fs::symlink(found, dir.join(tool)).expect("link a tool");
+    }
+    std::os::unix::fs::symlink(case.dir.join("bin/conductor"), dir.join("conductor"))
+        .expect("link conductor");
+    assert!(!dir.join("systemctl").exists());
+    dir
+}
+
+/// The calls the fake conductor logged for `dashboard`.
+fn dashboard_calls(case: &Case) -> Vec<String> {
+    fs::read_to_string(case.dir.join("claude/conductor-log"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether `pid` is a process that has not exited (a zombie has).
+fn running(pid: u32) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+        stat.rsplit_once(") ")
+            .is_some_and(|(_, rest)| !rest.starts_with('Z'))
+    })
+}
+
+/// Kills the process `pid` when dropped, so a failed case leaves no fake dashboard running.
+struct Reap(u32);
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        let _ = Command::new("kill")
+            .args(["-9", &self.0.to_string()])
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+/// Where `systemctl` is not on `PATH`, `task dashboard` starts `conductor dashboard serve` in the
+/// background with its pid and log in the instance's state directory, refuses a second start while
+/// that pid runs, and `task dashboard:stop` stops it and removes the pid file.
+#[test]
+fn dashboard_without_systemctl_runs_in_the_background_with_its_pid_in_the_state_directory() {
+    let Some(case) = Case::new("w02-dashboard-no-systemd") else {
+        return;
+    };
+    let config = case.config("opus", None);
+    fake_dashboard_conductor(&case);
+    let path = path_without_systemctl(&case);
+    let (pid_file, log) = dashboard_files(&case);
+
+    let output = case
+        .command("dashboard", Some(&config))
+        .env("PATH", &path)
+        .output()
+        .expect("task runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7313/"),
+        "{}",
+        shown(&output)
+    );
+    let pid: u32 = fs::read_to_string(&pid_file)
+        .unwrap_or_else(|error| panic!("{}: {error}\n{}", pid_file.display(), shown(&output)))
+        .trim()
+        .parse()
+        .expect("the pid file holds a pid");
+    let _reap = Reap(pid);
+    assert!(running(pid), "the dashboard {pid} is not running");
+    assert!(
+        log.is_file(),
+        "no log beside the pid file: {}",
+        log.display()
+    );
+    let mut calls = dashboard_calls(&case);
+    for _ in 0..50 {
+        if !calls.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        calls = dashboard_calls(&case);
+    }
+    assert_eq!(calls, ["dashboard serve --port 7313"], "{}", shown(&output));
+
+    // A second start while that pid runs is refused and starts nothing.
+    let output = case
+        .command("dashboard", Some(&config))
+        .env("PATH", &path)
+        .output()
+        .expect("task runs");
+    // A second dashboard that did start would write its pid over the first one's.
+    let _reap_second = fs::read_to_string(&pid_file)
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .filter(|second| *second != pid)
+        .map(Reap);
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(&pid.to_string()),
+        "the refusal names the running pid: {}",
+        shown(&output)
+    );
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(
+        dashboard_calls(&case).len(),
+        1,
+        "a second dashboard started"
+    );
+    assert_eq!(
+        fs::read_to_string(&pid_file).expect("the pid file").trim(),
+        pid.to_string()
+    );
+
+    let output = case
+        .command("dashboard:stop", Some(&config))
+        .env("PATH", &path)
+        .output()
+        .expect("task runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(!pid_file.exists(), "the pid file is still there");
+    let mut alive = running(pid);
+    for _ in 0..50 {
+        if !alive {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        alive = running(pid);
+    }
+    assert!(
+        !alive,
+        "the dashboard {pid} still runs after dashboard:stop"
+    );
+}
+
+/// A pid file whose process has gone does not stop a new start, and `dashboard:stop` on it only
+/// removes the file.
+#[test]
+fn dashboard_without_systemctl_replaces_a_stale_pid_file() {
+    let Some(case) = Case::new("w02-dashboard-stale-pid") else {
+        return;
+    };
+    let config = case.config("opus", None);
+    fake_dashboard_conductor(&case);
+    let path = path_without_systemctl(&case);
+    let (pid_file, _) = dashboard_files(&case);
+    fs::create_dir_all(pid_file.parent().expect("the state directory")).expect("create state/");
+    // A process that ran and exited: its pid is free.
+    let gone = Command::new("true").spawn().expect("run true");
+    let gone_pid = gone.id();
+    let mut gone = gone;
+    gone.wait().expect("true exits");
+    fs::write(&pid_file, format!("{gone_pid}\n")).expect("write a stale pid file");
+
+    let output = case
+        .command("dashboard:stop", Some(&config))
+        .env("PATH", &path)
+        .output()
+        .expect("task runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(!pid_file.exists(), "the stale pid file is still there");
+
+    fs::write(&pid_file, format!("{gone_pid}\n")).expect("write a stale pid file");
+    let output = case
+        .command("dashboard", Some(&config))
+        .env("PATH", &path)
+        .output()
+        .expect("task runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let pid: u32 = fs::read_to_string(&pid_file)
+        .expect("the pid file")
+        .trim()
+        .parse()
+        .expect("a pid");
+    let _reap = Reap(pid);
+    assert_ne!(pid, gone_pid, "{}", shown(&output));
+    assert!(running(pid), "the new dashboard {pid} is not running");
+}
+
+/// Where `systemctl` is on `PATH`, the dashboard stays the user service `conductor-dashboard`: no
+/// pid file. The case's `systemctl` and `systemd-run` only log, so no real unit is touched.
+#[test]
+fn dashboard_with_systemctl_keeps_the_user_service() {
+    let Some(case) = Case::new("w02-dashboard-systemd") else {
+        return;
+    };
+    let config = case.config("opus", None);
+    let log = case.dir.join("claude/systemd-log");
+    // `is-active` answers "inactive" (3), so the task starts the unit.
+    for tool in ["systemctl", "systemd-run"] {
+        let file = case.dir.join("bin").join(tool);
+        fs::write(
+            &file,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"{tool} $*\" >> '{}'\n\
+                 case \"$*\" in *is-active*) exit 3 ;; esac\nexit 0\n",
+                log.display()
+            ),
+        )
+        .expect("write a fake systemd tool");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
+
+    let output = case.task("dashboard", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let output = case.task("dashboard:stop", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+
+    let calls = fs::read_to_string(&log).expect("the systemd log");
+    let calls: Vec<&str> = calls.lines().collect();
+    assert_eq!(calls.len(), 3, "{calls:?}");
+    assert_eq!(
+        calls[0],
+        "systemctl --user is-active --quiet conductor-dashboard"
+    );
+    assert!(
+        calls[1].starts_with("systemd-run --user --unit conductor-dashboard --collect ")
+            && calls[1].ends_with(&format!(
+                "{} dashboard serve --port 7313",
+                case.dir.join("bin/conductor").display()
+            )),
+        "{calls:?}"
+    );
+    assert_eq!(calls[2], "systemctl --user stop conductor-dashboard");
+    assert!(!dashboard_files(&case).0.exists());
+}
+
+// ---------------------------------------------------------------------------------------------
+// The bypass-permissions disclaimer (wave 02, U6, `story:first-run-bypass-disclaimer`)
+// ---------------------------------------------------------------------------------------------
+
+/// Claude Code 2.1.295 refuses `claude --bg` in bypassPermissions mode until the disclaimer is
+/// accepted: `skipDangerousModePermissionPrompt: true` in the user's settings (which the
+/// interactive acceptance writes), the local or `--settings` file, or the older
+/// `bypassPermissionsModeAccepted: true` of `~/.claude.json`. Without any of them `conductor:start`
+/// refuses before claude runs, and says how to accept.
+#[test]
+fn conductor_start_refuses_when_the_bypass_disclaimer_is_not_accepted() {
+    let Some(case) = Case::new("w02-start-no-disclaimer") else {
+        return;
+    };
+    case.link_agent("conductor");
+    case.withdraw_disclaimer();
+    let config = case.config("opus", None);
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for part in [
+        "claude --dangerously-skip-permissions",
+        "skipDangerousModePermissionPrompt",
+        "~/.claude.json",
+        &case.records().display().to_string(),
+        &root()
+            .join(".claude/conductor-settings.json")
+            .display()
+            .to_string(),
+    ] {
+        assert!(stderr.contains(part), "{part}: {}", shown(&output));
+    }
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+}
+
+/// The role's settings file setting `skipDangerousModePermissionPrompt: true` is enough.
+#[test]
+fn conductor_start_takes_the_disclaimer_from_the_role_settings_file() {
+    let Some(case) = Case::new("w02-start-disclaimer-role-settings") else {
+        return;
+    };
+    case.link_agent("conductor");
+    case.withdraw_disclaimer();
+    let settings = case.dir.join("home/role-settings.json");
+    fs::write(&settings, "{\"skipDangerousModePermissionPrompt\": true}\n")
+        .expect("write the role settings");
+    let config = case.config("opus", Some(&settings));
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+
+    // `false` there is not an acceptance.
+    fs::write(
+        &settings,
+        "{\"skipDangerousModePermissionPrompt\": false}\n",
+    )
+    .expect("write the role settings");
+    let output = case.task("conductor:start", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+}
+
+/// The older record of the acceptance, `bypassPermissionsModeAccepted: true` in `~/.claude.json`,
+/// still counts (Claude Code moves it into the user settings when it next starts).
+#[test]
+fn conductor_start_takes_the_disclaimer_from_claude_json() {
+    let Some(case) = Case::new("w02-start-disclaimer-claude-json") else {
+        return;
+    };
+    case.link_agent("conductor");
+    case.withdraw_disclaimer();
+    fs::write(
+        case.dir.join("home/.claude.json"),
+        "{\"bypassPermissionsModeAccepted\": true}\n",
+    )
+    .expect("write .claude.json");
+    let config = case.config("opus", None);
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+}
+
+/// With `CLAUDE_CONFIG_DIR` set, Claude Code keeps its user settings there, and so does the check.
+#[test]
+fn conductor_start_takes_the_disclaimer_from_claude_config_dir() {
+    let Some(case) = Case::new("w02-start-disclaimer-config-dir") else {
+        return;
+    };
+    case.link_agent("conductor");
+    case.withdraw_disclaimer();
+    let dir = case.dir.join("claude-config");
+    fs::create_dir_all(&dir).expect("create the config dir");
+    fs::write(
+        dir.join("settings.json"),
+        "{\"skipDangerousModePermissionPrompt\": true}\n",
+    )
+    .expect("write its settings");
+    let config = case.config("opus", None);
+
+    let output = case
+        .command("conductor:start", Some(&config))
+        .env("CLAUDE_CONFIG_DIR", &dir)
+        .output()
+        .expect("task runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+}
+
+/// `conductor:restart` stops nothing when the start it ends with would refuse for the disclaimer.
+#[test]
+fn conductor_restart_stops_nothing_when_the_bypass_disclaimer_is_not_accepted() {
+    let Some(case) = Case::new("w02-restart-no-disclaimer") else {
+        return;
+    };
+    case.link_agent("conductor");
+    case.withdraw_disclaimer();
+    let config = case.config("opus", None);
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case.task("conductor:restart", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("claude --dangerously-skip-permissions"),
+        "{}",
         shown(&output)
     );
     assert!(case.calls().is_empty(), "{:?}", case.calls());

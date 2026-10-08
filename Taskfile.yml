@@ -40,6 +40,14 @@ tasks:
         msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in ~/.claude/agents/ or {{.RECORDS}}/.claude/agents/
       - sh: test -n {{shellQuote .PROFILE}} || test -f "$HOME"/.claude/agents/{{shellQuote .AGENT}}.md || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
         msg: the agent {{.AGENT}} is in neither ~/.claude/agents/ nor {{.RECORDS}}/.claude/agents/ (the agent must be a file <agent>.md in one of them); run task agents:link, or name a profile for the role conductor
+      - sh: jq -e '.skipDangerousModePermissionPrompt == true' {{shellQuote .SETTINGS}} >/dev/null 2>&1 || jq -e '.skipDangerousModePermissionPrompt == true' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" >/dev/null 2>&1 || jq -e '.bypassPermissionsModeAccepted == true' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" >/dev/null 2>&1
+        msg: >-
+          Claude Code's bypass-permissions disclaimer is not accepted, and claude --bg refuses bypassPermissions without it:
+          ~/.claude/settings.json (or $CLAUDE_CONFIG_DIR/settings.json) does not set skipDangerousModePermissionPrompt to true,
+          ~/.claude.json does not set bypassPermissionsModeAccepted to true,
+          and the role conductor's settings file {{.SETTINGS}} does not set skipDangerousModePermissionPrompt to true.
+          Run claude --dangerously-skip-permissions once interactively in {{.RECORDS}} and accept the disclaimer,
+          or set "skipDangerousModePermissionPrompt": true in {{.SETTINGS}}
       - sh: claude agents --json | jq -e 'all(.[]; .name != "conductor" or .pid == null)' >/dev/null
         msg: a session named conductor is already running; see task sessions
     cmds:
@@ -74,7 +82,18 @@ tasks:
         msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in ~/.claude/agents/ or {{.RECORDS}}/.claude/agents/
       - sh: test -n {{shellQuote .PROFILE}} || test -f "$HOME"/.claude/agents/{{shellQuote .AGENT}}.md || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
         msg: the agent {{.AGENT}} is in neither ~/.claude/agents/ nor {{.RECORDS}}/.claude/agents/ (the agent must be a file <agent>.md in one of them); run task agents:link, or name a profile for the role conductor
+      - sh: jq -e '.skipDangerousModePermissionPrompt == true' {{shellQuote .SETTINGS}} >/dev/null 2>&1 || jq -e '.skipDangerousModePermissionPrompt == true' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" >/dev/null 2>&1 || jq -e '.bypassPermissionsModeAccepted == true' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" >/dev/null 2>&1
+        msg: >-
+          Claude Code's bypass-permissions disclaimer is not accepted, and claude --bg refuses bypassPermissions without it:
+          ~/.claude/settings.json (or $CLAUDE_CONFIG_DIR/settings.json) does not set skipDangerousModePermissionPrompt to true,
+          ~/.claude.json does not set bypassPermissionsModeAccepted to true,
+          and the role conductor's settings file {{.SETTINGS}} does not set skipDangerousModePermissionPrompt to true.
+          Run claude --dangerously-skip-permissions once interactively in {{.RECORDS}} and accept the disclaimer,
+          or set "skipDangerousModePermissionPrompt": true in {{.SETTINGS}}
     vars:
+      ROLE_SETTINGS:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .settings // empty'
+      SETTINGS: '{{.ROLE_SETTINGS | default (printf "%s/.claude/conductor-settings.json" .ROOT_DIR)}}'
       RECORDS:
         sh: conductor config show --format json | jq -r '.instances[0].records'
       AGENT:
@@ -173,16 +192,53 @@ tasks:
         done
 
   dashboard:
-    desc: Start the dashboard on 127.0.0.1:7313 as the user service conductor-dashboard unless it is active, and print its URL
+    desc: Start the dashboard on 127.0.0.1:7313 and print its URL; where systemctl is on PATH as the user service conductor-dashboard unless it is active, elsewhere in the background with nohup, its pid in dashboard.pid and its output in dashboard.log of the instance's state directory (conductor config show), refusing while that pid runs
     silent: true
+    vars:
+      STATE:
+        sh: conductor config show --format json | jq -r '.instances[0].state'
     cmds:
-      - systemctl --user is-active --quiet conductor-dashboard || systemd-run --user --unit conductor-dashboard --collect --setenv=PATH="$PATH" "$(command -v conductor)" dashboard serve --port 7313
+      - |
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl --user is-active --quiet conductor-dashboard || systemd-run --user --unit conductor-dashboard --collect --setenv=PATH="$PATH" "$(command -v conductor)" dashboard serve --port 7313
+          exit
+        fi
+        state={{shellQuote .STATE}}
+        pidfile="$state/dashboard.pid"
+        if [ -f "$pidfile" ]; then
+          pid=$(cat "$pidfile")
+          if ps -p "$pid" -o args= 2>/dev/null | grep -q 'dashboard serve'; then
+            echo "the dashboard runs already as pid $pid ($pidfile); see task dashboard:stop" >&2
+            exit 1
+          fi
+        fi
+        mkdir -p "$state"
+        pid=$(sh -c 'nohup "$0" dashboard serve --port 7313 </dev/null >>"$1" 2>&1 & echo $!' "$(command -v conductor)" "$state/dashboard.log")
+        echo "$pid" > "$pidfile"
+        echo "the dashboard runs as pid $pid; its output is in $state/dashboard.log"
       - echo "Open http://127.0.0.1:7313/"
 
   dashboard:stop:
-    desc: Stop the user service conductor-dashboard
+    desc: Stop the dashboard; where systemctl is on PATH the user service conductor-dashboard, elsewhere the pid in dashboard.pid of the instance's state directory (conductor config show), whose file it removes
+    vars:
+      STATE:
+        sh: conductor config show --format json | jq -r '.instances[0].state'
     cmds:
-      - systemctl --user stop conductor-dashboard
+      - |
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl --user stop conductor-dashboard
+          exit
+        fi
+        pidfile={{shellQuote .STATE}}/dashboard.pid
+        if [ ! -f "$pidfile" ]; then
+          echo "no dashboard pid file at $pidfile; nothing to stop"
+          exit 0
+        fi
+        pid=$(cat "$pidfile")
+        if ps -p "$pid" -o args= 2>/dev/null | grep -q 'dashboard serve'; then
+          sh -c 'kill "$0"' "$pid"
+        fi
+        rm -f "$pidfile"
 
   install:
     desc: Install the conductor binary from this checkout; conductor-dev runs it after a wave merges and check is green
