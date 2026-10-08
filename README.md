@@ -47,9 +47,25 @@ For Claude Code, `.claude/agents/` holds one adapter per profile (`conductor.md`
 holds the two settings files that wire the guard: `conductor-settings.json` and
 `controller-settings.json`.
 
+Sessions can start without your own Claude Code configuration: a role that names a `profile`
+starts with `--append-system-prompt-file <profile>` instead of an adapter, every start passes
+`--setting-sources project,local`, and the role's `settings` file carries what the session needs
+(env, plugins, attribution, `claudeMdExcludes` for your global `CLAUDE.md`, the guard hook).
+[`docs/config.md`](docs/config.md) § Sessions without the user's config lists the keys.
+
 ## Install
 
-Prerequisites:
+The ecosystem tools come from the `b10x` marketplace and its installer, pinned in
+[`b10x.toml`](b10x.toml):
+
+```console
+/plugin marketplace add beyond10x/agentplugins     # in Claude Code
+/plugin install b10x@b10x                         # installs the b10x binary
+b10x init aep,ess,worktree --host claude --out plan.json
+b10x setup apply --plan plan.json --yes
+```
+
+The system tools:
 
 | tool | used for |
 |---|---|
@@ -57,26 +73,23 @@ Prerequisites:
 | `git` | the repositories collector, worktree listing |
 | `gh`, logged in | pull requests, CI runs, releases, repository lists |
 | `claude` (Claude Code) | the sessions; `claude agents --json` for the sessions collector, the guard, the watch and the dashboard |
-| `aep` | open decision blockers across planning stores |
-| `ess` | specification status of each repository; this repository's own build (`task check`, `task regen`) |
-| `worktree` | the dashboard's disk view of managed worktrees |
 | `task` (go-task) and `jq` | the tasks in `Taskfile.yml` |
 | `notify-send` (optional) | the watch's desktop notification on a usage limit |
 
-Install the binary:
+Install the binary, then check every program it starts:
 
 ```console
-cargo install --path crates/conductor --locked
+cargo install --path crates/conductor --locked      # or: task install
+conductor doctor
 ```
 
-`task install` runs the same command.
+`conductor doctor` lists each program with its version, and exits 1 when one is missing or older
+than its pin in `b10x.toml`. `conductor snapshot start-snapshot` refuses at start, naming a missing
+program, instead of failing inside a collector.
 
-Controllers start in other repositories' checkouts, so link the controller adapter where Claude
-Code finds it from anywhere:
-
-```console
-ln -s "$PWD/.claude/agents/repo-controller.md" ~/.claude/agents/repo-controller.md
-```
+A role without a `profile` starts with an adapter, which a session in another directory finds only
+in `~/.claude/agents/`: `task agents:link` links the three. With profiles (above), no link is
+needed.
 
 ## Configure
 
@@ -120,7 +133,7 @@ $ conductor config validate
 $ conductor config show
 ```
 
-Then write the instance's `rules.md` in its records directory.
+Then `conductor init` writes the instance's records directory: a git repository with `NORTHSTAR.md`, a first hand-over in `docs/handoff/`, a `rules.md` with one section per role, and `decisions/`, `dispatches/`, `charters/`. It refuses to overwrite a file. Write the instance's own rules into that `rules.md`.
 
 ## Run
 
@@ -138,6 +151,17 @@ task dashboard            # a read-only page on http://127.0.0.1:7313/
 `task conductor:start` starts Claude Code with the `conductor` agent, the model the instance's
 `conductor` role names and `.claude/conductor-settings.json`, and refuses while a session named
 `conductor` is running. `task --list` shows every task.
+
+Claude Code starts a background session in bypass-permissions mode only after its disclaimer has
+been accepted once. Run `claude --dangerously-skip-permissions` once interactively in the records
+directory and accept it (Claude Code records `"skipDangerousModePermissionPrompt": true` in
+`~/.claude/settings.json`), or set that key in the role's settings file. `task conductor:start`
+refuses, and says so, while neither is in place.
+
+`task dashboard` runs the dashboard as the systemd user service `conductor-dashboard` where
+`systemctl` is available. Elsewhere, macOS included, it runs it in the background and keeps its pid
+and log (`dashboard.pid`, `dashboard.log`) in the instance's state directory. `task dashboard:stop`
+stops it either way.
 
 ## Security model
 
