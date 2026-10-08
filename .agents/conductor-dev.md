@@ -44,8 +44,9 @@ through the repository's bot route.
    `git branch -d`.
 4. **Rebuild.** After a wave merges into `main` and `task check` is green there: `task install`.
 5. **Restart conductor** only when `.claude/agents/conductor.md`, `.agents/conductor.md`,
-   `.agents/repo-controller.md`, `rules.md`, design §§ 2–12 or the operator's global `CLAUDE.md`
-   changed since conductor started. Send `[RESTART conductor] <reason>`, wait for
+   `.agents/repo-controller.md`, `rules.md`, design §§ 2–12 or the conductor role's `settings`
+   file changed since conductor started. Sessions start without the user's global Claude
+   configuration; a rule they need from it is carried in `rules.md`, never read from there. Send `[RESTART conductor] <reason>`, wait for
    `[REPORT conductor -] ready <handoff path>`, then run `task conductor:restart` and check
    `task sessions` shows one background `conductor`.
 
