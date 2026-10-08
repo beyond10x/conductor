@@ -1285,7 +1285,9 @@ fn a_controller_runs_only_conductors_read_leaves() {
         for (group, leaf, kind) in &leaves {
             let reads = *kind == Leaf::View
                 || (group.as_str(), leaf.as_str()) == ("decision", "show")
-                || (group.as_str(), leaf.as_str()) == ("guard", "record-guard-decision");
+                || (group.as_str(), leaf.as_str()) == ("guard", "record-guard-decision")
+                || (group.as_str(), leaf.as_str()) == ("config", "show")
+                || (group.as_str(), leaf.as_str()) == ("config", "validate");
             for command in runs(group, leaf) {
                 let decision = bash(&home, cwd, &command);
                 let expected = if reads { Verdict::Allow } else { Verdict::Deny };
@@ -1328,6 +1330,37 @@ fn conductor_runs_every_leaf() {
         "conductor was denied:\n  - {}",
         denied.join("\n  - ")
     );
+}
+
+/// The single-word leaves: `doctor` reads, so a controller runs it; `trust` writes
+/// `~/.claude.json` and `init` writes a records directory, so only conductor runs them. A
+/// controller reads its thresholds with `config show`, as charters tell it to.
+#[test]
+fn a_controller_runs_doctor_and_config_reads_but_not_trust_or_init() {
+    let home = home("controller-single-leaves");
+    for command in [
+        "conductor doctor",
+        "conductor config show --format json",
+        "conductor config validate",
+        "conductor --instance beyond config show",
+    ] {
+        assert_verdict(&bash(&home, PROBE, command), Verdict::Allow, "");
+    }
+    for (command, leaf) in [
+        ("conductor trust", "trust"),
+        ("conductor trust --instance work", "trust"),
+        ("conductor init", "init"),
+        ("cd /x && conductor init --instance work", "init"),
+    ] {
+        assert_verdict(
+            &bash(&home, PROBE, command),
+            Verdict::Deny,
+            &format!("`conductor {leaf}` writes"),
+        );
+    }
+    for command in ["conductor trust", "conductor init"] {
+        assert_verdict(&bash(&home, CONDUCTOR, command), Verdict::Allow, "");
+    }
 }
 
 /// A line that names `conductor` without running one of its leaves is no run of it: help, a

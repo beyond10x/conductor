@@ -468,6 +468,10 @@ const NOT_CONFIG: &str = "a controller does not write conductor's config";
 
 /// The groups of the `conductor` command tree (`src/cli.rs`): a `conductor` word followed by one
 /// of them is a run of the binary. `tests/guard_rules.rs` holds this list to the tree.
+/// The leaves of the `conductor` tree that stand alone, with no group, and write: only conductor
+/// runs them.
+const WRITE_SINGLE_LEAVES: [&str; 2] = ["trust", "init"];
+
 const GROUPS: [&str; 12] = [
     "snapshot",
     "goal",
@@ -494,7 +498,7 @@ const GLOBAL_VALUES: [&str; 2] = ["--state-dir", "--config"];
 /// generated model does not say which leaves are views, so this is a list, and
 /// `tests/guard_rules.rs` holds it to the command tree: every view is in it, and no command but
 /// the hook's is.
-const READ_LEAVES: [(&str, &str); 24] = [
+const READ_LEAVES: [(&str, &str); 26] = [
     ("snapshot", "blockers"),
     ("snapshot", "boards"),
     ("snapshot", "pull-requests"),
@@ -519,6 +523,8 @@ const READ_LEAVES: [(&str, &str); 24] = [
     ("resource", "resource-requests"),
     ("guard", "guard-decisions"),
     ("guard", "record-guard-decision"),
+    ("config", "show"),
+    ("config", "validate"),
 ];
 
 /// Which rule set decides a session.
@@ -1086,6 +1092,9 @@ fn conductor_write(words: &[String]) -> Option<String> {
                 {
                     Some(format!("{group} {leaf}"))
                 }
+                // A single-word leaf that writes: `trust` (`~/.claude.json`) and `init` (a records
+                // directory). `doctor` reads.
+                [leaf, ..] if WRITE_SINGLE_LEAVES.contains(&leaf) => Some(leaf.to_owned()),
                 _ => None,
             }
         })
