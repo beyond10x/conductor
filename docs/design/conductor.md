@@ -218,7 +218,7 @@ A `[RESOURCE]` request is granted or refused against the instance's thresholds
 | a controller's SendMessage only to `conductor` or to a sub-agent it started | the guard; a sub-agent by the shape of its id, not by who started it |
 | no `gh` writes; writes to the forge go through the repository's own route | the guard |
 | no `cd`, `pushd` or `git -C` into another repository or into conductor's records | the guard (a heuristic) |
-| no write to conductor's records or conductor's config | the guard: file tools; Bash only for the config |
+| no write to conductor's records or conductor's config | the guard: file tools; Bash a write form that names them |
 | no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`), a role's `settings` file or a role's `profile` file, by a file tool or a Bash write form that names it | the guard |
 | no `conductor` command that writes, only its views | the guard |
 | conductor's Edit, Write, NotebookEdit only to its records, or in its scratch | the guard |
@@ -228,6 +228,12 @@ Scratch is a session's own temporary space: under `$TMPDIR` for every session, a
 controller also under `~/.cache/<repo>-*/`, `<repo>` its repository with `/` written `-`. Scratch
 is never a repository's checkout or managed worktree, conductor's records or its config, wherever
 `$TMPDIR` points, and a `$TMPDIR` that is the home directory or holds it is no scratch at all.
+
+Conductor's config is the config file the process resolves, the default file
+`~/.b10x/conductor/conductor.yaml` and the directory `~/.b10x/conductor/` itself, and, with a
+config file, the instance's `state` directory and everything under it. The rest of
+`~/.b10x/conductor/` is not the config: an instance's `records` are there by default, and keep
+their own rule (conductor writes them, a controller does not).
 
 The guard is a Claude Code PreToolUse hook. The repository ships it wired in
 `.claude/conductor-settings.json` (conductor) and `.claude/controller-settings.json` (each
@@ -258,9 +264,13 @@ without opening the store, because every tool call of every guarded session runs
 
 The Bash rule is a heuristic over the command line, and it does not check where a command writes.
 It denies a `cd`, `pushd` or `git -C` into another checkout or the records, a `gh` write, a
-`conductor` write, and a write form that names a settings file, a role's profile file or
-conductor's config. Any other Bash write passes: a controller can write, overwrite or delete any
-file its user can, other checkouts, conductor's records and the `conductor` binary included. Each
+`conductor` write, and a command that names a settings file, a role's profile file, conductor's
+config or (a controller's) conductor's records and holds a write form anywhere in it. A write form
+is a redirection to a file outside quotes (`2>&1`, `>&2`, `>/dev/null` and a `>` inside a
+quoted program such as `awk 'NR>=490'` are none), or a write command or flag (`tee`, `cp`,
+`mv`, `rm`, `sed -i` and the like). Any other Bash write passes: a controller can write,
+overwrite or delete any file its user can, other checkouts and the `conductor` binary included,
+and conductor's records or config through a path the command does not spell out. Each
 snapshot reports dirty files in every checkout, which turns such a write into a finding. The guard
 catches mistakes; it is no defence against a hostile prompt (README, Security model). Only the five tools above reach it, `git push` is left to the
 forge's branch protection, and conductor-dev runs without it. An operating-system sandbox for

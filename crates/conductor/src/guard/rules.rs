@@ -4,10 +4,13 @@
 //! ([`Places`], read from `crate::config::active`): the checkouts root `<root>`, the managed-worktree
 //! root `<trees>`, and conductor's records `<records>`. Without a config file they are the built-in
 //! instance's, and `<records>` is the checkout of the repository named `conductor`. Conductor's
-//! config is the file the process resolves, `<config>` (`config::locate`: `CONDUCTOR_CONFIG`, else
-//! [`config::DEFAULT_FILE`] under the home directory; [`Places::with_config_file`]), and the
-//! directory of that default file, `<config-dir>`, which a controller writes neither of, so that it
-//! cannot give itself conductor's rules or a wider checkout.
+//! config, `<config>`, is the file the process resolves (`config::locate`: `CONDUCTOR_CONFIG`, else
+//! [`config::DEFAULT_FILE`] under the home directory; [`Places::with_config_file`]), the default
+//! file, the directory of the default file, `<config-dir>`, itself (not what is under it), and
+//! with a config file the instance's `state` directory and anything under it. A controller does not
+//! write `<config>`, so that it cannot give itself conductor's rules or a wider checkout
+//! (`story:guard-write-forms-and-config-scope`). The rest of `<config-dir>` is not the config: an
+//! instance's `<records>` are there by default, and keep their own rule.
 //!
 //! `<settings>` is the `settings` file of any role of the instance (`config::active`), the files
 //! that wire the guard, and `<profile>` the `profile` file of any role, the system prompt its
@@ -15,15 +18,18 @@
 //!
 //! | tool | controller: denied when | conductor: denied when |
 //! |---|---|---|
-//! | Edit, Write, NotebookEdit | the target is `<config>` or under `<config-dir>`, wherever they are; is outside `<root>/<repo>/` and `<trees>/<repo>/`; is in `<records>`; is a `<settings>` or a `<profile>`; or is a `.claude/` settings file (a `.json` whose name holds `settings`: `settings.json`, `settings.local.json`, `controller-settings.json`, `conductor-settings.json`) inside them | the target is a `<settings>`, a `<profile>` or a `.claude/` settings file, or is not one of conductor's records |
+//! | Edit, Write, NotebookEdit | the target is `<config>`, wherever it is; is outside `<root>/<repo>/` and `<trees>/<repo>/`; is in `<records>`; is a `<settings>` or a `<profile>`; or is a `.claude/` settings file (a `.json` whose name holds `settings`: `settings.json`, `settings.local.json`, `controller-settings.json`, `conductor-settings.json`) inside them | the target is a `<settings>`, a `<profile>` or a `.claude/` settings file, or is not one of conductor's records |
 //! | SendMessage | the recipient is anyone but `conductor` or `conductor [<ref>]` ([`conductor_name`]); an agent the session started, by its id ([`is_own_agent_id`]); or a socket address `uds:<path>/<pid>.sock` whose pid, where the path lands, the session list ([`SessionList`]) gives a live session named `conductor` | never |
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` or `<config-dir>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); or it runs a `conductor` leaf that is not one of [`READ_LEAVES`] ([`conductor_write`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf that is not one of [`READ_LEAVES`] ([`conductor_write`]); or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
 //! The Bash row is a heuristic over the command line (design § 7: it catches the common forms,
-//! not all). Its accepted limits are pinned by `tests/adv_guard.rs`. The two write-form tests are
-//! plain substring tests, not parses: `cd .claude && … > settings.json` and
-//! `cd <config-dir> && cp x conductor.yaml` are not caught, nor is a config file written by a
-//! relative path from the cwd.
+//! not all). Its accepted limits are pinned by `tests/adv_guard.rs`. The write-form tests name a
+//! path by a substring test, not a parse, and hold a write form anywhere in the command: a
+//! redirection read by the shell's grammar (outside quotes, to a file: `2>&1`, `>&2` and
+//! `>/dev/null` are none), or a write command or flag as a word or substring. So `cd .claude && … >
+//! settings.json` and `cd <config-dir> && cp x conductor.yaml` are not caught, nor is a config
+//! file written by a relative path from the cwd, and a command that names a protected path while
+//! it writes another file is denied.
 //!
 //! A path belongs to a repository when it is under the repository's checkout, `<root>/<repo>/` or
 //! `<root>/<group>/<repo>/` (the directory holding `.git` at depth 1 or 2,
@@ -97,6 +103,9 @@ pub struct Places {
     trees: PathBuf,
     /// The instance's `records`, with a config file; `None` without one.
     records: Option<PathBuf>,
+    /// The instance's `state` directory, with a config file; `None` without one, when the state
+    /// is under conductor's records.
+    state: Option<PathBuf>,
     /// The config file the process resolves ([`config::locate`]); [`config::DEFAULT_FILE`] under
     /// the home directory until [`Places::with_config_file`] names another.
     config: PathBuf,
@@ -137,6 +146,7 @@ impl Places {
             checkouts: PathBuf::from(&instance.checkouts.root),
             trees: PathBuf::from(&instance.checkouts.trees),
             records: from_file.then(|| PathBuf::from(&instance.records)),
+            state: from_file.then(|| PathBuf::from(&instance.state)),
             config: home.join(config::DEFAULT_FILE),
             exclude: collect::excluded_under(instance, Path::new(&instance.checkouts.root)),
             tmp: None,
@@ -260,42 +270,72 @@ impl Places {
         }
     }
 
+    /// The default config file, [`config::DEFAULT_FILE`] under the home directory.
+    fn default_config(&self) -> PathBuf {
+        self.home.join(config::DEFAULT_FILE)
+    }
+
     /// The config directory, `<config-dir>`: the directory of [`config::DEFAULT_FILE`] under the
-    /// home directory, which also holds the instances' default records and state.
+    /// home directory. Only the directory itself is the config's (moving or removing it takes the
+    /// default file along); what is under it is not, but for that file and `<state>`.
     fn config_dir(&self) -> Option<PathBuf> {
         config_dir_in_home().map(|dir| self.home.join(dir))
     }
 
-    /// Whether the absolute `path` is conductor's config: the config file, or `<config-dir>` or
-    /// anything under it, each as written ([`lexical`]) or where it lands ([`real`]).
+    /// Whether the absolute `path` is conductor's config: the config file, the default config
+    /// file, `<config-dir>` itself, or `<state>` or anything under it, each as written
+    /// ([`lexical`]) or where it lands ([`real`]).
     fn is_config(&self, path: &Path) -> bool {
-        path == lexical(&self.config)
-            || path == real(&self.config)
-            || self
-                .config_dir()
-                .is_some_and(|dir| path.starts_with(lexical(&dir)) || path.starts_with(real(&dir)))
+        let is = |file: &Path| path == lexical(file) || path == real(file);
+        is(&self.config)
+            || is(&self.default_config())
+            || self.config_dir().is_some_and(|dir| is(&dir))
+            || self.state.as_ref().is_some_and(|state| {
+                path.starts_with(lexical(state)) || path.starts_with(real(state))
+            })
     }
 
-    /// Whether the Bash `command` names conductor's config, by a plain substring test: the config
-    /// directory as the home directory leaves it (`<config-dir>` without `~/`), which every
-    /// spelling of it or of a file under it holds; `$CONDUCTOR_CONFIG` or `${CONDUCTOR_CONFIG`;
-    /// or the config directory or the config file as written or where it lands, as an absolute
-    /// path or under the home directory as `~/…`, `$HOME/…` or `${HOME}/…`.
+    /// Whether the Bash `command` names conductor's config. A plain substring test for the files:
+    /// `$CONDUCTOR_CONFIG` or `${CONDUCTOR_CONFIG`, [`config::DEFAULT_FILE`] as the home directory
+    /// leaves it, or any of the [`Places::spellings`] of the config file or the default file. A
+    /// whole-path test ([`names_path`]) for the directories: `<config-dir>` itself, and `<state>`
+    /// or a path under it, so that a path elsewhere under `<config-dir>`, such as the records an
+    /// instance keeps there by default, is not the config.
     fn names_config(&self, command: &str) -> bool {
         let variable = config::CONFIG_VARIABLE;
-        let mut spellings = vec![format!("${variable}"), format!("${{{variable}")];
-        spellings.extend(config_dir_in_home().map(|dir| dir.display().to_string()));
-        let paths = self.config_dir().into_iter().chain([self.config.clone()]);
-        for path in paths {
-            spellings.extend(self.spellings(&path));
-        }
-        spellings
+        let mut files = vec![
+            format!("${variable}"),
+            format!("${{{variable}"),
+            config::DEFAULT_FILE.to_owned(),
+        ];
+        files.extend(self.spellings(&self.config));
+        files.extend(self.spellings(&self.default_config()));
+        files.iter().any(|file| command.contains(file.as_str()))
+            || self.config_dir().is_some_and(|dir| {
+                self.spellings(&dir)
+                    .iter()
+                    .any(|spelling| names_path(command, spelling, false))
+            })
+            || self.state.as_ref().is_some_and(|state| {
+                self.spellings(state)
+                    .iter()
+                    .any(|spelling| names_path(command, spelling, true))
+            })
+    }
+
+    /// Whether the Bash `command` writes conductor's records: it names `<records>` or a path under
+    /// it ([`names_path`]) by any of its [`Places::spellings`], and holds a write form
+    /// ([`holds_write_form`]).
+    fn writes_records(&self, command: &str) -> bool {
+        self.spellings(&self.records_dir())
             .iter()
-            .any(|spelling| command.contains(spelling.as_str()))
+            .any(|spelling| names_path(command, spelling, true))
+            && holds_write_form(command)
     }
 
     /// The ways a command line writes the absolute `path`: as written or where it lands, as an
-    /// absolute path or under the home directory as `~/…`, `$HOME/…` or `${HOME}/…`.
+    /// absolute path or under the home directory as `~/…`, `$HOME/…`, `${HOME}/…`, `"$HOME"/…` or
+    /// `"${HOME}"/…`.
     fn spellings(&self, path: &Path) -> Vec<String> {
         let mut spellings = Vec::new();
         for landing in [lexical(path), real(path)] {
@@ -308,6 +348,8 @@ impl Places {
                     format!("~/{rest}"),
                     format!("$HOME/{rest}"),
                     format!("${{HOME}}/{rest}"),
+                    format!("\"$HOME\"/{rest}"),
+                    format!("\"${{HOME}}\"/{rest}"),
                 ]);
             }
         }
@@ -357,15 +399,23 @@ impl Places {
         }) && holds_write_form(command)
     }
 
-    /// Conductor's config, for a denial to name: the config file, and `<config-dir>`.
+    /// Conductor's config, for a denial to name: the config file, the default config file,
+    /// `<config-dir>` itself, and `<state>`.
     fn config_described(&self) -> String {
-        match self.config_dir() {
-            Some(dir) => format!(
-                "{}, or anything under {}/",
-                self.shown(&self.config),
-                self.shown(&dir)
-            ),
-            None => self.shown(&self.config),
+        let mut parts = vec![self.shown(&self.config)];
+        let default = self.default_config();
+        if default != self.config {
+            parts.push(self.shown(&default));
+        }
+        if let Some(dir) = self.config_dir() {
+            parts.push(format!("the directory {}/ itself", self.shown(&dir)));
+        }
+        if let Some(state) = &self.state {
+            parts.push(format!("anything under {}/", self.shown(state)));
+        }
+        match parts.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{}, or {last}", rest.join(", ")),
+            _ => parts.join(""),
         }
     }
 }
@@ -384,9 +434,9 @@ const GH_RUN_READ_VERBS: [&str; 4] = ["view", "list", "watch", "download"];
 const GH_NOT_RUN: [&str; 6] = ["b10x-gates", "which", "type", "whereis", "man", "hash"];
 
 /// The write forms that, in a controller's Bash command that names `.claude/settings` or
-/// conductor's config, deny it: as substrings.
-const WRITE_SUBSTRINGS: [&str; 8] = [
-    ">",
+/// conductor's config, deny it: as substrings. A redirection is a write form too, read by the
+/// shell's grammar rather than as a substring ([`shell::written`]).
+const WRITE_SUBSTRINGS: [&str; 7] = [
     "sed -i",
     "sed --in-place",
     "yq -i",
@@ -888,6 +938,16 @@ impl Session<'_> {
                 }
             }
         }
+        if self.places.writes_records(command) {
+            return (
+                Verdict::Deny,
+                format!(
+                    "the command names conductor's records {}/ and holds a write form: a \
+                     controller does not write them",
+                    self.places.shown(&self.places.records_dir())
+                ),
+            );
+        }
         (
             Verdict::Allow,
             "no cd or git -C into another repository and no GitHub write".to_owned(),
@@ -1053,11 +1113,36 @@ fn names_claude_settings(command: &str) -> bool {
     })
 }
 
-/// Whether `command` holds a write form: one of [`WRITE_SUBSTRINGS`], or one of [`WRITE_WORDS`]
-/// as a word.
+/// Whether `command` holds a write form: a redirection that writes a file ([`shell::written`]:
+/// outside quotes, and not a descriptor duplication such as `2>&1` or `/dev/null`), one of
+/// [`WRITE_SUBSTRINGS`], or one of [`WRITE_WORDS`] as a word.
 fn holds_write_form(command: &str) -> bool {
-    WRITE_SUBSTRINGS.iter().any(|form| command.contains(form))
+    !shell::written(command).is_empty()
+        || WRITE_SUBSTRINGS.iter().any(|form| command.contains(form))
         || WRITE_WORDS.iter().any(|form| contains_word(command, form))
+}
+
+/// Whether `command` names the path `spelling` as a whole: `spelling` followed by the end of the
+/// command, a blank, a quote or a shell operator, or by `/` and then one of those; with `under`,
+/// by `/` and anything, a path under it. A path that merely starts with the same letters
+/// (`records-old` beside `records`) is not named.
+fn names_path(command: &str, spelling: &str, under: bool) -> bool {
+    let ends = |rest: &str| {
+        rest.chars().next().is_none_or(|c| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '"' | '\'' | '`' | ';' | '|' | '&' | '<' | '>' | '(' | ')'
+                )
+        })
+    };
+    command.match_indices(spelling).any(|(at, _)| {
+        let rest = &command[at + spelling.len()..];
+        ends(rest)
+            || rest
+                .strip_prefix('/')
+                .is_some_and(|rest| under || ends(rest))
+    })
 }
 
 /// Whether `text` holds `word` with no letter, digit, `_`, `-` or `.` on either side.

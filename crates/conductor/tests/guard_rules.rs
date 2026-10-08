@@ -1695,8 +1695,8 @@ const RULES: [(Who, &str, &str, &str, Verdict, &str); 38] = [
         Verdict::Deny,
         "only conductor runs it",
     ),
-    // Controller, conductor's config (wave 08 W5): the file the process resolves and anything
-    // under `~/.b10x/conductor/`, by a file tool or a Bash write form; reading it is allowed.
+    // Controller, conductor's config (wave 08 W5): the file the process resolves, by a file tool
+    // or a Bash write form; reading it is allowed.
     (
         Who::Controller,
         "write",
@@ -1709,7 +1709,7 @@ const RULES: [(Who, &str, &str, &str, Verdict, &str); 38] = [
         Who::Worker,
         "edit",
         "file_path",
-        "{home}/.b10x/conductor/fixture/records/x",
+        "{config}",
         Verdict::Deny,
         NOT_CONFIG,
     ),
@@ -2024,9 +2024,10 @@ fn without_a_config_file_the_active_places_are_the_built_in_ones() {
 // Wave 08 W5: a controller does not write conductor's config. A controller that rewrote it could
 // make its own cwd conductor's `records`, and so get conductor's rules and write leaves, or set
 // `checkouts.root` to `/` and so write anywhere. The config is the file the process resolves
-// (`config::locate`: `CONDUCTOR_CONFIG`, else `~/.b10x/conductor/conductor.yaml`) and anything
-// under `~/.b10x/conductor/`, where links land. Reading it is allowed, and conductor's own session
-// is decided as before.
+// (`config::locate`: `CONDUCTOR_CONFIG`, else `~/.b10x/conductor/conductor.yaml`), the default
+// file, the directory `~/.b10x/conductor/` itself, and with a config file the instance's state
+// directory (`story:guard-write-forms-and-config-scope`), where links land. Reading it is allowed,
+// and conductor's own session is decided as before.
 // -------------------------------------------------------------------------------------------------
 
 /// What every denial of a write to conductor's config says.
@@ -2035,9 +2036,10 @@ const NOT_CONFIG: &str = "a controller does not write conductor's config";
 /// The default config file, as a session writes it.
 const CONFIG: &str = "~/.b10x/conductor/conductor.yaml";
 
-/// Acceptance: a Write to the config file, and an Edit (or any file tool) of a file under
-/// `~/.b10x/conductor/`, are denied from a controller's checkout and from its worker's tree; the
-/// reason names the target and the config file.
+/// Acceptance: a Write to the config file is denied from a controller's checkout and from its
+/// worker's tree; the reason names the target and the config file. Another file under
+/// `~/.b10x/conductor/` is not the config (`story:guard-write-forms-and-config-scope`): it is
+/// denied as any place outside the checkout is.
 #[test]
 fn a_controller_writes_no_config_with_a_file_tool() {
     let home = home("config-file-tools");
@@ -2045,9 +2047,6 @@ fn a_controller_writes_no_config_with_a_file_tool() {
         for (name, field) in FILE_TOOLS {
             for target in [
                 CONFIG,
-                "~/.b10x/conductor/fixture/records/decisions/2026-10.jsonl",
-                "~/.b10x/conductor/fixture/state/tree/x",
-                "~/.b10x/conductor/new.yaml",
                 "~/.b10x/conductor/x/../conductor.yaml",
                 "~/.b10x/./conductor/conductor.yaml",
             ] {
@@ -2055,6 +2054,15 @@ fn a_controller_writes_no_config_with_a_file_tool() {
                 assert_verdict(&decision, Verdict::Deny, NOT_CONFIG);
                 assert_verdict(&decision, Verdict::Deny, &under(&home, target));
                 assert_verdict(&decision, Verdict::Deny, CONFIG);
+            }
+            for target in [
+                "~/.b10x/conductor/fixture/records/decisions/2026-10.jsonl",
+                "~/.b10x/conductor/fixture/state/tree/x",
+                "~/.b10x/conductor/new.yaml",
+            ] {
+                let decision = decide(name, &home, cwd, &[(field, target)]);
+                assert_verdict(&decision, Verdict::Deny, "outside");
+                assert!(!decision.reason.contains(NOT_CONFIG), "{decision:#?}");
             }
             // A literal `~/` the session sends is the home directory.
             let mut raw = payload(name, &home, cwd, &[]);
@@ -2092,6 +2100,8 @@ fn the_config_directory_is_the_home_directory_s_and_no_other() {
 /// The guard follows links here as it does elsewhere: a link in the checkout to the config does
 /// not carry a write into it, and when `~/.b10x` or `~/.b10x/conductor` is a link into the
 /// checkout, a write that lands on the config, through the link or through the checkout, is denied.
+/// Another file under the linked directory is not the config: outside the checkout it is denied as
+/// outside, inside it is the checkout's.
 #[test]
 fn a_link_does_not_carry_a_controller_s_write_into_the_config() {
     let link = |target: &Path, at: &Path| {
@@ -2114,10 +2124,11 @@ fn a_link_does_not_carry_a_controller_s_write_into_the_config() {
     fs::create_dir_all(&dir).expect("create the config directory");
     link(&dir, &checkout.join("cfg"));
     link(&dir.join("conductor.yaml"), &checkout.join("plain.yaml"));
-    denied(
-        &home_out,
-        &["cfg/conductor.yaml", "cfg/new.yaml", "plain.yaml"],
-    );
+    denied(&home_out, &["cfg/conductor.yaml", "plain.yaml"]);
+    for (name, field) in FILE_TOOLS {
+        let decision = decide(name, &home_out, PROBE, &[(field, "cfg/new.yaml")]);
+        assert_verdict(&decision, Verdict::Deny, "outside");
+    }
 
     // `~/.b10x` a link into the checkout: the config lands in the checkout.
     let home_in = home("config-link-in");
@@ -2130,12 +2141,13 @@ fn a_link_does_not_carry_a_controller_s_write_into_the_config() {
             CONFIG,
             "~/example-org/.guard-probe-w04/dot/conductor/conductor.yaml",
             "dot/conductor/conductor.yaml",
-            "dot/conductor/fixture/records/x",
         ],
     );
     for (name, field) in FILE_TOOLS {
-        let decision = decide(name, &home_in, PROBE, &[(field, "dot/other.txt")]);
-        assert_verdict(&decision, Verdict::Allow, "inside");
+        for target in ["dot/other.txt", "dot/conductor/fixture/records/x"] {
+            let decision = decide(name, &home_in, PROBE, &[(field, target)]);
+            assert_verdict(&decision, Verdict::Allow, "inside");
+        }
     }
 
     // `~/.b10x/conductor` itself a link into the checkout.
@@ -2144,13 +2156,19 @@ fn a_link_does_not_carry_a_controller_s_write_into_the_config() {
     fs::create_dir_all(checkout.join("cfgdir")).expect("create the linked directory");
     fs::create_dir_all(home_dir.join(".b10x")).expect("create ~/.b10x");
     link(&checkout.join("cfgdir"), &home_dir.join(".b10x/conductor"));
-    denied(&home_dir, &[CONFIG, "cfgdir/conductor.yaml", "cfgdir/x"]);
+    denied(&home_dir, &[CONFIG, "cfgdir/conductor.yaml"]);
+    for (name, field) in FILE_TOOLS {
+        let decision = decide(name, &home_dir, PROBE, &[(field, "cfgdir/x")]);
+        assert_verdict(&decision, Verdict::Allow, "inside");
+    }
 }
 
-/// Acceptance: a controller's Bash that names the config file or `~/.b10x/conductor/` and holds a
-/// write form (the word list of the project settings rule) is denied, `sed -i`, `cp` and a write
-/// to `"$CONDUCTOR_CONFIG"` among them; reading it is allowed. A plain substring test, as for the
-/// project settings, so `cd ~/.b10x/conductor && cp x conductor.yaml` is not caught.
+/// Acceptance: a controller's Bash that names the config file or the directory
+/// `~/.b10x/conductor` itself and holds a write form (the word list of the project settings rule)
+/// is denied, `sed -i`, `cp` and a write to `"$CONDUCTOR_CONFIG"` among them; reading it is
+/// allowed. A plain substring test, as for the project settings, so `cd ~/.b10x/conductor && cp x
+/// conductor.yaml` is not caught. A path elsewhere under `~/.b10x/conductor/` is not the config
+/// (`story:guard-write-forms-and-config-scope`), and without a config file nothing else is there.
 #[test]
 fn a_controller_s_bash_writes_no_config() {
     let home = home("config-bash");
@@ -2170,7 +2188,6 @@ fn a_controller_s_bash_writes_no_config() {
             "ln -sf ~/x.yaml ~/.b10x/conductor/conductor.yaml",
             "install -m 600 x ~/.b10x/conductor/conductor.yaml",
             "truncate -s 0 ~/.b10x/conductor/conductor.yaml",
-            "cp x ~/.b10x/conductor/fixture/records/decisions/2026-10.jsonl",
             "bash -c 'echo x > ~/.b10x/conductor/conductor.yaml'",
             "yq -i '.instances[0].records = \".\"' ~/.b10x/conductor/conductor.yaml",
             "perl -pi -e 's/x/y/' ~/.b10x/conductor/conductor.yaml",
@@ -2189,6 +2206,7 @@ fn a_controller_s_bash_writes_no_config() {
             "ls ~/.b10x/conductor",
             "echo x > notes.txt",
             "CONDUCTOR_CONFIG=x.yaml cargo test -p x > out.log",
+            "cp x ~/.b10x/conductor/fixture/records/decisions/2026-10.jsonl",
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
         }
@@ -2205,7 +2223,8 @@ fn a_controller_s_bash_names_the_config_where_it_lands() {
     for command in [
         format!("cp x {}/conductor/conductor.yaml", elsewhere.display()),
         "cp x ~/elsewhere/dot/conductor/conductor.yaml".to_owned(),
-        "echo x > $HOME/elsewhere/dot/conductor/new.yaml".to_owned(),
+        "echo x > $HOME/elsewhere/dot/conductor/conductor.yaml".to_owned(),
+        "rm -rf ~/elsewhere/dot/conductor".to_owned(),
     ] {
         assert_verdict(&bash(&home, PROBE, &command), Verdict::Deny, NOT_CONFIG);
     }
@@ -2276,7 +2295,7 @@ fn a_config_file_in_a_controller_s_checkout_is_not_the_controller_s() {
 /// Acceptance, decision 3: conductor's own session is not affected. Its Bash writes the config by
 /// every form a controller is denied, and its file tools write its records and nothing else, as
 /// before; with records under `~/.b10x/conductor/` (the default a config file leaves) it writes
-/// them there, while a controller does not.
+/// them there, while a controller does not, by the records' own rule rather than the config's.
 #[test]
 fn conductor_s_session_is_not_affected_by_the_config_rule() {
     let home = home("config-conductor");
@@ -2312,7 +2331,13 @@ fn conductor_s_session_is_not_affected_by_the_config_rule() {
     assert_verdict(
         &layout.decide("write", &controller, "file_path", &target, &unlisted()),
         Verdict::Deny,
-        NOT_CONFIG,
+        "outside",
+    );
+    let command = layout.fill("cp x {records}/decisions/2026-10.jsonl");
+    assert_verdict(
+        &layout.decide("bash", &controller, "command", &command, &unlisted()),
+        Verdict::Deny,
+        "a controller does not write them",
     );
     let command = layout.fill("cd {records}/decisions");
     assert_verdict(
@@ -2320,6 +2345,189 @@ fn conductor_s_session_is_not_affected_by_the_config_rule() {
         Verdict::Deny,
         "reaches conductor's records",
     );
+}
+
+// -------------------------------------------------------------------------------------------------
+// `story:guard-write-forms-and-config-scope`: a redirection writes only outside quotes and only to
+// a file, and the config rule covers the config file and the instance's state directory, not the
+// rest of `~/.b10x/conductor/`, where an instance's records are by default and keep their own rule.
+// -------------------------------------------------------------------------------------------------
+
+/// Acceptance: a descriptor duplication (`2>&1`, `>&2`, `1>&2`), a redirection to `/dev/null`, and
+/// a `>` or `>>` inside quotes are no write forms, so a controller's read of the config that
+/// carries one is allowed.
+#[test]
+fn a_redirection_to_a_descriptor_or_dev_null_or_inside_quotes_is_no_write() {
+    let home = home("write-forms-read-only");
+    for cwd in [PROBE, WORKER] {
+        for command in [
+            "cat ~/.b10x/conductor/conductor.yaml 2>&1",
+            "cat ~/.b10x/conductor/conductor.yaml >&2",
+            "cat ~/.b10x/conductor/conductor.yaml 1>&2",
+            "cat ~/.b10x/conductor/conductor.yaml >/dev/null",
+            "cat ~/.b10x/conductor/conductor.yaml 2>/dev/null",
+            "cat ~/.b10x/conductor/conductor.yaml &>/dev/null",
+            "cat ~/.b10x/conductor/conductor.yaml > /dev/null 2>&1",
+            "awk 'NR>=490' ~/.b10x/conductor/conductor.yaml",
+            "grep -c \"a > b\" ~/.b10x/conductor/conductor.yaml",
+            "grep '>>' ~/.b10x/conductor/conductor.yaml | head -n 3",
+            "bash -c \"awk 'NR>=490' ~/.b10x/conductor/conductor.yaml 2>&1\"",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+/// Acceptance, the earlier denials kept: each real write form (`>`, `>>`, `tee`, `cp`, `mv`,
+/// `sed -i`) denies a controller's Bash that names the config, whether it writes the config or
+/// writes elsewhere in the same command.
+#[test]
+fn a_real_write_form_in_a_command_naming_the_config_is_still_denied() {
+    let home = home("write-forms-real");
+    for cwd in [PROBE, WORKER] {
+        for command in [
+            "echo x > ~/.b10x/conductor/conductor.yaml",
+            "echo x >> ~/.b10x/conductor/conductor.yaml",
+            "echo x | tee ~/.b10x/conductor/conductor.yaml",
+            "cp x ~/.b10x/conductor/conductor.yaml",
+            "mv x ~/.b10x/conductor/conductor.yaml",
+            "sed -i s/a/b/ ~/.b10x/conductor/conductor.yaml",
+            "echo x 2>&1 >~/.b10x/conductor/conductor.yaml",
+            "echo x &>> ~/.b10x/conductor/conductor.yaml",
+            "echo x >| ~/.b10x/conductor/conductor.yaml",
+            "echo \"$(echo x > ~/.b10x/conductor/conductor.yaml)\"",
+            "cat ~/.b10x/conductor/conductor.yaml > copy.yaml",
+            "cat ~/.b10x/conductor/conductor.yaml >> notes.txt",
+            "cat ~/.b10x/conductor/conductor.yaml | tee copy.yaml",
+            "cp ~/.b10x/conductor/conductor.yaml copy.yaml",
+            "mv a b && cat ~/.b10x/conductor/conductor.yaml",
+            "sed -i s/a/b/ notes.txt; cat ~/.b10x/conductor/conductor.yaml 2>&1",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Deny, NOT_CONFIG);
+        }
+    }
+}
+
+/// A config file beside `home` that leaves `records` and `state` to their defaults, under
+/// `~/.b10x/conductor/fixture/`, with the checkout `root/probe/` and conductor's role settings
+/// file `~/.config/fixture-roles/conductor.json`.
+fn defaulted_places(home: &Path) -> Places {
+    let case = home.parent().expect("the case's directory");
+    fs::create_dir_all(case.join("root/probe/.git")).expect("create the probe checkout");
+    let text = format!(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: fixture\n\
+         \x20   sources: [{{github: fixture}}]\n\
+         \x20   checkouts: {{root: {}, trees: {}}}\n\
+         \x20   roles:\n\
+         \x20     - {{role: conductor, harness: claude, model: opus, settings: \
+         ~/.config/fixture-roles/conductor.json}}\n",
+        case.join("root").display(),
+        case.join("trees").display(),
+    );
+    places_from_file(home, &text)
+}
+
+/// Acceptance: the config rule covers the config file and the instance's state directory, not the
+/// rest of `~/.b10x/conductor/`. A controller's Bash reads the records there, with `2>&1` or a
+/// quoted `>`, and writes beside a path that is none of them; it writes neither the config file
+/// nor the state directory, and its Bash writes no record (the records' own rule).
+#[test]
+fn the_config_rule_covers_the_config_file_and_the_state_directory_only() {
+    let home = home("config-scope");
+    let places = defaulted_places(&home);
+    let case = home.parent().expect("the case's directory").to_owned();
+    let records = home.join(".b10x/conductor/fixture/records");
+    let state = home.join(".b10x/conductor/fixture/state");
+    let config = file_beside(&home);
+    let at = |name: &str, cwd: &Path, field: &str, value: &str| {
+        decide_in_places(&places, &home, name, cwd, field, value)
+    };
+    for cwd in [case.join("root/probe"), case.join("trees/probe/t")] {
+        for command in [
+            format!("ls {} 2>&1", records.display()),
+            "ls ~/.b10x/conductor/fixture/records 2>&1".to_owned(),
+            format!("awk 'NR>=490' {}/rules.md", records.display()),
+            "cat ~/.b10x/conductor/other.txt > notes.txt".to_owned(),
+            "cat ~/.b10x/conductor/fixture/state-old/x > notes.txt".to_owned(),
+            "cat ~/.b10x/conductor/fixture/records-old/x > notes.txt".to_owned(),
+            format!("ls {} 2>&1", state.display()),
+        ] {
+            let decision = at("bash", &cwd, "command", &command);
+            assert_verdict(&decision, Verdict::Allow, "");
+        }
+        for command in [
+            "cp x ~/.b10x/conductor/fixture/state/tree/x".to_owned(),
+            format!("echo x > {}/x", state.display()),
+            "rm -rf ~/.b10x/conductor/fixture/state".to_owned(),
+            "rm -rf \"$HOME\"/.b10x/conductor/fixture/state/".to_owned(),
+            "rm -rf ~/.b10x/conductor".to_owned(),
+            "mv ~/.b10x/conductor/ x".to_owned(),
+            format!("cp x {}", config.display()),
+            "echo x > ~/.b10x/conductor/conductor.yaml".to_owned(),
+        ] {
+            let decision = at("bash", &cwd, "command", &command);
+            assert_verdict(&decision, Verdict::Deny, NOT_CONFIG);
+            assert_verdict(&decision, Verdict::Deny, "~/.b10x/conductor/fixture/state/");
+        }
+        for command in [
+            format!("cp x {}/decisions/2026-10.jsonl", records.display()),
+            "echo x >> ~/.b10x/conductor/fixture/records/STATUS.md".to_owned(),
+            format!("cat {}/rules.md > notes.txt", records.display()),
+        ] {
+            let decision = at("bash", &cwd, "command", &command);
+            assert_verdict(&decision, Verdict::Deny, "a controller does not write them");
+            assert_verdict(
+                &decision,
+                Verdict::Deny,
+                "~/.b10x/conductor/fixture/records/",
+            );
+        }
+        for (name, field) in FILE_TOOLS {
+            let decision = at(name, &cwd, field, &state.join("x").display().to_string());
+            assert_verdict(&decision, Verdict::Deny, NOT_CONFIG);
+            for target in [
+                "~/.b10x/conductor/other.yaml",
+                "~/.b10x/conductor/fixture/records/decisions/2026-10.jsonl",
+            ] {
+                let decision = at(name, &cwd, field, &under(&home, target));
+                assert_verdict(&decision, Verdict::Deny, "outside");
+                assert!(!decision.reason.contains(NOT_CONFIG), "{decision:#?}");
+            }
+        }
+    }
+}
+
+/// Acceptance: conductor's own Bash that names a role's settings file runs with `2>&1` or a
+/// redirection to `/dev/null`; a real write form beside that path still denies it (decision 3).
+#[test]
+fn conductor_s_bash_naming_a_role_s_settings_file_writes_only_by_a_real_write_form() {
+    let home = home("write-forms-conductor");
+    let places = defaulted_places(&home);
+    let records = home.join(".b10x/conductor/fixture/records");
+    fs::create_dir_all(&records).expect("create the records");
+    let shown = records.display();
+    let at = |command: &str| decide_in_places(&places, &home, "bash", &records, "command", command);
+    for command in [
+        "claude --bg --settings ~/.config/fixture-roles/conductor.json --model opus 'go on' 2>&1"
+            .to_owned(),
+        "claude --bg --settings ~/.config/fixture-roles/conductor.json >/dev/null 2>&1".to_owned(),
+        format!("echo x >> {shown}/charters/alpha.md"),
+    ] {
+        let decision = at(&command);
+        assert_eq!(decision.repository, "conductor", "{decision:#?}");
+        assert_verdict(&decision, Verdict::Allow, "");
+    }
+    for command in [
+        format!(
+            "cat >> {shown}/charters/alpha.md < x; claude --bg --settings \
+             ~/.config/fixture-roles/conductor.json"
+        ),
+        "echo '{}' > ~/.config/fixture-roles/conductor.json".to_owned(),
+    ] {
+        assert_verdict(&at(&command), Verdict::Deny, "settings");
+    }
 }
 
 // -------------------------------------------------------------------------------------------------

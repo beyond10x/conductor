@@ -12,6 +12,12 @@
 //!
 //! Redirection operators are dropped and their targets kept as words. Words are not expanded:
 //! `~`, `$HOME` and globs reach the caller as written.
+//!
+//! A redirection is read only outside quotes, so a `>` inside a quoted program (`awk 'NR>=4'`) or
+//! string is none. The files a command's redirections write ([`written`]) are the targets of `>`,
+//! `>>`, `>|`, `<>`, `&>`, `&>>` and `>&<word>`; a descriptor duplication or close (`2>&1`, `>&2`,
+//! `<&-`) writes no file, and neither do [`NOT_FILES`] (`/dev/null`). An output operator with no
+//! word after it is read as a write to an unknown file, the empty string.
 
 use std::collections::VecDeque;
 use std::mem;
@@ -22,11 +28,32 @@ const DEPTH: usize = 8;
 /// The shells whose `-c` script is read as commands.
 const SHELLS: [&str; 6] = ["sh", "bash", "zsh", "dash", "ksh", "fish"];
 
+/// Redirection targets that are no file: writing them changes nothing on disk.
+const NOT_FILES: [&str; 3] = ["/dev/null", "/dev/stdout", "/dev/stderr"];
+
+/// One simple command: its words after quote removal, and the targets its output redirections
+/// write, as words.
+struct Simple {
+    words: Vec<String>,
+    writes: Vec<String>,
+}
+
 /// The simple commands of `script`, in order, each as its words after quote removal.
 pub(super) fn commands(script: &str) -> Vec<Vec<String>> {
     let mut out = Vec::new();
     collect(script, DEPTH, &mut out);
-    out
+    out.into_iter().map(|simple| simple.words).collect()
+}
+
+/// The files the simple commands of `script` ([`commands`]) write by redirection, in order, each
+/// as its target word after quote removal: descriptor duplications and [`NOT_FILES`] left out.
+pub(super) fn written(script: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    collect(script, DEPTH, &mut out);
+    out.into_iter()
+        .flat_map(|simple| simple.writes)
+        .filter(|target| !NOT_FILES.contains(&target.as_str()))
+        .collect()
 }
 
 /// The last path component of `word`: the program a command word names.
@@ -34,19 +61,19 @@ pub(super) fn program(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
 
-fn collect(script: &str, depth: usize, out: &mut Vec<Vec<String>>) {
-    for (nested, words) in Lexer::new(script).run() {
+fn collect(script: &str, depth: usize, out: &mut Vec<Simple>) {
+    for (nested, simple) in Lexer::new(script).run() {
         if depth > 0 {
             for inner in &nested {
                 collect(inner, depth - 1, out);
             }
         }
         let scripts = if depth > 0 {
-            argument_scripts(&words)
+            argument_scripts(&simple.words)
         } else {
             Vec::new()
         };
-        out.push(words);
+        out.push(simple);
         for inner in scripts {
             collect(&inner, depth - 1, out);
         }
@@ -83,7 +110,11 @@ struct Lexer {
     in_word: bool,
     words: Vec<String>,
     nested: Vec<String>,
-    commands: Vec<(Vec<String>, Vec<String>)>,
+    /// The targets the current command's output redirections write.
+    writes: Vec<String>,
+    /// After a redirection operator: whether the word that follows is a target it writes.
+    target: Option<bool>,
+    commands: Vec<(Vec<String>, Simple)>,
     /// Here-documents opened on the current line: delimiter, and whether leading tabs are
     /// stripped (`<<-`).
     heredocs: VecDeque<(String, bool)>,
@@ -98,6 +129,8 @@ impl Lexer {
             in_word: false,
             words: Vec::new(),
             nested: Vec::new(),
+            writes: Vec::new(),
+            target: None,
             commands: Vec::new(),
             heredocs: VecDeque::new(),
         }
@@ -114,22 +147,31 @@ impl Lexer {
 
     fn end_word(&mut self) {
         if self.in_word {
-            self.words.push(mem::take(&mut self.word));
+            let word = mem::take(&mut self.word);
+            if self.target.take() == Some(true) {
+                self.writes.push(word.clone());
+            }
+            self.words.push(word);
             self.in_word = false;
         }
     }
 
     fn end_command(&mut self) {
         self.end_word();
-        if !self.words.is_empty() || !self.nested.is_empty() {
+        // An output operator with no word after it still writes, somewhere.
+        if self.target.take() == Some(true) {
+            self.writes.push(String::new());
+        }
+        if !self.words.is_empty() || !self.nested.is_empty() || !self.writes.is_empty() {
             let nested = mem::take(&mut self.nested);
             let words = mem::take(&mut self.words);
-            self.commands.push((nested, words));
+            let writes = mem::take(&mut self.writes);
+            self.commands.push((nested, Simple { words, writes }));
         }
     }
 
-    /// Each simple command as `(substitutions inside it, its words)`.
-    fn run(mut self) -> Vec<(Vec<String>, Vec<String>)> {
+    /// Each simple command as `(substitutions inside it, the command)`.
+    fn run(mut self) -> Vec<(Vec<String>, Simple)> {
         while let Some(c) = self.peek(0) {
             match c {
                 '\\' => {
@@ -198,6 +240,7 @@ impl Lexer {
                     if self.peek(0) == Some('>') {
                         self.at += 1;
                     }
+                    self.target = Some(true);
                 }
                 ';' | '&' | '|' | '(' | ')' => {
                     self.end_command();
@@ -215,14 +258,19 @@ impl Lexer {
                     }
                     self.end_word();
                     self.at += 1;
+                    let mut output = c == '>';
+                    let mut duplicates = false;
                     while let Some(next) = self.peek(0) {
                         if matches!(next, '<' | '>' | '|') {
+                            output |= next == '>';
                             self.at += 1;
                         } else if next == '&' {
-                            // `>&2`, `<&-`: a descriptor, not a separator.
+                            // `>&2`, `<&-`: a descriptor, not a separator, and no file; `>&file`
+                            // writes the file.
                             self.at += 1;
                             while let Some(d) = self.peek(0) {
                                 if d.is_ascii_digit() || d == '-' {
+                                    duplicates = true;
                                     self.at += 1;
                                 } else {
                                     break;
@@ -233,6 +281,7 @@ impl Lexer {
                             break;
                         }
                     }
+                    self.target = (!duplicates).then_some(output);
                 }
                 _ => {
                     self.push(c);
@@ -389,7 +438,26 @@ impl Lexer {
 
 #[cfg(test)]
 mod tests {
-    use super::commands;
+    use super::{commands, written};
+
+    #[test]
+    fn a_redirection_writes_a_file_only_outside_quotes() {
+        assert_eq!(
+            written(
+                "ls x 2>&1 >&2 1>&2 <&- >/dev/null 2>/dev/null &>/dev/null < in <<< w; \
+                 awk 'NR>=4' f; echo \"a > b\" '>>' >/dev/stderr"
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            written(
+                "echo a > f1; echo b >> \"f 2\" 2>&1; echo c &>f3; echo d >|f4; echo e >&f5; \
+                 echo \"$(echo g 2>f6)\"; bash -c 'echo h <> f7'; cat <<EOF >f8\nx > y\nEOF\n\
+                 echo i &>> f9; echo j >"
+            ),
+            ["f1", "f 2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", ""]
+        );
+    }
 
     fn words(script: &str) -> Vec<Vec<String>> {
         commands(script)
