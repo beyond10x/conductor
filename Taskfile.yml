@@ -12,40 +12,57 @@ tasks:
       - claude agents --json | jq -r '.[] | select(.name=="conductor" or .name=="conductor-dev") | [.name, .kind, (.id // (.pid|tostring)), (.state // .status)] | @tsv'
 
   conductor:start:
-    desc: Start conductor in the background on the harness and model of the role conductor in conductor config show; refuses while a live session named conductor exists
+    desc: Start conductor in the background in the instance's records directory, as the agent conductor on the harness, model and settings of the role conductor in conductor config show (settings default to this checkout's .claude/conductor-settings.json); refuses while a live session named conductor exists
     vars:
+      RECORDS:
+        sh: conductor config show --format json | jq -r '.instances[0].records'
       HARNESS:
         sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .harness'
       MODEL:
         sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .model'
+      ROLE_SETTINGS:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .settings // empty'
+      SETTINGS: '{{.ROLE_SETTINGS | default (printf "%s/.claude/conductor-settings.json" .ROOT_DIR)}}'
     preconditions:
       - sh: test -n {{shellQuote .MODEL}}
         msg: conductor config show names no role conductor; add it to the instance's roles
       - sh: test {{shellQuote .HARNESS}} = claude
         msg: the role conductor runs on {{.HARNESS}} (conductor config show); this task starts claude only
+      - sh: test -d {{shellQuote .RECORDS}}
+        msg: the records directory {{.RECORDS}} of conductor config show is not a directory
       - sh: claude agents --json | jq -e 'all(.[]; .name != "conductor" or .pid == null)' >/dev/null
         msg: a session named conductor is already running; see task sessions
     cmds:
-      - claude --bg -n conductor --agent conductor --model {{shellQuote .MODEL}} --permission-mode bypassPermissions --settings .claude/conductor-settings.json {{shellQuote .CONDUCTOR_PROMPT}}
+      - cd {{shellQuote .RECORDS}} && claude --bg -n conductor --agent conductor --model {{shellQuote .MODEL}} --permission-mode bypassPermissions --settings {{shellQuote .SETTINGS}} {{shellQuote .CONDUCTOR_PROMPT}}
 
   conductor:attach:
-    desc: Open the background conductor session in this terminal
+    desc: Open the background conductor session in this terminal, in the instance's records directory
     interactive: true
+    vars:
+      RECORDS:
+        sh: conductor config show --format json | jq -r '.instances[0].records'
+    preconditions:
+      - sh: test -d {{shellQuote .RECORDS}}
+        msg: the records directory {{.RECORDS}} of conductor config show is not a directory
     cmds:
-      - claude attach "$({{.SESSION_ID}} --arg n conductor)"
+      - cd {{shellQuote .RECORDS}} && claude attach "$({{.SESSION_ID}} --arg n conductor)"
 
   conductor:restart:
-    desc: Stop the background conductor, remove it from the session list (its transcript stays; claude --resume reopens it) and start a new one that reads the newest handoff (conductor-dev runs this after [RESTART])
+    desc: Stop the background conductor, remove it from the session list (its transcript stays; claude --resume reopens it) and start a new one in the instance's records directory that reads the newest handoff (conductor-dev runs this after [RESTART])
     preconditions:
       - sh: test -n "$({{.SESSION_ID}} --arg n conductor)"
         msg: no background session named conductor
+      - sh: test -d {{shellQuote .RECORDS}}
+        msg: the records directory {{.RECORDS}} of conductor config show is not a directory
     vars:
+      RECORDS:
+        sh: conductor config show --format json | jq -r '.instances[0].records'
       OLD:
         sh: claude agents --json | jq -r '.[] | select(.kind=="background" and .name=="conductor" and .pid != null) | .id'
     cmds:
-      - claude stop {{shellQuote .OLD}}
-      - for i in $(seq 30); do claude agents --json | jq -e 'all(.[]; .name != "conductor" or .pid == null)' >/dev/null && exit 0; sleep 1; done; echo "the stopped conductor still has a pid after 30 s" >&2; exit 1
-      - claude rm {{shellQuote .OLD}}
+      - cd {{shellQuote .RECORDS}} && claude stop {{shellQuote .OLD}}
+      - cd {{shellQuote .RECORDS}} && { for i in $(seq 30); do claude agents --json | jq -e 'all(.[]; .name != "conductor" or .pid == null)' >/dev/null && exit 0; sleep 1; done; echo "the stopped conductor still has a pid after 30 s" >&2; exit 1; }
+      - cd {{shellQuote .RECORDS}} && claude rm {{shellQuote .OLD}}
       - task: conductor:start
 
   dev:start:
@@ -72,25 +89,50 @@ tasks:
       - claude attach "$({{.SESSION_ID}} --arg n conductor-dev)"
 
   trust:
-    desc: Mark every git checkout directly under the instance's checkouts root (conductor config show) as a trusted Claude Code workspace, so a controller can start there
+    desc: Mark the instance's records directory and every git checkout directly under its checkouts root (conductor config show) as trusted Claude Code workspaces, so conductor and a controller can start there
     vars:
       CFG: '{{.CFG | default (printf "%s/.claude.json" .HOME)}}'
       ROOT:
         sh: conductor config show --format json | jq -r '.instances[0].checkouts.root'
+      RECORDS:
+        sh: conductor config show --format json | jq -r '.instances[0].records'
     preconditions:
       - sh: test -d {{shellQuote .ROOT}}
         msg: the checkouts root {{.ROOT}} of conductor config show is not a directory
     cmds:
       - |
         cfg={{shellQuote .CFG}}
-        paths=$(for d in {{shellQuote .ROOT}}/*/; do d=${d%/}; git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 && printf '%s\n' "$d"; done)
+        records={{shellQuote .RECORDS}}
+        checkouts=$(for d in {{shellQuote .ROOT}}/*/; do d=${d%/}; if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf '%s\n' "$d"; fi; done)
+        paths=$(printf '%s\n%s\n' "$checkouts" "$records" | grep .)
         before=$(stat -c %Y "$cfg"); tmp=$(mktemp "$cfg.trust.XXXXXX"); chmod --reference="$cfg" "$tmp"
         printf '%s\n' "$paths" | jq -R . | jq -sc . > "$tmp.paths"
         jq --slurpfile p "$tmp.paths" 'reduce $p[0][] as $k (.; .projects[$k].hasTrustDialogAccepted = true)' "$cfg" > "$tmp"
         rm -f "$tmp.paths"
         if [ "$(stat -c %Y "$cfg")" != "$before" ]; then rm -f "$tmp"; echo "$cfg changed during the edit; run task trust again" >&2; exit 1; fi
         mv "$tmp" "$cfg"
-        echo "trusted: $(printf '%s\n' "$paths" | grep -c .) checkouts under" {{shellQuote .ROOT}}
+        echo "trusted: the records directory $records and $(printf '%s\n' "$checkouts" | grep -c .) checkouts under" {{shellQuote .ROOT}}
+
+  agents:link:
+    desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into ~/.claude/agents/, so a session started in another directory finds them; a link to the same file is kept, and any other file there is refused, never overwritten
+    cmds:
+      - |
+        src={{shellQuote .ROOT_DIR}}/.claude/agents
+        dst="$HOME/.claude/agents"
+        refused=0
+        for name in conductor repo-controller conductor-dev; do
+          from="$src/$name.md"; to="$dst/$name.md"
+          if [ ! -f "$from" ]; then echo "agents:link: $from is not a file" >&2; refused=1; continue; fi
+          if [ -L "$to" ] && [ "$to" -ef "$from" ]; then continue; fi
+          if [ -e "$to" ] || [ -L "$to" ]; then echo "agents:link: $to is there and is not a link to $from; move it away and run task agents:link again" >&2; refused=1; fi
+        done
+        [ "$refused" = 0 ] || exit 1
+        mkdir -p "$dst"
+        for name in conductor repo-controller conductor-dev; do
+          from="$src/$name.md"; to="$dst/$name.md"
+          if [ -L "$to" ] && [ "$to" -ef "$from" ]; then echo "linked already: $to"; continue; fi
+          ln -s "$from" "$to" || exit 1; echo "linked: $to -> $from"
+        done
 
   dashboard:
     desc: Start the dashboard on 127.0.0.1:7313 as the user service conductor-dashboard unless it is active, and print its URL
