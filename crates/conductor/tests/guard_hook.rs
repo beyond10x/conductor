@@ -918,8 +918,9 @@ fn a_config_file_that_does_not_load_leaves_the_hook_on_the_built_in_places() {
 
 // -------------------------------------------------------------------------------------------------
 // Wave 08 W5: a controller does not write conductor's config, the file the hook process resolves
-// (`CONDUCTOR_CONFIG`, else `~/.b10x/conductor/conductor.yaml`) and anything under
-// `~/.b10x/conductor/`. Conductor's own session is decided as before.
+// (`CONDUCTOR_CONFIG`, else `~/.b10x/conductor/conductor.yaml`), the default file, and the
+// instance's state directory (`story:guard-write-forms-and-config-scope`). Conductor's own session
+// is decided as before.
 // -------------------------------------------------------------------------------------------------
 
 /// What every denial of a write to conductor's config says.
@@ -935,7 +936,8 @@ fn read_at(case: &Path, cwd: &Path, file: &str) -> Vec<u8> {
 }
 
 /// Acceptance: from a controller's cwd (its checkout, and a worker's managed worktree), a Write to
-/// the config file the hook resolves, an Edit of a file under `~/.b10x/conductor/`, `sed -i` and
+/// the config file the hook resolves, an Edit of a file in the instance's state directory
+/// (`~/.b10x/conductor/fixture/state/` by default), `sed -i` and
 /// `cp` onto `~/.b10x/conductor/conductor.yaml`, and an `echo … >` to `"$CONDUCTOR_CONFIG"` or to
 /// the resolved path are each denied, naming the file, and recorded; reading it, by `cat` or Read,
 /// is allowed. The file is named beside the checkouts, named inside the controller's own checkout,
@@ -948,7 +950,7 @@ fn a_controller_does_not_write_the_config_file_the_hook_resolves() {
     let inside = config_file(&case, "root/repo/conductor.yaml", "");
     let default = config_file(&case, &format!("home/{}", config::DEFAULT_FILE), "");
     let in_dir = home
-        .join(".b10x/conductor/fixture/records/decisions/2026-10.jsonl")
+        .join(".b10x/conductor/fixture/state/tree/x")
         .display()
         .to_string();
     for (how, named, file, shown) in [
@@ -1082,9 +1084,8 @@ fn a_config_file_that_does_not_load_is_not_a_controller_s_to_mend() {
     }
 }
 
-/// Without a config file, the default file and anything under `~/.b10x/conductor/` are still not a
-/// controller's to write, so it cannot create the file that would choose the instance; conductor's
-/// Bash may.
+/// Without a config file, the default file is still not a controller's to write, so it cannot
+/// create the file that would choose the instance; conductor's Bash may.
 #[test]
 fn without_a_config_file_a_controller_does_not_create_one() {
     let case = case_dir("config-none");
@@ -1128,7 +1129,8 @@ fn without_a_config_file_a_controller_does_not_create_one() {
 /// Acceptance, decision 3: conductor's session is not affected. Its Bash writes the config file the
 /// hook resolves, by every form a controller is denied; its file tools write its records and not
 /// the config, as before; and with a config file that leaves `records` to its default, under
-/// `~/.b10x/conductor/`, it writes its records there, while a controller does not.
+/// `~/.b10x/conductor/`, it writes its records there, while a controller does not: a controller's
+/// file tool is denied it as outside its checkout.
 #[test]
 fn conductor_s_session_writes_the_config_as_before() {
     let case = case_dir("config-conductor-config");
@@ -1194,7 +1196,7 @@ fn conductor_s_session_writes_the_config_as_before() {
         .to_string();
     for (cwd, code, because) in [
         (records.clone(), 0, ""),
-        (case.join("root/repo"), 2, NOT_CONFIG),
+        (case.join("root/repo"), 2, "outside"),
     ] {
         let output = hook_with(
             &case,

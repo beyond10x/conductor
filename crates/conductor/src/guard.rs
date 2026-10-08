@@ -15,8 +15,9 @@
 //! denied every tool that has a rule. A config file that does not load leaves the hook on the
 //! built-in instance (`crate::cli::Cli::run`), whose places are today's. Either way the controller
 //! rule keeps a controller from writing conductor's config: the file this process resolves
-//! ([`config::locate`] over its own environment, `config_file`), loaded or not, and the default
-//! file's directory.
+//! ([`config::locate`] over its own environment, `config_file`), loaded or not, the default file,
+//! the default file's directory itself, and the instance's state directory; not the rest of that
+//! directory, where an instance's records are by default.
 //!
 //! Claude Code reads the answer from the exit status alone: 0 lets the call proceed, 2 blocks it
 //! and hands standard error to the session, and any other status lets it proceed. So a denial is
