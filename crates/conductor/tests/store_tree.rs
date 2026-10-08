@@ -1178,7 +1178,12 @@ fn measure(state: &Path, held: usize) -> (Duration, Duration, Duration) {
 /// With 5,000 events stored, 100 appends cost less than 3 times what 100 appends cost at 500
 /// events, each the cheapest of [`BATCHES`] batches. Prints the time to open the store, to append
 /// 100 events and to read every goal at both sizes; `--nocapture` shows them.
+///
+/// A wall-clock ratio: on a host under load the two sizes are measured under different load and
+/// the ratio fails while the code is unchanged (`story:append-cost-test-under-load`). It runs
+/// alone, with `task measure`.
 #[test]
+#[ignore = "a measurement: wall-clock ratio, run alone with `task measure`"]
 fn appends_at_5000_events_cost_less_than_three_times_appends_at_500() {
     let case = Case::new("scaling");
     let mut store = store::open(&case.state).expect("create the store");

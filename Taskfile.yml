@@ -175,6 +175,12 @@ tasks:
     cmds:
       - cargo install --path crates/conductor --locked
 
+  measure:
+    desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio and the guard latency); run it on a quiet host
+    cmds:
+      - cargo test --release --locked -p conductor-cli --test store_tree -- --ignored --nocapture appends_at_5000_events_cost_less_than_three_times_appends_at_500
+      - cargo test --release --locked -p conductor-cli --test guard_latency -- --ignored --nocapture
+
   check:
     desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, then format, lint and test
     cmds:
