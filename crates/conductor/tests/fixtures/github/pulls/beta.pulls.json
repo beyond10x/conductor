@@ -1,0 +1,16 @@
+[
+  {
+    "createdAt": "2026-09-30T09:00:00Z",
+    "isDraft": false,
+    "mergeable": "MERGEABLE",
+    "number": 3,
+    "statusCheckRollup": [
+      {"__typename": "CheckRun", "conclusion": "SUCCESS", "name": "test", "status": "COMPLETED", "workflowName": "CI"},
+      {"__typename": "CheckRun", "conclusion": "SKIPPED", "name": "deploy", "status": "COMPLETED", "workflowName": "CI"},
+      {"__typename": "CheckRun", "conclusion": "NEUTRAL", "name": "advice", "status": "COMPLETED", "workflowName": "CI"},
+      {"__typename": "CheckRun", "conclusion": "CANCELLED", "name": "bench", "status": "COMPLETED", "workflowName": "CI"}
+    ],
+    "title": "feat: read the beta feed",
+    "updatedAt": "2026-10-02T09:00:00Z"
+  }
+]

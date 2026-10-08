@@ -1,0 +1,7 @@
+version: conductor.config/1
+instances:
+  - name: retention
+    sources:
+      - github: retention
+    checkouts: {root: ~/retention, trees: ~/retention-trees}
+    retention: {snapshots: 12}

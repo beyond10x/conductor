@@ -1,0 +1,35 @@
+# Row 13: `waits_on` is Optional, and most dispatches wait on nothing. The `waits-on-itself` guard
+# (`when: waits_on == dispatch_id`) must not stop a dispatch that names no `waits_on` from being
+# sent. The generated `sent` scenario always sets `waits_on: DSP-0`, so it never sends one without.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: adv-send-dispatch-without-waits-on
+summary: A dispatch with no waits_on is sent; the self-wait guard does not fire on an absent value.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-p-nowait
+      title: t
+      exit_evidence: e
+    outcome: proposed
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-p-nowait
+      repository: cortex
+      goal_id: G-p-nowait
+      brief: b
+      sent_at: 2026-10-06T09:00:01Z
+      priority: 0
+    outcome: sent
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-p-nowait
+      state: Sent

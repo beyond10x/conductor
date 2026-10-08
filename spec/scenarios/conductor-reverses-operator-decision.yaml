@@ -1,0 +1,38 @@
+# Design § 5: class O and class H are the operator's. Conductor may reverse its own decisions, but
+# a decision the operator recorded is his to reverse, so conductor's attempt is refused and the
+# decision stays in force.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: conductor-reverses-operator-decision
+summary: Conductor reversing a decision the operator recorded is refused, and the decision stays in force.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.decision.RecordOperatorDecision
+    actor: conductor.decision.Operator
+    input:
+      decision_id: DEC-op-1
+      decision_class: O
+      question: Split the gateway into its own repository
+      options: "A: split now; B: keep it in place"
+      choice: A
+      reason: the gateway has its own release cadence
+      evidence: ADR draft
+      decided_at: 2026-10-06T09:00:00Z
+    outcome: recorded
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.decision.ReverseConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-op-1
+      reason: the split costs more than planned
+    outcome: operator-decided
+    error:
+      name: conductor.decision.ReversalReservedForOperator
+
+assert:
+  - view: conductor.decision.Decisions
+    contains:
+      decision_id: DEC-op-1
+      state: InForce

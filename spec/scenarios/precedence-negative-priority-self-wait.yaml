@@ -1,0 +1,31 @@
+# `negative-priority` and `waits-on-itself` can both hold, and synthesis emits no scenario where they
+# do (example-org/ess#472), so the declared order is pinned here: the negative priority answers first.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: precedence-negative-priority-self-wait
+summary: A dispatch with a negative priority that also waits on itself is refused for its priority.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-precedence
+      title: Ship the store id
+      exit_evidence: the store id is on origin/main
+    outcome: proposed
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-precedence
+      repository: cortex
+      goal_id: G-precedence
+      brief: expose the store id
+      sent_at: 2026-10-06T09:00:01Z
+      priority: -1
+      waits_on: DSP-precedence
+    outcome: negative-priority
+    error:
+      name: conductor.dispatch.InvalidPriority

@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-10-07T11:30:00.000Z","sessionId":"b2b2b2b2-0000-4000-8000-000000000002","message":{"role":"user","content":"Run the gate."}}
+{"type":"assistant","timestamp":"2026-10-07T11:58:00.000Z","sessionId":"b2b2b2b2-0000-4000-8000-000000000002","message":{"role":"assistant","model":"fixture-model","content":[{"type":"text","text":"Gate running."}],"usage":{"input_tokens":5,"cache_read_input_tokens":600000,"cache_creation_input_tokens":2000,"output_tokens":15}}}

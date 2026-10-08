@@ -1,0 +1,43 @@
+# Row 14 (design § 3): a `[NEED]` becomes a dispatch, and `RouteNeed` records "the dispatch it
+# opened". A dispatch id that was never sent opened nothing, so routing the need to it should leave
+# the need unhandled. ess 0.53.0 cannot say so: `RouteNeed` refuses a non-need with `when_subject`,
+# and a `when_related` existence check on `dispatch_id` beside it is refused as ESS-COMMAND-004
+# (example-org/ess#473). This case pins today's behaviour, the need closed against an unsent
+# dispatch, so the gap stays visible. It must flip to a refusal once example-org/ess#473 ships.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: adv-route-need-unsent-dispatch
+summary: A need routed to an unsent dispatch ends Handled until example-org/ess#473 ships; then flip to a refusal.
+
+arrange:
+  - instance: need
+    entity: conductor.dispatch.Message
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Need
+      first_line: "[NEED cortex REQ-1] epistemic-knowledge-runtime expose the store id"
+      transport: SendMessage
+      received_at: 2026-10-06T09:00:00Z
+      parsed: true
+    outcome: received
+    capture: {instance: need, event: conductor.dispatch.MessageReceived, field: message_id}
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.dispatch.RouteNeed
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: {$instance: need}
+      dispatch_id: DSP-never-sent
+    outcome: routed
+
+assert:
+  - view: conductor.dispatch.Messages
+    contains:
+      message_id: {$instance: need}
+      state: Handled

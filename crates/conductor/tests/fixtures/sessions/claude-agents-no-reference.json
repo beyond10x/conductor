@@ -1,0 +1,7 @@
+[
+  {"id": "f1x70001", "sessionId": "00000000-0000-4000-8000-0000000000a1", "name": "fixture-root",
+   "kind": "background", "state": "working", "status": "busy", "pid": 4101,
+   "startedAt": 1791370800000, "cwd": "/fixture-home/example-org"},
+  {"name": "fixture-private-name", "kind": "interactive", "status": "idle", "pid": 4104,
+   "startedAt": 1791370800000, "cwd": "/fixture-home/elsewhere/private-project"}
+]

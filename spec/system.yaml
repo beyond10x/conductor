@@ -1,0 +1,10 @@
+format: ess/22
+system: conductor
+version: v1
+
+domains:
+  - conductor.observation
+  - conductor.direction
+  - conductor.decision
+  - conductor.dispatch
+  - conductor.config

@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The store fixture's event ids and chain digests"
+paths = ['''(^|/)crates/conductor/tests/fixtures/store/store/events\.jsonl$''']

@@ -1,0 +1,40 @@
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: precedence-handle-routed-need
+summary: Handling a need already routed is refused as already handled.
+
+arrange:
+  - instance: need
+    entity: conductor.dispatch.Message
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Need
+      first_line: "[NEED cortex REQ-1] epistemic-knowledge-runtime expose the store id"
+      transport: SendMessage
+      received_at: 2026-10-06T09:00:00Z
+      parsed: true
+    outcome: received
+    capture: {instance: need, event: conductor.dispatch.MessageReceived, field: message_id}
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.dispatch.RouteNeed
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: {$instance: need}
+      dispatch_id: DSP-1
+    outcome: routed
+
+  - at: 2026-10-06T09:00:02Z
+    command: conductor.dispatch.HandleMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: {$instance: need}
+    outcome: wrong-state
+    error:
+      name: conductor.dispatch.MessageStateConflict

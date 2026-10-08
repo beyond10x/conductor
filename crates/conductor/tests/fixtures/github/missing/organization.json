@@ -1,0 +1,5 @@
+[
+  {"hasIssuesEnabled": true, "isArchived": false, "name": "delta", "visibility": "PUBLIC"},
+  {"hasIssuesEnabled": true, "isArchived": false, "name": "alpha", "visibility": "PRIVATE"},
+  {"hasIssuesEnabled": true, "isArchived": false, "name": "omega", "visibility": "PUBLIC"}
+]

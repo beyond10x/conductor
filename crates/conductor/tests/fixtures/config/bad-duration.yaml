@@ -1,0 +1,7 @@
+version: conductor.config/1
+instances:
+  - name: first-org
+    sources:
+      - github: first-org
+    checkouts: {root: ~/first-org, trees: ~/trees}
+    cadence: {cycle: 2h, watch: 3 minutes}

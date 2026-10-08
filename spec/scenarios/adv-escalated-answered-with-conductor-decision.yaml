@@ -1,0 +1,63 @@
+# Design § 5: only the operator answers an escalated request (`AnswerEscalatedRequest` is granted
+# to him alone), and he chooses the decision he cites. The specification does not check who
+# recorded that decision: a guard on the cited decision's `decided_by` validates, but ess 0.53.0
+# synthesizes a broken witness for it (to be filed upstream). This case pins today's behaviour, an
+# escalated class-H request answered with a decision conductor recorded ends Answered, so the gap
+# stays visible. It must flip to a refusal once that guard can be witnessed.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: adv-escalated-answered-with-conductor-decision
+summary: The operator answering an escalated request with a conductor decision ends Answered; no decided_by guard until ESS can witness it.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-adv2-h1
+      repository: cortex
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      recommendation: A
+      raised_at: 2026-10-06T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-adv2-h1
+      escalation_class: H
+      reason: only the operator can set a repository secret
+    outcome: escalated
+
+  - at: 2026-10-06T09:00:02Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-adv2-c1
+      decision_class: C
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      choice: A
+      reason: the release needs it
+      evidence: none
+      decided_at: 2026-10-06T09:00:02Z
+    outcome: recorded
+
+  - at: 2026-10-06T09:00:03Z
+    command: conductor.decision.AnswerEscalatedRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-adv2-h1
+      decision_id: DEC-adv2-c1
+    outcome: answered
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-adv2-h1
+      state: Answered
+  - view: conductor.decision.HandsTodo
+    excludes:
+      request_id: REQ-adv2-h1

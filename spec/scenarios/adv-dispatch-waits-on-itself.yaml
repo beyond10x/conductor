@@ -1,0 +1,34 @@
+# Row 13: `Dispatch.waits_on` names "the dispatch this one waits for" through the `awaited_dispatch`
+# reference. A dispatch that waits on itself waits on a dispatch that was not sent when it was, and
+# can never start. `SendDispatch` must not send it.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: adv-dispatch-waits-on-itself
+summary: A dispatch that waits on itself, a dispatch not yet sent, is not sent.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-adv-wait
+      title: Ship the store id
+      exit_evidence: the store id is on origin/main
+    outcome: proposed
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-adv-self
+      repository: cortex
+      goal_id: G-adv-wait
+      brief: expose the store id
+      sent_at: 2026-10-06T09:00:01Z
+      priority: 0
+      waits_on: DSP-adv-self
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    excludes:
+      dispatch_id: DSP-adv-self

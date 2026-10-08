@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-10-07T11:40:00.000Z","sessionId":"a1a1a1a1-0000-4000-8000-000000000001","message":{"role":"user","content":"Next step."}}
+{"type":"assistant","timestamp":"2026-10-07T11:40:10.000Z","sessionId":"a1a1a1a1-0000-4000-8000-000000000001","message":{"role":"assistant","model":"fixture-model","content":[{"type":"text","text":"Gate started."}],"usage":{"input_tokens":4,"cache_read_input_tokens":200000,"cache_creation_input_tokens":800,"output_tokens":20}}}
+{"type":"assistant","timestamp":"2026-10-07T11:55:00.000Z","sessionId":"a1a1a1a1-0000-4000-8000-000000000001","message":{"role":"assistant","model":"fixture-model","content":[{"type":"text","text":"Gate green."}],"usage":{"input_tokens":10,"cache_read_input_tokens":450000,"cache_creation_input_tokens":990,"output_tokens":40}}}
+{"type":"user","timestamp":"2026-10-07T11:56:00.000Z","sessionId":"a1a1a1a1-0000-4000-8000-000000000001","message":{"role":"user","content":"Merge it."}}

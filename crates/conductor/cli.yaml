@@ -1,0 +1,131 @@
+format: ess-cli/1
+binary: conductor
+about: The records conductor and the repository controllers keep
+globals:
+  config: config
+  state: state-dir
+  output: output
+callables:
+  goals:
+    target: {kind: local, owner: conductor-cli, action: goals}
+    input: null
+    result: String
+    errors: {}
+  dashboard-serve:
+    target: {kind: local, owner: conductor-cli, action: dashboard_serve}
+    input: conductor.observation.DashboardServe
+    result: String
+    errors: {}
+  watch-run:
+    target: {kind: local, owner: conductor-cli, action: watch_run}
+    input: conductor.observation.WatchRun
+    result: String
+    errors: {}
+  repository-shipped:
+    target: {kind: local, owner: conductor-cli, action: repository_shipped}
+    input: conductor.observation.RepositoryShipped
+    result: String
+    errors: {}
+  repository-activity:
+    target: {kind: local, owner: conductor-cli, action: repository_activity}
+    input: conductor.direction.RepositoryActivity
+    result: List<conductor.direction.RepositoryActivityRow>
+    errors: {}
+  resource-usage:
+    target: {kind: local, owner: conductor-cli, action: resource_usage}
+    input: conductor.observation.ResourceUsage
+    result: String
+    errors: {}
+  decision-show:
+    target: {kind: local, owner: conductor-cli, action: decision_show}
+    input: conductor.decision.ShowDecision
+    result: String
+    errors: {}
+  config-validate:
+    target: {kind: local, owner: conductor-cli, action: config_validate}
+    input: conductor.config.ValidateConfig
+    result: String
+    errors: {}
+  config-show:
+    target: {kind: local, owner: conductor-cli, action: config_show}
+    input: conductor.config.ShowConfig
+    result: String
+    errors: {}
+  store-migrate:
+    target: {kind: local, owner: conductor-cli, action: store_migrate}
+    input: conductor.observation.StoreMigrate
+    result: String
+    errors: {}
+commands:
+  - path: [goal, goals]
+    callable: goals
+    about: Goals
+    arguments: []
+  - path: [dashboard, serve]
+    callable: dashboard-serve
+    about: Serve a live, read-only page of what every session works on
+    arguments:
+      - field: port
+        source: {kind: option, long: port}
+      - field: root
+        source: {kind: option, long: root}
+  - path: [watch, run]
+    callable: watch-run
+    about: Watch sessions, usage limits, conductor's context, free disk and main's CI; exit after the first pass that finds a change
+    arguments:
+      - field: every
+        source: {kind: option, long: every}
+      - field: ci_every
+        source: {kind: option, long: ci-every}
+      - field: follow
+        source: {kind: option, long: follow}
+  - path: [repository, shipped]
+    callable: repository-shipped
+    about: What shipped since an instant, from the newest complete snapshot's GitHub observations
+    arguments:
+      - field: since
+        source: {kind: option, long: since}
+      - field: format
+        source: {kind: option, long: format}
+  - path: [repository, activity]
+    callable: repository-activity
+    about: Every repository's effective activity, decided by its mark or computed from the newest complete snapshot
+    arguments:
+      - field: format
+        source: {kind: option, long: format}
+  - path: [resource, usage]
+    callable: resource-usage
+    about: Token spend per repository and session, read from the session transcripts
+    arguments:
+      - field: since
+        source: {kind: option, long: since}
+      - field: format
+        source: {kind: option, long: format}
+  - path: [decision, show]
+    callable: decision-show
+    about: Show one decision
+    arguments:
+      - field: decision_id
+        source: {kind: option, long: decision-id}
+      - field: format
+        source: {kind: option, long: format}
+  - path: [config, validate]
+    callable: config-validate
+    about: Check the config file; exit 1 naming each problem by its YAML path
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+  - path: [config, show]
+    callable: config-show
+    about: Print one instance's effective config, after defaults, as a config file
+    arguments:
+      - field: format
+        source: {kind: option, long: format}
+      - field: instance
+        source: {kind: option, long: instance}
+  - path: [store, migrate]
+    callable: store-migrate
+    about: Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved
+    arguments:
+      - field: format
+        source: {kind: option, long: format}

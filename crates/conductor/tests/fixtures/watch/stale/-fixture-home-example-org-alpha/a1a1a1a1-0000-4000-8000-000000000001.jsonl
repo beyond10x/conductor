@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-10-07T09:59:00.000Z","sessionId":"a1a1a1a1-0000-4000-8000-000000000001","message":{"role":"user","content":"Continue."}}
+{"type":"assistant","timestamp":"2026-10-07T10:00:00.000Z","sessionId":"a1a1a1a1-0000-4000-8000-000000000001","error":"rate_limit","isApiErrorMessage":true,"message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"You've hit your session limit · resets 11:40am (UTC)"}],"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}

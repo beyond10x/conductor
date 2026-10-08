@@ -1,0 +1,19 @@
+[
+  {"id": "c0d0a111", "sessionId": "00000000-0000-4000-8000-0000000000d1", "name": "conductor",
+   "kind": "background", "state": "working", "status": "idle", "pid": 4100001,
+   "startedAt": 1791370800000, "cwd": "/fixture-home/example-org/conductor"},
+  {"id": "c0d0b222", "sessionId": "00000000-0000-4000-8000-0000000000d2", "name": "conductor",
+   "kind": "background", "state": "working", "status": "busy", "pid": 4100002,
+   "startedAt": 1791367200000, "cwd": "/fixture-home/example-org/conductor"},
+  {"id": "c0d0c333", "sessionId": "00000000-0000-4000-8000-0000000000d3", "name": "conductor",
+   "kind": "background", "state": "blocked", "pid": null, "startedAt": 1791363600000,
+   "cwd": "/fixture-home/example-org/conductor"},
+  {"id": "c0ffee44", "sessionId": "00000000-0000-4000-8000-0000000000d4", "name": "connectors",
+   "kind": "background", "state": "working", "status": "busy", "pid": 4100011,
+   "startedAt": 1791370800000, "cwd": "/fixture-home/example-org/connectors"},
+  {"id": "d00d0055", "sessionId": "00000000-0000-4000-8000-0000000000d5", "name": "conductor-dev",
+   "kind": "background", "state": "working", "status": "idle", "pid": 4100012,
+   "startedAt": 1791370800000, "cwd": "/fixture-home/example-org/conductor"},
+  {"sessionId": "00000000-0000-4000-8000-0000000000d6", "kind": "interactive", "status": "idle",
+   "pid": 4100013, "startedAt": 1791370800000, "cwd": "/fixture-home/example-org/delta"}
+]

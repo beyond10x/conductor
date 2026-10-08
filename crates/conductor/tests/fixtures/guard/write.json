@@ -1,0 +1,17 @@
+{
+  "session_id": "00000000-0000-4000-8000-0000000000a1",
+  "transcript_path": "~/.claude/projects/-HOME-example-org--guard-probe-w04/00000000-0000-4000-8000-0000000000a1.jsonl",
+  "cwd": "~/example-org/.guard-probe-w04",
+  "prompt_id": "00000000-0000-4000-8000-0000000000b1",
+  "permission_mode": "default",
+  "effort": {
+    "level": "low"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "~/example-org/.guard-probe-w04/probe-write.txt",
+    "content": "probe"
+  },
+  "tool_use_id": "toolu_01FixtureWrite0000000000"
+}

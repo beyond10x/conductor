@@ -1,0 +1,21 @@
+[
+  {"id": "f1x70001", "sessionId": "00000000-0000-4000-8000-0000000000a1", "name": "fixture-root",
+   "kind": "background", "state": "working", "status": "busy", "pid": 4101,
+   "startedAt": 1791370800000, "cwd": "/fixture-home/example-org"},
+  {"id": "f1x70002", "sessionId": "00000000-0000-4000-8000-0000000000a2", "name": "fixture-checkout",
+   "kind": "background", "state": "blocked", "status": "idle", "pid": 4102,
+   "startedAt": 1791370800000, "cwd": "/fixture-home/example-org/conductor"},
+  {"id": "f1x70003", "sessionId": "00000000-0000-4000-8000-0000000000a3", "name": "fixture-worktree",
+   "kind": "background", "state": "working", "status": "busy", "pid": 4103,
+   "startedAt": 1791370800000,
+   "cwd": "/fixture-home/.local/state/worktree/trees/example-org/ess/batch-0-52"},
+  {"sessionId": "00000000-0000-4000-8000-0000000000a4", "name": "fixture-private-name",
+   "kind": "interactive", "status": "idle", "pid": 4104, "startedAt": 1791370800000,
+   "cwd": "/fixture-home/elsewhere/private-project"},
+  {"sessionId": "00000000-0000-4000-8000-0000000000a5", "name": "fixture-near-miss-name",
+   "kind": "interactive", "status": "busy", "pid": 4105, "startedAt": 1791370800000,
+   "cwd": "/fixture-home/example-org-old/near-miss-project"},
+  {"id": "f1x70006", "sessionId": "00000000-0000-4000-8000-0000000000a6", "name": "fixture-exited",
+   "kind": "background", "state": "blocked", "startedAt": 1791370800000,
+   "cwd": "/fixture-home/example-org/conductor"}
+]

@@ -1,0 +1,716 @@
+domain: conductor.direction
+
+summary: >
+  The goals conductor dispatches against, and which repositories it processes. A goal is proposed
+  by conductor, confirmed or dropped by the operator, and marked met by conductor on the evidence it
+  names; NORTHSTAR.md in conductor's records is the prose view. Each goal lists the repositories whose
+  work serves it. A repository mark overrides computed activity (design § 10).
+
+naming:
+  wire: direction
+  display: Direction
+
+types:
+  - name: conductor.direction.GoalId
+    kind: newtype
+    of: String
+
+  - name: conductor.direction.Activity
+    kind: enum
+    variants: [Active, Inactive]
+
+  - name: conductor.direction.MarkedBy
+    kind: enum
+    variants: [Conductor, Operator]
+
+  - name: conductor.direction.ServingId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.direction.MarkedRepository
+    kind: newtype
+    of: String
+
+  # What decided a repository's activity: its `RepositoryMark`, or, without one, the newest
+  # complete snapshot's observation of it.
+  - name: conductor.direction.DecidedBy
+    kind: enum
+    variants: [Mark, Snapshot]
+
+  # One row of `conductor repository activity`: a repository's effective activity, computed when it
+  # is read and never stored. Each repository the newest complete snapshot observed and each
+  # repository that holds a mark has one. A mark decides its repository's activity and gives
+  # `marked_by` and `reason`; without one, activity is computed from the snapshot (Active when
+  # `real_commits_7d` is at least 1 and the repository is not archived), and both are absent.
+  - name: conductor.direction.RepositoryActivityRow
+    kind: struct
+    fields:
+      - {name: repository, type: conductor.direction.MarkedRepository}
+      - {name: activity, type: conductor.direction.Activity}
+      - {name: decided_by, type: conductor.direction.DecidedBy}
+      - {name: marked_by, type: Optional<conductor.direction.MarkedBy>}
+      - {name: reason, type: Optional<String>}
+
+  # The input of `conductor repository activity`. `format` is one of text, json, jsonl, markdown,
+  # read by the handler.
+  - name: conductor.direction.RepositoryActivity
+    kind: struct
+    fields:
+      - {name: format, type: Optional<String>}
+
+entities:
+  # An override of whether conductor processes a repository's GitHub issues and pull requests
+  # (design § 10). Without a mark, activity is computed from the newest
+  # complete snapshot: Active when `real_commits_7d` is at least 1 and the repository is not
+  # archived. A mark, set by the operator or by conductor with a reason, wins over that
+  # computation and is never overwritten by it, for example for a repository superseded by another.
+  - name: conductor.direction.RepositoryMark
+    identity:
+      name: repository
+      type: conductor.direction.MarkedRepository
+    fields:
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+      - name: reason
+        type: String
+    lifecycle:
+      initial: Inactive
+      states: [Active, Inactive]
+      terminal: []
+      transitions:
+        - name: activate
+          from: [Inactive]
+          to: Active
+        - name: deactivate
+          from: [Active]
+          to: Inactive
+
+  - name: conductor.direction.Goal
+    identity:
+      name: goal_id
+      type: conductor.direction.GoalId
+    fields:
+      - name: title
+        type: String
+      - name: exit_evidence
+        type: String
+    relations:
+      - name: servings
+        kind: owns
+        target: conductor.direction.GoalServing
+        cardinality: many
+        via: goal_id
+    lifecycle:
+      initial: Draft
+      states: [Draft, Confirmed, Met, Dropped]
+      terminal: [Met, Dropped]
+      transitions:
+        - name: confirm
+          from: [Draft]
+          to: Confirmed
+        - name: meet
+          from: [Confirmed]
+          to: Met
+        - name: drop
+          from: [Draft, Confirmed]
+          to: Dropped
+
+  # One repository whose work serves a goal: the "serving repositories" column of NORTHSTAR.md's
+  # goal table. A goal with none is idle; active work in a repository serving no goal is a
+  # deviation (design § 4, compare).
+  - name: conductor.direction.GoalServing
+    identity:
+      name: serving_id
+      type: conductor.direction.ServingId
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: repository
+        type: conductor.observation.RepositoryName
+    lifecycle:
+      initial: Serving
+      states: [Serving, Removed]
+      terminal: [Removed]
+      transitions:
+        - name: remove
+          from: [Serving]
+          to: Removed
+
+actors:
+  - name: conductor.direction.Operator
+    may:
+      - conductor.direction.ConfirmGoal
+      - conductor.direction.DropGoal
+      - conductor.direction.MarkRepository
+      - conductor.direction.ActivateRepository
+      - conductor.direction.DeactivateRepository
+    naming:
+      display: Operator
+
+  - name: conductor.direction.Conductor
+    may:
+      - conductor.direction.ProposeGoal
+      - conductor.direction.MarkGoalMet
+      - conductor.direction.AddServing
+      - conductor.direction.RemoveServing
+      - conductor.direction.MarkRepository
+      - conductor.direction.ActivateRepository
+      - conductor.direction.DeactivateRepository
+    naming:
+      display: Conductor
+
+errors:
+  - name: conductor.direction.RepositoryMarkNotFound
+    summary: The repository has no mark yet; mark it first.
+    fields:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+
+  - name: conductor.direction.RepositoryMarkConflict
+    summary: The repository already holds that mark, so nothing moved.
+    fields:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+
+  - name: conductor.direction.RepositoryAlreadyMarked
+    summary: >
+      The repository already holds a mark, so nothing was written; activate-repository or
+      deactivate-repository changes it.
+    fields:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+
+  - name: conductor.direction.GoalStateConflict
+    summary: The goal is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.direction.GoalNotFound
+    summary: No goal has this id.
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.direction.GoalExists
+    summary: A goal already has this id, so nothing was proposed.
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.direction.InvalidGoalId
+    summary: >
+      The goal id is empty or longer than 170 UTF-8 bytes. The store keeps a goal under its id with
+      every byte escaped to at most 3, and keeps at most 512, so no goal can have this id and
+      nothing moved.
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.direction.ServingNotFound
+    summary: No serving repository has this id.
+    fields:
+      - name: serving_id
+        type: conductor.direction.ServingId
+
+  - name: conductor.direction.ServingStateConflict
+    summary: The repository was already removed from the goal.
+    fields:
+      - name: serving_id
+        type: conductor.direction.ServingId
+
+commands:
+  - name: conductor.direction.MarkRepository
+    naming:
+      wire: mark-repository
+      display: Mark a repository for the first time
+    input:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+      - name: activity
+        type: conductor.direction.Activity
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+      - name: reason
+        type: String
+    outcomes:
+      - name: already-marked
+        existing_instance: true
+        error: conductor.direction.RepositoryAlreadyMarked
+        payload:
+          conductor.direction.RepositoryAlreadyMarked:
+            repository: input.repository
+        summary: >
+          A repository is marked once; activate-repository or deactivate-repository changes its
+          mark. Nothing was written.
+      - name: marked-active
+        when: activity == Active
+        creates: conductor.direction.RepositoryMark
+        into: Active
+        instance: repository
+        sets:
+          marked_by: input.marked_by
+          reason: input.reason
+        emits:
+          - conductor.direction.RepositoryMarked
+        payload:
+          conductor.direction.RepositoryMarked:
+            repository: input.repository
+            activity: input.activity
+            marked_by: input.marked_by
+        summary: Conductor processes the repository's issues and pull requests.
+      - name: marked-inactive
+        creates: conductor.direction.RepositoryMark
+        instance: repository
+        sets:
+          marked_by: input.marked_by
+          reason: input.reason
+        emits:
+          - conductor.direction.RepositoryMarked
+        payload:
+          conductor.direction.RepositoryMarked:
+            repository: input.repository
+            activity: input.activity
+            marked_by: input.marked_by
+        summary: Conductor leaves the repository's issues and pull requests alone.
+
+  - name: conductor.direction.ActivateRepository
+    naming:
+      wire: activate-repository
+      display: Mark a repository active
+    input:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+      - name: reason
+        type: String
+    outcomes:
+      - name: activated
+        moves: conductor.direction.RepositoryMark.activate
+        instance: repository
+        sets:
+          marked_by: input.marked_by
+          reason: input.reason
+        emits:
+          - conductor.direction.RepositoryActivated
+        payload:
+          conductor.direction.RepositoryActivated:
+            repository: input.repository
+            marked_by: input.marked_by
+        summary: The repository's issues and pull requests are processed from the next cycle.
+      - name: no-such-mark
+        unknown_instance: true
+        error: conductor.direction.RepositoryMarkNotFound
+        payload:
+          conductor.direction.RepositoryMarkNotFound:
+            repository: input.repository
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.direction.RepositoryMarkConflict
+        payload:
+          conductor.direction.RepositoryMarkConflict:
+            repository: input.repository
+        summary: The repository is already active.
+
+  - name: conductor.direction.DeactivateRepository
+    naming:
+      wire: deactivate-repository
+      display: Mark a repository inactive
+    input:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+      - name: reason
+        type: String
+    outcomes:
+      - name: deactivated
+        moves: conductor.direction.RepositoryMark.deactivate
+        instance: repository
+        sets:
+          marked_by: input.marked_by
+          reason: input.reason
+        emits:
+          - conductor.direction.RepositoryDeactivated
+        payload:
+          conductor.direction.RepositoryDeactivated:
+            repository: input.repository
+            marked_by: input.marked_by
+            reason: input.reason
+        summary: The repository's issues and pull requests are left alone from the next cycle.
+      - name: no-such-mark
+        unknown_instance: true
+        error: conductor.direction.RepositoryMarkNotFound
+        payload:
+          conductor.direction.RepositoryMarkNotFound:
+            repository: input.repository
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.direction.RepositoryMarkConflict
+        payload:
+          conductor.direction.RepositoryMarkConflict:
+            repository: input.repository
+        summary: The repository is already inactive.
+
+  - name: conductor.direction.ProposeGoal
+    naming:
+      wire: propose-goal
+      display: Propose a goal
+    input:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: title
+        type: String
+      - name: exit_evidence
+        type: String
+    outcomes:
+      - name: invalid-goal-id
+        when:
+          any:
+            - goal_id == ""
+            - goal_id.utf8_bytes > 170
+        error: conductor.direction.InvalidGoalId
+        payload:
+          conductor.direction.InvalidGoalId:
+            goal_id: input.goal_id
+        summary: The store cannot keep a goal under this id, so nothing was proposed.
+      - name: proposed
+        creates: conductor.direction.Goal
+        instance: goal_id
+        sets:
+          title: input.title
+          exit_evidence: input.exit_evidence
+        emits:
+          - conductor.direction.GoalProposed
+        payload:
+          conductor.direction.GoalProposed:
+            goal_id: input.goal_id
+            title: input.title
+        summary: The goal is a draft until the operator confirms or drops it.
+      - name: already-proposed
+        existing_instance: true
+        error: conductor.direction.GoalExists
+        payload:
+          conductor.direction.GoalExists:
+            goal_id: input.goal_id
+        summary: A goal already has this id; the held goal is unchanged.
+
+  - name: conductor.direction.ConfirmGoal
+    naming:
+      wire: confirm-goal
+      display: Confirm a goal
+    input:
+      - name: goal_id
+        type: conductor.direction.GoalId
+    outcomes:
+      - name: invalid-goal-id
+        when:
+          any:
+            - goal_id == ""
+            - goal_id.utf8_bytes > 170
+        error: conductor.direction.InvalidGoalId
+        payload:
+          conductor.direction.InvalidGoalId:
+            goal_id: input.goal_id
+        summary: No goal can have this id, so nothing moved.
+      - name: confirmed
+        moves: conductor.direction.Goal.confirm
+        instance: goal_id
+        emits:
+          - conductor.direction.GoalConfirmed
+        payload:
+          conductor.direction.GoalConfirmed:
+            goal_id: input.goal_id
+        summary: The operator confirmed the goal; dispatches may serve it.
+      - name: no-such-goal
+        unknown_instance: true
+        error: conductor.direction.GoalNotFound
+        payload:
+          conductor.direction.GoalNotFound:
+            goal_id: input.goal_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.direction.GoalStateConflict
+        payload:
+          conductor.direction.GoalStateConflict:
+            goal_id: input.goal_id
+        summary: The goal is not a draft, so nothing moved.
+
+  - name: conductor.direction.MarkGoalMet
+    naming:
+      wire: mark-goal-met
+      display: Mark a goal met
+    input:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: evidence
+        type: String
+    outcomes:
+      - name: invalid-goal-id
+        when:
+          any:
+            - goal_id == ""
+            - goal_id.utf8_bytes > 170
+        error: conductor.direction.InvalidGoalId
+        payload:
+          conductor.direction.InvalidGoalId:
+            goal_id: input.goal_id
+        summary: No goal can have this id, so nothing moved.
+      - name: met
+        moves: conductor.direction.Goal.meet
+        instance: goal_id
+        emits:
+          - conductor.direction.GoalMet
+        payload:
+          conductor.direction.GoalMet:
+            goal_id: input.goal_id
+            evidence: input.evidence
+        summary: The goal's exit evidence holds.
+      - name: no-such-goal
+        unknown_instance: true
+        error: conductor.direction.GoalNotFound
+        payload:
+          conductor.direction.GoalNotFound:
+            goal_id: input.goal_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.direction.GoalStateConflict
+        payload:
+          conductor.direction.GoalStateConflict:
+            goal_id: input.goal_id
+        summary: Only a confirmed goal can be met.
+
+  - name: conductor.direction.DropGoal
+    naming:
+      wire: drop-goal
+      display: Drop a goal
+    input:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: reason
+        type: String
+    outcomes:
+      - name: invalid-goal-id
+        when:
+          any:
+            - goal_id == ""
+            - goal_id.utf8_bytes > 170
+        error: conductor.direction.InvalidGoalId
+        payload:
+          conductor.direction.InvalidGoalId:
+            goal_id: input.goal_id
+        summary: No goal can have this id, so nothing moved.
+      - name: dropped
+        moves: conductor.direction.Goal.drop
+        instance: goal_id
+        emits:
+          - conductor.direction.GoalDropped
+        payload:
+          conductor.direction.GoalDropped:
+            goal_id: input.goal_id
+            reason: input.reason
+        summary: The goal no longer directs work.
+      - name: no-such-goal
+        unknown_instance: true
+        error: conductor.direction.GoalNotFound
+        payload:
+          conductor.direction.GoalNotFound:
+            goal_id: input.goal_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.direction.GoalStateConflict
+        payload:
+          conductor.direction.GoalStateConflict:
+            goal_id: input.goal_id
+        summary: The goal is already met or dropped.
+
+  - name: conductor.direction.AddServing
+    naming:
+      wire: add-serving
+      display: Add a serving repository to a goal
+    input:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: repository
+        type: conductor.observation.RepositoryName
+    outcomes:
+      - name: no-such-goal
+        when_related: {via: input.goal_id, exists: false}
+        error: conductor.direction.GoalNotFound
+        payload:
+          conductor.direction.GoalNotFound:
+            goal_id: input.goal_id
+        summary: No goal has this id, and nothing was added.
+      - name: goal-closed
+        when_related: {via: input.goal_id, predicate: {state: [Met, Dropped]}}
+        error: conductor.direction.GoalStateConflict
+        payload:
+          conductor.direction.GoalStateConflict:
+            goal_id: input.goal_id
+        summary: A met or dropped goal no longer directs work, so it gains no serving repository.
+      - name: added
+        creates: conductor.direction.GoalServing
+        instance: serving_id
+        sets:
+          goal_id: input.goal_id
+          repository: input.repository
+        emits:
+          - conductor.direction.ServingAdded
+        payload:
+          conductor.direction.ServingAdded:
+            serving_id: {generated: true}
+            goal_id: input.goal_id
+            repository: input.repository
+        summary: The repository's work serves the goal.
+
+  - name: conductor.direction.RemoveServing
+    naming:
+      wire: remove-serving
+      display: Remove a serving repository from a goal
+    input:
+      - name: serving_id
+        type: conductor.direction.ServingId
+      - name: reason
+        type: String
+    outcomes:
+      - name: removed
+        moves: conductor.direction.GoalServing.remove
+        instance: serving_id
+        emits:
+          - conductor.direction.ServingRemoved
+        payload:
+          conductor.direction.ServingRemoved:
+            serving_id: input.serving_id
+            reason: input.reason
+        summary: The repository's work no longer serves the goal.
+      - name: no-such-serving
+        unknown_instance: true
+        error: conductor.direction.ServingNotFound
+        payload:
+          conductor.direction.ServingNotFound:
+            serving_id: input.serving_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.direction.ServingStateConflict
+        payload:
+          conductor.direction.ServingStateConflict:
+            serving_id: input.serving_id
+        summary: The repository was already removed from the goal.
+
+events:
+  - name: conductor.direction.RepositoryMarked
+    fields:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+      - name: activity
+        type: conductor.direction.Activity
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+
+  - name: conductor.direction.RepositoryActivated
+    fields:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+
+  - name: conductor.direction.RepositoryDeactivated
+    fields:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+      - name: reason
+        type: String
+
+  - name: conductor.direction.GoalProposed
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: title
+        type: String
+
+  - name: conductor.direction.GoalConfirmed
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.direction.GoalMet
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: evidence
+        type: String
+
+  - name: conductor.direction.GoalDropped
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: reason
+        type: String
+
+  - name: conductor.direction.ServingAdded
+    fields:
+      - name: serving_id
+        type: conductor.direction.ServingId
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: repository
+        type: conductor.observation.RepositoryName
+
+  - name: conductor.direction.ServingRemoved
+    fields:
+      - name: serving_id
+        type: conductor.direction.ServingId
+      - name: reason
+        type: String
+
+views:
+  - name: conductor.direction.RepositoryMarks
+    source: conductor.direction.RepositoryMark
+    consistency: read_your_writes
+    fields:
+      - name: repository
+        type: conductor.direction.MarkedRepository
+      - name: state
+        type: conductor.direction.RepositoryMark.State
+      - name: marked_by
+        type: conductor.direction.MarkedBy
+      - name: reason
+        type: String
+    naming:
+      wire: repository-marks
+      display: Repository marks
+
+  - name: conductor.direction.Goals
+    source: conductor.direction.Goal
+    consistency: read_your_writes
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: state
+        type: conductor.direction.Goal.State
+      - name: title
+        type: String
+      - name: exit_evidence
+        type: String
+    naming:
+      wire: goals
+      display: Goals
+
+  - name: conductor.direction.GoalServings
+    source: conductor.direction.GoalServing
+    consistency: read_your_writes
+    fields:
+      - name: serving_id
+        type: conductor.direction.ServingId
+      - name: state
+        type: conductor.direction.GoalServing.State
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: repository
+        type: conductor.observation.RepositoryName
+    naming:
+      wire: servings
+      display: Serving repositories

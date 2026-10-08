@@ -1,0 +1,4 @@
+version: aep.workspace/1
+members:
+  - name: conductor
+    source: ../../conductor

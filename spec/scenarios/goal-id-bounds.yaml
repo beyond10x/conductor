@@ -1,0 +1,68 @@
+type: ess-scenario/1
+domain: conductor.direction
+scenario: goal-id-bounds
+summary: >
+  A goal id of 1 to 170 UTF-8 bytes is proposed. An empty id and one of 171 bytes are refused as
+  invalid-goal-id, and no goal holds them.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: ""
+      title: An empty id
+      exit_evidence: none
+    outcome: invalid-goal-id
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééx
+      title: 85 two-byte characters and one more byte
+      exit_evidence: none
+    outcome: invalid-goal-id
+
+  - at: 2026-10-06T09:00:02Z
+    command: conductor.direction.ConfirmGoal
+    actor: conductor.direction.Operator
+    input:
+      goal_id: ""
+    outcome: invalid-goal-id
+
+  - at: 2026-10-06T09:00:03Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé
+      title: 85 two-byte characters
+      exit_evidence: the reopened store lists it
+    outcome: proposed
+
+  - at: 2026-10-06T09:00:04Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G
+      title: One byte
+      exit_evidence: the reopened store lists it
+    outcome: proposed
+
+assert:
+  - view: conductor.direction.Goals
+    contains:
+      goal_id: ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé
+      state: Draft
+      title: 85 two-byte characters
+  - view: conductor.direction.Goals
+    contains:
+      goal_id: G
+      state: Draft
+      title: One byte
+  - view: conductor.direction.Goals
+    excludes:
+      goal_id: ""
+  - view: conductor.direction.Goals
+    excludes:
+      goal_id: éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééx

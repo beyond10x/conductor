@@ -1,0 +1,6 @@
+[
+  {"name": "beta", "isArchived": false},
+  {"name": "alpha", "isArchived": false},
+  {"name": "gamma", "isArchived": true},
+  {"name": "delta", "isArchived": false}
+]

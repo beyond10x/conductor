@@ -1,0 +1,4 @@
+[
+  {"conclusion": "failure", "createdAt": "2026-10-02T10:00:00Z", "status": "completed", "workflowName": "CI"},
+  {"conclusion": "success", "createdAt": "2026-10-05T10:00:00Z", "status": "completed", "workflowName": "Lint"}
+]

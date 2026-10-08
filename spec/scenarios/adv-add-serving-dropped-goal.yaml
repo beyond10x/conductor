@@ -1,0 +1,37 @@
+# Row 27: a goal lists the repositories whose work serves it. A dropped goal "no longer directs
+# work" (`DropGoal`), and `SendDispatch` refuses it as `goal-closed`. `AddServing` must not give it a
+# serving repository either, or the compare step counts work as serving a goal that is gone.
+type: ess-scenario/1
+domain: conductor.direction
+scenario: adv-add-serving-dropped-goal
+summary: A dropped goal gains no serving repository.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-adv-dropped
+      title: Retire the old gateway
+      exit_evidence: the old gateway is archived
+    outcome: proposed
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.direction.DropGoal
+    actor: conductor.direction.Operator
+    input:
+      goal_id: G-adv-dropped
+      reason: superseded
+    outcome: dropped
+
+  - at: 2026-10-06T09:00:02Z
+    command: conductor.direction.AddServing
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-adv-dropped
+      repository: cortex
+
+assert:
+  - view: conductor.direction.GoalServings
+    excludes:
+      goal_id: G-adv-dropped

@@ -1,0 +1,1494 @@
+domain: conductor.dispatch
+
+summary: >
+  How conductor directs the repository controllers. A controller is one session bound to one
+  repository checkout, and at most one runs per repository. A dispatch is one brief to one
+  controller in service of one goal, and it moves as the controller reports. Every message between
+  conductor and a controller is recorded with its parsed first line, whichever harness and
+  transport carried it. A resource request asks conductor for a build slot, disk or usage before a
+  controller spends it. Design: docs/design/conductor.md § 3, § 6, § 7.
+
+naming:
+  wire: dispatch
+  display: Dispatch
+
+types:
+  - name: conductor.dispatch.ControllerId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.dispatch.DispatchId
+    kind: newtype
+    of: String
+    prefix: "DSP-"
+
+  - name: conductor.dispatch.MessageId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.dispatch.ResourceRequestId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.dispatch.MessageKind
+    kind: enum
+    variants: [Dispatch, Report, DecisionRequest, Decision, Need, Resource, Escalation, Unknown]
+
+  - name: conductor.dispatch.Transport
+    kind: enum
+    variants: [SendMessage, Mailbox]
+
+  - name: conductor.dispatch.ResourceKind
+    kind: enum
+    variants: [BuildSlot, Disk, Usage]
+
+  - name: conductor.dispatch.GuardDecisionId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.dispatch.Verdict
+    kind: enum
+    variants: [Allow, Deny]
+
+entities:
+  - name: conductor.dispatch.Controller
+    identity:
+      name: controller_id
+      type: conductor.dispatch.ControllerId
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: harness
+        type: conductor.observation.Harness
+      - name: session_name
+        type: conductor.observation.RepositoryName
+      - name: charter_revision
+        type: Integer
+    invariants:
+      - charter_revision > 0
+    lifecycle:
+      initial: Running
+      states: [Running, Paused, Stopped]
+      terminal: [Stopped]
+      transitions:
+        - name: pause
+          from: [Running]
+          to: Paused
+        - name: resume
+          from: [Paused]
+          to: Running
+        - name: stop
+          from: [Running, Paused]
+          to: Stopped
+
+  - name: conductor.dispatch.Dispatch
+    identity:
+      name: dispatch_id
+      type: conductor.dispatch.DispatchId
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: brief
+        type: String
+      - name: sent_at
+        type: Timestamp
+      # The dispatch's place in the order (design § 3, § 5): lower runs first.
+      - name: priority
+        type: Integer
+      # The dispatch this one waits for, when one repository waits for another (design § 5).
+      - name: waits_on
+        type: Optional<conductor.dispatch.DispatchId>
+    relations:
+      - name: goal
+        kind: references
+        target: conductor.direction.Goal
+        cardinality: one
+        via: goal_id
+      - name: awaited_dispatch
+        kind: references
+        target: conductor.dispatch.Dispatch
+        cardinality: one
+        via: waits_on
+    invariants:
+      - priority >= 0
+    lifecycle:
+      initial: Sent
+      states: [Sent, Started, Blocked, Done, Failed, Cancelled]
+      terminal: [Done, Failed, Cancelled]
+      transitions:
+        - name: start
+          from: [Sent]
+          to: Started
+        - name: block
+          from: [Started]
+          to: Blocked
+        - name: unblock
+          from: [Blocked]
+          to: Started
+        - name: finish
+          from: [Started]
+          to: Done
+        - name: fail
+          from: [Started, Blocked]
+          to: Failed
+        - name: cancel
+          from: [Sent, Started, Blocked]
+          to: Cancelled
+
+  - name: conductor.dispatch.Message
+    identity:
+      name: message_id
+      type: conductor.dispatch.MessageId
+    fields:
+      - name: sender
+        type: String
+      - name: recipient
+        type: String
+      - name: kind
+        type: conductor.dispatch.MessageKind
+      - name: first_line
+        type: String
+      - name: transport
+        type: conductor.dispatch.Transport
+      - name: received_at
+        type: Timestamp
+      - name: body_path
+        type: Optional<String>
+      # The dispatch a `[NEED]` message opened when conductor routed it (design § 3).
+      - name: dispatch_id
+        type: Optional<conductor.dispatch.DispatchId>
+    relations:
+      - name: opened_dispatch
+        kind: references
+        target: conductor.dispatch.Dispatch
+        cardinality: one
+        via: dispatch_id
+    lifecycle:
+      initial: Received
+      states: [Received, Handled, Rejected]
+      terminal: [Handled, Rejected]
+      transitions:
+        - name: handle
+          from: [Received]
+          to: Handled
+        - name: reject
+          from: [Received]
+          to: Rejected
+
+  - name: conductor.dispatch.ResourceRequest
+    identity:
+      name: resource_request_id
+      type: conductor.dispatch.ResourceRequestId
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: resource
+        type: conductor.dispatch.ResourceKind
+      - name: amount
+        type: Integer
+      - name: requested_at
+        type: Timestamp
+    invariants:
+      - amount > 0
+    lifecycle:
+      initial: Requested
+      states: [Requested, Granted, Refused, Released]
+      terminal: [Refused, Released]
+      transitions:
+        - name: grant
+          from: [Requested]
+          to: Granted
+        - name: release
+          from: [Granted]
+          to: Released
+        - name: refuse
+          from: [Requested]
+          to: Refused
+
+  # One PreToolUse evaluation in a controller session (design § 7). Which calls are denied is
+  # the guard's rule table (story:guard-hook); the record is what the pilot reads to show that an
+  # attempted edit outside the repository or a message to anyone but conductor was stopped.
+  - name: conductor.dispatch.GuardDecision
+    identity:
+      name: guard_decision_id
+      type: conductor.dispatch.GuardDecisionId
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: session_ref
+        type: String
+      - name: tool
+        type: String
+      - name: target
+        type: String
+      - name: verdict
+        type: conductor.dispatch.Verdict
+      - name: reason
+        type: String
+      - name: decided_at
+        type: Timestamp
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+actors:
+  # Conductor also records what a controller reported by message (`[REPORT …]`, design § 6),
+  # so it holds the Report* commands beside the controller that calls them directly.
+  - name: conductor.dispatch.Conductor
+    may:
+      - conductor.dispatch.StartController
+      - conductor.dispatch.PauseController
+      - conductor.dispatch.ResumeController
+      - conductor.dispatch.StopController
+      - conductor.dispatch.ReviseCharter
+      - conductor.dispatch.SendDispatch
+      - conductor.dispatch.ReportStarted
+      - conductor.dispatch.ReportBlocked
+      - conductor.dispatch.ReportUnblocked
+      - conductor.dispatch.ReportDone
+      - conductor.dispatch.ReportFailed
+      - conductor.dispatch.CancelDispatch
+      - conductor.dispatch.ReceiveMessage
+      - conductor.dispatch.HandleMessage
+      - conductor.dispatch.RejectMessage
+      - conductor.dispatch.RouteNeed
+      - conductor.dispatch.GrantResource
+      - conductor.dispatch.RefuseResource
+    naming:
+      display: Conductor
+
+  - name: conductor.dispatch.RepositoryController
+    may:
+      - conductor.dispatch.ReportStarted
+      - conductor.dispatch.ReportBlocked
+      - conductor.dispatch.ReportUnblocked
+      - conductor.dispatch.ReportDone
+      - conductor.dispatch.ReportFailed
+      - conductor.dispatch.RequestResource
+      - conductor.dispatch.RecordGuardDecision
+      - conductor.dispatch.ReleaseResource
+    naming:
+      display: Repository controller
+
+errors:
+  - name: conductor.dispatch.ControllerAlreadyRunning
+    summary: The repository already has a running or paused controller, so no second one starts.
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+
+  - name: conductor.dispatch.ControllerNotFound
+    summary: No controller has this id.
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+
+  - name: conductor.dispatch.ControllerStateConflict
+    summary: The controller is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+
+  - name: conductor.dispatch.GoalNotFound
+    summary: No goal has this id, so nothing was dispatched.
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.dispatch.GoalClosed
+    summary: The goal is met or dropped, so nothing was dispatched against it.
+    fields:
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.dispatch.InvalidPriority
+    summary: A dispatch priority is never negative.
+    fields:
+      - name: priority
+        type: Integer
+
+  - name: conductor.dispatch.WaitsOnItself
+    summary: The dispatch names itself as the dispatch it waits on.
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.DispatchNotFound
+    summary: No dispatch has this id.
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.DispatchExists
+    summary: A dispatch already has this id, so nothing was sent.
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.DispatchStateConflict
+    summary: The dispatch is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.MessageNotFound
+    summary: No message has this id.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+
+  - name: conductor.dispatch.MessageStateConflict
+    summary: The message was already handled or rejected.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+
+  - name: conductor.dispatch.NotANeed
+    summary: The message is not a `[NEED]`, so it opens no dispatch.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+
+  - name: conductor.dispatch.NeedNotRouted
+    summary: The message is a `[NEED]`; route it to the dispatch it opened with `RouteNeed` instead.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+
+  - name: conductor.dispatch.InvalidAmount
+    summary: A resource amount is a positive number.
+    fields:
+      - name: amount
+        type: Integer
+
+  - name: conductor.dispatch.ResourceRequestNotFound
+    summary: No resource request has this id.
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+
+  - name: conductor.dispatch.ResourceRequestStateConflict
+    summary: The resource request was already granted or refused.
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+
+  - name: conductor.dispatch.DiskBelowFloor
+    summary: Free disk is under the 30G floor, so no build slot was granted.
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+      - name: disk_free_bytes
+        type: Integer
+
+commands:
+  - name: conductor.dispatch.StartController
+    naming:
+      wire: start-controller
+      display: Start a controller
+    input:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: harness
+        type: conductor.observation.Harness
+    outcomes:
+      - name: already-running
+        when_related:
+          entity: conductor.dispatch.Controller
+          where:
+            all:
+              - repository == input.repository
+              - state: [Running, Paused]
+          count: {gte: 1}
+        error: conductor.dispatch.ControllerAlreadyRunning
+        payload:
+          conductor.dispatch.ControllerAlreadyRunning:
+            repository: input.repository
+        summary: One controller per repository (design § 3); nothing started.
+      - name: started
+        creates: conductor.dispatch.Controller
+        instance: controller_id
+        sets:
+          repository: input.repository
+          harness: input.harness
+          session_name: input.repository
+          charter_revision: 1
+        emits:
+          - conductor.dispatch.ControllerStarted
+        payload:
+          conductor.dispatch.ControllerStarted:
+            controller_id: {generated: true}
+            repository: input.repository
+            harness: input.harness
+        summary: The controller runs in its repository's checkout under its charter.
+
+  - name: conductor.dispatch.PauseController
+    naming:
+      wire: pause-controller
+      display: Pause a controller
+    input:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+    outcomes:
+      - name: paused
+        moves: conductor.dispatch.Controller.pause
+        instance: controller_id
+        emits:
+          - conductor.dispatch.ControllerPaused
+        payload:
+          conductor.dispatch.ControllerPaused:
+            controller_id: input.controller_id
+        summary: The controller holds its work and still counts as the repository's one controller.
+      - name: no-such-controller
+        unknown_instance: true
+        error: conductor.dispatch.ControllerNotFound
+        payload:
+          conductor.dispatch.ControllerNotFound:
+            controller_id: input.controller_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.ControllerStateConflict
+        payload:
+          conductor.dispatch.ControllerStateConflict:
+            controller_id: input.controller_id
+        summary: Only a running controller is paused.
+
+  - name: conductor.dispatch.ResumeController
+    naming:
+      wire: resume-controller
+      display: Resume a controller
+    input:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+    outcomes:
+      - name: resumed
+        moves: conductor.dispatch.Controller.resume
+        instance: controller_id
+        emits:
+          - conductor.dispatch.ControllerResumed
+        payload:
+          conductor.dispatch.ControllerResumed:
+            controller_id: input.controller_id
+        summary: The controller runs again.
+      - name: no-such-controller
+        unknown_instance: true
+        error: conductor.dispatch.ControllerNotFound
+        payload:
+          conductor.dispatch.ControllerNotFound:
+            controller_id: input.controller_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.ControllerStateConflict
+        payload:
+          conductor.dispatch.ControllerStateConflict:
+            controller_id: input.controller_id
+        summary: Only a paused controller is resumed.
+
+  - name: conductor.dispatch.StopController
+    naming:
+      wire: stop-controller
+      display: Stop a controller
+    input:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+      - name: reason
+        type: String
+    outcomes:
+      - name: stopped
+        moves: conductor.dispatch.Controller.stop
+        instance: controller_id
+        emits:
+          - conductor.dispatch.ControllerStopped
+        payload:
+          conductor.dispatch.ControllerStopped:
+            controller_id: input.controller_id
+            reason: input.reason
+        summary: The controller session has ended; the repository may get a new one.
+      - name: no-such-controller
+        unknown_instance: true
+        error: conductor.dispatch.ControllerNotFound
+        payload:
+          conductor.dispatch.ControllerNotFound:
+            controller_id: input.controller_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.ControllerStateConflict
+        payload:
+          conductor.dispatch.ControllerStateConflict:
+            controller_id: input.controller_id
+        summary: The controller is already stopped.
+
+  - name: conductor.dispatch.ReviseCharter
+    naming:
+      wire: revise-charter
+      display: Revise a charter
+    input:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+    outcomes:
+      - name: revised
+        when_subject_state: Running
+        updates: conductor.dispatch.Controller
+        instance: controller_id
+        sets:
+          charter_revision: {increment: 1}
+        emits:
+          - conductor.dispatch.CharterRevised
+        payload:
+          conductor.dispatch.CharterRevised:
+            controller_id: input.controller_id
+        summary: The controller received the next revision of its charter.
+      - name: paused-revised
+        when_subject_state: Paused
+        updates: conductor.dispatch.Controller
+        instance: controller_id
+        sets:
+          charter_revision: {increment: 1}
+        emits:
+          - conductor.dispatch.CharterRevised
+        payload:
+          conductor.dispatch.CharterRevised:
+            controller_id: input.controller_id
+        summary: A paused controller reads the new revision when it resumes.
+      - name: no-such-controller
+        unknown_instance: true
+        error: conductor.dispatch.ControllerNotFound
+        payload:
+          conductor.dispatch.ControllerNotFound:
+            controller_id: input.controller_id
+      - name: stopped
+        error: conductor.dispatch.ControllerStateConflict
+        payload:
+          conductor.dispatch.ControllerStateConflict:
+            controller_id: input.controller_id
+        summary: A stopped controller takes no charter.
+
+  - name: conductor.dispatch.SendDispatch
+    naming:
+      wire: send-dispatch
+      display: Send a dispatch
+    input:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: brief
+        type: String
+      - name: sent_at
+        type: Timestamp
+      - name: priority
+        type: Integer
+        example: 2
+      - name: waits_on
+        type: Optional<conductor.dispatch.DispatchId>
+        example: "DSP-0"
+    outcomes:
+      - name: negative-priority
+        when: priority < 0
+        error: conductor.dispatch.InvalidPriority
+        payload:
+          conductor.dispatch.InvalidPriority:
+            priority: input.priority
+        summary: A priority is never negative; nothing was sent.
+      - name: waits-on-itself
+        when:
+          all:
+            - defined(waits_on)
+            - waits_on == dispatch_id
+        error: conductor.dispatch.WaitsOnItself
+        payload:
+          conductor.dispatch.WaitsOnItself:
+            dispatch_id: input.dispatch_id
+        summary: A dispatch that waits on itself could never start; nothing was sent.
+      - name: no-such-goal
+        when_related: {via: input.goal_id, exists: false}
+        error: conductor.dispatch.GoalNotFound
+        payload:
+          conductor.dispatch.GoalNotFound:
+            goal_id: input.goal_id
+        summary: Every dispatch serves a goal (design § 4); nothing was sent.
+      - name: goal-closed
+        when_related: {via: input.goal_id, predicate: {state: [Met, Dropped]}}
+        error: conductor.dispatch.GoalClosed
+        payload:
+          conductor.dispatch.GoalClosed:
+            goal_id: input.goal_id
+        summary: The goal is met or dropped; nothing was sent.
+      - name: sent
+        creates: conductor.dispatch.Dispatch
+        instance: dispatch_id
+        sets:
+          repository: input.repository
+          goal_id: input.goal_id
+          brief: input.brief
+          sent_at: input.sent_at
+          priority: input.priority
+          waits_on: input.waits_on
+        emits:
+          - conductor.dispatch.DispatchSent
+        payload:
+          conductor.dispatch.DispatchSent:
+            dispatch_id: input.dispatch_id
+            repository: input.repository
+            goal_id: input.goal_id
+        summary: The controller has the brief.
+      - name: already-sent
+        existing_instance: true
+        error: conductor.dispatch.DispatchExists
+        payload:
+          conductor.dispatch.DispatchExists:
+            dispatch_id: input.dispatch_id
+        summary: A dispatch already has this id; the held dispatch is unchanged.
+
+  - name: conductor.dispatch.ReportStarted
+    naming:
+      wire: report-started
+      display: Report a dispatch started
+    input:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+    outcomes:
+      - name: started
+        moves: conductor.dispatch.Dispatch.start
+        instance: dispatch_id
+        emits:
+          - conductor.dispatch.DispatchStarted
+        payload:
+          conductor.dispatch.DispatchStarted:
+            dispatch_id: input.dispatch_id
+        summary: The controller is working the dispatch.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.DispatchStateConflict
+        payload:
+          conductor.dispatch.DispatchStateConflict:
+            dispatch_id: input.dispatch_id
+        summary: Only a sent dispatch starts.
+
+  - name: conductor.dispatch.ReportBlocked
+    naming:
+      wire: report-blocked
+      display: Report a dispatch blocked
+    input:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: String
+    outcomes:
+      - name: blocked
+        moves: conductor.dispatch.Dispatch.block
+        instance: dispatch_id
+        emits:
+          - conductor.dispatch.DispatchBlocked
+        payload:
+          conductor.dispatch.DispatchBlocked:
+            dispatch_id: input.dispatch_id
+            reason: input.reason
+        summary: The controller stopped working and waits; waiting is not work (design P13).
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.DispatchStateConflict
+        payload:
+          conductor.dispatch.DispatchStateConflict:
+            dispatch_id: input.dispatch_id
+        summary: Only a started dispatch blocks.
+
+  - name: conductor.dispatch.ReportUnblocked
+    naming:
+      wire: report-unblocked
+      display: Report a dispatch unblocked
+    input:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+    outcomes:
+      - name: unblocked
+        moves: conductor.dispatch.Dispatch.unblock
+        instance: dispatch_id
+        emits:
+          - conductor.dispatch.DispatchUnblocked
+        payload:
+          conductor.dispatch.DispatchUnblocked:
+            dispatch_id: input.dispatch_id
+        summary: The controller works the dispatch again.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.DispatchStateConflict
+        payload:
+          conductor.dispatch.DispatchStateConflict:
+            dispatch_id: input.dispatch_id
+        summary: Only a blocked dispatch is unblocked.
+
+  - name: conductor.dispatch.ReportDone
+    naming:
+      wire: report-done
+      display: Report a dispatch done
+    input:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: evidence
+        type: String
+    outcomes:
+      - name: done
+        moves: conductor.dispatch.Dispatch.finish
+        instance: dispatch_id
+        emits:
+          - conductor.dispatch.DispatchDone
+        payload:
+          conductor.dispatch.DispatchDone:
+            dispatch_id: input.dispatch_id
+            evidence: input.evidence
+        summary: The dispatch's acceptance holds on origin/main, with the evidence lines.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.DispatchStateConflict
+        payload:
+          conductor.dispatch.DispatchStateConflict:
+            dispatch_id: input.dispatch_id
+        summary: Only a started dispatch is done.
+
+  - name: conductor.dispatch.ReportFailed
+    naming:
+      wire: report-failed
+      display: Report a dispatch failed
+    input:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: String
+    outcomes:
+      - name: failed
+        moves: conductor.dispatch.Dispatch.fail
+        instance: dispatch_id
+        emits:
+          - conductor.dispatch.DispatchFailed
+        payload:
+          conductor.dispatch.DispatchFailed:
+            dispatch_id: input.dispatch_id
+            reason: input.reason
+        summary: The dispatch cannot reach its acceptance.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.DispatchStateConflict
+        payload:
+          conductor.dispatch.DispatchStateConflict:
+            dispatch_id: input.dispatch_id
+        summary: Only a started or blocked dispatch fails.
+
+  - name: conductor.dispatch.CancelDispatch
+    naming:
+      wire: cancel-dispatch
+      display: Cancel a dispatch
+    input:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: String
+    outcomes:
+      - name: cancelled
+        moves: conductor.dispatch.Dispatch.cancel
+        instance: dispatch_id
+        emits:
+          - conductor.dispatch.DispatchCancelled
+        payload:
+          conductor.dispatch.DispatchCancelled:
+            dispatch_id: input.dispatch_id
+            reason: input.reason
+        summary: Conductor withdrew the brief.
+      - name: no-such-dispatch
+        unknown_instance: true
+        error: conductor.dispatch.DispatchNotFound
+        payload:
+          conductor.dispatch.DispatchNotFound:
+            dispatch_id: input.dispatch_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.DispatchStateConflict
+        payload:
+          conductor.dispatch.DispatchStateConflict:
+            dispatch_id: input.dispatch_id
+        summary: The dispatch already ended.
+
+  - name: conductor.dispatch.ReceiveMessage
+    naming:
+      wire: receive-message
+      display: Receive a message
+    input:
+      - name: sender
+        type: String
+      - name: recipient
+        type: String
+      - name: kind
+        type: conductor.dispatch.MessageKind
+      - name: first_line
+        type: String
+      - name: transport
+        type: conductor.dispatch.Transport
+      - name: received_at
+        type: Timestamp
+      - name: body_path
+        type: Optional<String>
+      # Whether the first line parsed as one of the § 6 formats.
+      - name: parsed
+        type: Boolean
+    outcomes:
+      - name: unparsed
+        when:
+          any:
+            - parsed == false
+            - kind == Unknown
+        creates: conductor.dispatch.Message
+        into: Rejected
+        instance: message_id
+        sets:
+          sender: input.sender
+          recipient: input.recipient
+          kind: input.kind
+          first_line: input.first_line
+          transport: input.transport
+          received_at: input.received_at
+          body_path: input.body_path
+        emits:
+          - conductor.dispatch.MessageReceived
+        payload:
+          conductor.dispatch.MessageReceived:
+            message_id: {generated: true}
+            sender: input.sender
+            kind: input.kind
+        summary: >
+          The first line did not parse (AGENTS.md rule 4), or names no kind, so the message is
+          recorded as rejected and never acted on; the sender gets the format back.
+      - name: received
+        creates: conductor.dispatch.Message
+        instance: message_id
+        sets:
+          sender: input.sender
+          recipient: input.recipient
+          kind: input.kind
+          first_line: input.first_line
+          transport: input.transport
+          received_at: input.received_at
+          body_path: input.body_path
+        emits:
+          - conductor.dispatch.MessageReceived
+        payload:
+          conductor.dispatch.MessageReceived:
+            message_id: {generated: true}
+            sender: input.sender
+            kind: input.kind
+        summary: The message is recorded with its parsed first line.
+
+  - name: conductor.dispatch.HandleMessage
+    naming:
+      wire: handle-message
+      display: Handle a message
+    input:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+    outcomes:
+      - name: need-unrouted
+        when_subject:
+          predicate:
+            all:
+              - kind == Need
+              - state == Received
+        error: conductor.dispatch.NeedNotRouted
+        payload:
+          conductor.dispatch.NeedNotRouted:
+            message_id: input.message_id
+        summary: A `[NEED]` is closed only by routing it to the dispatch it opened (`RouteNeed`); the message stays where it was.
+      - name: handled
+        moves: conductor.dispatch.Message.handle
+        instance: message_id
+        emits:
+          - conductor.dispatch.MessageHandled
+        payload:
+          conductor.dispatch.MessageHandled:
+            message_id: input.message_id
+        summary: The message was acted on.
+      - name: no-such-message
+        unknown_instance: true
+        error: conductor.dispatch.MessageNotFound
+        payload:
+          conductor.dispatch.MessageNotFound:
+            message_id: input.message_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.MessageStateConflict
+        payload:
+          conductor.dispatch.MessageStateConflict:
+            message_id: input.message_id
+        summary: The message was already handled or rejected.
+
+  - name: conductor.dispatch.RejectMessage
+    naming:
+      wire: reject-message
+      display: Reject a message
+    input:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+      - name: reason
+        type: String
+    outcomes:
+      - name: rejected
+        moves: conductor.dispatch.Message.reject
+        instance: message_id
+        emits:
+          - conductor.dispatch.MessageRejected
+        payload:
+          conductor.dispatch.MessageRejected:
+            message_id: input.message_id
+            reason: input.reason
+        summary: >
+          Conductor refused a message it had received and recorded, and the sender gets the reason.
+          An unparsed first line is rejected at receipt (`ReceiveMessage` `unparsed`), not here.
+          External senders are accepted and routed (design § 3).
+      - name: no-such-message
+        unknown_instance: true
+        error: conductor.dispatch.MessageNotFound
+        payload:
+          conductor.dispatch.MessageNotFound:
+            message_id: input.message_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.MessageStateConflict
+        payload:
+          conductor.dispatch.MessageStateConflict:
+            message_id: input.message_id
+        summary: The message was already handled or rejected.
+
+  # A `[NEED]` from one controller becomes a dispatch to the controller of the repository it names
+  # (design § 3). Conductor sends that dispatch first, then routes the message to it.
+  - name: conductor.dispatch.RouteNeed
+    naming:
+      wire: route-need
+      display: Route a need to a dispatch
+    input:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+    outcomes:
+      - name: not-a-need
+        when_subject:
+          predicate:
+            all:
+              - kind != Need
+              - state == Received
+        error: conductor.dispatch.NotANeed
+        payload:
+          conductor.dispatch.NotANeed:
+            message_id: input.message_id
+        summary: Only a `[NEED]` message is routed to a dispatch; the message stays where it was.
+      - name: routed
+        moves: conductor.dispatch.Message.handle
+        instance: message_id
+        sets:
+          dispatch_id: input.dispatch_id
+        emits:
+          - conductor.dispatch.NeedRouted
+        payload:
+          conductor.dispatch.NeedRouted:
+            message_id: input.message_id
+            dispatch_id: input.dispatch_id
+        summary: The need is handled, and the message records the dispatch it opened.
+      - name: no-such-message
+        unknown_instance: true
+        error: conductor.dispatch.MessageNotFound
+        payload:
+          conductor.dispatch.MessageNotFound:
+            message_id: input.message_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.MessageStateConflict
+        payload:
+          conductor.dispatch.MessageStateConflict:
+            message_id: input.message_id
+        summary: The message was already handled or rejected.
+
+  - name: conductor.dispatch.RecordGuardDecision
+    naming:
+      wire: record-guard-decision
+      display: Record a guard decision
+    input:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: session_ref
+        type: String
+      - name: tool
+        type: String
+      - name: target
+        type: String
+      - name: verdict
+        type: conductor.dispatch.Verdict
+      - name: reason
+        type: String
+      - name: decided_at
+        type: Timestamp
+    outcomes:
+      - name: recorded
+        creates: conductor.dispatch.GuardDecision
+        instance: guard_decision_id
+        sets:
+          repository: input.repository
+          session_ref: input.session_ref
+          tool: input.tool
+          target: input.target
+          verdict: input.verdict
+          reason: input.reason
+          decided_at: input.decided_at
+        emits:
+          - conductor.dispatch.GuardDecisionRecorded
+        payload:
+          conductor.dispatch.GuardDecisionRecorded:
+            guard_decision_id: {generated: true}
+            repository: input.repository
+            tool: input.tool
+            verdict: input.verdict
+        summary: The hook's verdict on one tool call is recorded before the call proceeds or is blocked.
+
+  - name: conductor.dispatch.RequestResource
+    naming:
+      wire: request-resource
+      display: Request a resource
+    input:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: resource
+        type: conductor.dispatch.ResourceKind
+      - name: amount
+        type: Integer
+      - name: requested_at
+        type: Timestamp
+    outcomes:
+      - name: invalid-amount
+        when: amount <= 0
+        error: conductor.dispatch.InvalidAmount
+        payload:
+          conductor.dispatch.InvalidAmount:
+            amount: input.amount
+        summary: The amount is not positive, and nothing was requested.
+      - name: requested
+        creates: conductor.dispatch.ResourceRequest
+        instance: resource_request_id
+        sets:
+          repository: input.repository
+          resource: input.resource
+          amount: input.amount
+          requested_at: input.requested_at
+        emits:
+          - conductor.dispatch.ResourceRequested
+        payload:
+          conductor.dispatch.ResourceRequested:
+            resource_request_id: {generated: true}
+            repository: input.repository
+            resource: input.resource
+        summary: The controller waits for the grant before spending it.
+
+  - name: conductor.dispatch.ReleaseResource
+    naming:
+      wire: release-resource
+      display: Release a granted resource
+    input:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+    outcomes:
+      - name: released
+        moves: conductor.dispatch.ResourceRequest.release
+        instance: resource_request_id
+        emits:
+          - conductor.dispatch.ResourceReleased
+        payload:
+          conductor.dispatch.ResourceReleased:
+            resource_request_id: input.resource_request_id
+        summary: The build slot, disk or usage is back in the ledger for the next request.
+      - name: no-such-request
+        unknown_instance: true
+        error: conductor.dispatch.ResourceRequestNotFound
+        payload:
+          conductor.dispatch.ResourceRequestNotFound:
+            resource_request_id: input.resource_request_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.ResourceRequestStateConflict
+        payload:
+          conductor.dispatch.ResourceRequestStateConflict:
+            resource_request_id: input.resource_request_id
+        summary: Only a granted request is released.
+
+  - name: conductor.dispatch.GrantResource
+    naming:
+      wire: grant-resource
+      display: Grant a resource
+    input:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+      # Free bytes on `/` when conductor answers (`below-disk-floor`: no build slot under 30G free).
+      - name: disk_free_bytes
+        type: Integer
+        example: 64424509440
+    outcomes:
+      - name: below-disk-floor
+        when: disk_free_bytes < 32212254720
+        when_subject:
+          predicate:
+            all:
+              - resource == BuildSlot
+              - state == Requested
+        error: conductor.dispatch.DiskBelowFloor
+        payload:
+          conductor.dispatch.DiskBelowFloor:
+            resource_request_id: input.resource_request_id
+            disk_free_bytes: input.disk_free_bytes
+        summary: A build slot is not granted under 30G free; the request stays open.
+      - name: granted
+        moves: conductor.dispatch.ResourceRequest.grant
+        instance: resource_request_id
+        emits:
+          - conductor.dispatch.ResourceGranted
+        payload:
+          conductor.dispatch.ResourceGranted:
+            resource_request_id: input.resource_request_id
+        summary: The controller may spend it.
+      - name: no-such-request
+        unknown_instance: true
+        error: conductor.dispatch.ResourceRequestNotFound
+        payload:
+          conductor.dispatch.ResourceRequestNotFound:
+            resource_request_id: input.resource_request_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.ResourceRequestStateConflict
+        payload:
+          conductor.dispatch.ResourceRequestStateConflict:
+            resource_request_id: input.resource_request_id
+        summary: The request was already answered.
+
+  - name: conductor.dispatch.RefuseResource
+    naming:
+      wire: refuse-resource
+      display: Refuse a resource
+    input:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+      - name: reason
+        type: String
+    outcomes:
+      - name: refused
+        moves: conductor.dispatch.ResourceRequest.refuse
+        instance: resource_request_id
+        emits:
+          - conductor.dispatch.ResourceRefused
+        payload:
+          conductor.dispatch.ResourceRefused:
+            resource_request_id: input.resource_request_id
+            reason: input.reason
+        summary: The controller does not spend it, and reports blocked if it needs it.
+      - name: no-such-request
+        unknown_instance: true
+        error: conductor.dispatch.ResourceRequestNotFound
+        payload:
+          conductor.dispatch.ResourceRequestNotFound:
+            resource_request_id: input.resource_request_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.ResourceRequestStateConflict
+        payload:
+          conductor.dispatch.ResourceRequestStateConflict:
+            resource_request_id: input.resource_request_id
+        summary: The request was already answered.
+
+events:
+  - name: conductor.dispatch.ResourceReleased
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+
+  - name: conductor.dispatch.GuardDecisionRecorded
+    fields:
+      - name: guard_decision_id
+        type: conductor.dispatch.GuardDecisionId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: tool
+        type: String
+      - name: verdict
+        type: conductor.dispatch.Verdict
+
+  - name: conductor.dispatch.ControllerStarted
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: harness
+        type: conductor.observation.Harness
+
+  - name: conductor.dispatch.ControllerPaused
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+
+  - name: conductor.dispatch.ControllerResumed
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+
+  - name: conductor.dispatch.ControllerStopped
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+      - name: reason
+        type: String
+
+  - name: conductor.dispatch.CharterRevised
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+
+  - name: conductor.dispatch.DispatchSent
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: goal_id
+        type: conductor.direction.GoalId
+
+  - name: conductor.dispatch.DispatchStarted
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.DispatchBlocked
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: String
+
+  - name: conductor.dispatch.DispatchUnblocked
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.DispatchDone
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: evidence
+        type: String
+
+  - name: conductor.dispatch.DispatchFailed
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: String
+
+  - name: conductor.dispatch.DispatchCancelled
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: reason
+        type: String
+
+  - name: conductor.dispatch.MessageReceived
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+      - name: sender
+        type: String
+      - name: kind
+        type: conductor.dispatch.MessageKind
+
+  - name: conductor.dispatch.MessageHandled
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+
+  - name: conductor.dispatch.MessageRejected
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+      - name: reason
+        type: String
+
+  - name: conductor.dispatch.NeedRouted
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+
+  - name: conductor.dispatch.ResourceRequested
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: resource
+        type: conductor.dispatch.ResourceKind
+
+  - name: conductor.dispatch.ResourceGranted
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+
+  - name: conductor.dispatch.ResourceRefused
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+      - name: reason
+        type: String
+
+views:
+  - name: conductor.dispatch.GuardDecisions
+    source: conductor.dispatch.GuardDecision
+    consistency: read_your_writes
+    fields:
+      - name: guard_decision_id
+        type: conductor.dispatch.GuardDecisionId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: session_ref
+        type: String
+      - name: tool
+        type: String
+      - name: target
+        type: String
+      - name: verdict
+        type: conductor.dispatch.Verdict
+      - name: reason
+        type: String
+      - name: decided_at
+        type: Timestamp
+    naming:
+      wire: guard-decisions
+      display: Guard decisions
+
+  - name: conductor.dispatch.Controllers
+    source: conductor.dispatch.Controller
+    consistency: read_your_writes
+    fields:
+      - name: controller_id
+        type: conductor.dispatch.ControllerId
+      - name: state
+        type: conductor.dispatch.Controller.State
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: harness
+        type: conductor.observation.Harness
+      - name: session_name
+        type: conductor.observation.RepositoryName
+      - name: charter_revision
+        type: Integer
+    naming:
+      wire: controllers
+      display: Controllers
+
+  - name: conductor.dispatch.Dispatches
+    source: conductor.dispatch.Dispatch
+    consistency: read_your_writes
+    fields:
+      - name: dispatch_id
+        type: conductor.dispatch.DispatchId
+      - name: state
+        type: conductor.dispatch.Dispatch.State
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: goal_id
+        type: conductor.direction.GoalId
+      - name: brief
+        type: String
+      - name: sent_at
+        type: Timestamp
+      - name: priority
+        type: Integer
+      - name: waits_on
+        type: Optional<conductor.dispatch.DispatchId>
+    naming:
+      wire: dispatches
+      display: Dispatches
+
+  - name: conductor.dispatch.Messages
+    source: conductor.dispatch.Message
+    consistency: read_your_writes
+    fields:
+      - name: message_id
+        type: conductor.dispatch.MessageId
+      - name: state
+        type: conductor.dispatch.Message.State
+      - name: sender
+        type: String
+      - name: recipient
+        type: String
+      - name: kind
+        type: conductor.dispatch.MessageKind
+      - name: first_line
+        type: String
+      - name: transport
+        type: conductor.dispatch.Transport
+      - name: received_at
+        type: Timestamp
+      - name: body_path
+        type: Optional<String>
+      - name: dispatch_id
+        type: Optional<conductor.dispatch.DispatchId>
+    naming:
+      wire: messages
+      display: Messages
+
+  - name: conductor.dispatch.ResourceRequests
+    source: conductor.dispatch.ResourceRequest
+    consistency: read_your_writes
+    fields:
+      - name: resource_request_id
+        type: conductor.dispatch.ResourceRequestId
+      - name: state
+        type: conductor.dispatch.ResourceRequest.State
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: resource
+        type: conductor.dispatch.ResourceKind
+      - name: amount
+        type: Integer
+      - name: requested_at
+        type: Timestamp
+    naming:
+      wire: resource-requests
+      display: Resource requests

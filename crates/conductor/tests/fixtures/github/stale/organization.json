@@ -1,0 +1,4 @@
+[
+  {"hasIssuesEnabled": true, "isArchived": false, "name": "beta", "visibility": "PUBLIC"},
+  {"hasIssuesEnabled": true, "isArchived": false, "name": "alpha", "visibility": "PRIVATE"}
+]

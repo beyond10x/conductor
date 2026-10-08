@@ -1,0 +1,43 @@
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: receive-message-unknown-kind
+summary: A first line that names no kind is received as kind Unknown straight into Rejected, even when the caller calls it parsed.
+
+timeline:
+  - at: 2026-10-07T09:00:00Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Unknown
+      first_line: hello
+      transport: SendMessage
+      received_at: 2026-10-07T09:00:00Z
+      parsed: false
+    outcome: unparsed
+
+  - at: 2026-10-07T09:00:01Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Unknown
+      first_line: hello again
+      transport: SendMessage
+      received_at: 2026-10-07T09:00:01Z
+      parsed: true
+    outcome: unparsed
+
+assert:
+  - view: conductor.dispatch.Messages
+    contains:
+      first_line: hello
+      kind: Unknown
+      state: Rejected
+  - view: conductor.dispatch.Messages
+    contains:
+      first_line: hello again
+      kind: Unknown
+      state: Rejected

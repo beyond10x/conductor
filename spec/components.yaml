@@ -1,0 +1,236 @@
+components:
+  - component: conductor-cli
+    summary: >
+      The conductor command line. Conductor and the repository controllers call it, and it records
+      every command in its local store under state/.
+    owns:
+      domains:
+        - conductor.observation
+        - conductor.direction
+        - conductor.decision
+        - conductor.dispatch
+        - conductor.config
+    # The config file and the instance in it, each from its environment variable
+    # (CONDUCTOR_CONFIG, CONDUCTOR_INSTANCE) when no flag names it (story:config-file).
+    settings:
+      - name: conductor-config
+        type: Optional<String>
+        summary: The config file conductor reads; default ~/.b10x/conductor/conductor.yaml
+      - name: conductor-instance
+        type: Optional<String>
+        summary: The instance of the config file a command runs; default the file's only instance
+    accepts:
+      commands:
+        - conductor.observation.StartSnapshot
+        - conductor.observation.RecordRepository
+        - conductor.observation.RecordPullRequest
+        - conductor.observation.RecordRelease
+        - conductor.observation.RecordMergedPullRequest
+        - conductor.observation.RecordWorkflowRun
+        - conductor.observation.RecordSession
+        - conductor.observation.RecordBlocker
+        - conductor.observation.RecordSpecification
+        - conductor.observation.PublishBoard
+        - conductor.observation.CompleteSnapshot
+        - conductor.observation.FailSnapshot
+        - conductor.direction.ProposeGoal
+        - conductor.direction.ConfirmGoal
+        - conductor.direction.MarkGoalMet
+        - conductor.direction.DropGoal
+        - conductor.direction.AddServing
+        - conductor.direction.RemoveServing
+        - conductor.direction.MarkRepository
+        - conductor.direction.ActivateRepository
+        - conductor.direction.DeactivateRepository
+        - conductor.decision.RaiseDecisionRequest
+        - conductor.decision.RecordConductorDecision
+        - conductor.decision.RecordOperatorDecision
+        - conductor.decision.AnswerRequest
+        - conductor.decision.AnswerEscalatedRequest
+        - conductor.decision.EscalateRequest
+        - conductor.decision.WithdrawRequest
+        - conductor.decision.ReverseConductorDecision
+        - conductor.decision.ReverseOperatorDecision
+        - conductor.dispatch.StartController
+        - conductor.dispatch.PauseController
+        - conductor.dispatch.ResumeController
+        - conductor.dispatch.StopController
+        - conductor.dispatch.ReviseCharter
+        - conductor.dispatch.SendDispatch
+        - conductor.dispatch.ReportStarted
+        - conductor.dispatch.ReportBlocked
+        - conductor.dispatch.ReportUnblocked
+        - conductor.dispatch.ReportDone
+        - conductor.dispatch.ReportFailed
+        - conductor.dispatch.CancelDispatch
+        - conductor.dispatch.ReceiveMessage
+        - conductor.dispatch.HandleMessage
+        - conductor.dispatch.RejectMessage
+        - conductor.dispatch.RouteNeed
+        - conductor.dispatch.RequestResource
+        - conductor.dispatch.GrantResource
+        - conductor.dispatch.RefuseResource
+        - conductor.dispatch.ReleaseResource
+        - conductor.dispatch.RecordGuardDecision
+    publishes:
+      events:
+        - conductor.observation.SnapshotStarted
+        - conductor.observation.RepositoryRecorded
+        - conductor.observation.PullRequestRecorded
+        - conductor.observation.ReleaseRecorded
+        - conductor.observation.MergedPullRequestRecorded
+        - conductor.observation.WorkflowRunRecorded
+        - conductor.observation.SessionRecorded
+        - conductor.observation.BlockerRecorded
+        - conductor.observation.SpecificationRecorded
+        - conductor.observation.BoardPublished
+        - conductor.observation.SnapshotCompleted
+        - conductor.observation.SnapshotFailed
+        - conductor.direction.GoalProposed
+        - conductor.direction.GoalConfirmed
+        - conductor.direction.GoalMet
+        - conductor.direction.GoalDropped
+        - conductor.direction.ServingAdded
+        - conductor.direction.ServingRemoved
+        - conductor.direction.RepositoryMarked
+        - conductor.direction.RepositoryActivated
+        - conductor.direction.RepositoryDeactivated
+        - conductor.decision.DecisionRequested
+        - conductor.decision.DecisionRecorded
+        - conductor.decision.RequestAnswered
+        - conductor.decision.RequestEscalated
+        - conductor.decision.RequestWithdrawn
+        - conductor.decision.DecisionReversedEvent
+        - conductor.dispatch.ControllerStarted
+        - conductor.dispatch.ControllerPaused
+        - conductor.dispatch.ControllerResumed
+        - conductor.dispatch.ControllerStopped
+        - conductor.dispatch.CharterRevised
+        - conductor.dispatch.DispatchSent
+        - conductor.dispatch.DispatchStarted
+        - conductor.dispatch.DispatchBlocked
+        - conductor.dispatch.DispatchUnblocked
+        - conductor.dispatch.DispatchDone
+        - conductor.dispatch.DispatchFailed
+        - conductor.dispatch.DispatchCancelled
+        - conductor.dispatch.MessageReceived
+        - conductor.dispatch.MessageHandled
+        - conductor.dispatch.MessageRejected
+        - conductor.dispatch.NeedRouted
+        - conductor.dispatch.ResourceRequested
+        - conductor.dispatch.ResourceGranted
+        - conductor.dispatch.ResourceRefused
+        - conductor.dispatch.ResourceReleased
+        - conductor.dispatch.GuardDecisionRecorded
+    reached_by: command_line
+    cli:
+      binary: conductor
+      groups:
+        - name: snapshot
+          summary: One sense run and what it observed
+          commands:
+            - conductor.observation.StartSnapshot
+            - conductor.observation.RecordRepository
+            - conductor.observation.RecordPullRequest
+            - conductor.observation.RecordRelease
+            - conductor.observation.RecordMergedPullRequest
+            - conductor.observation.RecordWorkflowRun
+            - conductor.observation.RecordSession
+            - conductor.observation.RecordBlocker
+            - conductor.observation.RecordSpecification
+            - conductor.observation.PublishBoard
+            - conductor.observation.CompleteSnapshot
+            - conductor.observation.FailSnapshot
+          views:
+            - conductor.observation.Snapshots
+            - conductor.observation.Repositories
+            - conductor.observation.PullRequests
+            - conductor.observation.Releases
+            - conductor.observation.MergedPullRequests
+            - conductor.observation.WorkflowRuns
+            - conductor.observation.Sessions
+            - conductor.observation.Blockers
+            - conductor.observation.Specifications
+            - conductor.observation.Boards
+        - name: goal
+          summary: The goals dispatches serve
+          commands:
+            - conductor.direction.ProposeGoal
+            - conductor.direction.ConfirmGoal
+            - conductor.direction.MarkGoalMet
+            - conductor.direction.DropGoal
+            - conductor.direction.AddServing
+            - conductor.direction.RemoveServing
+          views:
+            - conductor.direction.Goals
+            - conductor.direction.GoalServings
+        - name: repository
+          summary: Which repositories have their issues and pull requests processed
+          commands:
+            - conductor.direction.MarkRepository
+            - conductor.direction.ActivateRepository
+            - conductor.direction.DeactivateRepository
+          views:
+            - conductor.direction.RepositoryMarks
+        - name: decision
+          summary: Decision requests and the decisions that answer them
+          commands:
+            - conductor.decision.RaiseDecisionRequest
+            - conductor.decision.RecordConductorDecision
+            - conductor.decision.RecordOperatorDecision
+            - conductor.decision.AnswerRequest
+            - conductor.decision.AnswerEscalatedRequest
+            - conductor.decision.EscalateRequest
+            - conductor.decision.WithdrawRequest
+            - conductor.decision.ReverseConductorDecision
+            - conductor.decision.ReverseOperatorDecision
+          views:
+            - conductor.decision.Requests
+            - conductor.decision.HandsTodo
+            - conductor.decision.Decisions
+        - name: controller
+          summary: One controller session per repository
+          commands:
+            - conductor.dispatch.StartController
+            - conductor.dispatch.PauseController
+            - conductor.dispatch.ResumeController
+            - conductor.dispatch.StopController
+            - conductor.dispatch.ReviseCharter
+          views:
+            - conductor.dispatch.Controllers
+        - name: dispatch
+          summary: Briefs to controllers and their reports
+          commands:
+            - conductor.dispatch.SendDispatch
+            - conductor.dispatch.ReportStarted
+            - conductor.dispatch.ReportBlocked
+            - conductor.dispatch.ReportUnblocked
+            - conductor.dispatch.ReportDone
+            - conductor.dispatch.ReportFailed
+            - conductor.dispatch.CancelDispatch
+          views:
+            - conductor.dispatch.Dispatches
+        - name: message
+          summary: Every message between conductor and a controller
+          commands:
+            - conductor.dispatch.ReceiveMessage
+            - conductor.dispatch.HandleMessage
+            - conductor.dispatch.RejectMessage
+            - conductor.dispatch.RouteNeed
+          views:
+            - conductor.dispatch.Messages
+        - name: resource
+          summary: Build slots, disk and usage asked for before they are spent
+          commands:
+            - conductor.dispatch.RequestResource
+            - conductor.dispatch.GrantResource
+            - conductor.dispatch.RefuseResource
+            - conductor.dispatch.ReleaseResource
+          views:
+            - conductor.dispatch.ResourceRequests
+        - name: guard
+          summary: The controller hook and the record of its verdicts
+          commands:
+            - conductor.dispatch.RecordGuardDecision
+          views:
+            - conductor.dispatch.GuardDecisions

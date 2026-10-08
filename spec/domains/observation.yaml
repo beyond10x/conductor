@@ -1,0 +1,1545 @@
+domain: conductor.observation
+
+summary: >
+  What conductor sees at one moment: one snapshot per sense run, holding one observation per
+  repository, open pull request, latest main-branch workflow run and live agent session. Every
+  observation is read from the tool that owns the fact (git, GitHub, aep, the session lists) and is
+  never edited after it is recorded. Design: docs/design/conductor.md § 4.
+
+naming:
+  wire: observation
+  display: Observation
+
+types:
+  - name: conductor.observation.SnapshotId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.observation.ObservationId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.observation.RepositoryName
+    kind: newtype
+    of: String
+
+  - name: conductor.observation.CommitSha
+    kind: newtype
+    of: String
+
+  - name: conductor.observation.Visibility
+    kind: enum
+    variants: [Public, Private]
+
+  - name: conductor.observation.Mergeability
+    kind: enum
+    variants: [Mergeable, Conflicting, Unknown]
+
+  - name: conductor.observation.RunConclusion
+    kind: enum
+    variants: [Success, Failure, Cancelled, Skipped, Neutral, Pending]
+
+  - name: conductor.observation.Harness
+    kind: enum
+    variants: [Claude, Codex]
+
+  - name: conductor.observation.SessionState
+    kind: enum
+    variants: [Busy, Idle, Waiting, Background, Unknown]
+
+  - name: conductor.observation.SpecificationPresence
+    kind: enum
+    variants: [Present, OptedOut, Missing]
+
+  - name: conductor.observation.ValidationResult
+    kind: enum
+    variants: [Valid, Refused, NotRun]
+
+  - name: conductor.observation.BoardId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.observation.DashboardServe
+    kind: struct
+    fields:
+      - {name: port, type: Optional<Integer>}
+      - {name: root, type: Optional<String>}
+
+  - name: conductor.observation.WatchRun
+    kind: struct
+    fields:
+      - {name: every, type: Optional<Integer>}
+      - {name: ci_every, type: Optional<Integer>}
+      - {name: follow, type: Optional<Boolean>}
+
+  # The input of `conductor repository shipped` (story:release-digest). `since` is an RFC 3339
+  # instant and `format` one of text, json, jsonl, markdown; both are read by the handler.
+  - name: conductor.observation.RepositoryShipped
+    kind: struct
+    fields:
+      - {name: since, type: String}
+      - {name: format, type: Optional<String>}
+
+  - name: conductor.observation.ResourceUsage
+    kind: struct
+    fields:
+      - {name: since, type: Optional<String>}
+      - {name: format, type: Optional<String>}
+
+  # The input of `conductor store migrate` (story:store-on-eventlog-tree), which copies the
+  # eventlog-file store under the state directory into a tree store. `format` is text or json, how
+  # the counts it moved are printed, read by the handler.
+  - name: conductor.observation.StoreMigrate
+    kind: struct
+    fields:
+      - {name: format, type: Optional<String>}
+
+entities:
+  - name: conductor.observation.Snapshot
+    identity:
+      name: snapshot_id
+      type: conductor.observation.SnapshotId
+    fields:
+      - name: started_at
+        type: Timestamp
+      - name: disk_free_bytes
+        type: Integer
+      - name: failure_reason
+        type: Optional<String>
+    relations:
+      - name: repositories
+        kind: owns
+        target: conductor.observation.RepositoryObservation
+        cardinality: many
+        via: snapshot_id
+      - name: pull_requests
+        kind: owns
+        target: conductor.observation.PullRequestObservation
+        cardinality: many
+        via: snapshot_id
+      - name: workflow_runs
+        kind: owns
+        target: conductor.observation.WorkflowRunObservation
+        cardinality: many
+        via: snapshot_id
+      - name: sessions
+        kind: owns
+        target: conductor.observation.SessionObservation
+        cardinality: many
+        via: snapshot_id
+      - name: releases
+        kind: owns
+        target: conductor.observation.ReleaseObservation
+        cardinality: many
+        via: snapshot_id
+      - name: merged_pull_requests
+        kind: owns
+        target: conductor.observation.MergedPullRequestObservation
+        cardinality: many
+        via: snapshot_id
+    invariants:
+      - disk_free_bytes >= 0
+    lifecycle:
+      initial: Collecting
+      states: [Collecting, Complete, Failed]
+      terminal: [Complete, Failed]
+      transitions:
+        - name: complete
+          from: [Collecting]
+          to: Complete
+        - name: fail
+          from: [Collecting]
+          to: Failed
+
+  - name: conductor.observation.RepositoryObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: visibility
+        type: conductor.observation.Visibility
+      - name: archived
+        type: Boolean
+      - name: local_checkout
+        type: Boolean
+      - name: main_head
+        type: conductor.observation.CommitSha
+      - name: main_committed_at
+        type: Timestamp
+      - name: main_commits_7d
+        type: Integer
+      - name: real_commits_7d
+        type: Integer
+      - name: behind_main
+        type: Integer
+      - name: dirty_files
+        type: Integer
+      - name: worktrees
+        type: Integer
+      - name: open_issues
+        type: Integer
+      - name: oldest_open_issue_at
+        type: Optional<Timestamp>
+      - name: latest_release
+        type: Optional<String>
+      - name: latest_release_at
+        type: Optional<Timestamp>
+      - name: unreleased_commits
+        type: Optional<Integer>
+      - name: planning_store_version
+        type: Optional<String>
+      # Whether the instance's catalog (`catalog` of `conductor.config.Instance`) names the
+      # repository; absent when the instance names no catalog, or its catalog repository has no
+      # checkout under the checkouts root.
+      - name: in_catalog
+        type: Optional<Boolean>
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  - name: conductor.observation.PullRequestObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+      - name: title
+        type: String
+      - name: draft
+        type: Boolean
+      - name: mergeability
+        type: conductor.observation.Mergeability
+      - name: failing_checks
+        type: Integer
+      - name: opened_at
+        type: Timestamp
+      - name: updated_at
+        type: Timestamp
+    invariants:
+      - number > 0
+      - failing_checks >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # One published GitHub Release of a repository, in the 14 days before the snapshot started
+  # (story:release-digest).
+  - name: conductor.observation.ReleaseObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: tag
+        type: String
+      - name: published_at
+        type: Timestamp
+      - name: url
+        type: String
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # One pull request of a repository merged in the 14 days before the snapshot started
+  # (story:release-digest).
+  - name: conductor.observation.MergedPullRequestObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+      - name: title
+        type: String
+      - name: merged_at
+        type: Timestamp
+      - name: url
+        type: String
+    invariants:
+      - number > 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  - name: conductor.observation.WorkflowRunObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: workflow
+        type: String
+      - name: conclusion
+        type: conductor.observation.RunConclusion
+      - name: run_at
+        type: Timestamp
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  - name: conductor.observation.SessionObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: harness
+        type: conductor.observation.Harness
+      - name: session_ref
+        type: String
+      - name: name
+        type: Optional<String>
+      - name: cwd
+        type: String
+      # The repository whose checkout or managed worktree the cwd lies in; absent for the
+      # workspace root or anything outside it. That absence is how an unbound session shows (P6).
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
+      - name: activity
+        type: conductor.observation.SessionState
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # One open blocker artifact in a repository's AEP store, read through `aep plan workspace list`
+  # over the organization-wide workspace file. The open decision-blockers among them are the
+  # decision queue (design § 6).
+  - name: conductor.observation.BlockerObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: reference
+        type: String
+      - name: blocker_kind
+        type: String
+      - name: title
+        type: String
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # One repository's ESS specification status, read at origin/main, for every repository the
+  # instance tracks. Present means an
+  # `ess-inputs.yaml` or `system.yaml` outside build output; OptedOut means the repository's
+  # AGENTS.md records an ESS opt-out; Missing means neither.
+  - name: conductor.observation.SpecificationObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: presence
+        type: conductor.observation.SpecificationPresence
+      # The specification root, relative to the repository.
+      - name: path
+        type: Optional<String>
+      # The `format:` of system.yaml, such as `ess/22`.
+      - name: format
+        type: Optional<String>
+      # The `requires:` of ess-inputs.yaml, such as `ess 0.53`.
+      - name: required_ess
+        type: Optional<String>
+      # `ess specify validate` with the newest ess release.
+      - name: validation
+        type: conductor.observation.ValidationResult
+      - name: validation_refusals
+        type: Integer
+      # `ess verify conform synthesize`: scenarios the specification obliges, and refusals.
+      - name: scenarios
+        type: Optional<Integer>
+      - name: synthesis_refusals
+        type: Optional<Integer>
+      # Status of the repository's `executable-system-specification` artifact in its AEP store
+      # (draft, validated, conforming), absent when it has none.
+      - name: conformance_status
+        type: Optional<String>
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    invariants:
+      - validation_refusals >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # STATUS.md as published from one complete snapshot, compared with the previous one.
+  - name: conductor.observation.Board
+    identity:
+      name: board_id
+      type: conductor.observation.BoardId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: previous_snapshot_id
+        type: Optional<conductor.observation.SnapshotId>
+      - name: deviation_rows
+        type: Integer
+      - name: path
+        type: String
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+      - name: previous_snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: previous_snapshot_id
+    invariants:
+      - deviation_rows >= 0
+    lifecycle:
+      initial: Published
+      states: [Published]
+      terminal: [Published]
+
+actors:
+  - name: conductor.observation.Collector
+    may:
+      - conductor.observation.StartSnapshot
+      - conductor.observation.RecordRepository
+      - conductor.observation.RecordPullRequest
+      - conductor.observation.RecordRelease
+      - conductor.observation.RecordMergedPullRequest
+      - conductor.observation.RecordWorkflowRun
+      - conductor.observation.RecordSession
+      - conductor.observation.RecordBlocker
+      - conductor.observation.RecordSpecification
+      - conductor.observation.CompleteSnapshot
+      - conductor.observation.FailSnapshot
+      - conductor.observation.PublishBoard
+    naming:
+      display: Collector
+
+errors:
+  - name: conductor.observation.SnapshotNotCollecting
+    summary: The snapshot is complete or failed, so it takes no more observations and cannot change state.
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+
+  - name: conductor.observation.SnapshotNotFound
+    summary: No snapshot has this id.
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+
+  - name: conductor.observation.SnapshotNotComplete
+    summary: The snapshot is collecting or failed, so no board is published from it.
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+
+  - name: conductor.observation.InvalidCount
+    summary: A count was negative.
+    fields:
+      - name: count
+        type: Integer
+
+  - name: conductor.observation.InvalidPullRequestNumber
+    summary: A pull request number was not positive.
+    fields:
+      - name: number
+        type: Integer
+
+commands:
+  - name: conductor.observation.StartSnapshot
+    naming:
+      wire: start-snapshot
+      display: Start a snapshot
+    input:
+      - name: started_at
+        type: Timestamp
+      - name: disk_free_bytes
+        type: Integer
+    outcomes:
+      - name: negative-disk
+        when: disk_free_bytes < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.disk_free_bytes
+        summary: Free disk is never negative; no snapshot started.
+      - name: started
+        creates: conductor.observation.Snapshot
+        instance: snapshot_id
+        sets:
+          started_at: input.started_at
+          disk_free_bytes: input.disk_free_bytes
+        emits:
+          - conductor.observation.SnapshotStarted
+        payload:
+          conductor.observation.SnapshotStarted:
+            snapshot_id: {generated: true}
+            started_at: input.started_at
+        summary: A snapshot is collecting.
+
+  - name: conductor.observation.RecordRepository
+    naming:
+      wire: record-repository
+      display: Record a repository
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: visibility
+        type: conductor.observation.Visibility
+      - name: archived
+        type: Boolean
+        example: false
+      - name: local_checkout
+        type: Boolean
+        example: true
+      - name: main_head
+        type: conductor.observation.CommitSha
+        example: "0a1b2c3"
+      - name: main_committed_at
+        type: Timestamp
+        example: "2026-10-01T00:00:00Z"
+      - name: main_commits_7d
+        type: Integer
+        example: 7
+      - name: real_commits_7d
+        type: Integer
+        example: 3
+      - name: behind_main
+        type: Integer
+        example: 2
+      - name: dirty_files
+        type: Integer
+        example: 4
+      - name: worktrees
+        type: Integer
+        example: 5
+      - name: open_issues
+        type: Integer
+        example: 6
+      - name: oldest_open_issue_at
+        type: Optional<Timestamp>
+        example: "2026-10-05T08:00:00Z"
+      - name: latest_release
+        type: Optional<String>
+        example: "0.1.0"
+      - name: latest_release_at
+        type: Optional<Timestamp>
+        example: "2026-10-01T12:00:00Z"
+      - name: unreleased_commits
+        type: Optional<Integer>
+        example: 8
+      - name: planning_store_version
+        type: Optional<String>
+        example: "aep.project/5"
+      - name: in_catalog
+        type: Optional<Boolean>
+        example: true
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.RepositoryObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          repository: input.repository
+          visibility: input.visibility
+          archived: input.archived
+          local_checkout: input.local_checkout
+          main_head: input.main_head
+          main_committed_at: input.main_committed_at
+          main_commits_7d: input.main_commits_7d
+          real_commits_7d: input.real_commits_7d
+          behind_main: input.behind_main
+          dirty_files: input.dirty_files
+          worktrees: input.worktrees
+          open_issues: input.open_issues
+          oldest_open_issue_at: input.oldest_open_issue_at
+          latest_release: input.latest_release
+          latest_release_at: input.latest_release_at
+          unreleased_commits: input.unreleased_commits
+          planning_store_version: input.planning_store_version
+          in_catalog: input.in_catalog
+        emits:
+          - conductor.observation.RepositoryRecorded
+        payload:
+          conductor.observation.RepositoryRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            repository: input.repository
+        summary: The repository's state at this snapshot is recorded.
+
+  - name: conductor.observation.RecordPullRequest
+    naming:
+      wire: record-pull-request
+      display: Record a pull request
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+      - name: title
+        type: String
+        example: "title"
+      - name: draft
+        type: Boolean
+      - name: mergeability
+        type: conductor.observation.Mergeability
+      - name: failing_checks
+        type: Integer
+        example: 3
+      - name: opened_at
+        type: Timestamp
+        example: "2026-09-01T00:00:00Z"
+      - name: updated_at
+        type: Timestamp
+        example: "2026-10-01T00:00:00Z"
+    outcomes:
+      - name: invalid-number
+        when: number <= 0
+        error: conductor.observation.InvalidPullRequestNumber
+        payload:
+          conductor.observation.InvalidPullRequestNumber:
+            number: input.number
+        summary: A pull request number is positive; nothing was recorded.
+      - name: negative-checks
+        when: failing_checks < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.failing_checks
+        summary: A failing-check count is never negative; nothing was recorded.
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.PullRequestObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          repository: input.repository
+          number: input.number
+          title: input.title
+          draft: input.draft
+          mergeability: input.mergeability
+          failing_checks: input.failing_checks
+          opened_at: input.opened_at
+          updated_at: input.updated_at
+        emits:
+          - conductor.observation.PullRequestRecorded
+        payload:
+          conductor.observation.PullRequestRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            repository: input.repository
+            number: input.number
+        summary: The open pull request and its checks are recorded.
+
+  - name: conductor.observation.RecordRelease
+    naming:
+      wire: record-release
+      display: Record a release
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: tag
+        type: String
+        example: "v0.2.0"
+      - name: published_at
+        type: Timestamp
+        example: "2026-10-05T10:00:00Z"
+      - name: url
+        type: String
+        example: "https://github.com/example-org/x/releases/tag/v0.2.0"
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.ReleaseObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          repository: input.repository
+          tag: input.tag
+          published_at: input.published_at
+          url: input.url
+        emits:
+          - conductor.observation.ReleaseRecorded
+        payload:
+          conductor.observation.ReleaseRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            repository: input.repository
+            tag: input.tag
+        summary: The published release, its date and its link are recorded.
+
+  - name: conductor.observation.RecordMergedPullRequest
+    naming:
+      wire: record-merged-pull-request
+      display: Record a merged pull request
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+      - name: title
+        type: String
+        example: "title"
+      - name: merged_at
+        type: Timestamp
+        example: "2026-10-04T09:00:00Z"
+      - name: url
+        type: String
+        example: "https://github.com/example-org/x/pull/12"
+    outcomes:
+      - name: invalid-number
+        when: number <= 0
+        error: conductor.observation.InvalidPullRequestNumber
+        payload:
+          conductor.observation.InvalidPullRequestNumber:
+            number: input.number
+        summary: A pull request number is positive; nothing was recorded.
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.MergedPullRequestObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          repository: input.repository
+          number: input.number
+          title: input.title
+          merged_at: input.merged_at
+          url: input.url
+        emits:
+          - conductor.observation.MergedPullRequestRecorded
+        payload:
+          conductor.observation.MergedPullRequestRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            repository: input.repository
+            number: input.number
+        summary: The merged pull request, when it merged and its link are recorded.
+
+  - name: conductor.observation.RecordWorkflowRun
+    naming:
+      wire: record-workflow-run
+      display: Record a workflow run
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: workflow
+        type: String
+      - name: conclusion
+        type: conductor.observation.RunConclusion
+      - name: run_at
+        type: Timestamp
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.WorkflowRunObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          repository: input.repository
+          workflow: input.workflow
+          conclusion: input.conclusion
+          run_at: input.run_at
+        emits:
+          - conductor.observation.WorkflowRunRecorded
+        payload:
+          conductor.observation.WorkflowRunRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            repository: input.repository
+            workflow: input.workflow
+        summary: The latest main-branch run of one workflow is recorded.
+
+  - name: conductor.observation.RecordSession
+    naming:
+      wire: record-session
+      display: Record a session
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: harness
+        type: conductor.observation.Harness
+      - name: session_ref
+        type: String
+        example: "session-1"
+      - name: name
+        type: Optional<String>
+        example: "name"
+      - name: cwd
+        type: String
+        example: "~/example-org/x"
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
+      - name: activity
+        type: conductor.observation.SessionState
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.SessionObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          harness: input.harness
+          session_ref: input.session_ref
+          name: input.name
+          cwd: input.cwd
+          repository: input.repository
+          activity: input.activity
+        emits:
+          - conductor.observation.SessionRecorded
+        payload:
+          conductor.observation.SessionRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            harness: input.harness
+            session_ref: input.session_ref
+        summary: The live session, where it runs and which repository it is bound to are recorded.
+
+  - name: conductor.observation.RecordBlocker
+    naming:
+      wire: record-blocker
+      display: Record a blocker
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: reference
+        type: String
+      - name: blocker_kind
+        type: String
+      - name: title
+        type: String
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.BlockerObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          repository: input.repository
+          reference: input.reference
+          blocker_kind: input.blocker_kind
+          title: input.title
+        emits:
+          - conductor.observation.BlockerRecorded
+        payload:
+          conductor.observation.BlockerRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            repository: input.repository
+            reference: input.reference
+        summary: The open blocker is recorded with the repository whose store holds it.
+
+  - name: conductor.observation.RecordSpecification
+    naming:
+      wire: record-specification
+      display: Record a specification status
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: presence
+        type: conductor.observation.SpecificationPresence
+      - name: path
+        type: Optional<String>
+        example: "spec"
+      - name: format
+        type: Optional<String>
+        example: "ess/22"
+      - name: required_ess
+        type: Optional<String>
+        example: "ess 0.53"
+      - name: validation
+        type: conductor.observation.ValidationResult
+      - name: validation_refusals
+        type: Integer
+        example: 0
+      - name: scenarios
+        type: Optional<Integer>
+        example: 185
+      - name: synthesis_refusals
+        type: Optional<Integer>
+        example: 2
+      - name: conformance_status
+        type: Optional<String>
+        example: "validated"
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: negative-refusals
+        when: validation_refusals < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.validation_refusals
+        summary: A refusal count is never negative; nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.SpecificationObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          repository: input.repository
+          presence: input.presence
+          path: input.path
+          format: input.format
+          required_ess: input.required_ess
+          validation: input.validation
+          validation_refusals: input.validation_refusals
+          scenarios: input.scenarios
+          synthesis_refusals: input.synthesis_refusals
+          conformance_status: input.conformance_status
+        emits:
+          - conductor.observation.SpecificationRecorded
+        payload:
+          conductor.observation.SpecificationRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            repository: input.repository
+            presence: input.presence
+            validation: input.validation
+        summary: The repository's specification status at this snapshot is recorded.
+
+  - name: conductor.observation.PublishBoard
+    naming:
+      wire: publish-board
+      display: Publish the board
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: previous_snapshot_id
+        type: Optional<conductor.observation.SnapshotId>
+      - name: deviation_rows
+        type: Integer
+      - name: path
+        type: String
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id; nothing was published.
+      - name: not-complete
+        when_related: {via: input.snapshot_id, predicate: state != Complete}
+        error: conductor.observation.SnapshotNotComplete
+        payload:
+          conductor.observation.SnapshotNotComplete:
+            snapshot_id: input.snapshot_id
+        summary: Only a complete snapshot is published; a failed or collecting one never is.
+      - name: negative-rows
+        when: deviation_rows < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.deviation_rows
+        summary: A row count is never negative; nothing was published.
+      - name: published
+        creates: conductor.observation.Board
+        instance: board_id
+        sets:
+          snapshot_id: input.snapshot_id
+          previous_snapshot_id: input.previous_snapshot_id
+          deviation_rows: input.deviation_rows
+          path: input.path
+        emits:
+          - conductor.observation.BoardPublished
+        payload:
+          conductor.observation.BoardPublished:
+            board_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            deviation_rows: input.deviation_rows
+        summary: STATUS.md was written from the snapshot, with its delta against the previous one.
+
+  - name: conductor.observation.CompleteSnapshot
+    naming:
+      wire: complete-snapshot
+      display: Complete a snapshot
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+    outcomes:
+      - name: completed
+        moves: conductor.observation.Snapshot.complete
+        instance: snapshot_id
+        emits:
+          - conductor.observation.SnapshotCompleted
+        payload:
+          conductor.observation.SnapshotCompleted:
+            snapshot_id: input.snapshot_id
+        summary: Every source answered; the snapshot is the newest complete one.
+      - name: no-such-snapshot
+        unknown_instance: true
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot was already complete or failed.
+
+  - name: conductor.observation.FailSnapshot
+    naming:
+      wire: fail-snapshot
+      display: Fail a snapshot
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: reason
+        type: String
+    outcomes:
+      - name: failed
+        moves: conductor.observation.Snapshot.fail
+        instance: snapshot_id
+        sets:
+          failure_reason: input.reason
+        emits:
+          - conductor.observation.SnapshotFailed
+        payload:
+          conductor.observation.SnapshotFailed:
+            snapshot_id: input.snapshot_id
+            reason: input.reason
+        summary: A source did not answer; the snapshot is kept but never read as the current state.
+      - name: no-such-snapshot
+        unknown_instance: true
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot was already complete or failed.
+
+events:
+  - name: conductor.observation.SnapshotStarted
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: started_at
+        type: Timestamp
+
+  - name: conductor.observation.RepositoryRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+
+  - name: conductor.observation.PullRequestRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+
+  - name: conductor.observation.ReleaseRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: tag
+        type: String
+
+  - name: conductor.observation.MergedPullRequestRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+
+  - name: conductor.observation.WorkflowRunRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: workflow
+        type: String
+
+  - name: conductor.observation.SessionRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: harness
+        type: conductor.observation.Harness
+      - name: session_ref
+        type: String
+
+  - name: conductor.observation.BlockerRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: reference
+        type: String
+
+  - name: conductor.observation.SpecificationRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: presence
+        type: conductor.observation.SpecificationPresence
+      - name: validation
+        type: conductor.observation.ValidationResult
+
+  - name: conductor.observation.BoardPublished
+    fields:
+      - name: board_id
+        type: conductor.observation.BoardId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: deviation_rows
+        type: Integer
+
+  - name: conductor.observation.SnapshotCompleted
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+
+  - name: conductor.observation.SnapshotFailed
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: reason
+        type: String
+
+views:
+  - name: conductor.observation.Snapshots
+    source: conductor.observation.Snapshot
+    consistency: read_your_writes
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: state
+        type: conductor.observation.Snapshot.State
+      - name: started_at
+        type: Timestamp
+      - name: disk_free_bytes
+        type: Integer
+      - name: failure_reason
+        type: Optional<String>
+    naming:
+      wire: snapshots
+      display: Snapshots
+
+  - name: conductor.observation.Repositories
+    source: conductor.observation.RepositoryObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: visibility
+        type: conductor.observation.Visibility
+      - name: archived
+        type: Boolean
+      - name: local_checkout
+        type: Boolean
+      - name: main_head
+        type: conductor.observation.CommitSha
+      - name: main_committed_at
+        type: Timestamp
+      - name: main_commits_7d
+        type: Integer
+      - name: real_commits_7d
+        type: Integer
+      - name: behind_main
+        type: Integer
+      - name: dirty_files
+        type: Integer
+      - name: worktrees
+        type: Integer
+      - name: open_issues
+        type: Integer
+      - name: oldest_open_issue_at
+        type: Optional<Timestamp>
+      - name: latest_release
+        type: Optional<String>
+      - name: latest_release_at
+        type: Optional<Timestamp>
+      - name: unreleased_commits
+        type: Optional<Integer>
+      - name: planning_store_version
+        type: Optional<String>
+      - name: in_catalog
+        type: Optional<Boolean>
+    naming:
+      wire: repositories
+      display: Repositories
+
+  - name: conductor.observation.PullRequests
+    source: conductor.observation.PullRequestObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+      - name: title
+        type: String
+      - name: draft
+        type: Boolean
+      - name: mergeability
+        type: conductor.observation.Mergeability
+      - name: failing_checks
+        type: Integer
+      - name: opened_at
+        type: Timestamp
+      - name: updated_at
+        type: Timestamp
+    naming:
+      wire: pull-requests
+      display: Pull requests
+
+  - name: conductor.observation.Releases
+    source: conductor.observation.ReleaseObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: tag
+        type: String
+      - name: published_at
+        type: Timestamp
+      - name: url
+        type: String
+    naming:
+      wire: releases
+      display: Releases
+
+  - name: conductor.observation.MergedPullRequests
+    source: conductor.observation.MergedPullRequestObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: number
+        type: Integer
+      - name: title
+        type: String
+      - name: merged_at
+        type: Timestamp
+      - name: url
+        type: String
+    naming:
+      wire: merged-pull-requests
+      display: Merged pull requests
+
+  - name: conductor.observation.WorkflowRuns
+    source: conductor.observation.WorkflowRunObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: workflow
+        type: String
+      - name: conclusion
+        type: conductor.observation.RunConclusion
+      - name: run_at
+        type: Timestamp
+    naming:
+      wire: workflow-runs
+      display: Workflow runs
+
+  - name: conductor.observation.Blockers
+    source: conductor.observation.BlockerObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: reference
+        type: String
+      - name: blocker_kind
+        type: String
+      - name: title
+        type: String
+    naming:
+      wire: blockers
+      display: Blockers
+
+  - name: conductor.observation.Specifications
+    source: conductor.observation.SpecificationObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: presence
+        type: conductor.observation.SpecificationPresence
+      - name: path
+        type: Optional<String>
+      - name: format
+        type: Optional<String>
+      - name: required_ess
+        type: Optional<String>
+      - name: validation
+        type: conductor.observation.ValidationResult
+      - name: validation_refusals
+        type: Integer
+      - name: scenarios
+        type: Optional<Integer>
+      - name: synthesis_refusals
+        type: Optional<Integer>
+      - name: conformance_status
+        type: Optional<String>
+    naming:
+      wire: specifications
+      display: Specifications
+
+  - name: conductor.observation.Boards
+    source: conductor.observation.Board
+    consistency: read_your_writes
+    fields:
+      - name: board_id
+        type: conductor.observation.BoardId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: previous_snapshot_id
+        type: Optional<conductor.observation.SnapshotId>
+      - name: deviation_rows
+        type: Integer
+      - name: path
+        type: String
+    naming:
+      wire: boards
+      display: Boards
+
+  - name: conductor.observation.Sessions
+    source: conductor.observation.SessionObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: harness
+        type: conductor.observation.Harness
+      - name: session_ref
+        type: String
+      - name: name
+        type: Optional<String>
+      - name: cwd
+        type: String
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
+      - name: activity
+        type: conductor.observation.SessionState
+    naming:
+      wire: sessions
+      display: Sessions

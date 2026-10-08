@@ -1,0 +1,756 @@
+domain: conductor.decision
+
+summary: >
+  Decisions moved one layer up. A repository controller raises a decision request; conductor
+  answers it with a recorded decision when its class is C, and escalates it to the operator when
+  its class is O (he decides: architecture, risk, spending) or H (he acts: a secret, a login, a
+  permission; listed in the daily brief's numbered to-do, never asked one at a time). A decision
+  carries its class, its options, its choice and its reason, and stays in force until it is
+  reversed. Design: docs/design/conductor.md §§ 5–6.
+
+naming:
+  wire: decision
+  display: Decision
+
+types:
+  - name: conductor.decision.RequestId
+    kind: newtype
+    of: String
+
+  - name: conductor.decision.DecisionId
+    kind: newtype
+    of: String
+    prefix: "DEC-"
+
+  - name: conductor.decision.DecisionClass
+    kind: enum
+    variants: [C, O, H]
+
+  - name: conductor.decision.Decider
+    kind: enum
+    variants: [Conductor, Operator]
+
+  - name: conductor.decision.ShowDecision
+    kind: struct
+    fields:
+      - {name: decision_id, type: String}
+      - {name: format, type: Optional<String>}
+
+entities:
+  - name: conductor.decision.DecisionRequest
+    identity:
+      name: request_id
+      type: conductor.decision.RequestId
+    fields:
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: recommendation
+        type: String
+      - name: raised_at
+        type: Timestamp
+      # The `decision-blocker` the controller filed in its own AEP store, cleared when the
+      # request is answered (design § 6).
+      - name: blocker
+        type: Optional<String>
+      - name: escalation_class
+        type: Optional<conductor.decision.DecisionClass>
+      - name: escalation_reason
+        type: Optional<String>
+      - name: decision_id
+        type: Optional<conductor.decision.DecisionId>
+    relations:
+      - name: decision
+        kind: references
+        target: conductor.decision.Decision
+        cardinality: one
+        via: decision_id
+    lifecycle:
+      initial: Open
+      states: [Open, Escalated, Answered, Withdrawn]
+      terminal: [Answered, Withdrawn]
+      transitions:
+        - name: escalate
+          from: [Open]
+          to: Escalated
+        # Conductor answers an open request; an escalated one is the operator's (design § 5).
+        - name: answer
+          from: [Open]
+          to: Answered
+        - name: answer_escalated
+          from: [Escalated]
+          to: Answered
+        - name: withdraw
+          from: [Open, Escalated]
+          to: Withdrawn
+
+  - name: conductor.decision.Decision
+    identity:
+      name: decision_id
+      type: conductor.decision.DecisionId
+    fields:
+      - name: decision_class
+        type: conductor.decision.DecisionClass
+      - name: decided_by
+        type: conductor.decision.Decider
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: choice
+        type: String
+      - name: reason
+        type: String
+      - name: evidence
+        type: String
+      - name: decided_at
+        type: Timestamp
+    lifecycle:
+      initial: InForce
+      states: [InForce, Reversed]
+      terminal: [Reversed]
+      transitions:
+        - name: reverse
+          from: [InForce]
+          to: Reversed
+
+actors:
+  - name: conductor.decision.RepositoryController
+    may:
+      - conductor.decision.RaiseDecisionRequest
+      - conductor.decision.WithdrawRequest
+    naming:
+      display: Repository controller
+
+  - name: conductor.decision.Conductor
+    may:
+      - conductor.decision.RecordConductorDecision
+      - conductor.decision.AnswerRequest
+      - conductor.decision.EscalateRequest
+      - conductor.decision.ReverseConductorDecision
+    naming:
+      display: Conductor
+
+  - name: conductor.decision.Operator
+    may:
+      - conductor.decision.RecordOperatorDecision
+      - conductor.decision.AnswerEscalatedRequest
+      - conductor.decision.ReverseOperatorDecision
+    naming:
+      display: Operator
+
+errors:
+  - name: conductor.decision.NotEscalatable
+    summary: The request is class C; conductor decides it.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.RequestStateConflict
+    summary: The request is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.RequestNotFound
+    summary: No decision request has this id.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.DecisionNotFound
+    summary: No decision has this id.
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+
+  - name: conductor.decision.DecisionReversed
+    summary: The decision was reversed, so it cannot answer a request.
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+
+  - name: conductor.decision.ReservedForOperator
+    summary: >
+      A class-O or class-H decision was submitted as decided by conductor. Those classes are the
+      operator's (design § 5), and nothing was recorded.
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+
+  - name: conductor.decision.DecisionStateConflict
+    summary: The decision is already reversed.
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+
+  - name: conductor.decision.ReversalReservedForOperator
+    summary: >
+      The decision was recorded by the operator, so only he reverses it (design § 5), and it
+      stays in force.
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+
+  - name: conductor.decision.DecisionExists
+    summary: A decision already has this id, so nothing was recorded.
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+
+  - name: conductor.decision.RequestExists
+    summary: A decision request already has this id, so nothing was raised.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+commands:
+  - name: conductor.decision.RaiseDecisionRequest
+    naming:
+      wire: raise-decision-request
+      display: Raise a decision request
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: recommendation
+        type: String
+      - name: raised_at
+        type: Timestamp
+      - name: blocker
+        type: Optional<String>
+    outcomes:
+      - name: raised
+        creates: conductor.decision.DecisionRequest
+        instance: request_id
+        sets:
+          repository: input.repository
+          question: input.question
+          options: input.options
+          recommendation: input.recommendation
+          raised_at: input.raised_at
+          blocker: input.blocker
+        emits:
+          - conductor.decision.DecisionRequested
+        payload:
+          conductor.decision.DecisionRequested:
+            request_id: input.request_id
+            repository: input.repository
+        summary: The request is open and queued for the next cycle.
+      - name: already-raised
+        existing_instance: true
+        error: conductor.decision.RequestExists
+        payload:
+          conductor.decision.RequestExists:
+            request_id: input.request_id
+        summary: A request already has this id; the held request is unchanged, answered or not.
+
+  # Who decided is bound to the command and its actor's grant, never taken from the input
+  # (hardening 2026-10-06: an input `decided_by` let any caller claim to be the operator).
+  - name: conductor.decision.RecordConductorDecision
+    naming:
+      wire: record-conductor-decision
+      display: Record a decision taken by conductor
+    input:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: decision_class
+        type: conductor.decision.DecisionClass
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: choice
+        type: String
+      - name: reason
+        type: String
+      - name: evidence
+        type: String
+      - name: decided_at
+        type: Timestamp
+    outcomes:
+      - name: reserved
+        when:
+          decision_class: [O, H]
+        error: conductor.decision.ReservedForOperator
+        payload:
+          conductor.decision.ReservedForOperator:
+            decision_id: input.decision_id
+        summary: Conductor may not decide class O or H (design § 5), and nothing was recorded.
+      - name: recorded
+        creates: conductor.decision.Decision
+        instance: decision_id
+        sets:
+          decision_class: input.decision_class
+          decided_by: Conductor
+          question: input.question
+          options: input.options
+          choice: input.choice
+          reason: input.reason
+          evidence: input.evidence
+          decided_at: input.decided_at
+        emits:
+          - conductor.decision.DecisionRecorded
+        payload:
+          conductor.decision.DecisionRecorded:
+            decision_id: input.decision_id
+            decision_class: input.decision_class
+            decided_by: Conductor
+        summary: The class-C decision is in force and counts as the operator's (standing exception 4).
+      - name: already-recorded
+        existing_instance: true
+        error: conductor.decision.DecisionExists
+        payload:
+          conductor.decision.DecisionExists:
+            decision_id: input.decision_id
+        summary: A decision already has this id; the held decision is unchanged.
+
+  - name: conductor.decision.RecordOperatorDecision
+    naming:
+      wire: record-operator-decision
+      display: Record a decision taken by the operator
+    input:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: decision_class
+        type: conductor.decision.DecisionClass
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: choice
+        type: String
+      - name: reason
+        type: String
+      - name: evidence
+        type: String
+      - name: decided_at
+        type: Timestamp
+    outcomes:
+      - name: recorded
+        creates: conductor.decision.Decision
+        instance: decision_id
+        sets:
+          decision_class: input.decision_class
+          decided_by: Operator
+          question: input.question
+          options: input.options
+          choice: input.choice
+          reason: input.reason
+          evidence: input.evidence
+          decided_at: input.decided_at
+        emits:
+          - conductor.decision.DecisionRecorded
+        payload:
+          conductor.decision.DecisionRecorded:
+            decision_id: input.decision_id
+            decision_class: input.decision_class
+            decided_by: Operator
+        summary: The operator's decision of any class is in force.
+      - name: already-recorded
+        existing_instance: true
+        error: conductor.decision.DecisionExists
+        payload:
+          conductor.decision.DecisionExists:
+            decision_id: input.decision_id
+        summary: A decision already has this id; the held decision is unchanged.
+
+  - name: conductor.decision.AnswerRequest
+    naming:
+      wire: answer-request
+      display: Answer a decision request
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: decision_id
+        type: conductor.decision.DecisionId
+    outcomes:
+      - name: no-such-decision
+        when_related: {via: input.decision_id, exists: false}
+        error: conductor.decision.DecisionNotFound
+        payload:
+          conductor.decision.DecisionNotFound:
+            decision_id: input.decision_id
+        summary: The cited decision does not exist, and the request stays where it was.
+      - name: reversed
+        when_related: {via: input.decision_id, predicate: state == Reversed}
+        error: conductor.decision.DecisionReversed
+        payload:
+          conductor.decision.DecisionReversed:
+            decision_id: input.decision_id
+        summary: The cited decision was reversed, and the request stays where it was.
+      - name: answered
+        moves: conductor.decision.DecisionRequest.answer
+        instance: request_id
+        sets:
+          decision_id: input.decision_id
+        emits:
+          - conductor.decision.RequestAnswered
+        payload:
+          conductor.decision.RequestAnswered:
+            request_id: input.request_id
+            decision_id: input.decision_id
+        summary: The request is answered by a decision in force; the controller acts on it.
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.decision.RequestStateConflict
+        payload:
+          conductor.decision.RequestStateConflict:
+            request_id: input.request_id
+        summary: >
+          Only an open request is answered here. An escalated one waits for the operator
+          (`AnswerEscalatedRequest`); an answered or withdrawn one is closed.
+
+  # An escalated request waits for the operator (design § 5): he decides class O and acts on
+  # class H, and only his answer takes it off the queue and the hands to-do.
+  - name: conductor.decision.AnswerEscalatedRequest
+    naming:
+      wire: answer-escalated-request
+      display: Answer an escalated decision request
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: decision_id
+        type: conductor.decision.DecisionId
+    outcomes:
+      - name: no-such-decision
+        when_related: {via: input.decision_id, exists: false}
+        error: conductor.decision.DecisionNotFound
+        payload:
+          conductor.decision.DecisionNotFound:
+            decision_id: input.decision_id
+        summary: The cited decision does not exist, and the request stays where it was.
+      - name: reversed
+        when_related: {via: input.decision_id, predicate: state == Reversed}
+        error: conductor.decision.DecisionReversed
+        payload:
+          conductor.decision.DecisionReversed:
+            decision_id: input.decision_id
+        summary: The cited decision was reversed, and the request stays where it was.
+      - name: answered
+        moves: conductor.decision.DecisionRequest.answer_escalated
+        instance: request_id
+        sets:
+          decision_id: input.decision_id
+        emits:
+          - conductor.decision.RequestAnswered
+        payload:
+          conductor.decision.RequestAnswered:
+            request_id: input.request_id
+            decision_id: input.decision_id
+        summary: The operator answered the escalated request; the controller acts on it.
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.decision.RequestStateConflict
+        payload:
+          conductor.decision.RequestStateConflict:
+            request_id: input.request_id
+        summary: Only an escalated request is answered here.
+
+  - name: conductor.decision.EscalateRequest
+    naming:
+      wire: escalate-request
+      display: Escalate a decision request
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      # O: the operator decides. H: the operator acts. C is never escalated (design § 5).
+      - name: escalation_class
+        type: conductor.decision.DecisionClass
+      # Why the class is O or H; for an unclear class, why it was treated as O (design § 5).
+      - name: reason
+        type: String
+    outcomes:
+      - name: class-c
+        when: escalation_class == C
+        error: conductor.decision.NotEscalatable
+        payload:
+          conductor.decision.NotEscalatable:
+            request_id: input.request_id
+        summary: A class-C request is decided by conductor, never escalated.
+      - name: escalated
+        moves: conductor.decision.DecisionRequest.escalate
+        instance: request_id
+        sets:
+          escalation_class: input.escalation_class
+          escalation_reason: input.reason
+        emits:
+          - conductor.decision.RequestEscalated
+        payload:
+          conductor.decision.RequestEscalated:
+            request_id: input.request_id
+        summary: The request waits for the operator.
+      - name: no-such-request
+        unknown_instance: true
+        error: conductor.decision.RequestNotFound
+        payload:
+          conductor.decision.RequestNotFound:
+            request_id: input.request_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.decision.RequestStateConflict
+        payload:
+          conductor.decision.RequestStateConflict:
+            request_id: input.request_id
+        summary: Only an open request is escalated.
+
+  - name: conductor.decision.WithdrawRequest
+    naming:
+      wire: withdraw-request
+      display: Withdraw a decision request
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: reason
+        type: String
+    outcomes:
+      - name: withdrawn
+        moves: conductor.decision.DecisionRequest.withdraw
+        instance: request_id
+        emits:
+          - conductor.decision.RequestWithdrawn
+        payload:
+          conductor.decision.RequestWithdrawn:
+            request_id: input.request_id
+            reason: input.reason
+        summary: The controller no longer needs the decision.
+      - name: no-such-request
+        unknown_instance: true
+        error: conductor.decision.RequestNotFound
+        payload:
+          conductor.decision.RequestNotFound:
+            request_id: input.request_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.decision.RequestStateConflict
+        payload:
+          conductor.decision.RequestStateConflict:
+            request_id: input.request_id
+        summary: The request is already answered or withdrawn.
+
+  # Who reverses is bound to the command, as for recording and answering: conductor reverses only
+  # its own decisions, and a decision the operator recorded is his to reverse (design § 5).
+  - name: conductor.decision.ReverseConductorDecision
+    naming:
+      wire: reverse-conductor-decision
+      display: Reverse a decision taken by conductor
+    input:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: reason
+        type: String
+    outcomes:
+      - name: operator-decided
+        when_subject:
+          predicate:
+            all:
+              - decided_by == Operator
+              - state == InForce
+        error: conductor.decision.ReversalReservedForOperator
+        payload:
+          conductor.decision.ReversalReservedForOperator:
+            decision_id: input.decision_id
+        summary: The operator recorded this decision, so only he reverses it; it stays in force.
+      - name: reversed
+        moves: conductor.decision.Decision.reverse
+        instance: decision_id
+        emits:
+          - conductor.decision.DecisionReversedEvent
+        payload:
+          conductor.decision.DecisionReversedEvent:
+            decision_id: input.decision_id
+            reason: input.reason
+        summary: Conductor's decision no longer holds; a reversed decision becomes a rule in a profile (design § 13).
+      - name: no-such-decision
+        unknown_instance: true
+        error: conductor.decision.DecisionNotFound
+        payload:
+          conductor.decision.DecisionNotFound:
+            decision_id: input.decision_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.decision.DecisionStateConflict
+        payload:
+          conductor.decision.DecisionStateConflict:
+            decision_id: input.decision_id
+        summary: The decision is already reversed.
+
+  - name: conductor.decision.ReverseOperatorDecision
+    naming:
+      wire: reverse-operator-decision
+      display: Reverse a decision as the operator
+    input:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: reason
+        type: String
+    outcomes:
+      - name: reversed
+        moves: conductor.decision.Decision.reverse
+        instance: decision_id
+        emits:
+          - conductor.decision.DecisionReversedEvent
+        payload:
+          conductor.decision.DecisionReversedEvent:
+            decision_id: input.decision_id
+            reason: input.reason
+        summary: The operator reversed the decision, whoever took it; a reversed decision becomes a rule in a profile (design § 13).
+      - name: no-such-decision
+        unknown_instance: true
+        error: conductor.decision.DecisionNotFound
+        payload:
+          conductor.decision.DecisionNotFound:
+            decision_id: input.decision_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.decision.DecisionStateConflict
+        payload:
+          conductor.decision.DecisionStateConflict:
+            decision_id: input.decision_id
+        summary: The decision is already reversed.
+
+events:
+  - name: conductor.decision.DecisionRequested
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: repository
+        type: conductor.observation.RepositoryName
+
+  - name: conductor.decision.DecisionRecorded
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: decision_class
+        type: conductor.decision.DecisionClass
+      - name: decided_by
+        type: conductor.decision.Decider
+
+  - name: conductor.decision.RequestAnswered
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: decision_id
+        type: conductor.decision.DecisionId
+
+  - name: conductor.decision.RequestEscalated
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.RequestWithdrawn
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: reason
+        type: String
+
+  - name: conductor.decision.DecisionReversedEvent
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: reason
+        type: String
+
+views:
+  - name: conductor.decision.Requests
+    source: conductor.decision.DecisionRequest
+    consistency: read_your_writes
+    fields:
+      - name: escalation_class
+        type: Optional<conductor.decision.DecisionClass>
+      - name: escalation_reason
+        type: Optional<String>
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: state
+        type: conductor.decision.DecisionRequest.State
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: decision_id
+        type: Optional<conductor.decision.DecisionId>
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: recommendation
+        type: String
+      - name: raised_at
+        type: Timestamp
+      - name: blocker
+        type: Optional<String>
+    naming:
+      wire: requests
+      display: Decision requests
+
+  # The numbered to-do of the daily brief (design § 5): every request escalated as class H,
+  # waiting for the operator's hands. The controller waiting on each is its `repository`.
+  - name: conductor.decision.HandsTodo
+    source: conductor.decision.DecisionRequest
+    consistency: read_your_writes
+    filter:
+      all:
+        - escalation_class == H
+        - state == Escalated
+    fields:
+      - name: escalation_class
+        type: Optional<conductor.decision.DecisionClass>
+      - name: escalation_reason
+        type: Optional<String>
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: state
+        type: conductor.decision.DecisionRequest.State
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: decision_id
+        type: Optional<conductor.decision.DecisionId>
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: recommendation
+        type: String
+      - name: raised_at
+        type: Timestamp
+      - name: blocker
+        type: Optional<String>
+    naming:
+      wire: hands-todo
+      display: Class-H to-do
+
+  - name: conductor.decision.Decisions
+    source: conductor.decision.Decision
+    consistency: read_your_writes
+    fields:
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: state
+        type: conductor.decision.Decision.State
+      - name: decision_class
+        type: conductor.decision.DecisionClass
+      - name: decided_by
+        type: conductor.decision.Decider
+      - name: choice
+        type: String
+      - name: question
+        type: String
+      - name: options
+        type: String
+      - name: reason
+        type: String
+      - name: evidence
+        type: String
+      - name: decided_at
+        type: Timestamp
+    naming:
+      wire: decisions
+      display: Decisions

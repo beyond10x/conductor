@@ -1,0 +1,4 @@
+state/
+.engineering/drafts/
+target/
+crates/conductor-model/.ess-output/

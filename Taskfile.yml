@@ -1,0 +1,131 @@
+version: '3'
+
+vars:
+  CONDUCTOR_PROMPT: Start of session. Read the hand-over committed last (git log -1 --name-only --format= -- docs/handoff/), act on its first task, then run one cycle.
+  DEV_PROMPT: Start of session. Read the newest docs/waves/handoff-conductor-dev-*.md, the plan it names, the hand-over committed last in docs/handoff/ (conductor's) and docs/design/conductor.md section 12, then begin.
+  SESSION_ID: claude agents --json | jq -r '.[] | select(.kind=="background" and .name==$n and .pid != null) | .id'
+
+tasks:
+  sessions:
+    desc: List the conductor and conductor-dev sessions with their kind, id and state
+    cmds:
+      - claude agents --json | jq -r '.[] | select(.name=="conductor" or .name=="conductor-dev") | [.name, .kind, (.id // (.pid|tostring)), (.state // .status)] | @tsv'
+
+  conductor:start:
+    desc: Start conductor in the background on the harness and model of the role conductor in conductor config show; refuses while a live session named conductor exists
+    vars:
+      HARNESS:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .harness'
+      MODEL:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .model'
+    preconditions:
+      - sh: test -n {{shellQuote .MODEL}}
+        msg: conductor config show names no role conductor; add it to the instance's roles
+      - sh: test {{shellQuote .HARNESS}} = claude
+        msg: the role conductor runs on {{.HARNESS}} (conductor config show); this task starts claude only
+      - sh: claude agents --json | jq -e 'all(.[]; .name != "conductor" or .pid == null)' >/dev/null
+        msg: a session named conductor is already running; see task sessions
+    cmds:
+      - claude --bg -n conductor --agent conductor --model {{shellQuote .MODEL}} --permission-mode bypassPermissions --settings .claude/conductor-settings.json {{shellQuote .CONDUCTOR_PROMPT}}
+
+  conductor:attach:
+    desc: Open the background conductor session in this terminal
+    interactive: true
+    cmds:
+      - claude attach "$({{.SESSION_ID}} --arg n conductor)"
+
+  conductor:restart:
+    desc: Stop the background conductor, remove it from the session list (its transcript stays; claude --resume reopens it) and start a new one that reads the newest handoff (conductor-dev runs this after [RESTART])
+    preconditions:
+      - sh: test -n "$({{.SESSION_ID}} --arg n conductor)"
+        msg: no background session named conductor
+    vars:
+      OLD:
+        sh: claude agents --json | jq -r '.[] | select(.kind=="background" and .name=="conductor" and .pid != null) | .id'
+    cmds:
+      - claude stop {{shellQuote .OLD}}
+      - for i in $(seq 30); do claude agents --json | jq -e 'all(.[]; .name != "conductor" or .pid == null)' >/dev/null && exit 0; sleep 1; done; echo "the stopped conductor still has a pid after 30 s" >&2; exit 1
+      - claude rm {{shellQuote .OLD}}
+      - task: conductor:start
+
+  dev:start:
+    desc: Start conductor-dev in the background on the harness and model of the role conductor-dev in conductor config show; refuses while any session named conductor-dev exists
+    vars:
+      HARNESS:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .harness'
+      MODEL:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .model'
+    preconditions:
+      - sh: test -n {{shellQuote .MODEL}}
+        msg: conductor config show names no role conductor-dev; add it to the instance's roles
+      - sh: test {{shellQuote .HARNESS}} = claude
+        msg: the role conductor-dev runs on {{.HARNESS}} (conductor config show); this task starts claude only
+      - sh: claude agents --json | jq -e 'all(.[]; .name != "conductor-dev" or .pid == null)' >/dev/null
+        msg: a session named conductor-dev is already running; see task sessions
+    cmds:
+      - claude --bg -n conductor-dev --agent conductor-dev --model {{shellQuote .MODEL}} --permission-mode bypassPermissions {{shellQuote .DEV_PROMPT}}
+
+  dev:attach:
+    desc: Open the background conductor-dev session in this terminal
+    interactive: true
+    cmds:
+      - claude attach "$({{.SESSION_ID}} --arg n conductor-dev)"
+
+  trust:
+    desc: Mark every git checkout directly under the instance's checkouts root (conductor config show) as a trusted Claude Code workspace, so a controller can start there
+    vars:
+      CFG: '{{.CFG | default (printf "%s/.claude.json" .HOME)}}'
+      ROOT:
+        sh: conductor config show --format json | jq -r '.instances[0].checkouts.root'
+    preconditions:
+      - sh: test -d {{shellQuote .ROOT}}
+        msg: the checkouts root {{.ROOT}} of conductor config show is not a directory
+    cmds:
+      - |
+        cfg={{shellQuote .CFG}}
+        paths=$(for d in {{shellQuote .ROOT}}/*/; do d=${d%/}; git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 && printf '%s\n' "$d"; done)
+        before=$(stat -c %Y "$cfg"); tmp=$(mktemp "$cfg.trust.XXXXXX"); chmod --reference="$cfg" "$tmp"
+        printf '%s\n' "$paths" | jq -R . | jq -sc . > "$tmp.paths"
+        jq --slurpfile p "$tmp.paths" 'reduce $p[0][] as $k (.; .projects[$k].hasTrustDialogAccepted = true)' "$cfg" > "$tmp"
+        rm -f "$tmp.paths"
+        if [ "$(stat -c %Y "$cfg")" != "$before" ]; then rm -f "$tmp"; echo "$cfg changed during the edit; run task trust again" >&2; exit 1; fi
+        mv "$tmp" "$cfg"
+        echo "trusted: $(printf '%s\n' "$paths" | grep -c .) checkouts under" {{shellQuote .ROOT}}
+
+  dashboard:
+    desc: Start the dashboard on 127.0.0.1:7313 as the user service conductor-dashboard unless it is active, and print its URL
+    silent: true
+    cmds:
+      - systemctl --user is-active --quiet conductor-dashboard || systemd-run --user --unit conductor-dashboard --collect --setenv=PATH="$PATH" "$(command -v conductor)" dashboard serve --root "$(git -C {{shellQuote .ROOT_DIR}} worktree list --porcelain | sed -n "1s/^worktree //p")" --port 7313
+      - echo "Open http://127.0.0.1:7313/"
+
+  dashboard:stop:
+    desc: Stop the user service conductor-dashboard
+    cmds:
+      - systemctl --user stop conductor-dashboard
+
+  install:
+    desc: Install the conductor binary from this checkout; conductor-dev runs it after a wave merges and check is green
+    cmds:
+      - cargo install --path crates/conductor --locked
+
+  check:
+    desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, then format, lint and test
+    cmds:
+      - if [ -n "${B10X_GATES_POLICY:-}" ]; then git ls-files -z | xargs -0 b10x-gates scan-text; else echo "B10X_GATES_POLICY is not set; the Gates scan is skipped" >&2; fi
+      - ess specify validate --path spec
+      - mkdir -p .check
+      - echo '*' > .check/.gitignore
+      - ess verify conform run --path spec --scenarios spec/scenarios --target interpreted --report-format 2 --report-out .check/conformance.json
+      - rm -rf .check/conductor-model
+      - ess generate synthesize --path spec --target rust --layout crate --out .check/conductor-model
+      - diff -r --exclude=.ess-output crates/conductor-model .check/conductor-model
+      - cargo fmt --check
+      - cargo clippy --all-targets -- -D warnings
+      - cargo test
+
+  regen:
+    desc: Regenerate crates/conductor-model from spec/; every byte of it is generated
+    cmds:
+      - rm -rf crates/conductor-model
+      - ess generate synthesize --path spec --target rust --layout crate --out crates/conductor-model

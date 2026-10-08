@@ -1,0 +1,260 @@
+domain: conductor.config
+
+summary: >
+  The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else
+  the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An
+  instance is one organization conductor runs: where its repositories come from, where their
+  checkouts are, where conductor keeps its records, state and cache, which harness and model each
+  role runs on, its cadence, thresholds, reports, and who decides each decision class. These types
+  hold the effective config, after defaults; the file may leave out every key of an instance but
+  its name, its sources and its checkouts. No field takes a secret.
+
+naming:
+  wire: config
+  display: Config
+
+types:
+  - name: conductor.config.InstanceName
+    kind: newtype
+    of: String
+
+  # The file writes a harness in lower case: `claude` or `codex`.
+  - name: conductor.config.Harness
+    kind: enum
+    variants: [Claude, Codex]
+
+  # A count of tokens. The file writes a whole number, or thousands with `k`: `300k`.
+  - name: conductor.config.Tokens
+    kind: newtype
+    of: Integer
+
+  # A size in GiB (2^30 bytes). The file writes a whole number with `G`: `15G`.
+  - name: conductor.config.Gibibytes
+    kind: newtype
+    of: Integer
+
+  # A time of day, UTC, `HH:MM`.
+  - name: conductor.config.TimeOfDay
+    kind: newtype
+    of: String
+
+  # Where an instance's repositories come from. The file writes `{github: <owner>}`,
+  # `{local: <path>}` or `{gitlab: <group or root>}`; a `local` or `gitlab` source may add
+  # `exclude: [<path under the root>]` (story:grouped-instance).
+  #
+  # A repository is the directory that holds `.git` at depth 1 or 2 under a root (`<root>/<repo>`
+  # or `<root>/<group>/<repo>`), named by its path under the root (`<group>/<repo>`); the root is
+  # a `local` source's path, and for the checkouts of the other sources `checkouts.root`. A
+  # repository whose name is an `exclude` entry, or lies under one, is not listed and not placed.
+  # Absent, `exclude` is empty. A `github` source takes no `exclude`: GitHub lists its owner's
+  # repositories, and the collectors that read that list do not filter it.
+  - name: conductor.config.Source
+    kind: union
+    tag: kind
+    variants:
+      GitHub: conductor.config.GitHubSource
+      Local: conductor.config.LocalSource
+      GitLab: conductor.config.GitLabSource
+
+  # An owner on GitHub, whose repositories are the instance's.
+  - name: conductor.config.GitHubSource
+    kind: struct
+    fields:
+      - {name: owner, type: String}
+
+  # A directory whose repositories are the instance's.
+  - name: conductor.config.LocalSource
+    kind: struct
+    fields:
+      - {name: path, type: String}
+      - {name: exclude, type: List<String>}
+
+  # A group (or the root) on a GitLab forge, whose repositories are the instance's. The conductor
+  # binary does not read that forge: the collectors record nothing for this source, and conductor
+  # reads it through its session's integration and records the rows with the snapshot record
+  # commands.
+  - name: conductor.config.GitLabSource
+    kind: struct
+    fields:
+      - {name: group, type: String}
+      - {name: exclude, type: List<String>}
+
+  # The directory holding the instance's checkouts, and the one holding their managed worktrees.
+  - name: conductor.config.Checkouts
+    kind: struct
+    fields:
+      - {name: root, type: String}
+      - {name: trees, type: String}
+
+  # How a catalog entry's file stem spells a repository's name. The file writes it in lower
+  # case: `plain`, the name itself, or `hex`, the lower-case hex of the name's UTF-8 bytes.
+  - name: conductor.config.CatalogNames
+    kind: enum
+    variants: [Plain, Hex]
+
+  # The instance's catalog (story:catalog-source): `repository` names a repository whose checkout
+  # lies under `checkouts.root`, written as its path under the root; `path` is a directory on
+  # that repository's `origin/main`, written relative to its top, whose `.json` files name the
+  # cataloged repositories, one file each, the name being the file's stem as `names` spells it.
+  # Absent, `names` is `plain`. An instance without a catalog records no catalog membership.
+  - name: conductor.config.Catalog
+    kind: struct
+    fields:
+      - {name: repository, type: String}
+      - {name: path, type: String}
+      - {name: names, type: conductor.config.CatalogNames}
+
+  # A value a start command passes to the harness as one shell word, unquoted: a role's model,
+  # agent or settings file. Letters, digits and `.`, `_`, `:`, `/`, `-` only, so that no shell
+  # reads it as more than that word.
+  - name: conductor.config.CommandWord
+    kind: newtype
+    of: String
+    alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-"
+
+  # The harness and model one session role runs on, such as `conductor` or `controller`; the
+  # harness agent the role starts with, such as `repo-controller`; and the settings file it starts
+  # with, written absolute or under `~`. Absent, a role names no agent and no settings file.
+  - name: conductor.config.Role
+    kind: struct
+    fields:
+      - {name: role, type: String}
+      - {name: harness, type: conductor.config.Harness}
+      - {name: model, type: conductor.config.CommandWord}
+      - {name: agent, type: Optional<conductor.config.CommandWord>}
+      - {name: settings, type: Optional<conductor.config.CommandWord>}
+
+  # How many controllers of the instance work at once, at most, and how many sub-agents one
+  # controller runs at once, at most. Absent, they are 5 and 4.
+  - name: conductor.config.Controllers
+    kind: struct
+    fields:
+      - {name: max_working, type: Integer}
+      - {name: max_subagents, type: Integer}
+    invariants:
+      - max_working >= 1
+      - max_subagents >= 1
+
+  # The activity of the repositories whose name `match` names. The file writes an activity in
+  # lower case: `active` or `inactive`.
+  - name: conductor.config.RepositoryRule
+    kind: struct
+    fields:
+      - {name: match, type: String}
+      - {name: activity, type: conductor.direction.Activity}
+
+  # How often conductor runs a cycle, when its daily cycle starts, and how often the watch reads
+  # the sessions and main's CI. The file writes a duration as a whole number with `s`, `m`, `h` or
+  # `d`: `2h`, `180s`.
+  - name: conductor.config.Cadence
+    kind: struct
+    fields:
+      - {name: cycle, type: Duration}
+      - {name: daily, type: conductor.config.TimeOfDay}
+      - {name: watch, type: Duration}
+      - {name: ci, type: Duration}
+
+  # Conductor's context above which it hands over; the filesystem whose free space the disk
+  # thresholds read, written absolute or under `~`; free disk under which the watch reports it,
+  # from which a further fall is reported again, under which no session starts, and under which a
+  # full gate takes a build slot; the size above which a build is expected to write enough to ask
+  # for a slot; free disk under which the full-gate watchdog stops the gate's process group and
+  # from which it resumes it; and how often the watchdog reads it. Absent, the filesystem is `/`.
+  - name: conductor.config.Thresholds
+    kind: struct
+    fields:
+      - {name: context_handover, type: conductor.config.Tokens}
+      - {name: disk_path, type: String}
+      - {name: disk_low, type: conductor.config.Gibibytes}
+      - {name: disk_clear, type: conductor.config.Gibibytes}
+      - {name: disk_admit, type: conductor.config.Gibibytes}
+      - {name: build_slot, type: conductor.config.Gibibytes}
+      - {name: build_size, type: conductor.config.Gibibytes}
+      - {name: gate_stop, type: conductor.config.Gibibytes}
+      - {name: gate_resume, type: conductor.config.Gibibytes}
+      - {name: watchdog_every, type: Duration}
+    invariants:
+      - gate_resume > gate_stop
+
+  # How many snapshots' observations the instance keeps: those of the newest `snapshots` complete
+  # ones (story:observation-retention). Absent, it is 12, a day at the 2-hour cadence.
+  - name: conductor.config.Retention
+    kind: struct
+    fields:
+      - {name: snapshots, type: Integer}
+    invariants:
+      - snapshots >= 1
+
+  # Where a report goes, as whom it is posted, and on which occasions.
+  - name: conductor.config.Report
+    kind: struct
+    fields:
+      - {name: channel, type: String}
+      - {name: as, type: String}
+      - {name: when, type: List<String>}
+
+  # Who decides a class-C and a class-O decision. The file writes `conductor` or `operator`.
+  - name: conductor.config.Authority
+    kind: struct
+    fields:
+      - {name: class_c, type: conductor.decision.Decider}
+      - {name: class_o, type: conductor.decision.Decider}
+
+  # One instance. A path is written absolute or under `~`, which is the home directory; the
+  # effective path is absolute. `operator` is how sessions name the person who decides class O.
+  # Absent from the file, `records`, `state` and `cache` are ~/.b10x/conductor/<name>/records,
+  # ~/.b10x/conductor/<name>/state and ~/.cache/b10x/conductor/<name>, `repositories` and
+  # `reports` are empty, `operator` and `catalog` are absent, and every other absent key is
+  # conductor's built-in default.
+  - name: conductor.config.Instance
+    kind: struct
+    fields:
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: sources, type: List<conductor.config.Source>}
+      - {name: checkouts, type: conductor.config.Checkouts}
+      - {name: records, type: String}
+      - {name: state, type: String}
+      - {name: cache, type: String}
+      - {name: roles, type: List<conductor.config.Role>}
+      - {name: controllers, type: conductor.config.Controllers}
+      - {name: repositories, type: List<conductor.config.RepositoryRule>}
+      - {name: cadence, type: conductor.config.Cadence}
+      - {name: thresholds, type: conductor.config.Thresholds}
+      - {name: retention, type: conductor.config.Retention}
+      - {name: reports, type: List<conductor.config.Report>}
+      - {name: authority, type: conductor.config.Authority}
+      - {name: operator, type: Optional<String>}
+      - {name: catalog, type: Optional<conductor.config.Catalog>}
+
+  # The file. A key it does not declare is an error, and so is a value that looks like a token.
+  # `default` is the instance a command runs when neither `--instance` nor the
+  # `conductor-instance` setting names one (story:grouped-instance); it names an instance of the
+  # file.
+  - name: conductor.config.Config
+    kind: struct
+    fields:
+      - {name: version, type: String}
+      - {name: default, type: Optional<conductor.config.InstanceName>}
+      - {name: instances, type: List<conductor.config.Instance>}
+    invariants:
+      - version == "conductor.config/1"
+      - distinct: {in: instances, as: instance, by: instance.name}
+      - any:
+          - not defined(default)
+          - exists: {in: instances, as: instance, that: instance.name == default}
+
+  # The input of `conductor config validate`: the instance to resolve, else the
+  # `conductor-instance` setting, else none.
+  - name: conductor.config.ValidateConfig
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<String>}
+
+  # The input of `conductor config show`. `format` is one of text, json, yaml, read by the
+  # handler; `instance` is the instance shown, else the `conductor-instance` setting, else the
+  # file's `default`, else its only instance.
+  - name: conductor.config.ShowConfig
+    kind: struct
+    fields:
+      - {name: format, type: Optional<String>}
+      - {name: instance, type: Optional<String>}

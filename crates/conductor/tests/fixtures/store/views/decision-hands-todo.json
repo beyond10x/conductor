@@ -1,0 +1,1 @@
+[{"escalation_class":"H","escalation_reason":"a login","request_id":"alpha-4","state":"Escalated","repository":"alpha","decision_id":null,"question":"which way for alpha-4?","options":"A: one way; B: the other","recommendation":"A","raised_at":"2026-10-07T09:00:00Z","blocker":null}]

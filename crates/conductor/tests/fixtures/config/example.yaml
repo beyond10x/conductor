@@ -1,0 +1,19 @@
+version: conductor.config/1
+instances:
+  - name: example-org
+    sources:
+      - github: example-org            # an owner on GitHub; or `local: <path>`
+    checkouts: {root: ~/example-org, trees: ~/.local/state/worktree/trees/example-org}
+    records: ~/.b10x/conductor/example-org/records     # default ~/.b10x/conductor/<name>/records
+    state: ~/.b10x/conductor/example-org/state         # default ~/.b10x/conductor/<name>/state
+    cache: ~/.cache/b10x/conductor/example-org         # default ~/.cache/b10x/conductor/<name>
+    roles:
+      - {role: conductor, harness: claude, model: opus}
+      - {role: controller, harness: claude, model: opus}
+    repositories:
+      - {match: ess, activity: active}
+    cadence: {cycle: 2h, daily: "08:07", watch: 180s, ci: 15m}
+    thresholds: {context_handover: 300k, disk_low: 15G, disk_clear: 18G, disk_admit: 20G, build_slot: 30G}
+    reports:
+      - {channel: "slack:#example-channel", as: bot, when: [daily]}
+    authority: {class_c: conductor, class_o: operator}

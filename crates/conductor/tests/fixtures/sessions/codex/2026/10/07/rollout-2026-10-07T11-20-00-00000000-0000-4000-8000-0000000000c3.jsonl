@@ -1,0 +1,2 @@
+{"timestamp":"2026-10-07T11:20:00.000Z","ordinal":0,"type":"session_meta","payload":{"session_id":"00000000-0000-4000-8000-0000000000c3","id":"00000000-0000-4000-8000-0000000000c3","timestamp":"2026-10-07T11:20:00.000Z","cwd":"/fixture-home/.local/state/worktree/trees/example-org/ess/batch-0-52","originator":"codex-tui","cli_version":"0.0.0","source":"vscode","thread_source":"user","model_provider":"fixture"}}
+{"timestamp":"2026-10-07T11:20:01.000Z","ordinal":1,"type":"response_item","payload":{"type":"message","role":"user","content":[]}}

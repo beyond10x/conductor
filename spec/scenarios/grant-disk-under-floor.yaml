@@ -1,0 +1,35 @@
+# The 30G floor of `GrantResource` (`below-disk-floor`) holds back build slots only. Synthesis witnesses the floor with a
+# build-slot request on both sides of it, so nothing it emits shows that a request for another
+# resource is still granted under the floor. This scenario says so.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: grant-disk-under-floor
+summary: A disk request is granted with free disk under the 30G floor, which holds back build slots only.
+
+arrange:
+  - instance: disk-request
+    entity: conductor.dispatch.ResourceRequest
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.dispatch.RequestResource
+    actor: conductor.dispatch.RepositoryController
+    input:
+      repository: cortex
+      resource: Disk
+      amount: 10
+      requested_at: 2026-10-06T09:00:00Z
+    outcome: requested
+    capture: {instance: disk-request, event: conductor.dispatch.ResourceRequested, field: resource_request_id}
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.dispatch.GrantResource
+    actor: conductor.dispatch.Conductor
+    input:
+      resource_request_id: {$instance: disk-request}
+      disk_free_bytes: 21474836480
+    outcome: granted
+    events:
+      - event: conductor.dispatch.ResourceGranted
+        payload:
+          resource_request_id: {$instance: disk-request}

@@ -1,0 +1,8 @@
+{
+  "sha": "a100000000000000000000000000000000000001",
+  "commit": {
+    "message": "Start alpha",
+    "committer": {"name": "Fixture", "email": "fixture@example.invalid", "date": "2026-09-01T09:00:00Z"}
+  },
+  "parents": []
+}

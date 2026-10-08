@@ -1,0 +1,24 @@
+[
+  {
+    "sha": "d300000000000000000000000000000000000003",
+    "commit": {"message": "feat: add the delta reader\n\nWith a body.", "committer": {"date": "2026-10-06T09:30:00Z"}},
+    "parents": [{"sha": "d200000000000000000000000000000000000002"}]
+  },
+  {
+    "sha": "d200000000000000000000000000000000000002",
+    "commit": {"message": "Merge pull request #3 from example-org/delta-order", "committer": {"date": "2026-10-05T09:30:00Z"}},
+    "parents": [{"sha": "d100000000000000000000000000000000000001"}, {"sha": "d000000000000000000000000000000000000000"}]
+  },
+  {
+    "sha": "d100000000000000000000000000000000000001",
+    "commit": {"message": "docs: describe delta", "committer": {"date": "2026-10-04T09:30:00Z"}},
+    "parents": [{"sha": "c000000000000000000000000000000000000000"}]
+  }
+]
+[
+  {
+    "sha": "d000000000000000000000000000000000000000",
+    "commit": {"message": "fix: keep the delta order", "committer": {"date": "2026-10-03T09:30:00Z"}},
+    "parents": [{"sha": "c000000000000000000000000000000000000000"}]
+  }
+]

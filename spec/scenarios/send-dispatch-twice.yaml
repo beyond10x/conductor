@@ -1,0 +1,48 @@
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: send-dispatch-twice
+summary: Sending a dispatch id a dispatch already has is refused, and the held dispatch is unchanged.
+
+timeline:
+  - at: 2026-10-07T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-twice-dsp
+      title: Ship the pilot
+      exit_evidence: the pilot runs
+    outcome: proposed
+
+  - at: 2026-10-07T09:00:01Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-twice
+      repository: cortex
+      goal_id: G-twice-dsp
+      brief: Expose the store id
+      sent_at: 2026-10-07T09:00:01Z
+      priority: 1
+    outcome: sent
+
+  - at: 2026-10-07T09:00:02Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-twice
+      repository: delta
+      goal_id: G-twice-dsp
+      brief: A different brief
+      sent_at: 2026-10-07T09:00:02Z
+      priority: 3
+    outcome: already-sent
+    error:
+      name: conductor.dispatch.DispatchExists
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-twice
+      state: Sent
+      repository: cortex
+      priority: 1

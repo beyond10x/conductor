@@ -1,0 +1,16 @@
+version: conductor.config/1
+instances:
+  - name: first-org
+    sources:
+      - github: first-org
+    checkouts: {root: ~/first-org, trees: ~/.local/state/worktree/trees/first}
+  - name: second-org
+    sources:
+      - local: ~/src/second
+    checkouts: {root: /srv/second, trees: /srv/second-trees}
+    records: /srv/second-records
+    roles:
+      - {role: conductor, harness: codex, model: gpt-fixture}
+    cadence: {cycle: 1d, watch: 60s}
+    thresholds: {context_handover: 150000, disk_low: 5G}
+    authority: {class_c: operator}

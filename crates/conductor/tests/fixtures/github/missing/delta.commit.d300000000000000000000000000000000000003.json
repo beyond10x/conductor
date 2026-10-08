@@ -1,0 +1,6 @@
+{
+  "sha": "d300000000000000000000000000000000000003",
+  "commit": {"message": "feat: add the delta reader\n\nWith a body.", "committer": {"date": "2026-10-06T09:30:00Z"}},
+  "parents": [{"sha": "d200000000000000000000000000000000000002"}],
+  "files": [{"filename": "src/delta.rs", "status": "added"}]
+}

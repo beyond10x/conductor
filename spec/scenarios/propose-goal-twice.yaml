@@ -1,0 +1,30 @@
+type: ess-scenario/1
+domain: conductor.direction
+scenario: propose-goal-twice
+summary: A second proposal of a goal id a goal already has is refused, and the held draft is unchanged.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-twice
+      title: Ship the local store
+      exit_evidence: a reopened store lists the goal
+    outcome: proposed
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-twice
+      title: Ship it again
+      exit_evidence: none
+    outcome: already-proposed
+
+assert:
+  - view: conductor.direction.Goals
+    contains:
+      goal_id: G-twice
+      state: Draft
+      title: Ship the local store

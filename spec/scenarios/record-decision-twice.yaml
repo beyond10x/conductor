@@ -1,0 +1,59 @@
+type: ess-scenario/1
+domain: conductor.decision
+scenario: record-decision-twice
+summary: A decision id a decision already has is refused by both record commands, and the held decision is unchanged.
+
+timeline:
+  - at: 2026-10-07T09:00:00Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-twice-01
+      decision_class: C
+      question: Which store backs the pilot?
+      options: "A: the file store; B: a database"
+      choice: A
+      reason: the file store is enough
+      evidence: none
+      decided_at: 2026-10-07T09:00:00Z
+    outcome: recorded
+
+  - at: 2026-10-07T09:00:01Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-twice-01
+      decision_class: C
+      question: Which store backs the pilot?
+      options: "A: the file store; B: a database"
+      choice: B
+      reason: changed my mind
+      evidence: none
+      decided_at: 2026-10-07T09:00:01Z
+    outcome: already-recorded
+    error:
+      name: conductor.decision.DecisionExists
+
+  - at: 2026-10-07T09:00:02Z
+    command: conductor.decision.RecordOperatorDecision
+    actor: conductor.decision.Operator
+    input:
+      decision_id: DEC-twice-01
+      decision_class: O
+      question: Which store backs the pilot?
+      options: "A: the file store; B: a database"
+      choice: B
+      reason: the operator's call
+      evidence: none
+      decided_at: 2026-10-07T09:00:02Z
+    outcome: already-recorded
+    error:
+      name: conductor.decision.DecisionExists
+
+assert:
+  - view: conductor.decision.Decisions
+    contains:
+      decision_id: DEC-twice-01
+      state: InForce
+      decided_by: Conductor
+      choice: A

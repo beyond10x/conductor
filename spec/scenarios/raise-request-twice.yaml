@@ -1,0 +1,61 @@
+type: ess-scenario/1
+domain: conductor.decision
+scenario: raise-request-twice
+summary: Raising a request id a request already has is refused, and an answered request stays answered.
+
+timeline:
+  - at: 2026-10-07T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-twice
+      repository: cortex
+      question: Which store backs the pilot?
+      options: "A: the file store; B: a database"
+      recommendation: A
+      raised_at: 2026-10-07T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-07T09:00:01Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-twice-02
+      decision_class: C
+      question: Which store backs the pilot?
+      options: "A: the file store; B: a database"
+      choice: A
+      reason: the file store is enough
+      evidence: none
+      decided_at: 2026-10-07T09:00:01Z
+    outcome: recorded
+
+  - at: 2026-10-07T09:00:02Z
+    command: conductor.decision.AnswerRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-twice
+      decision_id: DEC-twice-02
+    outcome: answered
+
+  - at: 2026-10-07T09:00:03Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-twice
+      repository: delta
+      question: Asked again
+      options: "A: yes; B: no"
+      recommendation: B
+      raised_at: 2026-10-07T09:00:03Z
+    outcome: already-raised
+    error:
+      name: conductor.decision.RequestExists
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-twice
+      state: Answered
+      repository: cortex
+      decision_id: DEC-twice-02

@@ -1,0 +1,61 @@
+version: conductor.config/1
+default: personal
+instances:
+  - name: personal
+    sources:
+      - github: example-org
+    checkouts:
+      root: ~/example-org
+      trees: ~/.local/state/worktree/trees/example-org
+    records: ~/example-org/conductor
+    controllers:
+      max_working: 5
+      max_subagents: 4
+    roles:
+      - {role: conductor, harness: claude, model: opus}
+      - {role: conductor-dev, harness: claude, model: opus}
+      - role: controller
+        harness: claude
+        model: opus
+        agent: repo-controller
+        settings: ~/example-org/conductor/.claude/controller-settings.json
+    catalog:
+      repository: registry
+      path: catalog/entries
+      names: plain
+    cadence:
+      cycle: 2h
+      daily: 08:07
+    thresholds:
+      disk_path: /
+      disk_low: 100G
+      disk_clear: 110G
+      build_slot: 60G
+      build_size: 10G
+      gate_stop: 15G
+      gate_resume: 17G
+    authority:
+      class_c: conductor
+      class_o: operator
+
+  - name: work
+    sources:
+      - local: ~/work
+        exclude: [archive]
+    checkouts:
+      root: ~/work
+      trees: ~/.local/state/worktree/trees/work
+    controllers:
+      max_working: 2
+    roles:
+      - {role: conductor, harness: claude, model: opus}
+      - {role: conductor-dev, harness: claude, model: opus}
+      - role: controller
+        harness: claude
+        model: sonnet
+        agent: repo-controller
+        settings: ~/example-org/conductor/.claude/controller-settings.json
+    repositories:
+      - {match: legacy-service, activity: inactive}
+    retention:
+      snapshots: 24

@@ -1,0 +1,5 @@
+[
+  {"tagName": "v0.3.0-rc.1", "publishedAt": "2026-10-06T20:00:00Z", "isPrerelease": true},
+  {"tagName": "v0.2.0", "publishedAt": "2026-10-05T12:00:00+02:00", "isPrerelease": false},
+  {"tagName": "v0.1.0", "publishedAt": "2026-09-01T10:00:00Z", "isPrerelease": false}
+]

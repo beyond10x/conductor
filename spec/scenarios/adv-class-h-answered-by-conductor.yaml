@@ -1,0 +1,56 @@
+# Rows 10 and 30 (design § 5): "Conductor never records a class-H decision"; the operator
+# records what was done. An escalated class-H request is on the hands to-do until the operator has acted. A
+# class-C decision conductor recorded itself is not the operator acting, so answering the request
+# with it must not take the request off the to-do.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: adv-class-h-answered-by-conductor
+summary: An escalated class-H request stays on the hands to-do when conductor answers it with its own class-C decision.
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-adv-h1
+      repository: cortex
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      recommendation: A
+      raised_at: 2026-10-06T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-adv-h1
+      escalation_class: H
+      reason: only the operator can set a repository secret
+    outcome: escalated
+
+  - at: 2026-10-06T09:00:02Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-adv-c1
+      decision_class: C
+      question: Set the deploy token secret
+      options: "A: set it now; B: wait"
+      choice: A
+      reason: the release needs it
+      evidence: none
+      decided_at: 2026-10-06T09:00:02Z
+    outcome: recorded
+
+  - at: 2026-10-06T09:00:03Z
+    command: conductor.decision.AnswerRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-adv-h1
+      decision_id: DEC-adv-c1
+
+assert:
+  - view: conductor.decision.HandsTodo
+    contains:
+      request_id: REQ-adv-h1

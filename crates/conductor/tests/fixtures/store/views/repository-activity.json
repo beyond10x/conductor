@@ -1,0 +1,1 @@
+[{"repository":"alpha","activity":"Active","decided_by":"Mark","marked_by":"Conductor","reason":"resumed"},{"repository":"beta","activity":"Inactive","decided_by":"Mark","marked_by":"Operator","reason":"superseded by alpha"},{"repository":"gamma","activity":"Inactive","decided_by":"Snapshot","marked_by":null,"reason":null}]

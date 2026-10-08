@@ -1,0 +1,29 @@
+format: ess-inputs/2
+requires: ess 0.55
+specification:
+  - system.yaml
+  - components.yaml
+  - domains/observation.yaml
+  - domains/direction.yaml
+  - domains/decision.yaml
+  - domains/dispatch.yaml
+  - domains/config.yaml
+scenarios:
+  - scenarios/grant-disk-under-floor.yaml
+  - scenarios/adv-route-need-unsent-dispatch.yaml
+  - scenarios/adv-dispatch-waits-on-itself.yaml
+  - scenarios/adv-add-serving-dropped-goal.yaml
+  - scenarios/adv-class-h-answered-by-conductor.yaml
+  - scenarios/adv-grant-granted-build-slot-under-floor.yaml
+  - scenarios/precedence-route-handled-report.yaml
+  - scenarios/precedence-handle-routed-need.yaml
+  - scenarios/precedence-negative-priority-self-wait.yaml
+  - scenarios/conductor-reverses-operator-decision.yaml
+  - scenarios/adv-escalated-answered-with-conductor-decision.yaml
+  - scenarios/adv-send-dispatch-without-waits-on.yaml
+  - scenarios/propose-goal-twice.yaml
+  - scenarios/goal-id-bounds.yaml
+  - scenarios/record-decision-twice.yaml
+  - scenarios/raise-request-twice.yaml
+  - scenarios/send-dispatch-twice.yaml
+  - scenarios/receive-message-unknown-kind.yaml

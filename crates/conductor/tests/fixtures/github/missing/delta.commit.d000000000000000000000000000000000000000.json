@@ -1,0 +1,6 @@
+{
+  "sha": "d000000000000000000000000000000000000000",
+  "commit": {"message": "fix: keep the delta order", "committer": {"date": "2026-10-03T09:30:00Z"}},
+  "parents": [{"sha": "c000000000000000000000000000000000000000"}],
+  "files": [{"filename": "src/order.rs", "status": "modified"}, {"filename": "Cargo.lock", "status": "modified"}]
+}

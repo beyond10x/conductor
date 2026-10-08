@@ -1,0 +1,10 @@
+[
+  {"conclusion": "failure", "createdAt": "2026-10-05T10:00:00Z", "status": "completed", "workflowName": "CI"},
+  {"conclusion": "", "createdAt": "2026-10-06T12:00:00Z", "status": "in_progress", "workflowName": "Pages"},
+  {"conclusion": "success", "createdAt": "2026-10-06T10:00:00Z", "status": "completed", "workflowName": "CI"},
+  {"conclusion": "success", "createdAt": "2026-10-03T10:00:00Z", "status": "completed", "workflowName": "Release"},
+  {"conclusion": "failure", "createdAt": "2026-10-04T10:00:00Z", "status": "completed", "workflowName": "Release"},
+  {"conclusion": "timed_out", "createdAt": "2026-10-02T03:00:00Z", "status": "completed", "workflowName": "Nightly"},
+  {"conclusion": "skipped", "createdAt": "2026-10-01T10:00:00Z", "status": "completed", "workflowName": "Docs"},
+  {"conclusion": "success", "createdAt": "2026-10-05T12:00:00Z", "status": "completed", "workflowName": "Pages"}
+]

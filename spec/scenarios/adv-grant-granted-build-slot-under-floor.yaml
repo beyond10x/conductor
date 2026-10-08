@@ -1,0 +1,41 @@
+# Row 23: `below-disk-floor` says "no build slot was granted" and "the request stays open". A build
+# slot already granted is neither: granting it again is the request "already answered"
+# (`wrong-state`), whatever the free disk is now.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: adv-grant-granted-build-slot-under-floor
+summary: Granting a build slot already granted is refused as already answered, under the floor too.
+
+arrange:
+  - instance: slot
+    entity: conductor.dispatch.ResourceRequest
+
+timeline:
+  - at: 2026-10-06T09:00:00Z
+    command: conductor.dispatch.RequestResource
+    actor: conductor.dispatch.RepositoryController
+    input:
+      repository: cortex
+      resource: BuildSlot
+      amount: 1
+      requested_at: 2026-10-06T09:00:00Z
+    outcome: requested
+    capture: {instance: slot, event: conductor.dispatch.ResourceRequested, field: resource_request_id}
+
+  - at: 2026-10-06T09:00:01Z
+    command: conductor.dispatch.GrantResource
+    actor: conductor.dispatch.Conductor
+    input:
+      resource_request_id: {$instance: slot}
+      disk_free_bytes: 64424509440
+    outcome: granted
+
+  - at: 2026-10-06T09:00:02Z
+    command: conductor.dispatch.GrantResource
+    actor: conductor.dispatch.Conductor
+    input:
+      resource_request_id: {$instance: slot}
+      disk_free_bytes: 10737418240
+    outcome: wrong-state
+    error:
+      name: conductor.dispatch.ResourceRequestStateConflict

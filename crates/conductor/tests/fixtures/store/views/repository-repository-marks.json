@@ -1,0 +1,1 @@
+[{"repository":"alpha","state":"Active","marked_by":"Conductor","reason":"resumed"},{"repository":"beta","state":"Inactive","marked_by":"Operator","reason":"superseded by alpha"}]
