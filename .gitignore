@@ -2,3 +2,6 @@ state/
 .engineering/drafts/
 target/
 crates/conductor-model/.ess-output/
+website/node_modules/
+website/build/
+website/.docusaurus/

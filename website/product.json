@@ -1,0 +1,155 @@
+{
+  "format": "b10x-product-landing/1",
+  "product": {
+    "name": "Conductor",
+    "mark": "Cd",
+    "eyebrow": "Agent session control loop · early",
+    "promise": [
+      "One session runs the organization.",
+      "Controllers do the work. The operator decides what matters."
+    ],
+    "lede": "Conductor coordinates coding-agent sessions across the repositories of one organization. One background session, conductor, reads every repository, starts one controller session per repository and takes the routine decisions those controllers raise; architectural decisions go to the operator. The conductor CLI reads the repositories, keeps the records and guards the sessions.",
+    "actions": [
+      {
+        "label": "Get started",
+        "href": "/docs/getting-started",
+        "kind": "primary"
+      },
+      {
+        "label": "Read the documentation",
+        "href": "/docs/"
+      },
+      {
+        "label": "What exists today",
+        "href": "/docs/status"
+      }
+    ],
+    "meta": "Rust CLI · Claude Code sessions · specified in ESS · Apache-2.0",
+    "kpis": [
+      "shipped",
+      "planned"
+    ]
+  },
+  "sections": [
+    {
+      "kind": "features",
+      "eyebrow": "What it does",
+      "title": "One loop over every repository.",
+      "lede": "Conductor keeps only its own records: decisions, dispatches, goals, controllers, messages, guard verdicts and snapshots. Every other fact stays with the tool that owns it, and conductor never edits another repository.",
+      "items": [
+        {
+          "title": "One snapshot of every repository",
+          "description": "conductor snapshot start-snapshot runs five collectors: git state, pull requests and main CI, open planning blockers, specification status and live sessions. A snapshot completes only when all five answered.",
+          "status": "shipped",
+          "href": "/docs/concepts/the-loop"
+        },
+        {
+          "title": "Decisions by class",
+          "description": "Conductor takes and records routine class-C decisions, escalates class O to the operator and lists class H for the operator's hands. The CLI refuses a class-O or class-H decision recorded as conductor's.",
+          "status": "shipped",
+          "href": "/docs/concepts/decisions-and-messages"
+        },
+        {
+          "title": "A guard on every controller",
+          "description": "A PreToolUse hook denies a controller's file edits outside its repository and its messages to anyone but conductor. It catches mistakes; it is not a sandbox.",
+          "status": "shipped",
+          "href": "/docs/concepts/the-guard"
+        },
+        {
+          "title": "A watch between cycles",
+          "description": "conductor watch run wakes conductor when a session exits, hits a usage limit or fills its context, when main CI turns red or green, or when disk runs low.",
+          "status": "shipped",
+          "href": "/docs/concepts/the-loop"
+        },
+        {
+          "title": "Starting a controller's session from the CLI",
+          "description": "controller start-controller records the controller only; the conductor session starts the harness session itself.",
+          "status": "planned",
+          "href": "/docs/concepts/roles"
+        },
+        {
+          "title": "An operating-system sandbox for Bash",
+          "description": "The guard reads a Bash command line but does not bound where it writes. A sandbox that does is planned.",
+          "status": "planned",
+          "href": "/docs/concepts/the-guard"
+        }
+      ]
+    },
+    {
+      "kind": "flow",
+      "eyebrow": "One cycle",
+      "title": "Sense, decide, dispatch, record.",
+      "lede": "A cycle runs on the instance's cadence, once a day with the operator brief, and whenever a controller reports. The CLI senses and records; the session compares, decides and dispatches.",
+      "steps": [
+        {
+          "label": "CLI",
+          "title": "Sense",
+          "description": "One snapshot of every repository, kept in the store."
+        },
+        {
+          "label": "Session",
+          "title": "Compare",
+          "description": "Which goal each repository's work serves; idle goals; red signals."
+        },
+        {
+          "label": "Session",
+          "title": "Decide",
+          "description": "Answer controller requests; escalate class O and H to the operator."
+        },
+        {
+          "label": "Session",
+          "title": "Dispatch",
+          "description": "Start, steer or stop a controller, one brief each."
+        },
+        {
+          "label": "CLI",
+          "title": "Record",
+          "description": "One record per decision, dispatch and message."
+        },
+        {
+          "label": "Session",
+          "title": "Report",
+          "description": "The operator brief: once a day and on escalation, deviations only."
+        }
+      ]
+    },
+    {
+      "kind": "status",
+      "eyebrow": "Status",
+      "title": "Early. Here is exactly what exists.",
+      "lede": "Shipped means code on main today, held by a test. Planned means on the plan only. Nothing is released yet. Generated by conductor-docs.",
+      "items": "data/status.json"
+    },
+    {
+      "kind": "related",
+      "eyebrow": "Related tools",
+      "title": "Where conductor sits.",
+      "tools": [
+        {
+          "id": "ess",
+          "relation": "specifies"
+        },
+        {
+          "name": "AEP",
+          "description": "Each repository's planning store. Controllers plan and deliver through it; conductor's blockers collector reads its open decision blockers.",
+          "href": "https://beyond10x.github.io/ecosystem/aep/"
+        },
+        {
+          "name": "Eventlog",
+          "description": "The event store under conductor's records: one stream per record in an eventlog tree store.",
+          "href": "https://beyond10x.github.io/ecosystem/eventlog/"
+        },
+        {
+          "name": "Worktree",
+          "description": "Managed worktrees beside each checkout. The guard treats them as the repository's own; the dashboard reads their cleanup dry-runs.",
+          "href": "https://beyond10x.github.io/ecosystem/worktree/"
+        },
+        {
+          "name": "Gates",
+          "description": "Common security and privacy checks. Conductor's own gate scans every tracked file with them.",
+          "href": "https://github.com/beyond10x/gates"
+        }
+      ]
+    }
+  ]
+}
