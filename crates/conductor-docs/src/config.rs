@@ -56,6 +56,7 @@ instances:
         model: sonnet
         agent: repo-controller
         settings: ~/example-org/controller-settings.json
+        profile: ~/example-org/repo-controller.md
     controllers:
       max_working: 2
       max_subagents: 2

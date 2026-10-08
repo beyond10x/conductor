@@ -120,10 +120,13 @@ implementors word for word.
   1. lists every controller whose transcript tail holds `"error":"rate_limit"` or that
      `claude agents --json` shows `blocked` with no pid, and records each one's resume point;
   2. tells every one to continue at once when usage returns: `claude respawn <id>`, or where that
-     refuses, `cd <its cwd> && claude --bg --resume <sessionId> -n <repo> --agent <controller
-     agent> --model <controller model> --permission-mode bypassPermissions --settings <controller
-     settings> "$(cat <resume brief file>)"`, the brief written first to a file under your
-     scratch directory; a live idle controller continues by a message;
+     refuses, `cd <its cwd> && claude --bg --resume <sessionId> -n <repo>
+     --append-system-prompt-file <controller profile> --model <controller model> --permission-mode
+     bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat
+     <resume brief file>)"`, with `--agent <controller agent>` in place of
+     `--append-system-prompt-file <controller profile>` when the `controller` role names no
+     `profile`, the brief written first to a file under your scratch directory; a live idle
+     controller continues by a message;
   3. except: a session over `thresholds.context_handover` starts fresh from its hand-over, and a
      session whose repository has a newer controller, or whose dispatch is done, is not resumed.
      Log one `resumed` line per session.
@@ -159,9 +162,12 @@ not encouragement. A message whose first line does not parse gets the format bac
 else.
 
 Start a controller with
-`cd <checkouts root>/<repo> && claude --bg -n <repo> --agent <controller agent> --model <controller model> --permission-mode bypassPermissions --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
-or `conductor spawn <repo>` once it exists. A controller is never started without `--settings`:
-that file wires the guard. Charter and brief text reaches the command only as `"$(cat <file>)"`,
+`cd <checkouts root>/<repo> && claude --bg -n <repo> --append-system-prompt-file <controller profile> --model <controller model> --permission-mode bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
+or `conductor spawn <repo>` once it exists. `<controller profile>` is the `controller` role's
+`profile`; when it names none, write `--agent <controller agent>` in its place. A controller is
+never started without `--settings` and `--setting-sources project,local`: the settings file
+wires the guard and carries everything the session needs, and the user's own settings are not
+loaded. Charter and brief text reaches the command only as `"$(cat <file>)"`,
 never typed inside the double quotes, where a `$(…)` or a backtick in it would run. A controller
 in another permission mode holds every message until the operator approves it. A live session the
 operator started is not yours until its current wave ends; message it only to offer the charter.

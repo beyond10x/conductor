@@ -33,11 +33,11 @@
 //!   snapshots whose observations are kept (`Retention`'s);
 //! - the free disk from which the full-gate watchdog resumes a gate lies above the one under
 //!   which it stops it (`Thresholds`'s invariant `gate_resume > gate_stop`);
-//! - a path (a role's `settings` and `thresholds.disk_path` among them) is absolute or under `~`,
-//!   which expands to the home directory;
-//! - a role's `model`, `agent` and `settings` are each a `conductor.config.CommandWord`: letters,
-//!   digits and `.`, `_`, `:`, `/`, `-` only, the alphabet the specification declares, because a
-//!   start command passes each to the harness as one shell word;
+//! - a path (a role's `settings` and `profile` and `thresholds.disk_path` among them) is absolute
+//!   or under `~`, which expands to the home directory;
+//! - a role's `model`, `agent`, `settings` and `profile` are each a `conductor.config.CommandWord`:
+//!   letters, digits and `.`, `_`, `:`, `/`, `-` only, the alphabet the specification declares,
+//!   because a start command passes each to the harness as one shell word;
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
 //!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed.
 //!
@@ -45,8 +45,8 @@
 //! `state` and `cache` are `~/.b10x/conductor/<name>/records`, `~/.b10x/conductor/<name>/state`
 //! and `~/.cache/b10x/conductor/<name>`; `roles`, `controllers`, `cadence`, `thresholds`,
 //! `retention` and `authority`, and each key of the last five, are the built-in defaults;
-//! `repositories` and `reports` are empty; `operator`, `catalog`, and a role's `agent` and
-//! `settings`, are absent, and `config show` writes an absent one as null; a catalog's `names` is
+//! `repositories` and `reports` are empty; `operator`, `catalog`, and a role's `agent`,
+//! `settings` and `profile`, are absent, and `config show` writes an absent one as null; a catalog's `names` is
 //! `plain`. The built-in instance names no catalog.
 //!
 //! Nothing else reads the config yet: the global `--config` is parsed on every command and read
@@ -100,7 +100,7 @@ const ROLES: [&str; 3] = ["conductor", "conductor-dev", "controller"];
 const MODEL: &str = "opus";
 
 /// The characters of a `conductor.config.CommandWord`, the alphabet `spec/domains/config.yaml`
-/// declares for it: a role's `model`, `agent` and `settings` hold only these.
+/// declares for it: a role's `model`, `agent`, `settings` and `profile` hold only these.
 const COMMAND_WORD: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-";
 
 /// Hours between two cycles: the job `17 */2 * * *` of `.agents/conductor.md`.
@@ -192,7 +192,7 @@ const INSTANCE_KEYS: [&str; 16] = [
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 4] = ["github", "local", "gitlab", "exclude"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 5] = ["role", "harness", "model", "agent", "settings"];
+const ROLE_KEYS: [&str; 6] = ["role", "harness", "model", "agent", "settings", "profile"];
 const CONTROLLER_KEYS: [&str; 2] = ["max_working", "max_subagents"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
@@ -547,6 +547,7 @@ fn default_roles() -> Vec<Role> {
             model: CommandWord(MODEL.to_owned()),
             agent: None,
             settings: None,
+            profile: None,
         })
         .collect()
 }
@@ -1313,12 +1314,22 @@ impl Reader<'_> {
             }
             None => Some(None),
         };
+        let profile = match Self::get(map, "profile") {
+            Some(value) => {
+                let at = join(path, "profile");
+                self.path(value, &at)
+                    .and_then(|text| self.command_word(text, &at))
+                    .map(Some)
+            }
+            None => Some(None),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
             model: model?,
             agent: agent?,
             settings: settings?,
+            profile: profile?,
         })
     }
 
@@ -1652,6 +1663,10 @@ pub fn document(instance: &Instance) -> Yaml {
                 (
                     "settings",
                     optional(role.settings.as_ref().map(|settings| &settings.0)),
+                ),
+                (
+                    "profile",
+                    optional(role.profile.as_ref().map(|profile| &profile.0)),
                 ),
             ])
         })

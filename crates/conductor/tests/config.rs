@@ -375,10 +375,11 @@ fn show_without_a_file_prints_todays_constants() {
     );
     // Taskfile.yml:20 (conductor), Taskfile.yml:48 (conductor-dev) and
     // .agents/conductor.md:177 (a controller): `claude … --model opus`; no role names an agent or
-    // a settings file.
+    // a settings file or a profile.
     let role = |name: &str| {
         serde_json::json!({
-            "role": name, "harness": "claude", "model": "opus", "agent": null, "settings": null
+            "role": name, "harness": "claude", "model": "opus", "agent": null, "settings": null,
+            "profile": null
         })
     };
     assert_eq!(
@@ -582,10 +583,11 @@ fn the_session_profile_keys_validate_and_show_as_written() {
                 "role": "controller", "harness": "claude", "model": "opus",
                 "agent": "repo-controller",
                 "settings": path_text(&home.join("profiles/controller.json")),
+                "profile": null,
             },
             {
                 "role": "conductor", "harness": "codex", "model": "gpt-fixture",
-                "agent": null, "settings": "/srv/conductor.json",
+                "agent": null, "settings": "/srv/conductor.json", "profile": null,
             },
         ]),
         "{shown:#}"
@@ -653,7 +655,7 @@ fn without_the_session_profile_keys_a_file_shows_their_defaults() {
             one["roles"],
             serde_json::json!([{
                 "role": "controller", "harness": "claude", "model": "opus",
-                "agent": null, "settings": null,
+                "agent": null, "settings": null, "profile": null,
             }]),
             "{name}: {shown:#}"
         );
@@ -841,6 +843,83 @@ fn a_role_s_command_words_hold_only_shell_safe_characters() {
     }
 }
 
+/// A role's `profile` is the profile file its session starts with through
+/// `--append-system-prompt-file`: a path, absolute or under `~`, that a start command passes as
+/// one shell word. Written, it validates and is shown absolute; absent, it is shown as null; a
+/// relative path or one outside [`COMMAND_WORD`] is refused by its YAML path. The specification
+/// declares it as an optional `conductor.config.CommandWord`.
+#[test]
+fn a_role_s_profile_is_a_path_shown_absolute_and_refused_when_relative() {
+    let case = Case::new("role-profile");
+    let file = case.write(
+        "profile.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: controller, harness: claude, model: opus, \
+             profile: ~/profiles/repo-controller.md}\n\
+             \x20     - {role: conductor, harness: claude, model: opus, \
+             profile: /srv/conductor.md}\n\
+             \x20     - {role: conductor-dev, harness: claude, model: opus}\n",
+        ),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+
+    let shown = case.show(&file, &[]);
+    let roles = &instance(&shown)["roles"];
+    let home = case.home();
+    let controller = path_text(&home.join("profiles/repo-controller.md"));
+    assert_eq!(roles[0]["profile"], controller.as_str(), "{shown:#}");
+    assert_eq!(roles[1]["profile"], "/srv/conductor.md", "{shown:#}");
+    assert_eq!(roles[2]["profile"], Value::Null, "{shown:#}");
+
+    let text = case.with_file(&file, &["config", "show"]);
+    assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+    let text = String::from_utf8_lossy(&text.stdout);
+    let line = format!("instances[0].roles[0].profile: {controller}");
+    assert!(
+        text.lines().any(|shown| shown == line),
+        "no line `{line}`: {text}"
+    );
+
+    for (name, profile) in [
+        ("profile-relative", "profile.md"),
+        ("profile-dot-relative", "./profile.md"),
+        ("profile-space", "\"~/a b.md\""),
+        ("profile-dollar", "\"/srv/$HOME.md\""),
+        ("profile-empty", "\"\""),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &one_instance(&format!(
+                "\x20   roles: [{{role: controller, harness: claude, model: opus, \
+                 profile: {profile}}}]\n"
+            )),
+        );
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains("instances[0].roles[0].profile: "),
+            "{name}: {problems}"
+        );
+    }
+
+    let fields = model()["types"]["conductor.config.Role"]["body"]["fields"]
+        .as_array()
+        .expect("Role's fields");
+    let field = fields
+        .iter()
+        .find(|field| field["name"] == "profile")
+        .expect("Role declares profile");
+    assert_eq!(
+        field["type_ref"],
+        serde_json::json!({
+            "kind": "optional",
+            "of": {"kind": "declared", "name": "conductor.config.CommandWord"},
+        }),
+        "Role.profile is an optional CommandWord: {field:#}"
+    );
+}
+
 #[test]
 fn show_without_a_file_answers_the_built_in_instance_by_name_only() {
     let case = Case::new("show-defaults-instance");
@@ -937,7 +1016,7 @@ fn the_instance_flag_picks_one_and_fills_its_defaults() {
         second["roles"],
         serde_json::json!([{
             "role": "conductor", "harness": "codex", "model": "gpt-fixture",
-            "agent": null, "settings": null,
+            "agent": null, "settings": null, "profile": null,
         }]),
         "{shown:#}"
     );
