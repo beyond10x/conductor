@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:docs-crate
 kind: story
-status: active
+status: implemented
 title: A conductor-docs crate generates the reference pages and the status page
 scope:
 - confidence: cited
@@ -17,10 +17,11 @@ scope:
   path: website/data/status.json
 - confidence: cited
   path: website/docs/reference
-revision: 9
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-08T17:35:27Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-08T17:35:27Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-08T19:02:55Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

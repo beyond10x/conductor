@@ -2,9 +2,18 @@
 format: aep.planning-md/3
 id: story:append-cost-test-under-load
 kind: story
-status: draft
+status: implemented
 title: The append-cost test does not fail on a loaded host
-revision: 1
+scope:
+- confidence: cited
+  path: Taskfile.yml
+- confidence: cited
+  path: crates/conductor/tests/store_tree.rs
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-08T18:54:45Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-08T18:54:45Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-08T19:02:55Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

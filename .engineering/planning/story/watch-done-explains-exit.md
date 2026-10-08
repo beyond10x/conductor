@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:watch-done-explains-exit
 kind: story
-status: active
+status: implemented
 title: A dispatch's done line explains the exit of the session its sent line names
 scope:
 - confidence: cited
@@ -11,10 +11,11 @@ scope:
   path: crates/conductor/tests/watch.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-08T17:35:27Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-08T17:35:27Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-08T19:02:55Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

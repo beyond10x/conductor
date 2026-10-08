@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:instance-records-start
 kind: story
-status: active
+status: implemented
 title: Conductor's tasks run conductor in the instance's records directory
 scope:
 - confidence: cited
   path: Taskfile.yml
 - confidence: inferred
   path: crates/conductor/tests/taskfile.rs
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-08T17:35:27Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-08T17:35:27Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-08T19:02:55Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1,"review_outcome":6}}}
 ---
 ## Why
 
