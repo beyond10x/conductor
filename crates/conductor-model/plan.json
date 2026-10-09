@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "91b1e04b9d3f40c554bf0e78f07a6160c885b7e7f6864fec9da0ee72675cfe04",
-    "contract_digest": "af130e1a335a2c4eb9139d6a63b92dd42a89d0b92bb1c80ec5e4354e782de74a"
+    "source_digest": "ad48b54e5a5c7a5d26726034920a9e4f29b75cf4fcd6e4d110ea66a2c8f4c0ee",
+    "contract_digest": "9a2f202e3be77909ed7d34751b7e034f9ab12fe69955c93088bd68334629114c"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -48,6 +48,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.CommandWord",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConductorSession",
       "disposition": {
         "disposition": "generated"
       }
@@ -160,6 +167,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Role",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SessionName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SessionPrefix",
       "disposition": {
         "disposition": "generated"
       }

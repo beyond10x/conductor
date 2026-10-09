@@ -18,6 +18,7 @@ use conductor_model::behaviour::{
     ResourceRequestStorage, SessionObservationStorage, SnapshotStorage,
     SpecificationObservationStorage, WorkflowRunObservationStorage,
 };
+use conductor_model::config::SessionName;
 use conductor_model::direction::obligations::{
     ConfirmGoalBehavior, GoalsQuery, ProposeGoalBehavior,
 };
@@ -535,7 +536,7 @@ fn adv_w05_every_other_view_lists_its_readable_row_and_names_each_unreadable_rec
                     controller_id: ControllerId(Uuid(readable.to_owned())),
                     repository: RepositoryName("delta".to_owned()),
                     harness: Harness::Claude,
-                    session_name: RepositoryName("delta".to_owned()),
+                    session_name: SessionName("delta".to_owned()),
                     charter_revision: 1,
                 },
             },

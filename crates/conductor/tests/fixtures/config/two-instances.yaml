@@ -5,6 +5,7 @@ instances:
       - github: first-org
     checkouts: {root: ~/first-org, trees: ~/.local/state/worktree/trees/first}
   - name: second-org
+    session_prefix: second
     sources:
       - local: ~/src/second
     checkouts: {root: /srv/second, trees: /srv/second-trees}

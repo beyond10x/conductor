@@ -340,7 +340,8 @@ fn unplaced() -> Value {
 // instance is refused with its YAML path.
 // ---------------------------------------------------------------------------------------------
 
-/// Two instances, `a` and `b`, and `default: <default>`.
+/// Two instances, `a` and `b`, and `default: <default>`; `b` carries the session prefix `b`, since
+/// at most one instance keeps the bare session names (story:instance-session-names).
 fn two_instances(default: &str) -> String {
     format!(
         "version: conductor.config/1\n\
@@ -350,6 +351,7 @@ fn two_instances(default: &str) -> String {
          \x20   sources: [{{github: acme}}]\n\
          \x20   checkouts: {{root: /fixture-home/a, trees: /fixture-home/a-trees}}\n\
          \x20 - name: b\n\
+         \x20   session_prefix: b\n\
          \x20   sources: [{{gitlab: acme-group}}]\n\
          \x20   checkouts: {{root: /fixture-home/b, trees: /fixture-home/b-trees}}\n"
     )

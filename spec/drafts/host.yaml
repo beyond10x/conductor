@@ -13,16 +13,8 @@ naming:
   display: Host
 
 types:
-  # The prefix every session of one instance carries: `<prefix>-conductor`, `<prefix>-<repository>`,
-  # `<prefix>-conductor-dev`. Default: the instance name. Letters, digits, `-`; unique per host.
-  - name: conductor.host.SessionPrefix
-    kind: newtype
-    of: String
-
-  # A harness session name on this machine. Always `<SessionPrefix>-<role or repository>`.
-  - name: conductor.host.SessionName
-    kind: newtype
-    of: String
+  # A session's name and its instance's prefix are `conductor.config.SessionName` and
+  # `conductor.config.SessionPrefix` (story:instance-session-names).
 
   - name: conductor.host.GrantId
     kind: newtype
@@ -49,7 +41,7 @@ entities:
       - name: gibibytes
         type: Optional<conductor.config.Gibibytes>
       - name: session_name
-        type: conductor.host.SessionName
+        type: conductor.config.SessionName
       - name: granted_at
         type: Timestamp
     # UNMAPPED: whether a grant expires by time, or only when its session leaves the session list.
@@ -108,7 +100,7 @@ commands:
       - name: gibibytes
         type: Optional<conductor.config.Gibibytes>
       - name: session_name
-        type: conductor.host.SessionName
+        type: conductor.config.SessionName
       - name: granted_at
         type: Timestamp
     outcomes:

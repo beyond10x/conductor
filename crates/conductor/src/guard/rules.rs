@@ -19,7 +19,11 @@
 //! | tool | controller: denied when | conductor: denied when |
 //! |---|---|---|
 //! | Edit, Write, NotebookEdit | the target is `<config>`, wherever it is; is outside `<root>/<repo>/` and `<trees>/<repo>/`; is in `<records>`; is a `<settings>` or a `<profile>`; or is a `.claude/` settings file (a `.json` whose name holds `settings`: `settings.json`, `settings.local.json`, `controller-settings.json`, `conductor-settings.json`) inside them | the target is a `<settings>`, a `<profile>` or a `.claude/` settings file, or is not one of conductor's records |
-//! | SendMessage | the recipient is anyone but `conductor` or `conductor [<ref>]` ([`conductor_name`]); an agent the session started, by its id ([`is_own_agent_id`]); or a socket address `uds:<path>/<pid>.sock` whose pid, where the path lands, the session list ([`SessionList`]) gives a live session named `conductor` | never |
+//! | SendMessage | the recipient is anyone but `<conductor>` or `<conductor> [<ref>]` ([`named`]); an agent the session started, by its id ([`is_own_agent_id`]); or a socket address `uds:<path>/<pid>.sock` whose pid, where the path lands, the session list ([`SessionList`]) gives a live session named `<conductor>` | with a `session_prefix` `<p>`: the recipient is anyone but a session named `<p>-<name>` (or `<p>-<name> [<ref>]`); an agent the session started; or a socket address whose pid the session list gives a live session named `<p>-<name>`. Without one: never |
+//!
+//! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
+//! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
+//! recipient whose name carries another instance's prefix is named with both instances.
 //! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf that is not one of [`READ_LEAVES`] ([`conductor_write`]); or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
 //! The Bash row is a heuristic over the command line (design § 7: it catches the common forms,
@@ -50,7 +54,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::Instance;
+use conductor_model::config::{Instance, SessionPrefix};
 use conductor_model::dispatch::Verdict;
 use serde_json::Value;
 
@@ -84,7 +88,8 @@ impl Default for SessionList {
 
 /// Conductor's name: the repository whose sessions conductor's rule decides when there is no
 /// config file, the repository a session in conductor's records is recorded under, and the name a
-/// controller messages.
+/// controller messages, `<session_prefix>-conductor` when the instance has a prefix
+/// ([`Places::conductor_session`]).
 pub(super) const CONDUCTOR: &str = "conductor";
 
 /// Conductor's records: directories, under its records.
@@ -121,6 +126,18 @@ pub struct Places {
     /// The `profile` file of each role of the instance: the system prompt its sessions start with,
     /// which no session writes.
     profiles: Vec<PathBuf>,
+    /// The instance's name, for a denial to name.
+    instance: String,
+    /// The instance's `session_prefix` (`story:instance-session-names`); `None` keeps today's
+    /// session names and rules.
+    prefix: Option<String>,
+    /// Every instance of the config file, the instance first, each checkouts root and managed
+    /// trees where they land ([`real`]): where a recipient belongs is read against them
+    /// ([`collect::session_instance`]).
+    instances: Vec<Instance>,
+    /// The file's `default` instance, whose conductor serves every instance that names no
+    /// `conductor` role.
+    default: Option<String>,
 }
 
 impl Places {
@@ -129,7 +146,7 @@ impl Places {
     /// records are under that repository's checkout.
     #[must_use]
     pub fn built_in(home: &Path) -> Self {
-        Self::of(home, &config::built_in(home, home), false)
+        Self::of(home, &config::built_in(home, home), false, &[], None)
     }
 
     /// The places of `active`, `home` being the home directory: with a config file, its
@@ -137,10 +154,37 @@ impl Places {
     /// records are; without one, [`Places::built_in`].
     #[must_use]
     pub fn active(home: &Path, active: &Active) -> Self {
-        Self::of(home, &active.instance, active.from_file)
+        Self::of(
+            home,
+            &active.instance,
+            active.from_file,
+            &active.others,
+            active.default.as_ref().map(|name| name.0.clone()),
+        )
     }
 
-    fn of(home: &Path, instance: &Instance, from_file: bool) -> Self {
+    fn of(
+        home: &Path,
+        instance: &Instance,
+        from_file: bool,
+        others: &[Instance],
+        default: Option<String>,
+    ) -> Self {
+        // What reading a recipient needs of an instance: its name, prefix, roles and checkouts,
+        // the checkouts where they land; its records, state and cache are left out.
+        let landing = |instance: &Instance| {
+            let mut instance = instance.clone();
+            instance.records = String::new();
+            instance.state = String::new();
+            instance.cache = String::new();
+            instance.checkouts.root = real(Path::new(&instance.checkouts.root))
+                .to_string_lossy()
+                .into_owned();
+            instance.checkouts.trees = real(Path::new(&instance.checkouts.trees))
+                .to_string_lossy()
+                .into_owned();
+            instance
+        };
         Self {
             home: home.to_path_buf(),
             checkouts: PathBuf::from(&instance.checkouts.root),
@@ -162,7 +206,80 @@ impl Places {
                 .filter_map(|role| role.profile.as_ref())
                 .map(|profile| PathBuf::from(&profile.0))
                 .collect(),
+            instance: instance.name.0.clone(),
+            prefix: instance
+                .session_prefix
+                .as_ref()
+                .map(|SessionPrefix(prefix)| prefix.clone()),
+            instances: std::iter::once(instance)
+                .chain(others)
+                .map(landing)
+                .collect(),
+            default,
         }
+    }
+
+    /// The instance itself.
+    fn this(&self) -> Option<&Instance> {
+        self.instances.first()
+    }
+
+    /// The name of the conductor session a controller of the instance messages: the instance's
+    /// `conductor.session_name` (`config::conductor_session`), its own `<prefix>-conductor` or
+    /// `conductor`, or the conductor of the file's `default` instance when that serves it.
+    fn conductor_session(&self) -> String {
+        self.this()
+            .and_then(|this| this.conductor.session_name.as_ref())
+            .map_or_else(
+                || match &self.prefix {
+                    Some(prefix) => format!("{prefix}-{CONDUCTOR}"),
+                    None => CONDUCTOR.to_owned(),
+                },
+                |name| name.0.clone(),
+            )
+    }
+
+    /// The instance the session named `name`, working in `cwd` where known, belongs to
+    /// ([`collect::session_instance`]).
+    fn owner(&self, name: &str, cwd: Option<&Path>) -> Option<&Instance> {
+        let instances: Vec<&Instance> = self.instances.iter().collect();
+        collect::session_instance(&instances, name, cwd)
+    }
+
+    /// Whether conductor of this instance messages the sessions of `instance`: its own, and, as
+    /// the conductor of the file's `default` instance, those of every instance that names no
+    /// `conductor` role.
+    fn serves(&self, instance: &Instance) -> bool {
+        instance.name.0 == self.instance
+            || (self.default.as_deref() == Some(self.instance.as_str())
+                && !config::has_conductor(instance))
+    }
+
+    /// Whether where a recipient works can decide whose it is against its name: another instance
+    /// keeps the bare names, so a name that seems to carry a prefix may be that instance's own
+    /// controller, named after its repository.
+    fn reads_directories(&self) -> bool {
+        self.instances
+            .iter()
+            .skip(1)
+            .any(|instance| instance.session_prefix.is_none())
+    }
+
+    /// What a denial of a message to `name`, working in `cwd` where known, adds when it is
+    /// another instance's session: both instances, named.
+    fn other_instance(&self, name: &str, cwd: Option<&Path>) -> String {
+        self.owner(name, cwd)
+            .filter(|owner| owner.name.0 != self.instance)
+            .map_or_else(String::new, |owner| {
+                let prefix = owner.session_prefix.as_ref().map_or_else(
+                    || "no session prefix".to_owned(),
+                    |prefix| format!("session prefix {}", prefix.0),
+                );
+                format!(
+                    " (a session of instance {}, {prefix}; this session is instance {}'s)",
+                    owner.name.0, self.instance
+                )
+            })
     }
 
     /// These places, with `dir` as the session's temporary directory when it is absolute and,
@@ -764,39 +881,52 @@ impl Session<'_> {
     }
 
     /// SendMessage: the verdict on messaging `to`, whose `recipient` field, when present, must
-    /// name the same session: in either form of conductor's name ([`conductor_name`]), otherwise
-    /// as `to` does.
+    /// name the same session: in either form of its name ([`named`]), otherwise as `to` does.
     pub(super) fn message(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
-        if self.rules == Rules::Conductor {
-            return (
+        match (self.rules, &self.places.prefix) {
+            // Alone in its file, a conductor without a prefix keeps today's rule.
+            (Rules::Conductor, None) if self.places.instances.len() <= 1 => (
                 Verdict::Allow,
                 "conductor's SendMessage is not restricted".to_owned(),
-            );
+            ),
+            (Rules::Conductor, prefix) => self.conductor_message(prefix.as_deref(), to, recipient),
+            (Rules::Controller, _) => self.controller_message(to, recipient),
         }
+    }
+
+    /// A controller's SendMessage: to its instance's conductor session ([`Places::conductor_session`])
+    /// by name, ref or socket, or to an agent it started.
+    fn controller_message(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
+        let conductor = self.places.conductor_session();
+        let only = format!("a controller messages only {conductor}");
         let Some(to) = to else {
             return (
                 Verdict::Deny,
-                "SendMessage names no recipient: a controller messages only conductor".to_owned(),
+                format!("SendMessage names no recipient: {only}"),
             );
         };
         let denied = |why: &str| {
+            let base = named_base(to);
             (
                 Verdict::Deny,
-                format!("SendMessage to {to:?}{why}: a controller messages only conductor"),
+                format!(
+                    "SendMessage to {to:?}{why}: {only}{}",
+                    self.places.other_instance(base, None)
+                ),
             )
         };
-        if let Some(reference) = conductor_name(to) {
+        if let Some(reference) = named(to, &conductor) {
             let same = |other: Option<&str>| match (reference, other) {
                 (Some(reference), Some(other)) => reference == other,
                 _ => true,
             };
             return match recipient {
-                Some(recipient) if !conductor_name(recipient).is_some_and(same) => {
+                Some(recipient) if !named(recipient, &conductor).is_some_and(same) => {
                     denied(&format!(" with recipient {recipient:?}"))
                 }
                 _ => (
                     Verdict::Allow,
-                    format!("SendMessage to {to:?}: a session named conductor"),
+                    format!("SendMessage to {to:?}: a session named {conductor}"),
                 ),
             };
         }
@@ -810,20 +940,160 @@ impl Session<'_> {
             );
         }
         match to.strip_prefix(SOCKET_SCHEME) {
-            Some(path) => self.socket(to, path),
+            Some(path) => self.socket(to, path, &conductor, &only, &|name, _| name == conductor),
             None => denied(""),
         }
     }
 
-    /// SendMessage to the socket address `to`, `uds:` and `path`: allowed when `path` lands on
-    /// `<pid>.sock` and the session list holds a live session named `conductor` with that pid.
-    fn socket(&self, to: &str, path: &str) -> (Verdict, String) {
-        let denied = |why: String| {
-            (
-                Verdict::Deny,
-                format!("SendMessage to {to:?}{why}: a controller messages only conductor"),
-            )
+    /// Conductor's SendMessage, its instance having the session prefix `prefix`: to a session
+    /// named `<prefix>-<name>` by name, ref or socket, or to an agent it started.
+    fn conductor_message(
+        &self,
+        prefix: Option<&str>,
+        to: Option<&str>,
+        recipient: Option<&str>,
+    ) -> (Verdict, String) {
+        let places = self.places;
+        let only = match prefix {
+            Some(prefix) => format!(
+                "conductor of instance {} messages only sessions named {prefix}-<name>, and those \
+                 of the instances it serves",
+                places.instance
+            ),
+            None => format!(
+                "conductor of instance {} messages its own sessions and those of the instances it \
+                 serves, and no session of an instance that names its own conductor role",
+                places.instance
+            ),
         };
+        // Whose sessions it messages: those of the instances it serves; one no instance claims is
+        // its own when it keeps the bare names (correction round 2, decision 1).
+        let allowed = |owner: Option<&Instance>| match owner {
+            Some(owner) => places.serves(owner),
+            None => prefix.is_none(),
+        };
+        let Some(to) = to else {
+            return (
+                Verdict::Deny,
+                format!("SendMessage names no recipient: {only}"),
+            );
+        };
+        let base = named_base(to);
+        if let Some(recipient) = recipient.filter(|recipient| named_base(recipient) != base) {
+            return (
+                Verdict::Deny,
+                format!("SendMessage to {to:?} with recipient {recipient:?}: {only}"),
+            );
+        }
+        if is_own_agent_id(to) {
+            return (
+                Verdict::Allow,
+                format!("SendMessage to {to:?}: an agent this session started"),
+            );
+        }
+        if let Some(path) = to.strip_prefix(SOCKET_SCHEME) {
+            let served = |name: &str, cwd: Option<&Path>| allowed(places.owner(name, cwd));
+            return self.socket(to, path, "of an instance it serves", &only, &served);
+        }
+        // Where the recipient works, from the session list, when another instance keeps the bare
+        // names: its own controller `b-tools`, in its checkout `b-tools`, is not the session of
+        // an instance whose prefix is `b`.
+        let cwd = if places.reads_directories() {
+            match self.listed_directory(to) {
+                Ok(cwd) => cwd,
+                Err(why) => {
+                    return (
+                        Verdict::Deny,
+                        format!("SendMessage to {to:?}: {why}; {only}"),
+                    );
+                }
+            }
+        } else {
+            None
+        };
+        let owner = places.owner(base, cwd.as_deref());
+        match owner {
+            None if prefix.is_none() => (
+                Verdict::Allow,
+                format!(
+                    "SendMessage to {to:?}: a session no other instance claims, instance {}'s own",
+                    places.instance
+                ),
+            ),
+            Some(owner) if places.serves(owner) => (
+                Verdict::Allow,
+                format!(
+                    "SendMessage to {to:?}: a session of instance {}",
+                    owner.name.0
+                ),
+            ),
+            _ => (
+                Verdict::Deny,
+                format!(
+                    "SendMessage to {to:?}: {only}{}",
+                    places.other_instance(base, cwd.as_deref())
+                ),
+            ),
+        }
+    }
+
+    /// Where the listed session `to` addresses works (correction round 2, decisions 2 and 3):
+    /// `to` is `<name>` or `<name> [<ref>]`, and the ref, the start of a listed session's `id`,
+    /// picks that session; a listed session's working directory counts whether or not it has a
+    /// pid. The error says why no one session is meant: the list cannot be read, the bare name is
+    /// listed more than once, the ref matches none or more than one, or the list holds no session
+    /// of that name.
+    fn listed_directory(&self, to: &str) -> Result<Option<PathBuf>, String> {
+        let base = named_base(to);
+        let reference = named(to, base).flatten();
+        let live = live_sessions(self.sessions).map_err(|error| {
+            format!(
+                "the session list could not be read, so where {base} works is not known: \
+                 {error:#}"
+            )
+        })?;
+        let matching: Vec<Live> = live
+            .into_iter()
+            .filter(|session| {
+                session.name == base
+                    && reference.is_none_or(|reference| {
+                        session
+                            .id
+                            .as_deref()
+                            .is_some_and(|id| id.starts_with(reference))
+                    })
+            })
+            .collect();
+        match (matching.as_slice(), reference) {
+            ([one], _) => Ok(one.cwd.clone()),
+            ([], Some(reference)) => Err(format!(
+                "the ref [{reference}] of {base} matches no listed session"
+            )),
+            ([], None) => Err(format!(
+                "{base} is in no listed session, so where it works is not known"
+            )),
+            (_, Some(reference)) => Err(format!(
+                "the ref [{reference}] of {base} matches more than one listed session"
+            )),
+            (_, None) => Err(format!(
+                "{base} matches more than one listed session; name one with its [<ref>]"
+            )),
+        }
+    }
+
+    /// SendMessage to the socket address `to`, `uds:` and `path`: allowed when `path` lands on
+    /// `<pid>.sock` and the session list holds a live session with that pid whose name and
+    /// working directory `wanted` accepts, a session `shown_name` describes; denied with `only`
+    /// otherwise.
+    fn socket(
+        &self,
+        to: &str,
+        path: &str,
+        shown_name: &str,
+        only: &str,
+        wanted: &dyn Fn(&str, Option<&Path>) -> bool,
+    ) -> (Verdict, String) {
+        let denied = |why: String| (Verdict::Deny, format!("SendMessage to {to:?}{why}: {only}"));
         let path = Path::new(path);
         if !path.is_absolute() {
             return denied(format!(" is no socket address {SOCKET_FORM}"));
@@ -838,20 +1108,21 @@ impl Session<'_> {
             return denied(format!("{resolves} is no socket address {SOCKET_FORM}"));
         };
         let shown = command_line(&self.sessions.command);
-        match live_pids(self.sessions, CONDUCTOR) {
+        match live_pids(self.sessions, wanted) {
             Ok(pids) if pids.contains(&pid) => (
                 Verdict::Allow,
                 format!(
-                    "SendMessage to {to:?}{resolves}: the live session named conductor has pid {pid}"
+                    "SendMessage to {to:?}{resolves}: the live session named {shown_name} has pid \
+                     {pid}"
                 ),
             ),
             Ok(_) => denied(format!(
-                "{resolves}: no live session named conductor has pid {pid} in the session list \
+                "{resolves}: no live session named {shown_name} has pid {pid} in the session list \
                  `{shown}`"
             )),
             Err(error) => denied(format!(
                 "{resolves}: the session list could not be read, so pid {pid} is not known to be \
-                 conductor's: {error:#}"
+                 {shown_name}'s: {error:#}"
             )),
         }
     }
@@ -1385,20 +1656,27 @@ const SOCKET_SCHEME: &str = "uds:";
 /// The form a socket address `to` must have, as a denial names it.
 const SOCKET_FORM: &str = "of the form uds:<absolute path>/<pid>.sock";
 
-/// Whether `to` names a session called conductor, and by which ref: `Some(None)` for
-/// `conductor`, `Some(Some(ref))` for `conductor [<ref>]`, the ref being one or more lower-case
-/// hexadecimal characters as the session list prints it (wave 07 U8 brief, decision 1: the harness
-/// refuses a ref that does not belong to a session of that name).
-fn conductor_name(to: &str) -> Option<Option<&str>> {
-    if to == CONDUCTOR {
+/// Whether `to` names the session called `name`, and by which ref: `Some(None)` for `name`,
+/// `Some(Some(ref))` for `name [<ref>]`, the ref being one or more lower-case hexadecimal
+/// characters as the session list prints it (wave 07 U8 brief, decision 1: the harness refuses a
+/// ref that does not belong to a session of that name).
+fn named<'t>(to: &'t str, name: &str) -> Option<Option<&'t str>> {
+    if to == name {
         return Some(None);
     }
     let reference = to
-        .strip_prefix(CONDUCTOR)?
+        .strip_prefix(name)?
         .strip_prefix(" [")?
         .strip_suffix(']')?;
     let hexadecimal = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
     (!reference.is_empty() && reference.bytes().all(hexadecimal)).then_some(Some(reference))
+}
+
+/// The session name `to` addresses: `to` without a trailing ` [<ref>]` ([`named`]).
+fn named_base(to: &str) -> &str {
+    to.rsplit_once(" [")
+        .filter(|(base, _)| named(to, base).is_some())
+        .map_or(to, |(base, _)| base)
 }
 
 /// The pid a socket path names: its file name is `<pid>.sock`, the pid written in decimal with
@@ -1409,9 +1687,31 @@ fn socket_pid(path: &Path) -> Option<u64> {
     (pid.to_string() == stem).then_some(pid)
 }
 
-/// The pids of the live sessions named `name` in the session list: its entries with that `name`
-/// and a `pid`. The list is read once, through [`collect::run`] under its bound.
-fn live_pids(sessions: &SessionList, name: &str) -> Result<Vec<u64>> {
+/// The pids of the live sessions in the session list whose name and working directory (where it
+/// lands) `wanted` accepts. The list is read once ([`live_sessions`]).
+fn live_pids(
+    sessions: &SessionList,
+    wanted: &dyn Fn(&str, Option<&Path>) -> bool,
+) -> Result<Vec<u64>> {
+    Ok(live_sessions(sessions)?
+        .into_iter()
+        .filter(|session| wanted(&session.name, session.cwd.as_deref()))
+        .filter_map(|session| session.pid)
+        .collect())
+}
+
+/// One session of the session list: its name, its `id` (else `sessionId`), its pid when it
+/// runs, and its working directory where it lands.
+struct Live {
+    name: String,
+    id: Option<String>,
+    pid: Option<u64>,
+    cwd: Option<PathBuf>,
+}
+
+/// The sessions of the session list: its entries with a `name`, with a `pid` or without one. The
+/// list is read once, through [`collect::run`] under its bound.
+fn live_sessions(sessions: &SessionList) -> Result<Vec<Live>> {
     let shown = command_line(&sessions.command);
     let (program, arguments) = sessions
         .command
@@ -1431,8 +1731,20 @@ fn live_pids(sessions: &SessionList, name: &str) -> Result<Vec<u64>> {
     };
     Ok(entries
         .iter()
-        .filter(|entry| entry["name"] == name)
-        .filter_map(|entry| entry["pid"].as_u64())
+        .filter_map(|entry| {
+            Some(Live {
+                name: entry["name"].as_str()?.to_owned(),
+                id: entry["id"]
+                    .as_str()
+                    .or_else(|| entry["sessionId"].as_str())
+                    .map(str::to_owned),
+                pid: entry["pid"].as_u64(),
+                cwd: entry["cwd"]
+                    .as_str()
+                    .filter(|cwd| Path::new(cwd).is_absolute())
+                    .map(|cwd| real(Path::new(cwd))),
+            })
+        })
         .collect())
 }
 

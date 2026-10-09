@@ -35,6 +35,12 @@
 //!   which it stops it (`Thresholds`'s invariant `gate_resume > gate_stop`);
 //! - a path (a role's `settings` and `profile` and `thresholds.disk_path` among them) is absolute
 //!   or under `~`, which expands to the home directory;
+//! - a `session_prefix` (`story:instance-session-names`) is a `conductor.config.SessionPrefix`:
+//!   letters, digits and `-`, starting and ending with a letter or digit; no two instances share
+//!   one, at most one instance has none, no prefix starts with another followed by `-`, which
+//!   would let one session name carry both, and no prefix followed by `-` begins a fixed session
+//!   name an instance without a prefix keeps (`conductor-dev`). A role's `session_name` is derived from it
+//!   ([`session_name`]), never chosen: the file may write only that value;
 //! - a role's `model`, `agent`, `settings` and `profile` are each a `conductor.config.CommandWord`:
 //!   letters, digits and `.`, `_`, `:`, `/`, `-` only, the alphabet the specification declares,
 //!   because a start command passes each to the harness as one shell word;
@@ -45,9 +51,9 @@
 //! `state` and `cache` are `~/.b10x/conductor/<name>/records`, `~/.b10x/conductor/<name>/state`
 //! and `~/.cache/b10x/conductor/<name>`; `roles`, `controllers`, `cadence`, `thresholds`,
 //! `retention` and `authority`, and each key of the last five, are the built-in defaults;
-//! `repositories` and `reports` are empty; `operator`, `catalog`, and a role's `agent`,
-//! `settings` and `profile`, are absent, and `config show` writes an absent one as null; a catalog's `names` is
-//! `plain`. The built-in instance names no catalog.
+//! `repositories` and `reports` are empty; `operator`, `catalog`, `session_prefix`, and a role's
+//! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
+//! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
 //!
 //! Nothing else reads the config yet: the global `--config` is parsed on every command and read
 //! only here.
@@ -63,9 +69,10 @@ use std::sync::OnceLock;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
-    Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, Config, Controllers,
-    Gibibytes, GitHubSource, GitLabSource, Harness, Instance, InstanceName, LocalSource, Report,
-    RepositoryRule, Retention, Role, Source, Thresholds, TimeOfDay, Tokens,
+    Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
+    Controllers, Gibibytes, GitHubSource, GitLabSource, Harness, Instance, InstanceName,
+    LocalSource, Report, RepositoryRule, Retention, Role, SessionName, SessionPrefix, Source,
+    Thresholds, TimeOfDay, Tokens,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -95,6 +102,17 @@ pub const DEFAULT_FILE: &str = ".b10x/conductor/conductor.yaml";
 /// The session roles and the model each runs on today: `claude … --model opus` in `Taskfile.yml`
 /// (`conductor`, `conductor-dev`) and in `.agents/conductor.md` (a controller).
 const ROLES: [&str; 3] = ["conductor", "conductor-dev", "controller"];
+
+/// The role of conductor's own session.
+const CONDUCTOR_ROLE: &str = "conductor";
+
+/// The role whose sessions are named per repository, `<session_prefix>-<repository>`, not after
+/// the role (`story:instance-session-names`).
+const CONTROLLER: &str = "controller";
+
+/// The characters of a `conductor.config.SessionPrefix`, the alphabet `spec/domains/config.yaml`
+/// declares for it.
+const SESSION_PREFIX: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-";
 
 /// The model every role runs on today.
 const MODEL: &str = "opus";
@@ -170,8 +188,9 @@ pub const DISK_CLEAR_GIB: u64 = 110;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 16] = [
+const INSTANCE_KEYS: [&str; 18] = [
     "name",
+    "session_prefix",
     "sources",
     "checkouts",
     "records",
@@ -187,12 +206,22 @@ const INSTANCE_KEYS: [&str; 16] = [
     "authority",
     "operator",
     "catalog",
+    "conductor",
 ];
+const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 /// The keys that name a source's kind; a source names exactly one.
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 4] = ["github", "local", "gitlab", "exclude"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 6] = ["role", "harness", "model", "agent", "settings", "profile"];
+const ROLE_KEYS: [&str; 7] = [
+    "role",
+    "harness",
+    "model",
+    "agent",
+    "settings",
+    "profile",
+    "session_name",
+];
 const CONTROLLER_KEYS: [&str; 2] = ["max_working", "max_subagents"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
@@ -439,6 +468,33 @@ pub struct Active {
     pub instance: Instance,
     /// Whether a config file named it. Without a file every path and value is today's.
     pub from_file: bool,
+    /// The other instances of the config file, in its order: whose `session_prefix` a session
+    /// name may carry instead (`story:instance-session-names`). None without a file.
+    pub others: Vec<Instance>,
+    /// The file's `default` instance, whose conductor serves every instance that names no
+    /// `conductor` role. None without a file, or when the file names none.
+    pub default: Option<InstanceName>,
+}
+
+impl Active {
+    /// The instance and every other instance of the config file, the instance first.
+    #[must_use]
+    pub fn all(&self) -> Vec<&Instance> {
+        std::iter::once(&self.instance)
+            .chain(&self.others)
+            .collect()
+    }
+}
+
+/// Whether `instance` names a `conductor` role: its own conductor. One that names none is served
+/// by the conductor of the file's `default` instance (`.agents/conductor.md`, More than one
+/// instance).
+#[must_use]
+pub fn has_conductor(instance: &Instance) -> bool {
+    instance
+        .roles
+        .iter()
+        .any(|role| role.role == CONDUCTOR_ROLE)
 }
 
 static ACTIVE: OnceLock<Active> = OnceLock::new();
@@ -453,14 +509,25 @@ pub fn resolve(flag: Option<&Path>, environment: &Environment) -> Result<Active>
     let loaded = load(flag, environment)?;
     if loaded.read {
         let instance = select(&loaded, None, environment)?.clone();
+        let others = loaded
+            .config
+            .instances
+            .iter()
+            .filter(|other| other.name != instance.name)
+            .cloned()
+            .collect();
         Ok(Active {
             instance,
             from_file: true,
+            others,
+            default: loaded.config.default.clone(),
         })
     } else {
         Ok(Active {
             instance: built_in(environment.home()?, &environment.cwd),
             from_file: false,
+            others: Vec::new(),
+            default: None,
         })
     }
 }
@@ -500,6 +567,8 @@ pub fn active() -> &'static Active {
                 Active {
                     instance: built_in(&home, &cwd),
                     from_file: false,
+                    others: Vec::new(),
+                    default: None,
                 }
             })
     })
@@ -511,6 +580,8 @@ pub fn active() -> &'static Active {
 pub fn built_in(home: &Path, cwd: &Path) -> Instance {
     Instance {
         name: InstanceName(ORGANIZATION.to_owned()),
+        // Without a prefix the sessions keep today's names (story:instance-session-names).
+        session_prefix: None,
         sources: vec![Source::GitHub(GitHubSource {
             owner: ORGANIZATION.to_owned(),
         })],
@@ -521,7 +592,7 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         records: text_of(cwd),
         state: text_of(&cwd.join(STATE)),
         cache: text_of(&home.join(CACHE)),
-        roles: default_roles(),
+        roles: default_roles(None),
         controllers: default_controllers(),
         // Repository rules are written only by a user: without one, a repository's activity is
         // its mark or the newest snapshot's, as today.
@@ -535,10 +606,39 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         operator: None,
         // A catalog is named only by a user (story:catalog-source).
         catalog: None,
+        // Its own conductor, `conductor` (story:instance-session-names).
+        conductor: ConductorSession {
+            served_by: None,
+            session_name: Some(SessionName(CONDUCTOR_ROLE.to_owned())),
+        },
     }
 }
 
-fn default_roles() -> Vec<Role> {
+/// The conductor that serves `instance` (`story:instance-session-names`): its own when it names
+/// a `conductor` role; else the conductor of `default`, the file's default instance, when that is
+/// another instance and names one; else none.
+#[must_use]
+pub fn conductor_session(instance: &Instance, default: Option<&Instance>) -> ConductorSession {
+    if has_conductor(instance) {
+        return ConductorSession {
+            served_by: None,
+            session_name: Some(session_name(instance, CONDUCTOR_ROLE)),
+        };
+    }
+    match default.filter(|default| default.name != instance.name && has_conductor(default)) {
+        Some(default) => ConductorSession {
+            served_by: Some(default.name.clone()),
+            session_name: Some(session_name(default, CONDUCTOR_ROLE)),
+        },
+        None => ConductorSession {
+            served_by: None,
+            session_name: None,
+        },
+    }
+}
+
+/// The built-in roles, each session named after `prefix` ([`role_session_name`]).
+fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
     ROLES
         .iter()
         .map(|role| Role {
@@ -548,8 +648,69 @@ fn default_roles() -> Vec<Role> {
             agent: None,
             settings: None,
             profile: None,
+            session_name: role_session_name(prefix, role),
         })
         .collect()
+}
+
+/// The name a session of `instance` starts under for `word`, a role or a repository:
+/// `<session_prefix>-<word>`, or `word` itself when the instance has no prefix
+/// (`story:instance-session-names`).
+#[must_use]
+pub fn session_name(instance: &Instance, word: &str) -> SessionName {
+    named(instance.session_prefix.as_ref(), word)
+}
+
+/// [`session_name`] under `prefix`.
+fn named(prefix: Option<&SessionPrefix>, word: &str) -> SessionName {
+    SessionName(match prefix {
+        Some(prefix) => format!("{}-{word}", prefix.0),
+        None => word.to_owned(),
+    })
+}
+
+/// The `session_name` of the role `role` under `prefix`: [`named`] after the role, and none for
+/// the controller role, whose sessions are named per repository.
+fn role_session_name(prefix: Option<&SessionPrefix>, role: &str) -> Option<SessionName> {
+    (role != CONTROLLER).then(|| named(prefix, role))
+}
+
+/// The fixed session names each instance of the file without a `session_prefix` keeps, by its
+/// index, as the file writes them: its roles' names but the controller's (every built-in role's
+/// when it writes no `roles`), and `conductor` and `conductor-dev`, which the start tasks use.
+fn bare_names(items: &[Value]) -> Vec<(usize, String)> {
+    let mut names = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        if !item.get("session_prefix").is_none_or(Value::is_null) {
+            continue;
+        }
+        let roles: Vec<String> = match item.get("roles").and_then(Value::as_array) {
+            Some(roles) => roles
+                .iter()
+                .filter_map(|role| role["role"].as_str().map(str::to_owned))
+                .collect(),
+            None => ROLES.iter().map(|role| (*role).to_owned()).collect(),
+        };
+        let fixed = roles
+            .into_iter()
+            .chain([CONDUCTOR_ROLE.to_owned(), format!("{CONDUCTOR_ROLE}-dev")])
+            .filter(|role| role != CONTROLLER);
+        for name in fixed {
+            if !names.contains(&(index, name.clone())) {
+                names.push((index, name));
+            }
+        }
+    }
+    names
+}
+
+/// Whether the session name `name` carries the session prefix `prefix`: it is `<prefix>-`
+/// followed by at least one more character.
+#[must_use]
+pub fn carries(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .is_some_and(|rest| !rest.is_empty())
 }
 
 fn default_controllers() -> Controllers {
@@ -967,6 +1128,7 @@ impl Reader<'_> {
                     self.problem("instances", "names no instance");
                 }
                 self.distinct_names(items);
+                self.distinct_prefixes(items);
             }
             instances
         });
@@ -976,11 +1138,68 @@ impl Reader<'_> {
                 .map(|name| Some(InstanceName(name))),
             None => Some(None),
         };
+        let default = default?;
+        let mut instances = instances?;
+        if let Some(Value::Array(items)) = map.get("instances") {
+            self.conductors(&mut instances, default.as_ref(), items);
+        }
         Some(Config {
             version: version?,
-            default: default?,
-            instances: instances?,
+            default,
+            instances,
         })
+    }
+
+    /// Each instance's `conductor`, derived ([`conductor_session`]); one the file writes that is
+    /// not the derived one is a problem, by its path. A written section is compared whole: a key
+    /// it leaves out is written as none.
+    fn conductors(
+        &mut self,
+        instances: &mut [Instance],
+        default: Option<&InstanceName>,
+        items: &[Value],
+    ) {
+        let serving = default.and_then(|default| {
+            instances
+                .iter()
+                .find(|instance| &instance.name == default)
+                .cloned()
+        });
+        for (index, (instance, item)) in instances.iter_mut().zip(items).enumerate() {
+            let derived = conductor_session(instance, serving.as_ref());
+            let path = format!("instances[{index}].conductor");
+            if let Some(written) =
+                Self::get(item.as_object().unwrap_or(&Map::new()), "conductor").cloned()
+                && let Some(map) = self.mapping(&written, &path, &CONDUCTOR_KEYS)
+            {
+                let derived_served = derived.served_by.as_ref().map(|name| name.0.as_str());
+                let derived_name = derived.session_name.as_ref().map(|name| name.0.as_str());
+                for (key, wanted) in [
+                    ("served_by", derived_served),
+                    ("session_name", derived_name),
+                ] {
+                    let value = Self::get(map, key);
+                    if value.and_then(Value::as_str) != wanted
+                        || (value.is_some() && wanted.is_none())
+                    {
+                        self.problem(
+                            &join(&path, key),
+                            format!(
+                                "{} is not {}, the conductor derived for this instance (its own \
+                                 conductor's session name when it names a conductor role, else \
+                                 the default instance's, which serves it); leave it out",
+                                value.map_or_else(|| "nothing".to_owned(), echo),
+                                wanted.map_or_else(
+                                    || "nothing".to_owned(),
+                                    |wanted| format!("{wanted:?}")
+                                )
+                            ),
+                        );
+                    }
+                }
+            }
+            instance.conductor = derived;
+        }
     }
 
     /// `default`, `conductor.config.Config`'s third invariant held: it names an instance of the
@@ -1033,6 +1252,138 @@ impl Reader<'_> {
         }
     }
 
+    /// `conductor.config.Config`'s fourth invariant, over the prefixes as the file writes them
+    /// (`story:instance-session-names`): no two instances share a `session_prefix`, at most one
+    /// has none, and no prefix starts with another followed by `-`, which would let one session
+    /// name carry both. A prefix that is not text is named by [`Reader::session_prefix`].
+    fn distinct_prefixes(&mut self, items: &[Value]) {
+        let prefixes: Vec<Option<Option<&str>>> = items
+            .iter()
+            .map(|item| match item.get("session_prefix") {
+                None | Some(Value::Null) => Some(None),
+                Some(Value::String(prefix)) => Some(Some(prefix.as_str())),
+                Some(_) => None,
+            })
+            .collect();
+        for (index, prefix) in prefixes.iter().enumerate() {
+            let at = format!("instances[{index}].session_prefix");
+            let first = prefixes[..index]
+                .iter()
+                .position(|earlier| earlier == prefix);
+            match (prefix, first) {
+                (None, _) => {}
+                (Some(None), Some(first)) => self.problem(
+                    &at,
+                    format!(
+                        "missing: instances[{first}] has no session_prefix either, and at most \
+                         one instance keeps the bare session names conductor, conductor-dev and \
+                         <repository>"
+                    ),
+                ),
+                (Some(Some(prefix)), Some(first)) => self.problem(
+                    &at,
+                    format!(
+                        "{} is the session_prefix of instances[{first}] too; session prefixes \
+                         are unique, since session names are one namespace for the whole machine",
+                        echo(&Value::from(*prefix))
+                    ),
+                ),
+                (Some(Some(prefix)), None) => {
+                    let shorter = prefixes.iter().position(|other| {
+                        other.flatten().is_some_and(|other| {
+                            prefix
+                                .strip_prefix(other)
+                                .is_some_and(|rest| rest.starts_with('-'))
+                        })
+                    });
+                    if let Some(other) = shorter {
+                        self.problem(
+                            &at,
+                            format!(
+                                "{} starts with the session_prefix of instances[{other}] and \
+                                 '-': a session named {prefix}-<name> would carry both",
+                                echo(&Value::from(*prefix))
+                            ),
+                        );
+                    } else if let Some((other, fixed)) = bare_names(items)
+                        .into_iter()
+                        .find(|(_, fixed)| carries(fixed, prefix))
+                    {
+                        self.problem(
+                            &at,
+                            format!(
+                                "{} followed by '-' begins {fixed:?}, a session name \
+                                 instances[{other}] keeps without a session_prefix: that session \
+                                 would carry this prefix too",
+                                echo(&Value::from(*prefix))
+                            ),
+                        );
+                    }
+                }
+                (Some(None), None) => {}
+            }
+        }
+    }
+
+    /// A `conductor.config.SessionPrefix`: letters, digits and `-` (the alphabet the
+    /// specification declares), starting and ending with a letter or digit.
+    fn session_prefix(&mut self, value: &Value, path: &str) -> Option<SessionPrefix> {
+        let valid = value.as_str().filter(|text| {
+            let bytes = text.as_bytes();
+            bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+                && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+                && text.chars().all(|c| SESSION_PREFIX.contains(c))
+        });
+        if valid.is_none() {
+            self.problem(
+                path,
+                format!(
+                    "{} is not a session prefix: letters, digits and '-', starting and ending \
+                     with a letter or digit",
+                    echo(value)
+                ),
+            );
+        }
+        valid.map(|text| SessionPrefix(text.to_owned()))
+    }
+
+    /// `roles` with each role's `session_name` derived from `prefix` ([`role_session_name`]); a
+    /// name the file wrote that is not the derived one is a problem, by its path under `path`.
+    fn session_names(
+        &mut self,
+        roles: Vec<Role>,
+        prefix: Option<&SessionPrefix>,
+        path: &str,
+    ) -> Vec<Role> {
+        roles
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut role)| {
+                let derived = role_session_name(prefix, &role.role);
+                if let Some(written) = role.session_name.take()
+                    && Some(&written) != derived.as_ref()
+                {
+                    let why = match &derived {
+                        Some(derived) => format!(
+                            "is not {:?}, the name derived from session_prefix \
+                             (<session_prefix>-<role>, or <role> without one); leave it out",
+                            derived.0
+                        ),
+                        None => "names no session: the controller role's sessions are named per \
+                                 repository, <session_prefix>-<repository>; leave it out"
+                            .to_owned(),
+                    };
+                    self.problem(
+                        &format!("{path}[{index}].session_name"),
+                        format!("{} {why}", echo(&Value::from(written.0))),
+                    );
+                }
+                role.session_name = derived;
+                role
+            })
+            .collect()
+    }
+
     fn instance(&mut self, value: &Value, path: &str) -> Option<Instance> {
         let map = self.mapping(value, path, &INSTANCE_KEYS)?;
         let name = self.required(map, path, "name").and_then(|value| {
@@ -1065,6 +1416,12 @@ impl Reader<'_> {
         let checkouts = self
             .required(map, path, "checkouts")
             .and_then(|value| self.checkouts(value, &join(path, "checkouts")));
+        let session_prefix = match Self::get(map, "session_prefix") {
+            Some(value) => self
+                .session_prefix(value, &join(path, "session_prefix"))
+                .map(Some),
+            None => Some(None),
+        };
         let home = self.home;
         let place =
             |reader: &mut Self, key: &str, default: &dyn Fn(&str) -> PathBuf| match Self::get(
@@ -1082,9 +1439,18 @@ impl Reader<'_> {
         let cache = place(self, "cache", &|name| {
             home.join(".cache/b10x/conductor").join(name)
         });
+        // Each role's session name is derived from the prefix, and a written one is held to it;
+        // a prefix that is no prefix has been named already, and nothing is derived from it.
         let roles = match Self::get(map, "roles") {
-            Some(value) => self.list(value, &join(path, "roles"), Self::role),
-            None => Some(default_roles()),
+            Some(value) => self
+                .list(value, &join(path, "roles"), Self::role)
+                .map(|roles| match &session_prefix {
+                    Some(prefix) => {
+                        self.session_names(roles, prefix.as_ref(), &join(path, "roles"))
+                    }
+                    None => roles,
+                }),
+            None => Some(default_roles(session_prefix.clone().flatten().as_ref())),
         };
         let controllers = match Self::get(map, "controllers") {
             Some(value) => self.controllers(value, &join(path, "controllers")),
@@ -1122,8 +1488,16 @@ impl Reader<'_> {
             Some(value) => self.catalog(value, &join(path, "catalog")).map(Some),
             None => Some(None),
         };
+        // The conductor that serves the instance is derived once every instance is read
+        // (`Reader::conductors`); until then, its own.
+        let conductor = ConductorSession {
+            served_by: None,
+            session_name: None,
+        };
         Some(Instance {
+            conductor,
             name: InstanceName(name?),
+            session_prefix: session_prefix?,
             sources: sources?,
             checkouts: checkouts?,
             records: records?,
@@ -1323,6 +1697,14 @@ impl Reader<'_> {
             }
             None => Some(None),
         };
+        // As the file writes it; the instance holds it to the derived name
+        // (`Reader::session_names`).
+        let session_name = match Self::get(map, "session_name") {
+            Some(value) => self
+                .text(value, &join(path, "session_name"))
+                .map(|name| Some(SessionName(name))),
+            None => Some(None),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
@@ -1330,6 +1712,7 @@ impl Reader<'_> {
             agent: agent?,
             settings: settings?,
             profile: profile?,
+            session_name: session_name?,
         })
     }
 
@@ -1668,6 +2051,10 @@ pub fn document(instance: &Instance) -> Yaml {
                     "profile",
                     optional(role.profile.as_ref().map(|profile| &profile.0)),
                 ),
+                (
+                    "session_name",
+                    optional(role.session_name.as_ref().map(|name| &name.0)),
+                ),
             ])
         })
         .collect();
@@ -1706,6 +2093,10 @@ pub fn document(instance: &Instance) -> Yaml {
     let size = |size: &Gibibytes| text(&format!("{}G", size.0));
     let shown = mapping([
         ("name", text(&instance.name.0)),
+        (
+            "session_prefix",
+            optional(instance.session_prefix.as_ref().map(|prefix| &prefix.0)),
+        ),
         ("sources", Yaml::Sequence(sources)),
         (
             "checkouts",
@@ -1788,6 +2179,19 @@ pub fn document(instance: &Instance) -> Yaml {
                     ("names", text(names)),
                 ])
             }),
+        ),
+        (
+            "conductor",
+            mapping([
+                (
+                    "served_by",
+                    optional(instance.conductor.served_by.as_ref().map(|name| &name.0)),
+                ),
+                (
+                    "session_name",
+                    optional(instance.conductor.session_name.as_ref().map(|name| &name.0)),
+                ),
+            ]),
         ),
     ]);
     mapping([

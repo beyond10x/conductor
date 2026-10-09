@@ -16,7 +16,7 @@
 
 use std::fmt;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -256,6 +256,69 @@ pub fn is_excluded<S: AsRef<str>>(steps: &[S], exclude: &[String]) -> bool {
                 .zip(&entry)
                 .all(|(step, part)| step.as_ref() == *part)
     })
+}
+
+/// The instance a session belongs to, by its name and its working directory together
+/// (`story:instance-session-names`): the one reading the guard, the sessions collector, the
+/// watch and the dashboard share.
+///
+/// 1. A session whose name is the name an instance gives the controller of the repository its
+///    working directory lies in, under that instance's checkouts root or managed trees
+///    ([`repository_at`]; `<session_prefix>-<repository>`, or the repository itself without a
+///    prefix), is that instance's: a prefix-less instance's own controller `b-tools`, in its
+///    checkout `b-tools`, is its own whatever prefix the name seems to carry.
+/// 2. Otherwise a session whose name carries an instance's `session_prefix` (`<prefix>-<name>`)
+///    is that instance's.
+/// 3. Otherwise `None`: the caller's own rules for the directory decide, as before.
+///
+/// `cwd` is the working directory as the caller compares paths, `None` when it is not known;
+/// `instances` are every instance of the config file.
+#[must_use]
+pub fn session_instance<'i>(
+    instances: &[&'i Instance],
+    name: &str,
+    cwd: Option<&Path>,
+) -> Option<&'i Instance> {
+    let by_directory = cwd.and_then(|cwd| {
+        instances.iter().copied().find(|instance| {
+            repository_at(instance, cwd)
+                .is_some_and(|repository| config::session_name(instance, &repository).0 == name)
+        })
+    });
+    by_directory.or_else(|| {
+        instances.iter().copied().find(|instance| {
+            instance
+                .session_prefix
+                .as_ref()
+                .is_some_and(|prefix| config::carries(name, &prefix.0))
+        })
+    })
+}
+
+/// The repository the directory `cwd` lies in under `instance`'s checkouts root or managed trees,
+/// the deeper of the two when both hold it ([`repository_of`]); `None` under neither, at either
+/// root itself, for a path that is not absolute or holds `..`, or one with a step that is not
+/// UTF-8.
+#[must_use]
+pub fn repository_at(instance: &Instance, cwd: &Path) -> Option<String> {
+    if !cwd.is_absolute() || cwd.components().any(|part| part == Component::ParentDir) {
+        return None;
+    }
+    let root = Path::new(&instance.checkouts.root);
+    let trees = Path::new(&instance.checkouts.trees);
+    let (under, rest) = [(Under::Checkouts, root), (Under::Trees, trees)]
+        .into_iter()
+        .filter_map(|(under, dir)| Some((dir, under, cwd.strip_prefix(dir).ok()?)))
+        .max_by_key(|(dir, _, _)| dir.components().count())
+        .map(|(_, under, rest)| (under, rest))?;
+    let steps: Vec<&str> = rest
+        .components()
+        .filter_map(|part| match part {
+            Component::Normal(part) => Some(part.to_str()),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    repository_of(root, trees, under, &steps)
 }
 
 /// The `exclude` entries of `instance`'s sources whose root is `root`: a `local` source's path,

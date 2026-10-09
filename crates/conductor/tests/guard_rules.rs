@@ -3355,3 +3355,665 @@ fn a_role_s_profile_file_is_no_scratch() {
         }
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// `story:instance-session-names`: with a `session_prefix`, a controller messages its own
+// instance's conductor, `<prefix>-conductor`, and conductor messages only its own instance's
+// sessions; a session of another prefix is denied, naming both instances. Without a prefix the
+// rules are today's.
+// -------------------------------------------------------------------------------------------------
+
+/// Two instances in one config file, `alpha` (prefix `a`, the default, the one the process runs)
+/// and `beta` (prefix `b`), each with its own checkouts, trees and records in the case directory
+/// beside `home`; answers the layout of `alpha`.
+fn two_instance_layout(home: &Path, alpha: &str, beta: &str) -> Layout {
+    let case = home.parent().expect("the case's directory");
+    let at = |name: &str| case.join(name);
+    let text = format!(
+        "version: conductor.config/1\n\
+         default: alpha\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         {alpha}\
+         \x20   sources: [{{github: alpha}}]\n\
+         \x20   checkouts: {{root: {}, trees: {}}}\n\
+         \x20   records: {}\n\
+         \x20 - name: beta\n\
+         {beta}\
+         \x20   sources: [{{github: beta}}]\n\
+         \x20   checkouts: {{root: {}, trees: {}}}\n\
+         \x20   records: {}\n",
+        at("alpha-root").display(),
+        at("alpha-trees").display(),
+        at("alpha-records").display(),
+        at("beta-root").display(),
+        at("beta-trees").display(),
+        at("beta-records").display(),
+    );
+    Layout {
+        name: "two instances",
+        home: home.to_owned(),
+        outside: Vec::new(),
+        places: places_from_file(home, &text),
+        config: file_beside(home),
+        conductor: at("alpha-records"),
+        root: at("alpha-root"),
+        trees: at("alpha-trees"),
+        records: at("alpha-records"),
+    }
+}
+
+/// A session list, printed by `cat` from a file the case writes beside `home`, holding the live
+/// sessions `(name, pid)`.
+fn sessions_named(home: &Path, live: &[(&str, u64)]) -> SessionList {
+    let entries: Vec<Value> = live
+        .iter()
+        .map(|(name, pid)| {
+            serde_json::json!({"name": name, "kind": "background", "pid": pid, "cwd": "/x"})
+        })
+        .collect();
+    let file = home
+        .parent()
+        .expect("the case's directory")
+        .join("sessions.json");
+    fs::write(&file, Value::Array(entries).to_string()).expect("write the session list");
+    SessionList {
+        command: vec![OsString::from("cat"), file.into_os_string()],
+        bound: Duration::from_secs(5),
+    }
+}
+
+/// A controller of `alpha` messages `a-conductor`, by name, ref or socket, and the agents it
+/// started; `b-conductor`, a session of `beta`, is denied naming both instances, and the bare
+/// `conductor` is no longer alpha's conductor.
+#[test]
+fn a_controller_messages_its_own_instance_s_conductor_only() {
+    let home = home("prefix-controller-message");
+    let layout = two_instance_layout(
+        &home,
+        "\x20   session_prefix: a\n",
+        "\x20   session_prefix: b\n",
+    );
+    let sessions = sessions_named(
+        &home,
+        &[("a-conductor", 4_200_001), ("b-conductor", 4_200_002)],
+    );
+    for cwd in [layout.root.join("repo"), layout.trees.join("repo/t")] {
+        for to in [
+            "a-conductor",
+            "a-conductor [c0d0a1]",
+            "a0123456789abcdef",
+            "uds:/run/user/4242/cc-socks/4200001.sock",
+        ] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_eq!(decision.verdict, Verdict::Allow, "{to}: {decision:#?}");
+        }
+        for to in ["b-conductor", "b-conductor [c0d0a1]"] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_verdict(&decision, Verdict::Deny, "only a-conductor");
+            for instance in ["alpha", "beta"] {
+                assert!(
+                    decision.reason.contains(instance),
+                    "{to}: the denial names {instance}: {}",
+                    decision.reason
+                );
+            }
+        }
+        for to in [
+            "conductor",
+            "conductor [c0d0a1]",
+            "a-conductor-dev",
+            "a-other",
+            "uds:/run/user/4242/cc-socks/4200002.sock",
+            "*",
+        ] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_verdict(&decision, Verdict::Deny, "only a-conductor");
+        }
+    }
+}
+
+/// Conductor of `alpha` messages the sessions of its own instance (`a-…`) and the agents it
+/// started; a session of `beta` is denied naming both instances, and a session of no instance's
+/// prefix is denied too.
+#[test]
+fn conductor_messages_only_its_own_instance_s_sessions() {
+    let home = home("prefix-conductor-message");
+    let layout = two_instance_layout(
+        &home,
+        "\x20   session_prefix: a\n",
+        "\x20   session_prefix: b\n",
+    );
+    let sessions = sessions_named(&home, &[("a-ess", 4_200_011), ("b-ess", 4_200_012)]);
+    let cwd = layout.records.join("docs");
+    for to in [
+        "a-ess",
+        "a-conductor-dev",
+        "a-group/repo",
+        "a-ess [c0d0a1]",
+        "a0123456789abcdef",
+        "uds:/run/user/4242/cc-socks/4200011.sock",
+    ] {
+        let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+        assert_eq!(decision.verdict, Verdict::Allow, "{to}: {decision:#?}");
+    }
+    for to in ["b-ess", "b-conductor [c0d0a1]"] {
+        let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+        assert_verdict(&decision, Verdict::Deny, "only sessions named a-");
+        for instance in ["alpha", "beta"] {
+            assert!(
+                decision.reason.contains(instance),
+                "{to}: the denial names {instance}: {}",
+                decision.reason
+            );
+        }
+    }
+    for to in [
+        "ess",
+        "conductor",
+        "a-",
+        "uds:/run/user/4242/cc-socks/4200012.sock",
+        "*",
+    ] {
+        let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+        assert_verdict(&decision, Verdict::Deny, "only sessions named a-");
+    }
+}
+
+/// A recipient that names another session than `to` is denied for conductor too.
+#[test]
+fn conductor_s_recipient_names_the_session_to_names() {
+    let home = home("prefix-conductor-recipient");
+    let layout = two_instance_layout(
+        &home,
+        "\x20   session_prefix: a\n",
+        "\x20   session_prefix: b\n",
+    );
+    let mut raw = localise(fixture("send-message"), &layout.home);
+    raw["cwd"] = Value::String(layout.records.display().to_string());
+    raw["tool_input"]["to"] = Value::String("a-ess".to_owned());
+    raw["tool_input"]["recipient"] = Value::String("b-ess".to_owned());
+    let decision = guard::decide_in(&raw, &layout.places, &unlisted());
+    assert_verdict(&decision, Verdict::Deny, "recipient");
+}
+
+/// A one-instance config without a prefix keeps today's rules: a controller messages `conductor`,
+/// and conductor messages anyone.
+#[test]
+fn without_a_prefix_a_controller_messages_conductor_as_today() {
+    let layout = file_layout(&home("prefix-none"));
+    for cwd in [layout.root.join("repo"), layout.trees.join("repo/t")] {
+        let decision = layout.decide("send-message", &cwd, "to", "conductor", &unlisted());
+        assert_verdict(&decision, Verdict::Allow, "a session named conductor");
+    }
+    let decision = layout.decide("send-message", &layout.records, "to", "anyone", &unlisted());
+    assert_verdict(&decision, Verdict::Allow, "not restricted");
+}
+
+/// Beside an instance with a prefix, the one without keeps today's rules: its controller messages
+/// `conductor` and is denied `b-conductor`, the denial naming both instances.
+#[test]
+fn an_instance_without_a_prefix_beside_one_with_keeps_today_s_rules() {
+    let home = home("prefix-one-bare");
+    let layout = two_instance_layout(&home, "", "\x20   session_prefix: b\n");
+    let cwd = layout.root.join("repo");
+    let decision = layout.decide("send-message", &cwd, "to", "conductor", &unlisted());
+    assert_verdict(&decision, Verdict::Allow, "a session named conductor");
+    let decision = layout.decide("send-message", &cwd, "to", "b-conductor", &unlisted());
+    assert_verdict(&decision, Verdict::Deny, "only conductor");
+    for instance in ["alpha", "beta"] {
+        assert!(
+            decision.reason.contains(instance),
+            "the denial names {instance}: {}",
+            decision.reason
+        );
+    }
+    // Correction round 2, decision 1: beside other instances, the conductor of the instance
+    // without a prefix is denied a session of an instance that names its own `conductor` role
+    // (beta, isolated), and keeps its own sessions.
+    let decision = layout.decide("send-message", &layout.records, "to", "b-ess", &unlisted());
+    assert_verdict(&decision, Verdict::Deny, "beta");
+    let decision = layout.decide("send-message", &layout.records, "to", "ess", &unlisted());
+    assert_eq!(
+        decision.verdict,
+        Verdict::Allow,
+        "round 2, decision 1: its own session: {decision:#?}"
+    );
+}
+
+// -------------------------------------------------------------------------------------------------
+// Adversary, wave 03 U1 (`story:instance-session-names`).
+// -------------------------------------------------------------------------------------------------
+
+/// The controller profile, `.agents/repo-controller.md`, tells a controller where its messages
+/// go ("Messages go only to `<recipient>`"). A controller of an instance with a `session_prefix`
+/// that follows its profile must be let through by the guard: the recipient the profile names,
+/// `<session_prefix>` read as the instance's prefix, is allowed from the controller's checkout.
+#[test]
+fn adv_w03_u1_the_recipient_the_controller_profile_names_is_allowed_under_a_prefix() {
+    let profile = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agents/repo-controller.md"),
+    )
+    .expect("read the controller profile");
+    let marker = "Messages go only to `";
+    let start = profile
+        .find(marker)
+        .map(|at| at + marker.len())
+        .expect("the controller profile names where its messages go");
+    let end = profile[start..]
+        .find('`')
+        .map(|at| start + at)
+        .expect("the recipient is closed by a backtick");
+    let recipient = profile[start..end].replace("<session_prefix>", "a");
+    let home = home("adv-w03-u1-profile-recipient");
+    let layout = two_instance_layout(
+        &home,
+        "\x20   session_prefix: a\n",
+        "\x20   session_prefix: b\n",
+    );
+    let decision = layout.decide(
+        "send-message",
+        &layout.root.join("repo"),
+        "to",
+        &recipient,
+        &unlisted(),
+    );
+    assert_eq!(
+        decision.verdict,
+        Verdict::Allow,
+        "the profile sends a controller's messages to {recipient:?}: {decision:#?}"
+    );
+}
+
+// -------------------------------------------------------------------------------------------------
+// Correction round 1, decision 3: an instance that names no `conductor` role is served by the
+// default instance's conductor; an instance that names its own is isolated.
+// -------------------------------------------------------------------------------------------------
+
+/// Three instances in one config file: `alpha` (prefix `a`, the default, the built-in roles, so
+/// its own conductor), `beta` (prefix `b`, its own `conductor` role: isolated) and `gamma` (prefix
+/// `g`, a `controller` role only: served by alpha's conductor). Answers the layout of `active`,
+/// the instance the process runs, each instance's checkouts, trees and records being
+/// `<name>-root`, `<name>-trees` and `<name>-records` in the case directory beside `home`.
+fn served_layout(home: &Path, active: &str) -> Layout {
+    let case = home.parent().expect("the case's directory");
+    let at = |name: &str, what: &str| case.join(format!("{name}-{what}"));
+    let instance = |name: &str, prefix: &str, roles: &str| {
+        format!(
+            "\x20 - name: {name}\n\
+             \x20   session_prefix: {prefix}\n\
+             \x20   sources: [{{github: {name}}}]\n\
+             \x20   checkouts: {{root: {}, trees: {}}}\n\
+             \x20   records: {}\n\
+             {roles}",
+            at(name, "root").display(),
+            at(name, "trees").display(),
+            at(name, "records").display(),
+        )
+    };
+    let text = format!(
+        "version: conductor.config/1\n\
+         default: alpha\n\
+         instances:\n{}{}{}",
+        instance("alpha", "a", ""),
+        instance(
+            "beta",
+            "b",
+            "\x20   roles:\n\
+             \x20     - {role: conductor, harness: claude, model: opus}\n\
+             \x20     - {role: controller, harness: claude, model: opus}\n"
+        ),
+        instance(
+            "gamma",
+            "g",
+            "\x20   roles:\n\
+             \x20     - {role: controller, harness: claude, model: opus}\n"
+        ),
+    );
+    let file = file_beside(home);
+    fs::write(&file, text).expect("write the config file");
+    let environment = config::Environment {
+        home: Some(home.to_owned()),
+        cwd: home.to_owned(),
+        config: Some(file.as_os_str().to_owned()),
+        instance: Some(active.into()),
+    };
+    let resolved = config::resolve(None, &environment).expect("the config file loads");
+    assert_eq!(resolved.instance.name.0, active);
+    Layout {
+        name: "served and isolated instances",
+        home: home.to_owned(),
+        outside: Vec::new(),
+        places: Places::active(home, &resolved).with_config_file(&file),
+        config: file,
+        conductor: at(active, "records"),
+        root: at(active, "root"),
+        trees: at(active, "trees"),
+        records: at(active, "records"),
+    }
+}
+
+/// A controller of the served `gamma` messages the default instance's conductor, `a-conductor`,
+/// and no `g-conductor`, which no role of gamma starts; a controller of the isolated `beta`
+/// messages its own `b-conductor` only.
+#[test]
+fn a_served_instance_s_controller_messages_the_default_instance_s_conductor() {
+    let first = home("served-controller");
+    let gamma = served_layout(&first, "gamma");
+    let cwd = gamma.root.join("repo");
+    for (to, verdict) in [
+        ("a-conductor", Verdict::Allow),
+        ("a-conductor [c0d0a1]", Verdict::Allow),
+        ("g-conductor", Verdict::Deny),
+        ("b-conductor", Verdict::Deny),
+    ] {
+        let decision = gamma.decide("send-message", &cwd, "to", to, &unlisted());
+        assert_eq!(decision.verdict, verdict, "gamma to {to}: {decision:#?}");
+    }
+    let second = home("isolated-controller");
+    let beta = served_layout(&second, "beta");
+    let cwd = beta.root.join("repo");
+    for (to, verdict) in [
+        ("b-conductor", Verdict::Allow),
+        ("a-conductor", Verdict::Deny),
+        ("g-conductor", Verdict::Deny),
+    ] {
+        let decision = beta.decide("send-message", &cwd, "to", to, &unlisted());
+        assert_eq!(decision.verdict, verdict, "beta to {to}: {decision:#?}");
+    }
+}
+
+/// The default instance's conductor messages its own sessions and the served `gamma`'s, and not
+/// the isolated `beta`'s; beta's conductor messages its own sessions only, gamma's not.
+#[test]
+fn the_default_conductor_serves_every_instance_without_its_own_conductor() {
+    let first = home("served-conductor");
+    let alpha = served_layout(&first, "alpha");
+    for (to, verdict) in [
+        ("a-ess", Verdict::Allow),
+        ("g-ess", Verdict::Allow),
+        ("g-ess [c0d0a1]", Verdict::Allow),
+        ("b-ess", Verdict::Deny),
+        ("ess", Verdict::Deny),
+    ] {
+        let decision = alpha.decide("send-message", &alpha.records, "to", to, &unlisted());
+        assert_eq!(
+            decision.verdict, verdict,
+            "alpha's conductor to {to}: {decision:#?}"
+        );
+    }
+    let second = home("isolated-conductor");
+    let beta = served_layout(&second, "beta");
+    for (to, verdict) in [
+        ("b-ess", Verdict::Allow),
+        ("g-ess", Verdict::Deny),
+        ("a-ess", Verdict::Deny),
+    ] {
+        let decision = beta.decide("send-message", &beta.records, "to", to, &unlisted());
+        assert_eq!(
+            decision.verdict, verdict,
+            "beta's conductor to {to}: {decision:#?}"
+        );
+    }
+}
+
+/// Decision 1 in the guard: a session named after the repository its directory holds belongs to
+/// the instance whose checkout that is, whatever prefix the name carries. With the session list
+/// placing `b-tools` in the bare instance's checkout `b-tools`, the conductor of the instance with
+/// prefix `b` may not message it.
+#[test]
+fn another_instance_s_conductor_may_not_message_a_bare_instance_s_own_controller() {
+    let home = home("bare-own-controller-recipient");
+    let case = home.parent().expect("the case's directory").to_owned();
+    // alpha is bare and the default; beta (prefix b) is the instance the process runs.
+    let text = format!(
+        "version: conductor.config/1\n\
+         default: alpha\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   sources: [{{github: alpha}}]\n\
+         \x20   checkouts: {{root: {}, trees: {}}}\n\
+         \x20   records: {}\n\
+         \x20 - name: beta\n\
+         \x20   session_prefix: b\n\
+         \x20   sources: [{{github: beta}}]\n\
+         \x20   checkouts: {{root: {}, trees: {}}}\n\
+         \x20   records: {}\n",
+        case.join("alpha-root").display(),
+        case.join("alpha-trees").display(),
+        case.join("alpha-records").display(),
+        case.join("beta-root").display(),
+        case.join("beta-trees").display(),
+        case.join("beta-records").display(),
+    );
+    let file = file_beside(&home);
+    fs::write(&file, text).expect("write the config file");
+    let environment = config::Environment {
+        home: Some(home.clone()),
+        cwd: home.clone(),
+        config: Some(file.as_os_str().to_owned()),
+        instance: Some("beta".into()),
+    };
+    let resolved = config::resolve(None, &environment).expect("the config file loads");
+    let places = Places::active(&home, &resolved).with_config_file(&file);
+    let entries = serde_json::json!([
+        {"name": "b-tools", "kind": "background", "pid": 4_200_021,
+         "cwd": case.join("alpha-root/b-tools").display().to_string()},
+        {"name": "b-ess", "kind": "background", "pid": 4_200_022,
+         "cwd": case.join("beta-root/ess").display().to_string()},
+    ]);
+    let list = case.join("sessions.json");
+    fs::write(&list, entries.to_string()).expect("write the session list");
+    let sessions = SessionList {
+        command: vec![OsString::from("cat"), list.into_os_string()],
+        bound: Duration::from_secs(5),
+    };
+    let decide = |to: &str| {
+        let mut raw = localise(fixture("send-message"), &home);
+        raw["cwd"] = Value::String(case.join("beta-records").display().to_string());
+        raw["tool_input"]["to"] = Value::String(to.to_owned());
+        raw["tool_input"]["recipient"] = Value::String(to.to_owned());
+        guard::decide_in(&raw, &places, &sessions)
+    };
+    let decision = decide("b-tools");
+    assert_verdict(&decision, Verdict::Deny, "alpha");
+    let decision = decide("b-ess");
+    assert_eq!(decision.verdict, Verdict::Allow, "{decision:#?}");
+    let unreadable = |to: &str| {
+        let mut raw = localise(fixture("send-message"), &home);
+        raw["cwd"] = Value::String(case.join("beta-records").display().to_string());
+        raw["tool_input"]["to"] = Value::String(to.to_owned());
+        raw["tool_input"]["recipient"] = Value::String(to.to_owned());
+        guard::decide_in(&raw, &places, &unlisted())
+    };
+    assert_verdict(&unreadable("b-tools"), Verdict::Deny, "session list");
+}
+
+// -------------------------------------------------------------------------------------------------
+// Adversary, wave 03 U1, pass 2 (`story:instance-session-names`, correction round 1).
+// -------------------------------------------------------------------------------------------------
+
+/// `alpha`, without a prefix and the file's default, and `beta`, prefix `b`; both write no
+/// `roles`, so each has the built-in `conductor` role and is isolated (decision 3). Answers the
+/// guard's places for `active`, and the case directory holding `<name>-root` and `<name>-records`.
+fn adv2_bare_and_isolated(home: &Path, active: &str) -> (Places, PathBuf) {
+    let case = home.parent().expect("the case's directory").to_owned();
+    let text = format!(
+        "version: conductor.config/1\n\
+         default: alpha\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   sources: [{{github: alpha}}]\n\
+         \x20   checkouts: {{root: {}, trees: {}}}\n\
+         \x20   records: {}\n\
+         \x20 - name: beta\n\
+         \x20   session_prefix: b\n\
+         \x20   sources: [{{github: beta}}]\n\
+         \x20   checkouts: {{root: {}, trees: {}}}\n\
+         \x20   records: {}\n",
+        case.join("alpha-root").display(),
+        case.join("alpha-trees").display(),
+        case.join("alpha-records").display(),
+        case.join("beta-root").display(),
+        case.join("beta-trees").display(),
+        case.join("beta-records").display(),
+    );
+    let file = file_beside(home);
+    fs::write(&file, text).expect("write the config file");
+    let environment = config::Environment {
+        home: Some(home.to_owned()),
+        cwd: home.to_owned(),
+        config: Some(file.as_os_str().to_owned()),
+        instance: Some(active.into()),
+    };
+    let resolved = config::resolve(None, &environment).expect("the config file loads");
+    assert_eq!(resolved.instance.name.0, active);
+    (
+        Places::active(home, &resolved).with_config_file(&file),
+        case,
+    )
+}
+
+/// A session list printed by `cat` from `sessions.json` in `case`, holding `entries` as written.
+fn adv2_list(case: &Path, entries: &Value) -> SessionList {
+    let list = case.join("sessions.json");
+    fs::write(&list, entries.to_string()).expect("write the session list");
+    SessionList {
+        command: vec![OsString::from("cat"), list.into_os_string()],
+        bound: Duration::from_secs(5),
+    }
+}
+
+/// Conductor's SendMessage to `to`, from its records `<active>-records`.
+fn adv2_send(
+    places: &Places,
+    home: &Path,
+    records: &Path,
+    to: &str,
+    list: &SessionList,
+) -> Decision {
+    let mut raw = localise(fixture("send-message"), home);
+    raw["cwd"] = Value::String(records.display().to_string());
+    raw["tool_input"]["to"] = Value::String(to.to_owned());
+    raw["tool_input"]["recipient"] = Value::String(to.to_owned());
+    guard::decide_in(&raw, places, list)
+}
+
+/// Two live sessions share the name `b-tools`: beta's own controller of `tools`, and alpha's
+/// controller of its repository `b-tools` (decision 1's case; config validate cannot refuse it,
+/// it knows no repository names). The ref picks alpha's (`named`: the harness refuses a ref that
+/// does not belong to a session of that name, so the ref is what decides who receives it). Beta's
+/// conductor may not message it: the guard must read where the session the ref names works, not
+/// the first session of that name in the list.
+#[test]
+fn adv_w03_u1_p2_a_ref_to_the_bare_instance_s_b_tools_is_denied_beside_beta_s_own() {
+    let home = home("adv-w03-u1-p2-ref-picks-the-session");
+    let (places, case) = adv2_bare_and_isolated(&home, "beta");
+    let list = adv2_list(
+        &case,
+        &serde_json::json!([
+            {"name": "b-tools", "kind": "background", "pid": 4_200_031, "id": "aaaa1111",
+             "cwd": case.join("beta-root/tools").display().to_string()},
+            {"name": "b-tools", "kind": "background", "pid": 4_200_032, "id": "bbbb2222",
+             "cwd": case.join("alpha-root/b-tools").display().to_string()},
+        ]),
+    );
+    let records = case.join("beta-records");
+    let own = adv2_send(&places, &home, &records, "b-tools [aaaa1111]", &list);
+    assert_eq!(own.verdict, Verdict::Allow, "beta's own b-tools: {own:#?}");
+    let theirs = adv2_send(&places, &home, &records, "b-tools [bbbb2222]", &list);
+    assert_eq!(
+        theirs.verdict,
+        Verdict::Deny,
+        "the ref names alpha's controller b-tools, in alpha's checkout: {theirs:#?}"
+    );
+}
+
+/// The session list is readable and lists alpha's own controller `b-tools`, in alpha's checkout
+/// `b-tools`, without a pid: the state `.agents/conductor.md` names for a rate-limited controller
+/// (`claude agents --json` shows it `blocked` with no pid). Where it works is in the list, and it
+/// is alpha's (decision 1); the guard denies when it cannot read the list, and must not let beta's
+/// conductor message it because the entry has no pid.
+#[test]
+fn adv_w03_u1_p2_a_listed_bare_controller_without_a_pid_is_still_alpha_s() {
+    let home = home("adv-w03-u1-p2-listed-without-pid");
+    let (places, case) = adv2_bare_and_isolated(&home, "beta");
+    let list = adv2_list(
+        &case,
+        &serde_json::json!([
+            {"name": "b-tools", "kind": "background", "state": "blocked",
+             "cwd": case.join("alpha-root/b-tools").display().to_string()},
+            {"name": "b-ess", "kind": "background", "pid": 4_200_042,
+             "cwd": case.join("beta-root/ess").display().to_string()},
+        ]),
+    );
+    let records = case.join("beta-records");
+    let decision = adv2_send(&places, &home, &records, "b-tools", &list);
+    assert_eq!(
+        decision.verdict,
+        Verdict::Deny,
+        "b-tools is alpha's controller, listed in alpha's checkout: {decision:#?}"
+    );
+}
+
+/// Decision 3: "An instance that names its own `conductor` role is isolated exactly as you built
+/// it"; acceptance: "conductor's [SendMessage] only to sessions of its own instance". `beta` names
+/// its own conductor (the built-in roles). The conductor of the default `alpha`, which keeps the
+/// bare names (the layout the migration leaves: every instance but one gets a prefix), may not
+/// message beta's sessions or beta's conductor.
+#[test]
+fn adv_w03_u1_p2_the_bare_default_conductor_may_not_message_an_isolated_instance() {
+    let home = home("adv-w03-u1-p2-bare-default-to-isolated");
+    let (places, case) = adv2_bare_and_isolated(&home, "alpha");
+    let records = case.join("alpha-records");
+    for to in ["b-ess", "b-conductor"] {
+        let decision = adv2_send(&places, &home, &records, to, &unlisted());
+        assert_eq!(
+            decision.verdict,
+            Verdict::Deny,
+            "{to} is a session of the isolated beta: {decision:#?}"
+        );
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// Correction round 2, decisions 2 and 3: where the guard reads where a recipient works, the
+// ` [<ref>]` picks the listed session; a bare name listed twice, a ref that matches none, or a
+// recipient the list does not hold is denied, naming why.
+// -------------------------------------------------------------------------------------------------
+
+#[test]
+fn a_recipient_the_list_cannot_tell_apart_or_does_not_hold_is_denied() {
+    let home = home("round-2-recipient-not-told-apart");
+    let (places, case) = adv2_bare_and_isolated(&home, "beta");
+    let list = adv2_list(
+        &case,
+        &serde_json::json!([
+            {"name": "b-tools", "kind": "background", "pid": 4_200_051, "id": "aaaa1111",
+             "cwd": case.join("beta-root/tools").display().to_string()},
+            {"name": "b-tools", "kind": "background", "pid": 4_200_052, "id": "bbbb2222",
+             "cwd": case.join("beta-root/tools").display().to_string()},
+            {"name": "b-ess", "kind": "background", "pid": 4_200_053, "id": "cccc3333",
+             "cwd": case.join("beta-root/ess").display().to_string()},
+        ]),
+    );
+    let records = case.join("beta-records");
+    for (to, because) in [
+        ("b-tools", "more than one listed session"),
+        ("b-ess [dddd]", "matches no listed session"),
+        ("b-gone", "no listed session"),
+    ] {
+        let decision = adv2_send(&places, &home, &records, to, &list);
+        assert_verdict(&decision, Verdict::Deny, because);
+        assert!(
+            decision
+                .reason
+                .contains(to.split(" [").next().unwrap_or(to)),
+            "{decision:#?}"
+        );
+    }
+    for to in ["b-tools [aaaa]", "b-ess", "b-ess [cccc3333]"] {
+        let decision = adv2_send(&places, &home, &records, to, &list);
+        assert_eq!(decision.verdict, Verdict::Allow, "{to}: {decision:#?}");
+    }
+}

@@ -564,6 +564,8 @@ impl Watch {
         else {
             bail!("`{shown}` printed no JSON array");
         };
+        let active = config::active();
+        let instances = active.all();
         let mut sessions = Vec::new();
         for entry in &entries {
             let text = |key: &str| entry[key].as_str().filter(|text| !text.is_empty());
@@ -573,6 +575,14 @@ impl Watch {
             let Some(session) = text("sessionId").or_else(|| text("id")) else {
                 continue;
             };
+            // Another instance's session is not this watch's, wherever it works: its name and
+            // directory say whose it is (story:instance-session-names).
+            if let Some(name) = text("name")
+                && collect::session_instance(&instances, name, Some(Path::new(cwd)))
+                    .is_some_and(|owner| owner.name != active.instance.name)
+            {
+                continue;
+            }
             sessions.push(Session {
                 id: session.chars().take(8).collect(),
                 session: session.to_owned(),
@@ -856,13 +866,21 @@ impl Watch {
                 // labelled by that name: conductor-dev works in conductor's directory, so the
                 // directory would name it "conductor" and make conductor hand itself over. Every
                 // other session is labelled by its directory.
+                // A role's session is matched by its session name (`<session_prefix>-<role>`, or
+                // the role without a prefix) and labelled by the role, so conductor's line reads
+                // `context: conductor` whatever the prefix (story:instance-session-names).
                 let role_named = crate::config::active()
                     .instance
                     .roles
                     .iter()
-                    .any(|role| role.role == session.name);
-                let named = if role_named {
-                    session.name.clone()
+                    .find(|role| {
+                        role.session_name
+                            .as_ref()
+                            .is_some_and(|name| name.0 == session.name)
+                    })
+                    .map(|role| role.role.clone());
+                let named = if let Some(role) = role_named {
+                    role
                 } else {
                     self.sources
                         .repository(&session.cwd)

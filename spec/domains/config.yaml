@@ -112,11 +112,31 @@ types:
     of: String
     alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-"
 
+  # The prefix every session one instance starts carries (story:instance-session-names): letters,
+  # digits and `-`, starting and ending with a letter or digit. Session names are one namespace
+  # for the whole machine, so no two instances of the file share a prefix, no prefix starts with
+  # another followed by `-`, which would let one session name carry both, and no prefix followed
+  # by `-` begins a name an instance without a prefix keeps, such as `conductor-dev`.
+  - name: conductor.config.SessionPrefix
+    kind: newtype
+    of: String
+    alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
+
+  # A harness session name on this machine: `<session_prefix>-<role or repository>`, or without
+  # a prefix the role or the repository itself.
+  - name: conductor.config.SessionName
+    kind: newtype
+    of: String
+
   # The harness and model one session role runs on, such as `conductor` or `controller`; the
   # harness agent the role starts with, such as `repo-controller`; the settings file it starts
   # with; and the profile file its session starts with through `--append-system-prompt-file`, in
   # place of the agent. The settings and profile files are written absolute or under `~`. Absent,
-  # a role names no agent, no settings file and no profile.
+  # a role names no agent, no settings file and no profile. `session_name` is derived, never
+  # chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when
+  # the instance has no prefix; absent for `controller`, whose sessions are named per repository,
+  # `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write
+  # only that value.
   - name: conductor.config.Role
     kind: struct
     fields:
@@ -126,6 +146,18 @@ types:
       - {name: agent, type: Optional<conductor.config.CommandWord>}
       - {name: settings, type: Optional<conductor.config.CommandWord>}
       - {name: profile, type: Optional<conductor.config.CommandWord>}
+      - {name: session_name, type: Optional<conductor.config.SessionName>}
+
+  # The conductor a session of the instance messages (story:instance-session-names): its own,
+  # `session_name` being `<session_prefix>-conductor` or `conductor`, when the instance names a
+  # `conductor` role; else the conductor of the file's `default` instance, which serves it,
+  # `served_by` naming that instance; neither when no conductor serves it. Derived, never chosen:
+  # a file may leave it out, and may write only that value.
+  - name: conductor.config.ConductorSession
+    kind: struct
+    fields:
+      - {name: served_by, type: Optional<conductor.config.InstanceName>}
+      - {name: session_name, type: Optional<conductor.config.SessionName>}
 
   # How many controllers of the instance work at once, at most, and how many sub-agents one
   # controller runs at once, at most. Absent, they are 5 and 4.
@@ -205,14 +237,18 @@ types:
 
   # One instance. A path is written absolute or under `~`, which is the home directory; the
   # effective path is absolute. `operator` is how sessions name the person who decides class O.
+  # `session_prefix` is the prefix of every session the instance starts; without one its sessions
+  # keep the bare names `conductor`, `conductor-dev` and `<repository>`. `conductor` is derived:
+  # the conductor that serves the instance.
   # Absent from the file, `records`, `state` and `cache` are ~/.b10x/conductor/<name>/records,
   # ~/.b10x/conductor/<name>/state and ~/.cache/b10x/conductor/<name>, `repositories` and
-  # `reports` are empty, `operator` and `catalog` are absent, and every other absent key is
-  # conductor's built-in default.
+  # `reports` are empty, `operator`, `catalog` and `session_prefix` are absent, and every other
+  # absent key is conductor's built-in default.
   - name: conductor.config.Instance
     kind: struct
     fields:
       - {name: name, type: conductor.config.InstanceName}
+      - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
       - {name: sources, type: List<conductor.config.Source>}
       - {name: checkouts, type: conductor.config.Checkouts}
       - {name: records, type: String}
@@ -228,11 +264,13 @@ types:
       - {name: authority, type: conductor.config.Authority}
       - {name: operator, type: Optional<String>}
       - {name: catalog, type: Optional<conductor.config.Catalog>}
+      - {name: conductor, type: conductor.config.ConductorSession}
 
   # The file. A key it does not declare is an error, and so is a value that looks like a token.
   # `default` is the instance a command runs when neither `--instance` nor the
   # `conductor-instance` setting names one (story:grouped-instance); it names an instance of the
-  # file.
+  # file. No two instances share a `session_prefix`, and at most one has none
+  # (story:instance-session-names).
   - name: conductor.config.Config
     kind: struct
     fields:
@@ -242,6 +280,7 @@ types:
     invariants:
       - version == "conductor.config/1"
       - distinct: {in: instances, as: instance, by: instance.name}
+      - distinct: {in: instances, as: instance, by: instance.session_prefix}
       - any:
           - not defined(default)
           - exists: {in: instances, as: instance, that: instance.name == default}

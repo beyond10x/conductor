@@ -2,6 +2,7 @@
 //! keyed by its `controller_id`, kept and read back as every other entity of the store is.
 
 use conductor_model::behaviour::ControllerStorage;
+use conductor_model::config::SessionName;
 use conductor_model::dispatch::{
     ControllerData, ControllerId, ControllerSnapshot, ControllerState,
 };
@@ -84,7 +85,7 @@ fn decode(body: &Value) -> Result<ControllerSnapshot, String> {
             repository: RepositoryName(text(body, "repository")?),
             harness: harness_named(&harness)
                 .ok_or_else(|| format!("unknown Harness {harness:?}"))?,
-            session_name: RepositoryName(text(body, "session_name")?),
+            session_name: SessionName(text(body, "session_name")?),
             charter_revision: body
                 .get("charter_revision")
                 .and_then(Value::as_i64)

@@ -402,12 +402,24 @@ fn collect(sources: &Sources, waste: Value, usage: Value, now: OffsetDateTime) -
     let dispatches = jsonl(&sources.root.join("dispatches"), &mut errors);
     let decisions = jsonl(&sources.root.join("decisions"), &mut errors);
     let checkouts = sources.checkouts.as_path();
+    let active = config::active();
+    let instances = active.all();
+    // Another instance's session is not this page's, wherever it works: its name and directory
+    // say whose it is (story:instance-session-names).
+    let theirs = |row: &Value| {
+        let (Some(name), Some(cwd)) = (row["name"].as_str(), row["cwd"].as_str()) else {
+            return false;
+        };
+        crate::collect::session_instance(&instances, name, Some(Path::new(cwd)))
+            .is_some_and(|owner| owner.name != active.instance.name)
+    };
     let shown: Vec<&Value> = rows
         .iter()
         .filter(|row| {
             row["cwd"]
                 .as_str()
                 .is_some_and(|cwd| Path::new(cwd).starts_with(checkouts))
+                && !theirs(row)
         })
         .collect();
     // A controller is named after its repository and runs in its checkout (design § 2);
@@ -419,10 +431,16 @@ fn collect(sources: &Sources, waste: Value, usage: Value, now: OffsetDateTime) -
                 return false;
             };
             let cwd = Path::new(cwd);
-            name != "conductor"
+            // A controller's session is named `<session_prefix>-<repository>`, or the repository
+            // without a prefix (story:instance-session-names).
+            let instance = &active.instance;
+            name != crate::config::session_name(instance, "conductor").0
                 && !exited(row)
                 && cwd.parent() == Some(checkouts)
-                && cwd.file_name().is_some_and(|dir| dir == name)
+                && cwd.file_name().is_some_and(|dir| {
+                    dir.to_str()
+                        .is_some_and(|dir| crate::config::session_name(instance, dir).0 == name)
+                })
         })
         .count();
     let mut sessions: Vec<Value> = shown

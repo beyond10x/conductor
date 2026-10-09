@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 91b1e04b9d3f40c554bf0e78f07a6160c885b7e7f6864fec9da0ee72675cfe04
-// contract digest af130e1a335a2c4eb9139d6a63b92dd42a89d0b92bb1c80ec5e4354e782de74a
+// model digest ad48b54e5a5c7a5d26726034920a9e4f29b75cf4fcd6e4d110ea66a2c8f4c0ee
+// contract digest 9a2f202e3be77909ed7d34751b7e034f9ab12fe69955c93088bd68334629114c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -66,10 +66,20 @@ pub struct Checkouts {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandWord(pub String);
 
+/// ConductorSession — `conductor.config.ConductorSession`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConductorSession {
+    /// `served_by` — `Optional<conductor.config.InstanceName>`.
+    pub served_by: Option<InstanceName>,
+    /// `session_name` — `Optional<conductor.config.SessionName>`.
+    pub session_name: Option<SessionName>,
+}
+
 /// Config — `conductor.config.Config`.
 ///
 /// Every value satisfies `version == "conductor.config/1"` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct instance in instances by instance.session_prefix` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `(not (defined(default)) or exists instance in instances: (instance.name == default))` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -134,6 +144,8 @@ pub struct InitRecords {
 pub struct Instance {
     /// `name` — `conductor.config.InstanceName`.
     pub name: InstanceName,
+    /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
+    pub session_prefix: Option<SessionPrefix>,
     /// `sources` — `List<conductor.config.Source>`.
     pub sources: Vec<Source>,
     /// `checkouts` — `conductor.config.Checkouts`.
@@ -164,6 +176,8 @@ pub struct Instance {
     pub operator: Option<String>,
     /// `catalog` — `Optional<conductor.config.Catalog>`.
     pub catalog: Option<Catalog>,
+    /// `conductor` — `conductor.config.ConductorSession`.
+    pub conductor: ConductorSession,
 }
 
 /// InstanceName — `conductor.config.InstanceName`: a distinct wrapper around `String`.
@@ -251,7 +265,19 @@ pub struct Role {
     pub settings: Option<CommandWord>,
     /// `profile` — `Optional<conductor.config.CommandWord>`.
     pub profile: Option<CommandWord>,
+    /// `session_name` — `Optional<conductor.config.SessionName>`.
+    pub session_name: Option<SessionName>,
 }
+
+/// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionName(pub String);
+
+/// SessionPrefix — `conductor.config.SessionPrefix`: a distinct wrapper around `String`.
+///
+/// Every character is one of `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionPrefix(pub String);
 
 /// ShowConfig — `conductor.config.ShowConfig`.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -30,14 +30,24 @@ const NAME: &str = "sample";
 /// The home directory [`SAMPLE`] is read against, written `~` where a default holds it.
 const HOME: &str = "/sample-home";
 
-/// A config file that sets every key of the specification to a value that differs from its
-/// default, so that leaving one out shows the default the library fills. Generation fails when a
-/// key of the specification is missing here.
+/// The keys `<list>[].<field>` the library derives rather than reads (`story:instance-session-names`):
+/// a file may write only the derived value, so [`SAMPLE`] does not set them, their default is
+/// written `derived`, and they are left out of the default of their list.
+const DERIVED: [(&str, &str); 1] = [("roles", "session_name")];
+
+/// The sections whose every key the library derives (`conductor`, the conductor that serves the
+/// instance): [`SAMPLE`] does not set them, and their keys' default is written `derived`.
+const DERIVED_SECTIONS: [&str; 1] = ["conductor"];
+
+/// A config file that sets every key of the specification but [`DERIVED`] to a value that differs
+/// from its default, so that leaving one out shows the default the library fills. Generation fails
+/// when a key of the specification is missing here.
 const SAMPLE: &str = "\
 version: conductor.config/1
 default: sample
 instances:
   - name: sample
+    session_prefix: example
     sources:
       - github: example-org
       - local: ~/alpha
@@ -405,9 +415,29 @@ fn probe(sample: &Value, path: &[Step], top: bool) -> Result<Found> {
         .first()
         .context("the sample file read back without its instance")?;
     let document = conductor_cli::config::document(instance);
-    Ok(lookup(&document["instances"][0], path)
+    let mut found = lookup(&document["instances"][0], path)
         .filter(|value| !value.is_null())
-        .map_or(Found::Absent, |value| Found::Value(value.clone())))
+        .cloned();
+    if let ([Step::Key(key)], Some(Value::Sequence(items))) = (path, found.as_mut()) {
+        for (list, field) in DERIVED {
+            if key == list {
+                for item in items.iter_mut() {
+                    if let Value::Mapping(map) = item {
+                        map.remove(field);
+                    }
+                }
+            }
+        }
+    }
+    Ok(found.map_or(Found::Absent, Found::Value))
+}
+
+/// Whether `prefix` and `key` are a [`DERIVED`] key.
+fn derived(prefix: &[Step], key: &str) -> bool {
+    DERIVED
+        .iter()
+        .any(|(list, field)| matches!(prefix, [Step::Each(each)] if each == list) && key == *field)
+        || matches!(prefix, [Step::Key(section)] if DERIVED_SECTIONS.contains(&section.as_str()))
 }
 
 fn written(path: &[Step]) -> String {
@@ -532,11 +562,15 @@ fn rows(
         let kind = spec.kind(base);
         let required_struct = kind == Some("struct") && matches!(shape(expr), Shape::Plain(_));
         if !required_struct {
-            let found = probe(sample, &path, false)?;
+            let default = if derived(prefix, key) {
+                "derived".to_owned()
+            } else {
+                default_cell(&probe(sample, &path, false)?, expr)
+            };
             out.push(Row {
                 key: written(&path),
                 shown: spec.shown(expr),
-                default: default_cell(&found, expr),
+                default,
                 rule: rule_cell(spec, owner, key, expr)?,
             });
         }

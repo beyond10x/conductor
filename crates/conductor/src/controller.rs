@@ -41,10 +41,15 @@ use crate::store::Store;
 /// `conductor controller start-controller`: the command `conductor.dispatch.StartController`.
 /// Prints the new controller's id.
 ///
+/// The session name is the instance's for the repository ([`crate::config::session_name`]):
+/// `<session_prefix>-<repository>`, or the repository without a prefix
+/// (`story:instance-session-names`). `--session-name` may name it, and no other.
+///
 /// # Errors
 ///
-/// A flag is missing or `--input-json` is given, the store does not open or keep the record, or
-/// the repository already has a running or paused controller (`ControllerAlreadyRunning`).
+/// A flag is missing or `--input-json` is given, `--session-name` is not the instance's name for
+/// the repository, the store does not open or keep the record, or the repository already has a
+/// running or paused controller (`ControllerAlreadyRunning`).
 pub fn start_controller(state: Option<&Path>, args: StartControllerArgs) -> Result<ExitCode> {
     const WHAT: &str = "controller start-controller";
     flags_only(args.input_json, "controller start-controller --input-json")?;
@@ -52,11 +57,23 @@ pub fn start_controller(state: Option<&Path>, args: StartControllerArgs) -> Resu
     let harness = required(args.harness, WHAT, "--harness")?;
     let harness = harness_named(&harness)
         .ok_or_else(|| anyhow!("{WHAT}: --harness {harness:?} is not a Harness"))?;
+    let session_name = crate::config::session_name(&crate::config::active().instance, &repository);
+    if let Some(given) = args.session_name
+        && given != session_name.0
+    {
+        bail!(
+            "{WHAT}: --session-name {given:?} is not this instance's session name for repository \
+             {repository:?}: {:?}, <session_prefix>-<repository> of conductor config show, or the \
+             repository without a prefix",
+            session_name.0
+        );
+    }
     let mut generated = record(state)?;
     let outcome = generated
         .start_controller(StartController {
             repository: RepositoryName(repository),
             harness,
+            session_name,
         })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated
@@ -275,7 +292,7 @@ impl ControllerStorage for Ports {
 /// `conductor.dispatch.StartController`, as its contract in `crates/conductor-model/PLAN.md`
 /// states it: `already-running` when a `Controller` of the input's repository is `Running` or
 /// `Paused`; `started` otherwise, creating a `Running` controller under a generated id with
-/// `session_name` the repository and `charter_revision` 1.
+/// the input's `session_name` and `charter_revision` 1.
 impl StartControllerBehavior for Ports {
     fn start_controller(
         &mut self,
@@ -302,7 +319,7 @@ impl StartControllerBehavior for Ports {
             controller_id: controller_id.clone(),
             repository: input.repository.clone(),
             harness: input.harness,
-            session_name: input.repository.clone(),
+            session_name: input.session_name,
             charter_revision: 1,
         };
         ControllerStorage::put(
