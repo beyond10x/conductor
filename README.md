@@ -79,7 +79,8 @@ The system tools:
 Install the binary, then check every program it starts:
 
 ```console
-cargo install --path crates/conductor --locked      # or: task install
+cargo install --git https://github.com/beyond10x/conductor --tag v0.1.0 --locked conductor-cli
+                                                   # from a checkout: task install
 conductor doctor
 ```
 

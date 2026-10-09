@@ -20,7 +20,7 @@ specification; the [README](https://github.com/beyond10x/conductor#install) list
 Install from the repository:
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.1.0 --locked conductor-cli
 ```
 
 or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.

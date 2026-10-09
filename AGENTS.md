@@ -133,6 +133,27 @@ Run `task check` on the exact commit before you push or merge. For a quick loop,
 - Run at most one full `task check` per repository at a time; prefer `cargo test -p conductor-cli`
   on what you touched.
 
+## Releases
+
+A release is a tag `v<version>` on `main` and a GitHub Release of the same name; the binary is
+installed from the tag (`cargo install --git https://github.com/beyond10x/conductor --tag
+v<version> --locked conductor-cli`). Conductor-dev cuts one after a wave merges, about once a day,
+without asking: several waves may go into one release.
+
+1. On a branch from `main`, set `version` in the root `Cargo.toml` (semver; `0.x`: a minor bump for
+   a new command, config key or record, a patch bump otherwise), refresh `Cargo.lock`
+   (`cargo update -p conductor-cli --offline`), and point the README's install line at the new tag.
+2. In a fresh clone of the branch at that exact commit: `task check` with `B10X_GATES_POLICY` set,
+   then `task docs-check`, each exit 0. Read each step's own exit status.
+3. A pull request through the bot route, its checks green, then fast-forward `main` to it.
+4. `b10x-gates bot -- tag -a v<version> -m <title> <commit>` and `b10x-gates bot -- push origin
+   v<version>`; then the GitHub Release through `b10x-gates api` (`POST
+   /repos/beyond10x/conductor/releases`, `tag_name`, `name`, `body`: the stories implemented since
+   the last tag, one line each).
+5. Verify: the tag points at `main`'s commit, the tag's checks are green, the Release exists, and
+   `cargo install` from the tag with `--root <scratch dir>` succeeds and `cargo install --list --root
+   <scratch dir>` names `conductor-cli v<version>`.
+
 ## Sessions
 
 Two background sessions belong to an instance: `conductor` (runs the instance, in its records
