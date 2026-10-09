@@ -9,9 +9,12 @@
 //! ([`repository::activity`]), and runs the `repository` commands and view through the built
 //! binary from the case's empty `work/`, with `--state-dir` naming that `state/`.
 
+mod active;
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 use anyhow::bail;
 use conductor_cli::collect::Collector;
@@ -40,6 +43,7 @@ struct Case {
 
 impl Case {
     fn new(name: &str) -> Self {
+        active::isolate();
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("repository_marks")
             .join(name);
@@ -79,7 +83,7 @@ impl Case {
     /// `work/` empty.
     fn run(&self, args: &[&str]) -> Output {
         let work = self.root.join("work");
-        let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+        let output = common::conductor(self.root.join("home"))
             .current_dir(&work)
             .arg("--state-dir")
             .arg(self.state())

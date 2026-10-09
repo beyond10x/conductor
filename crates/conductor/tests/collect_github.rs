@@ -10,6 +10,8 @@
 //! directory for the `github` collector) and reads what the collector recorded through the
 //! generated views, which carry every field.
 
+mod active;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -60,6 +62,7 @@ impl Drop for World {
 
 impl World {
     fn new(case: &str) -> Self {
+        active::isolate();
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("collect_github")
             .join(case);

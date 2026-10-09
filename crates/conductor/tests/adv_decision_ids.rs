@@ -3,9 +3,11 @@
 //! Each case runs the built binary against a store of its own under this test target's temporary
 //! directory, as `tests/decision.rs` does.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 use serde_json::Value;
 
@@ -33,7 +35,7 @@ impl Case {
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.work.with_file_name("home"))
             .current_dir(&self.work)
             .arg("--state-dir")
             .arg(&self.state)

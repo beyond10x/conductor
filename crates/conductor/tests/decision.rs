@@ -10,6 +10,8 @@
 //! record. Given no `--decision-id`, they allocate `DEC-YYYYMMDD-NN`: the UTC date of
 //! `--decided-at`, and one more than the highest number the store holds for that date.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
@@ -42,7 +44,7 @@ impl Case {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+        let mut command = common::conductor(self.work.with_file_name("home"));
         command
             .current_dir(&self.work)
             .arg("--state-dir")

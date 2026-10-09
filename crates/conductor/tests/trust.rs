@@ -8,6 +8,8 @@
 //! the built binary with `HOME` naming the case's `home/`, `CONDUCTOR_CONFIG` a config file the
 //! case writes, `CONDUCTOR_INSTANCE` removed, and works only under its own directory.
 
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -77,12 +79,10 @@ impl Case {
 
     /// `conductor trust`, isolated as the module says.
     fn trust(&self, config: &Path) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.dir.join("home"))
             .arg("trust")
             .current_dir(&self.dir)
-            .env("HOME", self.dir.join("home"))
             .env("CONDUCTOR_CONFIG", config)
-            .env_remove("CONDUCTOR_INSTANCE")
             .stdin(Stdio::null())
             .output()
             .expect("conductor runs")

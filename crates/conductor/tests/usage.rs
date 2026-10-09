@@ -12,13 +12,16 @@
 //! directory names, titles, branches and text) is listed in [`PRIVATE`], and none of it may reach
 //! any output format, standard error or the dashboard.
 
+mod active;
+mod common;
+
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::time::{Duration, Instant};
 
 use conductor_cli::dashboard::{self, Sources};
@@ -147,6 +150,7 @@ impl Drop for Case {
 impl Case {
     /// Lays out `placed`, each fixture's days moved to `day` and the day before it.
     fn new(name: &str, placed: &[Placed], day: &str, day_before: &str) -> Self {
+        active::isolate();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("usage")
             .join(name);
@@ -186,9 +190,8 @@ impl Case {
     /// Runs `conductor --state-dir <case>/state <args>` from `work/`, with `HOME` naming the
     /// case's home.
     fn conductor(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.home())
             .current_dir(self.dir.join("work"))
-            .env("HOME", self.home())
             .arg("--state-dir")
             .arg(self.dir.join("state"))
             .args(args)
@@ -551,9 +554,8 @@ fn a_flag_that_holds_no_such_value_is_refused() {
 #[test]
 fn a_home_that_is_not_absolute_is_refused() {
     let case = Case::new("home", &CLEAN, DAY, DAY_BEFORE);
-    let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let output = common::conductor("relative-home")
         .current_dir(case.dir.join("work"))
-        .env("HOME", "relative-home")
         .arg("--state-dir")
         .arg(case.dir.join("state"))
         .args(["resource", "usage"])

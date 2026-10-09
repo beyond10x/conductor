@@ -6,6 +6,8 @@
 //! Each case runs the built `conductor` from its own directory under this test target's temporary
 //! directory in `target/`, never from the crate directory.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -43,11 +45,8 @@ fn working_dir(root: &Path) -> PathBuf {
 /// Runs conductor in `cwd`, with `cwd` as the home directory too, so the operator's own config file
 /// under the real home directory is never read.
 fn conductor(cwd: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(cwd)
         .current_dir(cwd)
-        .env("HOME", cwd)
-        .env_remove("CONDUCTOR_CONFIG")
-        .env_remove("CONDUCTOR_INSTANCE")
         .args(args)
         .stdin(Stdio::null())
         .output()

@@ -5,6 +5,9 @@
 //! directory, takes snapshots through the library ([`snapshot::take`]) and reads them back through
 //! the built binary, a later process, with `--state-dir` naming that `state/`.
 
+mod active;
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -19,6 +22,7 @@ use serde_json::Value;
 
 /// A fresh directory for one case, with an empty `work/` to run the binary from.
 fn case_dir(case: &str) -> PathBuf {
+    active::isolate();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("collector_bounds")
         .join(case);
@@ -37,7 +41,7 @@ fn take(dir: &Path, collectors: &[Collector]) -> Taken {
 
 /// Runs the binary from `dir/work` with `--state-dir` naming `dir/state`.
 fn conductor(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(dir.join("home"))
         .current_dir(dir.join("work"))
         .arg("--state-dir")
         .arg(dir.join("state"))

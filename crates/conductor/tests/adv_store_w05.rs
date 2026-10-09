@@ -7,9 +7,11 @@
 //! `target/`. Every case uses only interfaces the unit's base already had, so the file builds
 //! against the base as well.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use conductor_cli::store::{self, Store, StoreError};
 use conductor_model::behaviour::{
@@ -153,7 +155,7 @@ fn later_goal(goal: &str, state: &str) -> Value {
 
 /// Runs the `conductor` binary on `state` with `args`.
 fn conductor(state: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(state.with_file_name("home"))
         .arg("--state-dir")
         .arg(state)
         .args(args)

@@ -9,11 +9,13 @@
 //! programs it writes under the case's directory, so no live session list, `gh` or notifier is
 //! reached; it reads the free disk of `/` through `statvfs`.
 
+mod common;
+
 use std::ffi::OsString;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -310,13 +312,10 @@ fn adv_the_dashboard_reads_main_ci_where_the_watch_run_from_the_conductor_reposi
     // complete snapshot in the store the watch's state directory holds.
     active_snapshot(&root.join("state"), "alpha");
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let mut child = common::conductor(&home)
         .args(["watch", "run"])
         .current_dir(&root)
         .env("PATH", &bin)
-        .env("HOME", &home)
-        .env_remove(conductor_cli::config::CONFIG_VARIABLE)
-        .env_remove(conductor_cli::config::INSTANCE_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

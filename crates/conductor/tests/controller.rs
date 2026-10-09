@@ -6,6 +6,8 @@
 //! temporary directory in `target/`, with `--state-dir` naming a state directory beside it, as
 //! `tests/state_dir.rs` does.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -53,12 +55,9 @@ impl Case {
     fn command(&self, args: &[&str]) -> Command {
         let home = self.work.with_file_name("home");
         fs::create_dir_all(&home).expect("create the case's home");
-        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+        let mut command = common::conductor(home);
         command
             .current_dir(&self.work)
-            .env("HOME", home)
-            .env_remove("CONDUCTOR_CONFIG")
-            .env_remove("CONDUCTOR_INSTANCE")
             .arg("--state-dir")
             .arg(&self.state)
             .args(args)

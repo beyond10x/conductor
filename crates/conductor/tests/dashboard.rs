@@ -9,13 +9,16 @@
 //! read from the environment. The last case starts the built binary with `--port 0` and reads the
 //! port from its first line.
 
+mod active;
+mod common;
+
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -66,6 +69,7 @@ impl Drop for Case {
 
 impl Case {
     fn new(name: &str) -> Self {
+        active::isolate();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("dashboard")
             .join(name);
@@ -907,10 +911,9 @@ fn the_binary_listens_on_a_free_port_of_127_0_0_1_and_says_so_first() {
     let case = Case::new("binary");
     // The server measures the disk waste under its home from the start; the fixture home keeps
     // that measurement off the real one.
-    let child = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let child = common::conductor(&case.home)
         .args(["dashboard", "serve", "--port", "0", "--root"])
         .arg(case.home.join("example-org/conductor"))
-        .env("HOME", &case.home)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

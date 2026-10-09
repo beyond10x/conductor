@@ -5,9 +5,11 @@
 //! Each case runs the binary from its own directory under this test target's temporary directory
 //! in `target/`, and seeds the store through the library, as `tests/store.rs` does.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 use conductor_cli::store;
 use conductor_model::behaviour::Generated;
@@ -63,11 +65,8 @@ fn draft(goal: &str, title: &str) -> Value {
 /// Runs conductor in `cwd`, with `cwd` as the home directory too, so the operator's own config file
 /// under the real home directory is never read.
 fn conductor(cwd: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(cwd)
         .current_dir(cwd)
-        .env("HOME", cwd)
-        .env_remove("CONDUCTOR_CONFIG")
-        .env_remove("CONDUCTOR_INSTANCE")
         .args(args)
         .stdin(Stdio::null())
         .output()

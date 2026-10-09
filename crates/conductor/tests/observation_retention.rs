@@ -7,6 +7,8 @@
 //! (`retention: {snapshots: 12}`), and reads them back through the built binary with
 //! `--state-dir`, a `HOME` of its own and an empty `PATH`.
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -135,12 +137,9 @@ impl Case {
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.root.join("home"))
             .current_dir(self.root.join("work"))
-            .env("HOME", self.root.join("home"))
             .env("PATH", self.root.join("path"))
-            .env_remove("CONDUCTOR_CONFIG")
-            .env_remove("CONDUCTOR_INSTANCE")
             .arg("--state-dir")
             .arg(&self.state)
             .args(args)

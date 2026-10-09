@@ -18,6 +18,9 @@
 //! the built binary's `snapshot blockers`, specifications through the generated query, since the
 //! view `snapshot specifications` is not written yet.
 
+mod active;
+mod common;
+
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fs;
@@ -68,6 +71,7 @@ impl Drop for Case {
 
 impl Case {
     fn new(name: &str) -> Self {
+        active::isolate();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("collect_stores")
             .join(name);
@@ -188,7 +192,7 @@ impl Case {
     /// The recorded blockers, through `snapshot blockers --format json`, without the identities
     /// the store assigns, sorted.
     fn blockers(&self) -> Vec<Value> {
-        let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+        let output = common::conductor(self.dir.join("home"))
             .current_dir(self.dir.join("work"))
             .args(["--state-dir", path(&self.state())])
             .args(["snapshot", "blockers", "--format", "json"])

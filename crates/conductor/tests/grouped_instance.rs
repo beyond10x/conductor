@@ -17,6 +17,8 @@
 //! one commit. The names are neutral: group `g`, repositories `g/r`, `g/other` and `s`, and the
 //! excluded group `x`. No case reaches the network, a real checkout or the real session list.
 
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -196,7 +198,7 @@ impl Case {
     /// The built binary run from `work/` with `--state-dir` naming `state/`, `CONDUCTOR_CONFIG`
     /// naming `config`, `HOME` naming `home/` and `PATH` only `bin/`.
     fn conductor(&self, config: &Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.home())
             .current_dir(self.dir.join("work"))
             .env_clear()
             .env("HOME", self.home())
@@ -381,7 +383,7 @@ fn the_default_selects_the_instance_and_the_setting_beats_it() {
     // Through the binary: `config show` shows the default, the variable beats it, and the flag
     // beats both.
     let show = |extra: &[&str], variable: Option<&str>| {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+        let mut command = common::conductor(case.home());
         command
             .current_dir(case.dir.join("work"))
             .env_clear()
@@ -430,7 +432,7 @@ fn a_default_naming_no_instance_is_refused_with_its_yaml_path() {
         "the problem names the instances: {problems:?}"
     );
     let file = case.write("two.yaml", &text_of);
-    let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let output = common::conductor(case.home())
         .current_dir(case.dir.join("work"))
         .env_clear()
         .env("HOME", case.home())

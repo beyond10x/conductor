@@ -7,9 +7,12 @@
 //! `work/` empty. A refused command exits 1 with one line on standard error and writes nothing on
 //! standard output, unless the case says otherwise.
 
+mod active;
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::sync::{Arc, Mutex};
 
 use conductor_cli::collect::Collector;
@@ -28,6 +31,7 @@ struct Case {
 
 impl Case {
     fn new(case: &str) -> Self {
+        active::isolate();
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("followup_w06")
             .join(case);
@@ -137,7 +141,7 @@ impl Case {
 
 /// Runs `conductor --state-dir <state> <args>` from `work`, and checks that it left `work` empty.
 fn run(work: &Path, state: &Path, args: &[&str]) -> Output {
-    let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let output = common::conductor(work.with_file_name("home"))
         .current_dir(work)
         .arg("--state-dir")
         .arg(state)

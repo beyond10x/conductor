@@ -8,9 +8,12 @@
 //! its own directory in this test target's temporary directory, and reads them back through the
 //! built `conductor`, run from the case's empty `work/` with `--state-dir` naming its `state/`.
 
+mod active;
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::time::Duration;
 
 use anyhow::bail;
@@ -51,6 +54,7 @@ const COLUMNS: [&str; 7] = [
 /// A fresh directory for one case: its `state/` is the case's store, and its empty `work/` the
 /// working directory of every run of the binary.
 fn case_dir(case: &str) -> PathBuf {
+    active::isolate();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("shipped")
         .join(case);
@@ -135,7 +139,7 @@ fn take_fixtures(root: &Path) -> Taken {
 fn conductor(root: &Path, args: &[&str]) -> Output {
     let work = root.join("work");
     let state = root.join("state");
-    let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let output = common::conductor(root.join("home"))
         .current_dir(&work)
         .args(["--state-dir", path(&state)])
         .args(args)

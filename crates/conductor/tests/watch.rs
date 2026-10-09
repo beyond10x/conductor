@@ -14,12 +14,14 @@
 //! `CONDUCTOR_CONFIG`; a case without one removes that variable, so no case reads the real home's
 //! config. A snapshot the watch reads is taken through the library over a fake collector.
 
+mod common;
+
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -1473,15 +1475,13 @@ fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
         "\x20   thresholds: {disk_low: 1G, disk_clear: 2G}\n",
     ));
     let state = case.dir.join("state");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let mut child = common::conductor(&home)
         .arg("--state-dir")
         .arg(&state)
         .args(["watch", "run", "--every", "1", "--ci-every", "1"])
         .current_dir(&work)
         .env("PATH", &bin)
-        .env("HOME", &home)
         .env(config::CONFIG_VARIABLE, &config)
-        .env_remove(config::INSTANCE_VARIABLE)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1538,7 +1538,7 @@ fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
 fn the_binary_refuses_an_interval_of_zero() {
     let case = Case::new("zero");
     for flag in ["--every", "--ci-every"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+        let output = common::conductor(case.dir.join("home"))
             .arg("--state-dir")
             .arg(case.dir.join("state"))
             .args(["watch", "run", flag, "0"])
@@ -1629,7 +1629,7 @@ impl Case {
     /// given and is removed otherwise; `CONDUCTOR_INSTANCE` is removed.
     fn start_watch(&self, config: Option<&Path>, args: &[&str]) -> Child {
         let (home, work, bin) = self.binary_dirs();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+        let mut command = common::conductor(&home);
         command
             .arg("--state-dir")
             .arg(self.dir.join("state"))
@@ -1637,9 +1637,6 @@ impl Case {
             .args(args)
             .current_dir(&work)
             .env("PATH", &bin)
-            .env("HOME", &home)
-            .env_remove(config::CONFIG_VARIABLE)
-            .env_remove(config::INSTANCE_VARIABLE)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1975,12 +1972,9 @@ fn the_session_tasks_start_their_role_on_the_harness_and_model_config_show_names
     // What the tasks read without a file: the built-in roles, on claude and opus, as today.
     let case = Case::new("taskfile-roles");
     let (home, work, _) = case.binary_dirs();
-    let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let output = common::conductor(&home)
         .args(["config", "show", "--format", "json"])
         .current_dir(&work)
-        .env("HOME", &home)
-        .env_remove(config::CONFIG_VARIABLE)
-        .env_remove(config::INSTANCE_VARIABLE)
         .stdin(Stdio::null())
         .output()
         .expect("the conductor binary runs");

@@ -11,6 +11,8 @@
 //! binary runs with both settings' variables removed, and `CONDUCTOR_CONFIG` naming the file when
 //! the case has one, so no case reads the real home's config.
 
+mod common;
+
 use std::fs::{self, File};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::TcpStream;
@@ -19,7 +21,7 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use conductor_cli::config::{self, CONFIG_VARIABLE, INSTANCE_VARIABLE};
+use conductor_cli::config::{self, CONFIG_VARIABLE};
 use serde_json::{Value, json};
 
 /// The instant every decision of these cases is decided at.
@@ -91,13 +93,8 @@ impl Case {
     /// `conductor <args>` from `cwd`, with `HOME` naming the case's home, both settings'
     /// variables removed, and `CONDUCTOR_CONFIG` naming `config` when there is one.
     fn command(&self, cwd: &Path, config: Option<&Path>) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
-        command
-            .current_dir(cwd)
-            .env("HOME", self.home())
-            .env_remove(CONFIG_VARIABLE)
-            .env_remove(INSTANCE_VARIABLE)
-            .stdin(Stdio::null());
+        let mut command = common::conductor(self.home());
+        command.current_dir(cwd).stdin(Stdio::null());
         if let Some(config) = config {
             command.env(CONFIG_VARIABLE, config);
         }

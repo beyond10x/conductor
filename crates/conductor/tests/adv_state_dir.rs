@@ -3,6 +3,8 @@
 //! Each case runs the built `conductor` from its own directory under this test target's temporary
 //! directory in `target/`, never from the crate directory.
 
+mod common;
+
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -53,7 +55,7 @@ fn propose(state: &Path, goal: &str, title: &str) {
 }
 
 fn conductor(cwd: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(cwd.with_file_name("home"))
         .current_dir(cwd)
         .args(args)
         .stdin(Stdio::null())

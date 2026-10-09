@@ -19,10 +19,12 @@
 //! recording thread does, 10 times in this process. It asserts only that every run answered as the
 //! rule table says.
 
+mod common;
+
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use conductor_cli::store::{self, Store};
@@ -178,11 +180,10 @@ fn time(home: &Path, state: &Path, stdin: &[u8], expected: i32) -> (Vec<Duration
     let mut times: Vec<Duration> = (0..RUNS)
         .map(|_| {
             let started = Instant::now();
-            let mut child = Command::new(env!("CARGO_BIN_EXE_conductor"))
+            let mut child = common::conductor(home)
                 .arg("--state-dir")
                 .arg(state)
                 .args(["guard", "record-guard-decision", "--from-pre-tool-use"])
-                .env("HOME", home)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())

@@ -8,10 +8,13 @@
 //! snapshot through the library and reads it back through the built binary, in a later process,
 //! with `--state-dir` naming the case's `state/`.
 
+mod active;
+mod common;
+
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use conductor_cli::collect::sessions::{self, Sources};
@@ -48,6 +51,7 @@ fn fixtures() -> PathBuf {
 
 /// A fresh directory for one case, with an empty `work/` to run the binary from.
 fn case_dir(case: &str) -> PathBuf {
+    active::isolate();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("collect_sessions")
         .join(case);
@@ -137,11 +141,8 @@ fn take(dir: &Path, sources: Sources) -> Taken {
 /// `dir/home` and neither config variable set, so it reads no operator's config.
 fn conductor(dir: &Path, args: &[&str]) -> Output {
     let state = dir.join("state");
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(dir.join("home"))
         .current_dir(dir.join("work"))
-        .env("HOME", dir.join("home"))
-        .env_remove("CONDUCTOR_CONFIG")
-        .env_remove("CONDUCTOR_INSTANCE")
         .arg("--state-dir")
         .arg(&state)
         .args(args)

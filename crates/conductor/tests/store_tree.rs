@@ -28,6 +28,8 @@
 //! A case copies the store into its own state directory under this test target's temporary
 //! directory in `target/`, and runs the built binary there with `--state-dir`.
 
+mod common;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Write as _;
@@ -131,7 +133,7 @@ impl Case {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+        let mut command = common::conductor(self.work.with_file_name("home"));
         command
             .current_dir(&self.work)
             .env("PATH", &self.path)
