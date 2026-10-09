@@ -941,6 +941,7 @@ Usage: conductor controller start-controller [OPTIONS]
 |---|---|---|---|
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
 | `--harness <HARNESS>` | no | none | Harness One of `Claude`, `Codex`. |
+| `--session-name <SESSION_NAME>` | no | none | SessionName |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor controller stop-controller`

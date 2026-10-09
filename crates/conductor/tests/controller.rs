@@ -34,15 +34,36 @@ impl Case {
         }
     }
 
+    /// Runs the binary from the case's working directory with `HOME` naming the case's own home,
+    /// so no case reads the operator's config, and neither config variable set.
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        self.command(args)
+            .output()
+            .expect("the conductor binary runs")
+    }
+
+    /// [`Case::run`], with `CONDUCTOR_CONFIG` naming `config`.
+    fn run_with(&self, config: &Path, args: &[&str]) -> Output {
+        self.command(args)
+            .env("CONDUCTOR_CONFIG", config)
+            .output()
+            .expect("the conductor binary runs")
+    }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let home = self.work.with_file_name("home");
+        fs::create_dir_all(&home).expect("create the case's home");
+        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+        command
             .current_dir(&self.work)
+            .env("HOME", home)
+            .env_remove("CONDUCTOR_CONFIG")
+            .env_remove("CONDUCTOR_INSTANCE")
             .arg("--state-dir")
             .arg(&self.state)
             .args(args)
-            .stdin(Stdio::null())
-            .output()
-            .expect("the conductor binary runs")
+            .stdin(Stdio::null());
+        command
     }
 
     fn start(&self, repository: &str) -> Output {
@@ -254,4 +275,71 @@ fn a_start_keeps_its_record_under_the_state_dir_flag_and_nothing_in_the_working_
         Vec::<String>::new(),
         "nothing is created in the working directory"
     );
+}
+
+/// `story:instance-session-names`: a controller's `session_name` is `<session_prefix>-<repository>`
+/// of the instance the binary runs, or the repository without a prefix; a `--session-name` that is
+/// not that name is refused and records nothing.
+#[test]
+fn a_controller_s_session_name_carries_the_instance_s_prefix() {
+    let case = Case::new("session-prefix");
+    let config = case.work.with_file_name("conductor.yaml");
+    fs::write(
+        &config,
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   session_prefix: a\n\
+         \x20   sources: [{github: alpha}]\n\
+         \x20   checkouts: {root: /srv/alpha, trees: /srv/alpha-trees}\n",
+    )
+    .expect("write the config file");
+    let start = |more: &[&str]| {
+        let mut args = vec![
+            "controller",
+            "start-controller",
+            "--repository",
+            "x",
+            "--harness",
+            "Claude",
+        ];
+        args.extend_from_slice(more);
+        case.run_with(&config, &args)
+    };
+    let refused_name = start(&["--session-name", "x"]);
+    assert!(
+        refused_name.status.code() == Some(1)
+            && refused_name.stdout.is_empty()
+            && String::from_utf8_lossy(&refused_name.stderr).contains("a-x"),
+        "a session name other than a-x is refused, naming a-x: {}",
+        describe(&refused_name)
+    );
+    let id = started(&start(&[]), "start x");
+    let given = case.run_with(
+        &config,
+        &[
+            "controller",
+            "start-controller",
+            "--repository",
+            "y",
+            "--harness",
+            "Claude",
+            "--session-name",
+            "a-y",
+        ],
+    );
+    let other = started(&given, "start y as a-y");
+    let output = case.run_with(&config, &["controller", "controllers", "--format", "json"]);
+    let rows: Value = serde_json::from_str(&succeeded(&output, "controllers")).expect("JSON rows");
+    let mut x = row(&id, "Running", "x", 1);
+    x["session_name"] = json!("a-x");
+    let mut y = row(&other, "Running", "y", 1);
+    y["session_name"] = json!("a-y");
+    let mut rows = rows.as_array().expect("a list of rows").clone();
+    rows.sort_by_key(|row| row["repository"].as_str().map(str::to_owned));
+    assert_eq!(rows, [x, y]);
+
+    let bare = Case::new("session-prefix-none");
+    let id = started(&bare.start("x"), "start x without a config file");
+    assert_eq!(bare.controllers(), json!([row(&id, "Running", "x", 1)]));
 }

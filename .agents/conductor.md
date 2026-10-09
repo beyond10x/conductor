@@ -125,7 +125,7 @@ implementors word for word.
   1. lists every controller whose transcript tail holds `"error":"rate_limit"` or that
      `claude agents --json` shows `blocked` with no pid, and records each one's resume point;
   2. tells every one to continue at once when usage returns: `claude respawn <id>`, or where that
-     refuses, `cd <its cwd> && claude --bg --resume <sessionId> -n <repo>
+     refuses, `cd <its cwd> && claude --bg --resume <sessionId> -n <controller session name>
      --append-system-prompt-file <controller profile> --model <controller model> --permission-mode
      bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat
      <resume brief file>)"`, with `--agent <controller agent>` in place of
@@ -169,9 +169,11 @@ else. `[DECISION …]` always carries the decision id it rests on; a notice or a
 items that changed, and every moved path with its old and new form.
 
 Start a controller with
-`cd <checkouts root>/<repo> && claude --bg -n <repo> --append-system-prompt-file <controller profile> --model <controller model> --permission-mode bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
-or `conductor spawn <repo>` once it exists. `<controller profile>` is the `controller` role's
-`profile`; when it names none, write `--agent <controller agent>` in its place. A controller is
+`cd <checkouts root>/<repo> && claude --bg -n <controller session name> --append-system-prompt-file <controller profile> --model <controller model> --permission-mode bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
+or `conductor spawn <repo>` once it exists. `<controller session name>` is
+`<session_prefix>-<repo>`, or `<repo>` when `session_prefix` is null in `conductor config show`.
+`<controller profile>` is the `controller` role's `profile`; when it names none, write
+`--agent <controller agent>` in its place. A controller is
 never started without `--settings` and `--setting-sources project,local`: the settings file
 wires the guard and carries everything the session needs, and the user's own settings are not
 loaded. Charter and brief text reaches the command only as `"$(cat <file>)"`,

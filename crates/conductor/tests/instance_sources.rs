@@ -757,6 +757,8 @@ fn the_specifications_collector_lists_each_owner() {
     let active = Active {
         instance,
         from_file: true,
+        others: Vec::new(),
+        default: None,
     };
     let mut sources =
         specifications::Sources::of(&active, &case.state()).expect("the instance's sources");
@@ -793,6 +795,8 @@ fn the_blocker_sources_follow_the_instance_only_when_a_file_names_it() {
         &Active {
             instance: instance.clone(),
             from_file: true,
+            others: Vec::new(),
+            default: None,
         },
         &state,
     )
@@ -806,6 +810,8 @@ fn the_blocker_sources_follow_the_instance_only_when_a_file_names_it() {
         &Active {
             instance,
             from_file: false,
+            others: Vec::new(),
+            default: None,
         },
         &state,
     )
@@ -863,6 +869,8 @@ fn a_repository_two_owners_list_fails_each_collector_naming_both() {
     let active = Active {
         instance,
         from_file: true,
+        others: Vec::new(),
+        default: None,
     };
     let mut sources =
         specifications::Sources::of(&active, &case.state()).expect("the instance's sources");
@@ -1045,6 +1053,8 @@ fn the_specifications_collector_gives_each_repository_of_a_local_source_a_row() 
     let active = Active {
         instance,
         from_file: true,
+        others: Vec::new(),
+        default: None,
     };
     let mut sources =
         specifications::Sources::of(&active, &case.state()).expect("the instance's sources");
@@ -1358,4 +1368,143 @@ fn no_collector_names_an_organization() {
         }
     }
     assert!(hits.is_empty(), "{}", hits.join("\n"));
+}
+
+/// `story:instance-session-names`: a session whose name carries the instance's `session_prefix` is
+/// the instance's wherever its directory is, and `<prefix>-conductor` is its conductor; a session
+/// whose name carries another instance's prefix stays redacted, even in this instance's
+/// checkouts. A name that carries no instance's prefix is placed by its directory, as before.
+#[test]
+fn a_session_is_placed_by_its_instance_s_prefix() {
+    let case = Case::new("session-prefix");
+    let elsewhere = case.home().join("elsewhere");
+    case.programs(&json!([
+        {"id": "s-own-conductor", "name": "a-conductor", "pid": 101, "status": "busy",
+         "cwd": text(&elsewhere)},
+        {"id": "s-other-conductor", "name": "b-conductor", "pid": 102, "status": "busy",
+         "cwd": text(&elsewhere)},
+        {"id": "s-other-in-root", "name": "b-alpha", "pid": 103, "status": "idle",
+         "cwd": text(&case.root().join("alpha"))},
+        {"id": "s-own-in-root", "name": "a-alpha", "pid": 104, "status": "idle",
+         "cwd": text(&case.root().join("alpha"))},
+        {"id": "s-unprefixed", "name": "alpha-controller", "pid": 105, "status": "waiting",
+         "cwd": text(&case.root().join("alpha"))},
+    ]));
+    let beta = case.dir.join("beta");
+    let config = case.config_with(
+        "[{github: acme}]",
+        &format!(
+            "    session_prefix: a\n  - name: beta\n    session_prefix: b\n    sources: \
+             [{{github: beta}}]\n    checkouts: {{root: {}, trees: {}}}\ndefault: acme\n",
+            quoted(&beta.join("root")),
+            quoted(&beta.join("trees")),
+        ),
+    );
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let mut own_conductor = session(
+        "s-own-conductor",
+        Some("a-conductor"),
+        "~/elsewhere",
+        None,
+        "Busy",
+    );
+    own_conductor["role"] = json!("conductor");
+    assert_eq!(
+        case.rows(&config, "sessions"),
+        [
+            own_conductor,
+            session("", None, "", None, "Busy"),
+            session("", None, "", None, "Idle"),
+            session(
+                "s-own-in-root",
+                Some("a-alpha"),
+                "~/src/alpha",
+                Some("alpha"),
+                "Idle"
+            ),
+            session(
+                "s-unprefixed",
+                Some("alpha-controller"),
+                "~/src/alpha",
+                Some("alpha"),
+                "Waiting"
+            ),
+        ]
+    );
+    let output = case.conductor(&config, &["snapshot", "sessions", "--format", "json"]);
+    let shown = String::from_utf8_lossy(&output.stdout);
+    for private in ["s-other", "b-conductor", "b-alpha"] {
+        assert!(
+            !shown.contains(private),
+            "the view shows {private:?}: {shown}"
+        );
+    }
+}
+
+/// A session whose name carries the instance's prefix stays redacted under an `exclude` entry:
+/// the exclusion keeps that repository out of the instance's records whatever a name says.
+#[test]
+fn an_own_prefix_does_not_place_a_session_under_an_excluded_repository() {
+    let case = Case::new("session-prefix-excluded");
+    case.programs(&json!([
+        {"id": "s-excluded", "name": "a-y", "pid": 101, "status": "busy",
+         "cwd": text(&case.root().join("x/y"))},
+        {"id": "s-placed", "name": "a-z", "pid": 102, "status": "idle",
+         "cwd": text(&case.home().join("elsewhere"))},
+    ]));
+    let config = case.config_with(
+        "[{gitlab: acme-group, exclude: [x]}]",
+        "    session_prefix: a\n",
+    );
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(
+        case.rows(&config, "sessions"),
+        [
+            session("", None, "", None, "Busy"),
+            session("s-placed", Some("a-z"), "~/elsewhere", None, "Idle"),
+        ]
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Adversary, wave 03 U1 (`story:instance-session-names`).
+// ---------------------------------------------------------------------------------------------
+
+/// The instance without a prefix names a controller after its repository, `<repository>`
+/// (`spec/domains/config.yaml`, `Controller.session_name`). Its repository `b-tools`, checked out
+/// in its own root, has the controller session `b-tools`: the instance's own session, in its own
+/// checkout, placed by its directory as before this story. Beside an instance with
+/// `session_prefix: b`, the name carries `b`, and the collector redacts the bare instance's own
+/// controller as "another instance's".
+#[test]
+fn adv_w03_u1_the_bare_instance_s_own_controller_is_not_redacted_by_another_prefix() {
+    let case = Case::new("adv-w03-u1-bare-own-controller");
+    case.programs(&json!([
+        {"id": "s-bare-own", "name": "b-tools", "pid": 101, "status": "idle",
+         "cwd": text(&case.root().join("b-tools"))},
+    ]));
+    let beta = case.dir.join("beta");
+    let config = case.config_with(
+        "[{github: acme}]",
+        &format!(
+            "  - name: beta\n    session_prefix: b\n    sources: [{{github: beta}}]\n    \
+             checkouts: {{root: {}, trees: {}}}\ndefault: acme\n",
+            quoted(&beta.join("root")),
+            quoted(&beta.join("trees")),
+        ),
+    );
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(
+        case.rows(&config, "sessions"),
+        [session(
+            "s-bare-own",
+            Some("b-tools"),
+            "~/src/b-tools",
+            Some("b-tools"),
+            "Idle"
+        )]
+    );
 }

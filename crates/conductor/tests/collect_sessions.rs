@@ -133,11 +133,15 @@ fn take(dir: &Path, sources: Sources) -> Taken {
     snapshot::take(store, &[collector]).expect("the driver ends the snapshot")
 }
 
-/// Runs the binary from `dir/work` with `--state-dir` naming `dir/state`.
+/// Runs the binary from `dir/work` with `--state-dir` naming `dir/state`, `HOME` naming
+/// `dir/home` and neither config variable set, so it reads no operator's config.
 fn conductor(dir: &Path, args: &[&str]) -> Output {
     let state = dir.join("state");
     Command::new(env!("CARGO_BIN_EXE_conductor"))
         .current_dir(dir.join("work"))
+        .env("HOME", dir.join("home"))
+        .env_remove("CONDUCTOR_CONFIG")
+        .env_remove("CONDUCTOR_INSTANCE")
         .arg("--state-dir")
         .arg(&state)
         .args(args)

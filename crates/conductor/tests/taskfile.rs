@@ -125,7 +125,7 @@ fn conductor_starts_as_the_conductor_agent_with_the_role_settings_or_this_checko
     for part in [
         "if [ -n {{shellQuote .PROFILE}} ]; then flag=--append-system-prompt-file; \
          who={{shellQuote .PROFILE}}; else flag=--agent; who={{shellQuote .AGENT}}; fi",
-        "claude --bg -n conductor \"$flag\" \"$who\" ",
+        "claude --bg -n {{shellQuote .NAME}} \"$flag\" \"$who\" ",
         "--model {{shellQuote .MODEL}}",
         "--setting-sources project,local --settings {{shellQuote .SETTINGS}}",
         "{{shellQuote .CONDUCTOR_PROMPT}}",
@@ -252,8 +252,9 @@ impl Case {
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_conductor"), dir.join("bin/conductor"))
             .expect("link the built conductor");
         // A claude that answers `agents --json` with a live session `s-0001` while
-        // `claude/live` exists, removes that file on `stop`, and logs every other call: its
-        // working directory, a tab, its arguments.
+        // `claude/live` exists, named as `claude/live` says or `conductor` when it is empty,
+        // removes that file on `stop`, and logs every other call: its working directory, a tab,
+        // its arguments.
         let claude = dir.join("bin/claude");
         fs::write(
             &claude,
@@ -262,7 +263,8 @@ impl Case {
                  state='{state}'\n\
                  if [ \"$1\" = agents ]; then\n\
                  \x20 if [ -e \"$state/live\" ]; then\n\
-                 \x20   printf '%s\\n' '[{{\"kind\":\"background\",\"name\":\"conductor\",\"pid\":4242,\"id\":\"s-0001\"}}]'\n\
+                 \x20   name=$(cat \"$state/live\"); name=${{name:-conductor}}\n\
+                 \x20   printf '[{{\"kind\":\"background\",\"name\":\"%s\",\"pid\":4242,\"id\":\"s-0001\"}}]\\n' \"$name\"\n\
                  \x20 else printf '[]\\n'; fi\n\
                  \x20 exit 0\n\
                  fi\n\
@@ -1577,5 +1579,204 @@ fn conductor_restart_stops_nothing_when_the_bypass_disclaimer_is_not_accepted() 
     assert!(
         case.dir.join("claude/live").exists(),
         "the session was stopped"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// `story:instance-session-names`: the sessions start under the instance's prefixed names
+// ---------------------------------------------------------------------------------------------
+
+/// Writes a config file of one instance `alpha` whose records are the case's `records/`, with
+/// `prefix` as its `session_prefix` when one is given.
+fn named_config(case: &Case, prefix: Option<&str>) -> PathBuf {
+    let prefix = prefix.map_or(String::new(), |prefix| {
+        format!("\x20   session_prefix: {prefix}\n")
+    });
+    let text = format!(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         {prefix}\
+         \x20   sources:\n\
+         \x20     - github: example-org\n\
+         \x20   checkouts:\n\
+         \x20     root: {root}\n\
+         \x20     trees: {trees}\n\
+         \x20   records: {records}\n",
+        root = case.dir.join("checkouts").display(),
+        trees = case.dir.join("trees").display(),
+        records = case.records().display(),
+    );
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    file
+}
+
+/// `conductor:start` and `dev:start` pass `-n <prefix>-conductor` and `-n <prefix>-conductor-dev`
+/// with a prefix, and `-n conductor` and `-n conductor-dev` without one: the name each reads from
+/// the role's `session_name` in `conductor config show`.
+#[test]
+fn the_start_tasks_name_the_session_from_config_show() {
+    for (prefix, conductor, dev) in [
+        (Some("a"), "a-conductor", "a-conductor-dev"),
+        (None, "conductor", "conductor-dev"),
+    ] {
+        let Some(case) = Case::new(&format!("named-start-{}", prefix.unwrap_or("none"))) else {
+            return;
+        };
+        case.link_agent("conductor");
+        let config = named_config(&case, prefix);
+        for (task, name, agent) in [
+            ("conductor:start", conductor, "conductor"),
+            ("dev:start", dev, "conductor-dev"),
+        ] {
+            let output = case.task(task, Some(&config));
+            assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+            let calls = case.calls();
+            let args = &calls.last().expect("a start").1;
+            assert!(
+                args.starts_with(&format!("--bg -n {name} --agent {agent} --model opus ")),
+                "{task}: {args}"
+            );
+        }
+    }
+}
+
+/// Each start task and `conductor:restart` read the name from `conductor config show`, and use
+/// no literal session name.
+#[test]
+fn the_session_tasks_read_the_name_from_config_show() {
+    let taskfile = taskfile();
+    for (task, role) in [
+        ("conductor:start", "conductor"),
+        ("conductor:restart", "conductor"),
+        ("dev:start", "conductor-dev"),
+    ] {
+        let task_body = &taskfile["tasks"][task];
+        assert_eq!(
+            task_body["vars"]["NAME"]["sh"].as_str(),
+            Some(
+                format!(
+                    "conductor config show --format json | jq -r '.instances[0].roles[] | \
+                     select(.role == \"{role}\") | .session_name // empty'"
+                )
+                .as_str()
+            ),
+            "{task}"
+        );
+        let body = scalars(task_body).join("\n");
+        for literal in [
+            format!("-n {role} "),
+            format!(".name==\"{role}\""),
+            format!(".name != \"{role}\""),
+            format!("--arg n {role})"),
+        ] {
+            assert!(!body.contains(&literal), "{task} names {literal:?}: {body}");
+        }
+    }
+}
+
+/// With a prefix, `conductor:start` refuses while a live session holds `<prefix>-conductor`, and
+/// starts beside a live `conductor` that is not this instance's.
+#[test]
+fn conductor_start_with_a_prefix_refuses_only_its_own_name() {
+    let Some(case) = Case::new("named-start-running") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = named_config(&case, Some("a"));
+    fs::write(case.dir.join("claude/live"), "a-conductor").expect("a live a-conductor");
+    let output = case.task("conductor:start", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("a-conductor"),
+        "the refusal names the session: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+
+    fs::write(case.dir.join("claude/live"), "conductor").expect("a live conductor");
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+}
+
+/// With a prefix, `conductor:restart` stops the live `<prefix>-conductor` and starts it again
+/// under that name; a live `conductor` of no prefix is not this instance's, and is left running.
+#[test]
+fn conductor_restart_with_a_prefix_stops_only_its_own_conductor() {
+    let Some(case) = Case::new("named-restart") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = named_config(&case, Some("a"));
+    fs::write(case.dir.join("claude/live"), "conductor").expect("a live conductor");
+    let output = case.task("conductor:restart", Some(&config));
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("a-conductor"),
+        "the refusal names the session: {}",
+        shown(&output)
+    );
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+    assert!(
+        case.dir.join("claude/live").exists(),
+        "conductor was stopped"
+    );
+
+    fs::write(case.dir.join("claude/live"), "a-conductor").expect("a live a-conductor");
+    let output = case.task("conductor:restart", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    let verbs: Vec<&str> = calls
+        .iter()
+        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
+        .collect();
+    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
+    assert_eq!(calls[0].1, "stop s-0001");
+    assert!(calls[2].1.starts_with("--bg -n a-conductor "), "{calls:?}");
+}
+
+/// Every text scalar of `value`, depth first, as written.
+fn scalars(value: &serde_yaml::Value) -> Vec<String> {
+    match value {
+        serde_yaml::Value::String(text) => vec![text.clone()],
+        serde_yaml::Value::Sequence(items) => items.iter().flat_map(scalars).collect(),
+        serde_yaml::Value::Mapping(map) => map.values().flat_map(scalars).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The controller start and resume commands of the conductor profile name the session
+/// `<controller session name>`, which the profile says comes from `conductor config show`; no
+/// command names it after the bare repository.
+#[test]
+fn the_conductor_profile_names_controllers_by_their_session_name() {
+    let text = fs::read_to_string(root().join(".agents/conductor.md")).expect("read the profile");
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let commands: Vec<&str> = flat
+        .match_indices("claude --bg")
+        .map(|(at, _)| {
+            let rest = &flat[at..];
+            &rest[..rest.find('`').unwrap_or(rest.len())]
+        })
+        .collect();
+    assert!(
+        commands.len() >= 2,
+        "a start and a resume command: {commands:#?}"
+    );
+    for command in &commands {
+        assert!(
+            command.contains(" -n <controller session name> "),
+            "the session name: {command}"
+        );
+        assert!(
+            !command.contains("-n <repo>"),
+            "the bare repository: {command}"
+        );
+    }
+    assert!(
+        flat.contains("`<controller session name>` is `<session_prefix>-<repo>`, or `<repo>` when `session_prefix` is null in `conductor config show`"),
+        "the profile says where the name comes from: {flat}"
     );
 }

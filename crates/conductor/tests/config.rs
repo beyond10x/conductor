@@ -375,11 +375,17 @@ fn show_without_a_file_prints_todays_constants() {
     );
     // Taskfile.yml:20 (conductor), Taskfile.yml:48 (conductor-dev) and
     // .agents/conductor.md:177 (a controller): `claude … --model opus`; no role names an agent or
-    // a settings file or a profile.
+    // a settings file or a profile. Without a session prefix each session keeps today's name, the
+    // role's own, and a controller's is its repository's (story:instance-session-names).
     let role = |name: &str| {
+        let session_name = if name == "controller" {
+            Value::Null
+        } else {
+            Value::from(name)
+        };
         serde_json::json!({
             "role": name, "harness": "claude", "model": "opus", "agent": null, "settings": null,
-            "profile": null
+            "profile": null, "session_name": session_name
         })
     };
     assert_eq!(
@@ -462,7 +468,17 @@ fn show_without_a_file_prints_todays_constants() {
         .collect();
     // story:catalog-source: the built-in instance names no catalog.
     assert_eq!(instance["catalog"], Value::Null, "{shown:#}");
+    // story:instance-session-names: nor a session prefix; its sessions keep today's names.
+    assert_eq!(instance["session_prefix"], Value::Null, "{shown:#}");
+    // Correction round 2, decision 4: its own conductor, `conductor`.
+    assert_eq!(
+        instance["conductor"],
+        serde_json::json!({"served_by": null, "session_name": "conductor"}),
+        "{shown:#}"
+    );
     let mut expected = vec![
+        "session_prefix",
+        "conductor",
         "authority",
         "cache",
         "cadence",
@@ -583,11 +599,12 @@ fn the_session_profile_keys_validate_and_show_as_written() {
                 "role": "controller", "harness": "claude", "model": "opus",
                 "agent": "repo-controller",
                 "settings": path_text(&home.join("profiles/controller.json")),
-                "profile": null,
+                "profile": null, "session_name": null,
             },
             {
                 "role": "conductor", "harness": "codex", "model": "gpt-fixture",
                 "agent": null, "settings": "/srv/conductor.json", "profile": null,
+                "session_name": "conductor",
             },
         ]),
         "{shown:#}"
@@ -655,7 +672,7 @@ fn without_the_session_profile_keys_a_file_shows_their_defaults() {
             one["roles"],
             serde_json::json!([{
                 "role": "controller", "harness": "claude", "model": "opus",
-                "agent": null, "settings": null, "profile": null,
+                "agent": null, "settings": null, "profile": null, "session_name": null,
             }]),
             "{name}: {shown:#}"
         );
@@ -991,6 +1008,7 @@ fn the_instance_flag_picks_one_and_fills_its_defaults() {
     );
     let second = instance(&shown);
     assert_eq!(second["name"], "second-org", "{shown:#}");
+    assert_eq!(second["session_prefix"], "second", "{shown:#}");
     assert_eq!(
         second["sources"],
         serde_json::json!([{"local": path_text(&home.join("src/second"))}]),
@@ -1017,6 +1035,7 @@ fn the_instance_flag_picks_one_and_fills_its_defaults() {
         serde_json::json!([{
             "role": "conductor", "harness": "codex", "model": "gpt-fixture",
             "agent": null, "settings": null, "profile": null,
+            "session_name": "second-conductor",
         }]),
         "{shown:#}"
     );
@@ -1716,4 +1735,471 @@ fn a_catalog_is_refused_by_its_path() {
         let problems = refused(&case, &file);
         assert!(problems.contains(path), "{name}: {problems}");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// `story:instance-session-names`: every session an instance starts carries its `session_prefix`.
+// ---------------------------------------------------------------------------------------------
+
+/// A config file of two instances, `alpha` and `beta`, each with `alpha` and `beta` lines appended
+/// (such as `\x20   session_prefix: a\n`); `alpha` is the default.
+fn two_instances(alpha: &str, beta: &str) -> String {
+    format!(
+        "version: conductor.config/1\n\
+         default: alpha\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   sources: [{{github: alpha}}]\n\
+         \x20   checkouts: {{root: ~/alpha, trees: ~/trees/alpha}}\n\
+         {alpha}\
+         \x20 - name: beta\n\
+         \x20   sources: [{{github: beta}}]\n\
+         \x20   checkouts: {{root: ~/beta, trees: ~/trees/beta}}\n\
+         {beta}"
+    )
+}
+
+/// The `session_name` `config show` gives each role of `shown`'s instance, by role.
+fn session_names(shown: &Value) -> Vec<(String, Value)> {
+    instance(shown)["roles"]
+        .as_array()
+        .expect("roles is a list")
+        .iter()
+        .map(|role| {
+            (
+                role["role"].as_str().expect("a role's name").to_owned(),
+                role["session_name"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// With a `session_prefix`, `config show` writes it, and each role's `session_name` is
+/// `<prefix>-<role>`; the controller role names none, its sessions being named per repository. In
+/// text, one line each; and the YAML round-trips.
+#[test]
+fn a_session_prefix_is_shown_with_each_role_s_session_name() {
+    let case = Case::new("session-prefix-shown");
+    let file = case.write("prefix.yaml", &one_instance("\x20   session_prefix: a\n"));
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+
+    let shown = case.show(&file, &[]);
+    assert_eq!(instance(&shown)["session_prefix"], "a", "{shown:#}");
+    assert_eq!(
+        session_names(&shown),
+        [
+            ("conductor".to_owned(), Value::from("a-conductor")),
+            ("conductor-dev".to_owned(), Value::from("a-conductor-dev")),
+            ("controller".to_owned(), Value::Null),
+        ],
+        "{shown:#}"
+    );
+
+    let text = case.with_file(&file, &["config", "show"]);
+    assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+    let text = String::from_utf8_lossy(&text.stdout);
+    for line in [
+        "instances[0].session_prefix: a",
+        "instances[0].roles[0].session_name: a-conductor",
+        "instances[0].roles[1].session_name: a-conductor-dev",
+        "instances[0].roles[2].session_name: null",
+    ] {
+        assert!(
+            text.lines().any(|shown| shown == line),
+            "no line `{line}`: {text}"
+        );
+    }
+
+    let yaml = case.with_file(&file, &["config", "show", "--format", "yaml"]);
+    assert_eq!(yaml.status.code(), Some(0), "{}", describe(&yaml));
+    let written = case.write("shown.yaml", &String::from_utf8_lossy(&yaml.stdout));
+    let validated = case.with_file(&written, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    assert_eq!(case.show(&written, &[]), shown, "the round trip");
+}
+
+/// Without a prefix, today's names: `conductor`, `conductor-dev`, and a controller named after
+/// its repository; the built-in instance has none either.
+#[test]
+fn without_a_session_prefix_the_sessions_keep_today_s_names() {
+    let case = Case::new("session-prefix-absent");
+    let file = case.write("none.yaml", &one_instance(""));
+    let built_in = json(&case.run(&["config", "show", "--format", "json"]));
+    for shown in [case.show(&file, &[]), built_in] {
+        assert_eq!(instance(&shown)["session_prefix"], Value::Null, "{shown:#}");
+        assert_eq!(
+            session_names(&shown),
+            [
+                ("conductor".to_owned(), Value::from("conductor")),
+                ("conductor-dev".to_owned(), Value::from("conductor-dev")),
+                ("controller".to_owned(), Value::Null),
+            ],
+            "{shown:#}"
+        );
+    }
+}
+
+/// The library derives every name the same way: `<prefix>-<role or repository>`, or the role or
+/// repository itself without a prefix.
+#[test]
+fn session_names_are_derived_from_the_prefix() {
+    let home = PathBuf::from("/fixture-home");
+    let parse = |text: &str| {
+        config::parse(text, &home)
+            .unwrap_or_else(|problems| panic!("valid: {problems:?}"))
+            .instances
+            .remove(0)
+    };
+    let prefixed = parse(&one_instance("\x20   session_prefix: a\n"));
+    let bare = parse(&one_instance(""));
+    for (word, with, without) in [
+        ("conductor", "a-conductor", "conductor"),
+        ("conductor-dev", "a-conductor-dev", "conductor-dev"),
+        ("ess", "a-ess", "ess"),
+        ("group/repo", "a-group/repo", "group/repo"),
+    ] {
+        assert_eq!(config::session_name(&prefixed, word).0, with);
+        assert_eq!(config::session_name(&bare, word).0, without);
+    }
+}
+
+/// A prefix is letters, digits and `-`, starting and ending with a letter or digit; any other is
+/// refused by its path.
+#[test]
+fn a_session_prefix_is_refused_by_its_path_when_it_is_not_one() {
+    let case = Case::new("session-prefix-refused");
+    for (name, prefix) in [
+        ("underscore", "a_b"),
+        ("leading-dash", "\"-a\""),
+        ("trailing-dash", "a-"),
+        ("space", "\"a b\""),
+        ("empty", "\"\""),
+        ("dot", "a.b"),
+        ("slash", "a/b"),
+        ("not-ascii", "ä"),
+        ("not-text", "[a]"),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &one_instance(&format!("\x20   session_prefix: {prefix}\n")),
+        );
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains("instances[0].session_prefix: "),
+            "{name}: {problems}"
+        );
+    }
+    for valid in ["a", "A1", "alpha-2", "\"0\""] {
+        let file = case.write(
+            "valid.yaml",
+            &one_instance(&format!("\x20   session_prefix: {valid}\n")),
+        );
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{valid}: {}",
+            describe(&validated)
+        );
+    }
+}
+
+/// Two instances with one prefix are refused, naming the second by its path and the first by
+/// its index; so are two instances without one, and a prefix that starts with another and `-`,
+/// which would let one session name carry both.
+#[test]
+fn two_instances_sharing_a_prefix_or_both_without_one_are_refused() {
+    let case = Case::new("session-prefix-shared");
+    for (name, alpha, beta, expected) in [
+        (
+            "same",
+            "\x20   session_prefix: a\n",
+            "\x20   session_prefix: a\n",
+            "instances[1].session_prefix: \"a\" is the session_prefix of instances[0] too",
+        ),
+        ("neither", "", "", "instances[1].session_prefix: missing"),
+        (
+            "nested",
+            "\x20   session_prefix: a\n",
+            "\x20   session_prefix: a-b\n",
+            "instances[1].session_prefix: \"a-b\" starts with the session_prefix of instances[0]",
+        ),
+        (
+            "nested-first",
+            "\x20   session_prefix: a-b\n",
+            "\x20   session_prefix: a\n",
+            "instances[0].session_prefix: \"a-b\" starts with the session_prefix of instances[1]",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &two_instances(alpha, beta));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(expected), "{name}: {problems}");
+        assert_eq!(problems.lines().count(), 1, "{name}: {problems}");
+    }
+    for (name, alpha, beta) in [
+        (
+            "both",
+            "\x20   session_prefix: a\n",
+            "\x20   session_prefix: b\n",
+        ),
+        ("one-bare", "", "\x20   session_prefix: b\n"),
+        ("other-bare", "\x20   session_prefix: a\n", ""),
+        (
+            "not-nested",
+            "\x20   session_prefix: a\n",
+            "\x20   session_prefix: ab\n",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &two_instances(alpha, beta));
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&validated)
+        );
+    }
+}
+
+/// A role's `session_name` is derived, never chosen: the file may write the derived one, which
+/// `config show` writes back; any other, or one on the controller role, is refused by its path.
+#[test]
+fn a_written_session_name_must_be_the_derived_one() {
+    let case = Case::new("session-name-written");
+    let roles = |conductor: &str, controller: &str| {
+        one_instance(&format!(
+            "\x20   session_prefix: a\n\
+             \x20   roles:\n\
+             \x20     - {{role: conductor, harness: claude, model: opus{conductor}}}\n\
+             \x20     - {{role: controller, harness: claude, model: opus{controller}}}\n"
+        ))
+    };
+    let file = case.write("derived.yaml", &roles(", session_name: a-conductor", ""));
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    for (name, conductor, controller, path) in [
+        (
+            "other",
+            ", session_name: conductor",
+            "",
+            "instances[0].roles[0].session_name: ",
+        ),
+        (
+            "controller",
+            "",
+            ", session_name: a-controller",
+            "instances[0].roles[1].session_name: ",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &roles(conductor, controller));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Adversary, wave 03 U1 (`story:instance-session-names`).
+// ---------------------------------------------------------------------------------------------
+
+/// The instance without a prefix keeps the fixed session names `conductor` and `conductor-dev`.
+/// Beside it, `session_prefix: conductor` makes `conductor-dev` a name that carries the other
+/// instance's prefix too: the very overlap `distinct_prefixes` refuses between two prefixes
+/// ("a session named <p>-<name> would carry both"). Beta's controller of a repository `dev` would
+/// start under alpha's conductor-dev's name, and beta's conductor may message alpha's
+/// conductor-dev. `config validate` must refuse it, by beta's prefix's path.
+#[test]
+fn adv_w03_u1_a_prefix_the_bare_instance_s_role_names_carry_is_refused() {
+    let case = Case::new("adv-w03-u1-prefix-carried-by-bare-names");
+    let file = case.write(
+        "bare-beside-conductor.yaml",
+        &two_instances("", "\x20   session_prefix: conductor\n"),
+    );
+    let problems = refused(&case, &file);
+    assert!(
+        problems.contains("instances[1].session_prefix"),
+        "{problems}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Adversary, wave 03 U1, pass 2.
+// ---------------------------------------------------------------------------------------------
+
+/// Every `session_name` value anywhere in `value`.
+fn adv2_session_names(value: &Value, names: &mut Vec<String>) {
+    match value {
+        Value::Object(fields) => {
+            for (key, field) in fields {
+                if key == "session_name"
+                    && let Some(name) = field.as_str()
+                {
+                    names.push(name.to_owned());
+                }
+                adv2_session_names(field, names);
+            }
+        }
+        Value::Array(items) => items
+            .iter()
+            .for_each(|item| adv2_session_names(item, names)),
+        _ => {}
+    }
+}
+
+/// `.agents/repo-controller.md` § Talking: a controller's messages go to "your instance's
+/// conductor, whose session name `conductor config show` prints"; "An instance that names no
+/// `conductor` role is served by the `default` instance's conductor, and its session name is the
+/// one to use". The guard lets a controller of the served `gamma` message only `a-conductor`, the
+/// default `alpha`'s (`guard_rules.rs`,
+/// `a_served_instance_s_controller_messages_the_default_instance_s_conductor`). A controller of
+/// gamma runs with `CONDUCTOR_INSTANCE=gamma` (`.agents/conductor.md` § More than one instance),
+/// so `conductor config show` there must print that name somewhere.
+#[test]
+fn adv_w03_u1_p2_a_served_controller_finds_its_conductor_s_name_in_config_show() {
+    let case = Case::new("adv-w03-u1-p2-served-conductor-name");
+    let file = case.write(
+        "served.yaml",
+        "version: conductor.config/1\n\
+         default: alpha\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   session_prefix: a\n\
+         \x20   sources: [{github: alpha}]\n\
+         \x20   checkouts: {root: ~/alpha, trees: ~/trees/alpha}\n\
+         \x20 - name: gamma\n\
+         \x20   session_prefix: g\n\
+         \x20   sources: [{github: gamma}]\n\
+         \x20   checkouts: {root: ~/gamma, trees: ~/trees/gamma}\n\
+         \x20   roles:\n\
+         \x20     - {role: controller, harness: claude, model: opus}\n",
+    );
+    let (_, instance) = variables();
+    let output = case.conductor(
+        &[
+            OsStr::new("--config"),
+            file.as_os_str(),
+            OsStr::new("config"),
+            OsStr::new("show"),
+            OsStr::new("--format"),
+            OsStr::new("json"),
+        ],
+        &[(instance.as_str(), OsStr::new("gamma"))],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let shown = json(&output);
+    let mut names = Vec::new();
+    adv2_session_names(&shown, &mut names);
+    assert!(
+        names.iter().any(|name| name == "a-conductor"),
+        "a controller of gamma reads its conductor's session name from config show, and the guard \
+         allows only a-conductor; config show prints the session names {names:?} and default \
+         {:?}",
+        shown["default"]
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Correction round 2, decision 4: `config show` prints which conductor serves the instance and
+// that conductor's session name, `conductor.served_by` and `conductor.session_name`.
+// ---------------------------------------------------------------------------------------------
+
+/// A file of `alpha` (prefix `a`, the default, its own conductor) and `gamma` (prefix `g`, a
+/// controller role only, so served by alpha's conductor), with `gamma_extra` lines appended to
+/// gamma.
+fn served_file(gamma_extra: &str) -> String {
+    format!(
+        "version: conductor.config/1\n\
+         default: alpha\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   session_prefix: a\n\
+         \x20   sources: [{{github: alpha}}]\n\
+         \x20   checkouts: {{root: ~/alpha, trees: ~/trees/alpha}}\n\
+         \x20 - name: gamma\n\
+         \x20   session_prefix: g\n\
+         \x20   sources: [{{github: gamma}}]\n\
+         \x20   checkouts: {{root: ~/gamma, trees: ~/trees/gamma}}\n\
+         \x20   roles:\n\
+         \x20     - {{role: controller, harness: claude, model: opus}}\n\
+         {gamma_extra}"
+    )
+}
+
+#[test]
+fn config_show_names_the_conductor_that_serves_the_instance() {
+    let case = Case::new("conductor-served-by");
+    let file = case.write("served.yaml", &served_file(""));
+    for (instance, served_by, session_name) in [
+        ("alpha", Value::Null, "a-conductor"),
+        ("gamma", Value::from("alpha"), "a-conductor"),
+    ] {
+        let shown = case.show(&file, &["--instance", instance]);
+        assert_eq!(
+            instance_of(&shown)["conductor"],
+            serde_json::json!({"served_by": served_by, "session_name": session_name}),
+            "{instance}: {shown:#}"
+        );
+        let text = case.with_file(&file, &["config", "show", "--instance", instance]);
+        assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+        let text = String::from_utf8_lossy(&text.stdout);
+        for line in [
+            format!(
+                "instances[0].conductor.served_by: {}",
+                served_by.as_str().unwrap_or("null")
+            ),
+            format!("instances[0].conductor.session_name: {session_name}"),
+        ] {
+            assert!(
+                text.lines().any(|shown| shown == line),
+                "{instance}: no line `{line}`: {text}"
+            );
+        }
+    }
+    let bare = case.write("bare.yaml", &one_instance(""));
+    assert_eq!(
+        instance_of(&case.show(&bare, &[]))["conductor"],
+        serde_json::json!({"served_by": null, "session_name": "conductor"})
+    );
+}
+
+/// The conductor section is derived, never chosen: the file may write the derived value, and any
+/// other is refused by its path.
+#[test]
+fn a_written_conductor_section_must_be_the_derived_one() {
+    let case = Case::new("conductor-section-written");
+    let file = case.write(
+        "derived.yaml",
+        &served_file("\x20   conductor: {served_by: alpha, session_name: a-conductor}\n"),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    for (name, written, path) in [
+        (
+            "other-name",
+            "{served_by: alpha, session_name: g-conductor}",
+            "instances[1].conductor.session_name: ",
+        ),
+        (
+            "not-served",
+            "{session_name: a-conductor}",
+            "instances[1].conductor.served_by: ",
+        ),
+        (
+            "unknown-key",
+            "{served_by: alpha, session_name: a-conductor, by: x}",
+            "instances[1].conductor.by: ",
+        ),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &served_file(&format!("\x20   conductor: {written}\n")),
+        );
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
+    }
+}
+
+/// The one instance of a `config show` document, whichever instance it shows.
+fn instance_of(shown: &Value) -> &Value {
+    &shown["instances"][0]
 }

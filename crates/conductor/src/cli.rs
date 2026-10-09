@@ -1659,6 +1659,9 @@ pub struct StartControllerArgs {
     /// Harness
     #[arg(long, value_parser = ["Claude", "Codex"])]
     pub harness: Option<String>,
+    /// SessionName
+    #[arg(long)]
+    pub session_name: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

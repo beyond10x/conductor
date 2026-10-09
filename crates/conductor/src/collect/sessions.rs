@@ -28,6 +28,14 @@
 //! design, not a defect. No error names any of them: an error names the command, an entry's
 //! position in the list, or a Codex file's path.
 //!
+//! Whose a session is, its name and directory read together (`story:instance-session-names`,
+//! [`collect::session_instance`]: a session named as an instance names the controller of the
+//! repository it works in is that instance's, else one whose name carries an instance's
+//! `session_prefix` is), decides before its directory alone does: the instance's own session is
+//! placed wherever its working directory is but under an `exclude` entry, bound to a repository
+//! only where its directory is, and `<prefix>-conductor` is conductor's own; another instance's
+//! is kept to its harness and activity wherever it runs, even in this instance's checkouts.
+//!
 //! [`collect`] places against the instance the process runs ([`config::active`]), its excluded
 //! repositories left out and its records directory conductor's, [`collect_in`] against any
 //! checkouts, and [`collect_from`] against the built-in instance's under [`Sources::home`]
@@ -45,7 +53,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::Checkouts;
+use conductor_model::config::{Checkouts, Instance};
 use conductor_model::observation::{
     Harness, RecordSession, RepositoryName, SessionState, SnapshotId,
 };
@@ -113,11 +121,16 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
     // Without a config file the records directory is the process's working directory, which says
     // nothing about where conductor's session runs.
     let records = active.from_file.then(|| Path::new(&instance.records));
-    collect_excluding(
+    let names = Names {
+        own: Some(instance),
+        instances: active.all(),
+    };
+    collect_named(
         &Sources::new(home),
         &instance.checkouts,
         records,
         &exclude,
+        &names,
         record,
     )
 }
@@ -162,6 +175,67 @@ pub fn collect_excluding(
     exclude: &[String],
     record: &mut Recorder<'_>,
 ) -> Result<()> {
+    collect_named(
+        sources,
+        checkouts,
+        records,
+        exclude,
+        &Names::default(),
+        record,
+    )
+}
+
+/// What a session's name and directory are read against (`story:instance-session-names`): the
+/// instance the collector records for, and every instance of its config file.
+#[derive(Debug, Default)]
+struct Names<'a> {
+    own: Option<&'a Instance>,
+    instances: Vec<&'a Instance>,
+}
+
+/// Whose a session name is, by the prefix it carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    /// It carries the instance's own prefix.
+    Own,
+    /// It carries another instance's prefix.
+    Other,
+    /// It carries no instance's prefix: its directory places it.
+    Unknown,
+}
+
+impl Names<'_> {
+    /// Whose the session named `name` working in `cwd` is, by [`collect::session_instance`].
+    fn owner(&self, name: Option<&str>, cwd: &str) -> Owner {
+        let (Some(own), Some(name)) = (self.own, name) else {
+            return Owner::Unknown;
+        };
+        match collect::session_instance(&self.instances, name, Some(Path::new(cwd))) {
+            Some(instance) if instance.name == own.name => Owner::Own,
+            Some(_) => Owner::Other,
+            None => Owner::Unknown,
+        }
+    }
+
+    /// Whether `name` is the instance's conductor session, `<prefix>-conductor`; without a prefix
+    /// no name says so.
+    fn conductor(&self, name: Option<&str>) -> bool {
+        self.own
+            .filter(|own| own.session_prefix.is_some())
+            .zip(name)
+            .is_some_and(|(own, name)| config::session_name(own, CONDUCTOR).0 == name)
+    }
+}
+
+/// [`collect_excluding`], a session's name read against `names` before its directory.
+fn collect_named(
+    sources: &Sources,
+    checkouts: &Checkouts,
+    records: Option<&Path>,
+    exclude: &[String],
+    names: &Names<'_>,
+    record: &mut Recorder<'_>,
+) -> Result<()> {
     let places = Places {
         home: &sources.home,
         root: Path::new(&checkouts.root),
@@ -172,7 +246,7 @@ pub fn collect_excluding(
     sessions.extend(codex(sources)?);
     let snapshot = record.snapshot().clone();
     for session in sessions {
-        record.session(session.observation(snapshot.clone(), &places, exclude))?;
+        record.session(session.observation(snapshot.clone(), &places, exclude, names))?;
     }
     Ok(())
 }
@@ -203,16 +277,36 @@ impl Live {
     /// The observation of this session for `snapshot`, placed against `places`: in the records
     /// directory, conductor's role; outside the checkouts root, their managed trees and the
     /// records directory, or under one of the `exclude` entries, only its harness and activity.
+    /// Its name read against `names` decides first: the instance's prefix places it wherever it
+    /// runs, and another instance's keeps it to its harness and activity.
     fn observation(
         self,
         snapshot: SnapshotId,
         places: &Places<'_>,
         exclude: &[String],
+        names: &Names<'_>,
     ) -> RecordSession {
-        let placed = place(&self.cwd, places).filter(|_| !excluded(&self.cwd, places, exclude));
+        let by_directory =
+            || place(&self.cwd, places).filter(|_| !excluded(&self.cwd, places, exclude));
+        let placed = match names.owner(self.name.as_deref(), &self.cwd) {
+            Owner::Other => None,
+            Owner::Unknown => by_directory(),
+            // Under an excluded repository it stays redacted whatever its name says: the
+            // exclusion keeps that repository out of the instance's records.
+            Owner::Own if excluded(&self.cwd, places, exclude) => None,
+            Owner::Own => by_directory().or_else(|| {
+                let cwd = Path::new(&self.cwd);
+                is_plain(cwd)
+                    .then(|| shown(cwd, places.home))
+                    .flatten()
+                    .map(|shown| (shown, None))
+            }),
+        };
         let (session_ref, name, cwd, repository, role) = match placed {
             Some((cwd, repository)) => {
-                let role = conductors(Path::new(&self.cwd), places).then(|| CONDUCTOR.to_owned());
+                let role = (conductors(Path::new(&self.cwd), places)
+                    || names.conductor(self.name.as_deref()))
+                .then(|| CONDUCTOR.to_owned());
                 (self.reference, self.name, cwd, repository, role)
             }
             None => (String::new(), None, String::new(), None, None),
@@ -407,15 +501,27 @@ fn place(cwd: &str, places: &Places<'_>) -> Option<(String, Option<String>)> {
         None if conductors(cwd, places) => None,
         None => return None,
     };
-    let (start, under) = match cwd.strip_prefix(places.home) {
+    Some((shown(cwd, places.home)?, repository))
+}
+
+/// The working directory `cwd` as a session row records it: the home directory written `~`, each
+/// step after it joined by `/`. `None` when a step is not UTF-8.
+fn shown(cwd: &Path, home: &Path) -> Option<String> {
+    let (start, under) = match cwd.strip_prefix(home) {
         Ok(under) => ("~", under),
         Err(_) => ("", cwd),
     };
-    let shown = std::iter::once(start)
-        .chain(steps(under)?)
-        .collect::<Vec<_>>()
-        .join("/");
-    Some((shown, repository))
+    Some(
+        std::iter::once(start)
+            .chain(steps(under)?)
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
+}
+
+/// Whether `cwd` is an absolute path free of `..`, which a session row may record.
+fn is_plain(cwd: &Path) -> bool {
+    cwd.is_absolute() && !cwd.components().any(|part| part == Component::ParentDir)
 }
 
 /// Which root the working directory `cwd` lies under, the deeper of the two when both hold it,

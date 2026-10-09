@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 91b1e04b9d3f40c554bf0e78f07a6160c885b7e7f6864fec9da0ee72675cfe04
-// contract digest af130e1a335a2c4eb9139d6a63b92dd42a89d0b92bb1c80ec5e4354e782de74a
+// model digest ad48b54e5a5c7a5d26726034920a9e4f29b75cf4fcd6e4d110ea66a2c8f4c0ee
+// contract digest 9a2f202e3be77909ed7d34751b7e034f9ab12fe69955c93088bd68334629114c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -169,8 +169,8 @@ pub struct ControllerData {
     pub repository: crate::observation::RepositoryName,
     /// `harness` — `conductor.observation.Harness`.
     pub harness: crate::observation::Harness,
-    /// `session_name` — `conductor.observation.RepositoryName`.
-    pub session_name: crate::observation::RepositoryName,
+    /// `session_name` — `conductor.config.SessionName`.
+    pub session_name: crate::config::SessionName,
     /// `charter_revision` — `Integer`.
     pub charter_revision: i64,
 }
@@ -2103,6 +2103,8 @@ pub struct StartController {
     pub repository: crate::observation::RepositoryName,
     /// `harness` — `conductor.observation.Harness`.
     pub harness: crate::observation::Harness,
+    /// `session_name` — `conductor.config.SessionName`.
+    pub session_name: crate::config::SessionName,
 }
 
 /// Everything `conductor.dispatch.StartController` can result in — one variant per declared outcome.
@@ -2531,8 +2533,8 @@ pub struct Controllers {
     pub repository: crate::observation::RepositoryName,
     /// `harness` — `conductor.observation.Harness`.
     pub harness: crate::observation::Harness,
-    /// `session_name` — `conductor.observation.RepositoryName`.
-    pub session_name: crate::observation::RepositoryName,
+    /// `session_name` — `conductor.config.SessionName`.
+    pub session_name: crate::config::SessionName,
     /// `charter_revision` — `Integer`.
     pub charter_revision: i64,
 }

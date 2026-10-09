@@ -45,6 +45,36 @@ fn conductor_reads_a_redacted_session_row_as_by_design() {
     );
 }
 
+/// `story:instance-session-names` and `story:controller-report-sendmessage`: a controller's
+/// messages go to its instance's conductor by the session name `conductor config show` prints, and
+/// every report is a `SendMessage` call, since text printed in the session reaches nobody.
+#[test]
+fn a_controller_messages_its_instance_s_conductor_by_send_message() {
+    let text = profile("repo-controller.md");
+    assert!(
+        text.contains(
+            "Messages go only to `<session_prefix>-conductor`, your instance's conductor: the \
+             session name `conductor config show` prints as `conductor.session_name` \
+             (`conductor` when the instance has no `session_prefix`). When your instance names \
+             no `conductor` role, `conductor.served_by` names the `default` instance whose \
+             conductor serves it, and `conductor.session_name` is that conductor's."
+        ),
+        "repo-controller.md: messages go to the instance's conductor"
+    );
+    assert!(
+        text.contains(
+            "Every `[REPORT]`, `[DECISION-REQUEST]`, `[NEED]` and `[RESOURCE]` is a `SendMessage` \
+             call to that conductor: text printed in the session reaches nobody, and a turn that \
+             ends on a report ends with that call."
+        ),
+        "repo-controller.md: every report is a SendMessage call"
+    );
+    assert!(
+        !text.contains("Messages go only to `conductor`"),
+        "repo-controller.md: the bare name is gone"
+    );
+}
+
 #[test]
 fn a_controller_reads_the_sections_for_all_sessions_and_reports_pr_ci_and_merge() {
     let text = profile("repo-controller.md");

@@ -18,7 +18,8 @@ does not validate stops the command.
 `conductor config validate` checks the file and names each problem by its YAML path, such as
 `instances[0].cadence.watch`. `conductor config show --format text|json|yaml` prints the effective
 instance after defaults, with every path absolute. It writes an absent optional value (`operator`,
-`catalog`, a role's `agent`, `settings` and `profile`) as `null`.
+`catalog`, `session_prefix`, a role's `agent`, `settings` and `profile`, the controller role's
+`session_name`, `conductor.served_by` of an instance with its own conductor) as `null`.
 
 The profiles in `.agents/` refer to config values as `section.key`, such as
 `thresholds.disk_low`: that is the field of `conductor config show --format json` for the
@@ -42,7 +43,7 @@ instance the session runs.
 |---|---|---|---|
 | `version` | string | required | must be `conductor.config/1` |
 | `default` | instance name | none | the instance a command runs when none is named; must name an instance of the file |
-| `instances` | list of instance | required | instance names must be distinct |
+| `instances` | list of instance | required | instance names must be distinct; no two share a `session_prefix`, at most one has none, no prefix starts with another followed by `-`, and no prefix followed by `-` begins a name an instance without a prefix keeps (`conductor-dev`) |
 
 ## Instance
 
@@ -53,6 +54,7 @@ accepted, defaulted and shown by `config show`.
 | key | type | default | read by | meaning |
 |---|---|---|---|---|
 | `name` | string | required | all | the instance's name: letters, digits, `.`, `_` and `-`, starting with a letter or digit |
+| `session_prefix` | string | none | start tasks, guard, sessions collector, `controller start-controller`, conductor profile | the prefix of every session the instance starts: conductor is `<prefix>-conductor`, conductor-dev `<prefix>-conductor-dev`, a controller `<prefix>-<repository>`. Letters, digits and `-`, starting and ending with a letter or digit. Without one the sessions keep the bare names `conductor`, `conductor-dev` and `<repository>`. A controller messages only its instance's conductor and conductor only its instance's sessions; an instance that names no `conductor` role is served by the `default` instance's conductor, which its controllers message and which messages its sessions. A session belongs to the instance whose name for the controller of the repository it works in it carries, else to the instance whose prefix it carries; the sessions collector, the watch and the dashboard keep another instance's session out |
 | `sources` | list of source | required | collectors, watch, guard | where the repositories come from (below); at least one |
 | `checkouts.root` | path | required | collectors, watch, guard, dashboard, `resource usage`, `task trust` | the directory holding the checkouts |
 | `checkouts.trees` | path | required | watch, guard, dashboard, `resource usage` | the directory holding their managed worktrees |
@@ -66,6 +68,9 @@ accepted, defaulted and shown by `config show`.
 | `roles[].agent` | string | none | conductor profile, `task conductor:start` | the harness agent the role starts with, such as `repo-controller`, when it names no `profile`; for the `conductor` role the start tasks default to `conductor`, for `conductor-dev` to `conductor-dev` |
 | `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below) |
 | `roles[].profile` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter needs linking |
+| `roles[].session_name` | string | derived | `task conductor:start`, `task conductor:restart`, `task dev:start` | the name the role's session starts under: `<session_prefix>-<role>`, or `<role>` without a prefix; none for `controller`, whose sessions are named per repository. Derived, never chosen: a file may write only that value |
+| `conductor.served_by` | instance name | derived | conductor profile, controller profile | the `default` instance whose conductor serves this one, when this one names no `conductor` role; otherwise none. Derived, never chosen: a file may write only that value |
+| `conductor.session_name` | string | derived | controller profile, guard | the session name of the conductor that serves the instance: its own `<session_prefix>-conductor` (or `conductor`), or the serving instance's; none when no conductor serves it. Derived, never chosen |
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
 | `controllers.max_subagents` | integer ≥ 1 | `4` | controller profile | most sub-agents one controller runs at once |
 | `repositories` | list of rule | `[]` | nothing yet | activity overrides by repository name |

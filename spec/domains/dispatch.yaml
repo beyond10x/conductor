@@ -60,8 +60,10 @@ entities:
         type: conductor.observation.RepositoryName
       - name: harness
         type: conductor.observation.Harness
+      # The harness session the controller runs as: `<session_prefix>-<repository>`, or the
+      # repository when the instance has no prefix (story:instance-session-names).
       - name: session_name
-        type: conductor.observation.RepositoryName
+        type: conductor.config.SessionName
       - name: charter_revision
         type: Integer
     invariants:
@@ -385,6 +387,9 @@ errors:
         type: Integer
 
 commands:
+  # `session_name` is the instance's name for the repository's session,
+  # `<session_prefix>-<repository>` or the repository itself (story:instance-session-names); the
+  # `conductor` CLI fills it from the instance it runs, and refuses any other.
   - name: conductor.dispatch.StartController
     naming:
       wire: start-controller
@@ -394,6 +399,8 @@ commands:
         type: conductor.observation.RepositoryName
       - name: harness
         type: conductor.observation.Harness
+      - name: session_name
+        type: conductor.config.SessionName
     outcomes:
       - name: already-running
         when_related:
@@ -414,7 +421,7 @@ commands:
         sets:
           repository: input.repository
           harness: input.harness
-          session_name: input.repository
+          session_name: input.session_name
           charter_revision: 1
         emits:
           - conductor.dispatch.ControllerStarted
@@ -1414,7 +1421,7 @@ views:
       - name: harness
         type: conductor.observation.Harness
       - name: session_name
-        type: conductor.observation.RepositoryName
+        type: conductor.config.SessionName
       - name: charter_revision
         type: Integer
     naming:
