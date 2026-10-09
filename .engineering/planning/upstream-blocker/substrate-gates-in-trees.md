@@ -2,12 +2,14 @@
 format: aep.planning-md/3
 id: upstream-blocker:substrate-gates-in-trees
 kind: upstream-blocker
-status: open
+status: cleared
 title: Substrate cannot run a gate in a managed worktree at full speed
 relations:
 - blocks: story:substrate-gate-provider
 - blocks: story:substrate-tool-server
-revision: 2
+revision: 3
+transitions:
+- {from: "open", to: "cleared", at: "2026-10-09T23:41:14Z", actor: "human:timo", revision: 3}
 ---
 ## What would clear it
 

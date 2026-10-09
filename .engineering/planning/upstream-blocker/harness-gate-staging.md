@@ -7,7 +7,7 @@ title: The harness substrate driver cannot stage the programs and cargo config c
 relations:
 - blocks: story:substrate-gate-provider
 - blocks: story:substrate-tool-server
-revision: 3
+revision: 4
 transitions:
 - {from: "open", to: "cleared", at: "2026-10-09T02:13:13Z", actor: "human:timo", revision: 3}
 ---
@@ -19,7 +19,7 @@ Both, each observed in docs/analysis/substrate-tool-spike.md:
 - the rust toolchain reads the machine's `~/.cargo/config.toml` read-only (with `CARGO_HOME` inside
   the workspace, `target/` grew from 2.4G to 6.8G).
 
-Owner: the harness repository; asked in conductor-dev's request CD-20261009-01 to conductor, 2026-10-09.
+Owner: the harness repository; asked 2026-10-09.
 
 ## Cleared
 
