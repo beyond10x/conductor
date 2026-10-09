@@ -7,7 +7,7 @@ title: Substrate cannot run a gate in a managed worktree at full speed
 relations:
 - blocks: story:substrate-gate-provider
 - blocks: story:substrate-tool-server
-revision: 1
+revision: 2
 ---
 ## What would clear it
 
@@ -19,4 +19,18 @@ All three, each observed in docs/analysis/substrate-tool-spike.md:
   (`git status` exits 128 today);
 - the in-process host keeps `.substrate-apertures` out of the adopted directory's parent.
 
-Owner: the substrate repository; asked in conductor-dev's request CD-20261009-01 to conductor, 2026-10-09.
+Owner: the substrate repository; asked 2026-10-09.
+
+## Cleared
+
+2026-10-10 by substrate 0.7.12 (https://github.com/beyond10x/substrate/releases/tag/0.7.12, its
+CHANGELOG `## [0.7.12]`):
+- the exec CPU ceiling is configurable: `HostConfig::exec_cpu_cores`, daemon `--exec-cpu-cores N`
+  (the default stays 1; a consumer sets it);
+- a linked worktree's Git common directory declared as a read-only root at its own host path lets
+  `git status` and `git log` run inside an exec, writes to it refused;
+- aperture run state no longer goes into the workspace root: `HostConfig::aperture_root`, and the
+  daemon keeps it beside its state database.
+
+`story:substrate-client` sets `exec_cpu_cores`, the common-directory root and `aperture_root` when it
+adopts a managed tree.
