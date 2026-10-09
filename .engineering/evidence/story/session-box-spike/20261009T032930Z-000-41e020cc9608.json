@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-09T03:29:30Z",
+  "actor": "human:timo",
+  "artifact": "story:session-box-spike",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "recorded runs in docs/analysis/session-box-spike.md, merged 915a0c4f7"
+  }
+}

@@ -31,7 +31,7 @@ scope:
   path: crates/conductor/tests/doctor.rs
 - confidence: cited
   path: crates/conductor/tests/taskfile.rs
-revision: 4
+revision: 5
 ---
 ## Why
 
@@ -70,3 +70,19 @@ not match.
 `crates/conductor/tests/doctor.rs`, `crates/conductor/tests/taskfile.rs`. After
 `session-envelope-model` (its data), `session-box-spike` (how a session is kept in a box),
 `story:spawn` (`spawn.rs`), and `instance-session-names` (the same start lines).
+
+## Learned from the spike (docs/analysis/session-box-spike.md)
+
+Way (a) won: conductor starts `claude` in the foreground under `script`, inside a `systemd-run
+--user` unit it names. That changes the session's lifecycle, and this story owns all of it:
+- A boxed session is `kind: "interactive"` in `claude agents --json`, with no short id; `claude
+  stop`, `rm`, `attach`, `logs` and `respawn` do not apply. Stop is `systemctl --user stop <unit>`;
+  resume is a new unit running `claude --resume <session id>`.
+- The positional prompt is not submitted: the first prompt goes through the unit's FIFO (or a
+  SendMessage), as the spike did.
+- The unit has the user manager's environment, not the login shell's: `SHELL` and `PATH` are set
+  explicitly (`-E SHELL=/bin/bash -E PATH=…`), and the TUI stream goes to a typescript, not the
+  journal (`-p StandardOutput=null`).
+- `task conductor:restart`, `task sessions` and the profile's respawn and resume lines move to these
+  forms for a boxed session; a session started with `mode: report` and no provider keeps today's
+  `claude --bg` forms. Tests read both.

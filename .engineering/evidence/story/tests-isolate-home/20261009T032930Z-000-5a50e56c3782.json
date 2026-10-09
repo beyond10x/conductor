@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-09T03:29:30Z",
+  "actor": "human:timo",
+  "artifact": "story:tests-isolate-home",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check on wave/03 efd871e0d: 619 passed, 0 failed, 3 ignored; conformance 281/281; docs-check 5 current",
+    "reference": "~/.cache/conductor-dev-analysis/w03/close-check.log"
+  }
+}

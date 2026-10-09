@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-09T03:26:11Z",
+  "actor": "human:timo",
+  "artifact": "story:tests-isolate-home",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "verification",
+    "source": "cargo test -p conductor-cli --no-fail-fast with HOME holding an invalid config, before and after",
+    "reference": "~/.cache/conductor-dev-analysis/w03/scratch/u4/logs (506 passed 87 failed vs 598 passed 0 failed)"
+  }
+}

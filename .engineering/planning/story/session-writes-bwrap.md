@@ -23,7 +23,7 @@ scope:
   path: docs/analysis/session-writes-run.md
 - confidence: cited
   path: docs/design/conductor.md
-revision: 8
+revision: 9
 ---
 ## Why
 
@@ -56,3 +56,15 @@ promise, conductor's file-tool writes to `<records>/docs/analysis`, moves to `st
 `crates/conductor/src/confine/systemd.rs`, `README.md`, `docs/design/conductor.md`,
 `crates/conductor/tests/confine_bwrap.rs` (new), `docs/analysis/session-writes-run.md` (new). After
 `session-limits-systemd` (it wraps inside the unit).
+
+## Learned from the spike (docs/analysis/session-box-spike.md)
+
+- Writable, besides the request's `writable`: the session's `TMPDIR` (its settings' `env`; the
+  Bash tool fails with `EROFS` without it) and `/run/user/<uid>/cc-socks` (SendMessage cannot reach
+  the session without it).
+- `~/.claude.json` is not persisted through a bind of the single file: Claude Code writes it through
+  `~/.claude.json.lock` and `~/.claude.json.tmp.<n>` in `~`. The live run records which bind makes
+  it persist (for example a writable `~` overlay limited to those names), or the gap stays open in
+  the README Security model.
+- Not observed in the spike: an OAuth token refresh under `bwrap`. The live run notes whether one
+  happened.

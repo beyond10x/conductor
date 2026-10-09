@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-09T03:29:30Z",
+  "actor": "human:timo",
+  "artifact": "story:substrate-tool-spike",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "recorded runs in docs/analysis/substrate-tool-spike.md (steps 1-2; step 3 not run, no-go recorded), merged 6b3c12b16"
+  }
+}

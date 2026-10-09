@@ -19,7 +19,7 @@ scope:
   path: crates/conductor/tests/gate.rs
 - confidence: cited
   path: docs/analysis/substrate-gate-run.md
-revision: 8
+revision: 9
 ---
 ## Why
 
@@ -33,7 +33,7 @@ story of its own after a recorded run shows the cost of the one-core cap.
 Once `upstream-blocker:substrate-exec-in-checkout` is cleared:
 - Spec first: `gate run --tree <path> -- <argv>` in `crates/conductor/cli.yaml`.
 - A recorded run (`docs/analysis/substrate-gate-run.md`): `conductor gate run --tree <a managed
-  tree> -- cargo test --offline -p conductor` exits with the same status as the plain run in the
+  tree> -- cargo test --offline -p conductor-cli` exits with the same status as the plain run in the
   same tree.
 - The same run prints the exec's wall time, CPU time and memory peak: a test with a fake substrate
   checks the printed lines (`crates/conductor/tests/gate.rs`).

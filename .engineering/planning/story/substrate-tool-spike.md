@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:substrate-tool-spike
 kind: story
-status: active
+status: implemented
 title: 'Spike: a session''s commands run inside substrate through an MCP server'
 relations:
 - decomposes: epic:session-confinement
 scope:
 - confidence: cited
   path: docs/analysis/substrate-tool-spike.md
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 6}
 - {from: "proposed", to: "active", at: "2026-10-08T23:21:55Z", actor: "human:timo", revision: 7}
+- {from: "active", to: "implemented", at: "2026-10-09T03:29:30Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

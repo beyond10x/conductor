@@ -33,7 +33,7 @@ scope:
   path: docs/analysis/substrate-tool-server-run.md
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 4
+revision: 5
 ---
 ## Why
 
@@ -63,7 +63,7 @@ not fit.
   (`crates/conductor/tests/guard_hook.rs`, after `story:guard-all-tools` routes every tool).
 - A recorded run (`docs/analysis/substrate-tool-server-run.md`), one controller:
   - its init event's tool list shows SendMessage and the `mcp__conductor__` verbs, and no Bash;
-  - `run cargo test --offline -p conductor` executes in substrate with usage in the tool result;
+  - `run cargo test --offline -p conductor-cli` executes in substrate with usage in the tool result;
   - a write outside the write subtrees is refused;
   - SendMessage is delivered, and the session appears in `claude agents --json`.
 

@@ -19,7 +19,7 @@ scope:
   path: crates/conductor/tests/confine_systemd.rs
 - confidence: cited
   path: docs/analysis/session-limits-run.md
-revision: 8
+revision: 9
 ---
 ## Why
 
@@ -50,3 +50,9 @@ proportional CPU sharing across all cores, which substrate's one-core-per-exec c
 `crates/conductor/src/confine/systemd.rs` (new), `crates/conductor/src/confine/mod.rs`,
 `crates/conductor/tests/confine_systemd.rs` (new), `docs/analysis/session-limits-run.md` (new).
 After `session-envelope-seam`.
+
+## Learned from the spike (docs/analysis/session-box-spike.md)
+
+The live run in the spike already showed the cgroup, the limits, `claude agents --json`, a
+SendMessage, the session outliving its starter, and resume under the same id. This story's live run
+repeats those through the provider, not by hand.
