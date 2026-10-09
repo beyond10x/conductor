@@ -13,6 +13,8 @@
 //! temporary directory, a recorded payload (`tests/fixtures/guard/`) localised under it on
 //! standard input, and `--state-dir` under the same case directory.
 
+mod common;
+
 use std::fs::{self, File};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -21,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use clap::Parser as _;
 use conductor_cli::cli::Cli;
-use conductor_cli::config::{self, CONFIG_VARIABLE, INSTANCE_VARIABLE};
+use conductor_cli::config::{self, CONFIG_VARIABLE};
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -100,15 +102,12 @@ fn hook(case: &Path, state: &Path, stdin: &[u8]) -> Output {
 
 /// Runs the hook as [`hook`] does, with `CONDUCTOR_CONFIG` naming `config` when one is given.
 fn hook_with(case: &Path, state: &Path, config: Option<&Path>, stdin: &[u8]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+    let mut command = common::conductor(case.join("home"));
     command
         .args(["--state-dir"])
         .arg(state)
         .args(["guard", "record-guard-decision", "--from-pre-tool-use"])
         .current_dir(case)
-        .env("HOME", case.join("home"))
-        .env_remove(CONFIG_VARIABLE)
-        .env_remove(INSTANCE_VARIABLE)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -128,13 +127,10 @@ fn hook_with(case: &Path, state: &Path, config: Option<&Path>, stdin: &[u8]) -> 
 /// Runs the hook as the shipped settings do: no `--state-dir`, the working directory `cwd`, `HOME`
 /// the case's home, and `CONDUCTOR_CONFIG` naming `config` when one is given.
 fn hook_unflagged(case: &Path, cwd: &Path, config: Option<&Path>, stdin: &[u8]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+    let mut command = common::conductor(case.join("home"));
     command
         .args(["guard", "record-guard-decision", "--from-pre-tool-use"])
         .current_dir(cwd)
-        .env("HOME", case.join("home"))
-        .env_remove(CONFIG_VARIABLE)
-        .env_remove(INSTANCE_VARIABLE)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -202,7 +198,7 @@ fn without_a_state_dir_a_denial_is_recorded_in_the_instance_s_state() {
 
 /// The recorded verdicts under `state`, as `guard guard-decisions --format json` lists them.
 fn decisions(case: &Path, state: &Path) -> Vec<Value> {
-    let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let output = common::conductor(case.join("home"))
         .arg("--state-dir")
         .arg(state)
         .args(["guard", "guard-decisions", "--format", "json"])
@@ -466,14 +462,11 @@ fn hooks_running_at_once_each_answer_and_each_denial_is_recorded() {
 
 /// Runs the hook as [`hook`] does, with `PATH` replaced by `path`.
 fn hook_on(case: &Path, state: &Path, path: &Path, stdin: &[u8]) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_conductor"))
+    let mut child = common::conductor(case.join("home"))
         .args(["--state-dir"])
         .arg(state)
         .args(["guard", "record-guard-decision", "--from-pre-tool-use"])
         .current_dir(case)
-        .env("HOME", case.join("home"))
-        .env_remove(CONFIG_VARIABLE)
-        .env_remove(INSTANCE_VARIABLE)
         .env("PATH", path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1276,7 +1269,7 @@ fn conductor_settings_wire_the_guard_and_keep_background_isolation_off() {
 fn the_wired_command_denies_when_it_cannot_run_the_guard() {
     let case = case_dir("wired-path");
     let home = case.join("home");
-    let bin = Path::new(env!("CARGO_BIN_EXE_conductor"))
+    let bin = Path::new(common::conductor(&home).get_program())
         .parent()
         .expect("the binary's directory")
         .to_owned();

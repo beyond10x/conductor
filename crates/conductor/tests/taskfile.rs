@@ -11,6 +11,8 @@
 //! `claude` that logs its working directory and arguments, so no case starts a session or reads
 //! the operator's config. When `task` is not on `PATH` those tests print why and return.
 
+mod common;
+
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -249,7 +251,8 @@ impl Case {
             fs::create_dir_all(dir.join(sub)).expect("create a case directory");
         }
         let dir = dir.canonicalize().expect("the case's directory");
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_conductor"), dir.join("bin/conductor"))
+        let binary = common::conductor(dir.join("home"));
+        std::os::unix::fs::symlink(binary.get_program(), dir.join("bin/conductor"))
             .expect("link the built conductor");
         // A claude that answers `agents --json` with a live session `s-0001` while
         // `claude/live` exists, named as `claude/live` says or `conductor` when it is empty,
@@ -1207,7 +1210,7 @@ fn fake_dashboard_conductor(case: &Case) {
              fi\n\
              exec '{real}' \"$@\"\n",
             log = case.dir.join("claude/conductor-log").display(),
-            real = env!("CARGO_BIN_EXE_conductor"),
+            real = Path::new(common::conductor(case.dir.join("home")).get_program()).display(),
         ),
     )
     .expect("write a fake conductor");

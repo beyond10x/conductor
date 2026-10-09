@@ -100,7 +100,11 @@ Run `task check` on the exact commit before you push or merge. For a quick loop,
 5. **Tests never read the operator's real config or state.** A test that spawns `conductor` sets
    `HOME` to a temporary directory and removes `CONDUCTOR_CONFIG` and `CONDUCTOR_INSTANCE` (or
    clears the environment), and passes `--state-dir` or `--config` under that directory. A test
-   that touches `~/.b10x/conductor` or a real checkout is a defect.
+   that touches `~/.b10x/conductor` or a real checkout is a defect. The command comes from
+   `common::conductor` (`crates/conductor/tests/common/mod.rs`); a test that calls the library
+   fixes the instance of its process first with `active::isolate`
+   (`crates/conductor/tests/active/mod.rs`). `crates/conductor/tests/isolated_home.rs` fails on
+   a test file that does neither.
 6. **The guard answers fast.** `conductor guard record-guard-decision --from-pre-tool-use` runs on
    every tool call of conductor and of every controller. An allowed call must not open the store;
    a denial is recorded within a bound (`RECORD_DEADLINE` in `src/guard.rs`).

@@ -6,10 +6,13 @@
 //! collectors) and reads them back through the binary, run from the case's empty `work/` with
 //! `--state-dir` naming that `state/`; every run leaves `work/` empty.
 
+mod active;
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 use anyhow::bail;
 use conductor_cli::collect::Collector;
@@ -28,6 +31,7 @@ use serde_json::{Value, json};
 /// A fresh directory for one case: its `state/` is the case's store, and its empty `work/` the
 /// working directory of every run of the binary.
 fn case_dir(case: &str) -> PathBuf {
+    active::isolate();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("snapshot")
         .join(case);
@@ -56,15 +60,9 @@ fn run(cwd: &Path, args: &[&str]) -> Output {
 /// Runs the binary from `cwd` with `args` alone, and with `PATH` replaced when `path_env` is
 /// given.
 fn run_with(cwd: &Path, path_env: Option<&Path>, args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
-    command
-        .current_dir(cwd)
-        .args(args)
-        .stdin(Stdio::null())
-        // Never the operator's config: the built-in instance, with the case directory as home.
-        .env("HOME", cwd)
-        .env_remove("CONDUCTOR_CONFIG")
-        .env_remove("CONDUCTOR_INSTANCE");
+    // Never the operator's config: the built-in instance, with the case directory as home.
+    let mut command = common::conductor(cwd);
+    command.current_dir(cwd).args(args).stdin(Stdio::null());
     if let Some(path) = path_env {
         command.env("PATH", path);
     }

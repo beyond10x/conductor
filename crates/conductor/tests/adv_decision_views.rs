@@ -1,12 +1,14 @@
 //! Adversary, wave 06 U1 (`story:decision-commands`, the decision group), pass 1: the decision
 //! views' renderings of free text.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 fn run(state: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(state.with_file_name("home"))
         .arg("--state-dir")
         .arg(state)
         .args(args)

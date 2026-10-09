@@ -12,6 +12,8 @@
 //! `ess specify compile --path spec` resolves them, upper-snake-cased as `ess-runtime/1` derives
 //! them; `ess` is taken from `PATH`.
 
+mod common;
+
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -75,11 +77,12 @@ impl Case {
     /// case's home, both settings' variables removed and then `env` set, and asserts it wrote
     /// nothing: `work/` stays empty and `state/` is not created.
     fn conductor(&self, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Output {
+        // The helper removes the variables the source names; these are the ones the
+        // specification names.
         let (config, instance) = variables();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+        let mut command = common::conductor(self.dir.join("home"));
         command
             .current_dir(self.dir.join("work"))
-            .env("HOME", self.dir.join("home"))
             .env_remove(&config)
             .env_remove(&instance)
             .arg("--state-dir")

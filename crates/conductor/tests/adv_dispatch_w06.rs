@@ -6,9 +6,11 @@
 //! Each case runs the built binary with `--state-dir` pointed at its own directory under this test
 //! target's temporary directory in `target/`.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::thread;
 
 use serde_json::Value;
@@ -30,7 +32,7 @@ fn state_dir(case: &str) -> PathBuf {
 
 /// Runs `conductor --state-dir <state> <args>`.
 fn conductor(state: &PathBuf, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_conductor"))
+    common::conductor(state.with_file_name("home"))
         .arg("--state-dir")
         .arg(state)
         .args(args)

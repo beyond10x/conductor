@@ -9,10 +9,12 @@
 //! `home/`, the working directory is under it (so no `b10x.toml` of this checkout is found), and
 //! `PATH` holds only the fake programs the case writes, each printing a fixed version line.
 
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 /// Each program conductor starts, with the version line its fake prints.
 const PROGRAMS: [(&str, &str); 8] = [
@@ -86,7 +88,7 @@ impl Case {
     }
 
     fn conductor(&self, cwd: &Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.home())
             .args(args)
             .current_dir(cwd)
             .env_clear()
@@ -272,7 +274,7 @@ fn start_snapshot_refuses_at_start_naming_a_missing_program() {
     .expect("write the config file");
     let state = case.dir.join("state");
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(case.home())
             .arg("--state-dir")
             .arg(&state)
             .args(args)

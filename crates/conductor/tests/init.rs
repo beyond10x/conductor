@@ -8,6 +8,8 @@
 //! config file the case writes, `CONDUCTOR_INSTANCE` removed, and git's identity from the
 //! environment, with no system or global git config read.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -93,11 +95,10 @@ impl Case {
 
     fn init(&self, config: &Path) -> Output {
         self.git(
-            Command::new(env!("CARGO_BIN_EXE_conductor"))
+            common::conductor(self.dir.join("home"))
                 .arg("init")
                 .current_dir(&self.dir)
-                .env("CONDUCTOR_CONFIG", config)
-                .env_remove("CONDUCTOR_INSTANCE"),
+                .env("CONDUCTOR_CONFIG", config),
         )
     }
 

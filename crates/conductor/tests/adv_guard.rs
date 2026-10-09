@@ -8,6 +8,8 @@
 //! run shows the whole gap; each also holds one control input decided the other way, so a guard
 //! that denied everything would not pass it.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -388,7 +390,7 @@ fn adv_the_wired_command_denies_when_conductor_cannot_be_run() {
     let home = home("wired-command");
     let checkout = home.join("example-org/.guard-probe-w04");
     fs::create_dir_all(&checkout).expect("create the probe checkout");
-    let bin = Path::new(env!("CARGO_BIN_EXE_conductor"))
+    let bin = Path::new(common::conductor(&home).get_program())
         .parent()
         .expect("the binary's directory")
         .to_owned();

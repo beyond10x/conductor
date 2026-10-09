@@ -3,6 +3,8 @@
 //! Each case is driven from the specification (`ess specify compile --path spec --format json`)
 //! or from a literal the specification states, never from `src/cli.rs`.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command as Process, Stdio};
@@ -325,7 +327,7 @@ fn adv_every_leaf_answers_not_implemented_with_exit_2() {
             skipped.push(path);
             continue;
         }
-        let output = Process::new(env!("CARGO_BIN_EXE_conductor"))
+        let output = common::conductor(&cwd)
             .args([group.as_str(), wire.as_str()])
             .current_dir(&cwd)
             .stdin(Stdio::null())

@@ -12,6 +12,9 @@
 //! (`story:catalog-source`) run `git fetch`, in a catalog checkout the case builds, from a bare
 //! origin in the case's own directory.
 
+mod active;
+mod common;
+
 use std::ffi::OsString;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -66,6 +69,7 @@ impl Drop for Case {
 
 impl Case {
     fn new(name: &str) -> Self {
+        active::isolate();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("instance_sources")
             .join(name);
@@ -189,7 +193,7 @@ impl Case {
     /// The built binary run from `work/` with `--state-dir` naming `state/`, `CONDUCTOR_CONFIG`
     /// naming `config`, `HOME` naming `home/` and `PATH` only `bin/`.
     fn conductor(&self, config: &Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.home())
             .current_dir(self.dir.join("work"))
             .env_clear()
             .env("HOME", self.home())

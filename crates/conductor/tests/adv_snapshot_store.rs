@@ -6,6 +6,8 @@
 //! On the `impl/snapshot-driver` branch alone this case is red, because the store-hardening change
 //! is not under it; it is meant for `wave/05`.
 
+mod active;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +34,7 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 
 fn state_dir(case: &str) -> PathBuf {
+    active::isolate();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("adv_snapshot_store")
         .join(case)

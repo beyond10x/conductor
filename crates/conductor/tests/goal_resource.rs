@@ -6,9 +6,11 @@
 //! refused exits 1 with one line on standard error naming the error the specification declares,
 //! and writes nothing on standard output.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 use serde_json::{Value, json};
 
@@ -39,7 +41,7 @@ impl Case {
 
     /// Runs `conductor --state-dir <state> <args>` from the case's working directory.
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_conductor"))
+        common::conductor(self.work.with_file_name("home"))
             .current_dir(&self.work)
             .arg("--state-dir")
             .arg(&self.state)

@@ -7,11 +7,14 @@
 //! Each case keeps its store under `state/` in its own directory in this test target's temporary
 //! directory, and runs the binary from that directory's empty `work/` with `--state-dir`.
 
+mod active;
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 use anyhow::Result;
 use conductor_cli::collect::{self, Collector};
@@ -52,6 +55,7 @@ const VIEWS: [&str; 6] = [
 ];
 
 fn case_dir(case: &str) -> PathBuf {
+    active::isolate();
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("adv_snapshot")
         .join(case);
@@ -93,13 +97,10 @@ fn take(root: &Path, collectors: &[Collector]) -> Result<Taken> {
 /// Runs the binary from `root`'s `work/` with `--state-dir` naming `root`'s `state/`, and with
 /// `PATH` replaced when `path_env` is given.
 fn conductor_with(root: &Path, path_env: Option<&Path>, args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
+    // Never the operator's config: the built-in instance, with this case as home.
+    let mut command = common::conductor(root);
     command
         .current_dir(root.join("work"))
-        // Never the operator's config: the built-in instance, with this case as home.
-        .env("HOME", root)
-        .env_remove("CONDUCTOR_CONFIG")
-        .env_remove("CONDUCTOR_INSTANCE")
         .arg("--state-dir")
         .arg(state(root))
         .args(args)
@@ -927,7 +928,7 @@ fn adv_a_view_on_a_missing_state_dir_creates_nothing() {
     let flag = absent.to_str().expect("UTF-8 path");
     let mut problems = Vec::new();
     for name in VIEWS {
-        let output = Command::new(env!("CARGO_BIN_EXE_conductor"))
+        let output = common::conductor(&root)
             .current_dir(root.join("work"))
             .args(["snapshot", name, "--state-dir", flag])
             .stdin(Stdio::null())
