@@ -1237,3 +1237,110 @@ fn an_ess_that_fails_twice_fails_the_snapshot_naming_the_repository_and_the_comm
     );
     assert!(case.specifications().is_empty());
 }
+
+// story:snapshot-absent-member
+// ---------------------------------------------------------------------------------------------
+
+/// The environment variable that makes
+/// [`a_member_whose_checkout_is_absent_is_skipped_and_the_snapshot_completes`] run its child.
+const ABSENT_CHILD: &str = "CONDUCTOR_COLLECT_STORES_ABSENT_CHILD";
+
+/// Three members, the checkout of `gamma` absent: `aep plan workspace members` reports it
+/// `"state": "absent"`, with exit 0. The blockers and specifications collectors skip it, the
+/// snapshot completes with alpha's and beta.io's blockers and specifications, and the skipped
+/// member is named on one line of standard error.
+///
+/// The collectors write that line on the process's standard error, which the test harness
+/// captures where no case can read it. So the case runs itself again in a child process with
+/// `--nocapture` ([`absent_member_snapshot`]) and reads the child's standard error.
+#[test]
+fn a_member_whose_checkout_is_absent_is_skipped_and_the_snapshot_completes() {
+    const NAME: &str = "a_member_whose_checkout_is_absent_is_skipped_and_the_snapshot_completes";
+    if std::env::var_os(ABSENT_CHILD).is_some() {
+        absent_member_snapshot();
+        return;
+    }
+    let output = Command::new(std::env::current_exe().expect("the test binary's path"))
+        .args([NAME, "--exact", "--nocapture", "--test-threads=1"])
+        .env(ABSENT_CHILD, "1")
+        .stdin(Stdio::null())
+        .output()
+        .expect("the test binary runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the child case failed:\n{stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("test result: ok. 1 passed"),
+        "the child ran the case:\n{stdout}"
+    );
+    assert_eq!(
+        stderr, "member gamma: checkout absent, skipped\n",
+        "one line on standard error, naming the absent member once"
+    );
+}
+
+/// What [`a_member_whose_checkout_is_absent_is_skipped_and_the_snapshot_completes`] runs in its
+/// child process.
+fn absent_member_snapshot() {
+    let case = Case::new("absent_member");
+    case.workspace(&["alpha", "beta.io", "gamma"]);
+    for (repo, blocker) in [("alpha", "Pick a store"), ("beta.io", "Restart")] {
+        case.repository(
+            repo,
+            &[],
+            &[
+                fixture(repo),
+                vec![
+                    project(&member(repo)),
+                    artifact("operator-blocker:waiting", "open", Some(blocker)),
+                ],
+            ]
+            .concat(),
+        );
+    }
+    assert!(
+        !case.checkout("gamma").exists(),
+        "gamma's checkout is absent"
+    );
+    let repositories = case.dir.join("repositories.json");
+    write(
+        &repositories,
+        r#"[{"name": "alpha", "isArchived": false}, {"name": "beta.io", "isArchived": false},
+            {"name": "gamma", "isArchived": false}]"#,
+    );
+    let blocker_sources = case.blocker_sources();
+    let specification_sources = case.specification_sources(&repositories);
+
+    let store = store::open(&case.state()).expect("open the store");
+    let taken = snapshot::take(
+        store,
+        &[
+            Collector::new("blockers", move |record| {
+                blockers::collect_from(&blocker_sources, record)
+            }),
+            Collector::new("specifications", move |record| {
+                specifications::collect_from(&specification_sources, record)
+            }),
+        ],
+    )
+    .expect("the driver ends the snapshot");
+
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+    let mut expected = vec![
+        json!({"repository": "alpha", "reference": "operator-blocker:waiting",
+               "blocker_kind": "operator-blocker", "title": "Pick a store"}),
+        json!({"repository": "beta.io", "reference": "operator-blocker:waiting",
+               "blocker_kind": "operator-blocker", "title": "Restart"}),
+    ];
+    expected.sort_by_key(Value::to_string);
+    assert_eq!(case.blockers(), expected);
+    let repositories: Vec<String> = case
+        .specifications()
+        .into_iter()
+        .map(|row| row.repository.0)
+        .collect();
+    assert_eq!(repositories, vec!["alpha", "beta.io"]);
+}

@@ -188,7 +188,8 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
 
 /// Records one `RecordSpecification` per repository of `sources`, by name: each its owners list
 /// as not archived, read in the export of its `origin/main`, and each under one of its local
-/// directories, read in an export of its `HEAD`.
+/// directories, read in an export of its `HEAD`. A repository an owner lists whose workspace
+/// member's checkout is absent is skipped, as [`blockers::read`] skips it.
 ///
 /// # Errors
 ///
@@ -206,7 +207,14 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
             .iter()
             .find(|member| member.repository == name)
     };
-    // Every repository an owner lists is a member: checked before anything is exported or
+    // A repository an owner lists whose member's checkout is absent is not read
+    // ([`blockers::read`] named it).
+    let absent = |name: &str| workspace.absent.iter().any(|repository| repository == name);
+    let listed: Vec<_> = listed
+        .into_iter()
+        .filter(|(name, origin)| !(matches!(origin, Origin::Owner(_)) && absent(name)))
+        .collect();
+    // Every other repository an owner lists is a member: checked before anything is exported or
     // recorded.
     for (name, origin) in &listed {
         if matches!(origin, Origin::Owner(_)) && member(name).is_none() {

@@ -37,6 +37,13 @@
 //! A repository whose fetch or export fails, and a member list or listing that fails, is tried once
 //! more; failing again, the collector answers an error naming the repository and the command. The
 //! specifications collector reads the same exports and listing through [`read`].
+//!
+//! **A member whose checkout is absent is skipped.** `aep plan workspace members` reports it
+//! `"state": "absent"`, with exit 0; one with no directory at its `tree` is neither fetched, nor
+//! exported, nor listed, and [`read`] names it on one line of standard error,
+//! `member <name>: checkout absent, skipped`, once per snapshot: not again when it finds its own
+//! snapshot's mark. Until 2026-10-10 such a member failed every snapshot. A checkout that is there
+//! but whose fetch fails still fails the snapshot.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -211,8 +218,10 @@ pub(crate) fn root() -> Result<PathBuf> {
 /// The organization's workspace, read at each member's `origin/main`.
 #[derive(Debug)]
 pub(crate) struct Workspace {
-    /// Every member, in the workspace file's order.
+    /// Every member, in the workspace file's order, but those whose checkout is absent.
     pub(crate) members: Vec<Member>,
+    /// The repository of each member whose checkout is absent, which nothing reads.
+    pub(crate) absent: Vec<String>,
     /// Every artifact of every member's store, as `aep plan workspace list` orders them.
     pub(crate) artifacts: Vec<Artifact>,
 }
@@ -276,7 +285,14 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
     })?;
     let mut members = Vec::new();
     let mut checkouts = Vec::new();
-    for (name, repository, checkout) in members_of(&listed)? {
+    let mut absent = Vec::new();
+    for Listed {
+        name,
+        repository,
+        checkout,
+        state,
+    } in members_of(&listed)?
+    {
         if let Some(other) = members
             .iter()
             .find(|member: &&Member| member.repository == repository)
@@ -286,6 +302,10 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
                 other.name
             );
         }
+        if state == Some(ABSENT) && !checkout.is_dir() {
+            absent.push((name, repository));
+            continue;
+        }
         members.push(Member {
             name,
             export: sources.exports.join(&repository),
@@ -293,17 +313,26 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
         });
         checkouts.push(checkout);
     }
+    let skipped = |absent: Vec<(String, String)>| {
+        absent
+            .into_iter()
+            .map(|(_, repository)| repository)
+            .collect()
+    };
     if members.is_empty() {
         // No repository has a planning store: there is nothing to export or list, and `aep`
         // refuses a workspace of no members (an instance with no store, 2026-10-08).
+        name_absent(&absent);
         return Ok(Workspace {
             artifacts: Vec::new(),
             members,
+            absent: skipped(absent),
         });
     }
     let mark = sources.exports.join(MARK);
     let marked = fs::read_to_string(&mark).is_ok_and(|held| held == snapshot.0.0);
     if !marked || !members.iter().all(|member| member.export.is_dir()) {
+        name_absent(&absent);
         remove(&mark)?;
         for (member, checkout) in members.iter().zip(&checkouts) {
             twice(|| export(sources, &member.repository, checkout))
@@ -323,11 +352,34 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
     Ok(Workspace {
         artifacts: artifacts_of(&listing)?,
         members,
+        absent: skipped(absent),
     })
 }
 
-/// Each member `aep plan workspace members` printed: its name, its repository, and its checkout.
-fn members_of(listed: &Value) -> Result<Vec<(String, String, PathBuf)>> {
+/// The `state` `aep plan workspace members` gives a member whose store is not there.
+const ABSENT: &str = "absent";
+
+/// Names each member of `absent`, as (name, repository), on one line of standard error.
+fn name_absent(absent: &[(String, String)]) {
+    for (name, _) in absent {
+        eprintln!("member {name}: checkout absent, skipped");
+    }
+}
+
+/// One member as `aep plan workspace members` printed it.
+struct Listed<'a> {
+    /// Its name in the workspace.
+    name: String,
+    /// The repository: the last component of its `source`.
+    repository: String,
+    /// Its checkout, its `tree`.
+    checkout: PathBuf,
+    /// Its `state`, when it has one.
+    state: Option<&'a str>,
+}
+
+/// Each member `aep plan workspace members` printed.
+fn members_of(listed: &Value) -> Result<Vec<Listed<'_>>> {
     listed["members"]
         .as_array()
         .ok_or_else(|| anyhow!("the member list has no `members` array"))?
@@ -339,11 +391,12 @@ fn members_of(listed: &Value) -> Result<Vec<(String, String, PathBuf)>> {
                 .file_name()
                 .and_then(OsStr::to_str)
                 .ok_or_else(|| anyhow!("the source {source:?} of {name} names no repository"))?;
-            Ok((
-                name.to_owned(),
-                repository.to_owned(),
-                PathBuf::from(field(member, "tree")?),
-            ))
+            Ok(Listed {
+                name: name.to_owned(),
+                repository: repository.to_owned(),
+                checkout: PathBuf::from(field(member, "tree")?),
+                state: member["state"].as_str(),
+            })
         })
         .collect()
 }
