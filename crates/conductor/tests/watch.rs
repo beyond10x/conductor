@@ -14,6 +14,7 @@
 //! `CONDUCTOR_CONFIG`; a case without one removes that variable, so no case reads the real home's
 //! config. A snapshot the watch reads is taken through the library over a fake collector.
 
+mod active;
 mod common;
 
 use std::ffi::OsString;
@@ -149,7 +150,7 @@ impl Drop for Case {
 
 impl Case {
     fn new(name: &str) -> Self {
-        isolate_active();
+        active::isolate();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("watch")
             .join(name);
@@ -2081,34 +2082,4 @@ fn no_organization_literal_is_left_in_the_watch_or_the_session_tasks() {
             assert!(!text.contains(word), "{what}: {word}: {text}");
         }
     }
-}
-
-/// Fixes the instance this test binary's process runs (`config::active`), which the watch reads
-/// for its roles and its instances, to a scratch config file of one instance without a prefix,
-/// before any case reads it: a config file in the real home (one with a `session_prefix`, say)
-/// never decides a case. The instance takes the name `CONDUCTOR_INSTANCE` gives, if any, so the
-/// variable selects it.
-fn isolate_active() {
-    static ISOLATED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    ISOLATED.get_or_init(|| {
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join(concat!("isolated-active-", module_path!()));
-        fs::create_dir_all(&dir).expect("create the scratch config's directory");
-        let name = std::env::var(conductor_cli::config::INSTANCE_VARIABLE)
-            .unwrap_or_else(|_| "example-org".to_owned());
-        let file = dir.join("conductor.yaml");
-        fs::write(
-            &file,
-            format!(
-                "version: conductor.config/1\n\
-                 instances:\n\
-                 \x20 - name: {name}\n\
-                 \x20   sources: [{{github: example-org}}]\n\
-                 \x20   checkouts: {{root: /fixture-home/example-org, trees: \
-                 /fixture-home/.local/state/worktree/trees/example-org}}\n"
-            ),
-        )
-        .expect("write the scratch config");
-        conductor_cli::config::set_active(Some(&file)).expect("the scratch config loads");
-    });
 }
