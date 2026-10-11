@@ -91,7 +91,7 @@ const RULED: [&str; 6] = [
 /// reach no other session, so the guard allows them to every session without deciding where it
 /// runs; the allowance stays as fast as a ruled one, and opens no store. A role's
 /// `read_only_tools` in the config extends it for that role. Each entry, and why it is here:
-const READ_ONLY: [&str; 25] = [
+const READ_ONLY: [&str; 23] = [
     // Reads a file.
     "Read",
     // Lists paths matching a pattern.
@@ -124,10 +124,6 @@ const READ_ONLY: [&str; 25] = [
     // Lists and reads an MCP server's resources; an MCP tool call is not among them.
     "ListMcpResourcesTool",
     "ReadMcpResourceTool",
-    // Starts a sub-agent (`Agent`, earlier `Task`): its own tool calls reach this same hook,
-    // under the same settings, and are decided there.
-    "Agent",
-    "Task",
     // Loads a skill's instructions into the session.
     "Skill",
     // The session's own wake-up schedule, a prompt to itself (conductor's cycle jobs,
@@ -136,6 +132,42 @@ const READ_ONLY: [&str; 25] = [
     "CronList",
     "CronDelete",
 ];
+
+/// The tools that start a sub-agent (`Agent`, earlier `Task`). A sub-agent's own tool calls reach
+/// this same hook and are decided by the cwd they carry, so [`sub_agent`] allows one only where
+/// that cwd stays the caller's.
+const SUB_AGENT: [&str; 2] = ["Agent", "Task"];
+
+/// The verdict on a [`SUB_AGENT`] call: denied when its `tool_input` sets `cwd`, which moves the
+/// sub-agent's calls under another place's rule, or `isolation: "remote"`, which runs them where
+/// this hook never sees them; allowed otherwise. Found by the wave 04 review of
+/// `story:guard-all-tools`.
+fn sub_agent(tool: &str, input: &Value) -> (Verdict, String) {
+    if input.get("cwd").is_some_and(|cwd| !cwd.is_null()) {
+        return (
+            Verdict::Deny,
+            format!(
+                "the {tool} call sets cwd: a sub-agent's calls are decided by the cwd they carry, \
+                 so it would leave the caller's rule; start it without cwd"
+            ),
+        );
+    }
+    if input["isolation"].as_str() == Some("remote") {
+        return (
+            Verdict::Deny,
+            format!(
+                "the {tool} call sets isolation remote: a remote sub-agent's calls never reach \
+                 this guard; start it locally"
+            ),
+        );
+    }
+    (
+        Verdict::Allow,
+        format!(
+            "{tool} sets neither cwd nor remote isolation; its sub-agent's calls reach this guard"
+        ),
+    )
+}
 
 /// The guard's verdict on one PreToolUse payload, with the fields its record keeps.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -215,6 +247,12 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
         verdict: Verdict::Deny,
         reason: String::new(),
     };
+    if SUB_AGENT.contains(&tool.as_str()) {
+        let (verdict, reason) = sub_agent(&tool, input);
+        decision.verdict = verdict;
+        decision.reason = reason;
+        return decision;
+    }
     if READ_ONLY.contains(&tool.as_str()) {
         decision.verdict = Verdict::Allow;
         decision.reason = format!("{tool} has no rule and is on the built-in read-only allowlist");

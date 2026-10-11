@@ -4143,3 +4143,191 @@ fn a_recipient_the_list_cannot_tell_apart_or_does_not_hold_is_denied() {
         assert_eq!(decision.verdict, Verdict::Allow, "{to}: {decision:#?}");
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// Security review, wave 04 (`story:guard-read-flag-paths`, `story:guard-all-tools`): conformance
+// checks of the invariants the two stories claim. A role's settings or profile file named only as a
+// read flag's value is still written by a command that reaches it through the shell (`$_`,
+// positional parameters, a loop variable, a `sh -c` script, a here-document script, `xargs`, or a
+// writer outside the write-word list) while a write form is on the same line; and an allowlisted
+// tool does not move a session's tool calls to places its own rule would deny.
+// -------------------------------------------------------------------------------------------------
+
+/// Each command reaches the role's settings or profile file only through the shell, with the path
+/// itself written only as a read flag's value, and writes it. Before `story:guard-read-flag-paths`
+/// every one was denied (it names the file and holds a write form); each must stay denied, from
+/// conductor's records and from the controller's checkout.
+#[test]
+fn review_w04_a_read_flag_value_reached_through_the_shell_is_still_a_write() {
+    let home = home("review-w04-read-flag-shell");
+    let (root, records) = case_dirs(&home);
+    let checkout = root.join("probe");
+    let settings = checkout
+        .join(".claude/controller-settings.json")
+        .display()
+        .to_string();
+    let profile = "~/.config/fixture-roles/controller.md";
+    let places = places_with_role_files(&home, &settings, profile);
+    let charter = format!("{}/charters/x.md", records.display());
+    let s = &settings;
+    let commands = [
+        format!("true --settings {s}; cp /etc/hostname \"$_\""),
+        format!("true --settings {s} && echo '{{}}' > \"$_\""),
+        format!("set -- --settings {s}; cp x \"$2\""),
+        format!("for f in --settings {s}; do cp x \"$f\"; done"),
+        format!("sh -c 'cp x \"$2\"' sh --settings {s}"),
+        format!("bash -s -- --settings {s} <<'EOF'\ncp x \"$2\"\nEOF"),
+        format!("printf '%s\\n' --settings {s} | tail -n1 | xargs -I{{}} cp x {{}}"),
+        format!(
+            "echo x >> {charter}; python3 -c 'import sys; open(sys.argv[2], \"w\").write(\"{{}}\")' \
+             --settings {s}"
+        ),
+        format!("true --append-system-prompt-file {profile}; echo x > \"$_\""),
+        format!("set -- --system-prompt-file={profile}; cp x \"${{1#*=}}\""),
+    ];
+    let mut allowed = Vec::new();
+    for cwd in [&records, &checkout] {
+        for command in &commands {
+            let decision = decide_in_places(&places, &home, "bash", cwd, "command", command);
+            if decision.verdict != Verdict::Deny {
+                allowed.push(format!(
+                    "{} :: {command:?} => {}",
+                    cwd.display(),
+                    decision.reason
+                ));
+            }
+        }
+    }
+    assert!(
+        allowed.is_empty(),
+        "{} of {} writes to a role's settings or profile file were allowed:\n{}",
+        allowed.len(),
+        commands.len() * 2,
+        allowed.join("\n")
+    );
+}
+
+/// Control for the case above: the same file written by a literal path is denied, and the
+/// controller start from the story stays allowed for conductor, so the case above does not pass
+/// by a guard that denies everything.
+#[test]
+fn review_w04_control_the_literal_write_is_denied_and_the_start_allowed() {
+    let home = home("review-w04-read-flag-control");
+    let (root, records) = case_dirs(&home);
+    let checkout = root.join("probe");
+    let settings = checkout
+        .join(".claude/controller-settings.json")
+        .display()
+        .to_string();
+    let profile = "~/.config/fixture-roles/controller.md";
+    let places = places_with_role_files(&home, &settings, profile);
+    let charter = format!("{}/charters/x.md", records.display());
+    let deny = format!("true --settings {settings}; cp x {settings}");
+    assert_verdict(
+        &decide_in_places(&places, &home, "bash", &records, "command", &deny),
+        Verdict::Deny,
+        "settings",
+    );
+    let start = format!(
+        "echo x >> {charter}; claude --bg --append-system-prompt-file {profile} --settings {settings}"
+    );
+    assert_verdict(
+        &decide_in_places(&places, &home, "bash", &records, "command", &start),
+        Verdict::Allow,
+        "",
+    );
+}
+
+/// The Agent tool's input as the harness gives it, from `cwd`.
+fn agent_payload(home: &Path, cwd: &Path, input: Value) -> Value {
+    let mut raw = localise(fixture("bash"), home);
+    raw["cwd"] = Value::String(cwd.display().to_string());
+    raw["tool_name"] = Value::String("Agent".to_owned());
+    raw["tool_input"] = input;
+    raw
+}
+
+/// `READ_ONLY` allows Agent because "its own tool calls reach this same hook, under the same
+/// settings, and are decided there". The harness's Agent tool takes `cwd` ("Absolute path to run
+/// the agent in. Overrides the working directory for all filesystem and shell operations within
+/// this agent") and `isolation: "remote"` (a cloud sandbox, outside this host's hook). A
+/// sub-agent's calls are decided by the cwd they carry, so an Agent call from a controller that
+/// sets `cwd` to another repository's checkout, or to conductor's records, has its sub-agent
+/// decided by that place's rule, not the caller's; and a remote one by none. Each must be denied.
+#[test]
+fn review_w04_an_agent_call_does_not_move_its_sub_agent_out_of_the_caller_s_places() {
+    let home = home("review-w04-agent-cwd");
+    let (root, records) = case_dirs(&home);
+    let checkout = root.join("probe");
+    let places = places_with_role_files(&home, "~/.config/fixture-roles/s.json", "~/p.md");
+    let other = root.join("other");
+    fs::create_dir_all(other.join(".git")).expect("create another checkout");
+    // The caller's own rule, for the record: from the caller's checkout, a Write to the other
+    // checkout is denied.
+    let write_other = format!("{}/README.md", other.display());
+    assert_verdict(
+        &decide_in_places(
+            &places,
+            &home,
+            "write",
+            &checkout,
+            "file_path",
+            &write_other,
+        ),
+        Verdict::Deny,
+        "outside",
+    );
+    let mut allowed = Vec::new();
+    for (cwd, input) in [
+        (
+            &checkout,
+            serde_json::json!({"description": "x", "prompt": "edit README.md",
+                               "cwd": other.display().to_string()}),
+        ),
+        (
+            &checkout,
+            serde_json::json!({"description": "x", "prompt": "write charters/x.md",
+                               "cwd": records.display().to_string()}),
+        ),
+        (
+            &records,
+            serde_json::json!({"description": "x", "prompt": "edit README.md",
+                               "cwd": checkout.display().to_string()}),
+        ),
+        (
+            &checkout,
+            serde_json::json!({"description": "x", "prompt": "push a branch",
+                               "isolation": "remote"}),
+        ),
+    ] {
+        let decision = guard::decide_in(
+            &agent_payload(&home, cwd, input.clone()),
+            &places,
+            &unlisted(),
+        );
+        if decision.verdict != Verdict::Deny {
+            allowed.push(format!(
+                "{} :: {input} => {}",
+                cwd.display(),
+                decision.reason
+            ));
+        }
+    }
+    assert!(
+        allowed.is_empty(),
+        "Agent calls that move the sub-agent out of the caller's places were allowed:\n{}",
+        allowed.join("\n")
+    );
+    // A sub-agent started in the caller's own place, locally or in a local worktree, is allowed.
+    for tool in ["Agent", "Task"] {
+        for input in [
+            serde_json::json!({"description": "x", "prompt": "read README.md"}),
+            serde_json::json!({"description": "x", "prompt": "x", "isolation": "worktree"}),
+        ] {
+            let mut payload = agent_payload(&home, &checkout, input);
+            payload["tool_name"] = serde_json::json!(tool);
+            let decision = guard::decide_in(&payload, &places, &unlisted());
+            assert_verdict(&decision, Verdict::Allow, "");
+        }
+    }
+}
