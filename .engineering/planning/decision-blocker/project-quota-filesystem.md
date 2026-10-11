@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: decision-blocker:project-quota-filesystem
 kind: decision-blocker
-status: open
+status: cleared
 title: The host has no filesystem with project quotas
 relations:
 - blocks: story:instance-storage-quota
-revision: 2
+revision: 3
+transitions:
+- {from: "open", to: "cleared", at: "2026-10-11T19:51:19Z", actor: "human:timo", revision: 3, decided_on: {"recorded":{"review_outcome":1}}}
 ---
 ## Question
 

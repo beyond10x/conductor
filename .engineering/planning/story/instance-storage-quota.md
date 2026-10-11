@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:instance-storage-quota
 kind: story
-status: draft
+status: archived
 title: An instance's trees and builds stay under a storage quota
 relations:
 - depends_on: story:host-grants
@@ -24,7 +24,9 @@ scope:
   path: docs/config.md
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 11
+revision: 12
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-11T19:51:19Z", actor: "human:timo", revision: 12, decided_on: {"recorded":{"review_outcome":7}}}
 ---
 ## Why
 
