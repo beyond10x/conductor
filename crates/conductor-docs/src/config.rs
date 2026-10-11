@@ -67,6 +67,7 @@ instances:
         agent: repo-controller
         settings: ~/example-org/controller-settings.json
         profile: ~/example-org/repo-controller.md
+        read_only_tools: [mcp__example__read]
     controllers:
       max_working: 2
       max_subagents: 2

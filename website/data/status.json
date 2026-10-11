@@ -185,8 +185,14 @@
     },
     {
       "area": "Guard",
-      "detail": "The controller settings file wires the guard on the five tools it checks.",
+      "detail": "The controller settings file wires the guard on every tool.",
       "label": "Settings wire the guard",
+      "status": "shipped"
+    },
+    {
+      "area": "Guard",
+      "detail": "A tool without a rule of its own is allowed only from a read-only allowlist a role's config extends; any other is denied.",
+      "label": "Every tool reaches the guard",
       "status": "shipped"
     },
     {

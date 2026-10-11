@@ -10,7 +10,7 @@ custom_edit_url: null
 
 # Status
 
-48 capabilities are shipped and 19 are planned, as of 2026-10-08. **Shipped** means implemented on `main` and held by a named test in the repository; `conductor-docs` generates this page and `website/data/status.json` from one list and fails when a test it names is gone. **Planned** means a draft on the repository's plan, not built.
+49 capabilities are shipped and 19 are planned, as of 2026-10-08. **Shipped** means implemented on `main` and held by a named test in the repository; `conductor-docs` generates this page and `website/data/status.json` from one list and fails when a test it names is gone. **Planned** means a draft on the repository's plan, not built.
 
 ## Snapshot collectors
 
@@ -81,7 +81,8 @@ custom_edit_url: null
 | No GitHub writes from a controller | ● shipped | A controller reads GitHub and makes no write there. |
 | [The hook and its record](./reference/cli.md#conductor-guard-record-guard-decision) | ● shipped | The hook denies with exit 2, allows with exit 0, and records each denial. |
 | An allowance never opens the store | ● shipped | An allowed tool call is answered with exit 0 without opening the store. |
-| Settings wire the guard | ● shipped | The controller settings file wires the guard on the five tools it checks. |
+| Settings wire the guard | ● shipped | The controller settings file wires the guard on every tool. |
+| Every tool reaches the guard | ● shipped | A tool without a rule of its own is allowed only from a read-only allowlist a role's config extends; any other is denied. |
 | Every tool call is guarded | ○ planned | Every tool call reaches the guard, and a tool it does not know is denied. |
 | Bash writes bounded by the sandbox | ○ planned | Shell writes are bounded by the harness sandbox rather than by parsing commands. |
 | A store timeout is not a denial | ○ planned | When the guard cannot record its verdict in time it says so, rather than deny the tool call. |

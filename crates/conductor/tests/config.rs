@@ -388,7 +388,7 @@ fn show_without_a_file_prints_todays_constants() {
         };
         serde_json::json!({
             "role": name, "harness": "claude", "model": "opus", "agent": null, "settings": null,
-            "profile": null, "session_name": session_name
+            "profile": null, "session_name": session_name, "read_only_tools": []
         })
     };
     assert_eq!(
@@ -567,8 +567,9 @@ fn one_instance(extra: &str) -> String {
     )
 }
 
-/// The keys the generic session profiles read: a role's `agent` and `settings`, the instance's
-/// `operator`, `controllers.max_subagents`, and the thresholds `disk_path`, `build_size`,
+/// The keys the generic session profiles read: a role's `agent` and `settings` (and the guard its
+/// `read_only_tools`), the instance's `operator`, `controllers.max_subagents`, and the thresholds
+/// `disk_path`, `build_size`,
 /// `gate_stop`, `gate_resume` and `watchdog_every`. Written, each validates and is shown as
 /// written, a path made absolute.
 #[test]
@@ -579,7 +580,7 @@ fn the_session_profile_keys_validate_and_show_as_written() {
         &one_instance(
             "\x20   roles:\n\
              \x20     - {role: controller, harness: claude, model: opus, agent: repo-controller, \
-             settings: ~/profiles/controller.json}\n\
+             settings: ~/profiles/controller.json, read_only_tools: [mcp__example__read]}\n\
              \x20     - {role: conductor, harness: codex, model: gpt-fixture, settings: \
              /srv/conductor.json}\n\
              \x20   controllers: {max_working: 3, max_subagents: 2}\n\
@@ -603,11 +604,12 @@ fn the_session_profile_keys_validate_and_show_as_written() {
                 "agent": "repo-controller",
                 "settings": path_text(&home.join("profiles/controller.json")),
                 "profile": null, "session_name": null,
+                "read_only_tools": ["mcp__example__read"],
             },
             {
                 "role": "conductor", "harness": "codex", "model": "gpt-fixture",
                 "agent": null, "settings": "/srv/conductor.json", "profile": null,
-                "session_name": "conductor",
+                "session_name": "conductor", "read_only_tools": [],
             },
         ]),
         "{shown:#}"
@@ -676,6 +678,7 @@ fn without_the_session_profile_keys_a_file_shows_their_defaults() {
             serde_json::json!([{
                 "role": "controller", "harness": "claude", "model": "opus",
                 "agent": null, "settings": null, "profile": null, "session_name": null,
+                "read_only_tools": [],
             }]),
             "{name}: {shown:#}"
         );
@@ -1038,7 +1041,7 @@ fn the_instance_flag_picks_one_and_fills_its_defaults() {
         serde_json::json!([{
             "role": "conductor", "harness": "codex", "model": "gpt-fixture",
             "agent": null, "settings": null, "profile": null,
-            "session_name": "second-conductor",
+            "session_name": "second-conductor", "read_only_tools": [],
         }]),
         "{shown:#}"
     );

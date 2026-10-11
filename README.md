@@ -170,8 +170,10 @@ Read this before you start sessions on repositories you care about.
 
 - Every session runs Claude Code with `--permission-mode bypassPermissions`: no tool call asks
   you first. Conductor and controllers work unattended because of it.
-- The guard is the only check, and it checks five tools: Edit, Write, NotebookEdit, SendMessage
-  and Bash. Any other tool, an MCP server's tools included, is never shown to it.
+- The guard is the only check. Every tool call reaches it: Edit, Write, NotebookEdit, SendMessage,
+  Bash and Monitor have rules, a read-only tool (Read, Glob, Grep and the like) is allowed from its
+  allowlist or the role's `read_only_tools`, and any other tool, an MCP server's tools included,
+  is denied.
 - For Edit, Write and NotebookEdit the guard resolves the target path, links included, and denies
   a write outside the session's own repository, records or scratch directory.
 - The guard does not check where a Bash command writes. A controller can write, overwrite or

@@ -108,7 +108,7 @@ const CONDUCTOR_ROLE: &str = "conductor";
 
 /// The role whose sessions are named per repository, `<session_prefix>-<repository>`, not after
 /// the role (`story:instance-session-names`).
-const CONTROLLER: &str = "controller";
+pub const CONTROLLER: &str = "controller";
 
 /// The characters of a `conductor.config.SessionPrefix`, the alphabet `spec/domains/config.yaml`
 /// declares for it.
@@ -213,7 +213,7 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 4] = ["github", "local", "gitlab", "exclude"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 7] = [
+const ROLE_KEYS: [&str; 8] = [
     "role",
     "harness",
     "model",
@@ -221,6 +221,7 @@ const ROLE_KEYS: [&str; 7] = [
     "settings",
     "profile",
     "session_name",
+    "read_only_tools",
 ];
 const CONTROLLER_KEYS: [&str; 2] = ["max_working", "max_subagents"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
@@ -649,6 +650,7 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
             settings: None,
             profile: None,
             session_name: role_session_name(prefix, role),
+            read_only_tools: Vec::new(),
         })
         .collect()
 }
@@ -1705,6 +1707,23 @@ impl Reader<'_> {
                 .map(|name| Some(SessionName(name))),
             None => Some(None),
         };
+        // The tools the guard allows the role's sessions beyond its built-in read-only allowlist
+        // (`story:guard-all-tools`): each a tool name as the harness gives it. Absent, none.
+        let read_only_tools = match Self::get(map, "read_only_tools") {
+            Some(value) => self.list(value, &join(path, "read_only_tools"), |reader, value, at| {
+                let name = reader.text(value, at)?;
+                if name.trim().is_empty() || name.chars().any(char::is_whitespace) {
+                    reader.problem(
+                        at,
+                        format!("{} is not a tool name: write it as the harness names it, such as mcp__server__tool", echo(value)),
+                    );
+                    None
+                } else {
+                    Some(name)
+                }
+            }),
+            None => Some(Vec::new()),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
@@ -1713,6 +1732,7 @@ impl Reader<'_> {
             settings: settings?,
             profile: profile?,
             session_name: session_name?,
+            read_only_tools: read_only_tools?,
         })
     }
 
@@ -2054,6 +2074,10 @@ pub fn document(instance: &Instance) -> Yaml {
                 (
                     "session_name",
                     optional(role.session_name.as_ref().map(|name| &name.0)),
+                ),
+                (
+                    "read_only_tools",
+                    Yaml::Sequence(role.read_only_tools.iter().map(|tool| text(tool)).collect()),
                 ),
             ])
         })

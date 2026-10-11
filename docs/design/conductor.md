@@ -237,8 +237,9 @@ their own rule (conductor writes them, a controller does not).
 
 The guard is a Claude Code PreToolUse hook. The repository ships it wired in
 `.claude/conductor-settings.json` (conductor) and `.claude/controller-settings.json` (each
-controller, named by the controller role's `settings`), once per matcher (`Edit`, `Write`,
-`NotebookEdit`, `SendMessage`, `Bash`):
+controller, named by the controller role's `settings`), on the matcher `*`, so every tool call
+reaches it; a tool without a rule of its own is allowed only from the read-only allowlist and the
+role's `read_only_tools`, and denied otherwise:
 
 ```console
 conductor guard record-guard-decision --from-pre-tool-use || exit 2
@@ -272,9 +273,9 @@ quoted program such as `awk 'NR>=490'` are none), or a write command or flag (`t
 overwrite or delete any file its user can, other checkouts and the `conductor` binary included,
 and conductor's records or config through a path the command does not spell out. Each
 snapshot reports dirty files in every checkout, which turns such a write into a finding. The guard
-catches mistakes; it is no defence against a hostile prompt (README, Security model). Only the five tools above reach it, `git push` is left to the
+catches mistakes; it is no defence against a hostile prompt (README, Security model). `git push` is left to the
 forge's branch protection, and conductor-dev runs without it. An operating-system sandbox for
-Bash is story `bash-sandbox`; routing every tool to the guard is story `guard-all-tools`.
+Bash is story `bash-sandbox`.
 
 ## 8. The watch
 

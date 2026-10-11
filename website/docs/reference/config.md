@@ -44,7 +44,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `records` | string | `~/.b10x/conductor/<name>/records` |  |
 | `state` | string | `~/.b10x/conductor/<name>/state` |  |
 | `cache` | string | `~/.cache/b10x/conductor/<name>` |  |
-| `roles` | list of [Role](#role) | `[{role: conductor, harness: claude, model: opus, agent: null, settings: null, profile: null}, {role: conductor-dev, harness: claude, model: opus, agent: null, settings: null, profile: null}, {role: controller, harness: claude, model: opus, agent: null, settings: null, profile: null}]` |  |
+| `roles` | list of [Role](#role) | `[{role: conductor, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: []}, {role: conductor-dev, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: []}, {role: controller, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: []}]` |  |
 | `roles[].role` | string | required |  |
 | `roles[].harness` | `claude` \| `codex` | required |  |
 | `roles[].model` | [CommandWord](#commandword) | required | letters, digits, `._:/-` only |
@@ -52,6 +52,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `roles[].settings` | [CommandWord](#commandword) | none | letters, digits, `._:/-` only |
 | `roles[].profile` | [CommandWord](#commandword) | none | letters, digits, `._:/-` only |
 | `roles[].session_name` | [SessionName](#sessionname) | derived |  |
+| `roles[].read_only_tools` | list of string | `[]` |  |
 | `controllers.max_working` | integer | `5` | `max_working >= 1` |
 | `controllers.max_subagents` | integer | `4` | `max_subagents >= 1` |
 | `repositories` | list of [RepositoryRule](#repositoryrule) | `[]` |  |
@@ -180,9 +181,9 @@ Written as string. Specified as `conductor.config.SessionName`.
 
 ### Role
 
-The harness and model one session role runs on, such as `conductor` or `controller`; the harness agent the role starts with, such as `repo-controller`; the settings file it starts with; and the profile file its session starts with through `--append-system-prompt-file`, in place of the agent. The settings and profile files are written absolute or under `~`. Absent, a role names no agent, no settings file and no profile. `session_name` is derived, never chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when the instance has no prefix; absent for `controller`, whose sessions are named per repository, `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write only that value.
+The harness and model one session role runs on, such as `conductor` or `controller`; the harness agent the role starts with, such as `repo-controller`; the settings file it starts with; and the profile file its session starts with through `--append-system-prompt-file`, in place of the agent. The settings and profile files are written absolute or under `~`. Absent, a role names no agent, no settings file and no profile. `session_name` is derived, never chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when the instance has no prefix; absent for `controller`, whose sessions are named per repository, `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write only that value. `read_only_tools` names the tools, beyond the guard's built-in read-only allowlist, that the guard allows the role's sessions without a rule of its own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied. A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is decided by that rule whatever this list says. Absent, it is empty.
 
-Keys: `role`, `harness`, `model`, `agent`, `settings`, `profile`, `session_name`. Specified as `conductor.config.Role`.
+Keys: `role`, `harness`, `model`, `agent`, `settings`, `profile`, `session_name`, `read_only_tools`. Specified as `conductor.config.Role`.
 
 ### ConductorSession
 
