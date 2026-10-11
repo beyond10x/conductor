@@ -1465,7 +1465,7 @@ fn writes_named_read_flag_value(command: &str, names: impl Fn(&str) -> bool) -> 
     let Some(outside) = blank_read_flag_values(command) else {
         return true;
     };
-    if names(&outside) {
+    if names(&outside) || reaches_words_indirectly(command) {
         return true;
     }
     shell::written(command).iter().any(|target| names(target))
@@ -1476,6 +1476,37 @@ fn writes_named_read_flag_value(command: &str, names: impl Fn(&str) -> bool) -> 
                 WRITE_WORDS.contains(&program) || WRITE_PROGRAMS.contains(&program)
             }) && words.iter().any(|word| names(word))
         })
+}
+
+/// The programs and shell words that can reach a flag's value without naming it again: a shell or
+/// an interpreter given a script, a loop or `set` over the words, `xargs`, `eval`, `read`, `find`.
+const INDIRECT_WORDS: [&str; 22] = [
+    "sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "node", "ruby", "awk", "perl",
+    "xargs", "eval", "source", "exec", "set", "for", "while", "read", "find", "parallel",
+];
+
+/// Whether the shell could reach a word of `command` without naming it again, so that a value
+/// named only once, after a read flag, can still be written: a parameter (`$_`, `$1`, `$f`,
+/// `${…}`) other than `$HOME`, a backquote, a here-document or here-string (`<<`), or one of
+/// [`INDIRECT_WORDS`]. A command substitution `$(` is not one by itself; its words are the
+/// command's own. Found by the wave 04 review of `story:guard-read-flag-paths`.
+fn reaches_words_indirectly(command: &str) -> bool {
+    let parameter = command.match_indices('$').any(|(at, _)| {
+        let rest = &command[at + 1..];
+        !(rest.starts_with('(')
+            || rest.strip_prefix("HOME").is_some_and(|after| {
+                !after
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            }))
+    });
+    parameter
+        || command.contains('`')
+        || command.contains("<<")
+        || INDIRECT_WORDS
+            .iter()
+            .any(|word| contains_word(command, word))
 }
 
 /// `command` with the value of each [`READ_FLAGS`] flag replaced by blanks, or `None` when it holds
