@@ -518,14 +518,18 @@ impl Places {
     /// the `settings` file of a role of the instance, and holds a write form
     /// ([`holds_write_form`]). A plain substring test, not a parse: `cd .claude && … >
     /// settings.json` is not caught, nor is a role's file written by a path relative to the cwd.
+    /// A file named only as the value of a read flag ([`READ_FLAGS`]) counts only when a write
+    /// form targets it ([`writes_named_read_flag_value`]).
     fn writes_settings(&self, command: &str) -> bool {
-        let named = names_claude_settings(command)
-            || self.settings.iter().any(|settings| {
-                self.spellings(settings)
-                    .iter()
-                    .any(|spelling| command.contains(spelling.as_str()))
-            });
-        named && holds_write_form(command)
+        let names = |text: &str| {
+            names_claude_settings(text)
+                || self.settings.iter().any(|settings| {
+                    self.spellings(settings)
+                        .iter()
+                        .any(|spelling| text.contains(spelling.as_str()))
+                })
+        };
+        names(command) && holds_write_form(command) && writes_named_read_flag_value(command, names)
     }
 
     /// Whether the absolute `path` is the `profile` file of a role of the instance, as written
@@ -539,13 +543,17 @@ impl Places {
     /// Whether the Bash `command` writes the `profile` file of a role of the instance: it names one
     /// by any of its [`Places::spellings`] and holds a write form ([`holds_write_form`]). A plain
     /// substring test, as [`Places::writes_settings`] is: a profile written by a path relative to
-    /// the cwd is not caught.
+    /// the cwd is not caught. A profile named only as the value of a read flag ([`READ_FLAGS`])
+    /// counts only when a write form targets it ([`writes_named_read_flag_value`]).
     fn writes_profile(&self, command: &str) -> bool {
-        self.profiles.iter().any(|profile| {
-            self.spellings(profile)
-                .iter()
-                .any(|spelling| command.contains(spelling.as_str()))
-        }) && holds_write_form(command)
+        let names = |text: &str| {
+            self.profiles.iter().any(|profile| {
+                self.spellings(profile)
+                    .iter()
+                    .any(|spelling| text.contains(spelling.as_str()))
+            })
+        };
+        names(command) && holds_write_form(command) && writes_named_read_flag_value(command, names)
     }
 
     /// Conductor's config, for a denial to name: the config file, the default config file,
@@ -1433,6 +1441,99 @@ fn names_claude_settings(command: &str) -> bool {
             .next()
             .is_some_and(|name| name.contains("settings"))
     })
+}
+
+/// The flags whose value Claude Code only reads: a settings file and a system prompt file.
+const READ_FLAGS: [&str; 3] = [
+    "--settings",
+    "--append-system-prompt-file",
+    "--system-prompt-file",
+];
+
+/// The programs that write a file named among their arguments: [`WRITE_WORDS`], and the editors
+/// of [`WRITE_SUBSTRINGS`] whatever their flags.
+const WRITE_PROGRAMS: [&str; 4] = ["sed", "yq", "perl", "dd"];
+
+/// Whether `command`, which `names` a guarded file and holds a write form, writes it, as far as a
+/// read flag decides: true when `names` still holds with the value of every [`READ_FLAGS`] flag
+/// blanked out ([`blank_read_flag_values`]), or when no such flag is there; otherwise, with the
+/// file named only as such a value, true when a write form targets it: a redirection whose target
+/// `names` holds for ([`shell::written`]), or a simple command of a writing program
+/// ([`WRITE_WORDS`], [`WRITE_PROGRAMS`]) with a word `names` holds for. Cheap for a command with no
+/// read flag: one substring test per flag.
+fn writes_named_read_flag_value(command: &str, names: impl Fn(&str) -> bool) -> bool {
+    let Some(outside) = blank_read_flag_values(command) else {
+        return true;
+    };
+    if names(&outside) {
+        return true;
+    }
+    shell::written(command).iter().any(|target| names(target))
+        || shell::commands(command).iter().any(|words| {
+            let words = command_words(words);
+            words.first().is_some_and(|first| {
+                let program = shell::program(first);
+                WRITE_WORDS.contains(&program) || WRITE_PROGRAMS.contains(&program)
+            }) && words.iter().any(|word| names(word))
+        })
+}
+
+/// `command` with the value of each [`READ_FLAGS`] flag replaced by blanks, or `None` when it holds
+/// none. A flag counts as a word: at the start or after a blank, followed by `=` or by blanks and
+/// the value. The value runs to the next blank, quote or shell operator; a value quoted whole runs
+/// to its closing quote, unless it is unclosed or a `"…"` holds `$(` or a backquote, which a shell
+/// expands into a command of its own: that value is kept, and still names what it names.
+fn blank_read_flag_values(command: &str) -> Option<String> {
+    if !READ_FLAGS.iter().any(|flag| command.contains(flag)) {
+        return None;
+    }
+    let bytes = command.as_bytes();
+    let mut blanks: Vec<(usize, usize)> = Vec::new();
+    for flag in READ_FLAGS {
+        for (at, _) in command.match_indices(flag) {
+            if at > 0 && !bytes[at - 1].is_ascii_whitespace() {
+                continue;
+            }
+            let mut start = at + flag.len();
+            match bytes.get(start) {
+                Some(b'=') => start += 1,
+                Some(c) if c.is_ascii_whitespace() => {
+                    while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
+                        start += 1;
+                    }
+                }
+                _ => continue,
+            }
+            let rest = &command[start..];
+            let end = match rest.as_bytes().first() {
+                Some(&quote @ (b'"' | b'\'')) => match rest[1..].find(char::from(quote)) {
+                    Some(close) => {
+                        let inner = &rest[1..=close];
+                        if quote == b'"' && (inner.contains("$(") || inner.contains('`')) {
+                            continue;
+                        }
+                        close + 2
+                    }
+                    None => continue,
+                },
+                _ => rest
+                    .find(|c: char| {
+                        c.is_whitespace()
+                            || matches!(
+                                c,
+                                '"' | '\'' | '`' | ';' | '|' | '&' | '<' | '>' | '(' | ')'
+                            )
+                    })
+                    .unwrap_or(rest.len()),
+            };
+            blanks.push((start, start + end));
+        }
+    }
+    let mut out = command.as_bytes().to_vec();
+    for (start, end) in blanks {
+        out[start..end].fill(b' ');
+    }
+    Some(String::from_utf8(out).unwrap_or_else(|_| command.to_owned()))
 }
 
 /// Whether `command` holds a write form: a redirection that writes a file ([`shell::written`]:

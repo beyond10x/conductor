@@ -2533,7 +2533,8 @@ fn the_config_rule_covers_the_config_file_and_the_state_directory_only() {
 }
 
 /// Acceptance: conductor's own Bash that names a role's settings file runs with `2>&1` or a
-/// redirection to `/dev/null`; a real write form beside that path still denies it (decision 3).
+/// redirection to `/dev/null`; a real write form aimed at that path still denies it (decision 3;
+/// story:guard-read-flag-paths: a write elsewhere, beside a `--settings` value, does not).
 #[test]
 fn conductor_s_bash_naming_a_role_s_settings_file_writes_only_by_a_real_write_form() {
     let home = home("write-forms-conductor");
@@ -2547,20 +2548,22 @@ fn conductor_s_bash_naming_a_role_s_settings_file_writes_only_by_a_real_write_fo
             .to_owned(),
         "claude --bg --settings ~/.config/fixture-roles/conductor.json >/dev/null 2>&1".to_owned(),
         format!("echo x >> {shown}/charters/alpha.md"),
+        // The settings path is only `--settings`'s value; the write goes to the charter
+        // (story:guard-read-flag-paths reverses this case's earlier denial).
+        format!(
+            "cat >> {shown}/charters/alpha.md < x; claude --bg --settings \
+             ~/.config/fixture-roles/conductor.json"
+        ),
     ] {
         let decision = at(&command);
         assert_eq!(decision.repository, "conductor", "{decision:#?}");
         assert_verdict(&decision, Verdict::Allow, "");
     }
-    for command in [
-        format!(
-            "cat >> {shown}/charters/alpha.md < x; claude --bg --settings \
-             ~/.config/fixture-roles/conductor.json"
-        ),
-        "echo '{}' > ~/.config/fixture-roles/conductor.json".to_owned(),
-    ] {
-        assert_verdict(&at(&command), Verdict::Deny, "settings");
-    }
+    assert_verdict(
+        &at("echo '{}' > ~/.config/fixture-roles/conductor.json"),
+        Verdict::Deny,
+        "settings",
+    );
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -3352,6 +3355,129 @@ fn a_role_s_profile_file_is_no_scratch() {
                 "~/.cache/claude-tmp/profiles/other.md",
             );
             assert_verdict(&control, Verdict::Allow, "scratch");
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// `story:guard-read-flag-paths`: a role's settings or profile file given only as the value of
+// `--settings`, `--append-system-prompt-file` or `--system-prompt-file` is read, not written; a
+// write form aimed elsewhere on the same command does not make it a write to that file.
+// -------------------------------------------------------------------------------------------------
+
+/// A config file's places beside `home`, with the checkout `root/probe/` and records in
+/// `records/`, whose controller role starts with the settings `controller` and the profile
+/// `profile`, and whose conductor role with the settings `~/.config/fixture-roles/conductor.json`.
+fn places_with_role_files(home: &Path, controller: &str, profile: &str) -> Places {
+    let case = home.parent().expect("the case's directory");
+    let (root, records) = case_dirs(home);
+    for dir in [&root, &records] {
+        if dir.exists() {
+            fs::remove_dir_all(dir).expect("clear the case's directory");
+        }
+    }
+    fs::create_dir_all(root.join("probe/.git")).expect("create the probe checkout");
+    fs::create_dir_all(records.join("charters")).expect("create the charters");
+    let text = format!(
+        "{}\x20   roles:\n\
+         \x20     - {{role: controller, harness: claude, model: opus, settings: {controller}, \
+         profile: {profile}}}\n\
+         \x20     - {{role: conductor, harness: claude, model: opus, settings: \
+         ~/.config/fixture-roles/conductor.json}}\n",
+        config_text(&root, &case.join("trees"), &records),
+    );
+    places_from_file(home, &text)
+}
+
+/// Acceptance: conductor's controller start, one Bash call that appends the charter section and
+/// starts `claude --bg` with the controller's profile and settings as flag values, is not denied
+/// by the settings or the profile rule: conductor runs it, and a controller running the same shape
+/// is denied only for writing the records. The same command with a write form aimed at either file
+/// is denied, and so is a command that names either file outside such a flag and holds any write
+/// form.
+#[test]
+fn a_role_s_settings_or_profile_file_as_a_read_flag_value_is_no_write_to_it() {
+    let home = home("guard-read-flag-paths");
+    let (root, records) = case_dirs(&home);
+    let checkout = root.join("probe");
+    let settings = checkout
+        .join(".claude/controller-settings.json")
+        .display()
+        .to_string();
+    let profile = "~/.config/fixture-roles/controller.md";
+    let places = places_with_role_files(&home, &settings, profile);
+    let checkout = checkout.display().to_string();
+    let charter = format!("{}/charters/x.md", records.display());
+    let scratch = home.join("scratch/x.md").display().to_string();
+    let start = |profile_flag: &str, settings_flag: &str| {
+        format!(
+            "cat {scratch} >> {charter} && sed -i 's/a/b/' {charter} && task -d {checkout} \
+             trust >/dev/null 2>&1; cd {checkout} && claude --bg -n x {profile_flag} --model opus \
+             --permission-mode bypassPermissions --setting-sources project,local {settings_flag} \
+             \"$(cat {charter})\""
+        )
+    };
+    let shapes = [
+        start(
+            &format!("--append-system-prompt-file {profile}"),
+            &format!("--settings {settings}"),
+        ),
+        start(
+            &format!("--append-system-prompt-file={profile}"),
+            &format!("--settings={settings}"),
+        ),
+        start(
+            &format!("--system-prompt-file \"{profile}\""),
+            &format!("--settings '{settings}'"),
+        ),
+        start(
+            "--system-prompt-file=$HOME/.config/fixture-roles/controller.md",
+            "--settings ~/.config/fixture-roles/conductor.json",
+        ),
+    ];
+    let controller = PathBuf::from(&checkout);
+    for command in &shapes {
+        let decision = decide_in_places(&places, &home, "bash", &records, "command", command);
+        assert_eq!(decision.repository, "conductor", "{decision:#?}");
+        assert_verdict(&decision, Verdict::Allow, "");
+        let decision = decide_in_places(&places, &home, "bash", &controller, "command", command);
+        assert_verdict(&decision, Verdict::Deny, "a controller does not write them");
+    }
+    let shape = &shapes[0];
+    for cwd in [&records, &controller] {
+        for (command, rule) in [
+            (format!("{shape}; echo x > {profile}"), "profile file"),
+            (format!("echo x > {profile} && {shape}"), "profile file"),
+            (format!("{shape} > {profile}"), "profile file"),
+            (format!("{shape} && tee {profile} < x"), "profile file"),
+            (
+                format!("{shape} && sed -i 's/a/b/' {settings}"),
+                "settings file",
+            ),
+            (format!("{shape} && cp x {settings}"), "settings file"),
+            (format!("{shape} && mv x {settings}"), "settings file"),
+            (format!("{shape} 2>{settings}"), "settings file"),
+            (
+                format!("cp x --settings={settings} && echo x >> {charter}"),
+                "settings file",
+            ),
+            (
+                format!("tee --append-system-prompt-file {profile} < x"),
+                "profile file",
+            ),
+            (
+                format!("claude --settings \"$(tee {settings} < x)\""),
+                "settings file",
+            ),
+            (format!("cat {profile} >> {charter}"), "profile file"),
+            (format!("cat {settings} > notes.txt"), "settings file"),
+            (
+                format!("echo x >> {charter}; claude --settings {settings} {settings}"),
+                "settings file",
+            ),
+        ] {
+            let decision = decide_in_places(&places, &home, "bash", cwd, "command", &command);
+            assert_verdict(&decision, Verdict::Deny, rule);
         }
     }
 }
