@@ -55,9 +55,13 @@
 //! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
 //! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
 //!
+//! `conductor config workspace` (`story:workspace-from-config`) writes the instance's workspace
+//! file from it ([`workspace_members`], [`workspace`]).
+//!
 //! Nothing else reads the config yet: the global `--config` is parsed on every command and read
 //! only here.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::ffi::OsString;
 use std::fmt::{self, Write as _};
@@ -72,7 +76,7 @@ use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
     Controllers, Gibibytes, GitHubSource, GitLabSource, Harness, Instance, InstanceName,
     LocalSource, Report, RepositoryRule, Retention, Role, SessionName, SessionPrefix, Source,
-    Thresholds, TimeOfDay, Tokens,
+    Thresholds, TimeOfDay, Tokens, WorkspaceMember,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -80,7 +84,7 @@ use conductor_model::primitives::Duration;
 use serde_json::{Map, Value};
 use serde_yaml::{Mapping, Value as Yaml};
 
-use crate::cli::{ShowConfigArgs, ValidateConfigArgs};
+use crate::cli::{ShowConfigArgs, ValidateConfigArgs, WriteWorkspaceArgs};
 
 /// The placeholder GitHub owner of the built-in instance, which applies without a config file,
 /// and the directory under the home directory that holds its checkouts.
@@ -2357,6 +2361,331 @@ pub fn show(config: Option<&Path>, args: &ShowConfigArgs) -> Result<ExitCode> {
         }
     };
     print!("{rendered}");
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The workspace file `conductor config workspace` writes, under the instance's records directory.
+pub const WORKSPACE_FILE: &str = ".engineering/workspace.yaml";
+
+/// The version of the workspace file.
+const WORKSPACE_VERSION: &str = "aep.workspace/1";
+
+/// `path` with every link resolved: the nearest of it and its ancestors that is there,
+/// canonicalised, with the rest of `path` after it. A relative path is answered as it is.
+fn physical(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut at = path;
+    loop {
+        if let Ok(resolved) = fs::canonicalize(at) {
+            return rest.iter().rev().fold(resolved, |out, part| out.join(part));
+        }
+        match (at.parent(), at.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                at = parent;
+            }
+            _ => return path.to_owned(),
+        }
+    }
+}
+
+/// `target` relative to `base`, both absolute: `..` for each step of `base` past what they
+/// share, then the rest of `target`; `.` when they are one.
+fn relative(base: &Path, target: &Path) -> Result<String> {
+    let base: Vec<_> = base.components().collect();
+    let target: Vec<_> = target.components().collect();
+    let shared = base
+        .iter()
+        .zip(&target)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut out = PathBuf::new();
+    for _ in shared..base.len() {
+        out.push("..");
+    }
+    for part in &target[shared..] {
+        out.push(part);
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("{} is not UTF-8", out.display()))
+}
+
+/// The name of each git checkout (a directory holding `.git`) directly under `dir`, `yaml` the
+/// path of the config value that names it. A directory that is not there holds none.
+fn checkouts_under(dir: &Path, yaml: &str) -> Result<Vec<String>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("{yaml}: read {}", dir.display()));
+        }
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.with_context(|| format!("{yaml}: read {}", dir.display()))?;
+        let path = entry.path();
+        if path.is_dir() && path.join(".git").exists() {
+            let name = entry.file_name();
+            let name = name.to_str().ok_or_else(|| {
+                anyhow!("{yaml}: the checkout {} has no UTF-8 name", path.display())
+            })?;
+            names.push(name.to_owned());
+        }
+    }
+    Ok(names)
+}
+
+/// The members found so far: by name, the `source` and the YAML path of the value that gave it.
+struct Found {
+    /// `<records>/.engineering`, physical: what each `source` is relative to.
+    base: PathBuf,
+    members: BTreeMap<String, (String, String)>,
+}
+
+impl Found {
+    /// Adds the checkout `dir` as the member `name`, given by the config value at `yaml`. The
+    /// same member twice is one; one name for two checkouts is refused, by both YAML paths.
+    fn add(&mut self, name: &str, dir: &Path, yaml: &str) -> Result<()> {
+        let source = relative(&self.base, &physical(dir))?;
+        match self.members.get(name) {
+            Some((known, _)) if *known == source => Ok(()),
+            Some((known, first)) => bail!(
+                "{first} and {yaml} each give a workspace member {name}, {known} and {source} \
+                 (relative to {}); a workspace names each member once",
+                self.base.display()
+            ),
+            None => {
+                self.members
+                    .insert(name.to_owned(), (source, yaml.to_owned()));
+                Ok(())
+            }
+        }
+    }
+}
+
+/// The members of `instance`'s workspace, by name, with no network read: each git checkout
+/// directly under `checkouts.root` for a `github` source; each one directly under its `path`,
+/// but those its `exclude` names, for a `local` source; none for a `gitlab` source, which the
+/// binary does not read; and the records directory. Each `source` is relative to
+/// `<records>/.engineering/`. `index` is the instance's place in the config file, for the YAML
+/// paths a refusal names.
+///
+/// # Errors
+///
+/// Two values give one name to two directories, a directory cannot be read, or a name or path
+/// is not UTF-8; each names its YAML path.
+pub fn workspace_members(instance: &Instance, index: usize) -> Result<Vec<WorkspaceMember>> {
+    let records = Path::new(&instance.records);
+    let mut found = Found {
+        base: physical(&records.join(".engineering")),
+        members: BTreeMap::new(),
+    };
+    let root = Path::new(&instance.checkouts.root);
+    for (place, source) in instance.sources.iter().enumerate() {
+        let yaml = format!("instances[{index}].sources[{place}]");
+        match source {
+            Source::GitHub(_) => {
+                let at = format!("instances[{index}].checkouts.root");
+                for name in checkouts_under(root, &at)? {
+                    found.add(&name, &root.join(&name), &yaml)?;
+                }
+            }
+            Source::Local(local) => {
+                let dir = Path::new(&local.path);
+                for name in checkouts_under(dir, &join(&yaml, "local"))? {
+                    let excluded = local
+                        .exclude
+                        .iter()
+                        .any(|entry| Path::new(entry) == Path::new(&name));
+                    if !excluded {
+                        found.add(&name, &dir.join(&name), &yaml)?;
+                    }
+                }
+            }
+            Source::GitLab(_) => {}
+        }
+    }
+    let yaml = format!("instances[{index}].records");
+    let name = physical(records)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("{yaml}: {} has no UTF-8 name", records.display()))?;
+    found.add(&name, records, &yaml)?;
+    Ok(found
+        .members
+        .into_iter()
+        .map(|(name, (source, _))| WorkspaceMember { name, source })
+        .collect())
+}
+
+/// One YAML scalar, quoted only where YAML needs it.
+fn scalar(text: &str) -> String {
+    serde_yaml::to_string(&Yaml::from(text))
+        .map(|rendered| rendered.trim_end().to_owned())
+        .unwrap_or_else(|_| Value::from(text).to_string())
+}
+
+/// The workspace file of `members`.
+#[must_use]
+pub fn workspace_text(members: &[WorkspaceMember]) -> String {
+    let mut text = format!("version: {WORKSPACE_VERSION}\n");
+    if members.is_empty() {
+        text.push_str("members: []\n");
+    } else {
+        text.push_str("members:\n");
+        for member in members {
+            let _ = write!(
+                text,
+                "  - name: {}\n    source: {}\n",
+                scalar(&member.name),
+                scalar(&member.source)
+            );
+        }
+    }
+    text
+}
+
+/// The members a workspace file holds, by name, and its version. A file that is not there holds
+/// none, at version none.
+fn written_members(file: &Path) -> Result<(Option<String>, BTreeMap<String, String>)> {
+    let text = match fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok((None, BTreeMap::new())),
+        Err(error) => return Err(error).with_context(|| format!("read {}", file.display())),
+    };
+    let document: Yaml =
+        serde_yaml::from_str(&text).with_context(|| format!("read {}", file.display()))?;
+    let version = document["version"].as_str().map(str::to_owned);
+    let mut members = BTreeMap::new();
+    if let Some(listed) = document["members"].as_sequence() {
+        for (place, member) in listed.iter().enumerate() {
+            let (Some(name), Some(source)) = (member["name"].as_str(), member["source"].as_str())
+            else {
+                bail!(
+                    "{}: members[{place}] has no `name` and `source`",
+                    file.display()
+                );
+            };
+            members.insert(name.to_owned(), source.to_owned());
+        }
+    }
+    Ok((version, members))
+}
+
+/// One line per difference between the members of the config and those of the file.
+fn differences(
+    version: Option<&str>,
+    written: &BTreeMap<String, String>,
+    members: &[WorkspaceMember],
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    match version {
+        Some(WORKSPACE_VERSION) => {}
+        Some(other) => lines.push(format!("version {other}, not {WORKSPACE_VERSION}")),
+        None => lines.push(format!("no version {WORKSPACE_VERSION}")),
+    }
+    for member in members {
+        match written.get(&member.name) {
+            None => lines.push(format!(
+                "member {}: missing, the config gives source {}",
+                member.name, member.source
+            )),
+            Some(source) if *source != member.source => lines.push(format!(
+                "member {}: source {source}, the config gives {}",
+                member.name, member.source
+            )),
+            Some(_) => {}
+        }
+    }
+    for (name, source) in written {
+        if !members.iter().any(|member| member.name == *name) {
+            lines.push(format!("member {name}: source {source}, not in the config"));
+        }
+    }
+    lines
+}
+
+/// `conductor config workspace`: writes `<records>/.engineering/workspace.yaml` of the instance
+/// ([`select`]) from its config ([`workspace_members`]), replacing the file, and prints one
+/// `member:` line per member and one `wrote:` line. With `--check` it writes nothing: it exits 0
+/// with one line when the file holds exactly those members, else 1 with one line on standard
+/// error per member that differs. A config file must name the instance, and its records
+/// directory must be there.
+///
+/// # Errors
+///
+/// The config does not load or names no such instance, there is no config file, the records
+/// directory is not a directory, [`workspace_members`] refuses, or the file cannot be read or
+/// written.
+pub fn workspace(config: Option<&Path>, args: &WriteWorkspaceArgs) -> Result<ExitCode> {
+    const WHAT: &str = "config workspace";
+    let environment = Environment::from_process().context(WHAT)?;
+    let loaded = match load(config, &environment) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            return match error.downcast::<Invalid>() {
+                Ok(invalid) => {
+                    report(WHAT, &invalid);
+                    Ok(ExitCode::FAILURE)
+                }
+                Err(error) => Err(error.context(WHAT)),
+            };
+        }
+    };
+    if !loaded.read {
+        bail!(
+            "{WHAT}: no config file at {}; the workspace is written from an instance of one",
+            loaded.path.display()
+        );
+    }
+    let instance = select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
+    let index = loaded
+        .config
+        .instances
+        .iter()
+        .position(|other| other.name == instance.name)
+        .unwrap_or_default();
+    let records = Path::new(&instance.records);
+    if !records.is_dir() {
+        bail!(
+            "{WHAT}: instances[{index}].records: {} is not a directory; `conductor init` writes \
+             it",
+            records.display()
+        );
+    }
+    let members = workspace_members(instance, index).context(WHAT)?;
+    let file = records.join(WORKSPACE_FILE);
+    if args.check.unwrap_or(false) {
+        let (version, written) = written_members(&file).context(WHAT)?;
+        let lines = differences(version.as_deref(), &written, &members);
+        if lines.is_empty() {
+            println!("{}: up to date, {} members", file.display(), members.len());
+            return Ok(ExitCode::SUCCESS);
+        }
+        for line in &lines {
+            eprintln!("conductor: {WHAT}: {}: {line}", file.display());
+        }
+        eprintln!(
+            "conductor: {WHAT}: {} differs from the config; `conductor config workspace` \
+             rewrites it",
+            file.display()
+        );
+        return Ok(ExitCode::FAILURE);
+    }
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("{WHAT}: create {}", dir.display()))?;
+    }
+    fs::write(&file, workspace_text(&members))
+        .with_context(|| format!("{WHAT}: write {}", file.display()))?;
+    for member in &members {
+        println!("member: {} {}", member.name, member.source);
+    }
+    println!("wrote: {}", file.display());
     Ok(ExitCode::SUCCESS)
 }
 

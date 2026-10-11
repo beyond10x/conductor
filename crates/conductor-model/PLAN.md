@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 68541c29776411ff670455a4b0616392d0a8d927fc0e67f8800bde56215a76cf
-  contract digest 067a995a6b3014fe0fab12ca05a96b37798b89ccede2a1cd91bf36a58d2f8154
+  model digest a821fc57b088a7c3d680a7552bf0c92e2d37c6038fcc50a0facdf1110db3400a
+  contract digest 7e50581b2e7dfe1e4284d5d14e990cb615d5f708e71d240bdb43648f4c5c0db2
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-354 capabilities: **345 generated**, **1 obligations**, **8 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+356 capabilities: **347 generated**, **1 obligations**, **8 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -46,6 +46,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.Tokens` |
 | domain type | `conductor.config.TrustWorkspaces` |
 | domain type | `conductor.config.ValidateConfig` |
+| domain type | `conductor.config.WorkspaceMember` |
+| domain type | `conductor.config.WriteWorkspace` |
 | domain type | `conductor.decision.Decider` |
 | domain type | `conductor.decision.Decision.State` |
 | domain type | `conductor.decision.DecisionClass` |

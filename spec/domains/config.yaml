@@ -306,6 +306,27 @@ types:
       - {name: format, type: Optional<String>}
       - {name: instance, type: Optional<String>}
 
+  # The input of `conductor config workspace` (story:workspace-from-config), which writes the
+  # instance's `<records>/.engineering/workspace.yaml` (`aep.workspace/1`) from its config,
+  # replacing the file, and reads no network: one member per git checkout directly under
+  # `checkouts.root` for a `github` source; one per git checkout directly under its `path`, but
+  # its `exclude` entries, for a `local` source; none for a `gitlab` source; and the records
+  # directory itself. `instance` is selected as for `config show`; a config file must name it.
+  # `check` writes nothing and exits 1 naming each member that differs from the file.
+  - name: conductor.config.WriteWorkspace
+    kind: struct
+    fields:
+      - {name: instance, type: Optional<String>}
+      - {name: check, type: Optional<Boolean>}
+
+  # One member of the workspace `conductor config workspace` writes: its name, the directory name
+  # of its checkout, and its `source`, that checkout relative to `<records>/.engineering/`.
+  - name: conductor.config.WorkspaceMember
+    kind: struct
+    fields:
+      - {name: name, type: String}
+      - {name: source, type: String}
+
   # The input of `conductor trust` (story:portable-trust), which marks every git checkout
   # directly under the instance's `checkouts.root`, and its `records` directory by its physical
   # path, as trusted Claude Code workspaces in `~/.claude.json`. `instance` is selected as for
@@ -318,7 +339,8 @@ types:
 
   # The input of `conductor init` (story:first-run-seed), which writes the instance's records
   # directory skeleton — a git repository holding `NORTHSTAR.md`, `docs/handoff/<date>.md` with a
-  # first task, `rules.md` with one section per role, a `README.md`, and `decisions/`,
+  # first task, `rules.md` with one section per role, a `README.md`, the workspace file
+  # `.engineering/workspace.yaml` as `config workspace` writes it, and `decisions/`,
   # `dispatches/` and `charters/` — and commits it, refusing to overwrite any file. `instance` is
   # selected as for `config show`; a config file must name it.
   - name: conductor.config.InitRecords

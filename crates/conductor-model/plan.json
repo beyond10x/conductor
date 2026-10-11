@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "68541c29776411ff670455a4b0616392d0a8d927fc0e67f8800bde56215a76cf",
-    "contract_digest": "067a995a6b3014fe0fab12ca05a96b37798b89ccede2a1cd91bf36a58d2f8154"
+    "source_digest": "a821fc57b088a7c3d680a7552bf0c92e2d37c6038fcc50a0facdf1110db3400a",
+    "contract_digest": "7e50581b2e7dfe1e4284d5d14e990cb615d5f708e71d240bdb43648f4c5c0db2"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -230,6 +230,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.ValidateConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.WorkspaceMember",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.WriteWorkspace",
       "disposition": {
         "disposition": "generated"
       }

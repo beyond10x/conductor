@@ -227,6 +227,9 @@ impl Cli {
                 ConfigCommand::Validate(args) => {
                     crate::config::validate(self.config.as_deref(), &args)
                 }
+                ConfigCommand::Workspace(args) => {
+                    crate::config::workspace(self.config.as_deref(), &args)
+                }
             },
             Group::Dashboard(command) => match command {
                 DashboardCommand::Serve(args) => dashboard::dashboard_serve(&args),
@@ -769,7 +772,8 @@ pub struct RepositoryActivityArgs {
 }
 
 // `conductor config`: the commands the binding declares over the `local` callables
-// `config-validate` and `config-show` (`story:config-file`). A plain comment, as for `dashboard`.
+// `config-validate` and `config-show` (`story:config-file`) and `config-workspace`
+// (`story:workspace-from-config`). A plain comment, as for `dashboard`.
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
@@ -780,6 +784,23 @@ pub enum ConfigCommand {
     /// Check the config file; exit 1 naming each problem by its YAML path
     #[command(name = "validate")]
     Validate(ValidateConfigArgs),
+
+    /// Write the instance's workspace file from its config; --check names each difference
+    #[command(name = "workspace")]
+    Workspace(WriteWorkspaceArgs),
+}
+
+/// The input of the binding's `config-workspace` callable, `conductor.config.WriteWorkspace`.
+#[derive(Debug, Clone, Args)]
+pub struct WriteWorkspaceArgs {
+    /// The instance whose workspace file is written. Default: $CONDUCTOR_INSTANCE, else the
+    /// file's default, else its only instance
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// Write nothing; exit 1 naming each member that differs from the file. `--check` alone is
+    /// `--check true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub check: Option<bool>,
 }
 
 /// The input of the binding's `config-validate` callable, `conductor.config.ValidateConfig`.

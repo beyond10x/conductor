@@ -5,8 +5,9 @@
 //!
 //! It makes the directory a git repository, writes `NORTHSTAR.md`, `docs/handoff/<date>.md`
 //! with a first task, `rules.md` with one section per role, a `README.md` saying what the
-//! directory is, and `decisions/`, `dispatches/` and `charters/`, then commits the files it
-//! wrote, and only those. It overwrites nothing: when any of those files is there, it writes
+//! directory is, `.engineering/workspace.yaml` as `conductor config workspace` writes it
+//! (`story:workspace-from-config`), and `decisions/`, `dispatches/` and `charters/`, then commits
+//! the files it wrote, and only those. It overwrites nothing: when any of those files is there, it writes
 //! nothing. The texts name no organization.
 
 use std::fs::{self, File};
@@ -106,8 +107,12 @@ fn today() -> String {
     )
 }
 
-/// The files of the skeleton, under the records directory, and their text.
-fn files(date: &str) -> Vec<(PathBuf, String)> {
+/// The directories of the skeleton's files, under the records directory.
+const FILE_DIRECTORIES: [&str; 2] = ["docs/handoff", ".engineering"];
+
+/// The files of the skeleton, under the records directory, and their text; `workspace` is the
+/// text of the workspace file.
+fn files(date: &str, workspace: &str) -> Vec<(PathBuf, String)> {
     vec![
         (PathBuf::from("README.md"), README.to_owned()),
         (PathBuf::from("NORTHSTAR.md"), NORTHSTAR.to_owned()),
@@ -116,6 +121,7 @@ fn files(date: &str) -> Vec<(PathBuf, String)> {
             Path::new("docs/handoff").join(format!("{date}.md")),
             handoff(date),
         ),
+        (PathBuf::from(config::WORKSPACE_FILE), workspace.to_owned()),
     ]
 }
 
@@ -146,7 +152,7 @@ fn git(records: &Path, args: &[&str]) -> Result<()> {
 ///
 /// As said.
 pub fn check(records: &Path, date: &str) -> Result<()> {
-    let files = files(date);
+    let files = files(date, "");
     let there: Vec<String> = files
         .iter()
         .map(|(file, _)| records.join(file))
@@ -163,7 +169,7 @@ pub fn check(records: &Path, date: &str) -> Result<()> {
     for directory in DIRECTORIES
         .iter()
         .map(Path::new)
-        .chain([Path::new("docs/handoff")])
+        .chain(FILE_DIRECTORIES.iter().map(Path::new))
     {
         let path = records.join(directory);
         if path.exists() && !path.is_dir() {
@@ -176,20 +182,20 @@ pub fn check(records: &Path, date: &str) -> Result<()> {
     Ok(())
 }
 
-/// Writes the skeleton under `records` for `date`, and answers the paths it wrote, files then
-/// directories. Writes nothing when [`check`] refuses.
+/// Writes the skeleton under `records` for `date`, its workspace file holding `workspace`, and
+/// answers the paths it wrote, files then directories. Writes nothing when [`check`] refuses.
 ///
 /// # Errors
 ///
 /// What [`check`] answers, or a write failed.
-pub fn write(records: &Path, date: &str) -> Result<Vec<PathBuf>> {
+pub fn write(records: &Path, date: &str, workspace: &str) -> Result<Vec<PathBuf>> {
     check(records, date)?;
-    let files = files(date);
+    let files = files(date, workspace);
     let mut written = Vec::new();
     for directory in DIRECTORIES
         .iter()
         .map(Path::new)
-        .chain([Path::new("docs/handoff")])
+        .chain(FILE_DIRECTORIES.iter().map(Path::new))
     {
         fs::create_dir_all(records.join(directory))
             .with_context(|| format!("create {}", records.join(directory).display()))?;
@@ -234,14 +240,22 @@ pub fn init(config_flag: Option<&Path>, args: &InitArgs) -> Result<ExitCode> {
     let date = today();
     // Refuse before anything is made, `git init` included.
     check(&records, &date).context(WHAT)?;
+    let index = loaded
+        .config
+        .instances
+        .iter()
+        .position(|other| other.name == instance.name)
+        .unwrap_or_default();
+    let workspace =
+        config::workspace_text(&config::workspace_members(instance, index).context(WHAT)?);
     fs::create_dir_all(&records)
         .with_context(|| format!("{WHAT}: create {}", records.display()))?;
     git(&records, &["init", "--quiet"]).context(WHAT)?;
-    let written = write(&records, &date).context(WHAT)?;
+    let written = write(&records, &date, &workspace).context(WHAT)?;
     for path in &written {
         println!("wrote: {}", path.display());
     }
-    let files: Vec<String> = files(&date)
+    let files: Vec<String> = files(&date, &workspace)
         .into_iter()
         .map(|(file, _)| file.display().to_string())
         .collect();
