@@ -41,9 +41,9 @@ typed per-repository failure record is `story:snapshot-member-failures`.
   `<records>/.engineering/workspace.yaml` (`version: aep.workspace/1`, `members:` of `name` and
   `source`), replacing the file if it exists, with every `source` relative to that `.engineering/`
   directory. It reads no network:
-  - a `github` source: one member per git checkout directly under `checkouts.root`, minus its
-    `exclude:`;
-  - a `local` source: one member per git checkout directly under its `path`;
+  - a `github` source: one member per git checkout directly under `checkouts.root` (the spec's
+    `GitHubSource` has no `exclude:`);
+  - a `local` source: one member per git checkout directly under its `path`, minus its `exclude:`;
   - a `gitlab` source: none (the binary does not read that forge, design § 4);
   - plus the records directory itself as a member, as the hand repair has it.
   Test: a config with two checkouts under a temp `checkouts.root` and one local source gives three

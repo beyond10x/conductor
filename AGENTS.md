@@ -175,6 +175,7 @@ mode `bypassPermissions`, so messages between sessions are not held for approval
 ```console
 conductor config validate                       # exit 1 naming each problem by its YAML path
 conductor config show --format json             # the effective instance after defaults; profiles read section.key here
+conductor config workspace [--check]            # write <records>/.engineering/workspace.yaml from the config; --check only compares
 conductor snapshot start-snapshot               # run every collector; git fetch in every checkout
 conductor snapshot <view> --format json         # repositories, pull-requests, workflow-runs, blockers, specifications, sessions, releases, merged-pull-requests, snapshots
 conductor repository activity                   # each repository Active or Inactive
