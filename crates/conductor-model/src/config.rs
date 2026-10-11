@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest ad48b54e5a5c7a5d26726034920a9e4f29b75cf4fcd6e4d110ea66a2c8f4c0ee
-// contract digest 9a2f202e3be77909ed7d34751b7e034f9ab12fe69955c93088bd68334629114c
+// model digest 68541c29776411ff670455a4b0616392d0a8d927fc0e67f8800bde56215a76cf
+// contract digest 067a995a6b3014fe0fab12ca05a96b37798b89ccede2a1cd91bf36a58d2f8154
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -267,6 +267,8 @@ pub struct Role {
     pub profile: Option<CommandWord>,
     /// `session_name` — `Optional<conductor.config.SessionName>`.
     pub session_name: Option<SessionName>,
+    /// `read_only_tools` — `List<String>`.
+    pub read_only_tools: Vec<String>,
 }
 
 /// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.

@@ -26,6 +26,11 @@
 //! recipient whose name carries another instance's prefix is named with both instances.
 //! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf that is not one of [`READ_LEAVES`] ([`conductor_write`]); or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
+//! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
+//! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
+//! role's `read_only_tools` (`conductor` for conductor's rules, `controller` for a controller's),
+//! and denied otherwise (`story:guard-all-tools`).
+//!
 //! The Bash row is a heuristic over the command line (design § 7: it catches the common forms,
 //! not all). Its accepted limits are pinned by `tests/adv_guard.rs`. The write-form tests name a
 //! path by a substring test, not a parse, and hold a write form anywhere in the command: a
@@ -93,7 +98,13 @@ impl Default for SessionList {
 pub(super) const CONDUCTOR: &str = "conductor";
 
 /// Conductor's records: directories, under its records.
-const RECORD_DIRS: [&str; 4] = ["decisions", "dispatches", "charters", "docs/handoff"];
+const RECORD_DIRS: [&str; 5] = [
+    "decisions",
+    "dispatches",
+    "charters",
+    "docs/handoff",
+    "docs/analysis",
+];
 
 /// Conductor's records: files, under its records.
 const RECORD_FILES: [&str; 3] = ["goals.jsonl", "STATUS.md", "NORTHSTAR.md"];
@@ -138,6 +149,10 @@ pub struct Places {
     /// The file's `default` instance, whose conductor serves every instance that names no
     /// `conductor` role.
     default: Option<String>,
+    /// The `read_only_tools` of the instance's `conductor` role and of its `controller` role
+    /// (`story:guard-all-tools`): the tools each rule set allows beyond the built-in read-only
+    /// allowlist.
+    read_only: [Vec<String>; 2],
 }
 
 impl Places {
@@ -216,6 +231,23 @@ impl Places {
                 .map(landing)
                 .collect(),
             default,
+            read_only: [Rules::Conductor, Rules::Controller].map(|rules| {
+                instance
+                    .roles
+                    .iter()
+                    .filter(|role| role.role == rules.role())
+                    .flat_map(|role| role.read_only_tools.iter().cloned())
+                    .collect()
+            }),
+        }
+    }
+
+    /// The tools `rules` allows beyond the built-in read-only allowlist: its role's
+    /// `read_only_tools`, `conductor` for conductor's rules and `controller` for a controller's.
+    pub(super) fn read_only_tools(&self, rules: Rules) -> &[String] {
+        match rules {
+            Rules::Conductor => &self.read_only[0],
+            Rules::Controller => &self.read_only[1],
         }
     }
 
@@ -651,6 +683,16 @@ pub(super) enum Rules {
     Controller,
     /// Conductor itself.
     Conductor,
+}
+
+impl Rules {
+    /// The config role whose sessions this rule set decides.
+    pub(super) fn role(self) -> &'static str {
+        match self {
+            Self::Controller => config::CONTROLLER,
+            Self::Conductor => CONDUCTOR,
+        }
+    }
 }
 
 /// Where a session runs: the places of the instance, its cwd, and the repository the cwd belongs

@@ -36,8 +36,8 @@ const GUARD_COMMAND: &str = "conductor guard record-guard-decision --from-pre-to
 /// The suffix that turns every failure of the wired command into a denial.
 const OR_DENY: &str = " || exit 2";
 
-/// The tools the guard is wired on, sorted.
-const MATCHERS: [&str; 5] = ["Bash", "Edit", "NotebookEdit", "SendMessage", "Write"];
+/// The matcher the guard is wired on: every tool (`story:guard-all-tools`).
+const MATCHERS: [&str; 1] = ["*"];
 
 /// The repository the probe session ran in.
 const PROBE: &str = "~/example-org/.guard-probe-w04";
@@ -1245,7 +1245,7 @@ fn guarded_matchers(settings: &Value) -> Vec<String> {
 }
 
 #[test]
-fn the_controller_settings_wire_the_guard_on_the_five_tools() {
+fn the_controller_settings_wire_the_guard_on_every_tool() {
     let controller = settings("controller-settings.json");
     assert_eq!(guarded_matchers(&controller), MATCHERS);
     assert_eq!(
@@ -1328,4 +1328,252 @@ fn the_wired_command_parses_as_the_guard_hook() {
             && debug.contains("from_pre_tool_use: true"),
         "{debug}"
     );
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:guard-all-tools: every tool reaches the guard, and one outside its ruled set is allowed
+// only from a read-only allowlist that a role's `read_only_tools` extends.
+// -------------------------------------------------------------------------------------------------
+
+/// What every denial of a tool outside the ruled set and the allowlist names.
+const NOT_ALLOWLISTED: &str = "read-only allowlist";
+
+/// A call of `tool` with `input` from a session whose cwd is `cwd`.
+fn tool_at(case: &Path, cwd: &Path, tool: &str, input: Value) -> Vec<u8> {
+    let mut payload = localise(fixture("write"), &case.join("home"));
+    payload["cwd"] = Value::String(cwd.display().to_string());
+    payload["tool_name"] = Value::String(tool.to_owned());
+    payload["tool_input"] = input;
+    serde_json::to_vec(&payload).expect("serialise the payload")
+}
+
+/// Acceptance: from a controller's checkout and from conductor's records, a tool the guard has no
+/// rule for and that is on no allowlist (a write-capable MCP tool, a tool Claude Code adds later)
+/// is denied with a reason naming the allowlist, and recorded; an allowlisted read tool is
+/// allowed with exit 0, and the allowance opens no store.
+#[test]
+fn an_unknown_tool_is_denied_and_an_allowlisted_read_tool_is_allowed() {
+    let case = case_dir("all-tools");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let at = |rest: &str| case.join(rest).display().to_string();
+    for cwd in [case.join("root/repo"), case.join("records")] {
+        let shown = cwd.display();
+        for (tool, input) in [
+            (
+                "Read",
+                serde_json::json!({ "file_path": at("root/repo/src/lib.rs") }),
+            ),
+            (
+                "Grep",
+                serde_json::json!({ "pattern": "fn", "path": at("root/repo") }),
+            ),
+            ("Glob", serde_json::json!({ "pattern": "**/*.rs" })),
+            (
+                "WebFetch",
+                serde_json::json!({ "url": "https://example.org", "prompt": "x" }),
+            ),
+            ("TodoWrite", serde_json::json!({ "todos": [] })),
+            ("ToolSearch", serde_json::json!({ "query": "x" })),
+        ] {
+            let output = hook_with(
+                &case,
+                &state,
+                Some(&config),
+                &tool_at(&case, &cwd, tool, input),
+            );
+            assert_answer(&output, 0, "", &format!("{shown}: {tool}"));
+        }
+        assert!(!state.exists(), "{shown}: an allowance creates no store");
+    }
+    let mut denials = 0;
+    for cwd in [case.join("root/repo"), case.join("records")] {
+        let shown = cwd.display();
+        for (tool, input) in [
+            (
+                "mcp__filesystem__write_file",
+                serde_json::json!({ "path": at("records/STATUS.md"), "content": "x" }),
+            ),
+            ("FutureWriteTool", serde_json::json!({ "anything": "x" })),
+        ] {
+            let output = hook_with(
+                &case,
+                &state,
+                Some(&config),
+                &tool_at(&case, &cwd, tool, input),
+            );
+            assert_answer(&output, 2, NOT_ALLOWLISTED, &format!("{shown}: {tool}"));
+            denials += 1;
+        }
+    }
+    let rows = decisions(&case, &state);
+    assert_eq!(rows.len(), denials, "every denial is recorded: {rows:#?}");
+    assert!(
+        rows.iter().all(|row| row["reason"]
+            .as_str()
+            .is_some_and(|r| r.contains(NOT_ALLOWLISTED))),
+        "{rows:#?}"
+    );
+}
+
+/// Acceptance: a role's `read_only_tools` extends the allowlist for that role's sessions only: a
+/// tool the controller role lists is allowed to a controller and still denied to conductor, and
+/// a tool with a rule of its own stays under that rule whatever the list says.
+#[test]
+fn a_role_s_read_only_tools_extend_the_allowlist_for_that_role_only() {
+    let case = case_dir("all-tools-role");
+    let state = case.join("state");
+    let config = config_file(
+        &case,
+        "conductor.yaml",
+        "\x20   roles:\n\
+         \x20     - {role: conductor, harness: claude, model: opus}\n\
+         \x20     - {role: controller, harness: claude, model: opus, \
+         read_only_tools: [mcp__example__read_issue, Write]}\n",
+    );
+    let at = |rest: &str| case.join(rest).display().to_string();
+    let read = || serde_json::json!({ "issue": 3 });
+    let controller = case.join("root/repo");
+    let output = hook_with(
+        &case,
+        &state,
+        Some(&config),
+        &tool_at(&case, &controller, "mcp__example__read_issue", read()),
+    );
+    assert_answer(&output, 0, "", "controller: a listed tool");
+    let output = hook_with(
+        &case,
+        &state,
+        Some(&config),
+        &tool_at(
+            &case,
+            &case.join("records"),
+            "mcp__example__read_issue",
+            read(),
+        ),
+    );
+    assert_answer(
+        &output,
+        2,
+        NOT_ALLOWLISTED,
+        "conductor: the controller's tool",
+    );
+    let output = hook_with(
+        &case,
+        &state,
+        Some(&config),
+        &payload_at(
+            "write",
+            &case,
+            &controller,
+            &[("file_path", &at("root/other/x"))],
+        ),
+    );
+    assert_answer(
+        &output,
+        2,
+        "outside the repository's checkout",
+        "controller: a listed Write is still decided by its rule",
+    );
+}
+
+/// Monitor runs a shell command as Bash does, so it is decided by the Bash rule: conductor's
+/// watch runs, and a controller's GitHub write is denied as it would be under Bash.
+#[test]
+fn monitor_is_decided_by_the_bash_rule() {
+    let case = case_dir("all-tools-monitor");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let monitor = |command: &str| serde_json::json!({ "command": command, "description": "x" });
+    let output = hook_with(
+        &case,
+        &state,
+        Some(&config),
+        &tool_at(
+            &case,
+            &case.join("records"),
+            "Monitor",
+            monitor("conductor watch run --follow"),
+        ),
+    );
+    assert_answer(&output, 0, "", "conductor: the watch under Monitor");
+    let output = hook_with(
+        &case,
+        &state,
+        Some(&config),
+        &tool_at(
+            &case,
+            &case.join("root/repo"),
+            "Monitor",
+            monitor("gh pr merge 3"),
+        ),
+    );
+    assert_answer(
+        &output,
+        2,
+        "GitHub write",
+        "controller: gh pr merge under Monitor",
+    );
+    let output = hook_with(
+        &case,
+        &state,
+        Some(&config),
+        &tool_at(
+            &case,
+            &case.join("root/repo"),
+            "Monitor",
+            serde_json::json!({}),
+        ),
+    );
+    assert_answer(
+        &output,
+        2,
+        "names no command",
+        "controller: Monitor with no command",
+    );
+}
+
+/// Acceptance (taken over from `story:guard-bash-write-targets`): conductor writes
+/// `<records>/docs/analysis/**` with the file tools, and still not `<records>/other/`.
+#[test]
+fn conductor_writes_its_analysis_records() {
+    let case = case_dir("all-tools-analysis");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    let at = |rest: &str| case.join(rest).display().to_string();
+    for name in ["write", "edit"] {
+        let output = hook_with(
+            &case,
+            &state,
+            Some(&config),
+            &payload_at(
+                name,
+                &case,
+                &records,
+                &[(
+                    "file_path",
+                    &at("records/docs/analysis/2026-10-12-guard.md"),
+                )],
+            ),
+        );
+        assert_answer(&output, 0, "", &format!("{name} docs/analysis"));
+        let output = hook_with(
+            &case,
+            &state,
+            Some(&config),
+            &payload_at(
+                name,
+                &case,
+                &records,
+                &[("file_path", &at("records/other/x.md"))],
+            ),
+        );
+        assert_answer(
+            &output,
+            2,
+            "conductor writes only its records",
+            &format!("{name} other/"),
+        );
+    }
 }

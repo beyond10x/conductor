@@ -69,6 +69,7 @@ accepted, defaulted and shown by `config show`.
 | `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below) |
 | `roles[].profile` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter needs linking |
 | `roles[].session_name` | string | derived | `task conductor:start`, `task conductor:restart`, `task dev:start` | the name the role's session starts under: `<session_prefix>-<role>`, or `<role>` without a prefix; none for `controller`, whose sessions are named per repository. Derived, never chosen: a file may write only that value |
+| `roles[].read_only_tools` | list of tool names | empty | guard | the tools, beyond the guard's built-in read-only allowlist (`Read`, `Glob`, `Grep`, `WebFetch`, the session's own task and schedule tools and the like; `READ_ONLY` in `crates/conductor/src/guard.rs`), that the guard allows this role's sessions, such as a read-only MCP tool `mcp__<server>__<tool>`. Read for the `conductor` and `controller` roles. Every other tool without a rule of its own is denied; `Edit`, `Write`, `NotebookEdit`, `SendMessage`, `Bash` and `Monitor` keep their rules whatever the list says |
 | `conductor.served_by` | instance name | derived | conductor profile, controller profile | the `default` instance whose conductor serves this one, when this one names no `conductor` role; otherwise none. Derived, never chosen: a file may write only that value |
 | `conductor.session_name` | string | derived | controller profile, guard | the session name of the conductor that serves the instance: its own `<session_prefix>-conductor` (or `conductor`), or the serving instance's; none when no conductor serves it. Derived, never chosen |
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
@@ -198,7 +199,7 @@ repository, that carries everything its sessions used to take from the user's se
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
@@ -211,8 +212,8 @@ repository, that carries everything its sessions used to take from the user's se
 }
 ```
 
-The example shows one matcher; copy all of them (`Edit`, `Write`, `NotebookEdit`,
-`SendMessage`, `Bash`) from the shipped file. Give the role a `profile` as well, and its sessions
+The matcher is `*`, as in the shipped files: every tool call reaches the guard, which allows a tool
+without a rule of its own only from its read-only allowlist and the role's `read_only_tools`. Give the role a `profile` as well, and its sessions
 need nothing in `~/.claude/agents/`.
 
 ## Built-in instance

@@ -286,8 +286,15 @@ pub const CAPABILITIES: &[Capability] = &[
     shipped(
         GUARD,
         "Settings wire the guard",
-        "The controller settings file wires the guard on the five tools it checks.",
-        "crates/conductor/tests/guard_hook.rs::the_controller_settings_wire_the_guard_on_the_five_tools",
+        "The controller settings file wires the guard on every tool.",
+        "crates/conductor/tests/guard_hook.rs::the_controller_settings_wire_the_guard_on_every_tool",
+        None,
+    ),
+    shipped(
+        GUARD,
+        "Every tool reaches the guard",
+        "A tool without a rule of its own is allowed only from a read-only allowlist a role's config extends; any other is denied.",
+        "crates/conductor/tests/guard_hook.rs::an_unknown_tool_is_denied_and_an_allowlisted_read_tool_is_allowed",
         None,
     ),
     shipped(

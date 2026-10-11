@@ -136,7 +136,11 @@ types:
   # chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when
   # the instance has no prefix; absent for `controller`, whose sessions are named per repository,
   # `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write
-  # only that value.
+  # only that value. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
+  # built-in read-only allowlist, that the guard allows the role's sessions without a rule of its
+  # own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied.
+  # A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is
+  # decided by that rule whatever this list says. Absent, it is empty.
   - name: conductor.config.Role
     kind: struct
     fields:
@@ -147,6 +151,7 @@ types:
       - {name: settings, type: Optional<conductor.config.CommandWord>}
       - {name: profile, type: Optional<conductor.config.CommandWord>}
       - {name: session_name, type: Optional<conductor.config.SessionName>}
+      - {name: read_only_tools, type: List<String>}
 
   # The conductor a session of the instance messages (story:instance-session-names): its own,
   # `session_name` being `<session_prefix>-conductor` or `conductor`, when the instance names a

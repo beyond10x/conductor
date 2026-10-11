@@ -75,8 +75,67 @@ pub const RECORD_DEADLINE: Duration = Duration::from_secs(2);
 /// The exit status that blocks a tool call.
 const DENY_EXIT: u8 = 2;
 
-/// The tools the rule table speaks about; any other tool is allowed.
-const RULED: [&str; 5] = ["Edit", "Write", "NotebookEdit", "SendMessage", "Bash"];
+/// The tools the rule table speaks about. Monitor runs a shell command as Bash does, so the Bash
+/// rule decides it. Any other tool is allowed only from [`READ_ONLY`] or the `read_only_tools` of
+/// the session's role, and denied otherwise (`story:guard-all-tools`).
+const RULED: [&str; 6] = [
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "SendMessage",
+    "Bash",
+    "Monitor",
+];
+
+/// The built-in read-only allowlist: the harness's tools that write no file, run no command and
+/// reach no other session, so the guard allows them to every session without deciding where it
+/// runs; the allowance stays as fast as a ruled one, and opens no store. A role's
+/// `read_only_tools` in the config extends it for that role. Each entry, and why it is here:
+const READ_ONLY: [&str; 25] = [
+    // Reads a file.
+    "Read",
+    // Lists paths matching a pattern.
+    "Glob",
+    // Searches file contents.
+    "Grep",
+    // Lists a directory (an older harness tool).
+    "LS",
+    // Fetches a URL and reads it; writes nothing locally.
+    "WebFetch",
+    // Runs a web search; writes nothing locally.
+    "WebSearch",
+    // The session's own to-do list, kept by the harness.
+    "TodoWrite",
+    // The session's own task list, kept by the harness: create, read, list, update.
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskUpdate",
+    // Reads the output of a background task or shell the session started.
+    "TaskOutput",
+    "BashOutput",
+    // Stops a background task or shell the session started; writes no file.
+    "TaskStop",
+    "KillShell",
+    // Loads a deferred tool's schema.
+    "ToolSearch",
+    // Lists the harness's sessions; messaging one is SendMessage, which has its rule.
+    "ListAgents",
+    // Lists and reads an MCP server's resources; an MCP tool call is not among them.
+    "ListMcpResourcesTool",
+    "ReadMcpResourceTool",
+    // Starts a sub-agent (`Agent`, earlier `Task`): its own tool calls reach this same hook,
+    // under the same settings, and are decided there.
+    "Agent",
+    "Task",
+    // Loads a skill's instructions into the session.
+    "Skill",
+    // The session's own wake-up schedule, a prompt to itself (conductor's cycle jobs,
+    // `.agents/conductor.md`): create, list, delete.
+    "CronCreate",
+    "CronList",
+    "CronDelete",
+];
 
 /// The guard's verdict on one PreToolUse payload, with the fields its record keeps.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,7 +149,7 @@ pub struct Decision {
     /// The tool called.
     pub tool: String,
     /// What the call targets: the file for Edit, Write and NotebookEdit, the recipient for
-    /// SendMessage, the command for Bash; empty for any other tool.
+    /// SendMessage, the command for Bash and Monitor; empty for any other tool.
     pub target: String,
     /// Allow or deny.
     pub verdict: Verdict,
@@ -144,7 +203,7 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
         "Edit" | "Write" => Some("file_path"),
         "NotebookEdit" => Some("notebook_path"),
         "SendMessage" => Some("to"),
-        "Bash" => Some("command"),
+        "Bash" | "Monitor" => Some("command"),
         _ => None,
     };
     let target = field.and_then(|field| text(&input[field]));
@@ -156,19 +215,49 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
         verdict: Verdict::Deny,
         reason: String::new(),
     };
-    if !RULED.contains(&tool.as_str()) {
+    if READ_ONLY.contains(&tool.as_str()) {
         decision.verdict = Verdict::Allow;
-        decision.reason = format!("no rule for {tool}");
+        decision.reason = format!("{tool} has no rule and is on the built-in read-only allowlist");
         return decision;
     }
+    let ruled = RULED.contains(&tool.as_str());
     let session = match session(payload, places, sessions) {
         Ok(session) => session,
-        Err(reason) => {
+        Err(reason) if ruled => {
             decision.reason = format!("{reason}, so {tool} is denied");
+            return decision;
+        }
+        Err(reason) => {
+            decision.reason = format!(
+                "{tool} has no rule and is not on the built-in read-only allowlist ({}); {reason}, \
+                 so no role's read_only_tools apply",
+                READ_ONLY.join(", ")
+            );
             return decision;
         }
     };
     decision.repository.clone_from(&session.repository);
+    if !ruled {
+        let extra = places.read_only_tools(session.rules);
+        if extra.contains(&tool) {
+            decision.verdict = Verdict::Allow;
+            decision.reason = format!("{tool} has no rule and is on the role's read_only_tools");
+        } else {
+            decision.reason = format!(
+                "{tool} has no rule and is on no read-only allowlist: neither the built-in one \
+                 ({}) nor the {} role's read_only_tools ({}); a role's read_only_tools in the \
+                 config extends it",
+                READ_ONLY.join(", "),
+                session.rules.role(),
+                if extra.is_empty() {
+                    "none".to_owned()
+                } else {
+                    extra.join(", ")
+                }
+            );
+        }
+        return decision;
+    }
     let (verdict, reason) = match (tool.as_str(), target.as_deref()) {
         ("SendMessage", to) => session.message(to, input["recipient"].as_str()),
         (_, None) => (
@@ -178,7 +267,7 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
                 field.unwrap_or("target")
             ),
         ),
-        ("Bash", Some(command)) => session.bash(command),
+        ("Bash" | "Monitor", Some(command)) => session.bash(command),
         (_, Some(path)) => session.file(&tool, path),
     };
     decision.verdict = verdict;
