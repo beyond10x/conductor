@@ -115,6 +115,7 @@ Every command takes these, before or after its name.
 | [`conductor config`](#conductor-config) |  |
 | [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file |
 | [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
+| [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
 | [`conductor doctor`](#conductor-doctor) | Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin |
@@ -1332,6 +1333,19 @@ Usage: conductor config validate [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--instance <NAME>` | no | none | An instance the config must name. Default: $CONDUCTOR_INSTANCE, else none is checked |
+
+## `conductor config workspace`
+
+Write the instance's workspace file from its config; --check names each difference
+
+```text
+Usage: conductor config workspace [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | The instance whose workspace file is written. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
+| `--check <BOOL>` | no | none | Write nothing; exit 1 naming each member that differs from the file. `--check` alone is `--check true` One of `true`, `false`. |
 
 ## `conductor dashboard`
 

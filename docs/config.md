@@ -9,7 +9,7 @@ example is [`../conductor.example.yaml`](../conductor.example.yaml).
 | what | order |
 |---|---|
 | file | `--config <FILE>`, else `$CONDUCTOR_CONFIG`, else `~/.b10x/conductor/conductor.yaml` |
-| instance | `--instance <NAME>` (`config validate`, `config show`), else `$CONDUCTOR_INSTANCE`, else the file's `default`, else its only instance; else an error naming the instances |
+| instance | `--instance <NAME>` (`config validate`, `config show`, `config workspace`), else `$CONDUCTOR_INSTANCE`, else the file's `default`, else its only instance; else an error naming the instances |
 
 A file named by `--config` or `$CONDUCTOR_CONFIG` must exist. When the default file does not
 exist, a built-in instance applies (below). Every command resolves the instance first; a file that
@@ -20,6 +20,15 @@ does not validate stops the command.
 instance after defaults, with every path absolute. It writes an absent optional value (`operator`,
 `catalog`, `session_prefix`, a role's `agent`, `settings` and `profile`, the controller role's
 `session_name`, `conductor.served_by` of an instance with its own conductor) as `null`.
+
+`conductor config workspace` writes the instance's `<records>/.engineering/workspace.yaml`
+(`aep.workspace/1`) from the config, replacing the file, and reads no network: one member per git
+checkout directly under `checkouts.root` for a `github` source, one per git checkout directly
+under its path, but its `exclude`, for a `local` source, none for a `gitlab` source, and the
+records directory itself. A member's `name` is its directory's name and its `source` that
+directory relative to `<records>/.engineering/`. Two sources that give one name to two directories
+are refused by both YAML paths. `--check` writes nothing and exits 1 naming each member that
+differs from the file. `conductor init` writes the same file into the skeleton it creates.
 
 The profiles in `.agents/` refer to config values as `section.key`, such as
 `thresholds.disk_low`: that is the field of `conductor config show --format json` for the
@@ -56,9 +65,9 @@ accepted, defaulted and shown by `config show`.
 | `name` | string | required | all | the instance's name: letters, digits, `.`, `_` and `-`, starting with a letter or digit |
 | `session_prefix` | string | none | start tasks, guard, sessions collector, `controller start-controller`, conductor profile | the prefix of every session the instance starts: conductor is `<prefix>-conductor`, conductor-dev `<prefix>-conductor-dev`, a controller `<prefix>-<repository>`. Letters, digits and `-`, starting and ending with a letter or digit. Without one the sessions keep the bare names `conductor`, `conductor-dev` and `<repository>`. A controller messages only its instance's conductor and conductor only its instance's sessions; an instance that names no `conductor` role is served by the `default` instance's conductor, which its controllers message and which messages its sessions. A session belongs to the instance whose name for the controller of the repository it works in it carries, else to the instance whose prefix it carries; the sessions collector, the watch and the dashboard keep another instance's session out |
 | `sources` | list of source | required | collectors, watch, guard | where the repositories come from (below); at least one |
-| `checkouts.root` | path | required | collectors, watch, guard, dashboard, `resource usage`, `task trust` | the directory holding the checkouts |
+| `checkouts.root` | path | required | collectors, watch, guard, dashboard, `resource usage`, `task trust`, `config workspace` | the directory holding the checkouts |
 | `checkouts.trees` | path | required | watch, guard, dashboard, `resource usage` | the directory holding their managed worktrees |
-| `records` | path | `~/.b10x/conductor/<name>/records` | guard, watch, dashboard, blockers collector, every session | conductor's records: logs, charters, hand-overs, and the instance's `rules.md`. The conductor session runs here |
+| `records` | path | `~/.b10x/conductor/<name>/records` | guard, watch, dashboard, blockers collector, `config workspace`, every session | conductor's records: logs, charters, hand-overs, and the instance's `rules.md`. The conductor session runs here |
 | `state` | path | `~/.b10x/conductor/<name>/state` | every store command, guard, watch, dashboard | the state directory; `--state-dir` overrides it |
 | `cache` | path | `~/.cache/b10x/conductor/<name>` | blockers and specifications collectors, dashboard | exports of `origin/main` and other rebuildable data |
 | `roles` | list of role | `conductor`, `conductor-dev`, `controller`, each `claude` / `opus`, no agent, no settings, no profile | start tasks, watch, conductor profile | one entry per session role; a list given replaces the whole default |

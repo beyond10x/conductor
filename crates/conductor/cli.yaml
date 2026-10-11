@@ -51,6 +51,11 @@ callables:
     input: conductor.config.ShowConfig
     result: String
     errors: {}
+  config-workspace:
+    target: {kind: local, owner: conductor-cli, action: config_workspace}
+    input: conductor.config.WriteWorkspace
+    result: List<conductor.config.WorkspaceMember>
+    errors: {}
   store-migrate:
     target: {kind: local, owner: conductor-cli, action: store_migrate}
     input: conductor.observation.StoreMigrate
@@ -138,6 +143,14 @@ commands:
         source: {kind: option, long: format}
       - field: instance
         source: {kind: option, long: instance}
+  - path: [config, workspace]
+    callable: config-workspace
+    about: Write the instance's workspace file from its config; --check names each difference
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: check
+        source: {kind: option, long: check}
   - path: [store, migrate]
     callable: store-migrate
     about: Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved

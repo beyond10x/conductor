@@ -134,7 +134,7 @@ $ conductor config validate
 $ conductor config show
 ```
 
-Then `conductor init` writes the instance's records directory: a git repository with `NORTHSTAR.md`, a first hand-over in `docs/handoff/`, a `rules.md` with one section per role, and `decisions/`, `dispatches/`, `charters/`. It refuses to overwrite a file. Write the instance's own rules into that `rules.md`.
+Then `conductor init` writes the instance's records directory: a git repository with `NORTHSTAR.md`, a first hand-over in `docs/handoff/`, a `rules.md` with one section per role, the workspace file `.engineering/workspace.yaml`, and `decisions/`, `dispatches/`, `charters/`. It refuses to overwrite a file. `conductor config workspace` rewrites that workspace file from the config when checkouts are added or removed; `conductor config workspace --check` exits 1 naming each member that differs. Write the instance's own rules into that `rules.md`.
 
 ## Run
 
