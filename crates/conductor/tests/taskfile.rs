@@ -2540,3 +2540,23 @@ fn each_instance_s_dashboard_service_is_its_own_unit() {
     );
     assert_eq!(calls[2], "systemctl --user stop b-conductor-dashboard");
 }
+
+/// `story:agents-link-user-scope`: every session the tasks start passes `--setting-sources
+/// project,local` and reads no user-level agent, so `task agents:link` says it serves an
+/// interactive session started with the user's own settings, not a session in another directory.
+#[test]
+fn agents_link_says_it_serves_a_session_with_the_users_own_settings() {
+    let taskfile = taskfile();
+    let desc = taskfile["tasks"]["agents:link"]["desc"]
+        .as_str()
+        .expect("agents:link has a desc");
+    assert!(
+        !desc.contains("so a session started in another directory finds them"),
+        "{desc}"
+    );
+    assert!(
+        desc.contains("an interactive session started with the user's own settings"),
+        "{desc}"
+    );
+    assert!(desc.contains("--setting-sources project,local"), "{desc}");
+}

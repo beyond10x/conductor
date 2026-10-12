@@ -202,7 +202,7 @@ tasks:
       - conductor trust
 
   agents:link:
-    desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into ~/.claude/agents/, so a session started in another directory finds them; a link to the same file is kept, and any other file there is refused, never overwritten
+    desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into ~/.claude/agents/, for an interactive session started with the user's own settings; the sessions the tasks start pass --setting-sources project,local and read no user-level agent; a link to the same file is kept, and any other file there is refused, never overwritten
     cmds:
       - |
         src={{shellQuote .ROOT_DIR}}/.claude/agents
