@@ -95,7 +95,8 @@ impl Case {
     /// store. Answers the config file, which also names a GitLab group.
     fn three_checkouts(&self) -> PathBuf {
         self.checkout(&self.dir.join("checkouts/alpha-api"));
-        self.checkout(&self.dir.join("checkouts/beta-web"));
+        // A directory name aep does not take as a member name: the member is `beta-web`.
+        self.checkout(&self.dir.join("checkouts/Beta.Web"));
         fs::create_dir_all(self.dir.join("checkouts/notes")).expect("create a plain directory");
         self.checkout(&self.dir.join("local/gamma-tools"));
         self.checkout(&self.dir.join("local/archive"));
@@ -177,7 +178,7 @@ fn pairs(expected: &[(&str, &str)]) -> Vec<(String, String)> {
 /// The members of the three-checkout case, each relative to `records/.engineering/`.
 const THREE: [(&str, &str); 4] = [
     ("alpha-api", "../../checkouts/alpha-api"),
-    ("beta-web", "../../checkouts/beta-web"),
+    ("beta-web", "../../checkouts/Beta.Web"),
     ("gamma-tools", "../../local/gamma-tools"),
     ("records", ".."),
 ];

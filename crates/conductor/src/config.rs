@@ -2447,9 +2447,12 @@ struct Found {
 }
 
 impl Found {
-    /// Adds the checkout `dir` as the member `name`, given by the config value at `yaml`. The
-    /// same member twice is one; one name for two checkouts is refused, by both YAML paths.
+    /// Adds the checkout `dir` as a member named after its directory `name`
+    /// ([`workspace_member_name`]), given by the config value at `yaml`. The same member twice is
+    /// one; one name for two checkouts is refused, by both YAML paths.
     fn add(&mut self, name: &str, dir: &Path, yaml: &str) -> Result<()> {
+        let name = &workspace_member_name(name)
+            .ok_or_else(|| anyhow!("{yaml}: {} gives no workspace member name", dir.display()))?;
         let source = relative(&self.base, &physical(dir))?;
         match self.members.get(name) {
             Some((known, _)) if *known == source => Ok(()),
@@ -2465,6 +2468,27 @@ impl Found {
             }
         }
     }
+}
+
+/// The workspace member name of a checkout directory `name`: aep takes lower-case letters, digits
+/// and hyphens only, so it is `name` lower-cased with every other character a hyphen, and without
+/// a leading or trailing hyphen (`beyond10x.github.io` is `beyond10x-github-io`); `None` when
+/// nothing is left. The collectors find a member by its source, never by this name.
+#[must_use]
+pub fn workspace_member_name(name: &str) -> Option<String> {
+    let mapped: String = name
+        .chars()
+        .map(|c| {
+            let c = c.to_ascii_lowercase();
+            if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = mapped.trim_matches('-');
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 /// The members of `instance`'s workspace, by name, with no network read: each git checkout
