@@ -8,6 +8,7 @@ relations:
 - decomposes: epic:operating-loop-hardening
 - depends_on: story:single-conductor-lease
 - depends_on: story:guard-store-migrate
+- depends_on: story:guard-expanded-conductor-words
 scope:
 - confidence: cited
   path: crates/conductor/src/guard.rs

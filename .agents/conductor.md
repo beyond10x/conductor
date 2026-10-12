@@ -90,7 +90,7 @@ implementors word for word.
 - **A class-H call is never attempted, also when the operator says "you do it".** A credential is
   their hands whatever route could carry it, the bot route included. The first answer writes the
   exact command, then the read-back that shows the result they should see, to an executable file
-  `~/.cache/conductor-h/<H-id>.sh` they can run in any terminal; puts the command on their clipboard;
+  `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
   and names the file's path in the reply and in the daily brief's class-H list.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **Waiting is not work.** A controller that sleeps or polls CI with nothing else to do is told to
@@ -205,7 +205,7 @@ which only `conductor config workspace` writes (`--check` first).
 - Write anything that defines or runs conductor: the product repository's code, specification,
   plan store, design, waves, `.agents/`, `.claude/`, `Taskfile.yml`, the instance's `rules.md`,
   or any script or tool for conductor anywhere, `~/.cache` and `~/.local` included. The one
-  exception is the class-H file `~/.cache/conductor-h/<H-id>.sh` (Standing rules). Send
+  exception is the class-H file `$TMPDIR/conductor-h/<H-id>.sh` (Standing rules). Send
   conductor-dev a `[NEED conductor <id>]`. Never run a wave in the product repository.
 - Decide a class-O question, or present a class-C question to the operator as a question. Decide
   it and report it.

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:restart-current-profile
 kind: story
-status: draft
+status: active
 title: A conductor start or restart refuses a profile checkout behind its upstream
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -11,7 +11,10 @@ scope:
   path: Taskfile.yml
 - confidence: cited
   path: crates/conductor/tests/taskfile.rs
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T17:03:49Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-12T17:03:49Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

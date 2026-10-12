@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:public-text-check
 kind: story
-status: draft
+status: active
 title: A test keeps instance ids, home paths and hand-overs out of the public repository
 relations:
 - decomposes: epic:operating-loop-hardening
 scope:
 - confidence: cited
   path: crates/conductor/tests/no_organization.rs
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T17:03:48Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-12T17:03:49Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 

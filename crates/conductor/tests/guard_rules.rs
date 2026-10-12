@@ -1480,6 +1480,98 @@ fn a_controller_names_conductor_without_running_a_leaf() {
     }
 }
 
+/// `story:guard-store-migrate`, security review: a word under a group of the tree that names no
+/// leaf of that group is denied to a controller, so a misspelling, a case change or a leaf added
+/// to the binary before it is declared is never read as a read. Clap does not infer subcommands
+/// from a prefix and declares no alias, so no other word reaches a leaf.
+#[test]
+fn a_controller_is_denied_a_word_under_a_group_that_names_no_leaf() {
+    let home = home("controller-conductor-unknown-leaf");
+    for (command, named) in [
+        ("conductor store migrat", "`conductor store migrat`"),
+        ("conductor store Migrate", "`conductor store Migrate`"),
+        (
+            "conductor store migrate-all",
+            "`conductor store migrate-all`",
+        ),
+        (
+            "conductor snapshot not-a-leaf",
+            "`conductor snapshot not-a-leaf`",
+        ),
+        (
+            "conductor store ${LEAF:-migrate}",
+            "`conductor store ${LEAF:-migrate}`",
+        ),
+        (
+            "conductor --config=c.yaml store migrate",
+            "`conductor store migrate`",
+        ),
+        (
+            "command conductor store migrate",
+            "`conductor store migrate`",
+        ),
+        (
+            "exec ./conductor store migrate",
+            "`conductor store migrate`",
+        ),
+        (
+            "true; c\\onductor 'store' \"migrate\"",
+            "`conductor store migrate`",
+        ),
+        (
+            "nohup conductor $'store' migrate &",
+            "`conductor store migrate`",
+        ),
+    ] {
+        assert_verdict(&bash(&home, PROBE, command), Verdict::Deny, named);
+    }
+}
+
+/// `story:guard-store-migrate`, security review: the shell turns each of these lines into a run of
+/// `conductor store migrate` (or of another writing leaf) before the binary sees it, so a
+/// controller's session must be denied each. The guard reads the words as written, and a group
+/// word that the shell expands (brace expansion, `$"…"`, a parameter default, a command
+/// substitution), a program word that a substitution names, and a leaf the program receives
+/// through `xargs` or a function's `"$@"` all pass today. A leaf word expanded the same way is
+/// denied (`a_controller_is_denied_a_word_under_a_group_that_names_no_leaf`); the group word and
+/// the program word are not held to the same rule. Open: `story:guard-expanded-conductor-words`.
+#[test]
+#[ignore = "story:guard-expanded-conductor-words: the guard does not yet deny these lines"]
+fn a_controller_reaches_no_writing_leaf_through_a_word_the_shell_expands() {
+    let home = home("controller-conductor-expanded-words");
+    let mut allowed = Vec::new();
+    for command in [
+        // Brace expansion: bash runs `conductor store migrate`.
+        "conductor {store,migrate}",
+        "conductor {goal,propose-goal} --input-json -",
+        // Locale quoting: `$"store"` is `store`.
+        "conductor $\"store\" migrate",
+        // A parameter default and a command substitution in the group's place.
+        "conductor ${GROUP:-store} migrate",
+        "conductor $(echo store) migrate",
+        // The program named by a substitution.
+        "$(command -v conductor) store migrate",
+        "`which conductor` store migrate",
+        // The leaf handed to the program at run time.
+        "echo store migrate | xargs conductor",
+        "run() { conductor \"$@\"; }; run store migrate",
+    ] {
+        let decision = bash(&home, PROBE, command);
+        if decision.verdict != Verdict::Deny {
+            allowed.push(format!(
+                "{command:?}: {:?}: {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(
+        allowed.is_empty(),
+        "{} lines that run a writing leaf were not denied to a controller:\n  - {}",
+        allowed.len(),
+        allowed.join("\n  - ")
+    );
+}
+
 // -------------------------------------------------------------------------------------------------
 // The instance's places. The guard reads where checkouts, managed worktrees and conductor's records
 // are from the instance the process runs (`config::active`): without a config file the built-in

@@ -105,6 +105,11 @@ model, not code. A model can fail to follow them.
 
 ## Smaller gaps
 
+- **A `conductor` run whose words the shell expands is not denied to a controller**: a group word
+  the shell builds (`conductor {store,migrate}`, `conductor $(echo store) migrate`), a program word
+  a substitution names (`$(command -v conductor) store migrate`), or a leaf handed over through
+  `xargs` or a function's `"$@"`. The leaf word itself is checked strictly. Planned: deny such
+  words.
 - **A sub-agent is recognised by the shape of its id** in a controller's SendMessage, not by who
   started it.
 - **Recording a denial can fail** (no state directory named, or the store's lock held for more
