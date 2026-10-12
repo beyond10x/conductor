@@ -12,7 +12,7 @@ tasks:
       - claude agents --json | jq -r '.[] | select(.name=="conductor" or .name=="conductor-dev") | [.name, .kind, (.id // (.pid|tostring)), (.state // .status)] | @tsv'
 
   conductor:start:
-    desc: Start conductor in the background in the instance's records directory under the session name of the role conductor in conductor config show (<session_prefix>-conductor, or conductor without a prefix), without the user's settings (--setting-sources project,local), on the harness, model, settings and profile or agent of the role conductor (settings default this checkout's .claude/conductor-settings.json; a profile is appended to the system prompt in place of the agent, whose default is conductor); refuses while a live session of that name exists, when the profile is not a file, and, without a profile, when the agent is in neither ~/.claude/agents/ nor the records' .claude/agents/ (task agents:link)
+    desc: Start conductor in the background in the instance's records directory under the session name of the role conductor in conductor config show (<session_prefix>-conductor, or conductor without a prefix), without the user's settings (--setting-sources project,local), on the harness, model, settings and profile or agent of the role conductor (settings default this checkout's .claude/conductor-settings.json; a profile is appended to the system prompt in place of the agent, whose default is conductor); refuses while a live session of that name exists, when the profile is not a file, and, without a profile, when the agent is not in the records' .claude/agents/ (--setting-sources project,local loads no agent from ~/.claude/agents/)
     vars:
       NAME:
         sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .session_name // empty'
@@ -39,9 +39,9 @@ tasks:
       - sh: test -z {{shellQuote .PROFILE}} || test -f {{shellQuote .PROFILE}}
         msg: the profile {{.PROFILE}} of the role conductor is not a file
       - sh: test -n {{shellQuote .PROFILE}} || case {{shellQuote .AGENT}} in '' | */* | .*) exit 1 ;; esac
-        msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in ~/.claude/agents/ or {{.RECORDS}}/.claude/agents/
-      - sh: test -n {{shellQuote .PROFILE}} || test -f "$HOME"/.claude/agents/{{shellQuote .AGENT}}.md || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
-        msg: the agent {{.AGENT}} is in neither ~/.claude/agents/ nor {{.RECORDS}}/.claude/agents/ (the agent must be a file <agent>.md in one of them); run task agents:link, or name a profile for the role conductor
+        msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in {{.RECORDS}}/.claude/agents/
+      - sh: test -n {{shellQuote .PROFILE}} || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
+        msg: the agent {{.AGENT}} is not in {{.RECORDS}}/.claude/agents/, and conductor starts with --setting-sources project,local, which loads no user-level agent from ~/.claude/agents/; name a profile for the role conductor (conductor config show), or put the adapter <agent>.md in {{.RECORDS}}/.claude/agents/
       - sh: jq -e '.skipDangerousModePermissionPrompt == true' {{shellQuote .SETTINGS}} >/dev/null 2>&1 || jq -e '.skipDangerousModePermissionPrompt == true' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" >/dev/null 2>&1 || jq -e '.bypassPermissionsModeAccepted == true' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" >/dev/null 2>&1
         msg: >-
           Claude Code's bypass-permissions disclaimer is not accepted, and claude --bg refuses bypassPermissions without it:
@@ -85,9 +85,9 @@ tasks:
       - sh: test -z {{shellQuote .PROFILE}} || test -f {{shellQuote .PROFILE}}
         msg: the profile {{.PROFILE}} of the role conductor is not a file
       - sh: test -n {{shellQuote .PROFILE}} || case {{shellQuote .AGENT}} in '' | */* | .*) exit 1 ;; esac
-        msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in ~/.claude/agents/ or {{.RECORDS}}/.claude/agents/
-      - sh: test -n {{shellQuote .PROFILE}} || test -f "$HOME"/.claude/agents/{{shellQuote .AGENT}}.md || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
-        msg: the agent {{.AGENT}} is in neither ~/.claude/agents/ nor {{.RECORDS}}/.claude/agents/ (the agent must be a file <agent>.md in one of them); run task agents:link, or name a profile for the role conductor
+        msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in {{.RECORDS}}/.claude/agents/
+      - sh: test -n {{shellQuote .PROFILE}} || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
+        msg: the agent {{.AGENT}} is not in {{.RECORDS}}/.claude/agents/, and conductor starts with --setting-sources project,local, which loads no user-level agent from ~/.claude/agents/; name a profile for the role conductor (conductor config show), or put the adapter <agent>.md in {{.RECORDS}}/.claude/agents/
       - sh: jq -e '.skipDangerousModePermissionPrompt == true' {{shellQuote .SETTINGS}} >/dev/null 2>&1 || jq -e '.skipDangerousModePermissionPrompt == true' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" >/dev/null 2>&1 || jq -e '.bypassPermissionsModeAccepted == true' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" >/dev/null 2>&1
         msg: >-
           Claude Code's bypass-permissions disclaimer is not accepted, and claude --bg refuses bypassPermissions without it:
@@ -121,7 +121,7 @@ tasks:
       - task: conductor:start
 
   dev:start:
-    desc: Start conductor-dev in the background in this checkout under the session name of the role conductor-dev in conductor config show (<session_prefix>-conductor-dev, or conductor-dev without a prefix), without the user's settings (--setting-sources project,local), on the harness, model, settings and profile of the role conductor-dev (no settings file by default; a profile is appended to the system prompt in place of --agent conductor-dev); refuses while a live session of that name exists, and when the profile is not a file
+    desc: Start conductor-dev in the background in this checkout under the session name of the role conductor-dev in conductor config show (<session_prefix>-conductor-dev, or conductor-dev without a prefix), without the user's settings (--setting-sources project,local), on the harness, model, settings and profile of the role conductor-dev (no settings file by default; a profile is appended to the system prompt in place of --agent conductor-dev, which --setting-sources project,local finds only in this checkout's .claude/agents/); refuses while a live session of that name exists, when the profile is not a file, and, without a profile, when this checkout has no .claude/agents/conductor-dev.md
     vars:
       NAME:
         sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .session_name // empty'
@@ -140,6 +140,8 @@ tasks:
         msg: the role conductor-dev runs on {{.HARNESS}} (conductor config show); this task starts claude only
       - sh: test -z {{shellQuote .PROFILE}} || test -f {{shellQuote .PROFILE}}
         msg: the profile {{.PROFILE}} of the role conductor-dev is not a file
+      - sh: test -n {{shellQuote .PROFILE}} || test -f {{shellQuote .ROOT_DIR}}/.claude/agents/conductor-dev.md
+        msg: this checkout has no .claude/agents/conductor-dev.md, and conductor-dev starts here with --setting-sources project,local, which loads no user-level agent; name a profile for the role conductor-dev (conductor config show)
       - sh: test -n {{shellQuote .NAME}}
         msg: conductor config show names no session name for the role conductor-dev
       - sh: claude agents --json | jq -e --arg n {{shellQuote .NAME}} 'all(.[]; .name != $n or .pid == null)' >/dev/null

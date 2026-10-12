@@ -87,6 +87,9 @@ implementors word for word.
 - **A GitHub write the operator grants once, and the guard denies,** goes back to him as one
   paste-ready command: the command, what it acts on, the result he should see. Record it on the
   class-H list. Do not work around the guard.
+- **A class-H call is never attempted, also when the operator says "you do it".** A credential is
+  his hands whatever route could carry it, the bot route included. The first answer puts the exact
+  command on his clipboard and in the reply as a `! ` line, with the result he should see.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **Waiting is not work.** A controller that sleeps or polls CI with nothing else to do is told to
   report `blocked` and stop. A controller whose charter is done and whose status is `idle` is
@@ -128,9 +131,7 @@ implementors word for word.
      refuses, `cd <its cwd> && claude --bg --resume <sessionId> -n <controller session name>
      --append-system-prompt-file <controller profile> --model <controller model> --permission-mode
      bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat
-     <resume brief file>)"`, with `--agent <controller agent>` in place of
-     `--append-system-prompt-file <controller profile>` when the `controller` role names no
-     `profile`, the brief written first to a file under your scratch directory; a live idle
+     <resume brief file>)"`, the brief written first to a file under your scratch directory; a live idle
      controller continues by a message;
   3. except: a session over `thresholds.context_handover` starts fresh from its hand-over, and a
      session whose repository has a newer controller, or whose dispatch is done, is not resumed.
@@ -172,8 +173,9 @@ Start a controller with
 `cd <checkouts root>/<repo> && claude --bg -n <controller session name> --append-system-prompt-file <controller profile> --model <controller model> --permission-mode bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
 or `conductor spawn <repo>` once it exists. `<controller session name>` is
 `<session_prefix>-<repo>`, or `<repo>` when `session_prefix` is null in `conductor config show`.
-`<controller profile>` is the `controller` role's `profile`; when it names none, write
-`--agent <controller agent>` in its place. A controller is
+`<controller profile>` is the `controller` role's `profile`; `--agent` is never a controller's
+start form, because `--setting-sources project,local` loads no user-level agent; `conductor config
+validate` refuses a `controller` role that names an `agent` and no `profile`. A controller is
 never started without `--settings` and `--setting-sources project,local`: the settings file
 wires the guard and carries everything the session needs, and the user's own settings are not
 loaded. Charter and brief text reaches the command only as `"$(cat <file>)"`,
