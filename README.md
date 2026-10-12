@@ -68,7 +68,7 @@ The pins are in [`b10x.toml`](b10x.toml). `aep`, `ess`, `worktree` and `b10x-gat
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.2.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.3.0 --locked conductor-cli
 conductor doctor
 ```
 
