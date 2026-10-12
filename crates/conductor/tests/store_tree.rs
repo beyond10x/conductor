@@ -28,6 +28,13 @@
 //! prints any of them, and the record instants keep feed order, which is all a fold reads them
 //! for, so the views changed only where they print a renamed URL or working directory.
 //!
+//! `story:single-conductor-lease` added the `conductor.session.Lease` entity and its view
+//! `session leases`. Two frames were appended to the store after its 85, as `conductor session
+//! claim` writes them: instance `example-org` taken by `session-1` (pid 4141), then taken over by
+//! `session-2` (pid 4242) from it, each one event of its stream, its command under the request
+//! hash of its body, chained by digest to the frame before it, and the manifest moved to the
+//! new head. `session-leases.json` holds the one lease the two claims leave.
+//!
 //! A case copies the store into its own state directory under this test target's temporary
 //! directory in `target/`, and runs the built binary there with `--state-dir`.
 
@@ -59,7 +66,7 @@ fn fixture() -> PathBuf {
 
 /// Every view the fixture holds the answer of, by its file under `views/`, with the arguments
 /// before `--format json`.
-const VIEWS: [(&str, &[&str]); 23] = [
+const VIEWS: [(&str, &[&str]); 24] = [
     ("snapshot-snapshots", &["snapshot", "snapshots"]),
     ("snapshot-repositories", &["snapshot", "repositories"]),
     ("snapshot-pull-requests", &["snapshot", "pull-requests"]),
@@ -98,6 +105,7 @@ const VIEWS: [(&str, &[&str]); 23] = [
         &["resource", "resource-requests"],
     ),
     ("guard-guard-decisions", &["guard", "guard-decisions"]),
+    ("session-leases", &["session", "leases"]),
 ];
 
 /// One case: the directory the binary runs from, the state directory `--state-dir` names, and an
