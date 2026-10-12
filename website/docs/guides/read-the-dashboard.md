@@ -70,7 +70,7 @@ the session's decision log `decisions/2026-10.jsonl` in its records:
 | Red CI on main | each workflow whose newest `main` run failed | the watch's CI state |
 | Awaiting the operator | decisions whose newest line is class O or H with no choice yet | `decisions/*.jsonl` |
 | Recent decisions | the newest decision lines: id, class, choice, reason | `decisions/*.jsonl` |
-| Disk waste | per tracked repository: build cache of idle managed trees, trees eligible for removal, worktree archives and the checkout's `target/`; shared: build targets, toolchains and scratch. Largest first, with each row's owner | `worktree sweep --dry-run`, `worktree gc --dry-run`, `du`, measured in the background |
+| Disk waste | per tracked repository: build cache of idle managed trees, trees eligible for removal, worktree archives and the checkout's `target/`; shared: build targets, toolchains and scratch. Largest first, with each row's owner | `worktree sweep --dry-run`, `worktree gc --dry-run`, a walk of each tree counting allocated bytes, measured in the background |
 | Token spend | tokens per repository since 00:00 UTC | the session transcripts, measured in the background |
 | Could not read | each source that failed; the other sections still show | |
 

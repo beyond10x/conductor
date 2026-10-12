@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 75ae36bcd64ac6ed7ea7350fa76e1813347a0d4390844f42e75e83fd78193d30
-// contract digest 218b3db30bad06f16859184bd6831e8cd6288a02160b6f0fec5f8e61a9fbd7ee
+// model digest bbab129970cd10b92fa4ba8dba245b5e44fd03a471459cd2fbdc4df57a446275
+// contract digest 540bcb6daeeacde30880234fabcdd297d3d3de0911029a111426d35d4fd599c0
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -33,6 +33,15 @@ pub enum BoardState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoardId(pub crate::primitives::Uuid);
 
+/// CollectGarbage — `conductor.observation.CollectGarbage`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectGarbage {
+    /// `dry_run` — `Optional<Boolean>`.
+    pub dry_run: Option<bool>,
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
+
 /// CommitSha — `conductor.observation.CommitSha`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitSha(pub String);
@@ -44,6 +53,38 @@ pub struct DashboardServe {
     pub port: Option<i64>,
     /// `root` — `Optional<String>`.
     pub root: Option<String>,
+}
+
+/// GarbageOutcome — `conductor.observation.GarbageOutcome`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GarbageOutcome {
+    /// `Reclaimable`.
+    Reclaimable,
+    /// `Removed`.
+    Removed,
+    /// `Refused`.
+    Refused,
+}
+
+/// GarbageRow — `conductor.observation.GarbageRow`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GarbageRow {
+    /// `repository` — `Optional<String>`.
+    pub repository: Option<String>,
+    /// `what` — `String`.
+    pub what: String,
+    /// `paths` — `List<String>`.
+    pub paths: Vec<String>,
+    /// `count` — `Optional<Integer>`.
+    pub count: Option<i64>,
+    /// `bytes` — `Optional<Integer>`.
+    pub bytes: Option<i64>,
+    /// `freed` — `Optional<Integer>`.
+    pub freed: Option<i64>,
+    /// `outcome` — `conductor.observation.GarbageOutcome`.
+    pub outcome: GarbageOutcome,
+    /// `detail` — `Optional<String>`.
+    pub detail: Option<String>,
 }
 
 /// Harness — `conductor.observation.Harness`: one of a closed set of names.

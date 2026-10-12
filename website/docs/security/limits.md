@@ -152,3 +152,6 @@ model, not code. A model can fail to follow them.
   than 2 seconds). The call is still denied, but there is no record.
 - **The Gates secret scan in `task check` runs only when `B10X_GATES_POLICY` names a policy.**
   Without one, the scan is skipped with a line on standard error.
+- **`conductor gc` keeps a checkout's `target/` only for sessions and processes working in the
+  checkout.** A build started from a parent folder with `--manifest-path` is not seen, and its
+  target can be cleaned while it runs.

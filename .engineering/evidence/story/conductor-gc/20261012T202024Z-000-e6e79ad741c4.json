@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T20:20:24Z",
+  "actor": "human:timo",
+  "artifact": "story:conductor-gc",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/10 at 3e98d3f: green; security review F1 F2 F4 fixed",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38303049393"
+  }
+}

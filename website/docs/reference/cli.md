@@ -122,6 +122,7 @@ Every command takes these, before or after its name.
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
 | [`conductor doctor`](#conductor-doctor) | Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin |
+| [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved |
@@ -1415,6 +1416,19 @@ Report each program conductor starts as present, with its version, or missing, a
 ```text
 Usage: conductor doctor [OPTIONS]
 ```
+
+## `conductor gc`
+
+Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed
+
+```text
+Usage: conductor gc [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--dry-run <BOOL>` | no | none | List the rows the disk panel marks reclaimable, with their bytes, and remove nothing. `--dry-run` alone is `--dry-run true` One of `true`, `false`. |
+| `--format <FORMAT>` | no | none | How the rows are printed: text or json. Default: text |
 
 ## `conductor init`
 

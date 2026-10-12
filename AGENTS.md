@@ -69,7 +69,9 @@ Each session commits only the files it writes, with a pathspec.
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
 | `task install` | `cargo install --path crates/conductor --locked` |
 
-Run `task check` on the exact commit before you push or merge. For a quick loop,
+A pull request merges when its `task check` job (`.github/workflows/check.yml`) and its Gates job
+(`common / Security and privacy`, which scans with the organization's policy; the `task check` job
+runs without one) are green on its head commit. Run `task check` locally only where CI cannot run. For a quick loop,
 `cargo test -p conductor-cli --test <name>` runs one test file.
 
 ## Rules
@@ -129,15 +131,15 @@ Run `task check` on the exact commit before you push or merge. For a quick loop,
   and end with `worktree finish --discard-cache --archive <tree>`.
 - Build into the tree's own `target/`. Never set `CARGO_TARGET_DIR`: a shared target can run
   another tree's test binaries and report them green.
-- Run at most one full `task check` per repository at a time; prefer `cargo test -p conductor-cli`
+- Run at most one local `task check` per repository at a time; prefer `cargo test -p conductor-cli`
   on what you touched.
 
 ## Commits, gates and public text
 
 - Every commit, push, pull request and tag goes through the bot route:
   `b10x-gates bot -- <git args>`. A GitHub API write goes through `b10x-gates api`.
-- A `task check` that printed "the Gates scan is skipped" ran no secret scan and is no gate. Set
-  `B10X_GATES_POLICY` and run it again.
+- A local `task check` that printed "the Gates scan is skipped" ran no secret scan and is no gate.
+  Set `B10X_GATES_POLICY` and run it again.
 - Every pull-request and release body passes `b10x-gates scan-text` before it is sent.
 - This repository is public. Committed text (code, docs, wave pages, commit messages) names no
   private repository, session or decision id, host detail or person.
@@ -156,8 +158,11 @@ without asking: several waves may go into one release.
 1. On a branch from `main`, set `version` in the root `Cargo.toml` (semver; `0.x`: a minor bump for
    a new command, config key or record, a patch bump otherwise), refresh `Cargo.lock`
    (`cargo update -p conductor-cli --offline`), and point the README's install line at the new tag.
-2. In a fresh clone of the branch at that exact commit: `task check` with `B10X_GATES_POLICY` set,
-   then `task docs-check`, each exit 0. Read each step's own exit status.
+2. The `task check` job (`.github/workflows/check.yml`) and the Gates job green on that exact
+   commit; CI runs them in a fresh checkout by construction, on the pull request of step 3. Read
+   each job's own conclusion.
+   Only where CI cannot run: `task check` in a fresh clone at that commit with `B10X_GATES_POLICY`
+   set, exit 0.
 3. A pull request through the bot route, its checks green, then fast-forward `main` to it.
 4. `b10x-gates bot -- tag -a v<version> -m <title> <commit>` and `b10x-gates bot -- push origin
    v<version>`; then the GitHub Release through `b10x-gates api` (`POST

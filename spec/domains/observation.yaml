@@ -94,6 +94,36 @@ types:
     fields:
       - {name: format, type: Optional<String>}
 
+  # The input of `conductor gc` (story:conductor-gc), which removes what the dashboard's disk panel
+  # marks reclaimable and nothing else. `dry_run` lists those rows and removes nothing; `format` is
+  # text or json, read by the handler.
+  - name: conductor.observation.CollectGarbage
+    kind: struct
+    fields:
+      - {name: dry_run, type: Optional<Boolean>}
+      - {name: format, type: Optional<String>}
+
+  # What became of one reclaimable row: listed by a dry run, removed, or refused (its command
+  # failed, a live session now works in it, or something it names is still there).
+  - name: conductor.observation.GarbageOutcome
+    kind: enum
+    variants: [Reclaimable, Removed, Refused]
+
+  # One row `conductor gc` reports: a row the disk panel marks reclaimable, as the panel measured
+  # it (`what`, `repository`, the paths it sums, `count`, `bytes`), the bytes its removal freed,
+  # measured on the disk before and after, and its outcome with the reason for a refusal.
+  - name: conductor.observation.GarbageRow
+    kind: struct
+    fields:
+      - {name: repository, type: Optional<String>}
+      - {name: what, type: String}
+      - {name: paths, type: List<String>}
+      - {name: count, type: Optional<Integer>}
+      - {name: bytes, type: Optional<Integer>}
+      - {name: freed, type: Optional<Integer>}
+      - {name: outcome, type: conductor.observation.GarbageOutcome}
+      - {name: detail, type: Optional<String>}
+
 entities:
   - name: conductor.observation.Snapshot
     identity:

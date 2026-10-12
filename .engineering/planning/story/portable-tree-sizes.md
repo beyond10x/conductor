@@ -2,13 +2,17 @@
 format: aep.planning-md/3
 id: story:portable-tree-sizes
 kind: story
-status: draft
+status: implemented
 title: The dashboard measures tree sizes without GNU du
 tags:
 - session-review
 relations:
 - decomposes: epic:disk-and-gate
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T19:01:41Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-12T19:01:41Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-12T19:14:37Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

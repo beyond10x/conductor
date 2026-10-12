@@ -19,6 +19,7 @@ pub mod decide;
 pub mod disk;
 pub mod dispatch;
 pub mod doctor;
+pub mod gc;
 pub mod goal;
 pub mod guard;
 pub mod init;
