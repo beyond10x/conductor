@@ -8,12 +8,20 @@ source: crates/conductor/src/dashboard.rs, crates/conductor/src/dashboard/; crat
 
 ## 1. Serve it
 
-As a user service on port 7313, from a checkout of the conductor repository:
+As a user service, from a checkout of the conductor repository:
 
 ```console
-task dashboard            # starts conductor-dashboard unless it is active, prints http://127.0.0.1:7313/
+task dashboard            # starts the instance's dashboard unless it is active, prints its URL
 task dashboard:stop
 ```
+
+Both tasks act on the active instance only. The dashboard serves on the instance's
+`dashboard_port`: 7313 plus the instance's position in the config file (7313 for the first
+instance, 7314 for the second), unless the file writes a port. `config validate` refuses two
+instances that share a port. Where `systemctl` is on `PATH`, the user service is
+`<session_prefix>-conductor-dashboard`, or `conductor-dashboard` for an instance without a prefix.
+Elsewhere the dashboard runs in the background, with its pid in `dashboard.pid` and its output in
+`dashboard.log` of the instance's `state` directory.
 
 Or in the foreground, on any port (`0` picks a free one):
 
