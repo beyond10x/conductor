@@ -106,7 +106,9 @@ runs without one) are green on its head commit. Run `task check` locally only wh
    a test file that does neither.
 6. **The guard answers fast.** `conductor guard record-guard-decision --from-pre-tool-use` runs on
    every tool call of conductor and of every controller. An allowed call must not open the store;
-   a denial is recorded within a bound (`RECORD_DEADLINE` in `src/guard.rs`).
+   for a conductor-role write it reads one small file, the guard's copy of the conductor lease
+   (`conductor.lease` in the state directory). A denial is recorded within a bound
+   (`RECORD_DEADLINE` in `src/guard.rs`).
    `tests/guard_latency.rs` measures it; it is ignored by default:
    `cargo test --release -p conductor-cli --test guard_latency -- --ignored --nocapture`.
 7. **Views create nothing.** A view opens only an existing store. A command creates the store.

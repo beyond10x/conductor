@@ -112,6 +112,9 @@ Every command takes these, before or after its name.
 | [`conductor guard`](#conductor-guard) | The controller hook and the record of its verdicts |
 | [`conductor guard record-guard-decision`](#conductor-guard-record-guard-decision) | Record a guard decision |
 | [`conductor guard guard-decisions`](#conductor-guard-guard-decisions) | Guard decisions |
+| [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
+| [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
+| [`conductor session leases`](#conductor-session-leases) | Conductor leases |
 | [`conductor config`](#conductor-config) |  |
 | [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file |
 | [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
@@ -790,6 +793,8 @@ Usage: conductor decision record-operator-decision [OPTIONS]
 | `--reason <REASON>` | no | none | string |
 | `--evidence <EVIDENCE>` | no | none | string |
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
+| `--recorded-by <RECORDED_BY>` | no | none | string |
+| `--operator-words <OPERATOR_WORDS>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision reverse-conductor-decision`
@@ -1297,6 +1302,43 @@ Guard decisions
 
 ```text
 Usage: conductor guard guard-decisions [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor session`
+
+The instance's one conductor session and the lease it holds
+
+```text
+Usage: conductor session [OPTIONS] <COMMAND>
+```
+
+## `conductor session claim`
+
+Claim the conductor lease
+
+```text
+Usage: conductor session claim [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <INSTANCE>` | no | none | InstanceName |
+| `--session-id <SESSION_ID>` | no | none | SessionId |
+| `--pid <PID>` | no | none | integer |
+| `--taken-at <TAKEN_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+| `--from-session-start` | no | `false` | Read the session id from a Claude Code SessionStart payload on standard input |
+
+## `conductor session leases`
+
+Conductor leases
+
+```text
+Usage: conductor session leases [OPTIONS]
 ```
 
 | Argument | Required | Default | Meaning |

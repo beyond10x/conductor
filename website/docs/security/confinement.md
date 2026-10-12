@@ -112,5 +112,6 @@ denied as class H in every guarded session.
 
 The store tells the operator's commands from conductor's by the command, not by who runs it.
 Conductor's own session may run every `conductor` command, `record-operator-decision` included,
-to record a decision the operator gave in words. A controller's session runs only the read
-commands.
+to record a decision the operator gave in words. Such a record names the session that wrote it
+(`--recorded-by`) and quotes those words (`--operator-words`), both required. A controller's
+session runs only the read commands.

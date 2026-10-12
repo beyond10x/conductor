@@ -103,6 +103,8 @@ fn encode_decision(decision: &DecisionSnapshot) -> Value {
         "reason": data.reason,
         "evidence": data.evidence,
         "decided_at": data.decided_at.0,
+        "recorded_by": data.recorded_by,
+        "operator_words": data.operator_words,
     })
 }
 
@@ -119,6 +121,8 @@ fn decode_decision(body: &Value) -> Result<DecisionSnapshot, String> {
             reason: text(body, "reason")?,
             evidence: text(body, "evidence")?,
             decided_at: Timestamp(text(body, "decided_at")?),
+            recorded_by: added_text(body, "recorded_by")?,
+            operator_words: added_text(body, "operator_words")?,
         },
     })
 }
@@ -199,6 +203,16 @@ fn optional_text(body: &Value, field: &str) -> Result<Option<String>, String> {
         Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
         _ => Err(format!("no text or null field {field:?}")),
+    }
+}
+
+/// A text field added to a record after records were written without it
+/// (`story:operator-decision-guarded`): absent or `null` is `None`; anything else but text does
+/// not decode.
+fn added_text(body: &Value, field: &str) -> Result<Option<String>, String> {
+    match body.get(field) {
+        None => Ok(None),
+        Some(_) => optional_text(body, field),
     }
 }
 

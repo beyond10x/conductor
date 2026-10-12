@@ -13,6 +13,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "conductor session claim --from-session-start --pid \"$PPID\" || exit 2"
+          }
+        ]
+      }
     ]
   },
   "disableAllHooks": false

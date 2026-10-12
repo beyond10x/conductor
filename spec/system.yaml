@@ -8,3 +8,4 @@ domains:
   - conductor.decision
   - conductor.dispatch
   - conductor.config
+  - conductor.session

@@ -18,7 +18,7 @@ mod common;
 use std::fs::{self, File};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use clap::Parser as _;
@@ -1291,14 +1291,14 @@ fn settings(name: &str) -> Value {
 }
 
 /// The matchers of `settings`' PreToolUse hooks, sorted, after asserting each runs the guard
-/// command and nothing else, and that no other hook event is wired.
+/// command and nothing else, and that the hook events wired are exactly `events`.
 #[track_caller]
-fn guarded_matchers(settings: &Value) -> Vec<String> {
+fn guarded_matchers(settings: &Value, events: &[&str]) -> Vec<String> {
     let hooks = settings["hooks"].as_object().expect("a hooks object");
     assert_eq!(
-        hooks.keys().collect::<Vec<_>>(),
-        ["PreToolUse"],
-        "only PreToolUse is wired"
+        hooks.keys().map(String::as_str).collect::<Vec<_>>(),
+        events,
+        "the hook events wired"
     );
     let mut matchers: Vec<String> = hooks["PreToolUse"]
         .as_array()
@@ -1319,7 +1319,7 @@ fn guarded_matchers(settings: &Value) -> Vec<String> {
 #[test]
 fn the_controller_settings_wire_the_guard_on_every_tool() {
     let controller = settings("controller-settings.json");
-    assert_eq!(guarded_matchers(&controller), MATCHERS);
+    assert_eq!(guarded_matchers(&controller, &["PreToolUse"]), MATCHERS);
     assert_eq!(
         controller["disableAllHooks"],
         Value::Bool(false),
@@ -1330,7 +1330,12 @@ fn the_controller_settings_wire_the_guard_on_every_tool() {
 #[test]
 fn conductor_settings_wire_the_guard_and_keep_background_isolation_off() {
     let conductor = settings("conductor-settings.json");
-    assert_eq!(guarded_matchers(&conductor), MATCHERS);
+    // Conductor's settings also claim the instance's conductor lease when a session starts
+    // (`story:single-conductor-lease`, `tests/session.rs`).
+    assert_eq!(
+        guarded_matchers(&conductor, &["PreToolUse", "SessionStart"]),
+        MATCHERS
+    );
     assert_eq!(conductor["worktree"]["bgIsolation"], "none");
     assert_eq!(conductor["disableAllHooks"], Value::Bool(false));
 }
@@ -1652,4 +1657,462 @@ fn conductor_writes_its_analysis_records() {
             &format!("{name} other/"),
         );
     }
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:lease-guard: while a live process holds the instance's conductor lease, a conductor-role
+// session that is not the holder may read and may not write.
+// -------------------------------------------------------------------------------------------------
+
+/// The session that holds the instance's conductor lease in these cases.
+const HOLDER: &str = "00000000-0000-4000-8000-0000000000c1";
+
+/// A second conductor-role session of the same instance.
+const SECOND: &str = "00000000-0000-4000-8000-0000000000c2";
+
+/// What every denial of a second conductor's write says of it.
+const SECOND_CONDUCTOR: &str = "second conductor";
+
+/// A process standing for the holder's session: a `sleep` child of this test, ended when dropped.
+struct HolderProcess(Child);
+
+impl HolderProcess {
+    fn start() -> Self {
+        Self(
+            Command::new("sleep")
+                .arg("600")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("sleep runs"),
+        )
+    }
+
+    fn pid(&self) -> u32 {
+        self.0.id()
+    }
+
+    /// Ends the process and reaps it, so no process has its pid any more.
+    fn end(&mut self) {
+        self.0.kill().expect("end the holder's process");
+        self.0.wait().expect("reap the holder's process");
+    }
+}
+
+impl Drop for HolderProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// Records the conductor lease of `config`'s instance under `state` for `session_id` and `pid`, as
+/// the SessionStart hook of conductor's settings claims it.
+fn claim_lease(case: &Path, state: &Path, config: &Path, session_id: &str, pid: u32) {
+    let output = common::conductor(case.join("home"))
+        .env(CONFIG_VARIABLE, config)
+        .arg("--state-dir")
+        .arg(state)
+        .args(["session", "claim", "--session-id", session_id, "--pid"])
+        .arg(pid.to_string())
+        .current_dir(case)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the conductor binary runs");
+    assert!(
+        output.status.success(),
+        "`session claim` exited {:?}; stderr: {}",
+        output.status.code(),
+        stderr(&output)
+    );
+    let copy = lease_file(state);
+    assert_eq!(
+        copy["session_id"], session_id,
+        "the claim writes the guard's copy of the lease: {copy:#}"
+    );
+    assert_eq!(copy["pid"], u64::from(pid), "{copy:#}");
+    assert_eq!(copy["instance"], "fixture", "{copy:#}");
+}
+
+/// The guard's copy of the lease under `state`, as `session claim` writes it.
+fn lease_file(state: &Path) -> Value {
+    let text = fs::read_to_string(state.join(LEASE_FILE)).expect("read the lease file");
+    serde_json::from_str(&text).expect("the lease file is JSON")
+}
+
+/// The file the guard reads the lease from, under the state directory.
+const LEASE_FILE: &str = "conductor.lease";
+
+/// Writes the guard's copy of the lease under `state` by hand, naming `session_id` and `pid` for
+/// the instance of [`config_text`], with no store beside it.
+fn write_lease_file(state: &Path, session_id: &str, pid: u32) {
+    fs::create_dir_all(state).expect("create the state directory");
+    let body = serde_json::json!({ "instance": "fixture", "session_id": session_id, "pid": pid });
+    fs::write(state.join(LEASE_FILE), format!("{body}\n")).expect("write the lease file");
+}
+
+/// `payload` as the session `session_id` sends it.
+fn from_session(payload: &[u8], session_id: &str) -> Vec<u8> {
+    let mut payload: Value = serde_json::from_slice(payload).expect("the payload is JSON");
+    payload["session_id"] = Value::String(session_id.to_owned());
+    serde_json::to_vec(&payload).expect("serialise the payload")
+}
+
+/// Acceptance: while the lease's holder lives, the holder writes its records; a second session
+/// in conductor's records is denied a records write, a SendMessage and a Bash write, each naming
+/// the holder's session id and pid, and each denial is recorded as its own; it still reads, with
+/// Read and with a Bash read. Once no process has the holder's pid, the second session writes as
+/// before.
+#[test]
+fn a_conductor_session_that_does_not_hold_a_live_lease_reads_and_does_not_write() {
+    let case = case_dir("lease-guard");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    let record = case
+        .join("records/decisions/2026-10.jsonl")
+        .display()
+        .to_string();
+    let mut holder = HolderProcess::start();
+    let pid = holder.pid();
+    claim_lease(&case, &state, &config, HOLDER, pid);
+
+    let write = payload_at("write", &case, &records, &[("file_path", &record)]);
+    let output = hook_with(&case, &state, Some(&config), &from_session(&write, HOLDER));
+    assert_answer(&output, 0, "", "the holder writes its records");
+
+    let holder_named = format!("session {HOLDER} (pid {pid})");
+    let mut denials = 0;
+    for (what, payload) in [
+        ("a records write", write.clone()),
+        (
+            "a SendMessage",
+            payload_at("send-message", &case, &records, &[("to", "nobody")]),
+        ),
+        (
+            "a Bash write",
+            payload_at(
+                "bash",
+                &case,
+                &records,
+                &[("command", &format!("echo x >> {record}"))],
+            ),
+        ),
+        (
+            "a conductor leaf that writes",
+            payload_at(
+                "bash",
+                &case,
+                &records,
+                &[(
+                    "command",
+                    "conductor decision record-operator-decision --input-json -",
+                )],
+            ),
+        ),
+    ] {
+        let output = hook_with(
+            &case,
+            &state,
+            Some(&config),
+            &from_session(&payload, SECOND),
+        );
+        assert_answer(&output, 2, SECOND_CONDUCTOR, &format!("second: {what}"));
+        assert!(
+            stderr(&output).contains(&holder_named),
+            "second: {what}: the denial does not name {holder_named:?}: {}",
+            stderr(&output)
+        );
+        denials += 1;
+    }
+    for (what, payload) in [
+        (
+            "Read",
+            tool_at(
+                &case,
+                &records,
+                "Read",
+                serde_json::json!({ "file_path": record }),
+            ),
+        ),
+        (
+            "a Bash read",
+            payload_at(
+                "bash",
+                &case,
+                &records,
+                &[("command", "conductor session leases")],
+            ),
+        ),
+    ] {
+        let output = hook_with(
+            &case,
+            &state,
+            Some(&config),
+            &from_session(&payload, SECOND),
+        );
+        assert_answer(&output, 0, "", &format!("second: {what}"));
+    }
+    let rows = decisions(&case, &state);
+    assert_eq!(rows.len(), denials, "every denial is recorded: {rows:#?}");
+    assert!(
+        rows.iter().all(|row| row["session_ref"] == SECOND
+            && row["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains(&holder_named))),
+        "{rows:#?}"
+    );
+
+    holder.end();
+    let output = hook_with(&case, &state, Some(&config), &from_session(&write, SECOND));
+    assert_answer(
+        &output,
+        0,
+        "",
+        "second: a records write once the holder's process is gone",
+    );
+}
+
+/// Without a lease, a conductor-role session writes its records as before, and reading the lease
+/// creates no store.
+#[test]
+fn without_a_lease_a_conductor_session_writes_as_before() {
+    let case = case_dir("lease-guard-none");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    let record = case
+        .join("records/decisions/2026-10.jsonl")
+        .display()
+        .to_string();
+    let write = payload_at("write", &case, &records, &[("file_path", &record)]);
+    let output = hook_with(&case, &state, Some(&config), &from_session(&write, SECOND));
+    assert_answer(&output, 0, "", "a records write without a lease");
+    assert!(!state.exists(), "reading the lease created a store");
+}
+
+/// The guard reads the lease from its copy alone, with no store beside it: a copy naming a live
+/// holder denies a second session's write, and one naming a pid no process has any more lets it
+/// through, opening no store either way.
+#[test]
+fn the_guard_reads_the_lease_from_its_copy_and_a_dead_holder_lets_the_write_through() {
+    let case = case_dir("lease-guard-file");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    let record = case
+        .join("records/decisions/2026-10.jsonl")
+        .display()
+        .to_string();
+    let write = from_session(
+        &payload_at("write", &case, &records, &[("file_path", &record)]),
+        SECOND,
+    );
+
+    let mut holder = HolderProcess::start();
+    let pid = holder.pid();
+    write_lease_file(&state, HOLDER, pid);
+    let output = hook_with(&case, &state, Some(&config), &write);
+    assert_answer(&output, 2, SECOND_CONDUCTOR, "a live holder in the copy");
+    assert!(
+        stderr(&output).contains(&format!("session {HOLDER} (pid {pid})")),
+        "{}",
+        stderr(&output)
+    );
+
+    holder.end();
+    let state = case.join("state-dead");
+    write_lease_file(&state, HOLDER, pid);
+    let output = hook_with(&case, &state, Some(&config), &write);
+    assert_answer(&output, 0, "", "a dead holder in the copy");
+    assert!(
+        !state.join("tree").exists(),
+        "reading the lease opened a store"
+    );
+}
+
+// -------------------------------------------------------------------------------------------------
+// Security review of story:lease-guard (wave 09): conformance cases for the lease's own contract.
+// -------------------------------------------------------------------------------------------------
+
+/// Review finding: while a live holder exists, a second conductor's Bash command that disables the
+/// guard's copy of the lease is not decided as a write, so it is allowed; once the file is gone or
+/// unreadable the guard lets every write of that session through (`guard.rs` `leased`: "no such
+/// regular file, one that does not read ... leaves `decision` as it is"), Edit, Write and
+/// SendMessage included. A command that names the lease file is a write to the lease, whatever
+/// program it runs.
+#[test]
+fn a_second_conductor_is_denied_a_bash_command_that_disables_the_lease_file() {
+    let case = case_dir("lease-guard-disable");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    let holder = HolderProcess::start();
+    claim_lease(&case, &state, &config, HOLDER, holder.pid());
+    let lease = state.join(LEASE_FILE).display().to_string();
+
+    let mut allowed = Vec::new();
+    for command in [
+        format!("chmod 000 {lease}"),
+        format!("unlink {lease}"),
+        format!("find {} -name {LEASE_FILE} -delete", state.display()),
+        format!("python3 -c \"import os; os.remove('{lease}')\""),
+    ] {
+        let payload = payload_at("bash", &case, &records, &[("command", &command)]);
+        let output = hook_with(
+            &case,
+            &state,
+            Some(&config),
+            &from_session(&payload, SECOND),
+        );
+        if output.status.code() != Some(2) || !stderr(&output).contains(SECOND_CONDUCTOR) {
+            allowed.push(format!(
+                "{command:?} answered {:?}: {}",
+                output.status.code(),
+                stderr(&output)
+            ));
+        }
+    }
+    assert!(
+        allowed.is_empty(),
+        "a second conductor may disable the lease file while the holder lives:\n{}",
+        allowed.join("\n")
+    );
+    assert_eq!(
+        lease_file(&state)["session_id"],
+        HOLDER,
+        "the lease file still names the holder"
+    );
+}
+
+/// A Claude Code session standing in a process of its own: a shell that runs the SessionStart
+/// claim and then one PreToolUse guard call, each under `sh -c` as Claude Code runs a hook, and
+/// then becomes `sleep`, keeping its pid. The claim reads its pid from the inner shell's `$PPID`,
+/// as the shipped settings do.
+struct SessionProcess {
+    process: Child,
+    claim_status: Option<i32>,
+    claim_output: String,
+    guard_status: Option<i32>,
+    guard_stderr: String,
+}
+
+impl SessionProcess {
+    fn start(
+        case: &Path,
+        state: &Path,
+        config: &Path,
+        name: &str,
+        session_id: &str,
+        tool_call: &[u8],
+    ) -> Self {
+        let dir = case.join(name);
+        fs::create_dir_all(&dir).expect("create the session's directory");
+        let start = serde_json::json!({
+            "session_id": session_id,
+            "hook_event_name": "SessionStart",
+            "source": "resume",
+            "cwd": case.join("records"),
+        });
+        fs::write(dir.join("start.json"), start.to_string()).expect("write the start payload");
+        fs::write(dir.join("call.json"), tool_call).expect("write the tool call payload");
+        let home = case.join("home");
+        let binary = common::conductor(&home).get_program().to_owned();
+        let script = r#"sh -c '"$0" --state-dir "$1" session claim --from-session-start --pid "$PPID"' "$1" "$2" <"$3/start.json" >"$3/claim.out" 2>&1; echo $? >"$3/claim.status"; sh -c '"$0" --state-dir "$1" guard record-guard-decision --from-pre-tool-use' "$1" "$2" <"$3/call.json" >/dev/null 2>"$3/guard.err"; echo $? >"$3/guard.next" && mv "$3/guard.next" "$3/guard.status"; exec sleep 600"#;
+        let mut process = Command::new("/bin/sh")
+            .args(["-c", script, name])
+            .arg(&binary)
+            .arg(state)
+            .arg(&dir)
+            .current_dir(case.join("records"))
+            .env_clear()
+            .env("HOME", &home)
+            .env("PATH", "/usr/bin:/bin")
+            .env(CONFIG_VARIABLE, config)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("sh runs");
+        let done = dir.join("guard.status");
+        let started = Instant::now();
+        while !done.exists() {
+            if started.elapsed() >= Duration::from_secs(60) {
+                let _ = process.kill();
+                let _ = process.wait();
+                panic!("the hooks of {name} did not end within 60 s");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let read = |file: &str| fs::read_to_string(dir.join(file)).unwrap_or_default();
+        Self {
+            claim_status: read("claim.status").trim().parse().ok(),
+            claim_output: read("claim.out"),
+            guard_status: read("guard.status").trim().parse().ok(),
+            guard_stderr: read("guard.err"),
+            process,
+        }
+    }
+
+    fn pid(&self) -> u32 {
+        self.process.id()
+    }
+}
+
+impl Drop for SessionProcess {
+    fn drop(&mut self) {
+        let _ = self.process.kill();
+        let _ = self.process.wait();
+    }
+}
+
+/// Review finding: the guard knows the holder by the payload's `session_id` alone. A second live
+/// process that carries the holder's session id (`claude --resume <id>` by hand, which keeps the
+/// id, while the holder's process still runs) has its SessionStart claim refused, since its pid is
+/// not the holder's, and is then allowed every write, so two conductors write. The holder's own
+/// write stays allowed.
+#[test]
+#[ignore = "story:lease-by-process: the guard identifies the holder by session id only"]
+fn a_second_process_resuming_the_holder_s_session_is_denied_its_writes() {
+    let case = case_dir("lease-guard-same-id");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    fs::create_dir_all(&records).expect("create the records directory");
+    let record = records
+        .join("decisions/2026-10.jsonl")
+        .display()
+        .to_string();
+    let write = from_session(
+        &payload_at("write", &case, &records, &[("file_path", &record)]),
+        HOLDER,
+    );
+
+    let holder = SessionProcess::start(&case, &state, &config, "holder", HOLDER, &write);
+    assert_eq!(holder.claim_status, Some(0), "{}", holder.claim_output);
+    assert_eq!(lease_file(&state)["pid"], u64::from(holder.pid()));
+    assert_eq!(
+        holder.guard_status,
+        Some(0),
+        "the holder writes its records: {}",
+        holder.guard_stderr
+    );
+
+    let resumed = SessionProcess::start(&case, &state, &config, "resumed", HOLDER, &write);
+    assert_ne!(
+        resumed.claim_status,
+        Some(0),
+        "the resumed process's claim is refused while the holder lives: {}",
+        resumed.claim_output
+    );
+    assert_eq!(
+        resumed.guard_status,
+        Some(2),
+        "a second live process of the holder's session id writes while the holder's process lives \
+         (lease pid {}, this process {}): {}",
+        holder.pid(),
+        resumed.pid(),
+        resumed.guard_stderr
+    );
 }

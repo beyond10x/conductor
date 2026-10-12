@@ -87,7 +87,7 @@ const REQUEST_COLUMNS: [&str; 11] = [
 ];
 
 /// The fields of the `Decisions` view, in the specification's order.
-const DECISION_COLUMNS: [&str; 10] = [
+const DECISION_COLUMNS: [&str; 12] = [
     "decision_id",
     "state",
     "decision_class",
@@ -98,6 +98,8 @@ const DECISION_COLUMNS: [&str; 10] = [
     "reason",
     "evidence",
     "decided_at",
+    "recorded_by",
+    "operator_words",
 ];
 
 /// `conductor decision raise-decision-request`: the command
@@ -231,11 +233,16 @@ pub fn record_conductor_decision(
 /// `conductor decision record-operator-decision`: the command
 /// `conductor.decision.RecordOperatorDecision`. Prints the decision's id.
 ///
+/// Besides the fields both record commands take, it records who wrote the decision down and on
+/// what words (`story:operator-decision-guarded`): `--recorded-by`, the session that runs it, and
+/// `--operator-words`, the operator's words, quoted. Each is required and must hold more than
+/// white space; the command reads no session from its environment.
+///
 /// # Errors
 ///
-/// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)), the
-/// store does not open or keep the decision, the given id is already held, or no id could be
-/// allocated.
+/// A flag is missing, `--recorded-by` or `--operator-words` is blank, `--input-json` is given
+/// ([`NotImplemented`](crate::NotImplemented)), the store does not open or keep the decision, the
+/// given id is already held, or no id could be allocated.
 pub fn record_operator_decision(
     state: Option<&Path>,
     args: RecordOperatorDecisionArgs,
@@ -258,6 +265,8 @@ pub fn record_operator_decision(
             decided_at: args.decided_at,
         },
     )?;
+    let recorded_by = not_blank(COMMAND, "--recorded-by", args.recorded_by)?;
+    let operator_words = not_blank(COMMAND, "--operator-words", args.operator_words)?;
     record_decision(COMMAND, state, &fields, |generated, decision_id| {
         let outcome = generated
             .record_operator_decision(RecordOperatorDecision {
@@ -269,6 +278,8 @@ pub fn record_operator_decision(
                 reason: fields.reason.clone(),
                 evidence: fields.evidence.clone(),
                 decided_at: fields.decided_at.clone(),
+                recorded_by: recorded_by.clone(),
+                operator_words: operator_words.clone(),
             })
             .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
         Ok(match outcome {
@@ -655,6 +666,8 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.reason),
                 Value::from(row.evidence),
                 Value::from(row.decided_at.0),
+                Value::from(row.recorded_by),
+                Value::from(row.operator_words),
             ]
         })
         .collect();
@@ -666,7 +679,7 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 }
 
 /// The fields `decision show` renders, in its order: a row of the `Decisions` view.
-const SHOWN: [&str; 10] = [
+const SHOWN: [&str; 12] = [
     "decision_id",
     "state",
     "decision_class",
@@ -677,6 +690,8 @@ const SHOWN: [&str; 10] = [
     "choice",
     "reason",
     "evidence",
+    "recorded_by",
+    "operator_words",
 ];
 
 /// `conductor decision show`: the binding's `decision-show` callable over
@@ -727,6 +742,8 @@ pub fn show(state: Option<&Path>, args: ShowDecisionArgs) -> Result<ExitCode> {
         Value::from(row.choice),
         Value::from(row.reason),
         Value::from(row.evidence),
+        Value::from(row.recorded_by),
+        Value::from(row.operator_words),
     ];
     let rendered = if json {
         ViewArgs {
@@ -1084,6 +1101,16 @@ fn flags_only(input_json: Option<JsonInput>, what: &'static str) -> Result<()> {
 /// The value of the flag `name`, or an error naming it.
 fn flag<T>(command: &str, name: &str, value: Option<T>) -> Result<T> {
     value.ok_or_else(|| anyhow!("{command}: {name} is missing"))
+}
+
+/// The value of the flag `name`, or an error naming it when it is missing or holds only white
+/// space.
+fn not_blank(command: &str, name: &str, value: Option<String>) -> Result<String> {
+    let value = flag(command, name, value)?;
+    if value.trim().is_empty() {
+        bail!("{command}: {name} is blank; nothing was recorded");
+    }
+    Ok(value)
 }
 
 /// The class the flag `name` gives; its parser has already held it to `C`, `O` or `H`.

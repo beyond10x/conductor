@@ -108,6 +108,13 @@ entities:
         type: String
       - name: decided_at
         type: Timestamp
+      # Who wrote an operator's decision down and on what words (story:operator-decision-guarded):
+      # the session that ran `record-operator-decision`, and the operator's words it records,
+      # quoted. Absent on conductor's decisions and on an operator's recorded before them.
+      - name: recorded_by
+        type: Optional<String>
+      - name: operator_words
+        type: Optional<String>
     lifecycle:
       initial: InForce
       states: [InForce, Reversed]
@@ -334,6 +341,14 @@ commands:
         type: String
       - name: decided_at
         type: Timestamp
+      # The session that records the decision. The command reads no session from its
+      # environment, so the recording session names itself; the store then tells the operator's
+      # own session from conductor's relaying his answer.
+      - name: recorded_by
+        type: String
+      # The operator's words the decision is recorded on, quoted: the evidence that he decided.
+      - name: operator_words
+        type: String
     outcomes:
       - name: recorded
         creates: conductor.decision.Decision
@@ -347,6 +362,8 @@ commands:
           reason: input.reason
           evidence: input.evidence
           decided_at: input.decided_at
+          recorded_by: input.recorded_by
+          operator_words: input.operator_words
         emits:
           - conductor.decision.DecisionRecorded
         payload:
@@ -751,6 +768,10 @@ views:
         type: String
       - name: decided_at
         type: Timestamp
+      - name: recorded_by
+        type: Optional<String>
+      - name: operator_words
+        type: Optional<String>
     naming:
       wire: decisions
       display: Decisions

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:lease-guard
 kind: story
-status: draft
+status: implemented
 title: The guard denies writes from a conductor session that does not hold the lease
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -14,7 +14,11 @@ scope:
   path: crates/conductor/src/guard.rs
 - confidence: cited
   path: crates/conductor/tests/guard_hook.rs
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T19:15:08Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-12T19:15:08Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-12T19:44:38Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

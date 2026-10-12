@@ -70,6 +70,10 @@ fn adv_a_backslash_before_a_pipe_keeps_the_markdown_row_at_its_columns() {
             "e",
             "--decided-at",
             "2026-10-07T10:00:00Z",
+            "--recorded-by",
+            "session-1",
+            "--operator-words",
+            "A",
         ],
     );
     assert!(recorded.status.success(), "the decision is recorded");

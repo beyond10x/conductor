@@ -37,6 +37,8 @@ page for each item and the controllers waiting on it (`conductor decision hands-
 
 `record-conductor-decision` refuses a class-O or class-H decision as `ReservedForOperator`, and
 records nothing. The operator records what was decided or done with `record-operator-decision`.
+It names the session that records it (`--recorded-by <session>`) and quotes the operator's words
+the decision rests on (`--operator-words`); both are required, and `decision show` prints them.
 
 The guard enforces one class-H line in code: a `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key`
 write is denied to every guarded session, whoever authorized it, and the denial hands the operator

@@ -19,6 +19,8 @@ timeline:
       reason: the gateway has its own release cadence
       evidence: ADR draft
       decided_at: 2026-10-06T09:00:00Z
+      recorded_by: operator-session
+      operator_words: "A, go"
     outcome: recorded
 
   - at: 2026-10-06T09:00:01Z
@@ -36,3 +38,5 @@ assert:
     contains:
       decision_id: DEC-op-1
       state: InForce
+      recorded_by: operator-session
+      operator_words: "A, go"

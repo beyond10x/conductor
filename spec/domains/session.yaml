@@ -1,0 +1,199 @@
+domain: conductor.session
+
+summary: >
+  The one conductor of an instance (story:single-conductor-lease). The lease, kept in the store
+  under the instance's state directory, names the session id and the process id of the conductor
+  session that holds it. Every conductor session started with the instance's settings claims it
+  at its start, through the settings' SessionStart hook; a claim while another live process holds
+  it is refused and names that holder, and a claim over a holder whose process is gone takes the
+  lease over and records whom it took it from. Design: docs/design/conductor.md § 7.
+
+naming:
+  wire: session
+  display: Session
+
+types:
+  # The harness's id of one session: Claude Code's `session_id`, as its hooks receive it.
+  - name: conductor.session.SessionId
+    kind: newtype
+    of: String
+
+entities:
+  # One per instance, keyed by the instance's name. `pid` is the process of the session that holds
+  # it: the harness's own process, which lives exactly as long as the session does. The last two
+  # fields name the holder the lease was last taken over from because its process was gone: a
+  # claim that finds no lease leaves them empty, and the holder's own claim keeps them.
+  - name: conductor.session.Lease
+    identity:
+      name: instance
+      type: conductor.config.InstanceName
+    fields:
+      - name: session_id
+        type: conductor.session.SessionId
+      - name: pid
+        type: Integer
+      - name: taken_at
+        type: Timestamp
+      - name: taken_over_session_id
+        type: Optional<conductor.session.SessionId>
+      - name: taken_over_pid
+        type: Optional<Integer>
+    invariants:
+      - pid > 0
+    lifecycle:
+      initial: Held
+      states: [Held]
+      terminal: [Held]
+
+actors:
+  # Conductor's session runs the claim through its SessionStart hook; no controller runs it.
+  - name: conductor.session.Conductor
+    may:
+      - conductor.session.ClaimLease
+    naming:
+      display: Conductor
+
+errors:
+  - name: conductor.session.LeaseHeld
+    summary: >
+      Another session's live process holds the instance's lease: the claiming session is a second
+      conductor and must stop. Nothing was written.
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: session_id
+        type: conductor.session.SessionId
+      - name: pid
+        type: Integer
+
+commands:
+  # Which of `held` and `taken-over` answers a claim from another process is the process table's
+  # fact, not the store's: `held` while the holder's `pid` names a live process, `taken-over` once
+  # it names none. The lease is selected as a row set by its `instance`, its identity, rather than
+  # through `via: input.instance`: over the identity-addressed guards, ess 0.56 synthesizes a
+  # `taken` scenario that claims one instance three times and expects `taken` each time.
+  - name: conductor.session.ClaimLease
+    naming:
+      wire: claim
+      display: Claim the conductor lease
+    input:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: session_id
+        type: conductor.session.SessionId
+      - name: pid
+        type: Integer
+      - name: taken_at
+        type: Timestamp
+    outcomes:
+      - name: taken
+        when_related:
+          entity: conductor.session.Lease
+          where: instance == input.instance
+          exists: false
+        creates: conductor.session.Lease
+        instance: instance
+        sets:
+          session_id: input.session_id
+          pid: input.pid
+          taken_at: input.taken_at
+          taken_over_session_id: {cleared: true}
+          taken_over_pid: {cleared: true}
+        emits:
+          - conductor.session.LeaseTaken
+        payload:
+          conductor.session.LeaseTaken:
+            instance: input.instance
+            session_id: input.session_id
+            pid: input.pid
+        summary: No session held the instance's lease; the claiming one holds it now.
+      - name: renewed
+        when_related:
+          entity: conductor.session.Lease
+          where:
+            all:
+              - instance == input.instance
+              - pid == input.pid
+          exists: true
+        updates: conductor.session.Lease
+        instance: instance
+        sets:
+          session_id: input.session_id
+          taken_at: input.taken_at
+        emits:
+          - conductor.session.LeaseTaken
+        payload:
+          conductor.session.LeaseTaken:
+            instance: input.instance
+            session_id: input.session_id
+            pid: input.pid
+        summary: The holder's own process claims again (a resumed, cleared or compacted session); it keeps the lease under the session id it gives now.
+      - name: held
+        external: the process the lease names lives and is not the claiming one
+        error: conductor.session.LeaseHeld
+        summary: A second conductor is refused, told who holds the lease, and must stop; the lease is unchanged.
+      - name: taken-over
+        updates: conductor.session.Lease
+        instance: instance
+        sets:
+          session_id: input.session_id
+          pid: input.pid
+          taken_at: input.taken_at
+          taken_over_session_id: {subject: session_id}
+          taken_over_pid: {subject: pid}
+        emits:
+          - conductor.session.LeaseTakenOver
+        payload:
+          conductor.session.LeaseTakenOver:
+            instance: input.instance
+            session_id: input.session_id
+            pid: input.pid
+            taken_over_session_id: {subject: session_id}
+            taken_over_pid: {subject: pid}
+        summary: The holder's process is gone, so the claiming session takes the lease and the lease records whom it was taken from.
+
+events:
+  - name: conductor.session.LeaseTaken
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: session_id
+        type: conductor.session.SessionId
+      - name: pid
+        type: Integer
+
+  - name: conductor.session.LeaseTakenOver
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: session_id
+        type: conductor.session.SessionId
+      - name: pid
+        type: Integer
+      - name: taken_over_session_id
+        type: conductor.session.SessionId
+      - name: taken_over_pid
+        type: Integer
+
+views:
+  - name: conductor.session.Leases
+    source: conductor.session.Lease
+    consistency: read_your_writes
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: state
+        type: conductor.session.Lease.State
+      - name: session_id
+        type: conductor.session.SessionId
+      - name: pid
+        type: Integer
+      - name: taken_at
+        type: Timestamp
+      - name: taken_over_session_id
+        type: Optional<conductor.session.SessionId>
+      - name: taken_over_pid
+        type: Optional<Integer>
+    naming:
+      wire: leases
+      display: Conductor leases

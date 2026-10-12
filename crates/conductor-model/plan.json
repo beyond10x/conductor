@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "84b592f140125cd3aed1146902af06286fe074e51bd37c3058ef048e00488ad7",
-    "contract_digest": "c8299a1d4e391c17946b1ecfd88291bc6e943579106a6dbdb518a86ed8ae0125"
+    "source_digest": "75ae36bcd64ac6ed7ea7350fa76e1813347a0d4390844f42e75e83fd78193d30",
+    "contract_digest": "218b3db30bad06f16859184bd6831e8cd6288a02160b6f0fec5f8e61a9fbd7ee"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -662,6 +662,20 @@
       }
     },
     {
+      "kind": "domain_type",
+      "source": "conductor.session.Lease.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
       "kind": "entity_lifecycle",
       "source": "conductor.decision.Decision",
       "disposition": {
@@ -797,6 +811,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.observation.WorkflowRunObservation",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.session.Lease",
       "disposition": {
         "disposition": "generated"
       }
@@ -1521,6 +1542,25 @@
       }
     },
     {
+      "kind": "command_contract",
+      "source": "conductor.session.ClaimLease",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.session.ClaimLease",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "an unknown identity, which reaches no declared outcome (neither `unknown_instance:` nor `wrong_state:`)"
+        },
+        "contract": "given `conductor.session.ClaimLease` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `taken` when, of the `conductor.session.Lease` rows satisfying `instance == input.instance`, no row is selected, creates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `renewed` when, of the `conductor.session.Lease` rows satisfying `(instance == input.instance and pid == input.pid)`, at least one row is selected, updates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `held` externally decided (the process the lease names lives and is not the claiming one), error `conductor.session.LeaseHeld`; `taken-over` otherwise, updates `conductor.session.Lease`, emits `conductor.session.LeaseTakenOver`"
+      }
+    },
+    {
       "kind": "event_type",
       "source": "conductor.decision.DecisionRecorded",
       "disposition": {
@@ -1857,6 +1897,20 @@
       }
     },
     {
+      "kind": "event_type",
+      "source": "conductor.session.LeaseTaken",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.session.LeaseTakenOver",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
       "kind": "error_type",
       "source": "conductor.decision.DecisionExists",
       "disposition": {
@@ -2151,6 +2205,13 @@
       }
     },
     {
+      "kind": "error_type",
+      "source": "conductor.session.LeaseHeld",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
       "kind": "view_type",
       "source": "conductor.decision.Decisions",
       "disposition": {
@@ -2440,6 +2501,20 @@
     {
       "kind": "view_query",
       "source": "conductor.observation.WorkflowRuns",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.session.Leases",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.session.Leases",
       "disposition": {
         "disposition": "generated"
       }
@@ -2522,6 +2597,16 @@
         "reason": "needs_caller_identity",
         "stage": "planning",
         "detail": "may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.session.Conductor",
+      "disposition": {
+        "disposition": "refused",
+        "reason": "needs_caller_identity",
+        "stage": "planning",
+        "detail": "may invoke `conductor.session.ClaimLease`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {

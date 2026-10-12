@@ -49,7 +49,7 @@ fn bash(home: &Path, repository: &str, command: &str) -> guard::Decision {
 
 const OPERATOR_COMMANDS: [&str; 3] = [
     "decision record-operator-decision --decision-class O --question q --options o --choice A \
-     --reason r --evidence e --decided-at 2026-10-07T10:00:00Z",
+     --reason r --evidence e --decided-at 2026-10-07T10:00:00Z --recorded-by s --operator-words w",
     "decision answer-escalated-request --request-id cortex-1 --decision-id DEC-20261007-01",
     "decision reverse-operator-decision --decision-id DEC-20261007-01 --reason r",
 ];
@@ -83,7 +83,7 @@ fn adv_a_controller_cannot_record_or_reverse_as_the_operator() {
 ///
 /// As adopted by wave 06 U7, this case asserts the opposite of the adversary's: the coordinator
 /// decided that conductor's own session runs every leaf, the three operator commands included,
-/// because it records the operator's decisions on his word, with his words in `evidence`, as it
+/// because it records the operator's decisions on their word, with their words in `evidence`, as it
 /// does by hand today (design § 5; `~/.cache/conductor-waves/w06/u7/brief.md`, decision 1). So
 /// the guard allows all three for conductor's session.
 #[test]

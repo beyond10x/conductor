@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:operator-decision-guarded
 kind: story
-status: active
+status: implemented
 title: An operator decision says which session recorded it and on whose words
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -18,10 +18,11 @@ scope:
   path: crates/conductor/tests/decision.rs
 - confidence: cited
   path: spec/domains/decision.yaml
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-12T18:50:36Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":4}}}
 - {from: "proposed", to: "active", at: "2026-10-12T18:50:36Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-12T19:44:37Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

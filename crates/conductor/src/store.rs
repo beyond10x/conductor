@@ -83,6 +83,7 @@ mod marks;
 pub mod migrate;
 pub mod observations;
 mod serving;
+mod session;
 mod snapshot;
 
 /// The directory under `state/` the tree store of every record but the observations lives in.

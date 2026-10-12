@@ -1,0 +1,45 @@
+type: ess-scenario/1
+domain: conductor.session
+scenario: claim-lease
+summary: The first claim takes the instance's lease, the holder's own process claims it again under a new session id, and a claim from another process whose holder is gone takes it over and records whom from.
+
+timeline:
+  - at: 2026-10-12T09:00:00Z
+    command: conductor.session.ClaimLease
+    actor: conductor.session.Conductor
+    input:
+      instance: example-org
+      session_id: session-one
+      pid: 4100
+      taken_at: 2026-10-12T09:00:00Z
+    outcome: taken
+
+  - at: 2026-10-12T09:10:00Z
+    command: conductor.session.ClaimLease
+    actor: conductor.session.Conductor
+    input:
+      instance: example-org
+      session_id: session-one-cleared
+      pid: 4100
+      taken_at: 2026-10-12T09:10:00Z
+    outcome: renewed
+
+  - at: 2026-10-12T10:00:00Z
+    command: conductor.session.ClaimLease
+    actor: conductor.session.Conductor
+    input:
+      instance: example-org
+      session_id: session-two
+      pid: 4200
+      taken_at: 2026-10-12T10:00:00Z
+    outcome: taken-over
+
+assert:
+  - view: conductor.session.Leases
+    contains:
+      instance: example-org
+      state: Held
+      session_id: session-two
+      pid: 4200
+      taken_over_session_id: session-one-cleared
+      taken_over_pid: 4100

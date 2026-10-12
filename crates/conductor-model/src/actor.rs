@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 84b592f140125cd3aed1146902af06286fe074e51bd37c3058ef048e00488ad7
-// contract digest c8299a1d4e391c17946b1ecfd88291bc6e943579106a6dbdb518a86ed8ae0125
+// model digest 75ae36bcd64ac6ed7ea7350fa76e1813347a0d4390844f42e75e83fd78193d30
+// contract digest 218b3db30bad06f16859184bd6831e8cd6288a02160b6f0fec5f8e61a9fbd7ee
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -29,6 +29,8 @@ pub enum Actor {
     DispatchRepositoryController,
     /// `conductor.observation.Collector`.
     ObservationCollector,
+    /// `conductor.session.Conductor`.
+    SessionConductor,
 }
 
 impl Actor {
@@ -42,6 +44,7 @@ impl Actor {
         Actor::DispatchConductor,
         Actor::DispatchRepositoryController,
         Actor::ObservationCollector,
+        Actor::SessionConductor,
     ];
 
     /// The actor's qualified name, as the specification spells it.
@@ -55,6 +58,7 @@ impl Actor {
             Actor::DispatchConductor => "conductor.dispatch.Conductor",
             Actor::DispatchRepositoryController => "conductor.dispatch.RepositoryController",
             Actor::ObservationCollector => "conductor.observation.Collector",
+            Actor::SessionConductor => "conductor.session.Conductor",
         }
     }
 }
@@ -137,6 +141,9 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.observation.RecordSpecification",
             "conductor.observation.RecordWorkflowRun",
             "conductor.observation.StartSnapshot",
+        ],
+        Actor::SessionConductor => &[
+            "conductor.session.ClaimLease",
         ],
     }
 }

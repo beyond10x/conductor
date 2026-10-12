@@ -34,6 +34,17 @@
 //! given at most [`RECORD_DEADLINE`] (the store's writer lock may be held by another session's
 //! hook), and a denial that could not be recorded is still answered, with one line on standard
 //! error.
+//!
+//! A write that conductor's rule allows (Edit, Write or NotebookEdit; SendMessage; a Bash or
+//! Monitor command the guard treats as a write, or one that names the lease's file or its state
+//! directory) is decided again by the instance's conductor lease (`story:lease-guard`,
+//! [`leased`]). While the lease names another session than the payload's
+//! `session_id` and the holder's process lives, the write is denied as a second conductor's,
+//! naming the holder's session id and pid. The lease is read from one small file under the state
+//! directory, the guard's copy that `session claim` writes beside the store
+//! (`crate::session::LeaseFile`), never from the store. No file, one that does not read, or a dead
+//! holder leaves the verdict as the rule table gave it. Reads, and every call of a controller,
+//! never read it.
 
 mod rules;
 mod shell;
@@ -66,8 +77,8 @@ use crate::config;
 use crate::not_implemented;
 use crate::store::Store;
 
-use self::rules::Session;
 pub use self::rules::{Places, SessionList};
+use self::rules::{Rules, Session};
 
 /// How long recording a verdict may take before the verdict is answered without it.
 pub const RECORD_DEADLINE: Duration = Duration::from_secs(2);
@@ -224,6 +235,35 @@ pub fn decide_with(payload: &Value, home: &Path, sessions: &SessionList) -> Deci
 /// ([`Places::active`]).
 #[must_use]
 pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> Decision {
+    decided(payload, places, sessions).decision
+}
+
+/// What the rule table decided of one call, and whether it is a write the conductor lease decides
+/// further ([`leased`]).
+struct Decided {
+    decision: Decision,
+    /// The rule table allows the call, it comes from a session conductor's rule decides, and it
+    /// writes: Edit, Write or NotebookEdit; SendMessage; or Bash or Monitor running a command the
+    /// guard treats as a write ([`rules::bash_writes`]).
+    conductor_write: bool,
+    /// The rule table allows the call, it comes from a session conductor's rule decides, and it
+    /// is Bash or Monitor: a command that is a write to the lease when it names the lease's file
+    /// or its state directory ([`Places::names_lease`]), which only the hook knows.
+    conductor_command: bool,
+}
+
+impl From<Decision> for Decided {
+    fn from(decision: Decision) -> Self {
+        Self {
+            decision,
+            conductor_write: false,
+            conductor_command: false,
+        }
+    }
+}
+
+/// [`decide_in`], saying also whether the call is a conductor-role write ([`Decided`]).
+fn decided(payload: &Value, places: &Places, sessions: &SessionList) -> Decided {
     let text = |value: &Value| value.as_str().map(str::to_owned);
     let input = &payload["tool_input"];
     let session_ref = text(&payload["session_id"]).unwrap_or_default();
@@ -231,7 +271,8 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
         return Decision {
             session_ref,
             ..Decision::denied("the payload names no tool_name")
-        };
+        }
+        .into();
     };
     let field = match tool.as_str() {
         "Edit" | "Write" => Some("file_path"),
@@ -253,19 +294,19 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
         let (verdict, reason) = sub_agent(&tool, input);
         decision.verdict = verdict;
         decision.reason = reason;
-        return decision;
+        return decision.into();
     }
     if READ_ONLY.contains(&tool.as_str()) {
         decision.verdict = Verdict::Allow;
         decision.reason = format!("{tool} has no rule and is on the built-in read-only allowlist");
-        return decision;
+        return decision.into();
     }
     let ruled = RULED.contains(&tool.as_str());
     let session = match session(payload, places, sessions) {
         Ok(session) => session,
         Err(reason) if ruled => {
             decision.reason = format!("{reason}, so {tool} is denied");
-            return decision;
+            return decision.into();
         }
         Err(reason) => {
             decision.reason = format!(
@@ -273,7 +314,7 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
                  so no role's read_only_tools apply",
                 READ_ONLY.join(", ")
             );
-            return decision;
+            return decision.into();
         }
     };
     decision.repository.clone_from(&session.repository);
@@ -296,7 +337,7 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
                 }
             );
         }
-        return decision;
+        return decision.into();
     }
     let (verdict, reason) = match (tool.as_str(), target.as_deref()) {
         ("SendMessage", to) => session.message(to, input["recipient"].as_str()),
@@ -310,9 +351,17 @@ pub fn decide_in(payload: &Value, places: &Places, sessions: &SessionList) -> De
         ("Bash" | "Monitor", Some(command)) => session.bash(command),
         (_, Some(path)) => session.file(&tool, path),
     };
+    let conductor = verdict == Verdict::Allow && session.rules == Rules::Conductor;
+    let command = matches!(tool.as_str(), "Bash" | "Monitor");
+    let conductor_write =
+        conductor && (!command || target.as_deref().is_some_and(rules::bash_writes));
     decision.verdict = verdict;
     decision.reason = reason;
-    decision
+    Decided {
+        decision,
+        conductor_write,
+        conductor_command: conductor && command,
+    }
 }
 
 /// Where the payload's session runs, or why no rule set applies to it.
@@ -349,8 +398,8 @@ fn session<'a>(
 /// decides it, records a denial in the store under the state directory (`--state-dir`, else the
 /// instance's state when a config file names one, else nowhere: [`recorded_in`]) and answers it
 /// as the exit status, 0 or 2. An allowance is
-/// answered without opening the store. It always answers; every failure before a verdict exists
-/// is a denial.
+/// answered without opening the store; a conductor write reads the guard's copy of the conductor
+/// lease first ([`leased`]). It always answers; every failure before a verdict exists is a denial.
 ///
 /// # Errors
 ///
@@ -385,13 +434,24 @@ fn hook(state: Option<&Path>) -> ExitCode {
             }
         };
         match std::env::var_os("HOME").map(PathBuf::from) {
-            Some(home) if home.is_absolute() => decide_in(
-                &payload,
-                &Places::active(&home, crate::config::active())
+            Some(home) if home.is_absolute() => {
+                let places = Places::active(&home, crate::config::active())
                     .with_config_file(&config_file(&home))
-                    .with_tmp(std::env::var_os("TMPDIR").map(PathBuf::from).as_deref()),
-                &SessionList::default(),
-            ),
+                    .with_tmp(std::env::var_os("TMPDIR").map(PathBuf::from).as_deref());
+                let Decided {
+                    decision,
+                    conductor_write,
+                    conductor_command,
+                } = decided(&payload, &places, &SessionList::default());
+                if conductor_write
+                    || (conductor_command
+                        && places.names_lease(&decision.target, recorded_in(state).as_deref()))
+                {
+                    leased(state, decision)
+                } else {
+                    decision
+                }
+            }
             _ => Decision {
                 session_ref: payload["session_id"]
                     .as_str()
@@ -437,6 +497,40 @@ fn recorded_in(state: Option<&Path>) -> Option<PathBuf> {
             .from_file
             .then(|| PathBuf::from(&active.instance.state))
     })
+}
+
+/// `decision`, a conductor-role write the rule table allows, decided again by the conductor lease
+/// of the instance this process runs (`story:lease-guard`): denied when the lease names another
+/// session than the payload's and the holder's process lives ([`crate::session::lives`]), naming
+/// the holder's session id and pid; otherwise `decision` as it is.
+///
+/// The lease is read from the guard's copy of it, [`crate::session::LEASE_FILE`] under the state
+/// directory ([`recorded_in`]), which `session claim` writes once the store kept the claim; the
+/// store is not opened. No state directory, no such regular file, one that does not read, or one
+/// naming another instance leaves `decision` as it is: the SessionStart claim
+/// (`crate::session::claim`) is where a session takes the lease.
+fn leased(state: Option<&Path>, decision: Decision) -> Decision {
+    let Some(holder) = recorded_in(state).and_then(|dir| crate::session::LeaseFile::read(&dir))
+    else {
+        return decision;
+    };
+    if holder.instance != crate::config::active().instance.name.0
+        || holder.session_id == decision.session_ref
+        || !crate::session::lives(holder.pid)
+    {
+        return decision;
+    }
+    let reason = format!(
+        "{} is denied: session {} (pid {}) holds the conductor lease of instance {} and its \
+         process lives: this session is a second conductor of the instance and must stop; it \
+         may read, and writes nothing",
+        decision.tool, holder.session_id, holder.pid, holder.instance
+    );
+    Decision {
+        verdict: Verdict::Deny,
+        reason,
+        ..decision
+    }
 }
 
 /// The config file this process resolves: [`config::locate`] with no flag over its own

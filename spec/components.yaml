@@ -10,6 +10,7 @@ components:
         - conductor.decision
         - conductor.dispatch
         - conductor.config
+        - conductor.session
     # The config file and the instance in it, each from its environment variable
     # (CONDUCTOR_CONFIG, CONDUCTOR_INSTANCE) when no flag names it (story:config-file).
     settings:
@@ -72,6 +73,7 @@ components:
         - conductor.dispatch.RefuseResource
         - conductor.dispatch.ReleaseResource
         - conductor.dispatch.RecordGuardDecision
+        - conductor.session.ClaimLease
     publishes:
       events:
         - conductor.observation.SnapshotStarted
@@ -122,6 +124,8 @@ components:
         - conductor.dispatch.ResourceRefused
         - conductor.dispatch.ResourceReleased
         - conductor.dispatch.GuardDecisionRecorded
+        - conductor.session.LeaseTaken
+        - conductor.session.LeaseTakenOver
     reached_by: command_line
     cli:
       binary: conductor
@@ -234,3 +238,9 @@ components:
             - conductor.dispatch.RecordGuardDecision
           views:
             - conductor.dispatch.GuardDecisions
+        - name: session
+          summary: The instance's one conductor session and the lease it holds
+          commands:
+            - conductor.session.ClaimLease
+          views:
+            - conductor.session.Leases

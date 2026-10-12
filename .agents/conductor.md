@@ -14,6 +14,8 @@ last 50 lines of `decisions/` and `dispatches/`.
 **At session start**, after that reading, set up what wakes you. `CronCreate` jobs live only in
 this session and expire after 7 days, so a restart loses them.
 
+- Run `conductor session leases`; if it names a live holder that is not this session, tell the
+  operator and stop: the guard denies a second conductor every write.
 - Run `CronList`, then `CronCreate` each job it does not show, so none is doubled. Both jobs are
   recurring. Each prompt carries its creation date, because `CronList` shows no age:
   - every `cadence.cycle`, always: prompt `Run one cycle (design § 4). Created <YYYY-MM-DD>.`
@@ -43,6 +45,10 @@ this session and expire after 7 days, so a restart loses them.
      the store's first id for a day would repeat one the hand-written file already holds.
    - Class O: send the operator one table with lettered options, costs and your recommendation,
      and tell the controller it is escalated.
+   - The operator's answer to a class-O or class-H request: record it through
+     `conductor decision record-operator-decision` with `--recorded-by <session_ref>` (your own
+     session's, from the `snapshot sessions` row whose `role` is `conductor`) and
+     `--operator-words "<their words, quoted exactly>"`. Both are required.
    - An unclear class is O. Record why.
 4. **Dispatch.** Start, steer, pause or stop controllers:
    - Each controller has a charter, `charters/<repo>.md`: goal id, scope, boundaries, standing

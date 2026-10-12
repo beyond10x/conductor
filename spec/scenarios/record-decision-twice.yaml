@@ -46,6 +46,8 @@ timeline:
       reason: the operator's call
       evidence: none
       decided_at: 2026-10-07T09:00:02Z
+      recorded_by: operator-session
+      operator_words: "B, the database"
     outcome: already-recorded
     error:
       name: conductor.decision.DecisionExists
