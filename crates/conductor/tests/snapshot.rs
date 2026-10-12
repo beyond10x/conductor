@@ -591,8 +591,11 @@ fn start_snapshot_runs_the_registered_collectors() {
 #[test]
 fn start_snapshot_refuses_a_negative_free_disk() {
     let root = case_dir("negative-disk");
-    let output = conductor(
+    // The start-time check looks for every program the collectors start before it reads the
+    // count, so the fakes stand in for them: the refusal must not depend on the host's `PATH`.
+    let output = conductor_with(
         &root,
+        Some(&offline(&root)),
         &["snapshot", "start-snapshot", "--disk-free-bytes", "-1"],
     );
     assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
