@@ -284,7 +284,7 @@ runs it with `--follow` under the harness `Monitor` tool.
 
 | probe | source | line |
 |---|---|---|
-| sessions | `claude agents --json`, sessions in the instance's checkouts, trees or records | `session exited (blocked): …`, `session gone: …` |
+| sessions | `claude agents --json`, sessions in the instance's checkouts, trees or records | `session exited (blocked): …`, `session gone: …`; `conductors: <n> live sessions named <name>: …` when two or more live sessions carry the conductor role's name |
 | usage limit | the tail of each such session's transcript | `usage limit: …`; also a desktop notification (`notify-send`) |
 | context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
 | `main` CI | `gh run list` for each Active repository of the newest complete snapshot | `CI red on main: …`, `CI green again on main: …` |

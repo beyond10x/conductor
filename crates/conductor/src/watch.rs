@@ -16,7 +16,7 @@
 //!
 //! | probe | source ([`Sources`]) | line |
 //! |---|---|---|
-//! | sessions | the session list (`claude agents --json`); only the entries whose working directory lies in the instance's checkouts root or managed trees, or in its records when a config file names them, so no other session is ever named | `session exited (blocked): <name> <id>`, `session gone: <name> <id>` |
+//! | sessions | the session list (`claude agents --json`); only the entries whose working directory lies in the instance's checkouts root or managed trees, or in its records when a config file names them, so no other session is ever named | `session exited (blocked): <name> <id>`, `session gone: <name> <id>`, `conductors: <n> live sessions named <name>: <id> <id>…` |
 //! | usage limit | the last [`TAIL`] lines of each such session's transcript | `usage limit: <text>; <n> sessions: <names>` |
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
@@ -35,6 +35,11 @@
 //!   itself stopped such a session; and each session id once (`exited.seen`)
 //!   until the list shows it with a `pid` again, so its next exit is reported once more. A start
 //!   is no change.
+//! - **conductors** when two or more live sessions (with a `pid`) carry the session name of the
+//!   instance's conductor role ([`Settings::conductor`]), by their ids in order: a session
+//!   resumed by hand without the instance's settings runs no hook and no guard
+//!   (`story:watch-two-conductors`). Once per set of ids (`conductors.reported`), which is
+//!   forgotten once fewer than two are live.
 //! - **usage limit** for a `"error":"rate_limit"` line of the last [`LIMIT_WITHIN`], once per
 //!   limit text per [`LIMIT_AGAIN`] from its last report, with a desktop notification to the
 //!   operator through [`Sources::notify`], titled `<instance>: usage limit`, because conductor is
@@ -54,7 +59,7 @@
 //! - **disk** under the instance's `disk_low` GiB, once per fall: the next report waits until
 //!   free disk was back at its `disk_clear` GiB.
 //!
-//! An empty or unreadable session list skips the three session probes for that pass. A source
+//! An empty or unreadable session list skips the four session probes for that pass. A source
 //! that does not answer is named once on standard error, `conductor watch: <error>`, until it
 //! answers again; the watch goes on. A CI pass runs each repository's run list once, and a
 //! repository whose list does not answer is such a source of its own, named in its line; a
@@ -63,8 +68,8 @@
 //! [`Watch::run`] exits after the first pass that printed a line, with every line of that pass;
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
-//! `exited.seen`, `limit.reported` (`<instant> <text>`, the last report of each limit text),
-//! `disk-low`, and, in the formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen`
+//! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `limit.reported`
+//! (`<instant> <text>`, the last report of each limit text), `disk-low`, and, in the formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen`
 //! (`YYYY-MM-DD <text>`), `context-reported` (a `sessionId` per line) and `ci.state`
 //! (`repo|workflow|run|conclusion|createdAt`). The dashboard reads the last four from
 //! `<conductor repository>/state/watch/` once that holds `ci.state`, which a watch run in the
@@ -144,6 +149,10 @@ const LIMIT_REPORTED: &str = "limit.reported";
 const CONTEXT_REPORTED: &str = "context-reported";
 const CI_STATE: &str = "ci.state";
 const DISK_LOW: &str = "disk-low";
+const CONDUCTORS_REPORTED: &str = "conductors.reported";
+
+/// The role of conductor's own session, whose session name two live sessions must not carry.
+const CONDUCTOR: &str = "conductor";
 
 /// The source a CI pass names on standard error while no complete snapshot names its
 /// repositories.
@@ -249,7 +258,8 @@ impl Sources {
     }
 }
 
-/// What the instance sets for the watch besides its sources: its name and its thresholds.
+/// What the instance sets for the watch besides its sources: its name, its thresholds and its
+/// conductor role's session name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     /// The instance's name, which the usage-limit notification's title names.
@@ -260,10 +270,14 @@ pub struct Settings {
     pub disk_low: u64,
     /// Free GiB on `/` from which a further fall is reported again: `thresholds.disk_clear`.
     pub disk_clear: u64,
+    /// The full session name of the instance's conductor role (`<session_prefix>-conductor`, or
+    /// `conductor` without a prefix), two live sessions of which are reported; `None` for an
+    /// instance without a conductor role.
+    pub conductor: Option<String>,
 }
 
 impl Settings {
-    /// The name and the thresholds of `instance`.
+    /// The name, the thresholds and the conductor role's session name of `instance`.
     #[must_use]
     pub fn of(instance: &Instance) -> Self {
         let count = |value: i64| u64::try_from(value).unwrap_or(0);
@@ -273,6 +287,16 @@ impl Settings {
             context_handover: count(thresholds.context_handover.0),
             disk_low: count(thresholds.disk_low.0),
             disk_clear: count(thresholds.disk_clear.0),
+            conductor: instance
+                .roles
+                .iter()
+                .find(|role| role.role == CONDUCTOR)
+                .map(|role| {
+                    role.session_name
+                        .clone()
+                        .unwrap_or_else(|| config::session_name(instance, CONDUCTOR))
+                        .0
+                }),
         }
     }
 }
@@ -508,6 +532,7 @@ impl Watch {
                 self.answered("sessions");
                 if !sessions.is_empty() {
                     self.session_changes(now, &sessions, &mut lines)?;
+                    self.conductors(&sessions, &mut lines)?;
                     self.limits(now, &sessions, &mut lines, notes)?;
                     self.context(&sessions, &mut lines)?;
                 }
@@ -730,6 +755,39 @@ impl Watch {
             .map(|id| format!("{id}\n"))
             .collect();
         replace(&file, &kept)
+    }
+
+    /// Two or more live sessions, ones with a `pid`, named as the instance's conductor role
+    /// (`story:watch-two-conductors`): one line naming each session id, once per set of ids
+    /// (`conductors.reported`), which is forgotten once fewer than two are live.
+    fn conductors(&self, sessions: &[Session], lines: &mut Vec<String>) -> Result<()> {
+        let Some(name) = &self.settings.conductor else {
+            return Ok(());
+        };
+        let ids: Vec<&str> = sessions
+            .iter()
+            .filter(|session| session.pid.is_some() && session.name == *name)
+            .map(|session| session.id.as_str())
+            .collect();
+        let file = self.state(CONDUCTORS_REPORTED);
+        let reported = read_optional(&file)?.unwrap_or_default();
+        if ids.len() < 2 {
+            if !reported.is_empty() {
+                replace(&file, "")?;
+            }
+            return Ok(());
+        }
+        let set = format!("{}\n", ids.join(" "));
+        if reported != set {
+            lines.push(format!(
+                "conductors: {} live sessions named {}: {}",
+                ids.len(),
+                one_line(name),
+                ids.join(" ")
+            ));
+            replace(&file, &set)?;
+        }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------------------------

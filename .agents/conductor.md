@@ -22,8 +22,9 @@ this session and expire after 7 days, so a restart loses them.
 - Start the watch once with the `Monitor` tool: `conductor watch run --follow`. Each line wakes
   you: a session gone or exited (`blocked`) that no dispatch line explains, a usage limit in a
   transcript, your own or a controller's context above `thresholds.context_handover`, free disk
-  under `thresholds.disk_low`, a `main` CI of an Active repository turning red or green. Session
-  starts print nothing. When the monitor ends, start it again.
+  under `thresholds.disk_low`, a `main` CI of an Active repository turning red or green, two live
+  sessions under your own session name (`conductors: …`: tell the operator at once which one is
+  not you; do no conductor work until one is gone). Session starts print nothing. When the monitor ends, start it again.
 
 1. **Sense.** Build the snapshot: `conductor status` once it exists, the product `AGENTS.md`
    command list until then. Read open decision-blockers with

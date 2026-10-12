@@ -461,6 +461,94 @@ fn a_session_outside_the_workspace_and_its_managed_trees_is_never_named() {
     );
 }
 
+/// A second session named as the conductor role: one resumed by hand, without the instance's
+/// settings, runs no hook and no guard (`story:watch-two-conductors`).
+fn second_conductor(name: &str) -> Value {
+    session(
+        "c8c8c8c8-0000-4000-8000-000000000008",
+        name,
+        2108,
+        "/fixture-home/example-org/conductor",
+    )
+}
+
+#[test]
+fn two_live_sessions_named_as_the_conductor_role_are_reported_once_as_an_incident() {
+    let case = Case::new("two-conductors");
+    let dev = || {
+        session(
+            "c9c9c9c9-0000-4000-8000-000000000009",
+            "conductor-dev",
+            2109,
+            "/fixture-home/example-org/conductor",
+        )
+    };
+    case.sessions(&[conductor(), dev()]);
+    let mut watch = case.watch(None);
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "conductor-dev in conductor's directory is not named as the conductor role"
+    );
+
+    case.sessions(&[conductor(), dev(), stopped(second_conductor("conductor"))]);
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "a second conductor without a pid is not live"
+    );
+
+    case.sessions(&[conductor(), dev(), second_conductor("conductor")]);
+    assert_eq!(
+        pass(&mut watch),
+        ["conductors: 2 live sessions named conductor: c3c3c3c3 c8c8c8c8"]
+    );
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "the same two conductors are not reported twice"
+    );
+
+    case.sessions(&[conductor(), dev()]);
+    assert_eq!(pass(&mut watch), ["session gone: conductor c8c8c8c8"]);
+    case.sessions(&[conductor(), dev(), second_conductor("conductor")]);
+    assert_eq!(
+        pass(&mut watch),
+        ["conductors: 2 live sessions named conductor: c3c3c3c3 c8c8c8c8"],
+        "a second conductor after one alone is reported again"
+    );
+}
+
+#[test]
+fn the_conductor_role_s_session_name_is_the_instances() {
+    let case = Case::new("two-conductors-prefixed");
+    let first = session(
+        "cacacaca-0000-4000-8000-00000000000a",
+        "acme-conductor",
+        2110,
+        "/fixture-home/example-org/conductor",
+    );
+    case.sessions(&[first.clone(), conductor(), second_conductor("conductor")]);
+    let mut watch = case.watch(None).with_settings(Settings {
+        conductor: Some("acme-conductor".to_owned()),
+        ..Settings::default()
+    });
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "two sessions named `conductor` are not this instance's conductor role"
+    );
+
+    case.sessions(&[first, second_conductor("acme-conductor")]);
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "session gone: conductor c3c3c3c3",
+            "conductors: 2 live sessions named acme-conductor: c8c8c8c8 cacacaca"
+        ]
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Usage limit
 // ---------------------------------------------------------------------------------------------
@@ -758,6 +846,7 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
             context_handover: 300_000,
             disk_low: 100,
             disk_clear: 110,
+            conductor: Some("conductor".to_owned()),
         },
         "a watch without settings runs on the built-in instance's"
     );
@@ -775,7 +864,13 @@ fn the_settings_are_the_instances_name_and_thresholds() {
             context_handover: 150_000,
             disk_low: 40,
             disk_clear: 45,
+            conductor: Some("conductor".to_owned()),
         }
+    );
+    assert_eq!(
+        Settings::of(&acme("\x20   session_prefix: acme\n")).conductor,
+        Some("acme-conductor".to_owned()),
+        "the conductor role's session name carries the instance's session_prefix"
     );
 }
 

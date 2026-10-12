@@ -86,7 +86,7 @@ nothing.
 
 | probe | source | line |
 |---|---|---|
-| sessions | `claude agents --json`, sessions in the instance's checkouts, trees or records | `session exited (blocked): …`, `session gone: …` |
+| sessions | `claude agents --json`, sessions in the instance's checkouts, trees or records | `session exited (blocked): …`, `session gone: …`, and `conductors: …` for two or more live sessions named as the conductor role |
 | usage limit | the tail of each such session's transcript | `usage limit: …`, and a desktop notification through `notify-send` |
 | context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
 | `main` CI | `gh run list` for each Active repository of the newest complete snapshot | `CI red on main: …`, `CI green again on main: …` |
