@@ -88,8 +88,10 @@ implementors word for word.
   paste-ready command: the command, what it acts on, the result he should see. Record it on the
   class-H list. Do not work around the guard.
 - **A class-H call is never attempted, also when the operator says "you do it".** A credential is
-  his hands whatever route could carry it, the bot route included. The first answer puts the exact
-  command on his clipboard and in the reply as a `! ` line, with the result he should see.
+  his hands whatever route could carry it, the bot route included. The first answer writes the
+  exact command, then the read-back that shows the result he should see, to an executable file
+  `~/.cache/conductor-h/<H-id>.sh` he can run in any terminal; puts the command on his clipboard;
+  and names the file's path in the reply and in the daily brief's class-H list.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **Waiting is not work.** A controller that sleeps or polls CI with nothing else to do is told to
   report `blocked` and stop. A controller whose charter is done and whose status is `idle` is
