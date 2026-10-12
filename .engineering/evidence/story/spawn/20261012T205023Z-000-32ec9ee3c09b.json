@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T20:50:23Z",
+  "actor": "human:timo",
+  "artifact": "story:spawn",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/11 at f4825aa: green; security review findings 1-5 fixed",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38306408811"
+  }
+}
