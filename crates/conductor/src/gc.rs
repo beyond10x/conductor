@@ -12,8 +12,10 @@
 //! The panel's module documentation says what keeps every other row. With `--dry-run` it prints
 //! those rows with the bytes the panel measures and removes nothing.
 //!
-//! Otherwise it takes the rows one by one. It reads the live sessions again and refuses a row one
-//! of whose paths a live session now works in. Else it runs the row's commands
+//! Otherwise it takes the rows one by one. It reads the live sessions again and makes every check
+//! the listing made again ([`Reclaim::recheck`]): it refuses a row one of whose trees a live session
+//! now works in, and a checkout's `target/` when a live session or any process on the host now
+//! works in the checkout, or the target is no longer cargo's. Else it runs the row's commands
 //! ([`Reclaim::commands`]: `worktree discard-cache`, `worktree gc --apply` or `cargo clean`), each
 //! to its end without a time limit, so no removal is stopped half-way, and never deletes a path
 //! itself. The bytes freed are the bytes under the row's paths before less the bytes after, both
@@ -126,15 +128,13 @@ fn listed(row: &Row, reclaim: &Reclaim) -> GarbageRow {
 fn remove(sources: &Sources, row: &Row, reclaim: &Reclaim) -> GarbageRow {
     let mut out = listed(row, reclaim);
     let paths = reclaim.paths();
-    // A session may have started in one of the paths since the measurement.
+    // A session or a process may have started where the row is since the listing, or the
+    // target may have changed: every check the listing made is made again.
     let busy = match waste::live(sources) {
         Err(error) => Some(format!(
             "the live sessions could not be read again: {error}"
         )),
-        Ok(live) => paths
-            .iter()
-            .find(|path| waste::works_in(&live, path))
-            .map(|path| format!("a live session now works in {}", path.display())),
+        Ok(live) => reclaim.recheck(&live),
     };
     if let Some(detail) = busy {
         out.freed = Some(0);

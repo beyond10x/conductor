@@ -26,7 +26,7 @@ use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use conductor_cli::cli::{Access, LEAVES};
@@ -588,5 +588,121 @@ fn gc_removes_nothing_when_the_live_sessions_cannot_be_read() {
     assert!(
         removing(&logged).is_empty(),
         "gc removed through a call:\n{logged}"
+    );
+}
+
+/// Integrity conformance check of the re-check before each row (`gc.rs` `remove`): a live session
+/// that starts in the checkout `alpha` after the listing, its working directory the checkout
+/// itself and not `target/`, must make `gc` refuse the checkout's `target/` row, exit 1, and run
+/// no `cargo clean`. The listing kept clear of the checkout (`waste::cargo_target` asks whether a
+/// session works in the checkout); the re-check asks only of the row's paths, which for a target
+/// are `target/` alone.
+#[test]
+fn a_session_that_starts_in_the_checkout_after_the_listing_keeps_its_target() {
+    let case = Case::new("late-checkout-session");
+    let mut later: Value = serde_json::from_str(
+        &fs::read_to_string(case.dir.join("agents.json")).expect("read the session list"),
+    )
+    .expect("the session list is JSON");
+    later.as_array_mut().expect("a session array").push(json!({
+        "id": "s-alpha", "name": "alpha", "cwd": case.checkout("alpha"),
+        "pid": 104, "status": "busy"
+    }));
+    write(&case.dir.join("agents-later.json"), &later.to_string());
+    // The first call is the listing's; every later one, a re-check, sees the new session.
+    program(
+        &case.bin(),
+        "claude",
+        &format!(
+            "#!/bin/sh\n\
+             count='{count}'\n\
+             if [ -e \"$count\" ]; then cat '{later}'; else : > \"$count\"; cat '{first}'; fi\n",
+            count = case.dir.join("claude.count").display(),
+            later = case.dir.join("agents-later.json").display(),
+            first = case.dir.join("agents.json").display(),
+        ),
+    );
+
+    let output = case.gc(&[]);
+    let logged = case.logged();
+    assert!(
+        !logged.lines().any(|line| line.starts_with("cargo ")),
+        "cargo clean ran on a checkout a live session now works in:\n{logged}\n{}",
+        shown(&output)
+    );
+    assert!(
+        case.checkout("alpha")
+            .join("target/debug/out.bin")
+            .is_file(),
+        "the target of a checkout a live session now works in was removed: {}",
+        shown(&output)
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.starts_with("refused") && line.contains(TARGET)),
+        "no refused target row: {}",
+        shown(&output)
+    );
+}
+
+/// A process started for a case, stopped when the case ends, pass or fail.
+struct Running(Child);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn a_process_working_in_the_checkout_keeps_its_target() {
+    let case = Case::new("process-in-checkout");
+    // No session works in alpha's checkout; a plain process does, as a build started there would.
+    let _sleeper = Running(
+        Command::new("sleep")
+            .arg("120")
+            .current_dir(case.checkout("alpha"))
+            .stdin(Stdio::null())
+            .spawn()
+            .expect("start a process in the checkout"),
+    );
+
+    let output = case.gc(&["--dry-run", "--format", "json"]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let listed: Value = serde_json::from_slice(&output.stdout).expect("gc prints JSON");
+    let whats: Vec<&str> = listed["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .filter_map(|row| row["what"].as_str())
+        .collect();
+    assert!(
+        !whats.contains(&TARGET),
+        "the target of a checkout a process works in is listed: {}",
+        shown(&output)
+    );
+    assert!(
+        whats.contains(&BUILD_CACHE) && whats.contains(&ELIGIBLE),
+        "{}",
+        shown(&output)
+    );
+
+    let output = case.gc(&[]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let logged = case.logged();
+    assert!(
+        !logged.lines().any(|line| line.starts_with("cargo ")),
+        "cargo clean ran on a checkout a process works in:\n{logged}"
+    );
+    assert!(
+        case.checkout("alpha")
+            .join("target/debug/out.bin")
+            .is_file(),
+        "the target of a checkout a process works in was removed: {}",
+        shown(&output)
     );
 }

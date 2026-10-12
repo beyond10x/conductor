@@ -22,7 +22,9 @@
 //!   checkout's `Cargo.toml`): `cargo clean --target-dir`.
 //!
 //! A tree or checkout a live session works in, its working directory there or below
-//! ([`works_in`]), is kept, and so is a tree outside the instance's managed trees; when the live
+//! ([`works_in`]), is kept, and so is a checkout's `target/` while any process on the host has
+//! its working directory in the checkout ([`process_in`], `/proc/<pid>/cwd`), and a tree outside
+//! the instance's managed trees; when the live
 //! sessions cannot be read ([`live`]), every row is kept. Archives (`worktree prune-archives`
 //! reviews each), the shared build targets, sccache, the toolchains, the agents' scratch and
 //! `/var/tmp` are never reclaimable: something outside conductor's view may use each.
@@ -208,6 +210,19 @@ impl Reclaim {
     }
 
     /// The command as the panel names it.
+    /// Why the row must be kept now, read again just before it is removed, against the working
+    /// directories `live`: a live session works in one of its trees; or, for a checkout's
+    /// `target/`, any check the listing made fails again ([`cargo_target`]). None when it may go.
+    pub(crate) fn recheck(&self, live: &[PathBuf]) -> Option<String> {
+        match self {
+            Self::DiscardCache(trees) | Self::RemoveTrees { trees, .. } => trees
+                .iter()
+                .find(|tree| works_in(live, tree))
+                .map(|tree| format!("a live session now works in {}", tree.display())),
+            Self::CargoClean { checkout, target } => cargo_target(checkout, target, live).err(),
+        }
+    }
+
     fn shown(&self) -> String {
         match self {
             Self::DiscardCache(_) => "worktree discard-cache",
@@ -440,7 +455,11 @@ pub(crate) fn repositories(sources: &Sources) -> Waste {
                 &target,
                 timeout,
             );
-            rows.push(match cargo_target(&checkout, &target, &live) {
+            let checked = match &live {
+                Err(error) => Err(format!("the live sessions could not be read: {error}")),
+                Ok(live) => cargo_target(&checkout, &target, live),
+            };
+            rows.push(match checked {
                 Ok(()) => row.reclaimed_by(Reclaim::CargoClean { checkout, target }),
                 Err(why) => row.kept(&why),
             });
@@ -487,19 +506,16 @@ fn shared(sources: &Sources, rows: &mut Vec<Row>) {
 }
 
 /// Whether `conductor gc` may `cargo clean` the checkout `checkout`'s target `target`, or why
-/// not: no live session works in the checkout, and the target is cargo's, a directory that holds
-/// `CACHEDIR.TAG` and is no link, beside the checkout's `Cargo.toml`.
-fn cargo_target(
-    checkout: &Path,
-    target: &Path,
-    live: &Result<Vec<PathBuf>, String>,
-) -> Result<(), String> {
-    match live {
-        Err(error) => return Err(format!("the live sessions could not be read: {error}")),
-        Ok(live) if works_in(live, checkout) => {
-            return Err("a live session works in the checkout".to_owned());
-        }
-        Ok(_) => {}
+/// not: none of the live sessions' working directories `live` lies in the checkout, no process on
+/// the host works in it ([`process_in`]), and the target is cargo's, a directory that holds
+/// `CACHEDIR.TAG` and is no link, beside the checkout's `Cargo.toml`. The listing checks it, and
+/// [`Reclaim::recheck`] again just before `cargo clean`.
+fn cargo_target(checkout: &Path, target: &Path, live: &[PathBuf]) -> Result<(), String> {
+    if works_in(live, checkout) {
+        return Err("a live session works in the checkout".to_owned());
+    }
+    if let Some(pid) = process_in(checkout)? {
+        return Err(format!("process {pid} works in the checkout"));
     }
     let is = |path: &Path, file: bool| {
         fs::symlink_metadata(path).is_ok_and(|metadata| {
@@ -511,7 +527,7 @@ fn cargo_target(
         })
     };
     if !is(target, false) {
-        return Err("a link, not a directory".to_owned());
+        return Err("not a directory: a link, or gone".to_owned());
     }
     if !is(&target.join("CACHEDIR.TAG"), true) {
         return Err("not cargo's: no CACHEDIR.TAG".to_owned());
@@ -520,6 +536,30 @@ fn cargo_target(
         return Err("no Cargo.toml beside it".to_owned());
     }
     Ok(())
+}
+
+/// The first process on the host whose working directory is `path` or lies under it, read from
+/// the `/proc/<pid>/cwd` links ([`works_in`]); an entry that cannot be read (another user's, or a
+/// process that has ended) is skipped. When `/proc` cannot be listed, why: no process can then be
+/// told to be clear of `path`.
+fn process_in(path: &Path) -> Result<Option<u32>, String> {
+    let entries = fs::read_dir("/proc").map_err(|error| format!("cannot list /proc: {error}"))?;
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(cwd) = fs::read_link(entry.path().join("cwd")) else {
+            continue;
+        };
+        if works_in(std::slice::from_ref(&cwd), path) {
+            return Ok(Some(pid));
+        }
+    }
+    Ok(None)
 }
 
 /// The working directories of the live sessions, Claude's from the session list `sources.agents`
