@@ -110,6 +110,8 @@ model, not code. A model can fail to follow them.
   flag word the shell expands, a substitution around `conductor`, and `xargs` handing it its words
   are denied to a controller; so is a quoted literal before the leaf, since the guard sees words
   after the shell's quote removal.
+- **A script a shell reads from stdin, a here-document or a `watch` string is not read**, nor is an
+  alias the session defines: a `conductor` run inside one is judged as no run at all.
 - **A sub-agent is recognised by the shape of its id** in a controller's SendMessage, not by who
   started it.
 - **Recording a denial can fail** (no state directory named, or the store's lock held for more

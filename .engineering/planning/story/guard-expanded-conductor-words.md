@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:guard-expanded-conductor-words
 kind: story
-status: active
+status: implemented
 title: A conductor run whose group or program word the shell expands is denied to a controller
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -11,10 +11,11 @@ scope:
   path: crates/conductor/src/guard/rules.rs
 - confidence: cited
   path: crates/conductor/tests/guard_rules.rs
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-12T17:53:56Z", actor: "human:timo", revision: 4}
 - {from: "proposed", to: "active", at: "2026-10-12T17:53:56Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-12T18:06:13Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
