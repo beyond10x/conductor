@@ -1931,3 +1931,188 @@ fn the_guard_reads_the_lease_from_its_copy_and_a_dead_holder_lets_the_write_thro
         "reading the lease opened a store"
     );
 }
+
+// -------------------------------------------------------------------------------------------------
+// Security review of story:lease-guard (wave 09): conformance cases for the lease's own contract.
+// -------------------------------------------------------------------------------------------------
+
+/// Review finding: while a live holder exists, a second conductor's Bash command that disables the
+/// guard's copy of the lease is not decided as a write, so it is allowed; once the file is gone or
+/// unreadable the guard lets every write of that session through (`guard.rs` `leased`: "no such
+/// regular file, one that does not read ... leaves `decision` as it is"), Edit, Write and
+/// SendMessage included. A command that names the lease file is a write to the lease, whatever
+/// program it runs.
+#[test]
+fn a_second_conductor_is_denied_a_bash_command_that_disables_the_lease_file() {
+    let case = case_dir("lease-guard-disable");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    let holder = HolderProcess::start();
+    claim_lease(&case, &state, &config, HOLDER, holder.pid());
+    let lease = state.join(LEASE_FILE).display().to_string();
+
+    let mut allowed = Vec::new();
+    for command in [
+        format!("chmod 000 {lease}"),
+        format!("unlink {lease}"),
+        format!("find {} -name {LEASE_FILE} -delete", state.display()),
+        format!("python3 -c \"import os; os.remove('{lease}')\""),
+    ] {
+        let payload = payload_at("bash", &case, &records, &[("command", &command)]);
+        let output = hook_with(
+            &case,
+            &state,
+            Some(&config),
+            &from_session(&payload, SECOND),
+        );
+        if output.status.code() != Some(2) || !stderr(&output).contains(SECOND_CONDUCTOR) {
+            allowed.push(format!(
+                "{command:?} answered {:?}: {}",
+                output.status.code(),
+                stderr(&output)
+            ));
+        }
+    }
+    assert!(
+        allowed.is_empty(),
+        "a second conductor may disable the lease file while the holder lives:\n{}",
+        allowed.join("\n")
+    );
+    assert_eq!(
+        lease_file(&state)["session_id"],
+        HOLDER,
+        "the lease file still names the holder"
+    );
+}
+
+/// A Claude Code session standing in a process of its own: a shell that runs the SessionStart
+/// claim and then one PreToolUse guard call, each under `sh -c` as Claude Code runs a hook, and
+/// then becomes `sleep`, keeping its pid. The claim reads its pid from the inner shell's `$PPID`,
+/// as the shipped settings do.
+struct SessionProcess {
+    process: Child,
+    claim_status: Option<i32>,
+    claim_output: String,
+    guard_status: Option<i32>,
+    guard_stderr: String,
+}
+
+impl SessionProcess {
+    fn start(
+        case: &Path,
+        state: &Path,
+        config: &Path,
+        name: &str,
+        session_id: &str,
+        tool_call: &[u8],
+    ) -> Self {
+        let dir = case.join(name);
+        fs::create_dir_all(&dir).expect("create the session's directory");
+        let start = serde_json::json!({
+            "session_id": session_id,
+            "hook_event_name": "SessionStart",
+            "source": "resume",
+            "cwd": case.join("records"),
+        });
+        fs::write(dir.join("start.json"), start.to_string()).expect("write the start payload");
+        fs::write(dir.join("call.json"), tool_call).expect("write the tool call payload");
+        let home = case.join("home");
+        let binary = common::conductor(&home).get_program().to_owned();
+        let script = r#"sh -c '"$0" --state-dir "$1" session claim --from-session-start --pid "$PPID"' "$1" "$2" <"$3/start.json" >"$3/claim.out" 2>&1; echo $? >"$3/claim.status"; sh -c '"$0" --state-dir "$1" guard record-guard-decision --from-pre-tool-use' "$1" "$2" <"$3/call.json" >/dev/null 2>"$3/guard.err"; echo $? >"$3/guard.next" && mv "$3/guard.next" "$3/guard.status"; exec sleep 600"#;
+        let mut process = Command::new("/bin/sh")
+            .args(["-c", script, name])
+            .arg(&binary)
+            .arg(state)
+            .arg(&dir)
+            .current_dir(case.join("records"))
+            .env_clear()
+            .env("HOME", &home)
+            .env("PATH", "/usr/bin:/bin")
+            .env(CONFIG_VARIABLE, config)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("sh runs");
+        let done = dir.join("guard.status");
+        let started = Instant::now();
+        while !done.exists() {
+            if started.elapsed() >= Duration::from_secs(60) {
+                let _ = process.kill();
+                let _ = process.wait();
+                panic!("the hooks of {name} did not end within 60 s");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let read = |file: &str| fs::read_to_string(dir.join(file)).unwrap_or_default();
+        Self {
+            claim_status: read("claim.status").trim().parse().ok(),
+            claim_output: read("claim.out"),
+            guard_status: read("guard.status").trim().parse().ok(),
+            guard_stderr: read("guard.err"),
+            process,
+        }
+    }
+
+    fn pid(&self) -> u32 {
+        self.process.id()
+    }
+}
+
+impl Drop for SessionProcess {
+    fn drop(&mut self) {
+        let _ = self.process.kill();
+        let _ = self.process.wait();
+    }
+}
+
+/// Review finding: the guard knows the holder by the payload's `session_id` alone. A second live
+/// process that carries the holder's session id (`claude --resume <id>` by hand, which keeps the
+/// id, while the holder's process still runs) has its SessionStart claim refused, since its pid is
+/// not the holder's, and is then allowed every write, so two conductors write. The holder's own
+/// write stays allowed.
+#[test]
+#[ignore = "story:lease-by-process: the guard identifies the holder by session id only"]
+fn a_second_process_resuming_the_holder_s_session_is_denied_its_writes() {
+    let case = case_dir("lease-guard-same-id");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    fs::create_dir_all(&records).expect("create the records directory");
+    let record = records
+        .join("decisions/2026-10.jsonl")
+        .display()
+        .to_string();
+    let write = from_session(
+        &payload_at("write", &case, &records, &[("file_path", &record)]),
+        HOLDER,
+    );
+
+    let holder = SessionProcess::start(&case, &state, &config, "holder", HOLDER, &write);
+    assert_eq!(holder.claim_status, Some(0), "{}", holder.claim_output);
+    assert_eq!(lease_file(&state)["pid"], u64::from(holder.pid()));
+    assert_eq!(
+        holder.guard_status,
+        Some(0),
+        "the holder writes its records: {}",
+        holder.guard_stderr
+    );
+
+    let resumed = SessionProcess::start(&case, &state, &config, "resumed", HOLDER, &write);
+    assert_ne!(
+        resumed.claim_status,
+        Some(0),
+        "the resumed process's claim is refused while the holder lives: {}",
+        resumed.claim_output
+    );
+    assert_eq!(
+        resumed.guard_status,
+        Some(2),
+        "a second live process of the holder's session id writes while the holder's process lives \
+         (lease pid {}, this process {}): {}",
+        holder.pid(),
+        resumed.pid(),
+        resumed.guard_stderr
+    );
+}

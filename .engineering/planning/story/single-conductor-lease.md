@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:single-conductor-lease
 kind: story
-status: draft
+status: active
 title: conductor session claim refuses a second conductor and takes over a stale holder
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -25,7 +25,10 @@ scope:
   path: crates/conductor/tests/session.rs
 - confidence: cited
   path: spec/domains/session.yaml
-revision: 8
+revision: 10
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T18:58:20Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":6}}}
+- {from: "proposed", to: "active", at: "2026-10-12T18:58:20Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":6}}}
 ---
 ## Why
 

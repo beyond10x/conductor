@@ -533,6 +533,24 @@ impl Places {
         names(command) && holds_write_form(command) && writes_named_read_flag_value(command, names)
     }
 
+    /// Whether the Bash `command` names the guard's copy of the conductor lease or the state
+    /// directory it is kept in (`story:lease-guard`, security review F1): the file's name
+    /// ([`crate::session::LEASE_FILE`]) anywhere in it, or, by any of its [`Places::spellings`],
+    /// `state` (the directory the hook reads the lease from) or the instance's `state`, or a path
+    /// under either ([`names_path`]). Such a command can remove, empty or lock the lease, whatever
+    /// program it runs (`chmod`, `unlink`, `find -delete`, an interpreter), so the hook decides it
+    /// as a write of a conductor-role session. A plain substring test, as
+    /// [`Places::writes_settings`] is: a path relative to the cwd is caught only by the file's name.
+    pub(super) fn names_lease(&self, command: &str, state: Option<&Path>) -> bool {
+        command.contains(crate::session::LEASE_FILE)
+            || state.into_iter().chain(self.state.as_deref()).any(|dir| {
+                let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+                self.spellings(&dir)
+                    .iter()
+                    .any(|spelling| names_path(command, spelling, true))
+            })
+    }
+
     /// Whether the absolute `path` is the `profile` file of a role of the instance, as written
     /// ([`lexical`]) or where it lands ([`real`]).
     fn is_role_profile(&self, path: &Path) -> bool {

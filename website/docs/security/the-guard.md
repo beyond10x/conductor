@@ -163,7 +163,11 @@ guard reads the lease of the instance it runs before it answers. A write here is
 - Edit, Write or NotebookEdit, wherever the file is;
 - SendMessage;
 - a Bash or Monitor command that holds a write form (below), or that runs a `conductor` leaf the
-  shell rule denies a controller.
+  shell rule denies a controller;
+- a Bash or Monitor command that names the lease file `conductor.lease`, or names the state
+  directory or a path under it, whatever program it runs (`chmod`, `unlink`, `find -delete`,
+  `python3 -c`). Such a command could remove the lease file or make it unreadable, and with no
+  readable file the guard would let every write through.
 
 If the lease names another session than the payload's `session_id`, and the holder's process
 still lives, the write is denied with this reason:
@@ -186,12 +190,30 @@ The verdict stays as the rule table gave it in these cases:
 
 - the lease names this session;
 - the holder's process is gone, so the next SessionStart claim takes the lease;
-- there is no state directory, or no lease file;
+- there is no state directory: without `--state-dir` and without a config file the guard reads no
+  lease, so the lease is not enforced;
+- there is no lease file;
 - the file is not a regular file (a link is not followed), cannot be read, does not hold the
   instance, session id and pid, or names another instance. On these errors the lease check lets
   the call through.
 
 A controller's calls and every read never read the file.
+
+What the lease check does not cover:
+
+- **The holder is known by session id only.** A second process that resumes the holder's own
+  session id (`claude --resume <id>` by hand while the holder runs) has its claim refused, but the
+  guard allows its writes, since the payload names the holder's session. The watch's
+  `conductors:` line reports two live sessions under the conductor's name. Planned: tell the
+  holder apart by its process.
+- **The pid comes from `$PPID`.** The claim records the hook shell's parent as the session's
+  process. If Claude Code ran hooks under one more process layer, the recorded pid would end as
+  soon as the hook did. The lease would then never hold, and the check would let every write
+  through (fail open).
+- **A pid that names another process keeps a dead lease alive.** After the holder ends, its pid
+  can be reused by an unrelated process, or name a process of another user. Either way it counts
+  as alive, and every other conductor session is denied its writes (fail closed). To recover, the
+  operator removes `<state>/conductor.lease`; the next session that starts claims the lease.
 
 ## Fail closed
 

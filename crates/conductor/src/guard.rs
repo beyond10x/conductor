@@ -36,8 +36,9 @@
 //! error.
 //!
 //! A write that conductor's rule allows (Edit, Write or NotebookEdit; SendMessage; a Bash or
-//! Monitor command the guard treats as a write) is decided again by the instance's conductor lease
-//! (`story:lease-guard`, [`leased`]). While the lease names another session than the payload's
+//! Monitor command the guard treats as a write, or one that names the lease's file or its state
+//! directory) is decided again by the instance's conductor lease (`story:lease-guard`,
+//! [`leased`]). While the lease names another session than the payload's
 //! `session_id` and the holder's process lives, the write is denied as a second conductor's,
 //! naming the holder's session id and pid. The lease is read from one small file under the state
 //! directory, the guard's copy that `session claim` writes beside the store
@@ -245,6 +246,10 @@ struct Decided {
     /// writes: Edit, Write or NotebookEdit; SendMessage; or Bash or Monitor running a command the
     /// guard treats as a write ([`rules::bash_writes`]).
     conductor_write: bool,
+    /// The rule table allows the call, it comes from a session conductor's rule decides, and it
+    /// is Bash or Monitor: a command that is a write to the lease when it names the lease's file
+    /// or its state directory ([`Places::names_lease`]), which only the hook knows.
+    conductor_command: bool,
 }
 
 impl From<Decision> for Decided {
@@ -252,6 +257,7 @@ impl From<Decision> for Decided {
         Self {
             decision,
             conductor_write: false,
+            conductor_command: false,
         }
     }
 }
@@ -345,17 +351,16 @@ fn decided(payload: &Value, places: &Places, sessions: &SessionList) -> Decided 
         ("Bash" | "Monitor", Some(command)) => session.bash(command),
         (_, Some(path)) => session.file(&tool, path),
     };
-    let conductor_write = verdict == Verdict::Allow
-        && session.rules == Rules::Conductor
-        && match tool.as_str() {
-            "Bash" | "Monitor" => target.as_deref().is_some_and(rules::bash_writes),
-            _ => true,
-        };
+    let conductor = verdict == Verdict::Allow && session.rules == Rules::Conductor;
+    let command = matches!(tool.as_str(), "Bash" | "Monitor");
+    let conductor_write =
+        conductor && (!command || target.as_deref().is_some_and(rules::bash_writes));
     decision.verdict = verdict;
     decision.reason = reason;
     Decided {
         decision,
         conductor_write,
+        conductor_command: conductor && command,
     }
 }
 
@@ -430,17 +435,18 @@ fn hook(state: Option<&Path>) -> ExitCode {
         };
         match std::env::var_os("HOME").map(PathBuf::from) {
             Some(home) if home.is_absolute() => {
+                let places = Places::active(&home, crate::config::active())
+                    .with_config_file(&config_file(&home))
+                    .with_tmp(std::env::var_os("TMPDIR").map(PathBuf::from).as_deref());
                 let Decided {
                     decision,
                     conductor_write,
-                } = decided(
-                    &payload,
-                    &Places::active(&home, crate::config::active())
-                        .with_config_file(&config_file(&home))
-                        .with_tmp(std::env::var_os("TMPDIR").map(PathBuf::from).as_deref()),
-                    &SessionList::default(),
-                );
-                if conductor_write {
+                    conductor_command,
+                } = decided(&payload, &places, &SessionList::default());
+                if conductor_write
+                    || (conductor_command
+                        && places.names_lease(&decision.target, recorded_in(state).as_deref()))
+                {
                     leased(state, decision)
                 } else {
                     decision

@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:guard-sibling-tree
 kind: story
-status: draft
+status: archived
 title: A relative cd into a sibling tree of the same repository is not another repository
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-12T19:00:12Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 
