@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T17:27:22Z",
+  "actor": "human:timo",
+  "artifact": "story:public-text-check",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/06 at 12fcea1: green",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38283906934"
+  }
+}

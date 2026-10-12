@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:ci-full-gate
 kind: story
-status: active
+status: implemented
 title: CI runs task check on every pull request and on main
 relations:
 - decomposes: epic:operating-loop-hardening
 scope:
 - confidence: cited
   path: .github/workflows/check.yml
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-12T17:03:45Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":1}}}
 - {from: "proposed", to: "active", at: "2026-10-12T17:03:48Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":1}}}
+- {from: "active", to: "implemented", at: "2026-10-12T17:27:23Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":1}}}
 ---
 ## Why
 

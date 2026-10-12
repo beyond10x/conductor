@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T17:10:27Z",
+  "actor": "human:timo",
+  "artifact": "story:ci-full-gate",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI job task check on pull request 24: red on a failing test (run 38281523548, snapshot.rs host-PATH defect), then green after its fix (run 38281976075)",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38281976075"
+  }
+}

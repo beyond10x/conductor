@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:guard-store-migrate
 kind: story
-status: active
+status: implemented
 title: The guard denies conductor store migrate, a write that passes as a read
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -13,10 +13,11 @@ scope:
   path: crates/conductor/src/guard/rules.rs
 - confidence: cited
   path: crates/conductor/tests/guard_rules.rs
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-12T17:03:49Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":2}}}
 - {from: "proposed", to: "active", at: "2026-10-12T17:03:49Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "active", to: "implemented", at: "2026-10-12T17:27:23Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 
