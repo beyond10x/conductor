@@ -61,6 +61,22 @@ impl Case {
 
     /// A git checkout at `path`, holding an empty planning store, so that `aep` finds one there.
     fn checkout(&self, path: &Path) {
+        self.local_checkout(path);
+        let output = self.git(Command::new("git").arg("-C").arg(path).args([
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/example-org/x.git",
+        ]));
+        assert!(
+            output.status.success(),
+            "git remote add: {}",
+            shown(&output)
+        );
+    }
+
+    /// A checkout with no `origin` remote, which the collectors cannot read at `origin/main`.
+    fn local_checkout(&self, path: &Path) {
         fs::create_dir_all(path.join(".engineering/planning")).expect("create the checkout");
         let output = self.git(Command::new("git").args(["init", "--quiet"]).arg(path));
         assert!(output.status.success(), "git init: {}", shown(&output));
@@ -98,6 +114,8 @@ impl Case {
         // A directory name aep does not take as a member name: the member is `beta-web`.
         self.checkout(&self.dir.join("checkouts/Beta.Web"));
         fs::create_dir_all(self.dir.join("checkouts/notes")).expect("create a plain directory");
+        // A local-only checkout: no member (its `origin/main` cannot be fetched).
+        self.local_checkout(&self.dir.join("checkouts/scratch-only"));
         self.checkout(&self.dir.join("local/gamma-tools"));
         self.checkout(&self.dir.join("local/archive"));
         self.checkout(&self.records());

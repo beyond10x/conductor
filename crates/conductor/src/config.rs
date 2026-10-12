@@ -68,7 +68,7 @@ use std::fmt::{self, Write as _};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
 use std::sync::OnceLock;
 
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -2417,8 +2417,9 @@ fn relative(base: &Path, target: &Path) -> Result<String> {
         .ok_or_else(|| anyhow!("{} is not UTF-8", out.display()))
 }
 
-/// The name of each git checkout (a directory holding `.git`) directly under `dir`, `yaml` the
-/// path of the config value that names it. A directory that is not there holds none.
+/// The name of each git checkout (a directory holding `.git`) directly under `dir` that has an
+/// `origin` remote ([`has_origin`]), `yaml` the path of the config value that names it. A
+/// directory that is not there holds none.
 fn checkouts_under(dir: &Path, yaml: &str) -> Result<Vec<String>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -2431,7 +2432,7 @@ fn checkouts_under(dir: &Path, yaml: &str) -> Result<Vec<String>> {
     for entry in entries {
         let entry = entry.with_context(|| format!("{yaml}: read {}", dir.display()))?;
         let path = entry.path();
-        if path.is_dir() && path.join(".git").exists() {
+        if path.is_dir() && path.join(".git").exists() && has_origin(&path) {
             let name = entry.file_name();
             let name = name.to_str().ok_or_else(|| {
                 anyhow!("{yaml}: the checkout {} has no UTF-8 name", path.display())
@@ -2440,6 +2441,21 @@ fn checkouts_under(dir: &Path, yaml: &str) -> Result<Vec<String>> {
         }
     }
     Ok(names)
+}
+
+/// Whether the checkout `dir` names an `origin` remote, read from its git config with no network
+/// read. The collectors read each member at `origin/main`, so a local-only checkout is no member:
+/// its `git fetch origin` fails the snapshot (conductor's NEED N-20261012-02).
+fn has_origin(dir: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["config", "--get", "remote.origin.url"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// The members found so far: by name, the `source` and the YAML path of the value that gave it.
