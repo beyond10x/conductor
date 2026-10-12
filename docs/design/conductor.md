@@ -168,12 +168,12 @@ Who decides class C and class O is also written in the instance's `authority` (Â
 
 Conductor decides class C on the operator's standing grant (`authority.class_c`). The instance's
 `rules.md` says where that grant is written and how the operator decides, so conductor can pick the
-option he would. Every class-C decision conductor sends carries its decision id; one without an id
+option they would. Every class-C decision conductor sends carries its decision id; one without an id
 is a recommendation.
 
 The controller profile tells a controller to act on a `[DECISION â€¦]` that carries an id as the
 operator's, within conductor's grant. Where the operator's own harness instructions would make a
-controller ask him instead, they need the same grant; without it, controllers ask the operator and
+controller ask them instead, they need the same grant; without it, controllers ask the operator and
 the loop stalls on routine approvals.
 
 ## 6. Messages
@@ -390,9 +390,12 @@ the `cli:` block of `spec/components.yaml` plus the local commands of `crates/co
 | `message` | receive, handle, reject and route messages |
 | `resource` | request, grant, refuse and release resources; `usage` (token spend from transcripts) |
 | `guard` | the hook and its verdicts |
-| `config` | `validate`, `show` |
+| `config` | `validate`, `show`; `workspace` (write `<records>/.engineering/workspace.yaml` from the config; `--check` only compares) |
 | `dashboard` | `serve`: a read-only page on 127.0.0.1 (default port 7313) |
+| `doctor` | each program conductor starts, present with its version or missing, and each one older than its `b10x.toml` pin; exit 1 on either |
+| `init` | write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | `store` | `migrate` |
+| `trust` | mark every git checkout under `checkouts.root`, and the records directory, as trusted Claude Code workspaces in `~/.claude.json` (`task trust`) |
 | `watch` | `run` |
 
 Not implemented yet; each answers exit 2:
