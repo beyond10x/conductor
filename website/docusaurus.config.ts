@@ -58,6 +58,7 @@ const config: Config = {
         {to: '/docs/', label: 'Docs', position: 'left'},
         {to: '/docs/security/overview', label: 'Security', position: 'left'},
         {to: '/docs/guides/configure-an-instance', label: 'Guides', position: 'left'},
+        {to: '/docs/develop/onboarding', label: 'Develop', position: 'left'},
         {to: '/docs/reference/cli', label: 'CLI', position: 'left'},
         {to: '/docs/status', label: 'Status', position: 'left'},
         {href: 'https://github.com/beyond10x/conductor', label: 'GitHub', position: 'right'},
@@ -106,6 +107,7 @@ const config: Config = {
           title: 'Project',
           items: [
             {label: 'Source', href: 'https://github.com/beyond10x/conductor'},
+            {label: 'Develop conductor', to: '/docs/develop/onboarding'},
             {label: 'Design', href: 'https://github.com/beyond10x/conductor/blob/main/docs/design/conductor.md'},
           ],
         },
