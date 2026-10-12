@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest a821fc57b088a7c3d680a7552bf0c92e2d37c6038fcc50a0facdf1110db3400a
-// contract digest 7e50581b2e7dfe1e4284d5d14e990cb615d5f708e71d240bdb43648f4c5c0db2
+// model digest 84b592f140125cd3aed1146902af06286fe074e51bd37c3058ef048e00488ad7
+// contract digest c8299a1d4e391c17946b1ecfd88291bc6e943579106a6dbdb518a86ed8ae0125
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -80,6 +80,7 @@ pub struct ConductorSession {
 /// Every value satisfies `version == "conductor.config/1"` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.session_prefix` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct instance in instances by instance.dashboard_port` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `(not (defined(default)) or exists instance in instances: (instance.name == default))` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -140,12 +141,17 @@ pub struct InitRecords {
 }
 
 /// Instance — `conductor.config.Instance`.
+///
+/// Every value satisfies `dashboard_port >= 1` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `dashboard_port <= 65535` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instance {
     /// `name` — `conductor.config.InstanceName`.
     pub name: InstanceName,
     /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
     pub session_prefix: Option<SessionPrefix>,
+    /// `dashboard_port` — `Integer`.
+    pub dashboard_port: i64,
     /// `sources` — `List<conductor.config.Source>`.
     pub sources: Vec<Source>,
     /// `checkouts` — `conductor.config.Checkouts`.

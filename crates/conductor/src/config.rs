@@ -41,6 +41,9 @@
 //!   would let one session name carry both, and no prefix followed by `-` begins a fixed session
 //!   name an instance without a prefix keeps (`conductor-dev`). A role's `session_name` is derived from it
 //!   ([`session_name`]), never chosen: the file may write only that value;
+//! - a `dashboard_port` (`story:instance-scoped-tasks`) is a whole number from 1 to 65535
+//!   (`Instance`'s invariants), and no two instances share one, counting the ports filled for the
+//!   instances that leave it out ([`dashboard_port`]), so each instance's dashboard binds its own;
 //! - a role's `model`, `agent`, `settings` and `profile` are each a `conductor.config.CommandWord`:
 //!   letters, digits and `.`, `_`, `:`, `/`, `-` only, the alphabet the specification declares,
 //!   because a start command passes each to the harness as one shell word;
@@ -51,6 +54,7 @@
 //! `state` and `cache` are `~/.b10x/conductor/<name>/records`, `~/.b10x/conductor/<name>/state`
 //! and `~/.cache/b10x/conductor/<name>`; `roles`, `controllers`, `cadence`, `thresholds`,
 //! `retention` and `authority`, and each key of the last five, are the built-in defaults;
+//! `dashboard_port` is 7313 plus the instance's index in the file ([`dashboard_port`]);
 //! `repositories` and `reports` are empty; `operator`, `catalog`, `session_prefix`, and a role's
 //! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
 //! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
@@ -192,9 +196,10 @@ pub const DISK_CLEAR_GIB: u64 = 110;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 18] = [
+const INSTANCE_KEYS: [&str; 19] = [
     "name",
     "session_prefix",
+    "dashboard_port",
     "sources",
     "checkouts",
     "records",
@@ -250,6 +255,10 @@ const CATALOG_KEYS: [&str; 3] = ["repository", "path", "names"];
 /// How the file writes each `conductor.config.CatalogNames`.
 const CATALOG_NAMES: [(&str, CatalogNames); 2] =
     [("plain", CatalogNames::Plain), ("hex", CatalogNames::Hex)];
+
+/// The ports a `dashboard_port` may name: `conductor.config.Instance`'s invariants
+/// `dashboard_port >= 1` and `dashboard_port <= 65535`.
+const PORTS: std::ops::RangeInclusive<i64> = 1..=65535;
 
 /// The beginnings of a word that looks like a token; `xox` takes a letter and `-` after it.
 const TOKEN_PREFIXES: [&str; 3] = ["ghp_", "github_pat_", "glpat-"];
@@ -587,6 +596,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         name: InstanceName(ORGANIZATION.to_owned()),
         // Without a prefix the sessions keep today's names (story:instance-session-names).
         session_prefix: None,
+        // The first instance's port, the dashboard's own default (story:instance-scoped-tasks).
+        dashboard_port: dashboard_port(0),
         sources: vec![Source::GitHub(GitHubSource {
             owner: ORGANIZATION.to_owned(),
         })],
@@ -640,6 +651,29 @@ pub fn conductor_session(instance: &Instance, default: Option<&Instance>) -> Con
             session_name: None,
         },
     }
+}
+
+/// The `dashboard_port` of the instance at `index` in the file when it writes none
+/// (`story:instance-scoped-tasks`): the dashboard's default port, 7313, for the first, and one
+/// more for each later instance, so instances that leave it out each serve their own.
+#[must_use]
+pub fn dashboard_port(index: usize) -> i64 {
+    i64::from(crate::dashboard::DEFAULT_PORT)
+        .saturating_add(i64::try_from(index).unwrap_or(i64::MAX))
+}
+
+/// The effective `dashboard_port` of each instance of the file, by its index, as the file writes
+/// them: the written port, or [`dashboard_port`] of its index when it writes none; `None` where
+/// the written value is not a port, which [`Reader::port`] names.
+fn ports(items: &[Value]) -> Vec<Option<i64>> {
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| match item.get("dashboard_port") {
+            None | Some(Value::Null) => Some(dashboard_port(index)),
+            Some(value) => value.as_i64().filter(|port| PORTS.contains(port)),
+        })
+        .collect()
 }
 
 /// The built-in roles, each session named after `prefix` ([`role_session_name`]).
@@ -1135,6 +1169,7 @@ impl Reader<'_> {
                 }
                 self.distinct_names(items);
                 self.distinct_prefixes(items);
+                self.distinct_ports(items);
             }
             instances
         });
@@ -1148,6 +1183,12 @@ impl Reader<'_> {
         let mut instances = instances?;
         if let Some(Value::Array(items)) = map.get("instances") {
             self.conductors(&mut instances, default.as_ref(), items);
+            // A port the file leaves out is its instance's by index; one it writes was read.
+            for (instance, port) in instances.iter_mut().zip(ports(items)) {
+                if let Some(port) = port {
+                    instance.dashboard_port = port;
+                }
+            }
         }
         Some(Config {
             version: version?,
@@ -1331,6 +1372,54 @@ impl Reader<'_> {
         }
     }
 
+    /// `conductor.config.Config`'s invariant on `instance.dashboard_port`
+    /// (`story:instance-scoped-tasks`): no two instances share a `dashboard_port`, counting the
+    /// port [`dashboard_port`] fills for an instance that writes none. A port that is not one is
+    /// named by [`Reader::port`].
+    fn distinct_ports(&mut self, items: &[Value]) {
+        let ports = ports(items);
+        for (index, port) in ports.iter().enumerate() {
+            let Some(port) = port else { continue };
+            if let Some(first) = ports[..index]
+                .iter()
+                .position(|earlier| *earlier == Some(*port))
+            {
+                let filled = items[index]
+                    .get("dashboard_port")
+                    .is_none_or(Value::is_null);
+                self.problem(
+                    &format!("instances[{index}].dashboard_port"),
+                    format!(
+                        "{port}{} is the dashboard_port of instances[{first}] too; each \
+                         instance's dashboard binds a port of its own, so write a port no other \
+                         instance has",
+                        if filled {
+                            " (filled: 7313 plus the instance's index)"
+                        } else {
+                            ""
+                        }
+                    ),
+                );
+            }
+        }
+    }
+
+    /// A `dashboard_port`: a whole number from 1 to 65535 (`conductor.config.Instance`'s
+    /// invariants).
+    fn port(&mut self, value: &Value, path: &str) -> Option<i64> {
+        let port = value.as_i64().filter(|port| PORTS.contains(port));
+        if port.is_none() {
+            self.problem(
+                path,
+                format!(
+                    "{} is not a port: write a whole number from 1 to 65535",
+                    echo(value)
+                ),
+            );
+        }
+        port
+    }
+
     /// A `conductor.config.SessionPrefix`: letters, digits and `-` (the alphabet the
     /// specification declares), starting and ending with a letter or digit.
     fn session_prefix(&mut self, value: &Value, path: &str) -> Option<SessionPrefix> {
@@ -1428,6 +1517,12 @@ impl Reader<'_> {
                 .map(Some),
             None => Some(None),
         };
+        // Absent, the port is filled by the instance's index once every instance is read
+        // (`Reader::config`); until then, the first instance's.
+        let dashboard_port = match Self::get(map, "dashboard_port") {
+            Some(value) => self.port(value, &join(path, "dashboard_port")),
+            None => Some(dashboard_port(0)),
+        };
         let home = self.home;
         let place =
             |reader: &mut Self, key: &str, default: &dyn Fn(&str) -> PathBuf| match Self::get(
@@ -1504,6 +1599,7 @@ impl Reader<'_> {
             conductor,
             name: InstanceName(name?),
             session_prefix: session_prefix?,
+            dashboard_port: dashboard_port?,
             sources: sources?,
             checkouts: checkouts?,
             records: records?,
@@ -2138,6 +2234,10 @@ pub fn document(instance: &Instance) -> Yaml {
         (
             "session_prefix",
             optional(instance.session_prefix.as_ref().map(|prefix| &prefix.0)),
+        ),
+        (
+            "dashboard_port",
+            Yaml::Number(serde_yaml::Number::from(instance.dashboard_port)),
         ),
         ("sources", Yaml::Sequence(sources)),
         (

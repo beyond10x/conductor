@@ -492,6 +492,9 @@ fn show_without_a_file_prints_todays_constants() {
     assert_eq!(instance["catalog"], Value::Null, "{shown:#}");
     // story:instance-session-names: nor a session prefix; its sessions keep today's names.
     assert_eq!(instance["session_prefix"], Value::Null, "{shown:#}");
+    // story:instance-scoped-tasks: src/dashboard.rs, `DEFAULT_PORT`, the port `task dashboard`
+    // served before an instance had one.
+    assert_eq!(instance["dashboard_port"], 7313, "{shown:#}");
     // Correction round 2, decision 4: its own conductor, `conductor`.
     assert_eq!(
         instance["conductor"],
@@ -500,6 +503,7 @@ fn show_without_a_file_prints_todays_constants() {
     );
     let mut expected = vec![
         "session_prefix",
+        "dashboard_port",
         "conductor",
         "authority",
         "cache",
@@ -2290,4 +2294,162 @@ fn a_written_conductor_section_must_be_the_derived_one() {
 /// The one instance of a `config show` document, whichever instance it shows.
 fn instance_of(shown: &Value) -> &Value {
     &shown["instances"][0]
+}
+
+// ---------------------------------------------------------------------------------------------
+// `story:instance-scoped-tasks`: each instance's dashboard serves a port of its own.
+// ---------------------------------------------------------------------------------------------
+
+/// `dashboard_port` is 7313 for the first instance of the file and one more for each later one
+/// when the file leaves it out, and as written when it writes one; `config show` writes it in
+/// each format, and the YAML of a later instance, shown alone, keeps its port.
+#[test]
+fn a_dashboard_port_is_7313_for_the_first_instance_and_one_more_for_each_later_one() {
+    let case = Case::new("dashboard-port");
+    let file = case.write(
+        "two.yaml",
+        &two_instances("\x20   session_prefix: a\n", "\x20   session_prefix: b\n"),
+    );
+    let alpha = case.show(&file, &["--instance", "alpha"]);
+    assert_eq!(instance(&alpha)["dashboard_port"], 7313, "{alpha:#}");
+    let beta = case.show(&file, &["--instance", "beta"]);
+    assert_eq!(instance(&beta)["dashboard_port"], 7314, "{beta:#}");
+
+    let yaml = case.with_file(
+        &file,
+        &["config", "show", "--format", "yaml", "--instance", "beta"],
+    );
+    assert_eq!(yaml.status.code(), Some(0), "{}", describe(&yaml));
+    let written = case.write("beta.yaml", &String::from_utf8_lossy(&yaml.stdout));
+    let validated = case.with_file(&written, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    assert_eq!(case.show(&written, &[]), beta, "the round trip");
+
+    let file = case.write(
+        "written.yaml",
+        &one_instance("\x20   dashboard_port: 7400\n"),
+    );
+    let shown = case.show(&file, &[]);
+    assert_eq!(instance(&shown)["dashboard_port"], 7400, "{shown:#}");
+    let text = case.with_file(&file, &["config", "show"]);
+    assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        text.lines()
+            .any(|line| line == "instances[0].dashboard_port: 7400"),
+        "{text}"
+    );
+
+    let home = PathBuf::from("/fixture-home");
+    let parsed = config::parse(
+        &two_instances("\x20   session_prefix: a\n", "\x20   session_prefix: b\n"),
+        &home,
+    )
+    .unwrap_or_else(|problems| panic!("valid: {problems:?}"));
+    let ports: Vec<i64> = parsed
+        .instances
+        .iter()
+        .map(|instance| instance.dashboard_port)
+        .collect();
+    assert_eq!(
+        ports,
+        [config::dashboard_port(0), config::dashboard_port(1)]
+    );
+    assert_eq!(ports, [7313, 7314]);
+}
+
+/// Two instances that share a `dashboard_port` are refused by the later one's path, naming the
+/// earlier by its index, whether each port is written or filled by the instance's index.
+#[test]
+fn two_instances_sharing_a_dashboard_port_are_refused() {
+    let case = Case::new("dashboard-port-shared");
+    let alpha = |port: &str| format!("\x20   session_prefix: a\n{port}");
+    let beta = |port: &str| format!("\x20   session_prefix: b\n{port}");
+    for (name, first, second, expected) in [
+        (
+            "both-written",
+            "\x20   dashboard_port: 7400\n",
+            "\x20   dashboard_port: 7400\n",
+            "instances[1].dashboard_port: 7400 is the dashboard_port of instances[0] too",
+        ),
+        (
+            "second-takes-the-first-default",
+            "",
+            "\x20   dashboard_port: 7313\n",
+            "instances[1].dashboard_port: 7313 is the dashboard_port of instances[0] too",
+        ),
+        (
+            "first-takes-the-second-default",
+            "\x20   dashboard_port: 7314\n",
+            "",
+            "instances[1].dashboard_port: 7314 (filled: 7313 plus the instance's index) is the \
+             dashboard_port of instances[0] too",
+        ),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &two_instances(&alpha(first), &beta(second)),
+        );
+        let problems = refused(&case, &file);
+        assert!(problems.contains(expected), "{name}: {problems}");
+        assert_eq!(problems.lines().count(), 1, "{name}: {problems}");
+    }
+    for (name, first, second) in [
+        ("both-filled", "", ""),
+        ("first-written", "\x20   dashboard_port: 7313\n", ""),
+        (
+            "both-written",
+            "\x20   dashboard_port: 7400\n",
+            "\x20   dashboard_port: 7401\n",
+        ),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &two_instances(&alpha(first), &beta(second)),
+        );
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&validated)
+        );
+    }
+}
+
+/// A `dashboard_port` is a whole number from 1 to 65535; any other is refused by its path.
+#[test]
+fn a_dashboard_port_that_is_not_a_port_is_refused_by_its_path() {
+    let case = Case::new("dashboard-port-refused");
+    for (name, port) in [
+        ("zero", "0"),
+        ("negative", "-1"),
+        ("too-high", "65536"),
+        ("fraction", "7313.5"),
+        ("text", "\"7313\""),
+        ("list", "[7313]"),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &one_instance(&format!("\x20   dashboard_port: {port}\n")),
+        );
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains("instances[0].dashboard_port: "),
+            "{name}: {problems}"
+        );
+    }
+    for valid in ["1", "65535"] {
+        let file = case.write(
+            "valid.yaml",
+            &one_instance(&format!("\x20   dashboard_port: {valid}\n")),
+        );
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{valid}: {}",
+            describe(&validated)
+        );
+    }
 }
