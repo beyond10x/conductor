@@ -324,6 +324,22 @@ impl Live {
     }
 }
 
+/// The working directory of every live session `sources` lists, Claude's and Codex's alike, live
+/// as this collector counts it: what the disk panel and `conductor gc` keep clear of
+/// (`story:conductor-gc`).
+///
+/// # Errors
+///
+/// Either source cannot be read, as [`collect_from`] fails on it.
+pub fn live_working_directories(sources: &Sources) -> Result<Vec<PathBuf>> {
+    let mut live = claude(sources)?;
+    live.extend(codex(sources)?);
+    Ok(live
+        .into_iter()
+        .map(|session| PathBuf::from(session.cwd))
+        .collect())
+}
+
 /// The live sessions of the Claude session list.
 fn claude(sources: &Sources) -> Result<Vec<Live>> {
     let shown = command_line(&sources.agents);

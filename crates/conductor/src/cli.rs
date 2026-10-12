@@ -31,9 +31,9 @@
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
 //!
-//! Three such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
-//! (`story:first-run-seed`), which read the config file themselves as `config show` does, and
-//! `doctor` (`story:install-prerequisites`), which reads none.
+//! Four such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
+//! (`story:first-run-seed`), which read the config file themselves as `config show` does,
+//! `doctor` (`story:install-prerequisites`), which reads none, and `gc` (`story:conductor-gc`).
 //!
 //! [`LEAVES`] declares of every leaf whether it writes, and so whether a controller's session may
 //! run it ([`Access`]); the guard reads that declaration, not a list of its own
@@ -244,6 +244,7 @@ impl Cli {
                 DashboardCommand::Serve(args) => dashboard::dashboard_serve(&args),
             },
             Group::Doctor => crate::doctor::doctor(),
+            Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
             Group::Store(command) => match command {
@@ -312,6 +313,10 @@ pub enum Group {
     #[command(name = "doctor")]
     Doctor,
 
+    /// Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed
+    #[command(name = "gc")]
+    Gc(GcArgs),
+
     /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
     #[command(name = "init")]
     Init(InitArgs),
@@ -340,7 +345,8 @@ pub enum Access {
     /// controller is given (`dashboard serve`, `repository shipped`, `resource usage`).
     ConductorReads,
     /// Writes: the store under the state directory, conductor's records, the instance's files or
-    /// `~/.claude.json`. Only conductor's session runs it.
+    /// `~/.claude.json`, or removes what the disk panel marks reclaimable (`gc`). Only conductor's
+    /// session runs it.
     Writes,
     /// Writes the guard's record of its own verdict: every session runs it, as the guard hook
     /// (`guard record-guard-decision`).
@@ -451,6 +457,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["config", "workspace"], Access::Writes),
     (&["dashboard", "serve"], Access::ConductorReads),
     (&["doctor"], Access::Reads),
+    // Removes the build caches, trees and targets the disk panel marks reclaimable.
+    (&["gc"], Access::Writes),
     (&["init"], Access::Writes),
     // Copies the store into the tree layout under the state directory.
     (&["store", "migrate"], Access::Writes),
@@ -898,6 +906,19 @@ pub enum StoreCommand {
 #[derive(Debug, Clone, Args)]
 pub struct StoreMigrateArgs {
     /// How the counts moved are printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
+}
+
+/// The input of the binding's `gc` callable, `conductor.observation.CollectGarbage`. The format
+/// is text the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct GcArgs {
+    /// List the rows the disk panel marks reclaimable, with their bytes, and remove nothing.
+    /// `--dry-run` alone is `--dry-run true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub dry_run: Option<bool>,
+    /// How the rows are printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
 }

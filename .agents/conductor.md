@@ -63,6 +63,7 @@ this session and expire after 7 days, so a restart loses them.
        caches), largest first, each to the
        session that owns it: build cache of finished and merged trees (`worktree finish
        --discard-cache`), then stale scratch copies;
+       `conductor gc` is the tool now: `--dry-run` first, then run it and report the bytes freed;
      - under `thresholds.build_slot`, no new build expected to write more than
        `thresholds.build_size`; such a `[RESOURCE <repo>] build-slot` is refused with the number;
      - under `thresholds.disk_admit`, start nothing, grant nothing.

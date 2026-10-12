@@ -76,6 +76,11 @@ callables:
     input: null
     result: List<conductor.config.Prerequisite>
     errors: {}
+  gc:
+    target: {kind: local, owner: conductor-cli, action: gc}
+    input: conductor.observation.CollectGarbage
+    result: List<conductor.observation.GarbageRow>
+    errors: {}
 commands:
   - path: [goal, goals]
     callable: goals
@@ -173,3 +178,11 @@ commands:
     callable: doctor
     about: Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin
     arguments: []
+  - path: [gc]
+    callable: gc
+    about: Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed
+    arguments:
+      - field: dry_run
+        source: {kind: option, long: dry-run}
+      - field: format
+        source: {kind: option, long: format}

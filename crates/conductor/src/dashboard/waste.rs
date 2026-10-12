@@ -11,6 +11,22 @@
 //! rustup toolchains, the agents' scratch `~/.cache/claude-tmp` and the entries of `/var/tmp`. It
 //! deletes nothing.
 //!
+//! Each row says whether `conductor gc` removes it (`story:conductor-gc`), and how, or why it is
+//! kept; [`repositories`] is the one classification both read. Only three kinds of row are ever
+//! reclaimable, each removed by the tool that owns it, never by a deletion of conductor's own:
+//! - the build cache of idle managed trees: `worktree discard-cache` on each tree, which deletes
+//!   only the cache it recognises and refuses a tree with a live lease or a process in it;
+//! - the trees eligible for removal: `worktree gc --apply --id` on each, which revalidates each
+//!   tree's recovery proof before it removes it;
+//! - a checkout's `target/` that is cargo's (it holds `CACHEDIR.TAG` and is no link, beside the
+//!   checkout's `Cargo.toml`): `cargo clean --target-dir`.
+//!
+//! A tree or checkout a live session works in, its working directory there or below
+//! ([`works_in`]), is kept, and so is a tree outside the instance's managed trees; when the live
+//! sessions cannot be read ([`live`]), every row is kept. Archives (`worktree prune-archives`
+//! reviews each), the shared build targets, sccache, the toolchains, the agents' scratch and
+//! `/var/tmp` are never reclaimable: something outside conductor's view may use each.
+//!
 //! Every size is the allocated bytes of a walk in Rust, [`disk::tree_size`], not `du`, whose
 //! options differ between platforms (`story:portable-tree-sizes`).
 //!
@@ -24,10 +40,10 @@ use std::fs;
 use std::io::{self, Read};
 use std::os::unix::fs::MetadataExt as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -63,21 +79,154 @@ struct Measurement {
     rows: Vec<Row>,
 }
 
-/// One row of the measurement: what was measured, where, and how large it is.
+/// One row of the measurement: what was measured, where, and how large it is, and whether
+/// `conductor gc` removes it.
 #[derive(Debug, Default, Serialize)]
-struct Row {
+pub(crate) struct Row {
     /// The tracked repository, or none for a shared row.
-    repository: Option<String>,
-    what: &'static str,
+    pub(crate) repository: Option<String>,
+    pub(crate) what: &'static str,
     path: Option<String>,
     /// The trees or entries the row sums.
-    count: Option<usize>,
-    bytes: Option<u64>,
+    pub(crate) count: Option<usize>,
+    pub(crate) bytes: Option<u64>,
     /// The owner and age of a `/var/tmp` entry.
     owner: Option<String>,
     age: Option<String>,
     /// `measured`, `incomplete: …`, `timed out after N s` or `failed: …`.
     state: String,
+    /// Whether `conductor gc` removes what the row measures: exactly when it has a [`Reclaim`].
+    reclaimable: bool,
+    /// The command `conductor gc` removes it with, or `kept: <why>`.
+    gc: String,
+    /// How `conductor gc` removes it; none for a row it keeps.
+    #[serde(skip)]
+    pub(crate) reclaim: Option<Reclaim>,
+}
+
+impl Row {
+    /// The row, which `conductor gc` removes through `reclaim` when it was measured, and keeps
+    /// otherwise: a row without bytes is not known to be what the panel shows.
+    fn reclaimed_by(self, reclaim: Reclaim) -> Self {
+        if self.bytes.is_none() {
+            return self.kept("not measured");
+        }
+        Self {
+            reclaimable: true,
+            gc: reclaim.shown(),
+            reclaim: Some(reclaim),
+            ..self
+        }
+    }
+
+    /// The row, which `conductor gc` keeps, because of `why`.
+    fn kept(self, why: &str) -> Self {
+        Self {
+            reclaimable: false,
+            gc: format!("kept: {why}"),
+            reclaim: None,
+            ..self
+        }
+    }
+}
+
+/// How `conductor gc` removes a reclaimable row: through the tool that owns what it measures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Reclaim {
+    /// `worktree discard-cache --json <tree>` on each tree: the build cache `worktree` recognises,
+    /// in trees it finds idle.
+    DiscardCache(Vec<PathBuf>),
+    /// `worktree gc --repo <root> --apply --json --id <tree>…`: the trees of the repository at
+    /// `root`, each revalidated by `worktree` before it is removed.
+    RemoveTrees { root: PathBuf, trees: Vec<PathBuf> },
+    /// `cargo clean --manifest-path <checkout>/Cargo.toml --target-dir <target>`.
+    CargoClean { checkout: PathBuf, target: PathBuf },
+}
+
+impl Reclaim {
+    /// The paths the row measures, whose bytes its removal frees.
+    pub(crate) fn paths(&self) -> Vec<PathBuf> {
+        match self {
+            Self::DiscardCache(trees) | Self::RemoveTrees { trees, .. } => trees.clone(),
+            Self::CargoClean { target, .. } => vec![target.clone()],
+        }
+    }
+
+    /// The paths that must be gone once the removal succeeded: the trees `worktree gc` removes
+    /// and the target `cargo clean` removes; none for a cache, whose tree stays.
+    pub(crate) fn removed(&self) -> Vec<PathBuf> {
+        match self {
+            Self::DiscardCache(_) => Vec::new(),
+            Self::RemoveTrees { trees, .. } => trees.clone(),
+            Self::CargoClean { target, .. } => vec![target.clone()],
+        }
+    }
+
+    /// The commands that remove it, in order, each with the directory it runs in, if any.
+    pub(crate) fn commands(&self) -> Vec<(Vec<OsString>, Option<PathBuf>)> {
+        let os = |text: &str| OsString::from(text);
+        match self {
+            Self::DiscardCache(trees) => trees
+                .iter()
+                .map(|tree| {
+                    let command = vec![
+                        os("worktree"),
+                        os("discard-cache"),
+                        os("--json"),
+                        tree.clone().into_os_string(),
+                    ];
+                    (command, None)
+                })
+                .collect(),
+            Self::RemoveTrees { root, trees } => {
+                let mut command = vec![
+                    os("worktree"),
+                    os("gc"),
+                    os("--repo"),
+                    root.clone().into_os_string(),
+                    os("--apply"),
+                    os("--json"),
+                ];
+                for tree in trees {
+                    command.push(os("--id"));
+                    command.push(tree.clone().into_os_string());
+                }
+                vec![(command, None)]
+            }
+            Self::CargoClean { checkout, target } => {
+                let command = vec![
+                    os("cargo"),
+                    os("clean"),
+                    os("--manifest-path"),
+                    checkout.join("Cargo.toml").into_os_string(),
+                    os("--target-dir"),
+                    target.clone().into_os_string(),
+                ];
+                vec![(command, Some(checkout.clone()))]
+            }
+        }
+    }
+
+    /// The command as the panel names it.
+    fn shown(&self) -> String {
+        match self {
+            Self::DiscardCache(_) => "worktree discard-cache",
+            Self::RemoveTrees { .. } => "worktree gc --apply",
+            Self::CargoClean { .. } => "cargo clean --target-dir",
+        }
+        .to_owned()
+    }
+}
+
+/// A tracked repository, and why `conductor gc` keeps the trees grouped under it: none when it
+/// may remove them.
+type Group = (String, Option<String>);
+
+/// One measurement's rows, and the working directories of the live sessions it kept clear of, or
+/// why they could not be read.
+pub(crate) struct Waste {
+    pub(crate) rows: Vec<Row>,
+    pub(crate) live: Result<Vec<PathBuf>, String>,
 }
 
 impl Cache {
@@ -123,19 +272,56 @@ impl Cache {
             "measured_ago": last.map(|last| ago(now - last.at)),
             "measuring": state.running,
             "total_bytes": last.map(|last| last.rows.iter().filter_map(|row| row.bytes).sum::<u64>()),
+            "reclaimable_bytes": last.map(|last| {
+                last.rows
+                    .iter()
+                    .filter(|row| row.reclaimable)
+                    .filter_map(|row| row.bytes)
+                    .sum::<u64>()
+            }),
             "rows": last.map_or_else(|| json!([]), |last| json!(last.rows)),
         })
     }
 }
 
-/// Every row of one measurement of `sources`, largest first.
+/// Every row of one measurement of `sources`, largest first: the rows of the tracked repositories
+/// ([`repositories`]), then the shared ones, which `conductor gc` never removes.
 fn measure(sources: &Sources) -> Vec<Row> {
+    let mut rows = repositories(sources).rows;
+    shared(sources, &mut rows);
+    rows.sort_by_key(|row| std::cmp::Reverse(row.bytes));
+    rows
+}
+
+/// The rows of the tracked repositories, largest first, each marked reclaimable or kept: the one
+/// classification the panel and `conductor gc` read (`story:conductor-gc`).
+pub(crate) fn repositories(sources: &Sources) -> Waste {
     let timeout = sources.measure_timeout;
     let home = &sources.home;
     let root = &sources.checkouts;
+    let live = live(sources);
+    // Why a managed tree is kept, or none when `conductor gc` may hand it to `worktree`.
+    let keep = |tree: &Path| -> Option<String> {
+        match &live {
+            Err(error) => Some(format!("the live sessions could not be read: {error}")),
+            Ok(live) if works_in(live, tree) => Some("a live session works in it".to_owned()),
+            Ok(_)
+                if !tree.is_absolute()
+                    || tree.components().any(|part| part == Component::ParentDir) =>
+            {
+                Some("not a plain absolute path".to_owned())
+            }
+            Ok(_) if !tree.starts_with(&sources.trees) => {
+                Some("outside the instance's managed trees".to_owned())
+            }
+            Ok(_) => None,
+        }
+    };
     let mut rows = Vec::new();
 
-    let mut eligible: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    // Per repository and per reason kept (none: reclaimable), the trees.
+    let mut eligible: BTreeMap<Group, Vec<PathBuf>> = BTreeMap::new();
+    let mut removable: HashSet<PathBuf> = HashSet::new();
     match json_of(&sources.gc, timeout) {
         Ok(gc) => {
             for assessment in gc["assessments"].as_array().into_iter().flatten() {
@@ -147,33 +333,38 @@ fn measure(sources: &Sources) -> Vec<Row> {
                     continue;
                 };
                 if assessment["eligible"] == true {
+                    let tree = PathBuf::from(tree);
+                    removable.insert(tree.clone());
                     eligible
-                        .entry(repository)
+                        .entry((repository, keep(&tree)))
                         .or_default()
-                        .push(PathBuf::from(tree));
+                        .push(tree);
                 }
             }
         }
-        Err(state) => rows.push(Row {
-            what: ELIGIBLE,
-            state,
-            ..Row::default()
-        }),
+        Err(state) => rows.push(
+            Row {
+                what: ELIGIBLE,
+                state,
+                ..Row::default()
+            }
+            .kept("not measured"),
+        ),
     }
-    let removable: HashSet<&PathBuf> = eligible.values().flatten().collect();
-    let mut cache: BTreeMap<String, (usize, u64)> = BTreeMap::new();
+    let mut cache: BTreeMap<Group, (Vec<PathBuf>, u64)> = BTreeMap::new();
     match json_of(&sources.sweep, timeout) {
         Ok(sweep) => {
             for item in sweep["items"].as_array().into_iter().flatten() {
                 let record = &item["record"];
-                let Some(repository) = repository(&record["repository_root"], root) else {
+                let (Some(repository), Some(tree)) = (
+                    repository(&record["repository_root"], root),
+                    record["path"].as_str(),
+                ) else {
                     continue;
                 };
+                let tree = PathBuf::from(tree);
                 // A tree eligible for removal is counted whole, with its cache, below.
-                if record["path"]
-                    .as_str()
-                    .is_some_and(|tree| removable.contains(&PathBuf::from(tree)))
-                {
+                if removable.contains(&tree) {
                     continue;
                 }
                 let bytes: u64 = item["cache"]["discarded"]
@@ -183,71 +374,190 @@ fn measure(sources: &Sources) -> Vec<Row> {
                     .filter_map(|entry| entry["allocated_bytes"].as_u64())
                     .sum();
                 if bytes > 0 {
-                    let sum = cache.entry(repository).or_default();
-                    *sum = (sum.0 + 1, sum.1 + bytes);
+                    let sum = cache.entry((repository, keep(&tree))).or_default();
+                    sum.0.push(tree);
+                    sum.1 += bytes;
                 }
             }
         }
-        Err(state) => rows.push(Row {
-            what: BUILD_CACHE,
-            state,
-            ..Row::default()
-        }),
+        Err(state) => rows.push(
+            Row {
+                what: BUILD_CACHE,
+                state,
+                ..Row::default()
+            }
+            .kept("not measured"),
+        ),
     }
-    for (repository, (count, bytes)) in cache {
-        rows.push(Row {
+    for ((repository, why), (trees, bytes)) in cache {
+        let row = Row {
             repository: Some(repository),
             what: BUILD_CACHE,
-            count: Some(count),
+            count: Some(trees.len()),
             bytes: Some(bytes),
             state: "measured".to_owned(),
             ..Row::default()
+        };
+        rows.push(match why {
+            Some(why) => row.kept(&why),
+            None => row.reclaimed_by(Reclaim::DiscardCache(trees)),
         });
     }
-    for (repository, trees) in &eligible {
-        let (bytes, state) = size(trees, timeout);
-        rows.push(Row {
+    for ((repository, why), trees) in eligible {
+        let (bytes, state) = size(&trees, timeout);
+        let row = Row {
             repository: Some(repository.clone()),
             what: ELIGIBLE,
             count: Some(trees.len()),
             bytes,
             state,
             ..Row::default()
+        };
+        rows.push(match why {
+            Some(why) => row.kept(&why),
+            None => row.reclaimed_by(Reclaim::RemoveTrees {
+                root: root.join(&repository),
+                trees,
+            }),
         });
     }
 
     let archives = home.join(".local/state/worktree/archives");
     for repository in checkouts(root) {
-        for (what, path) in [
-            ("archives", archives.join(&repository)),
-            (
-                "target/ of the checkout",
-                root.join(&repository).join("target"),
-            ),
-        ] {
-            if path.is_dir() {
-                rows.push(path_row(Some(&repository), what, &path, timeout));
-            }
-        }
-    }
-
-    for entry in entries(&sources.targets) {
-        rows.push(path_row(None, "shared build target", &entry, timeout));
-    }
-    for (what, path) in [
-        ("sccache", ".cache/sccache"),
-        ("rustup toolchains", ".rustup/toolchains"),
-        ("agent scratch", ".cache/claude-tmp"),
-    ] {
-        let path = home.join(path);
+        let path = archives.join(&repository);
         if path.is_dir() {
-            rows.push(path_row(None, what, &path, timeout));
+            rows.push(
+                path_row(Some(&repository), "archives", &path, timeout)
+                    .kept("`worktree prune-archives` reviews each archive"),
+            );
+        }
+        let checkout = root.join(&repository);
+        let target = checkout.join("target");
+        if target.is_dir() {
+            let row = path_row(
+                Some(&repository),
+                "target/ of the checkout",
+                &target,
+                timeout,
+            );
+            rows.push(match cargo_target(&checkout, &target, &live) {
+                Ok(()) => row.reclaimed_by(Reclaim::CargoClean { checkout, target }),
+                Err(why) => row.kept(&why),
+            });
         }
     }
-    var_tmp(&sources.var_tmp, timeout, &mut rows);
 
     rows.sort_by_key(|row| std::cmp::Reverse(row.bytes));
-    rows
+    Waste { rows, live }
+}
+
+/// The shared rows, none of which `conductor gc` removes: something outside conductor's view may
+/// use each.
+fn shared(sources: &Sources, rows: &mut Vec<Row>) {
+    let timeout = sources.measure_timeout;
+    for entry in entries(&sources.targets) {
+        rows.push(
+            path_row(None, "shared build target", &entry, timeout)
+                .kept("shared: no session is known to be clear of it"),
+        );
+    }
+    for (what, path, why) in [
+        ("sccache", ".cache/sccache", "shared compiler cache"),
+        (
+            "rustup toolchains",
+            ".rustup/toolchains",
+            "the toolchains builds run",
+        ),
+        (
+            "agent scratch",
+            ".cache/claude-tmp",
+            "the sessions' own scratch",
+        ),
+    ] {
+        let path = sources.home.join(path);
+        if path.is_dir() {
+            rows.push(path_row(None, what, &path, timeout).kept(why));
+        }
+    }
+    let start = rows.len();
+    var_tmp(&sources.var_tmp, timeout, rows);
+    for row in &mut rows[start..] {
+        *row = std::mem::take(row).kept("not conductor's");
+    }
+}
+
+/// Whether `conductor gc` may `cargo clean` the checkout `checkout`'s target `target`, or why
+/// not: no live session works in the checkout, and the target is cargo's, a directory that holds
+/// `CACHEDIR.TAG` and is no link, beside the checkout's `Cargo.toml`.
+fn cargo_target(
+    checkout: &Path,
+    target: &Path,
+    live: &Result<Vec<PathBuf>, String>,
+) -> Result<(), String> {
+    match live {
+        Err(error) => return Err(format!("the live sessions could not be read: {error}")),
+        Ok(live) if works_in(live, checkout) => {
+            return Err("a live session works in the checkout".to_owned());
+        }
+        Ok(_) => {}
+    }
+    let is = |path: &Path, file: bool| {
+        fs::symlink_metadata(path).is_ok_and(|metadata| {
+            if file {
+                metadata.is_file()
+            } else {
+                metadata.is_dir()
+            }
+        })
+    };
+    if !is(target, false) {
+        return Err("a link, not a directory".to_owned());
+    }
+    if !is(&target.join("CACHEDIR.TAG"), true) {
+        return Err("not cargo's: no CACHEDIR.TAG".to_owned());
+    }
+    if !is(&checkout.join("Cargo.toml"), true) {
+        return Err("no Cargo.toml beside it".to_owned());
+    }
+    Ok(())
+}
+
+/// The working directories of the live sessions, Claude's from the session list `sources.agents`
+/// prints and Codex's under `~/.codex/sessions`, as the sessions collector reads them; or why they
+/// could not be read. A working directory that is no absolute path cannot be placed, so it is
+/// such a reason too.
+pub(crate) fn live(sources: &Sources) -> Result<Vec<PathBuf>, String> {
+    let sessions = collect::sessions::Sources {
+        agents: sources.agents.clone(),
+        codex: sources.home.join(".codex/sessions"),
+        home: sources.home.clone(),
+        now: SystemTime::now(),
+        bound: sources.measure_timeout,
+    };
+    let live = collect::sessions::live_working_directories(&sessions)
+        .map_err(|error| first_line(&format!("{error:#}")).to_owned())?;
+    match live.iter().find(|cwd| !cwd.is_absolute()) {
+        Some(cwd) => Err(format!(
+            "a live session works in {}, which is no absolute path",
+            cwd.display()
+        )),
+        None => Ok(live),
+    }
+}
+
+/// Whether one of the working directories `live` is `path` or lies under it, each read both as
+/// written and with its links resolved.
+pub(crate) fn works_in(live: &[PathBuf], path: &Path) -> bool {
+    let paths: Vec<PathBuf> = [Some(path.to_path_buf()), fs::canonicalize(path).ok()]
+        .into_iter()
+        .flatten()
+        .collect();
+    live.iter().any(|cwd| {
+        [Some(cwd.clone()), fs::canonicalize(cwd).ok()]
+            .into_iter()
+            .flatten()
+            .any(|cwd| paths.iter().any(|path| cwd.starts_with(path)))
+    })
 }
 
 /// The name of the tracked repository whose root is `root`: a directory directly under the

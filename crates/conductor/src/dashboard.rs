@@ -34,7 +34,7 @@
 //! home directory is printed in full: every string the page carries writes it as `~`.
 
 mod usage;
-mod waste;
+pub(crate) mod waste;
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -147,6 +147,30 @@ impl Sources {
         Self::with(home, root, watch, checkouts, targets, context_handover)
     }
 
+    /// The sources of the instance this process runs ([`config::active`]) under the home
+    /// directory `HOME` names: [`Sources::of`] when a config file names it, else [`Sources::new`]
+    /// over `root`, or the nearest directory from the working directory up that holds both
+    /// `dispatches/` and `decisions/`. `dashboard serve` and `conductor gc` read these.
+    ///
+    /// # Errors
+    ///
+    /// When `HOME` is not an absolute path, or the working directory cannot be read.
+    pub fn active(root: Option<PathBuf>) -> Result<Self> {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| home.is_absolute())
+            .context("HOME is not an absolute path; the page writes it as ~")?;
+        let active = config::active();
+        if active.from_file {
+            return Ok(Self::of(home, root, &active.instance));
+        }
+        let root = match root {
+            Some(root) => root,
+            None => find_root(&std::env::current_dir().context("read the working directory")?),
+        };
+        Ok(Self::new(home, root))
+    }
+
     fn with(
         home: PathBuf,
         root: PathBuf,
@@ -213,20 +237,7 @@ fn watch_dir(home: &Path, root: &Path) -> PathBuf {
 /// When `HOME` is not an absolute path, the working directory cannot be read, or the port cannot
 /// be bound.
 pub fn dashboard_serve(args: &DashboardServeArgs) -> Result<ExitCode> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|home| home.is_absolute())
-        .context("HOME is not an absolute path; the page writes it as ~")?;
-    let active = config::active();
-    let sources = if active.from_file {
-        Sources::of(home, args.root.clone(), &active.instance)
-    } else {
-        let root = match &args.root {
-            Some(root) => root.clone(),
-            None => find_root(&std::env::current_dir().context("read the working directory")?),
-        };
-        Sources::new(home, root)
-    };
+    let sources = Sources::active(args.root.clone())?;
     let port = args.port.unwrap_or(DEFAULT_PORT);
     let listener = TcpListener::bind(("127.0.0.1", port))
         .with_context(|| format!("listen on 127.0.0.1:{port}"))?;
@@ -1146,10 +1157,11 @@ fn waste_table(out: &mut String, disk: &Value) {
     let rows = disk["rows"].as_array().unwrap_or(&none);
     let _ = writeln!(
         out,
-        "<p class=\"meta\">total {} over {} rows · measured {} ({} ago){again} · \
-         read-only: cleanup goes through each tree's owner</p>",
+        "<p class=\"meta\">total {} over {} rows, {} reclaimable · measured {} ({} ago){again} · \
+         read-only: <code>conductor gc</code> removes the reclaimable rows</p>",
         size(&disk["total_bytes"]),
         rows.len(),
+        size(&disk["reclaimable_bytes"]),
         cell(&disk["measured_at"]),
         cell(&disk["measured_ago"]),
     );
@@ -1165,6 +1177,7 @@ fn waste_table(out: &mut String, disk: &Value) {
             ("owner", &|row: &Value| cell(&row["owner"])),
             ("age", &|row: &Value| cell(&row["age"])),
             ("state", &|row: &Value| cell(&row["state"])),
+            ("conductor gc", &|row: &Value| cell(&row["gc"])),
         ],
     );
 }
