@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T17:57:15Z",
+  "actor": "human:timo",
+  "artifact": "story:init-records-without-origin",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/07 at d38e34c: green; first cut red on ten collector tests (run 38285597337), narrowed",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38287160377"
+  }
+}
