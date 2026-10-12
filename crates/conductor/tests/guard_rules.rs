@@ -1570,6 +1570,118 @@ fn a_controller_reaches_no_writing_leaf_through_a_word_the_shell_expands() {
     );
 }
 
+/// `story:guard-expanded-conductor-words`, security review: a line in which `conductor` is a
+/// search pattern or a path argument runs no leaf, and a controller greps its repository for
+/// conductor's name. The guard reads any word whose last path component is `conductor` as a run
+/// of the binary, wherever it stands, and since this story holds such a run to the strict rule (a
+/// word read before the leaf that expands) and to the `xargs` rule (no leaf written after it), a
+/// glob or a parameter after the pattern, or `xargs grep conductor`, is denied as an unknown run.
+/// The base allowed each line. The declared read leaves at the end stay allowed.
+#[test]
+fn a_controller_greps_for_conductor_without_running_it() {
+    let home = home("controller-conductor-pattern-words");
+    let mut denied = Vec::new();
+    for command in [
+        // `conductor` as the pattern, a glob or a parameter after it.
+        "grep -rn conductor *.md",
+        "grep -rn conductor --include='*.rs' crates",
+        "rg conductor -g '*.md'",
+        "echo conductor $HOME",
+        // `conductor` as the last component of a path argument.
+        "rg -n 'fn main' crates/conductor -g '*.rs'",
+        // `conductor` as the pattern of a program `xargs` runs.
+        "git ls-files | xargs grep -n conductor",
+        "find . -name '*.md' | xargs grep -l conductor",
+        // Declared read leaves: allowed today, and stay so.
+        "conductor snapshot sessions --format json",
+        "conductor --state-dir ~/x snapshot sessions",
+        "conductor snapshot sessions --format json | jq '.[] | select(.name == \"conductor\")'",
+    ] {
+        let decision = bash(&home, PROBE, command);
+        if decision.verdict != Verdict::Allow {
+            denied.push(format!(
+                "{command:?}: {:?}: {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(
+        denied.is_empty(),
+        "{} lines that run no conductor leaf were denied to a controller:\n  - {}",
+        denied.len(),
+        denied.join("\n  - ")
+    );
+}
+
+/// `story:guard-expanded-conductor-words`, security review: a program word that the shell builds
+/// without the literal `conductor` (a parameter, a glob over the binary's path, a `printf` that
+/// spells it, a variable holding the whole line) is judged only by the words written after it, so
+/// an expanded group word after it, or no words at all, passes. Each line runs `conductor store
+/// migrate`. `website/docs/security/limits.md` names this as an open gap; the base allowed each.
+#[test]
+#[ignore = "pre-existing; limits.md leaves open a program word built without conductor"]
+fn a_controller_reaches_no_writing_leaf_through_a_program_word_built_without_conductor() {
+    let home = home("controller-conductor-built-program-word");
+    let mut allowed = Vec::new();
+    for command in [
+        "C=conductor; $C {store,migrate}",
+        "~/.cargo/bin/conducto? {store,migrate}",
+        "X='conductor store migrate'; $X",
+        "S='conductor store migrate'; eval \"$S\"",
+        "eval \"$(printf 'cond%s store migrate' uctor)\"",
+    ] {
+        let decision = bash(&home, PROBE, command);
+        if decision.verdict != Verdict::Deny {
+            allowed.push(format!(
+                "{command:?}: {:?}: {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(
+        allowed.is_empty(),
+        "{} lines that run a writing leaf were not denied to a controller:\n  - {}",
+        allowed.len(),
+        allowed.join("\n  - ")
+    );
+}
+
+/// `story:guard-expanded-conductor-words`, security review: the shell runs `conductor store
+/// migrate` from words the guard's reader (`guard/shell.rs`) does not see as that run: a script a
+/// shell reads on its input (a here-string, a pipe, a here-document), a script string another
+/// program hands to a shell (`watch`), an alias, ANSI-C escapes in `$'…'` (the reader keeps the
+/// escape's letters, not the byte), and an extended glob whose parenthesis the reader takes for a
+/// subshell. The base allowed each.
+#[test]
+#[ignore = "pre-existing; out of story scope: guard/shell.rs does not read these runs"]
+fn a_controller_reaches_no_writing_leaf_through_a_script_the_guard_does_not_read() {
+    let home = home("controller-conductor-unread-script");
+    let mut allowed = Vec::new();
+    for command in [
+        "bash <<< 'conductor store migrate'",
+        "echo 'conductor store migrate' | sh",
+        "sh <<'EOF'\nconductor store migrate\nEOF",
+        "watch -n 60 'conductor store migrate'",
+        "shopt -s expand_aliases\nalias c=conductor\nc store migrate",
+        "conductor $'\\x73tore' migrate",
+        "touch store\nshopt -s extglob\nconductor @(store) migrate",
+    ] {
+        let decision = bash(&home, PROBE, command);
+        if decision.verdict != Verdict::Deny {
+            allowed.push(format!(
+                "{command:?}: {:?}: {}",
+                decision.verdict, decision.reason
+            ));
+        }
+    }
+    assert!(
+        allowed.is_empty(),
+        "{} lines that run a writing leaf were not denied to a controller:\n  - {}",
+        allowed.len(),
+        allowed.join("\n  - ")
+    );
+}
+
 // -------------------------------------------------------------------------------------------------
 // The instance's places. The guard reads where checkouts, managed worktrees and conductor's records
 // are from the instance the process runs (`config::active`): without a config file the built-in

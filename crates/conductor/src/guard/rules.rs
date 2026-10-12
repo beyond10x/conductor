@@ -1395,6 +1395,37 @@ const EXPANSIONS: [char; 6] = ['$', '`', '{', '*', '?', '['];
 /// run receives its group and leaf from their input.
 const FEEDERS: [&str; 2] = ["xargs", "parallel"];
 
+/// The programs that run the program word written after their own options and values.
+const LAUNCHERS: [&str; 12] = [
+    "env", "timeout", "nice", "nohup", "sudo", "doas", "setsid", "stdbuf", "ionice", "taskset",
+    "xargs", "parallel",
+];
+
+/// The `find` actions whose next word is a program `find` runs.
+const FIND_RUNS: [&str; 4] = ["-exec", "-execdir", "-ok", "-okdir"];
+
+/// Whether `words[at]` is the program a simple command runs: its command name (`words[name]`, from
+/// [`command_words`]); the word after a [`FIND_RUNS`] action; or the first word after a chain of
+/// [`LAUNCHERS`] starting at the command name, in which every other word is an option, an
+/// assignment, a value that starts with a digit (`timeout 5`, `nice -n 10`) or `{}`. A word that
+/// follows any other program's words (`grep -rn conductor`) is an argument, not a program.
+fn is_program_word(words: &[String], name: usize, at: usize) -> bool {
+    if at <= name {
+        return at == name;
+    }
+    if FIND_RUNS.contains(&words[at - 1].as_str()) {
+        return true;
+    }
+    LAUNCHERS.contains(&shell::program(&words[name]))
+        && words[name + 1..at].iter().all(|word| {
+            LAUNCHERS.contains(&shell::program(word))
+                || word.starts_with('-')
+                || is_assignment(word)
+                || word.starts_with(|c: char| c.is_ascii_digit())
+                || word == "{}"
+        })
+}
+
 /// Whether the shell expands `word` into other words before a program reads it ([`EXPANSIONS`]).
 fn expands(word: &str) -> bool {
     word.contains(EXPANSIONS)
@@ -1410,7 +1441,9 @@ fn expands(word: &str) -> bool {
 /// leaf follows runs none (`which conductor`, `conductor --help`, a path ending in `conductor`).
 ///
 /// It is [`DeniedRun::Unknown`] (`story:guard-expanded-conductor-words`) when the shell or another
-/// program decides the leaf after the guard has read the line:
+/// program decides the leaf after the guard has read the line, for a `conductor` that is the
+/// command's program word ([`is_program_word`]; elsewhere, `grep -rn conductor *.md`, it is a
+/// pattern or a path, held to the declared leaves only):
 /// - a word read before the leaf is decided (the group word, the leaf word, a flag or a flag's
 ///   value) [`expands`]: brace expansion, `$"…"`, `${…}`, `$(…)`, `"$@"` or a glob can each
 ///   become a group and a leaf. Words after the leaf choose no other leaf;
@@ -1428,7 +1461,10 @@ fn conductor_run(words: &[String]) -> Option<DeniedRun> {
     let name = words.len() - command_words(words).len();
     words.iter().enumerate().find_map(|(at, word)| {
         if shell::program(word) == "conductor" {
-            let fed = words[..at]
+            if !is_program_word(words, name, at) {
+                return leaf_after(&words[at..], false, false);
+            }
+            let fed = words[name..at]
                 .iter()
                 .any(|before| FEEDERS.contains(&shell::program(before)));
             return leaf_after(&words[at..], true, fed);
