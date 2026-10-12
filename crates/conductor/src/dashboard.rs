@@ -108,25 +108,32 @@ pub struct Sources {
     pub measure_every: Duration,
     /// How long one command of the disk measurement may run before it is stopped.
     pub measure_timeout: Duration,
+    /// Tokens of a session's context above which the watch reports it, which the context line
+    /// names: the instance's `thresholds.context_handover`.
+    pub context_handover: u64,
 }
 
 impl Sources {
     /// The sources without a config file: `claude agents --json`, the repository `root`, the
-    /// watch's directory ([`watch_dir`]), the built-in instance's checkouts root
-    /// ([`config::built_in`]) and `/`; the `worktree` dry-runs of `root`'s workspace and
-    /// `/var/tmp`, measured every 10 minutes.
+    /// watch's directory ([`watch_dir`]), the built-in instance's checkouts root and context
+    /// hand-over threshold ([`config::built_in`]) and `/`; the `worktree` dry-runs of `root`'s
+    /// workspace and `/var/tmp`, measured every 10 minutes.
     #[must_use]
     pub fn new(home: PathBuf, root: PathBuf) -> Self {
         let watch = watch_dir(&home, &root);
-        let built_in = config::built_in(&home, &root).checkouts;
-        let checkouts = [PathBuf::from(built_in.root), PathBuf::from(built_in.trees)];
+        let built_in = config::built_in(&home, &root);
+        let checkouts = [
+            PathBuf::from(built_in.checkouts.root),
+            PathBuf::from(built_in.checkouts.trees),
+        ];
         let targets = waste::built_in_targets(&home);
-        Self::with(home, root, watch, checkouts, targets)
+        let context_handover = tokens(built_in.thresholds.context_handover.0);
+        Self::with(home, root, watch, checkouts, targets, context_handover)
     }
 
     /// The sources of `instance`, which a config file names: `root` when `--root` names one, else
-    /// the instance's `records`; the `watch/` of its `state`; its checkouts root. The rest is as
-    /// [`Sources::new`] gives it.
+    /// the instance's `records`; the `watch/` of its `state`; its checkouts root; its
+    /// `thresholds.context_handover`. The rest is as [`Sources::new`] gives it.
     #[must_use]
     pub fn of(home: PathBuf, root: Option<PathBuf>, instance: &Instance) -> Self {
         let root = root.unwrap_or_else(|| PathBuf::from(&instance.records));
@@ -136,7 +143,8 @@ impl Sources {
             PathBuf::from(&instance.checkouts.trees),
         ];
         let targets = Path::new(&instance.cache).join("target");
-        Self::with(home, root, watch, checkouts, targets)
+        let context_handover = tokens(instance.thresholds.context_handover.0);
+        Self::with(home, root, watch, checkouts, targets, context_handover)
     }
 
     fn with(
@@ -145,6 +153,7 @@ impl Sources {
         watch: PathBuf,
         checkouts: [PathBuf; 2],
         targets: PathBuf,
+        context_handover: u64,
     ) -> Self {
         let [checkouts, trees] = checkouts;
         let worktree = |verb: &str| {
@@ -169,8 +178,15 @@ impl Sources {
             checkouts,
             trees,
             targets,
+            context_handover,
         }
     }
+}
+
+/// A configured count of tokens as the page carries it; a negative one, which the config refuses,
+/// as 0.
+fn tokens(count: i64) -> u64 {
+    u64::try_from(count).unwrap_or(0)
 }
 
 /// The watch's directory under a state directory, as `conductor watch run` keeps it.
@@ -468,6 +484,7 @@ fn collect(sources: &Sources, waste: Value, usage: Value, now: OffsetDateTime) -
         "build_slot": "not recorded",
         "sessions": sessions,
         "watch": watch(&sources.watch, &rows, now, &mut errors),
+        "context_handover": sources.context_handover,
         "red_ci": red_ci(&sources.ci_state, &mut errors),
         "decisions": recent(&decisions),
         "awaiting_operator": awaiting(&decisions),
@@ -703,8 +720,8 @@ fn optional(path: &Path, errors: &mut Vec<String>) -> Option<String> {
 /// The watch's usage-limit and context lines, from its directory `dir`: the limits it finds now
 /// (`limit.new`, one `text<TAB>session` per line) with their sessions, those it reported today
 /// (`limit.seen`, one `YYYY-MM-DD text` per line, UTC), and the sessions in `rows` whose context it
-/// reported above 300k tokens (`context-reported`, one session id per line). Each is null while
-/// the watch has not written its file.
+/// reported above the context hand-over threshold (`context-reported`, one session id per line).
+/// Each is null while the watch has not written its file.
 fn watch(dir: &Path, rows: &[Value], now: OffsetDateTime, errors: &mut Vec<String>) -> Value {
     let limits = optional(&dir.join("limit.new"), errors).map(|text| {
         let mut limits: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -988,7 +1005,7 @@ fn page(data: &Value) -> String {
     );
 
     out.push_str("<h2>Usage limit and context</h2>\n");
-    watch_lines(&mut out, &data["watch"]);
+    watch_lines(&mut out, &data["watch"], &data["context_handover"]);
 
     out.push_str("<h2>Red CI on main</h2>\n");
     match data["red_ci"].as_array() {
@@ -1059,8 +1076,9 @@ fn page(data: &Value) -> String {
 }
 
 /// The watch's lines as it prints them: each usage limit found now with its sessions, each
-/// reported earlier today, and each session whose context passed 300k tokens.
-fn watch_lines(out: &mut String, watch: &Value) {
+/// reported earlier today, and each session whose context passed `context_handover` tokens,
+/// written in thousands with `k` when it is a whole number of them, as the config writes it.
+fn watch_lines(out: &mut String, watch: &Value, context_handover: &Value) {
     let none = Vec::new();
     let list = |key: &str| watch[key].as_array().unwrap_or(&none);
     if ["usage_limit", "usage_limit_today", "context"]
@@ -1070,6 +1088,11 @@ fn watch_lines(out: &mut String, watch: &Value) {
         out.push_str("<p class=\"meta\">no watch state</p>\n");
         return;
     }
+    let threshold = match context_handover.as_u64() {
+        Some(count) if count != 0 && count % 1000 == 0 => format!("{}k", count / 1000),
+        Some(count) => count.to_string(),
+        None => cell(context_handover),
+    };
     let mut lines = Vec::new();
     for limit in list("usage_limit") {
         let sessions: Vec<String> = limit["sessions"]
@@ -1093,7 +1116,7 @@ fn watch_lines(out: &mut String, watch: &Value) {
             .as_str()
             .map_or_else(|| "a session".to_owned(), escape);
         lines.push(format!(
-            "<li class=\"red\">context: {name} over 300k tokens (session {})</li>",
+            "<li class=\"red\">context: {name} over {threshold} tokens (session {})</li>",
             cell(&context["session"])
         ));
     }

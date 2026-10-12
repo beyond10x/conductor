@@ -58,7 +58,7 @@ the session's decision log `decisions/2026-10.jsonl` in its records:
 |---|---|---|
 | header | when it was read, free disk on `/`, controllers running, build slot | `df`, the session list |
 | Sessions under the checkouts root | each session's name, kind, state, age, working directory, and its current dispatch: goal, brief, last event; exited sessions below the live ones | `claude agents --json`, `dispatches/*.jsonl` |
-| Usage limit and context | usage limits found now and earlier today, and the sessions the watch reported above `thresholds.context_handover` tokens of context (default 300k; the page labels them "over 300k" whatever the threshold) | the watch's files |
+| Usage limit and context | usage limits found now and earlier today, and the sessions the watch reported above `thresholds.context_handover` tokens of context (default 300k), which the page names in each line | the watch's files |
 | Red CI on main | each workflow whose newest `main` run failed | the watch's CI state |
 | Awaiting the operator | decisions whose newest line is class O or H with no choice yet | `decisions/*.jsonl` |
 | Recent decisions | the newest decision lines: id, class, choice, reason | `decisions/*.jsonl` |
