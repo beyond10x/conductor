@@ -66,7 +66,7 @@ conductor snapshot snapshots --format json | jq -r '.[] | select(.state == "Fail
 
 | reason names | likely cause | fix |
 |---|---|---|
-| `blockers: repository <repo>, tried twice: git fetch --quiet origin …` | that member's checkout has no reachable `origin`, often the records directory | give it an `origin` with `main` pushed ([initialise the records](./initialise-the-records.md#4-give-the-records-an-origin)), or rewrite the workspace file |
+| `blockers: repository <repo>, tried twice: git fetch --quiet origin …` | that member's checkout has an `origin` that cannot be fetched; a checkout with no `origin` is read at its `HEAD` and not fetched ([initialise the records](./initialise-the-records.md#4-take-the-first-snapshot)) | make its `origin` reachable, with `main` pushed, or rewrite the workspace file |
 | `blockers: list the members of …/workspace.yaml` | `aep` cannot read the workspace file | `conductor config workspace --check`, then `conductor config workspace` |
 | `repositories: …` or `github: …`, with a `gh` command | `gh` is not logged in, or the forge did not answer | `gh auth status`, then take a new snapshot |
 | `specifications: …` | `ess` is missing or did not run for a repository that holds a specification; a specification `ess` refuses is recorded as `Refused`, not a failure | `conductor doctor`, then the command the reason names |

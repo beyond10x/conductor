@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use conductor_cli::collect::{Collector, blockers, specifications};
-use conductor_cli::snapshot;
+use conductor_cli::snapshot::{self, Taken};
 use conductor_cli::store;
 use conductor_model::behaviour::Generated;
 use conductor_model::observation::SnapshotState;
@@ -250,126 +250,28 @@ fn the_workspace_config_workspace_writes_is_read_by_both_collectors_in_one_snaps
         Some("example-archive"),
     );
 
-    let config = case.config();
-    let output = case.conductor(Some(&config), &["config", "workspace"]);
-    assert!(
-        output.status.success(),
-        "config workspace: {}",
-        describe(&output)
-    );
-
     // The owner's listing names each repository as the forge does.
-    let repositories = case.dir.join("repositories.json");
-    write(
-        &repositories,
+    let taken = case.snapshot(
         r#"[{"name": "alpha", "isArchived": false}, {"name": "beta.io", "isArchived": false},
             {"name": "example-archive", "isArchived": false}]"#,
     );
-    let blocker_sources = blockers::Sources::new(case.records(), &case.state());
-    let mut specification_sources = specifications::Sources::new(case.records(), &case.state());
-    specification_sources.repositories = words(&["cat", path(&repositories)]);
-    assert_eq!(
-        blocker_sources.fetch,
-        words(&["git", "fetch", "--quiet", "origin"]),
-        "the collectors fetch as they do live"
-    );
-
-    let store = store::open(&case.state()).expect("open the store");
-    let taken = snapshot::take(
-        store,
-        &[
-            Collector::new("blockers", move |record| {
-                blockers::collect_from(&blocker_sources, record)
-            }),
-            Collector::new("specifications", move |record| {
-                specifications::collect_from(&specification_sources, record)
-            }),
-        ],
-    )
-    .expect("the driver ends the snapshot");
-
-    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
 
     // The file the snapshot read: the records member ends in its own name, and the local-only
     // checkout is no member.
-    let written = case.records().join(blockers::WORKSPACE);
-    let text = fs::read_to_string(&written).expect("the workspace file is written");
-    let document: serde_yaml::Value = serde_yaml::from_str(&text).expect("YAML");
-    let mut members: Vec<(String, String)> = document["members"]
-        .as_sequence()
-        .expect("a members list")
-        .iter()
-        .map(|member| {
-            (
-                member["name"].as_str().expect("a name").to_owned(),
-                member["source"].as_str().expect("a source").to_owned(),
-            )
-        })
-        .collect();
-    members.sort();
     assert_eq!(
-        members,
+        case.members(),
         vec![
             ("alpha".to_owned(), "../../checkouts/alpha".to_owned()),
             ("beta-io".to_owned(), "../../checkouts/beta.io".to_owned()),
             ("records".to_owned(), "../../records".to_owned()),
-        ],
-        "the written workspace:\n{text}"
+        ]
     );
-
-    let generated = Generated::new(store::open_existing(&case.state()).expect("the store"));
-    let rows = generated
-        .specifications()
-        .expect("the generated query answers");
-    generated.ports.check().expect("the store read every row");
-    assert!(
-        rows.iter().all(|row| row.snapshot_id == taken.snapshot_id),
-        "every row is filed under the snapshot taken"
-    );
-    let mut specified: Vec<String> = rows.into_iter().map(|row| row.repository.0).collect();
-    specified.sort();
     assert_eq!(
-        specified,
+        case.specified(&taken),
         vec!["alpha", "beta.io", "example-archive"],
         "one specification row per listed repository"
     );
 
-    let output = case.conductor(
-        None,
-        &[
-            "--state-dir",
-            path(&case.state()),
-            "snapshot",
-            "blockers",
-            "--format",
-            "json",
-        ],
-    );
-    assert!(
-        output.status.success(),
-        "snapshot blockers: {}",
-        describe(&output)
-    );
-    let Value::Array(rows) = serde_json::from_slice(&output.stdout).expect("JSON rows") else {
-        panic!(
-            "`snapshot blockers` printed no array: {}",
-            describe(&output)
-        );
-    };
-    let mut rows: Vec<Value> = rows
-        .into_iter()
-        .map(|mut row| {
-            let row = row.as_object_mut().expect("a row is an object");
-            assert_eq!(
-                row.remove("snapshot_id"),
-                Some(json!(taken.snapshot_id.0.0)),
-                "the blocker is filed under the snapshot taken"
-            );
-            row.remove("observation_id");
-            Value::Object(row.clone())
-        })
-        .collect();
-    rows.sort_by_key(Value::to_string);
     let mut expected = vec![
         json!({"repository": "alpha", "reference": "operator-blocker:pick",
                "blocker_kind": "operator-blocker", "title": "Pick a store"}),
@@ -377,5 +279,186 @@ fn the_workspace_config_workspace_writes_is_read_by_both_collectors_in_one_snaps
                "blocker_kind": "decision-blocker", "title": "Keep the archive"}),
     ];
     expected.sort_by_key(Value::to_string);
-    assert_eq!(rows, expected);
+    assert_eq!(case.blockers(&taken), expected);
+}
+
+/// `story:init-records-without-origin`: the records `conductor init` makes have no `origin` until
+/// the operator adds one, yet `config workspace` writes them as a member. The snapshot completes:
+/// the blockers collector reads the records' store at their `HEAD`, as committed, and runs no
+/// `git fetch` there, which would fail for want of an `origin`.
+#[test]
+fn records_with_no_origin_are_read_at_their_head_without_a_fetch() {
+    let case = Case::new("records_without_origin");
+    let agents = |name: &str| (String::from("AGENTS.md"), format!("# {name}\n"));
+    case.repository(
+        &case.dir.join("checkouts/alpha"),
+        "alpha",
+        &[
+            agents("alpha"),
+            blocker("operator-blocker:pick", "Pick a store"),
+        ],
+        Some("alpha"),
+    );
+    // The records as `conductor init` leaves them: committed, with no remote.
+    case.repository(
+        &case.records(),
+        "records",
+        &[
+            agents("records"),
+            blocker("decision-blocker:archive", "Keep the archive"),
+        ],
+        None,
+    );
+    // A blocker in the records' working tree, never committed: `HEAD` does not hold it.
+    put(
+        &case.records(),
+        &[blocker("decision-blocker:draft", "Not committed")],
+    );
+
+    // The forge lists only what has an origin there; the records are not on it yet.
+    let taken = case.snapshot(r#"[{"name": "alpha", "isArchived": false}]"#);
+
+    assert_eq!(
+        case.members(),
+        vec![
+            ("alpha".to_owned(), "../../checkouts/alpha".to_owned()),
+            ("records".to_owned(), "../../records".to_owned()),
+        ]
+    );
+    assert_eq!(
+        case.specified(&taken),
+        vec!["alpha"],
+        "one specification row per listed repository"
+    );
+
+    let mut expected = vec![
+        json!({"repository": "alpha", "reference": "operator-blocker:pick",
+               "blocker_kind": "operator-blocker", "title": "Pick a store"}),
+        json!({"repository": "records", "reference": "decision-blocker:archive",
+               "blocker_kind": "decision-blocker", "title": "Keep the archive"}),
+    ];
+    expected.sort_by_key(Value::to_string);
+    assert_eq!(case.blockers(&taken), expected);
+}
+
+impl Case {
+    /// `config workspace` under the case's config file, then one snapshot of the blockers and the
+    /// specifications collectors over the file it wrote, `gh repo list` answering `listing`;
+    /// asserted complete.
+    fn snapshot(&self, listing: &str) -> Taken {
+        let config = self.config();
+        let output = self.conductor(Some(&config), &["config", "workspace"]);
+        assert!(
+            output.status.success(),
+            "config workspace: {}",
+            describe(&output)
+        );
+
+        let repositories = self.dir.join("repositories.json");
+        write(&repositories, listing);
+        let blocker_sources = blockers::Sources::new(self.records(), &self.state());
+        let mut specification_sources = specifications::Sources::new(self.records(), &self.state());
+        specification_sources.repositories = words(&["cat", path(&repositories)]);
+        assert_eq!(
+            blocker_sources.fetch,
+            words(&["git", "fetch", "--quiet", "origin"]),
+            "the collectors fetch as they do live"
+        );
+
+        let store = store::open(&self.state()).expect("open the store");
+        let taken = snapshot::take(
+            store,
+            &[
+                Collector::new("blockers", move |record| {
+                    blockers::collect_from(&blocker_sources, record)
+                }),
+                Collector::new("specifications", move |record| {
+                    specifications::collect_from(&specification_sources, record)
+                }),
+            ],
+        )
+        .expect("the driver ends the snapshot");
+
+        assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+        taken
+    }
+
+    /// Each member of the workspace file `config workspace` wrote, as (name, source), sorted.
+    fn members(&self) -> Vec<(String, String)> {
+        let written = self.records().join(blockers::WORKSPACE);
+        let text = fs::read_to_string(&written).expect("the workspace file is written");
+        let document: serde_yaml::Value = serde_yaml::from_str(&text).expect("YAML");
+        let mut members: Vec<(String, String)> = document["members"]
+            .as_sequence()
+            .expect("a members list")
+            .iter()
+            .map(|member| {
+                (
+                    member["name"].as_str().expect("a name").to_owned(),
+                    member["source"].as_str().expect("a source").to_owned(),
+                )
+            })
+            .collect();
+        members.sort();
+        members
+    }
+
+    /// The repository of each specification row, through the generated query, sorted; every row
+    /// filed under `taken`.
+    fn specified(&self, taken: &Taken) -> Vec<String> {
+        let generated = Generated::new(store::open_existing(&self.state()).expect("the store"));
+        let rows = generated
+            .specifications()
+            .expect("the generated query answers");
+        generated.ports.check().expect("the store read every row");
+        assert!(
+            rows.iter().all(|row| row.snapshot_id == taken.snapshot_id),
+            "every row is filed under the snapshot taken"
+        );
+        let mut specified: Vec<String> = rows.into_iter().map(|row| row.repository.0).collect();
+        specified.sort();
+        specified
+    }
+
+    /// The rows `snapshot blockers` prints, each filed under `taken`, without their snapshot and
+    /// observation ids, sorted.
+    fn blockers(&self, taken: &Taken) -> Vec<Value> {
+        let output = self.conductor(
+            None,
+            &[
+                "--state-dir",
+                path(&self.state()),
+                "snapshot",
+                "blockers",
+                "--format",
+                "json",
+            ],
+        );
+        assert!(
+            output.status.success(),
+            "snapshot blockers: {}",
+            describe(&output)
+        );
+        let Value::Array(rows) = serde_json::from_slice(&output.stdout).expect("JSON rows") else {
+            panic!(
+                "`snapshot blockers` printed no array: {}",
+                describe(&output)
+            );
+        };
+        let mut rows: Vec<Value> = rows
+            .into_iter()
+            .map(|mut row| {
+                let row = row.as_object_mut().expect("a row is an object");
+                assert_eq!(
+                    row.remove("snapshot_id"),
+                    Some(json!(taken.snapshot_id.0.0)),
+                    "the blocker is filed under the snapshot taken"
+                );
+                row.remove("observation_id");
+                Value::Object(row.clone())
+            })
+            .collect();
+        rows.sort_by_key(Value::to_string);
+        rows
+    }
 }
