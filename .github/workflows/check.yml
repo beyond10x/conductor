@@ -1,0 +1,62 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The tool versions pinned in b10x.toml, as released.
+  ESS_VERSION: "0.56.0"
+  AEP_VERSION: "0.69.1"
+  TASK_VERSION: "v3.53.1"
+  CARGO_TERM_COLOR: never
+
+jobs:
+  check:
+    name: task check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Install task, ess and aep from their releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          cd "$RUNNER_TEMP"
+          gh release download "$TASK_VERSION" -R go-task/task -p task_linux_amd64.tar.gz -p task_checksums.txt
+          grep ' task_linux_amd64.tar.gz$' task_checksums.txt | sha256sum --check --strict
+          tar -xzf task_linux_amd64.tar.gz -C "$bin" task
+          for tool in ess:"$ESS_VERSION" aep:"$AEP_VERSION"; do
+            name="${tool%%:*}"; version="${tool#*:}"
+            archive="$name-$version-x86_64-unknown-linux-gnu.tar.gz"
+            gh release download "$version" -R "beyond10x/$name" -p "$archive" -D "$name-dl"
+            gh release download "$version" -R "beyond10x/$name" -p SHA256SUMS -D "$name-dl"
+            (cd "$name-dl" && grep " $archive\$" SHA256SUMS | sha256sum --check --strict)
+            tar -xzf "$name-dl/$archive" -C "$name-dl"
+            find "$name-dl" -type f -name "$name" -perm -u+x -exec cp {} "$bin/" \;
+          done
+          echo "$bin" >> "$GITHUB_PATH"
+      - name: Show the tools
+        run: |
+          task --version
+          ess --version
+          aep --version
+      - name: task check
+        run: task check
