@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_write`]); or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -1206,11 +1206,21 @@ impl Session<'_> {
             );
         }
         if self.rules == Rules::Controller
-            && let Some(leaf) = commands.iter().find_map(|words| conductor_write(words))
+            && let Some(run) = commands.iter().find_map(|words| conductor_run(words))
         {
             return (
                 Verdict::Deny,
-                format!("`conductor {leaf}` writes conductor's records; only conductor runs it"),
+                match run {
+                    DeniedRun::Writes(leaf) => format!(
+                        "`conductor {leaf}` writes conductor's records; only conductor runs it"
+                    ),
+                    DeniedRun::Unknown(shown) => format!(
+                        "`{shown}` may run a conductor leaf that writes conductor's records: the \
+                         shell expands a word, or another program hands conductor its words, \
+                         before conductor reads which leaf to run; a controller writes the \
+                         program, the group and the leaf as plain words"
+                    ),
+                },
             );
         }
         if self.rules == Rules::Conductor {
@@ -1365,45 +1375,118 @@ fn is_assignment(word: &str) -> bool {
     })
 }
 
-/// The `conductor` leaf a simple command runs that a controller may not run, as `<group> <leaf>`
-/// or `<leaf>`: a leaf whose [`Access`] in [`cli::LEAVES`] does not let a controller run it, or a
-/// word under a group that names no leaf of the group. A run is a word naming the `conductor`
-/// program, wherever it stands (after `env`, `timeout` or a path), followed by a group of the tree
-/// and a leaf, or by a leaf with no group: the first two words after it that are not flags, each
-/// of [`GLOBAL_VALUES`] taking its value. A `conductor` word that no leaf follows runs none
-/// (`which conductor`, `conductor --help`, a path ending in `conductor`).
-fn conductor_write(words: &[String]) -> Option<String> {
-    words
-        .iter()
-        .enumerate()
-        .filter(|(_, word)| shell::program(word) == "conductor")
-        .find_map(|(at, _)| {
-            let mut operands = Vec::new();
-            let mut rest = words[at + 1..].iter();
-            while operands.len() < 2
-                && let Some(word) = rest.next()
-            {
-                if GLOBAL_VALUES.contains(&word.as_str()) {
-                    rest.next();
-                } else if !(word.starts_with('-') && word.len() > 1) {
-                    operands.push(word.as_str());
-                }
-            }
-            match operands[..] {
-                [group, leaf]
-                    if is_group(group)
-                        && !declared(&[group, leaf]).is_some_and(Access::controller_runs) =>
-                {
-                    Some(format!("{group} {leaf}"))
-                }
-                // A leaf with no group a controller may not run: `trust` (`~/.claude.json`) and
-                // `init` (a records directory). `doctor` reads.
-                [leaf, ..] if declared(&[leaf]).map(Access::controller_runs) == Some(false) => {
-                    Some(leaf.to_owned())
-                }
-                _ => None,
-            }
-        })
+/// A `conductor` run a controller is denied ([`conductor_run`]).
+enum DeniedRun {
+    /// A leaf the tree declares a controller does not run, or a word under a group that names no
+    /// leaf of it, as `<group> <leaf>` or `<leaf>`.
+    Writes(String),
+    /// A run whose leaf is decided after the guard reads the line, by the shell or by another
+    /// program: the words as written, from the program word to the last one read.
+    Unknown(String),
+}
+
+/// The characters by which the shell turns a written word into other words before a program
+/// reads them: a parameter or a command substitution (`$`, a backquote), brace expansion (`{`)
+/// and a glob (`*`, `?`, `[`). The guard reads words after quote removal, so a quoted literal
+/// holding one counts too.
+const EXPANSIONS: [char; 6] = ['$', '`', '{', '*', '?', '['];
+
+/// The programs that run their first word with words they read at run time: a `conductor` they
+/// run receives its group and leaf from their input.
+const FEEDERS: [&str; 2] = ["xargs", "parallel"];
+
+/// Whether the shell expands `word` into other words before a program reads it ([`EXPANSIONS`]).
+fn expands(word: &str) -> bool {
+    word.contains(EXPANSIONS)
+}
+
+/// The `conductor` run of a simple command that a controller may not run.
+///
+/// A run is a word naming the `conductor` program, wherever it stands (after `env`, `timeout` or
+/// a path), followed by a group of the tree and a leaf, or by a leaf with no group: the first two
+/// words after it that are not flags, each of [`GLOBAL_VALUES`] taking its value. It is
+/// [`DeniedRun::Writes`] when the leaf's [`Access`] in [`cli::LEAVES`] does not let a controller
+/// run it, or when a word under a group names no leaf of the group. A `conductor` word that no
+/// leaf follows runs none (`which conductor`, `conductor --help`, a path ending in `conductor`).
+///
+/// It is [`DeniedRun::Unknown`] (`story:guard-expanded-conductor-words`) when the shell or another
+/// program decides the leaf after the guard has read the line:
+/// - a word read before the leaf is decided (the group word, the leaf word, a flag or a flag's
+///   value) [`expands`]: brace expansion, `$"…"`, `${…}`, `$(…)`, `"$@"` or a glob can each
+///   become a group and a leaf. Words after the leaf choose no other leaf;
+/// - one of [`FEEDERS`] runs `conductor`, and the words after it name no leaf: the rest arrives
+///   on its input;
+/// - the command's program word expands and mentions `conductor` (`$(command -v conductor)`,
+///   `` `which conductor` ``).
+///
+/// A program word that expands without mentioning `conductor` (`$CMD`), and a word elsewhere that
+/// expands and mentions it, are held to the declared leaves only: the words after it are read as
+/// a run of `conductor`, and a leaf a controller may not run is [`DeniedRun::Writes`]. Each check
+/// runs only on a word that names `conductor` or holds an expansion character, and allocates only
+/// to name a denial.
+fn conductor_run(words: &[String]) -> Option<DeniedRun> {
+    let name = words.len() - command_words(words).len();
+    words.iter().enumerate().find_map(|(at, word)| {
+        if shell::program(word) == "conductor" {
+            let fed = words[..at]
+                .iter()
+                .any(|before| FEEDERS.contains(&shell::program(before)));
+            return leaf_after(&words[at..], true, fed);
+        }
+        if !expands(word) {
+            return None;
+        }
+        let mentions = word.contains("conductor");
+        if at == name && mentions {
+            return Some(DeniedRun::Unknown(words[at..].join(" ")));
+        }
+        if at == name || mentions {
+            return leaf_after(&words[at..], false, false);
+        }
+        None
+    })
+}
+
+/// The denial of the run whose program word is `words[0]`, read as `conductor`
+/// ([`conductor_run`]). With `strict`, a word that [`expands`] before the leaf is decided makes
+/// the run [`DeniedRun::Unknown`]; with `fed`, so does a run whose words name no leaf.
+fn leaf_after(words: &[String], strict: bool, fed: bool) -> Option<DeniedRun> {
+    let mut operands = [""; 2];
+    let mut count = 0;
+    let mut expanded = false;
+    let mut at = 1;
+    // The leaf is decided by a group and its leaf, or by a first operand that is no group.
+    let mut decided = false;
+    while !decided && let Some(word) = words.get(at) {
+        at += 1;
+        expanded |= expands(word);
+        if GLOBAL_VALUES.contains(&word.as_str()) {
+            expanded |= words.get(at).is_some_and(|value| expands(value));
+            at += 1;
+        } else if !(word.starts_with('-') && word.len() > 1) {
+            operands[count] = word.as_str();
+            count += 1;
+            decided = count == 2 || !is_group(word);
+        }
+    }
+    match operands[..count] {
+        [group, leaf]
+            if is_group(group)
+                && !declared(&[group, leaf]).is_some_and(Access::controller_runs) =>
+        {
+            return Some(DeniedRun::Writes(format!("{group} {leaf}")));
+        }
+        // A leaf with no group a controller may not run: `trust` (`~/.claude.json`) and `init`
+        // (a records directory). `doctor` reads.
+        [leaf] if declared(&[leaf]).map(Access::controller_runs) == Some(false) => {
+            return Some(DeniedRun::Writes(leaf.to_owned()));
+        }
+        _ => {}
+    }
+    // Two operands are a group and a leaf a controller runs; one names a leaf when it is one.
+    let named = count == 2 || (count == 1 && declared(&operands[..1]).is_some());
+    ((strict && expanded) || (fed && !named))
+        .then(|| DeniedRun::Unknown(words[..at.min(words.len())].join(" ")))
 }
 
 /// Whether `command` names a file in a `.claude/` directory whose name holds `settings`: the

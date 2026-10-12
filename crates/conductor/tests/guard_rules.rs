@@ -1529,14 +1529,12 @@ fn a_controller_is_denied_a_word_under_a_group_that_names_no_leaf() {
 
 /// `story:guard-store-migrate`, security review: the shell turns each of these lines into a run of
 /// `conductor store migrate` (or of another writing leaf) before the binary sees it, so a
-/// controller's session must be denied each. The guard reads the words as written, and a group
-/// word that the shell expands (brace expansion, `$"…"`, a parameter default, a command
-/// substitution), a program word that a substitution names, and a leaf the program receives
-/// through `xargs` or a function's `"$@"` all pass today. A leaf word expanded the same way is
-/// denied (`a_controller_is_denied_a_word_under_a_group_that_names_no_leaf`); the group word and
-/// the program word are not held to the same rule. Open: `story:guard-expanded-conductor-words`.
+/// controller's session must be denied each. The guard reads the words as written, so it denies a
+/// run in which a word read before the leaf is decided expands (brace expansion, `$"…"`, a
+/// parameter default, a command substitution, a function's `"$@"`), a program word that a
+/// substitution names and that mentions `conductor`, and a `conductor` that `xargs` runs with no
+/// leaf written after it (`story:guard-expanded-conductor-words`).
 #[test]
-#[ignore = "story:guard-expanded-conductor-words: the guard does not yet deny these lines"]
 fn a_controller_reaches_no_writing_leaf_through_a_word_the_shell_expands() {
     let home = home("controller-conductor-expanded-words");
     let mut allowed = Vec::new();
