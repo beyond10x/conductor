@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T19:14:36Z",
+  "actor": "human:timo",
+  "artifact": "story:agents-ci-gate",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/10: green (run 38294907031); prose change, no test lane",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38294907031"
+  }
+}

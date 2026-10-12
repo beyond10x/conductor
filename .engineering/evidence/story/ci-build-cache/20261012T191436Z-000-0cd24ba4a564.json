@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T19:14:36Z",
+  "actor": "human:timo",
+  "artifact": "story:ci-build-cache",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/10: second run on an unchanged Cargo.lock restored the cargo cache (run 38295887106, green)",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38295887106"
+  }
+}
