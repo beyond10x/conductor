@@ -6,7 +6,7 @@ status: draft
 title: Harness sessions run in a box conductor controls
 relations:
 - implements: architecture-decision-record:external-confinement
-revision: 3
+revision: 5
 ---
 ## Outcome
 
@@ -17,9 +17,12 @@ metaharness):
 - CPU, memory and process limits per instance and per session;
 - writes limited to the session's own places;
 - usage attributed per instance and per session;
-- disk limited per instance, once the host's filesystem supports project quotas;
 - a session that cannot be boxed is not started (`strict`), or started and recorded as unboxed
   (`report`), as the instance's config says.
+
+Disk is not limited per instance. The operator chose no project quotas
+(`approval-record:project-quota-c`): cleanup rules are the disk control, and reclaiming disk is
+`story:conductor-gc` under `epic:disk-and-gate`.
 
 Later, through substrate, with the harness itself staying outside (docs/analysis/2026-10-09-substrate-benefits.md § 5): a build or test can run
 as a substrate exec (`conductor gate run`), and a session's commands can run inside substrate through
@@ -40,9 +43,6 @@ First part, with a test instance on this host, each checked by a test or a recor
 - with `confinement.mode: strict` and no provider available, `session start` refuses and no session
   runs (story `session-envelope-seam`);
 - `conductor doctor` says whether the host can enforce project quotas (story `quota-support-report`).
-
-The disk limit itself is `story:instance-storage-quota`, which waits on
-`decision-blocker:project-quota-filesystem`.
 
 Later part, each by its story's recorded run:
 - `story:substrate-tool-spike`: a go or no-go for the tool route;

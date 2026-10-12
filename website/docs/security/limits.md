@@ -3,7 +3,7 @@ title: Known limits
 sidebar_position: 5
 description: What the guard and the rest of conductor do not protect against today, what to do about each limit, and what is planned.
 lede: The guard catches a session's mistakes. It is not a sandbox, and these are the gaps.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/tests/adv_guard.rs; Taskfile.yml; .engineering/planning/story/single-conductor-lease.md, session-writes-bwrap.md, session-limits-systemd.md
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/tests/adv_guard.rs; Taskfile.yml; .engineering/planning/story/single-conductor-lease.md, lease-guard.md, session-writes-bwrap.md, session-limits-systemd.md
 ---
 
 Each limit below says what is not covered, what to do about it now, and whether a change is
@@ -61,20 +61,48 @@ connection. A URL can carry data out.
   when the `conductor-dev` role names a settings file.
 - **A session started or resumed by hand** without `--settings <role settings file>` is not
   guarded.
-- **Two conductors are refused only at session start, and only with the role's settings.** A
-  conductor session started or resumed with the shipped `.claude/conductor-settings.json` claims
-  the instance's conductor lease from its SessionStart hook (`conductor session claim`). While
-  another live session holds the lease, the claim is refused and names that session's id and
-  pid; once the holder's process is gone, the next claim takes the lease over and records whom
-  from. The refusal is shown to the operator; it does not end the second session, and nothing
-  denies that session's tool calls yet. A session started or resumed without those settings
-  claims nothing and is not refused, and two conductors can then write the same records.
+- **Two conductors are stopped only with the role's settings.** A conductor session started or
+  resumed with the shipped `.claude/conductor-settings.json` claims the instance's conductor
+  lease from its SessionStart hook (`conductor session claim`). While another live session holds
+  the lease, the claim is refused and names that session's id and pid; once the holder's process
+  is gone, the next claim takes the lease over and records whom from. The refusal does not end
+  the second session. Its writes are denied instead: while the holder's process lives, the guard
+  denies every write of a conductor session that is not the holder (file tools, SendMessage, a
+  Bash write form, a `conductor` leaf that writes, or any command that names the lease file or
+  the state directory), naming the holder
+  ([the lease](/docs/security/the-guard#one-conductor-the-lease)). Its reads stay allowed. A
+  session started or resumed without those settings claims nothing and is not guarded, and two
+  conductors can then write the same records.
+- **The guard knows the holder by session id only.** A second process that resumes the holder's
+  own session id (`claude --resume <id>` by hand while the holder runs) has its claim refused, but
+  the guard allows its writes. The watch's `conductors:` line reports two live sessions under the
+  conductor's name.
+- **Without a config file the lease is not enforced.** With no `--state-dir` and no config file
+  naming a state directory, the guard reads no lease and every write keeps the rule table's
+  verdict.
+- **The lease check lets a write through when it cannot read the lease.** The guard reads only
+  its copy of the lease, `conductor.lease` in the state directory, which `conductor session claim`
+  writes after the store keeps the claim. A missing, unreadable or malformed file leaves the rule
+  table's verdict as it was. So does a store that holds a lease while the file is missing, for
+  example a lease claimed by a build older than this check. A Bash write the shell rule does not
+  recognise as a write (`git commit`, a program that writes a file by its own means) is not denied
+  to a second conductor either, unless it names the lease file or the state directory.
+- **The recorded pid is the hook shell's parent (`$PPID`).** If Claude Code ran hooks under one
+  more process layer, the recorded pid would end as soon as the hook did. The lease would then
+  never hold, and the check would let every write through (fail open).
+- **A pid that names another process keeps a dead lease alive.** After the holder ends, its pid
+  can be reused by an unrelated process, or name a process of another user. Either way it counts
+  as alive, and every other conductor session is denied its writes (fail closed).
 
 - **Do:** start and resume only through the tasks and the documented start form. Check
   `claude agents` for a live conductor session before starting or resuming one, and
-  `conductor session leases` for the session that holds the lease.
-- **Planned:** the guard denies the tool calls of a conductor session that does not hold the
-  lease, and the watch reports two live conductor sessions, settings or not (drafted).
+  `conductor session leases` for the session that holds the lease. Never resume the running
+  conductor's session id in a second process. If no conductor runs and writes are still denied as
+  a second conductor's, remove `<state>/conductor.lease`; the next session that starts claims the
+  lease.
+- **Planned:** the guard tells the holder apart by its process, not only its session id
+  (`story:lease-by-process`); the watch reports two live conductor sessions, settings or not
+  (drafted).
 
 ## No operating-system sandbox, no resource limits
 

@@ -3,7 +3,7 @@ title: The guard
 sidebar_position: 2
 description: The PreToolUse hook that decides every tool call of conductor and its controllers; its tool table, its rules per role, how it fails, and what it records.
 lede: One hook reads each tool call, finds the place the session runs in, applies that place's rule and answers with an exit code.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/guard/shell.rs; .claude/conductor-settings.json, .claude/controller-settings.json; crates/conductor/tests/guard_rules.rs, crates/conductor/tests/guard_hook.rs, crates/conductor/tests/adv_guard.rs
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs, crates/conductor/src/guard/shell.rs, crates/conductor/src/session.rs; .claude/conductor-settings.json, .claude/controller-settings.json; crates/conductor/tests/guard_rules.rs, crates/conductor/tests/guard_hook.rs, crates/conductor/tests/adv_guard.rs
 ---
 
 The guard is a Claude Code PreToolUse hook. The repository ships it wired in two settings files,
@@ -153,6 +153,68 @@ one of `sh`, `bash`, `zsh`, `python`, `node`, `perl`, `awk`, `xargs`, `eval`, `s
 `set`, `for`, `while`, `read`, `find`, `parallel` and the like in the command. Such a command is
 decided as if the exemption did not exist.
 
+## One conductor: the lease
+
+Conductor's settings claim the instance's conductor lease when a session starts
+(`conductor session claim`, from the SessionStart hook). The guard holds the lease on every write
+of a session decided by conductor's rules. When the rule table allows such a session a write, the
+guard reads the lease of the instance it runs before it answers. A write here is:
+
+- Edit, Write or NotebookEdit, wherever the file is;
+- SendMessage;
+- a Bash or Monitor command that holds a write form (below), or that runs a `conductor` leaf the
+  shell rule denies a controller;
+- a Bash or Monitor command that names the lease file `conductor.lease`, or names the state
+  directory or a path under it, whatever program it runs (`chmod`, `unlink`, `find -delete`,
+  `python3 -c`). Such a command could remove the lease file or make it unreadable, and with no
+  readable file the guard would let every write through.
+
+If the lease names another session than the payload's `session_id`, and the holder's process
+still lives, the write is denied with this reason:
+
+```text
+<tool> is denied: session <id> (pid <pid>) holds the conductor lease of instance <name> and its process lives: this session is a second conductor of the instance and must stop; it may read, and writes nothing
+```
+
+The denial is recorded like any other. Reads stay allowed, so the second session
+can still read `conductor session leases`.
+
+The guard reads the lease from one small file, `conductor.lease` in the state directory (the one
+denials are recorded in), and never opens the store for it. `conductor session claim` writes
+that file once the store has kept a claim that takes, renews or takes over the lease. It writes a
+staging file in the same directory and renames it into place, so a reader never sees half a
+file. A refused claim leaves the file as it is. The store stays the record:
+`conductor session leases` reads the store, not the file.
+
+The verdict stays as the rule table gave it in these cases:
+
+- the lease names this session;
+- the holder's process is gone, so the next SessionStart claim takes the lease;
+- there is no state directory: without `--state-dir` and without a config file the guard reads no
+  lease, so the lease is not enforced;
+- there is no lease file;
+- the file is not a regular file (a link is not followed), cannot be read, does not hold the
+  instance, session id and pid, or names another instance. On these errors the lease check lets
+  the call through.
+
+A controller's calls and every read never read the file.
+
+What the lease check does not cover:
+
+- **The holder is known by session id only.** A second process that resumes the holder's own
+  session id (`claude --resume <id>` by hand while the holder runs) has its claim refused, but the
+  guard allows its writes, since the payload names the holder's session. The watch's
+  `conductors:` line reports two live sessions under the conductor's name. Planned: tell the
+  holder apart by its process.
+- **The pid comes from `$PPID`.** The claim records the hook shell's parent as the session's
+  process. If Claude Code ran hooks under one more process layer, the recorded pid would end as
+  soon as the hook did. The lease would then never hold, and the check would let every write
+  through (fail open).
+- **A pid that names another process keeps a dead lease alive.** After the holder ends, its pid
+  can be reused by an unrelated process, or name a process of another user. Either way it counts
+  as alive, and every other conductor session is denied its writes (fail closed). To recover, the
+  operator removes `<state>/conductor.lease`; the next session that starts claims the lease.
+
 ## Fail closed
 
 Anything that goes wrong before a verdict exists is a denial:
@@ -177,7 +239,9 @@ The store is the one under `--state-dir`, else the instance's `state` directory 
 names one, else none: the hook runs in any session's working directory and must not create a
 store there.
 
-An allowed call is answered without opening the store. Deciding a call took about 1.5 ms in the
+An allowed call is answered without opening the store. For a write of a conductor session the
+guard reads one small file first, its copy of the lease ([the lease](#one-conductor-the-lease)).
+Deciding a call took about 1.5 ms in the
 repository's latency test; that is a measurement, not a promise. Recording a denial is given at
 most 2 seconds, since another session's hook may hold the store's writer lock. The denial stands
 whether or not it was recorded; a failed recording adds one line on standard error.

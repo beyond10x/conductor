@@ -6,12 +6,10 @@ status: draft
 title: The guard's allow latency and denial recording are measured on a quiet host after guard-all-tools
 scope:
 - confidence: cited
-  path: crates/conductor/src/guard.rs
-- confidence: cited
-  path: crates/conductor/src/guard/rules.rs
+  path: .github/workflows/
 - confidence: cited
   path: crates/conductor/tests/guard_latency.rs
-revision: 2
+revision: 5
 ---
 ## Why
 
@@ -23,13 +21,15 @@ number can be compared under that load. An unrecorded denial still denies, but i
 
 ## Acceptance
 
-- On a quiet host (load average under 2), `guard_latency` run on the binary before `1f8bd04` and on
-  `main` gives the allowed Write p50 and p95 and the unrecorded-denial count for each; the numbers
-  go in this story's evidence.
-- If the allow path is slower by more than 10 % or more than 5 of 50 denials go unrecorded, a fix
-  lands with the same measurement after it.
+A `workflow_dispatch` job under `.github/workflows/` builds in release, on one runner, the binary
+before `1f8bd04` and the binary on `main`. It runs `guard_latency` against each
+(`cargo test --release -p conductor-cli --test guard_latency -- --ignored --nocapture`,
+`crates/conductor/tests/guard_latency.rs:7-11`) and prints the allowed Write p50 and p95 and the
+unrecorded-denial count for each. One dispatched run's numbers go in this story's evidence. If the
+allow path is slower by more than 10 % or more than 5 of 50 denials go unrecorded, the evidence
+names that, and a story for the fix is drafted citing the run.
 
 ## Scope
 
-`crates/conductor/src/guard.rs`, `crates/conductor/src/guard/rules.rs`,
+`.github/workflows/` (a new `workflow_dispatch` workflow; `check.yml` stays as it is),
 `crates/conductor/tests/guard_latency.rs`.

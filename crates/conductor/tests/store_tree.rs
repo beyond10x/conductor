@@ -275,8 +275,18 @@ fn file_store_counts(root: &Path) -> BTreeMap<String, (usize, usize)> {
 // 1. A migrated store answers every view as the eventlog-file store did.
 // ---------------------------------------------------------------------------------------------
 
-/// The fixture covers every view of the `cli:` block that reads the store, and every one answers
-/// rows; `snapshot boards` reads `STATUS.md`, not the store.
+/// The views of the `cli:` block that read the store and that the fixture holds no answer of, each
+/// covered elsewhere. The fixture store's records carry digests, and the organization's secret
+/// scan flags each new line that does, so no record is appended to it for a new view:
+/// `session-leases` is covered by `tests/session.rs`, whose
+/// `a_second_live_conductor_is_refused_and_a_gone_one_is_taken_over`,
+/// `the_holder_itself_claims_again` and `a_claim_writes_the_guard_s_copy_of_the_lease` read
+/// `session leases`.
+const NOT_IN_FIXTURE: [&str; 1] = ["session-leases"];
+
+/// The fixture covers every view of the `cli:` block that reads the store, but those
+/// [`NOT_IN_FIXTURE`] names, and every one answers rows; `snapshot boards` reads `STATUS.md`, not
+/// the store.
 #[test]
 fn the_fixture_holds_an_answer_with_rows_for_every_view_that_reads_the_store() {
     let output = Command::new("ess")
@@ -305,7 +315,20 @@ fn the_fixture_holds_an_answer_with_rows_for_every_view_that_reads_the_store() {
             }
         }
     }
-    for view in &placed {
+    for exempt in NOT_IN_FIXTURE {
+        assert!(
+            placed.iter().any(|view| view == exempt),
+            "{exempt} is exempt from the fixture but is no view of the cli block"
+        );
+        assert!(
+            VIEWS.iter().all(|(file, _)| *file != exempt),
+            "{exempt} is exempt from the fixture but the fixture holds its answer"
+        );
+    }
+    for view in placed
+        .iter()
+        .filter(|view| !NOT_IN_FIXTURE.contains(&view.as_str()))
+    {
         assert!(
             VIEWS.iter().any(|(file, _)| file == view),
             "the fixture holds no answer of the view {view}"
