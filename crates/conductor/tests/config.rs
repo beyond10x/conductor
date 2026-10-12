@@ -263,6 +263,25 @@ fn validate_passes_on_the_story_example() {
     );
 }
 
+/// The repository's own `conductor.example.yaml` stays a valid config file: it is the file a
+/// reader copies, and once it named a second instance without a session prefix.
+#[test]
+fn validate_passes_on_the_repository_s_example_file() {
+    let case = Case::new("validate-repository-example");
+    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../conductor.example.yaml")
+        .canonicalize()
+        .expect("the repository root holds conductor.example.yaml");
+    let output = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(": valid, "),
+        "validate says the file is valid: {}",
+        describe(&output)
+    );
+    assert!(stderr(&output).is_empty(), "{}", describe(&output));
+}
+
 #[test]
 fn validate_on_an_empty_file_is_told_the_version_is_missing() {
     let case = Case::new("validate-empty");

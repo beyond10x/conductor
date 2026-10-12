@@ -586,6 +586,10 @@ const GH_READ_VERBS: [&str; 7] = [
 /// The verbs of `gh run` that read.
 const GH_RUN_READ_VERBS: [&str; 4] = ["view", "list", "watch", "download"];
 
+/// The `gh` groups whose writes are credentials: a write in one is class H, the operator's hands,
+/// whatever route would carry it.
+const GH_CREDENTIAL_GROUPS: [&str; 4] = ["secret", "auth", "ssh-key", "gpg-key"];
+
 /// Commands that name `gh` without running it, or run it through the bot route, which this rule
 /// leaves alone.
 const GH_NOT_RUN: [&str; 6] = ["b10x-gates", "which", "type", "whereis", "man", "hash"];
@@ -1182,6 +1186,21 @@ impl Session<'_> {
         let commands = shell::commands(command);
         for words in &commands {
             if let Some(write) = github_write(words) {
+                if write
+                    .split(' ')
+                    .nth(1)
+                    .is_some_and(|group| GH_CREDENTIAL_GROUPS.contains(&group))
+                {
+                    return (
+                        Verdict::Deny,
+                        format!(
+                            "`{write}` is a GitHub write of a credential: class H, the operator's \
+                             hands, whoever authorized it; no session runs it by any route. Hand \
+                             the operator the exact command to run: ! {}",
+                            command.trim()
+                        ),
+                    );
+                }
                 return (
                     Verdict::Deny,
                     format!(

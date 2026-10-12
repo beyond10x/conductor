@@ -708,6 +708,78 @@ fn with_a_config_file_a_session_in_records_runs_conductor_s_rules() {
     assert_answer(&output, 2, "where every rule set applies", "no file");
 }
 
+/// `story:class-h-handover`: a `gh` credential write (`gh secret`, `gh auth`, `gh ssh-key`,
+/// `gh gpg-key`) is denied to conductor and to a controller as class H, the operator's hands,
+/// with the exact command for the operator to run and no bot route; any other `gh` write keeps
+/// its text, which names the bot route; a credential read stays allowed.
+#[test]
+fn a_gh_credential_write_is_handed_to_the_operator_as_class_h() {
+    let case = case_dir("class-h-handover");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    for cwd in [case.join("records"), case.join("root/repo")] {
+        let shown = cwd.display();
+        let run = |command: &str| {
+            hook_with(
+                &case,
+                &state,
+                Some(&config),
+                &payload_at("bash", &case, &cwd, &[("command", command)]),
+            )
+        };
+        for command in [
+            "gh secret set B10X_GATES_POLICY --org example-org --body x",
+            "gh secret delete TOKEN -R example-org/repo",
+            "gh auth login -h github.com",
+            "gh auth logout",
+            "gh auth refresh -s admin:org",
+            "gh auth token",
+            "gh auth setup-git",
+            "gh ssh-key add key.pub --title t",
+            "gh ssh-key delete 7",
+            "gh gpg-key add key.asc",
+            "gh gpg-key delete ABC",
+        ] {
+            let output = run(command);
+            for because in ["class H", "the operator's hands", &format!("! {command}")] {
+                assert_answer(&output, 2, because, &format!("{shown}: {command}"));
+            }
+            assert!(
+                !stderr(&output).contains("bot route"),
+                "{shown}: {command}: a credential write names no bot route: {}",
+                stderr(&output)
+            );
+        }
+        for command in [
+            "gh pr merge 3",
+            "gh release create v1.0.0",
+            "gh variable set X",
+        ] {
+            let output = run(command);
+            assert_answer(
+                &output,
+                2,
+                "GitHub write: gh here only reads",
+                &format!("{shown}: {command}"),
+            );
+            assert_answer(
+                &output,
+                2,
+                "writes go through the bot route",
+                &format!("{shown}: {command}"),
+            );
+            assert!(
+                !stderr(&output).contains("class H"),
+                "{shown}: {command}: {}",
+                stderr(&output)
+            );
+        }
+        for command in ["gh secret list", "gh auth status", "gh ssh-key list"] {
+            assert_answer(&run(command), 0, "", &format!("{shown}: {command}"));
+        }
+    }
+}
+
 /// Acceptance: with the same config file, a session in `<root>/<repo>`, or in one of the repo's
 /// managed worktrees under `<trees>/<repo>/`, runs a controller's rules.
 #[test]
