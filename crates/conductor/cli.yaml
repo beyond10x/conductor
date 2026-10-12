@@ -94,6 +94,7 @@ callables:
       no-profile: conductor.dispatch.SpawnRefused
       no-settings: conductor.dispatch.SpawnRefused
       no-checkout: conductor.dispatch.SpawnRefused
+      records-checkout: conductor.dispatch.SpawnRefused
       untrusted-checkout: conductor.dispatch.SpawnRefused
       no-charter: conductor.dispatch.SpawnRefused
       launch-failed: conductor.dispatch.SpawnRefused

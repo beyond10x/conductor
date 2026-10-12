@@ -19,12 +19,14 @@
 //! The session name is the instance's for the repository ([`config::session_name`]); profile,
 //! model and settings are the instance's `controller` role's; the charter is the text of
 //! `<records>/charters/<repository>.md`, one argument. With a config file the session also gets
-//! the instance's name and the config file's path in `CONDUCTOR_INSTANCE` and `CONDUCTOR_CONFIG`,
-//! so the controller and its guard run as the instance that started it.
+//! the instance's name and the config file's absolute path in `CONDUCTOR_INSTANCE` and
+//! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it.
 //!
 //! In order, it refuses, recording and launching nothing: a repository that names no git
-//! checkout directly, or one group down, under the checkouts root, or one an `exclude` entry of the
-//! instance's sources leaves out (`NoCheckout`); a role that is missing (`NoControllerRole`), runs
+//! checkout directly, or one group down, under the checkouts root, one whose physical path lies
+//! outside the root's physical path, or one an `exclude` entry of the instance's sources leaves out
+//! (`NoCheckout`); a checkout that is the instance's records directory, lies in it or holds it,
+//! where the guard takes a session for conductor's (`RecordsCheckout`); a role that is missing (`NoControllerRole`), runs
 //! on another harness (`NotClaude`), or names no profile or settings file (`NoProfile`,
 //! `NoSettings`); a checkout `~/.claude.json` does not mark trusted, where `claude --bg` would
 //! start nothing (`UntrustedCheckout`); a charter that is missing, empty, not UTF-8, or starts
@@ -32,9 +34,11 @@
 //! session name in `claude agents --json`, as the sessions collector reads the list
 //! (`SessionRunning`), or a list that cannot be read (`SessionsUnread`). Then it records
 //! `StartController` as `controller start-controller` does, which refuses a repository whose
-//! controller is `Running` or `Paused` (`AlreadyRunning`), and launches. A launch that fails or
-//! exits other than 0 is recorded `StopController` and refused (`LaunchFailed`), naming what
-//! `claude` said. It prints what `claude --bg` printed: the background session's id.
+//! controller is `Running` or `Paused` (`AlreadyRunning`), and launches. A launch that fails,
+//! exits other than 0 or is stopped at its bound is refused (`LaunchFailed`), naming what `claude`
+//! said; it is recorded `StopController` only when the session list, read again, shows no live
+//! session of the name. A live one, or a list that cannot be read, leaves the controller `Running`,
+//! and the refusal names the session or says so. It prints what `claude --bg` printed: the background session's id.
 
 use std::fs::{self, File};
 use std::io::{self, Write as _};
@@ -98,6 +102,9 @@ pub fn spawn(
         Ok(checkout) => checkout,
         Err(detail) => return refuse(SpawnRefusal::NoCheckout, detail),
     };
+    if let Err(detail) = outside_records(instance, &checkout) {
+        return refuse(SpawnRefusal::RecordsCheckout, detail);
+    }
     let (profile, settings, model) = match role(instance) {
         Ok(role) => role,
         Err((refusal, detail)) => return refuse(refusal, detail),
@@ -176,10 +183,12 @@ pub fn spawn(
         .arg(&charter)
         .current_dir(&checkout);
     if active.from_file {
+        // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
+        // path would name a file of the repository.
         let (file, _) = config::locate(config_flag, &environment).context(COMMAND)?;
         launch
             .env(config::INSTANCE_VARIABLE, &instance.name.0)
-            .env(config::CONFIG_VARIABLE, file);
+            .env(config::CONFIG_VARIABLE, environment.cwd.join(file));
     }
     let failure = match run_launch(&mut launch) {
         Ok(output) if output.status.success() => {
@@ -195,6 +204,32 @@ pub fn spawn(
         Ok(output) => exited(&output),
         Err(error) => format!("{error:#}"),
     };
+    // A launch can fail, or be stopped at the bound, after the session started: the session list,
+    // read again, decides whether the controller is recorded stopped.
+    match live_session(&session_name.0) {
+        Ok(None) => {}
+        Ok(Some(id)) => {
+            return refuse(
+                SpawnRefusal::LaunchFailed,
+                format!(
+                    "{CLAUDE} --bg {failure}; yet the live session {id} holds the session name \
+                     {}, so the controller {} stays recorded running",
+                    session_name.0, controller_id.0.0
+                ),
+            );
+        }
+        Err(error) => {
+            return refuse(
+                SpawnRefusal::LaunchFailed,
+                format!(
+                    "{CLAUDE} --bg {failure}; the session list could not be read again \
+                     ({error:#}), so the controller {} stays recorded running: stop it with \
+                     conductor controller stop-controller once no session {} runs",
+                    controller_id.0.0, session_name.0
+                ),
+            );
+        }
+    }
     let reason = format!("{COMMAND}: the session did not start: {failure}");
     let mut generated = crate::controller::record(state)?;
     let outcome = generated
@@ -248,6 +283,7 @@ const fn refusal_name(refusal: SpawnRefusal) -> &'static str {
         SpawnRefusal::NoProfile => "NoProfile",
         SpawnRefusal::NoSettings => "NoSettings",
         SpawnRefusal::NoCheckout => "NoCheckout",
+        SpawnRefusal::RecordsCheckout => "RecordsCheckout",
         SpawnRefusal::UntrustedCheckout => "UntrustedCheckout",
         SpawnRefusal::NoCharter => "NoCharter",
         SpawnRefusal::LaunchFailed => "LaunchFailed",
@@ -292,7 +328,36 @@ fn checkout(instance: &Instance, repository: &str) -> Result<PathBuf, String> {
             "an exclude entry of the instance's sources leaves the repository out".to_owned(),
         );
     }
-    fs::canonicalize(&dir).map_err(|error| format!("resolve {}: {error}", dir.display()))
+    let physical =
+        fs::canonicalize(&dir).map_err(|error| format!("resolve {}: {error}", dir.display()))?;
+    let physical_root =
+        fs::canonicalize(root).map_err(|error| format!("resolve {}: {error}", root.display()))?;
+    if !physical.starts_with(&physical_root) || physical == physical_root {
+        return Err(format!(
+            "{} resolves to {}, outside the checkouts root {}",
+            dir.display(),
+            physical.display(),
+            physical_root.display()
+        ));
+    }
+    Ok(physical)
+}
+
+/// Refuses a checkout that is the instance's records directory, lies inside it or holds it,
+/// compared by physical paths (the records as written when they do not resolve): a session there
+/// is conductor's to the guard, whatever its name.
+fn outside_records(instance: &Instance, checkout: &Path) -> Result<(), String> {
+    let written = Path::new(&instance.records);
+    let records = fs::canonicalize(written).unwrap_or_else(|_| written.to_owned());
+    if checkout.starts_with(&records) || records.starts_with(checkout) {
+        return Err(format!(
+            "the checkout {} is, lies in or holds the instance's records directory {}, where a \
+             session is conductor's",
+            checkout.display(),
+            records.display()
+        ));
+    }
+    Ok(())
 }
 
 /// The `controller` role's profile, settings and model, each file checked to be one.

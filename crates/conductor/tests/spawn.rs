@@ -469,3 +469,165 @@ fn a_launch_that_fails_is_refused_and_the_controller_recorded_stopped() {
     assert!(again.status.success(), "{}", describe(&again));
     assert_eq!(case.launches(), 2);
 }
+
+// Security review of `story:spawn` (wave 11). Each case below states the contract it checks.
+
+/// Replaces the stand-in `claude` with its own script, `edit` applied to the text.
+fn edit_stand_in(case: &Case, edit: impl FnOnce(String) -> String) {
+    let path = case.dir.join("bin/claude");
+    let text = fs::read_to_string(&path).expect("read the stand-in");
+    let edited = edit(text.clone());
+    assert_ne!(text, edited, "the stand-in was edited");
+    fs::write(&path, edited).expect("write the stand-in");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("make it executable");
+}
+
+/// Writes `~/.claude.json` marking each of `paths` trusted.
+fn trust_paths(case: &Case, paths: &[&Path]) {
+    let projects: serde_json::Map<String, Value> = paths
+        .iter()
+        .map(|path| {
+            (
+                path.display().to_string(),
+                json!({"hasTrustDialogAccepted": true}),
+            )
+        })
+        .collect();
+    write(
+        &case.home().join(".claude.json"),
+        &json!({ "projects": projects }).to_string(),
+    );
+}
+
+/// `CONDUCTOR_CONFIG` handed to the session must name the config file spawn itself read, as the
+/// session resolves it: the session runs in the checkout, not where spawn ran. A relative path
+/// passed through unchanged names `<checkout>/<path>` instead, a file of the repository, and the
+/// session's guard hook (`guard.rs` `config_file`, `cli.rs` `set_active`) then loads that file's
+/// places and rules, or falls back to the built-in instance when it is absent.
+#[test]
+fn spawn_hands_the_session_the_config_file_it_read_when_given_a_relative_path() {
+    let case = Case::new("relative-config");
+    let launch = case.launch();
+    edit_stand_in(&case, |text| {
+        text.replacen(
+            "pwd -P > ",
+            &format!(
+                "readlink -f \"$CONDUCTOR_CONFIG\" > '{}/config'\npwd -P > ",
+                launch.display()
+            ),
+            1,
+        )
+    });
+    let path = format!("{}:/usr/bin:/bin", case.dir.join("bin").display());
+    let output = common::conductor(case.home())
+        .args(["spawn", "--repository", "alpha"])
+        .current_dir(&case.dir)
+        .env("CONDUCTOR_CONFIG", "conductor.yaml")
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .output()
+        .expect("conductor runs");
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    assert_eq!(case.cwd(), case.checkout().display().to_string());
+    let seen = fs::read_to_string(case.launch().join("config"))
+        .unwrap_or_default()
+        .trim_end()
+        .to_owned();
+    assert_eq!(
+        seen,
+        case.config().display().to_string(),
+        "the session's CONDUCTOR_CONFIG, resolved in its working directory, names the config \
+         file spawn read"
+    );
+}
+
+/// `<checkouts.root>/<repo>` that is a symbolic link out of the root is not a checkout under the
+/// root: spawn must not start a bypass-permissions session in the link's target, even when
+/// `~/.claude.json` trusts the target (`conductor trust` canonicalises, so it marks the target).
+#[test]
+fn spawn_refuses_a_checkout_that_links_out_of_the_root() {
+    let case = Case::new("symlink-out");
+    // Not `beta`: the fixture's session list holds a live `ex-beta`.
+    let outside = case.dir.join("elsewhere/gamma");
+    write(&outside.join(".git/HEAD"), "ref: refs/heads/main\n");
+    std::os::unix::fs::symlink(&outside, case.root().join("gamma")).expect("link gamma");
+    write(&case.records().join("charters/gamma.md"), CHARTER);
+    trust_paths(&case, &[case.checkout().as_path(), outside.as_path()]);
+    let output = case.run(&["spawn", "--repository", "gamma"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.code() == Some(1) && stderr.contains("refused: NoCheckout:"),
+        "spawn of a link out of the root: {}",
+        describe(&output)
+    );
+    assert_eq!(case.launches(), 0, "nothing is launched outside the root");
+    assert!(!case.recorded(), "nothing is recorded");
+}
+
+/// A config may put conductor's records in a git checkout directly under the checkouts root (the
+/// guard names that layout, `guard/rules.rs` `Places::session`). The guard gives a session whose
+/// working directory is in `<records>` conductor's rule, whatever its name; so spawn must not start
+/// a bypass-permissions "controller" there.
+#[test]
+fn spawn_refuses_conductors_records_as_a_controller_checkout() {
+    let case = Case::new("records-under-root");
+    let records = case.root().join("conductor-records");
+    write(&records.join(".git/HEAD"), "ref: refs/heads/main\n");
+    write(&records.join("charters/conductor-records.md"), CHARTER);
+    let config = fs::read_to_string(case.config()).expect("read the config");
+    let moved = config.replace(
+        &format!("records: {}", case.records().display()),
+        &format!("records: {}", records.display()),
+    );
+    assert_ne!(config, moved, "the config names the records directory");
+    write(&case.config(), &moved);
+    trust_paths(&case, &[case.checkout().as_path(), records.as_path()]);
+    let output = case.run(&["spawn", "--repository", "conductor-records"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.code() == Some(1)
+            && stderr.contains("refused: ")
+            && !["SessionRunning", "UntrustedCheckout", "NoCharter"]
+                .iter()
+                .any(|other| stderr.contains(&format!("refused: {other}:"))),
+        "spawn of conductor's records is refused for being conductor's records: {}",
+        describe(&output)
+    );
+    assert_eq!(
+        case.launches(),
+        0,
+        "no session starts in conductor's records"
+    );
+    assert!(!case.recorded(), "nothing is recorded");
+}
+
+/// A launch that fails after `claude --bg` started the session (it exits non-zero, or hangs past
+/// the bound and only the launcher process is killed, `spawn.rs` `run_launch`) leaves a live
+/// session of the controller's name. The store must not then say the controller is stopped.
+#[test]
+fn a_failed_launch_whose_session_is_live_is_not_recorded_stopped() {
+    let case = Case::new("orphan");
+    write(&case.dir.join("fail"), "");
+    let agents = case.dir.join("agents.json");
+    edit_stand_in(&case, |text| {
+        text.replacen(
+            "if [ -e '",
+            &format!(
+                "printf '%s' '[{{\"id\":\"s-orphan\",\"name\":\"ex-alpha\",\"pid\":999,\
+                 \"status\":\"busy\"}}]' > '{}'\nif [ -e '",
+                agents.display()
+            ),
+            1,
+        )
+    });
+    let output = case.spawn();
+    assert_eq!(case.launches(), 1, "{}", describe(&output));
+    let rows = case.controllers();
+    assert_eq!(rows.len(), 1, "{rows:#?}");
+    assert_ne!(
+        rows[0]["state"],
+        "Stopped",
+        "a live session ex-alpha runs, yet the controller is recorded stopped: {}",
+        describe(&output)
+    );
+}

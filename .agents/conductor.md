@@ -185,11 +185,15 @@ controller running and prints the session id. It refuses, naming why, and starts
 session of that name runs or the repository has a running or paused controller (`conductor
 controller controllers`; stop one whose session is gone with `controller stop-controller` first),
 and when the `controller` role, the checkout, its trust (`conductor trust`) or the charter is not
-ready. The start form itself,
+ready; it never starts a controller in a checkout outside the checkouts root or in your records.
+The start form itself,
 `cd <checkouts root>/<repo> && claude --bg -n <controller session name> --append-system-prompt-file <controller profile> --model <controller model> --permission-mode bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
-is the fallback only where `conductor spawn` refuses for a reason the operator must fix and the
-operator tells you to start the controller anyway; record such a start with `conductor controller
-start-controller`. `<controller session name>` is
+is the fallback for two refusals only: `UntrustedCheckout`, once the operator has run `conductor
+trust` or accepted the workspace and `conductor spawn` still refuses, and `SessionsUnread`. Every
+other refusal is fixed, not bypassed. Before the manual form, check what spawn checks: `claude
+agents --json` lists no live session (one with a `pid`) named `<controller session name>`, and the
+charter does not start with `-`, which `claude` would read as a flag; then record the start with
+`conductor controller start-controller`. `<controller session name>` is
 `<session_prefix>-<repo>`, or `<repo>` when `session_prefix` is null in `conductor config show`.
 `<controller profile>` is the `controller` role's `profile`; `--agent` is never a controller's
 start form, because `--setting-sources project,local` loads no user-level agent; `conductor config

@@ -72,11 +72,14 @@ types:
   # one could not be told apart; `NoControllerRole`, the instance names no `controller` role;
   # `NotClaude`, that role runs on another harness; `NoProfile`, `NoSettings`, the role names no
   # profile or settings, or names one that is not a file; `NoCheckout`, the repository names no git
-  # checkout directly, or one group down, under the checkouts root; `UntrustedCheckout`,
-  # `~/.claude.json` does not mark that checkout trusted (`conductor trust`); `NoCharter`, the
-  # charter file is missing, empty, not text, or starts with `-`, which `claude` would read as a
-  # flag; `LaunchFailed`, `claude --bg` failed after the controller was recorded, which is then
-  # recorded stopped.
+  # checkout directly, or one group down, under the checkouts root, or one whose physical path lies
+  # outside the root's (a link out of it); `RecordsCheckout`, the checkout is the instance's records
+  # directory, lies inside it or holds it, where a session is conductor's, never a controller;
+  # `UntrustedCheckout`, `~/.claude.json` does not mark that checkout trusted (`conductor trust`);
+  # `NoCharter`, the charter file is missing, empty, not text, or starts with `-`, which `claude`
+  # would read as a flag; `LaunchFailed`, `claude --bg` failed after the controller was recorded,
+  # which is then recorded stopped unless the session list, read again, shows a live session of the
+  # name, or cannot be read: then the controller stays `Running`.
   - name: conductor.dispatch.SpawnRefusal
     kind: enum
     variants:
@@ -88,6 +91,7 @@ types:
       - NoProfile
       - NoSettings
       - NoCheckout
+      - RecordsCheckout
       - UntrustedCheckout
       - NoCharter
       - LaunchFailed
