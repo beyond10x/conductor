@@ -105,11 +105,11 @@ model, not code. A model can fail to follow them.
 
 ## Smaller gaps
 
-- **A `conductor` run whose words the shell expands is not denied to a controller**: a group word
-  the shell builds (`conductor {store,migrate}`, `conductor $(echo store) migrate`), a program word
-  a substitution names (`$(command -v conductor) store migrate`), or a leaf handed over through
-  `xargs` or a function's `"$@"`. The leaf word itself is checked strictly. Planned: deny such
-  words.
+- **A program word the shell builds without naming `conductor`** (`"$C" …`, a `$(printf …)` that
+  spells it) is judged only by the words that follow it. A `conductor` run whose group, leaf or
+  flag word the shell expands, a substitution around `conductor`, and `xargs` handing it its words
+  are denied to a controller; so is a quoted literal before the leaf, since the guard sees words
+  after the shell's quote removal.
 - **A sub-agent is recognised by the shape of its id** in a controller's SendMessage, not by who
   started it.
 - **Recording a denial can fail** (no state directory named, or the store's lock held for more
