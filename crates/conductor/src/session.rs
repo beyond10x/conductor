@@ -16,6 +16,11 @@
 //!   claiming session takes the lease, and the lease records the session id and pid it was taken
 //!   from.
 //!
+//! A claim the store kept (`taken`, `renewed`, `taken-over`) also writes the guard's copy of the
+//! lease, [`LEASE_FILE`] under the state directory, at once ([`LeaseFile`]); a refusal leaves it
+//! as it was. The guard reads that file, never the store, on every conductor write
+//! (`crate::guard`, `story:lease-guard`).
+//!
 //! A success prints one line on standard output; a refusal exits 1 with one line on standard
 //! error that names its error. Two claims at once that both find the lease as it was are not both
 //! kept: the store refuses the write decided on a stale read, and that claim exits 1.
@@ -34,6 +39,7 @@
 //! `session leases` is the view `conductor.session.Leases`. Input through `--input-json -` is not
 //! written yet.
 
+use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
@@ -51,7 +57,7 @@ use conductor_model::session::{
 use nix::errno::Errno;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
-use serde_json::Value;
+use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -97,8 +103,14 @@ pub fn claim(state: Option<&Path>, args: ClaimLeaseArgs) -> Result<ExitCode> {
             .format(&Rfc3339)
             .context("format the time of the claim")?,
     };
+    let dir = crate::state::dir(state)?;
+    let claimed = LeaseFile {
+        instance: instance.0.clone(),
+        session_id: session_id.clone(),
+        pid,
+    };
     let mut generated = Generated::new(Ports {
-        store: crate::state::open(state)?,
+        store: crate::state::open(Some(&dir))?,
     });
     let outcome = generated
         .claim_lease(ClaimLease {
@@ -109,6 +121,11 @@ pub fn claim(state: Option<&Path>, args: ClaimLeaseArgs) -> Result<ExitCode> {
         })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the lease")?;
+    if !matches!(outcome, ClaimLeaseOutcome::Held { .. }) {
+        claimed.write(&dir).with_context(|| {
+            format!("{WHAT}: the store keeps the lease, but the guard's copy of it was not written")
+        })?;
+    }
     let line = match outcome {
         ClaimLeaseOutcome::Taken { lease_taken } => format!(
             "session {} (pid {}) holds the conductor lease of instance {}",
@@ -301,10 +318,71 @@ impl Ports {
 /// A process of another user answers `EPERM`, and lives; only `ESRCH` says no process has the pid.
 /// A pid below 1, or beyond what the platform's pids hold, names none: `kill` would read one below
 /// 1 as a process group.
-fn lives(pid: i64) -> bool {
+pub(crate) fn lives(pid: i64) -> bool {
     match i32::try_from(pid) {
         Ok(pid) if pid >= 1 => !matches!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH)),
         _ => false,
+    }
+}
+
+/// The guard's copy of the lease: `conductor.lease` under the state directory, beside the store
+/// (`story:lease-guard`).
+pub(crate) const LEASE_FILE: &str = "conductor.lease";
+
+/// The most of [`LEASE_FILE`] the guard reads; the file [`LeaseFile::write`] writes is far smaller.
+const LEASE_FILE_LIMIT: u64 = 4096;
+
+/// The lease as [`LEASE_FILE`] holds it: one JSON object on one line, naming the instance, the
+/// holder's session id and its pid. `session claim` writes it after the store kept a claim that
+/// took, renewed or took over the lease, so the guard can hold the lease on every conductor write
+/// by reading one small file instead of opening the store. The store stays the record:
+/// `session leases` reads the store, not this file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LeaseFile {
+    pub instance: String,
+    pub session_id: String,
+    pub pid: i64,
+}
+
+impl LeaseFile {
+    /// Writes the file under `state` at once: to a staging file of this process in the same
+    /// directory, then renamed over [`LEASE_FILE`], so a reader finds the old lease or the new one
+    /// and never a part of either.
+    fn write(&self, state: &Path) -> Result<()> {
+        let path = state.join(LEASE_FILE);
+        let staged = state.join(format!(".{LEASE_FILE}.{}", std::process::id()));
+        let body = json!({
+            "instance": self.instance,
+            "session_id": self.session_id,
+            "pid": self.pid,
+        });
+        fs::write(&staged, format!("{body}\n"))
+            .with_context(|| format!("write {}", staged.display()))?;
+        fs::rename(&staged, &path).with_context(|| {
+            let _ = fs::remove_file(&staged);
+            format!("rename {} to {}", staged.display(), path.display())
+        })
+    }
+
+    /// The lease [`LEASE_FILE`] under `state` names, or `None` when there is no such regular file
+    /// (a link is not followed), it cannot be read, or it does not hold the three fields.
+    pub(crate) fn read(state: &Path) -> Option<Self> {
+        let path = state.join(LEASE_FILE);
+        if !fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+            return None;
+        }
+        let mut text = String::new();
+        File::open(&path)
+            .ok()?
+            .take(LEASE_FILE_LIMIT)
+            .read_to_string(&mut text)
+            .ok()?;
+        let value: Value = serde_json::from_str(&text).ok()?;
+        Some(Self {
+            instance: value["instance"].as_str()?.to_owned(),
+            session_id: value["session_id"].as_str()?.to_owned(),
+            pid: value["pid"].as_i64()?,
+        })
     }
 }
 

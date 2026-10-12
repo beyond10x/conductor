@@ -1671,6 +1671,17 @@ fn blank_read_flag_values(command: &str) -> Option<String> {
     Some(String::from_utf8(out).unwrap_or_else(|_| command.to_owned()))
 }
 
+/// Whether the Bash `command` is one the guard treats as a write (`story:lease-guard`): it holds
+/// a write form ([`holds_write_form`]), or runs a `conductor` leaf a controller is denied as one
+/// that writes or may write conductor's records ([`conductor_run`]). A write the guard does not
+/// recognise as one (`git commit`, a program writing a file by its own means) is not.
+pub(super) fn bash_writes(command: &str) -> bool {
+    holds_write_form(command)
+        || shell::commands(command)
+            .iter()
+            .any(|words| conductor_run(words).is_some())
+}
+
 /// Whether `command` holds a write form: a redirection that writes a file ([`shell::written`]:
 /// outside quotes, and not a descriptor duplication such as `2>&1` or `/dev/null`), one of
 /// [`WRITE_SUBSTRINGS`], or one of [`WRITE_WORDS`] as a word.

@@ -327,3 +327,36 @@ fn a_payload_without_a_session_id_is_refused() {
         shown(&output)
     );
 }
+
+/// The guard's copy of the lease, `conductor.lease` in the case's state directory.
+fn lease_file(case: &Path) -> Value {
+    let text = fs::read_to_string(case.join("state/conductor.lease")).expect("read the lease file");
+    serde_json::from_str(&text).expect("the lease file is JSON")
+}
+
+/// `story:lease-guard`: a claim the store keeps also writes the guard's copy of the lease beside
+/// the store, naming the instance, the holder's session id and its pid, and leaves no staging file;
+/// a refused claim leaves the copy as it was.
+#[test]
+fn a_claim_writes_the_guard_s_copy_of_the_lease() {
+    let case = case_dir("lease-file");
+    let first = ChildSession::start(&case, "first", "session-one");
+    assert_eq!(first.status, Some(0), "{}", first.stderr);
+    let copy = lease_file(&case);
+    assert_eq!(copy["session_id"], "session-one", "{copy:#}");
+    assert_eq!(copy["pid"], json!(first.pid()), "{copy:#}");
+    let rows = leases(&case);
+    assert_eq!(copy["instance"], rows[0]["instance"], "{copy:#} {rows:#?}");
+
+    let second = claim_from_this_process(&case, "session-two");
+    assert_ne!(second.status.code(), Some(0), "{}", shown(&second));
+    assert_eq!(lease_file(&case), copy, "a refused claim leaves the copy");
+
+    let staged: Vec<_> = fs::read_dir(case.join("state"))
+        .expect("read the state directory")
+        .flatten()
+        .map(|entry| entry.file_name())
+        .filter(|name| name.to_string_lossy().starts_with(".conductor.lease"))
+        .collect();
+    assert!(staged.is_empty(), "a staging file is left: {staged:?}");
+}

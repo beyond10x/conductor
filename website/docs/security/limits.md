@@ -3,7 +3,7 @@ title: Known limits
 sidebar_position: 5
 description: What the guard and the rest of conductor do not protect against today, what to do about each limit, and what is planned.
 lede: The guard catches a session's mistakes. It is not a sandbox, and these are the gaps.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/tests/adv_guard.rs; Taskfile.yml; .engineering/planning/story/single-conductor-lease.md, session-writes-bwrap.md, session-limits-systemd.md
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/tests/adv_guard.rs; Taskfile.yml; .engineering/planning/story/single-conductor-lease.md, lease-guard.md, session-writes-bwrap.md, session-limits-systemd.md
 ---
 
 Each limit below says what is not covered, what to do about it now, and whether a change is
@@ -61,20 +61,29 @@ connection. A URL can carry data out.
   when the `conductor-dev` role names a settings file.
 - **A session started or resumed by hand** without `--settings <role settings file>` is not
   guarded.
-- **Two conductors are refused only at session start, and only with the role's settings.** A
-  conductor session started or resumed with the shipped `.claude/conductor-settings.json` claims
-  the instance's conductor lease from its SessionStart hook (`conductor session claim`). While
-  another live session holds the lease, the claim is refused and names that session's id and
-  pid; once the holder's process is gone, the next claim takes the lease over and records whom
-  from. The refusal is shown to the operator; it does not end the second session, and nothing
-  denies that session's tool calls yet. A session started or resumed without those settings
-  claims nothing and is not refused, and two conductors can then write the same records.
+- **Two conductors are stopped only with the role's settings.** A conductor session started or
+  resumed with the shipped `.claude/conductor-settings.json` claims the instance's conductor
+  lease from its SessionStart hook (`conductor session claim`). While another live session holds
+  the lease, the claim is refused and names that session's id and pid; once the holder's process
+  is gone, the next claim takes the lease over and records whom from. The refusal does not end
+  the second session. Its writes are denied instead: while the holder's process lives, the guard
+  denies every write of a conductor session that is not the holder (file tools, SendMessage, a
+  Bash write form or a `conductor` leaf that writes), naming the holder
+  ([the lease](/docs/security/the-guard#one-conductor-the-lease)). Its reads stay allowed. A
+  session started or resumed without those settings claims nothing and is not guarded, and two
+  conductors can then write the same records.
+- **The lease check lets a write through when it cannot read the lease.** The guard reads only
+  its copy of the lease, `conductor.lease` in the state directory, which `conductor session claim`
+  writes after the store keeps the claim. A missing, unreadable or malformed file leaves the rule
+  table's verdict as it was. So does a store that holds a lease while the file is missing, for
+  example a lease claimed by a build older than this check. A Bash write the shell rule does not
+  recognise as a write (`git commit`, a program that writes a file by its own means) is not denied
+  to a second conductor either.
 
 - **Do:** start and resume only through the tasks and the documented start form. Check
   `claude agents` for a live conductor session before starting or resuming one, and
   `conductor session leases` for the session that holds the lease.
-- **Planned:** the guard denies the tool calls of a conductor session that does not hold the
-  lease, and the watch reports two live conductor sessions, settings or not (drafted).
+- **Planned:** the watch reports two live conductor sessions, settings or not (drafted).
 
 ## No operating-system sandbox, no resource limits
 
