@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:watch-two-conductors
 kind: story
-status: draft
+status: active
 title: conductor watch reports two live conductor sessions as an incident
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -11,7 +11,10 @@ scope:
   path: crates/conductor/src/watch.rs
 - confidence: cited
   path: crates/conductor/tests/watch.rs
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T17:53:56Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-12T17:53:56Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 
