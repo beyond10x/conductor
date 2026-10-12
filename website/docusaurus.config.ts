@@ -24,6 +24,7 @@ const config: Config = {
 
   markdown: {
     format: 'detect',
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: 'throw',
     },
@@ -33,6 +34,8 @@ const config: Config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+
+  themes: ['@docusaurus/theme-mermaid'],
 
   presets: [
     [
@@ -52,8 +55,9 @@ const config: Config = {
     navbar: {
       title: 'Conductor',
       items: [
-        {to: '/docs/', label: 'Documentation', position: 'left'},
-        {to: '/docs/getting-started', label: 'Get started', position: 'left'},
+        {to: '/docs/', label: 'Docs', position: 'left'},
+        {to: '/docs/security/overview', label: 'Security', position: 'left'},
+        {to: '/docs/guides/configure-an-instance', label: 'Guides', position: 'left'},
         {to: '/docs/reference/cli', label: 'CLI', position: 'left'},
         {to: '/docs/status', label: 'Status', position: 'left'},
         {href: 'https://github.com/beyond10x/conductor', label: 'GitHub', position: 'right'},
@@ -62,16 +66,40 @@ const config: Config = {
     footer: {
       links: [
         {
-          title: 'Documentation',
+          title: 'Docs',
           items: [
             {label: 'Overview', to: '/docs/'},
             {label: 'Getting started', to: '/docs/getting-started'},
+            {label: 'Roles', to: '/docs/concepts/roles'},
             {label: 'The loop', to: '/docs/concepts/the-loop'},
-            {label: 'The guard', to: '/docs/concepts/the-guard'},
+            {label: 'Status', to: '/docs/status'},
+          ],
+        },
+        {
+          title: 'Security',
+          items: [
+            {label: 'Overview', to: '/docs/security/overview'},
+            {label: 'The guard', to: '/docs/security/the-guard'},
+            {label: 'Confinement', to: '/docs/security/confinement'},
+            {label: 'Limits', to: '/docs/security/limits'},
+            {label: 'Hardening', to: '/docs/security/hardening'},
+          ],
+        },
+        {
+          title: 'Guides',
+          items: [
             {label: 'Configure an instance', to: '/docs/guides/configure-an-instance'},
+            {label: 'Initialise the records', to: '/docs/guides/initialise-the-records'},
+            {label: 'Start conductor', to: '/docs/guides/start-conductor'},
+            {label: 'Troubleshoot', to: '/docs/guides/troubleshoot'},
+          ],
+        },
+        {
+          title: 'Reference',
+          items: [
             {label: 'conductor CLI', to: '/docs/reference/cli'},
             {label: 'Config reference', to: '/docs/reference/config'},
-            {label: 'Status', to: '/docs/status'},
+            {label: 'Crates', to: '/docs/reference/crates'},
           ],
         },
         {

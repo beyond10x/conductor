@@ -1,19 +1,20 @@
 ---
 title: Start conductor and its controllers
-sidebar_position: 2
-description: Install the binary, link the adapters, trust the checkouts and start the conductor session in the instance's records directory.
-lede: The tasks in the repository's Taskfile start conductor in the instance's records directory, on the harness and model its config names, with the guard wired in.
-source: Taskfile.yml; docs/design/conductor.md sections 2, 7, 11 and 12; README.md, Run; .claude/conductor-settings.json, .claude/controller-settings.json, .claude/agents/
+sidebar_position: 3
+description: Install the binary, name the profiles, trust the checkouts, accept the bypass-permissions disclaimer once and start the conductor session in the instance's records directory.
+lede: The tasks in the repository's Taskfile start conductor in the instance's records directory, on the harness, model, profile and settings its config names, with the guard wired in.
+source: Taskfile.yml; docs/design/conductor.md sections 2, 7, 11 and 12; README.md, Run sessions; .claude/conductor-settings.json, .claude/controller-settings.json; .agents/conductor.md
 ---
 
 Run these from a checkout of the conductor repository, after you have
-[configured an instance](./configure-an-instance.md). They need `task` (go-task), `jq` and Claude
-Code (`claude`), and they read the instance from `conductor config show`.
+[configured an instance](./configure-an-instance.md) and
+[initialised its records](./initialise-the-records.md). They need `task` (go-task), `jq` and
+Claude Code (`claude`), and they read the instance from `conductor config show`.
 
 :::caution[Starting sessions]
 
 Each session runs with `--permission-mode bypassPermissions`, and the guard is its only check. Read
-[the guard and its limits](../concepts/the-guard.md) first.
+the [security overview](/docs/security/overview) first.
 
 :::
 
@@ -21,22 +22,43 @@ Each session runs with `--permission-mode bypassPermissions`, and the guard is i
 
 ```console
 task install
+conductor doctor
 ```
 
-This runs `cargo install --path crates/conductor --locked`. The guard hook, the watch and the
-tasks all call `conductor` from `PATH`.
+`task install` runs `cargo install --path crates/conductor --locked`. The guard hook, the watch and
+the tasks all call `conductor` from `PATH`. `conductor doctor` lists every program conductor starts
+and exits 1 when one is missing.
 
-## 2. Link the adapters
+## 2. Name each role's profile and settings
 
-```console
-task agents:link
+Sessions start with `--setting-sources project,local`, so Claude Code loads neither your user-level
+settings nor the agents in `~/.claude/agents/`. Each role therefore names its profile, the file the
+session starts with through `--append-system-prompt-file`, and its settings file, which wires the
+guard. With this checkout at `~/example-org/conductor`:
+
+```yaml
+    roles:
+      - role: conductor
+        harness: claude
+        model: opus
+        profile: ~/example-org/conductor/.agents/conductor.md
+        settings: ~/example-org/conductor/.claude/conductor-settings.json
+      - role: conductor-dev
+        harness: claude
+        model: opus
+        profile: ~/example-org/conductor/.agents/conductor-dev.md
+      - role: controller
+        harness: claude
+        model: opus
+        profile: ~/example-org/conductor/.agents/repo-controller.md
+        settings: ~/example-org/conductor/.claude/controller-settings.json
 ```
 
-Conductor runs in its records directory and each controller in its repository's checkout, so the
-Claude Code adapters must be reachable from anywhere. `task agents:link` links this checkout's
-`.claude/agents/conductor.md`, `repo-controller.md` and `conductor-dev.md` into
-`~/.claude/agents/`, one symbolic link each. A link to the same file is kept; any other file
-already there is refused, never overwritten.
+Without a `profile`, `task conductor:start` starts the role's `agent` (default `conductor`) with
+`--agent`, and finds it only in `<records>/.claude/agents/`; it refuses when that file is not
+there. `task agents:link`, which links this checkout's adapters into `~/.claude/agents/`, serves
+none of these sessions. `conductor config validate` refuses a controller role that names an `agent`
+and no `profile`.
 
 ## 3. Trust the checkouts
 
@@ -44,11 +66,20 @@ already there is refused, never overwritten.
 task trust
 ```
 
-This marks every git checkout directly under `checkouts.root`, and the instance's `records`
-directory, as a trusted Claude Code workspace, so a session can start there without a prompt. It
-also means each of those repositories' own project settings and hooks run without a prompt.
+This runs `conductor trust`, which marks every git checkout directly under `checkouts.root`, and
+the instance's `records` directory, as a trusted Claude Code workspace in `~/.claude.json`, so a
+session can start there without a prompt. It also means each of those repositories' own project
+settings and hooks run without a prompt.
 
-## 4. Start conductor
+## 4. Accept the bypass-permissions disclaimer once
+
+`claude --bg` refuses `bypassPermissions` until Claude Code's disclaimer was accepted. Either run
+`claude --dangerously-skip-permissions` once interactively in the records directory and accept it,
+or set `"skipDangerousModePermissionPrompt": true` in the role's settings file.
+`task conductor:start` checks the role's settings file, `~/.claude/settings.json` and
+`~/.claude.json`, and refuses, naming all three, until one of them holds the acceptance.
+
+## 5. Start conductor
 
 ```console
 task conductor:start      # start the conductor session in the background
@@ -56,38 +87,72 @@ task conductor:attach     # open it in this terminal
 task sessions             # list the conductor and conductor-dev sessions
 ```
 
-`task conductor:start` starts Claude Code in the background with the working directory the
-instance's `records`, the agent `conductor`, the model of the instance's `conductor` role and the
-settings file that wires the guard (this checkout's `.claude/conductor-settings.json` unless the
-role names another). It refuses unless the role's harness is `claude`, and while a session named
-`conductor` is running. The guard gives conductor its rules only in that directory.
+`task conductor:start` starts Claude Code in the background, in the instance's `records`
+directory, as:
+
+```text
+claude --bg -n <session name> --append-system-prompt-file <profile> --model <model>
+  --permission-mode bypassPermissions --setting-sources project,local --settings <settings> <prompt>
+```
+
+The session name is the conductor role's: `<session_prefix>-conductor`, or `conductor` when the
+instance has no `session_prefix`. The settings default to this checkout's
+`.claude/conductor-settings.json`. The prompt tells conductor to read the hand-over committed last
+in `docs/handoff/`, act on its first task and run one cycle.
+
+The task refuses, and starts nothing, when:
+
+- the role's harness is not `claude`, or the instance names no `conductor` role;
+- the records directory is not a directory (`conductor init` writes it);
+- the profile is not a file, or, without a profile, the agent is not in `<records>/.claude/agents/`;
+- the bypass-permissions disclaimer was not accepted (step 4);
+- a live session of that name runs already.
+
+[Troubleshoot](./troubleshoot.md#a-refused-start) lists each refusal with its fix.
 
 At session start conductor reads its profile, the instance's `rules.md`, the design and its newest
 records, schedules its cycles and starts `conductor watch run --follow`.
 
-## 5. Controllers
+:::note[Prefixed instances]
 
-Conductor starts one controller per repository, in that repository's checkout, with the
-`controller` role's model, `agent` (such as `repo-controller`) and `settings` (such as this
-checkout's `.claude/controller-settings.json`, which wires the guard). It records each one with
-`conductor controller start-controller`, which refuses a second controller for the same
-repository.
+`task sessions` and `task conductor:attach` look for the bare names `conductor` and
+`conductor-dev`. For an instance with a `session_prefix`, list its sessions with
+`claude agents --json` and attach with `claude attach <id>`.
+
+:::
+
+## 6. Controllers
+
+Conductor starts one controller per repository itself, in that repository's checkout:
+
+```text
+cd <checkouts root>/<repo> && claude --bg -n <session name> --append-system-prompt-file <controller profile>
+  --model <controller model> --permission-mode bypassPermissions --setting-sources project,local
+  --settings <controller settings> "$(cat <records>/charters/<repo>.md)"
+```
+
+The session name is `<session_prefix>-<repo>`, or `<repo>` without a prefix. The settings are the
+controller role's, such as this checkout's `.claude/controller-settings.json`, which wires the
+guard. Conductor records each controller with `conductor controller start-controller`, which
+refuses a second running controller for the same repository.
 
 :::caution[Planned]
 
 `conductor controller start-controller` records the controller only; the conductor session starts
-the harness session itself.
+the harness session itself, as its profile instructs. That a controller always starts with the
+guard's settings is an instruction to conductor, not enforced by code.
 
 :::
 
-## 6. Restart and development
+## 7. Restart and development
 
-`task conductor:restart` stops the background conductor and starts a new one that reads the newest
-hand-over first. conductor-dev runs it after conductor answers a `[RESTART conductor]` with a
-hand-over.
+`task conductor:restart` stops the background conductor, removes it from the session list (its
+transcript stays) and starts a new one that reads the newest hand-over first. It stops nothing when
+`conductor:start` would refuse the new one. conductor-dev runs it after conductor answers a
+`[RESTART conductor]` with a hand-over.
 
 `task dev:start` and `task dev:attach` start and open the conductor-dev session, which develops
-conductor in this repository. It starts without the guard.
+conductor in this checkout. It starts without the guard unless its role names a `settings` file.
 
 ## What you see
 

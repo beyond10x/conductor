@@ -11,13 +11,19 @@ source: docs/design/conductor.md sections 2, 3, 11 and 12; .agents/conductor.md,
 | role | who | owns | never |
 |---|---|---|---|
 | operator | the person running the instance | direction, architecture, new or retired repositories, credentials and spending, public-facing risk | routine approvals |
-| conductor | one session, `conductor` | the cross-repository plan, decisions within its grant, dispatch, the loop's records, the operator brief | edits outside its records; anything that defines or runs conductor |
-| conductor-dev | one session, `conductor-dev`, in the conductor repository | conductor's code, specification, plan, design, profiles, adapters and tasks; the instance's `rules.md`; installing the binary; restarting conductor | dispatching to controllers; writing conductor's records |
-| repository controller | one session per repository, its working directory the checkout | its repository's plan, waves, reviews, releases and workers | messages to anyone but conductor; edits outside its repository |
+| conductor | one session per instance, `<session_prefix>-conductor` | the cross-repository plan, decisions within its grant, dispatch, the loop's records, the operator brief | edits outside its records; anything that defines or runs conductor |
+| conductor-dev | one session, `<session_prefix>-conductor-dev`, in the conductor repository | conductor's code, specification, plan, design, profiles, adapters and tasks; the instance's `rules.md`; installing the binary; restarting conductor | dispatching to controllers; writing conductor's records |
+| repository controller | one session per repository, `<session_prefix>-<repo>`, its working directory the checkout | its repository's plan, waves, reviews, releases and workers | messages to anyone but conductor; edits outside its repository |
 | worker | a sub-agent of a controller | one unit of work | anything outside the unit |
 
-Each role runs on the harness and model the instance's `roles` name, and starts with the harness
-agent and settings file the role names, if any ([instances and config](./instances-and-config.md)).
+Each role runs on the harness and model the instance's `roles` name, and starts with the profile
+and settings file the role names ([instances and config](./instances-and-config.md)).
+
+**Session names.** A session's name is derived from the instance's `session_prefix`, never chosen:
+`<session_prefix>-conductor`, `<session_prefix>-conductor-dev` and `<session_prefix>-<repo>` for a
+controller. An instance without a prefix keeps the bare names `conductor`, `conductor-dev` and
+`<repo>`; at most one instance of a config file may do so. The guard and the sessions collector read
+the name to tell which instance a session belongs to.
 
 ## A star
 
@@ -36,7 +42,7 @@ controller for a repository that already has a running or paused one (`Controlle
 
 `controller start-controller` and `stop-controller` record the controller only. They do not start
 or end its session: the conductor session starts the harness session itself, with the controller
-role's model, agent and settings.
+role's model, profile and settings.
 
 :::
 
@@ -57,9 +63,18 @@ The profiles name no organization. A value that differs per instance is written 
 such as `thresholds.disk_low`, and read from `conductor config show --format json`. What holds for
 one organization goes in its `rules.md`, which the repository does not ship.
 
-For Claude Code, `.claude/agents/` holds one adapter per profile (`conductor.md`,
+**Profile, not agent.** A role's `profile` in the config names its `.agents/` file, and the
+session starts with it through `--append-system-prompt-file`. Every session starts with
+`--setting-sources project,local`, so Claude Code loads no user-level agent from
+`~/.claude/agents/`; a role started with `--agent` finds its agent only in the start directory's
+`.claude/agents/`. That is why `conductor config validate` refuses a controller role that names an
+`agent` and no `profile`: a repository's checkout does not carry conductor's adapter.
+
+The repository's `.claude/agents/` still holds one adapter per profile (`conductor.md`,
 `conductor-dev.md`, `repo-controller.md`), each the agent front matter and a pointer at its
-`.agents/` file.
+`.agents/` file. They serve a session started in this checkout, such as conductor-dev without a
+profile, and harness sub-agents; `task agents:link` links them into `~/.claude/agents/` for
+sessions you start by hand elsewhere, not for the sessions the tasks start.
 
 ## Developing conductor
 

@@ -38,6 +38,11 @@ page for each item and the controllers waiting on it (`conductor decision hands-
 `record-conductor-decision` refuses a class-O or class-H decision as `ReservedForOperator`, and
 records nothing. The operator records what was decided or done with `record-operator-decision`.
 
+The guard enforces one class-H line in code: a `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key`
+write is denied to every guarded session, whoever authorized it, and the denial hands the operator
+the exact command to run themselves. Every other `gh` write from a guarded session is denied too,
+as not a read ([the guard](/docs/security/the-guard)).
+
 When a class is unclear, conductor treats it as class O and records why. That record is how the
 boundary moves over time. A request already answered is answered again from the record, never
 asked of the operator a second time.

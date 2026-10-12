@@ -16,8 +16,20 @@ const sidebars: SidebarsConfig = {
         'concepts/roles',
         'concepts/the-loop',
         'concepts/decisions-and-messages',
-        'concepts/the-guard',
         'concepts/instances-and-config',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Security and confinement',
+      collapsed: false,
+      items: [
+        'security/overview',
+        'security/the-guard',
+        'security/confinement',
+        'security/audit-trail',
+        'security/limits',
+        'security/hardening',
       ],
     },
     {
@@ -26,9 +38,11 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'guides/configure-an-instance',
+        'guides/initialise-the-records',
         'guides/start-conductor',
         'guides/add-a-repository-rule',
         'guides/read-the-dashboard',
+        'guides/troubleshoot',
       ],
     },
     {
