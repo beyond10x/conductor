@@ -59,7 +59,8 @@ pub fn missing<'p>(programs: &[&'p str]) -> Vec<&'p str> {
         .collect()
 }
 
-/// Refuses, naming every program of `programs` that is not on `PATH`, for `what`.
+/// Refuses, naming every program of `programs` that is not on `PATH`, for `what`: the subject
+/// that starts them, read with the plural verb "start" (such as "a snapshot's collectors").
 ///
 /// # Errors
 ///
@@ -74,7 +75,7 @@ pub fn require(programs: &[&str], what: &str) -> Result<()> {
         .map(|program| format!("`{program}`"))
         .collect();
     bail!(
-        "{} not on PATH, and {what} starts {}; `conductor doctor` lists every program conductor \
+        "{} not on PATH, and {what} start {}; `conductor doctor` lists every program conductor \
          starts",
         if named.len() == 1 {
             format!("{} is", named[0])

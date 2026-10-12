@@ -141,7 +141,7 @@ up front, names it, and takes no snapshot. With `aep` missing:
 
 ```console
 $ conductor snapshot start-snapshot
-conductor: snapshot start-snapshot: `aep` is not on PATH, and a snapshot's collectors starts it; `conductor doctor` lists every program conductor starts
+conductor: snapshot start-snapshot: `aep` is not on PATH, and a snapshot's collectors start it; `conductor doctor` lists every program conductor starts
 $ echo $?
 1
 ```
