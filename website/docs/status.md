@@ -10,7 +10,7 @@ custom_edit_url: null
 
 # Status
 
-49 capabilities are shipped and 19 are planned, as of 2026-10-08. **Shipped** means implemented on `main` and held by a named test in the repository; `conductor-docs` generates this page and `website/data/status.json` from one list and fails when a test it names is gone. **Planned** means a draft on the repository's plan, not built.
+51 capabilities are shipped and 19 are planned, as of 2026-10-12. **Shipped** means implemented on `main` and held by a named test in the repository; `conductor-docs` generates this page and `website/data/status.json` from one list and fails when a test it names is gone. **Planned** means a draft on the repository's plan, not built.
 
 ## Snapshot collectors
 
@@ -83,10 +83,23 @@ custom_edit_url: null
 | An allowance never opens the store | ● shipped | An allowed tool call is answered with exit 0 without opening the store. |
 | Settings wire the guard | ● shipped | The controller settings file wires the guard on every tool. |
 | Every tool reaches the guard | ● shipped | A tool without a rule of its own is allowed only from a read-only allowlist a role's config extends; any other is denied. |
-| Every tool call is guarded | ○ planned | Every tool call reaches the guard, and a tool it does not know is denied. |
+| [Credential writes are the operator's](./security/the-guard.md) | ● shipped | A gh secret, auth, ssh-key or gpg-key write is denied as class H, with the command to hand the operator. |
+| One conductor per instance | ○ planned | A second conductor session, started or resumed, is refused while the first one lives. |
 | Bash writes bounded by the sandbox | ○ planned | Shell writes are bounded by the harness sandbox rather than by parsing commands. |
 | A store timeout is not a denial | ○ planned | When the guard cannot record its verdict in time it says so, rather than deny the tool call. |
 | Sibling trees of one repository | ○ planned | A relative cd into another managed tree of the same repository is not taken for another repository. |
+
+## Config and instances
+
+| Capability | Status | What it means |
+|---|---|---|
+| [Controllers start from their profile](./reference/config.md) | ● shipped | A controller role that names an agent and no profile is refused, because sessions load no user-level agent. |
+| [Problems named by YAML path](./reference/config.md) | ● shipped | config validate refuses an unknown key, naming its YAML path. |
+| [Effective config](./reference/cli.md#conductor-config-show) | ● shipped | config show prints the effective instance after defaults, with every path absolute. |
+| [Built-in instance](./reference/cli.md#conductor-config-validate) | ● shipped | Without a config file, config validate says the built-in defaults apply. |
+| [Several instances](./reference/config.md) | ● shipped | A file's default selects the instance, and the instance setting beats it. |
+| [Local sources, grouped repositories](./reference/config.md) | ● shipped | A local source lists repositories one or two levels deep and places their sessions. |
+| Every config key has an effect | ○ planned | Each key config validate accepts is read by a command, the watch or a profile. |
 
 ## Watch
 
@@ -108,17 +121,6 @@ custom_edit_url: null
 | Read-only | ● shipped | Every request reads the sources afresh and writes nothing. |
 | Disk waste | ● shipped | The disk panel lists the reclaimable rows largest first, with their total. |
 | Loopback only | ● shipped | The dashboard listens on a free port of 127.0.0.1 and prints its address first. |
-
-## Config and instances
-
-| Capability | Status | What it means |
-|---|---|---|
-| [Problems named by YAML path](./reference/config.md) | ● shipped | config validate refuses an unknown key, naming its YAML path. |
-| [Effective config](./reference/cli.md#conductor-config-show) | ● shipped | config show prints the effective instance after defaults, with every path absolute. |
-| [Built-in instance](./reference/cli.md#conductor-config-validate) | ● shipped | Without a config file, config validate says the built-in defaults apply. |
-| [Several instances](./reference/config.md) | ● shipped | A file's default selects the instance, and the instance setting beats it. |
-| [Local sources, grouped repositories](./reference/config.md) | ● shipped | A local source lists repositories one or two levels deep and places their sessions. |
-| Every config key has an effect | ○ planned | Each key config validate accepts is read by a command, the watch or a profile. |
 
 ## Usage
 

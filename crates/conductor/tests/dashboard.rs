@@ -151,6 +151,7 @@ impl Case {
             var_tmp: self.home.join("var-tmp"),
             measure_every: Duration::from_secs(600),
             measure_timeout: Duration::from_secs(30),
+            context_handover: 300_000,
         }
     }
 
@@ -527,6 +528,47 @@ fn the_page_shows_the_watch_usage_limit_and_context_lines() {
         assert!(page.contains(&line), "the page lacks {line:?}:\n{page}");
     }
     assert!(!page.contains("Old limit"), "{page}");
+}
+
+/// The context line names the hand-over threshold the instance configures
+/// (`thresholds.context_handover`), not a fixed 300k (story:session-tasks-follow-prefix).
+#[test]
+fn the_context_line_names_the_configured_hand_over_threshold() {
+    let case = Case::new("context-threshold");
+    let config = conductor_cli::config::parse(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: acme\n\
+         \x20   sources: [{github: acme}]\n\
+         \x20   checkouts: {root: ~/checkouts, trees: ~/trees}\n\
+         \x20   thresholds: {context_handover: 150k}\n",
+        &case.home,
+    )
+    .expect("the config converts");
+    let of = Sources::of(case.home.clone(), None, &config.instances[0]);
+    assert_eq!(of.context_handover, 150_000, "the instance's threshold");
+    let root = case.home.join("example-org/conductor");
+    assert_eq!(
+        Sources::new(case.home.clone(), root).context_handover,
+        300_000,
+        "the built-in instance's threshold"
+    );
+
+    let mut sources = case.sources();
+    sources.context_handover = of.context_handover;
+    let port = start(sources);
+    write(
+        &case.home.join(".cache/conductor-watch/context-reported"),
+        "s2\n",
+    );
+    let data = data(port);
+    assert_eq!(data["context_handover"], 150_000, "{data:#}");
+    let page = request(port, "GET", "/", None).body;
+    assert!(
+        page.contains("context: conductor over 150k tokens (session s2)"),
+        "{page}"
+    );
+    assert!(!page.contains("300k"), "{page}");
 }
 
 #[test]

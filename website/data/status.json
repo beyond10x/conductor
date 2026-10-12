@@ -1,5 +1,5 @@
 {
-  "asOf": "2026-10-08",
+  "asOf": "2026-10-12",
   "format": "b10x-status/1",
   "items": [
     {
@@ -196,6 +196,20 @@
       "status": "shipped"
     },
     {
+      "area": "Guard",
+      "detail": "A gh secret, auth, ssh-key or gpg-key write is denied as class H, with the command to hand the operator.",
+      "href": "/docs/security/the-guard",
+      "label": "Credential writes are the operator's",
+      "status": "shipped"
+    },
+    {
+      "area": "Config and instances",
+      "detail": "A controller role that names an agent and no profile is refused, because sessions load no user-level agent.",
+      "href": "/docs/reference/config",
+      "label": "Controllers start from their profile",
+      "status": "shipped"
+    },
+    {
       "area": "Watch",
       "detail": "A session gone from the session list is reported, and a start is not.",
       "href": "/docs/reference/cli#conductor-watch-run",
@@ -381,8 +395,8 @@
     },
     {
       "area": "Guard",
-      "detail": "Every tool call reaches the guard, and a tool it does not know is denied.",
-      "label": "Every tool call is guarded",
+      "detail": "A second conductor session, started or resumed, is refused while the first one lives.",
+      "label": "One conductor per instance",
       "status": "planned"
     },
     {

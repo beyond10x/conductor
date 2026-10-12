@@ -2,7 +2,7 @@
 title: Initialise the records
 sidebar_position: 2
 description: Write the instance's records directory with conductor init, fill in rules.md, keep the workspace file in step with the config, and take the first snapshot.
-lede: Conductor starts in the instance's records directory and reads its hand-over, rules and goals from there, so the directory exists, is a git repository and has an origin before the first session.
+lede: Conductor starts in the instance's records directory and reads its hand-over, rules and goals from there, so the directory exists and is a git repository before the first session.
 source: crates/conductor/src/init.rs, crates/conductor/tests/init.rs; crates/conductor/src/config.rs, config workspace; crates/conductor/src/collect/blockers.rs; conductor init --help, conductor config workspace --help
 ---
 
@@ -66,7 +66,7 @@ is here.
 The blockers collector reads the instance's repositories from `.engineering/workspace.yaml` in the
 records, and the specifications collector reads a `github` source's repositories through it. `conductor config workspace` rewrites it from the
 config, with no network read: each checkout directly under `checkouts.root` (or a `local` source's
-path) that has an `origin` remote, and the records directory itself. With checkouts `api`, `web`
+path) that has an `origin` remote, and the records directory itself, with or without one. With checkouts `api`, `web`
 and `conductor` under `~/example-org`:
 
 ```console
@@ -91,36 +91,20 @@ Run it after a repository is cloned under the checkouts root or removed, and com
 `config workspace` refuses when the records directory is not there yet, and points at
 `conductor init`.
 
-## 4. Give the records an origin
-
-The collectors read every member at `origin/main`, the records directory included: each snapshot
-runs `git fetch origin` in it and reads its `origin/main`. A records directory without an `origin`
-fails the snapshot:
-
-```console
-$ conductor snapshot start-snapshot
-01a13061-f655-7369-a638-51343d24b5c1
-conductor: snapshot start-snapshot: snapshot 01a13061-f655-7369-a638-51343d24b5c1 failed: blockers: repository records, tried twice: `git fetch --quiet origin` exited 128: fatal: 'origin' does not appear to be a git repository fatal: Could not read from remote repository. Please make sure you have the correct access rights and the repository exists.
-```
-
-Create a private repository for the records on the forge, add it as `origin` and push `main`:
-
-```console
-git -C ~/example-org/records remote add origin <url of the private repository>
-git -C ~/example-org/records push -u origin main
-```
-
-`git init` names the first branch after your `init.defaultBranch`; the collectors read `main`, so
-rename the branch first if it is called something else. Keep the records private: they hold the
-organization's decisions, rules and briefs.
-
-## 5. Take the first snapshot
+## 4. Take the first snapshot
 
 ```console
 conductor doctor
 conductor snapshot start-snapshot
 conductor snapshot snapshots
 ```
+
+The collectors read each member with an `origin` at `origin/main`, after a `git fetch origin` in
+its checkout. The records need no `origin`: without one they are read at their `HEAD`, with no
+fetch, so the first snapshot reads what `conductor init` committed, and later ones what was
+committed since; nothing uncommitted is read. Should you give the records an `origin`, push `main`
+to it, since from then on they are read at `origin/main`, and keep the repository private: the
+records hold the organization's decisions, rules and briefs.
 
 `start-snapshot` prints the snapshot's id and exits 0 when every collector answered. When it fails,
 [troubleshoot](./troubleshoot.md#a-failed-snapshot) reads the reason.

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:instance-scoped-tasks
 kind: story
-status: draft
+status: implemented
 title: Every task acts on the active instance's sessions only
 relations:
 - decomposes: epic:multi-instance-host
@@ -21,7 +21,11 @@ scope:
   path: crates/conductor/tests/taskfile.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 8
+revision: 11
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T17:33:44Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "proposed", to: "active", at: "2026-10-12T17:33:44Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "active", to: "implemented", at: "2026-10-12T17:57:16Z", actor: "human:timo", revision: 11, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 

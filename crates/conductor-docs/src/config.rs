@@ -48,6 +48,7 @@ default: sample
 instances:
   - name: sample
     session_prefix: example
+    dashboard_port: 7400
     sources:
       - github: example-org
       - local: ~/alpha

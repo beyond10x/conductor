@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:agents-link-user-scope
 kind: story
-status: draft
+status: implemented
 title: task agents:link says it serves an interactive session started with the user's own settings
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -13,7 +13,11 @@ scope:
   path: Taskfile.yml
 - confidence: cited
   path: crates/conductor/tests/taskfile.rs
-revision: 5
+revision: 8
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T17:47:19Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "proposed", to: "active", at: "2026-10-12T17:47:19Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "active", to: "implemented", at: "2026-10-12T17:57:16Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"test_result":1,"review_outcome":3}}}
 ---
 ## Why
 

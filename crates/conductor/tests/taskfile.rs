@@ -2059,3 +2059,504 @@ fn conductor_start_starts_from_a_profile_checkout_without_an_upstream() {
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
 }
+
+// ---------------------------------------------------------------------------------------------
+// `story:instance-scoped-tasks`: every task acts on the active instance's sessions only
+// ---------------------------------------------------------------------------------------------
+
+/// Writes a config file of two instances: `alpha`, `session_prefix: a`, whose records are the
+/// case's `records/`, and `beta`, `session_prefix: b`, whose records are `records-b/`; neither
+/// is the file's default, so each task runs the one `CONDUCTOR_INSTANCE` names. Neither writes a
+/// `dashboard_port`: alpha's is 7313 and beta's 7314.
+fn two_instance_config(case: &Case) -> PathBuf {
+    fs::create_dir_all(case.dir.join("records-b")).expect("create records-b/");
+    let text = format!(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: alpha\n\
+         \x20   session_prefix: a\n\
+         \x20   sources:\n\
+         \x20     - github: example-org\n\
+         \x20   checkouts:\n\
+         \x20     root: {root}\n\
+         \x20     trees: {trees}\n\
+         \x20   records: {records}\n\
+         \x20 - name: beta\n\
+         \x20   session_prefix: b\n\
+         \x20   sources:\n\
+         \x20     - github: example-org\n\
+         \x20   checkouts:\n\
+         \x20     root: {root}-b\n\
+         \x20     trees: {trees}-b\n\
+         \x20   records: {records}-b\n",
+        root = case.dir.join("checkouts").display(),
+        trees = case.dir.join("trees").display(),
+        records = case.records().display(),
+    );
+    let file = case.dir.join("conductor.yaml");
+    fs::write(&file, text).expect("write the config file");
+    file
+}
+
+/// Replaces the case's `claude` with one whose live background sessions are the lines `<name>
+/// <id>` of `claude/sessions`, written from `sessions`: `agents --json` lists each, `stop <id>`
+/// removes its line, and every other call is logged as [`Case::calls`] reads it.
+fn sessions_claude(case: &Case, sessions: &[(&str, &str)]) {
+    let state = case.dir.join("claude");
+    write_sessions(case, sessions);
+    let claude = case.dir.join("bin/claude");
+    fs::write(
+        &claude,
+        format!(
+            "#!/bin/sh\n\
+             state='{state}'\n\
+             if [ \"$1\" = agents ]; then\n\
+             \x20 jq -R -s -c 'split(\"\\n\") | map(select(length > 0) | split(\" \") | \
+             {{kind: \"background\", name: .[0], id: .[1], pid: 4242}})' \"$state/sessions\"\n\
+             \x20 exit 0\n\
+             fi\n\
+             if [ \"$1\" = stop ]; then\n\
+             \x20 grep -v \" $2$\" \"$state/sessions\" > \"$state/sessions.new\"\n\
+             \x20 mv \"$state/sessions.new\" \"$state/sessions\"\n\
+             fi\n\
+             printf '%s\\t%s\\n' \"$(pwd -P)\" \"$*\" >> \"$state/log\"\n",
+            state = state.display()
+        ),
+    )
+    .expect("write a fake claude");
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+}
+
+/// Writes the live sessions [`sessions_claude`] lists.
+fn write_sessions(case: &Case, sessions: &[(&str, &str)]) {
+    let lines: String = sessions
+        .iter()
+        .map(|(name, id)| format!("{name} {id}\n"))
+        .collect();
+    fs::write(case.dir.join("claude/sessions"), lines).expect("write the live sessions");
+}
+
+/// The live sessions [`sessions_claude`] lists now, as `<name> <id>` lines.
+fn live_sessions(case: &Case) -> Vec<String> {
+    fs::read_to_string(case.dir.join("claude/sessions"))
+        .expect("the live sessions")
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `task <name>` for the instance `instance` of `config`.
+fn instance_task(case: &Case, name: &str, config: &Path, instance: &str) -> Output {
+    case.command(name, Some(config))
+        .env("CONDUCTOR_INSTANCE", instance)
+        .output()
+        .expect("task runs")
+}
+
+/// No task that finds a session names one literally: each reads the names from `conductor config
+/// show`, the attach tasks the role's `session_name` as the start tasks do, and `task sessions`
+/// every role's.
+#[test]
+fn every_session_task_reads_the_names_from_config_show() {
+    let taskfile = taskfile();
+    for (task, role) in [
+        ("conductor:attach", "conductor"),
+        ("dev:attach", "conductor-dev"),
+    ] {
+        let task_body = &taskfile["tasks"][task];
+        assert_eq!(
+            task_body["vars"]["NAME"]["sh"].as_str(),
+            Some(
+                format!(
+                    "conductor config show --format json | jq -r '.instances[0].roles[] | \
+                     select(.role == \"{role}\") | .session_name // empty'"
+                )
+                .as_str()
+            ),
+            "{task}"
+        );
+    }
+    let sessions = &taskfile["tasks"]["sessions"];
+    assert_eq!(
+        sessions["vars"]["NAMES"]["sh"].as_str(),
+        Some(
+            "conductor config show --format json | jq -c '[.instances[0].roles[] | \
+             .session_name // empty]'"
+        ),
+        "{sessions:?}"
+    );
+    for task in [
+        "sessions",
+        "conductor:start",
+        "conductor:attach",
+        "conductor:restart",
+        "dev:start",
+        "dev:attach",
+    ] {
+        let body = scalars(&taskfile["tasks"][task]).join("\n");
+        for role in ["conductor", "conductor-dev"] {
+            for literal in [
+                format!(".name==\"{role}\""),
+                format!(".name == \"{role}\""),
+                format!("--arg n {role})"),
+                format!("--arg n {role} "),
+            ] {
+                assert!(!body.contains(&literal), "{task} names {literal:?}: {body}");
+            }
+        }
+    }
+}
+
+/// Two instances in one config, each with its conductor running: `conductor:restart` of one
+/// stops and restarts only its own conductor, in its own records directory, and leaves the other
+/// instance's running.
+#[test]
+fn conductor_restart_of_one_instance_leaves_the_other_instances_conductor_running() {
+    let Some(case) = Case::new("scoped-restart") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = two_instance_config(&case);
+    let agents = case.dir.join("records-b/.claude/agents");
+    fs::create_dir_all(&agents).expect("create records-b/.claude/agents");
+    fs::write(agents.join("conductor.md"), "an agent\n").expect("write the agent");
+    sessions_claude(&case, &[("a-conductor", "s-a"), ("b-conductor", "s-b")]);
+
+    let output = instance_task(&case, "conductor:restart", &config, "alpha");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    let args: Vec<&str> = calls.iter().map(|(_, args)| args.as_str()).collect();
+    assert_eq!(args.len(), 3, "{calls:?}");
+    assert_eq!(args[0], "stop s-a", "{calls:?}");
+    assert_eq!(args[1], "rm s-a", "{calls:?}");
+    assert!(args[2].starts_with("--bg -n a-conductor "), "{calls:?}");
+    for (cwd, args) in &calls {
+        assert_eq!(cwd, &case.records(), "{args}");
+    }
+    assert_eq!(live_sessions(&case), ["b-conductor s-b"], "{calls:?}");
+
+    write_sessions(&case, &[("a-conductor", "s-a2"), ("b-conductor", "s-b")]);
+    fs::remove_file(case.dir.join("claude/log")).expect("clear the log");
+    let output = instance_task(&case, "conductor:restart", &config, "beta");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    let args: Vec<&str> = calls.iter().map(|(_, args)| args.as_str()).collect();
+    assert_eq!(args.len(), 3, "{calls:?}");
+    assert_eq!(args[0], "stop s-b", "{calls:?}");
+    assert_eq!(args[1], "rm s-b", "{calls:?}");
+    assert!(args[2].starts_with("--bg -n b-conductor "), "{calls:?}");
+    for (cwd, args) in &calls {
+        assert_eq!(cwd, &case.dir.join("records-b"), "{args}");
+    }
+    assert_eq!(live_sessions(&case), ["a-conductor s-a2"], "{calls:?}");
+}
+
+/// The attach tasks open the active instance's session, beside another instance's and a bare
+/// `conductor` of none, and refuse when no live session holds its name; `task sessions` lists the
+/// active instance's sessions only.
+#[test]
+fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
+    let Some(case) = Case::new("scoped-attach") else {
+        return;
+    };
+    let config = two_instance_config(&case);
+    sessions_claude(
+        &case,
+        &[
+            ("a-conductor", "s-a"),
+            ("a-conductor-dev", "s-ad"),
+            ("b-conductor", "s-b"),
+            ("b-conductor-dev", "s-bd"),
+            ("conductor", "s-x"),
+            ("conductor-dev", "s-xd"),
+        ],
+    );
+    for (task, instance, cwd, attached) in [
+        ("conductor:attach", "alpha", case.records(), "attach s-a"),
+        ("dev:attach", "alpha", root(), "attach s-ad"),
+        (
+            "conductor:attach",
+            "beta",
+            case.dir.join("records-b"),
+            "attach s-b",
+        ),
+        ("dev:attach", "beta", root(), "attach s-bd"),
+    ] {
+        let _ = fs::remove_file(case.dir.join("claude/log"));
+        let output = instance_task(&case, task, &config, instance);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{task} {instance}: {}",
+            shown(&output)
+        );
+        assert_eq!(
+            case.calls(),
+            [(cwd, attached.to_owned())],
+            "{task} {instance}"
+        );
+    }
+
+    let output = instance_task(&case, "sessions", &config, "alpha");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let names: Vec<&str> = stdout
+        .lines()
+        .map(|line| line.split('\t').next().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        names,
+        ["a-conductor", "a-conductor-dev"],
+        "{}",
+        shown(&output)
+    );
+
+    write_sessions(&case, &[("conductor", "s-x"), ("b-conductor", "s-b")]);
+    let _ = fs::remove_file(case.dir.join("claude/log"));
+    for (task, name) in [
+        ("conductor:attach", "a-conductor"),
+        ("dev:attach", "a-conductor-dev"),
+    ] {
+        let output = instance_task(&case, task, &config, "alpha");
+        assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains(&format!("no background session named {name}")),
+            "{task}: {}",
+            shown(&output)
+        );
+        assert!(case.calls().is_empty(), "{task}: {:?}", case.calls());
+    }
+}
+
+/// A name that more than one live background session holds is refused by every task that
+/// resolves it: `conductor:restart` stops nothing, the attach tasks attach nothing, and `task
+/// sessions` exits 1 naming it.
+#[test]
+fn a_name_more_than_one_live_session_holds_is_refused() {
+    let Some(case) = Case::new("scoped-ambiguous") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = two_instance_config(&case);
+    sessions_claude(
+        &case,
+        &[
+            ("a-conductor", "s-1"),
+            ("a-conductor", "s-2"),
+            ("a-conductor-dev", "s-3"),
+            ("a-conductor-dev", "s-4"),
+        ],
+    );
+    let before = live_sessions(&case);
+    for (task, name) in [
+        ("conductor:restart", "a-conductor"),
+        ("conductor:attach", "a-conductor"),
+        ("dev:attach", "a-conductor-dev"),
+        ("sessions", "a-conductor"),
+        ("sessions", "a-conductor-dev"),
+    ] {
+        let output = instance_task(&case, task, &config, "alpha");
+        assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(&format!(
+                "more than one live background session is named {name}"
+            )),
+            "{task}: the refusal names {name}: {}",
+            shown(&output)
+        );
+        assert!(case.calls().is_empty(), "{task}: {:?}", case.calls());
+        assert_eq!(live_sessions(&case), before, "{task} stopped a session");
+    }
+}
+
+/// Replaces the case's `conductor` with one that logs a `dashboard ...` call, after the instance
+/// `CONDUCTOR_INSTANCE` names, to `claude/conductor-log` and then runs until it is killed, and
+/// passes every other call to the built `conductor`.
+fn fake_instance_dashboard_conductor(case: &Case) {
+    let conductor = case.dir.join("bin/conductor");
+    fs::remove_file(&conductor).expect("remove the linked conductor");
+    fs::write(
+        &conductor,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = dashboard ]; then\n\
+             \x20 printf '%s %s\\n' \"$CONDUCTOR_INSTANCE\" \"$*\" >> '{log}'\n\
+             \x20 while :; do sleep 1; done\n\
+             fi\n\
+             exec '{real}' \"$@\"\n",
+            log = case.dir.join("claude/conductor-log").display(),
+            real = Path::new(common::conductor(case.dir.join("home")).get_program()).display(),
+        ),
+    )
+    .expect("write a fake conductor");
+    fs::set_permissions(&conductor, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+}
+
+/// The pid the pid file `file` holds.
+fn pid_in(file: &Path) -> u32 {
+    fs::read_to_string(file)
+        .unwrap_or_else(|error| panic!("{}: {error}", file.display()))
+        .trim()
+        .parse()
+        .expect("the pid file holds a pid")
+}
+
+/// Without `systemctl`, the second instance's dashboard starts beside the first one's on its own
+/// port, serving its own instance, with its pid in its own state directory; `dashboard:stop` of
+/// one leaves the other running.
+#[test]
+fn the_second_instance_s_dashboard_serves_its_own_port_beside_the_first() {
+    let Some(case) = Case::new("scoped-dashboard") else {
+        return;
+    };
+    let config = two_instance_config(&case);
+    fake_instance_dashboard_conductor(&case);
+    let path = path_without_systemctl(&case);
+    let pid_file = |instance: &str| {
+        case.dir.join(format!(
+            "home/.b10x/conductor/{instance}/state/dashboard.pid"
+        ))
+    };
+    let start = |instance: &str| {
+        let output = case
+            .command("dashboard", Some(&config))
+            .env("PATH", &path)
+            .env("CONDUCTOR_INSTANCE", instance)
+            .output()
+            .expect("task runs");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{instance}: {}",
+            shown(&output)
+        );
+        output
+    };
+
+    let output = start("alpha");
+    let alpha = pid_in(&pid_file("alpha"));
+    let _reap_alpha = Reap(alpha);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7313/"),
+        "{}",
+        shown(&output)
+    );
+    let output = start("beta");
+    let beta = pid_in(&pid_file("beta"));
+    let _reap_beta = Reap(beta);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("http://127.0.0.1:7314/"),
+        "{}",
+        shown(&output)
+    );
+    assert_ne!(alpha, beta);
+    assert!(running(alpha), "the first dashboard {alpha} is not running");
+    assert!(running(beta), "the second dashboard {beta} is not running");
+
+    let mut calls = dashboard_calls(&case);
+    for _ in 0..50 {
+        if calls.len() >= 2 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        calls = dashboard_calls(&case);
+    }
+    calls.sort();
+    assert_eq!(
+        calls,
+        [
+            "alpha dashboard serve --port 7313",
+            "beta dashboard serve --port 7314"
+        ]
+    );
+
+    let output = case
+        .command("dashboard:stop", Some(&config))
+        .env("PATH", &path)
+        .env("CONDUCTOR_INSTANCE", "beta")
+        .output()
+        .expect("task runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(!pid_file("beta").exists(), "beta's pid file is still there");
+    let mut alive = running(beta);
+    for _ in 0..50 {
+        if !alive {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        alive = running(beta);
+    }
+    assert!(
+        !alive,
+        "the second dashboard {beta} still runs after its stop"
+    );
+    assert!(running(alpha), "stopping beta's dashboard stopped alpha's");
+    assert_eq!(pid_in(&pid_file("alpha")), alpha);
+}
+
+/// Where `systemctl` is on `PATH`, each instance's dashboard is a user service of its own,
+/// `<session_prefix>-conductor-dashboard`, serving its instance on its port.
+#[test]
+fn each_instance_s_dashboard_service_is_its_own_unit() {
+    let Some(case) = Case::new("scoped-dashboard-systemd") else {
+        return;
+    };
+    let config = two_instance_config(&case);
+    let log = case.dir.join("claude/systemd-log");
+    for tool in ["systemctl", "systemd-run"] {
+        let file = case.dir.join("bin").join(tool);
+        fs::write(
+            &file,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"{tool} $*\" >> '{}'\n\
+                 case \"$*\" in *is-active*) exit 3 ;; esac\nexit 0\n",
+                log.display()
+            ),
+        )
+        .expect("write a fake systemd tool");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
+
+    for task in ["dashboard", "dashboard:stop"] {
+        let output = instance_task(&case, task, &config, "beta");
+        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+    }
+    let calls = fs::read_to_string(&log).expect("the systemd log");
+    let calls: Vec<&str> = calls.lines().collect();
+    assert_eq!(calls.len(), 3, "{calls:?}");
+    assert_eq!(
+        calls[0],
+        "systemctl --user is-active --quiet b-conductor-dashboard"
+    );
+    assert!(
+        calls[1].starts_with("systemd-run --user --unit b-conductor-dashboard --collect ")
+            && calls[1].contains(" --setenv=CONDUCTOR_INSTANCE=beta ")
+            && calls[1].ends_with(&format!(
+                "{} dashboard serve --port 7314",
+                case.dir.join("bin/conductor").display()
+            )),
+        "{calls:?}"
+    );
+    assert_eq!(calls[2], "systemctl --user stop b-conductor-dashboard");
+}
+
+/// `story:agents-link-user-scope`: every session the tasks start passes `--setting-sources
+/// project,local` and reads no user-level agent, so `task agents:link` says it serves an
+/// interactive session started with the user's own settings, not a session in another directory.
+#[test]
+fn agents_link_says_it_serves_a_session_with_the_users_own_settings() {
+    let taskfile = taskfile();
+    let desc = taskfile["tasks"]["agents:link"]["desc"]
+        .as_str()
+        .expect("agents:link has a desc");
+    assert!(
+        !desc.contains("so a session started in another directory finds them"),
+        "{desc}"
+    );
+    assert!(
+        desc.contains("an interactive session started with the user's own settings"),
+        "{desc}"
+    );
+    assert!(desc.contains("--setting-sources project,local"), "{desc}");
+}

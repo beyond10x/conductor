@@ -8,12 +8,20 @@ source: crates/conductor/src/dashboard.rs, crates/conductor/src/dashboard/; crat
 
 ## 1. Serve it
 
-As a user service on port 7313, from a checkout of the conductor repository:
+As a user service, from a checkout of the conductor repository:
 
 ```console
-task dashboard            # starts conductor-dashboard unless it is active, prints http://127.0.0.1:7313/
+task dashboard            # starts the instance's dashboard unless it is active, prints its URL
 task dashboard:stop
 ```
+
+Both tasks act on the active instance only. The dashboard serves on the instance's
+`dashboard_port`: 7313 plus the instance's position in the config file (7313 for the first
+instance, 7314 for the second), unless the file writes a port. `config validate` refuses two
+instances that share a port. Where `systemctl` is on `PATH`, the user service is
+`<session_prefix>-conductor-dashboard`, or `conductor-dashboard` for an instance without a prefix.
+Elsewhere the dashboard runs in the background, with its pid in `dashboard.pid` and its output in
+`dashboard.log` of the instance's `state` directory.
 
 Or in the foreground, on any port (`0` picks a free one):
 
@@ -58,7 +66,7 @@ the session's decision log `decisions/2026-10.jsonl` in its records:
 |---|---|---|
 | header | when it was read, free disk on `/`, controllers running, build slot | `df`, the session list |
 | Sessions under the checkouts root | each session's name, kind, state, age, working directory, and its current dispatch: goal, brief, last event; exited sessions below the live ones | `claude agents --json`, `dispatches/*.jsonl` |
-| Usage limit and context | usage limits found now and earlier today, and the sessions the watch reported above `thresholds.context_handover` tokens of context (default 300k; the page labels them "over 300k" whatever the threshold) | the watch's files |
+| Usage limit and context | usage limits found now and earlier today, and the sessions the watch reported above `thresholds.context_handover` tokens of context (default 300k), which the page names in each line | the watch's files |
 | Red CI on main | each workflow whose newest `main` run failed | the watch's CI state |
 | Awaiting the operator | decisions whose newest line is class O or H with no choice yet | `decisions/*.jsonl` |
 | Recent decisions | the newest decision lines: id, class, choice, reason | `decisions/*.jsonl` |

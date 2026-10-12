@@ -4,12 +4,25 @@ vars:
   CONDUCTOR_PROMPT: Start of session. Read the hand-over committed last (git log -1 --name-only --format= -- docs/handoff/), act on its first task, then run one cycle.
   DEV_PROMPT: Start of session. Read the newest docs/waves/handoff-conductor-dev-*.md, the plan it names, the hand-over committed last in docs/handoff/ of the instance's records directory (conductor config show) and docs/design/conductor.md section 12, then begin.
   SESSION_ID: claude agents --json | jq -r '.[] | select(.kind=="background" and .name==$n and .pid != null) | .id'
+  SESSION_COUNT: claude agents --json | jq '[.[] | select(.kind=="background" and .name==$n and .pid != null)] | length'
 
 tasks:
   sessions:
-    desc: List the conductor and conductor-dev sessions with their kind, id and state
+    desc: List the active instance's sessions, those named as its roles in conductor config show (<session_prefix>-conductor and <session_prefix>-conductor-dev, or conductor and conductor-dev without a prefix), with their kind, id and state; exits 1 naming each of those names that more than one live background session holds, since no task can tell which of them is this instance's
+    vars:
+      NAMES:
+        sh: conductor config show --format json | jq -c '[.instances[0].roles[] | .session_name // empty]'
+    preconditions:
+      - sh: test -n {{shellQuote .NAMES}} && test {{shellQuote .NAMES}} != '[]'
+        msg: conductor config show names no session name for the instance's roles
     cmds:
-      - claude agents --json | jq -r '.[] | select(.name=="conductor" or .name=="conductor-dev") | [.name, .kind, (.id // (.pid|tostring)), (.state // .status)] | @tsv'
+      - claude agents --json | jq -r --argjson names {{shellQuote .NAMES}} '.[] | select(.name as $n | any($names[]; . == $n)) | [.name, .kind, (.id // (.pid|tostring)), (.state // .status)] | @tsv'
+      - |
+        ambiguous=$(claude agents --json | jq -r --argjson names {{shellQuote .NAMES}} '. as $all | $names[] as $n | select([$all[] | select(.kind=="background" and .name==$n and .pid != null)] | length > 1) | $n')
+        for name in $ambiguous; do
+          echo "more than one live background session is named $name; stop the one that is not this instance's with claude stop <id>" >&2
+        done
+        [ -z "$ambiguous" ]
 
   conductor:start:
     desc: Start conductor in the background in the instance's records directory under the session name of the role conductor in conductor config show (<session_prefix>-conductor, or conductor without a prefix), without the user's settings (--setting-sources project,local), on the harness, model, settings and profile or agent of the role conductor (settings default this checkout's .claude/conductor-settings.json; a profile is appended to the system prompt in place of the agent, whose default is conductor); refuses while a live session of that name exists, when the profile is not a file, when the git checkout holding the profile has an upstream and is behind it after git fetch (a failing fetch compares with the upstream ref it has), and, without a profile, when the agent is not in the records' .claude/agents/ (--setting-sources project,local loads no agent from ~/.claude/agents/)
@@ -62,24 +75,34 @@ tasks:
       - cd {{shellQuote .RECORDS}} && if [ -n {{shellQuote .PROFILE}} ]; then flag=--append-system-prompt-file; who={{shellQuote .PROFILE}}; else flag=--agent; who={{shellQuote .AGENT}}; fi && claude --bg -n {{shellQuote .NAME}} "$flag" "$who" --model {{shellQuote .MODEL}} --permission-mode bypassPermissions --setting-sources project,local --settings {{shellQuote .SETTINGS}} {{shellQuote .CONDUCTOR_PROMPT}}
 
   conductor:attach:
-    desc: Open the background conductor session in this terminal, in the instance's records directory
+    desc: Open the active instance's background conductor session, the live session named as the role conductor in conductor config show, in this terminal, in the instance's records directory; refuses when no live background session or more than one holds that name
     interactive: true
     vars:
+      NAME:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor") | .session_name // empty'
       RECORDS:
         sh: conductor config show --format json | jq -r '.instances[0].records'
     preconditions:
       - sh: test -d {{shellQuote .RECORDS}}
         msg: the records directory {{.RECORDS}} of conductor config show is not a directory
+      - sh: test -n {{shellQuote .NAME}}
+        msg: conductor config show names no session name for the role conductor
+      - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -ge 1
+        msg: no background session named {{.NAME}}; see task sessions
+      - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -le 1
+        msg: more than one live background session is named {{.NAME}}, so this task cannot tell which is this instance's conductor; stop the one that is not with claude stop <id> (task sessions lists them), then run the task again
     cmds:
-      - cd {{shellQuote .RECORDS}} && claude attach "$({{.SESSION_ID}} --arg n conductor)"
+      - cd {{shellQuote .RECORDS}} && claude attach "$({{.SESSION_ID}} --arg n {{shellQuote .NAME}})"
 
   conductor:restart:
-    desc: Stop the background conductor, the live session named as the role conductor in conductor config show, remove it from the session list (its transcript stays; claude --resume reopens it) and start a new one in the instance's records directory that reads the newest handoff (conductor-dev runs this after [RESTART]); stops nothing when conductor:start would refuse the new one (role, harness, records directory, profile, a profile checkout behind its upstream, or agent)
+    desc: Stop the active instance's background conductor, the live session named as the role conductor in conductor config show (a session of another name, another instance's conductor among them, is left running), remove it from the session list (its transcript stays; claude --resume reopens it) and start a new one in the instance's records directory that reads the newest handoff (conductor-dev runs this after [RESTART]); stops nothing when more than one live background session holds that name, or when conductor:start would refuse the new one (role, harness, records directory, profile, a profile checkout behind its upstream, or agent)
     preconditions:
       - sh: test -n {{shellQuote .NAME}}
         msg: conductor config show names no session name for the role conductor
       - sh: test -n "$({{.SESSION_ID}} --arg n {{shellQuote .NAME}})"
         msg: no background session named {{.NAME}}
+      - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -le 1
+        msg: more than one live background session is named {{.NAME}}, so this task cannot tell which is this instance's conductor and stops none; stop the one that is not with claude stop <id> (task sessions lists them), then run the task again
       - sh: test -n {{shellQuote .MODEL}}
         msg: conductor config show names no role conductor; add it to the instance's roles
       - sh: test {{shellQuote .HARNESS}} = claude
@@ -158,10 +181,20 @@ tasks:
       - if [ -n {{shellQuote .PROFILE}} ]; then flag=--append-system-prompt-file; who={{shellQuote .PROFILE}}; else flag=--agent; who=conductor-dev; fi && set -- && if [ -n {{shellQuote .SETTINGS}} ]; then set -- --settings {{shellQuote .SETTINGS}}; fi && claude --bg -n {{shellQuote .NAME}} "$flag" "$who" --model {{shellQuote .MODEL}} --permission-mode bypassPermissions --setting-sources project,local "$@" {{shellQuote .DEV_PROMPT}}
 
   dev:attach:
-    desc: Open the background conductor-dev session in this terminal
+    desc: Open the active instance's background conductor-dev session, the live session named as the role conductor-dev in conductor config show, in this terminal; refuses when no live background session or more than one holds that name
     interactive: true
+    vars:
+      NAME:
+        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .session_name // empty'
+    preconditions:
+      - sh: test -n {{shellQuote .NAME}}
+        msg: conductor config show names no session name for the role conductor-dev
+      - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -ge 1
+        msg: no background session named {{.NAME}}; see task sessions
+      - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -le 1
+        msg: more than one live background session is named {{.NAME}}, so this task cannot tell which is this instance's conductor-dev; stop the one that is not with claude stop <id> (task sessions lists them), then run the task again
     cmds:
-      - claude attach "$({{.SESSION_ID}} --arg n conductor-dev)"
+      - claude attach "$({{.SESSION_ID}} --arg n {{shellQuote .NAME}})"
 
   trust:
     desc: Mark the instance's records directory (by its physical path) and every git checkout directly under its checkouts root (conductor config show) as trusted Claude Code workspaces in ~/.claude.json, so conductor and a controller can start there (conductor trust); refuses a records path that holds a line break or is not a directory, and writes nothing when ~/.claude.json changed during the run
@@ -169,7 +202,7 @@ tasks:
       - conductor trust
 
   agents:link:
-    desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into ~/.claude/agents/, so a session started in another directory finds them; a link to the same file is kept, and any other file there is refused, never overwritten
+    desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into ~/.claude/agents/, for an interactive session started with the user's own settings; the sessions the tasks start pass --setting-sources project,local and read no user-level agent; a link to the same file is kept, and any other file there is refused, never overwritten
     cmds:
       - |
         src={{shellQuote .ROOT_DIR}}/.claude/agents
@@ -190,15 +223,26 @@ tasks:
         done
 
   dashboard:
-    desc: Start the dashboard on 127.0.0.1:7313 and print its URL; where systemctl is on PATH as the user service conductor-dashboard unless it is active, elsewhere in the background with nohup, its pid in dashboard.pid and its output in dashboard.log of the instance's state directory (conductor config show), refusing while that pid runs
+    desc: Start the active instance's dashboard on 127.0.0.1 at its dashboard_port in conductor config show (7313 for the file's first instance and one more for each later one, unless the file writes it) and print its URL; the dashboard serves that instance (CONDUCTOR_INSTANCE); where systemctl is on PATH as the instance's user service, <session_prefix>-conductor-dashboard or conductor-dashboard without a prefix, unless it is active, elsewhere in the background with nohup, its pid in dashboard.pid and its output in dashboard.log of the instance's state directory (conductor config show), refusing while that pid runs
     silent: true
     vars:
       STATE:
         sh: conductor config show --format json | jq -r '.instances[0].state'
+      INSTANCE:
+        sh: conductor config show --format json | jq -r '.instances[0].name'
+      PORT:
+        sh: conductor config show --format json | jq -r '.instances[0].dashboard_port // empty'
+      UNIT:
+        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-dashboard" else "conductor-dashboard" end'
+    preconditions:
+      - sh: test -n {{shellQuote .PORT}}
+        msg: conductor config show names no dashboard_port for the instance
     cmds:
       - |
         if command -v systemctl >/dev/null 2>&1; then
-          systemctl --user is-active --quiet conductor-dashboard || systemd-run --user --unit conductor-dashboard --collect --setenv=PATH="$PATH" "$(command -v conductor)" dashboard serve --port 7313
+          set -- --setenv=PATH="$PATH" --setenv=CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}}
+          if [ -n "${CONDUCTOR_CONFIG:-}" ]; then set -- "$@" --setenv=CONDUCTOR_CONFIG="$CONDUCTOR_CONFIG"; fi
+          systemctl --user is-active --quiet {{shellQuote .UNIT}} || systemd-run --user --unit {{shellQuote .UNIT}} --collect "$@" "$(command -v conductor)" dashboard serve --port {{shellQuote .PORT}}
           exit
         fi
         state={{shellQuote .STATE}}
@@ -211,20 +255,25 @@ tasks:
           fi
         fi
         mkdir -p "$state"
-        pid=$(sh -c 'nohup "$0" dashboard serve --port 7313 </dev/null >>"$1" 2>&1 & echo $!' "$(command -v conductor)" "$state/dashboard.log")
+        pid=$(CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}} sh -c 'nohup "$0" dashboard serve --port "$2" </dev/null >>"$1" 2>&1 & echo $!' "$(command -v conductor)" "$state/dashboard.log" {{shellQuote .PORT}})
         echo "$pid" > "$pidfile"
         echo "the dashboard runs as pid $pid; its output is in $state/dashboard.log"
-      - echo "Open http://127.0.0.1:7313/"
+      - echo Open http://127.0.0.1:{{shellQuote .PORT}}/
 
   dashboard:stop:
-    desc: Stop the dashboard; where systemctl is on PATH the user service conductor-dashboard, elsewhere the pid in dashboard.pid of the instance's state directory (conductor config show), whose file it removes
+    desc: Stop the active instance's dashboard; where systemctl is on PATH its user service, <session_prefix>-conductor-dashboard or conductor-dashboard without a prefix, elsewhere the pid in dashboard.pid of the instance's state directory (conductor config show), whose file it removes
     vars:
       STATE:
         sh: conductor config show --format json | jq -r '.instances[0].state'
+      UNIT:
+        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-dashboard" else "conductor-dashboard" end'
+    preconditions:
+      - sh: test -n {{shellQuote .UNIT}}
+        msg: conductor config show names no instance
     cmds:
       - |
         if command -v systemctl >/dev/null 2>&1; then
-          systemctl --user stop conductor-dashboard
+          systemctl --user stop {{shellQuote .UNIT}}
           exit
         fi
         pidfile={{shellQuote .STATE}}/dashboard.pid

@@ -15,6 +15,7 @@ One file, `conductor.config/1`, names conductor's instances. An instance is one 
 - where conductor keeps its records, its state and its cache (`records`, `state`, `cache`);
 - which harness, model, profile, settings file and extra read-only tools each role runs with
   (`roles`), and the prefix of its session names (`session_prefix`);
+- the port its dashboard serves on 127.0.0.1 (`dashboard_port`);
 - how many controllers and sub-agents work at once, its cadence, thresholds, retention, reports
   and authority; the operator's name; and an optional catalog of repositories.
 
@@ -83,6 +84,19 @@ A role's `session_name` is derived from the prefix; `config show` prints it, and
 only the derived value. The guard lets a conductor message only the sessions whose name carries its
 own instance's prefix (any session, when its instance has none), and the sessions collector keeps another instance's session to its harness
 and activity.
+
+The tasks act on the active instance only. `task sessions`, `task conductor:attach`,
+`task dev:attach` and `task conductor:restart` find its sessions by their full names, and refuse a
+name that more than one live background session holds, since no task can tell which one is this
+instance's. The dashboard takes the same care with its port and its service:
+
+- each instance's dashboard serves on its own `dashboard_port`, by default 7313 plus the
+  instance's position in the file (7313 for the first), and `config validate` refuses two
+  instances that share one;
+- where `systemctl` is on `PATH`, `task dashboard` runs it as the user service
+  `<session_prefix>-conductor-dashboard`, or `conductor-dashboard` without a prefix;
+- elsewhere it runs in the background, with its pid in `dashboard.pid` of the instance's `state`
+  directory.
 
 ## The workspace file
 

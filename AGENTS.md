@@ -167,19 +167,22 @@ without asking: several waves may go into one release.
 
 ## Sessions
 
-Two background sessions belong to an instance: `conductor` (runs the instance, in its records
-directory) and `conductor-dev` (develops conductor, in this repository). Both run in permission
-mode `bypassPermissions`, so messages between sessions are not held for approval.
+Two background sessions belong to an instance: conductor (runs the instance, in its records
+directory) and conductor-dev (develops conductor, in this repository), named
+`<session_prefix>-conductor` and `<session_prefix>-conductor-dev`, or `conductor` and
+`conductor-dev` without a prefix. Both run in permission mode `bypassPermissions`, so messages
+between sessions are not held for approval. Every task below acts on the active instance only:
+its sessions by their full names, its dashboard by its port and unit.
 
 | task | does |
 |---|---|
 | `task conductor:start`, `task dev:start` | start the session under its role's session name (`<session_prefix>-<role>`, or the role without a prefix) on the model of its role in `conductor config show`, with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless the role's harness is `claude`, and while a session of that name runs. A role with a `profile` starts from it with `--append-system-prompt-file <profile>`; without one, with `--agent <agent>`, which is found only in the start directory's `.claude/agents/`. Conductor starts in the active instance's `records` directory with its role's `settings`, by default this checkout's `.claude/conductor-settings.json`, and refuses until the bypass-permissions disclaimer was accepted once; conductor-dev starts in this checkout |
 | `task agents:link` | legacy: links `.claude/agents/{conductor,repo-controller,conductor-dev}.md` into `~/.claude/agents/`. No session started with `--setting-sources project,local` reads `~/.claude/agents/`, so it serves none of the sessions above |
-| `task conductor:attach`, `task dev:attach` | open a session in this terminal |
-| `task conductor:restart` | stop conductor and start a new one that reads the newest hand-over; conductor-dev runs it after `[RESTART conductor]` |
-| `task sessions` | list both sessions |
+| `task conductor:attach`, `task dev:attach` | open the active instance's session of that role, by its full name, in this terminal; refuse when no live background session or more than one holds that name |
+| `task conductor:restart` | stop the active instance's conductor, by its full name, and start a new one that reads the newest hand-over; another instance's conductor keeps running. Stops nothing when more than one live session holds the name. conductor-dev runs it after `[RESTART conductor]` |
+| `task sessions` | list the active instance's two sessions by their full names; exit 1 naming each name more than one live background session holds |
 | `task trust` | mark every checkout under `checkouts.root` and the instance's `records` directory as trusted Claude Code workspaces, so conductor and each controller can start there |
-| `task dashboard`, `task dashboard:stop` | the read-only page on 127.0.0.1:7313 |
+| `task dashboard`, `task dashboard:stop` | the active instance's read-only page on 127.0.0.1 at its `dashboard_port` (7313 plus the instance's position in the file, unless the file writes one); where systemctl is on PATH the user service `<session_prefix>-conductor-dashboard` (`conductor-dashboard` without a prefix), elsewhere a background process whose pid is in `dashboard.pid` of the instance's `state` directory |
 
 ## CLI quick reference
 

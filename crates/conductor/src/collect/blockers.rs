@@ -44,6 +44,15 @@
 //! `member <name>: checkout absent, skipped`, once per snapshot: not again when it finds its own
 //! snapshot's mark. Until 2026-10-10 such a member failed every snapshot. A checkout that is there
 //! but whose fetch fails still fails the snapshot.
+//!
+//! **The records with no `origin` remote are read at their `HEAD`, unfetched.** The records
+//! directory is the member that is the workspace file's own directory, `root` ([`Sources::root`]),
+//! and `conductor config workspace` writes it whatever its remotes, while `conductor init` makes
+//! and commits it with none. With no `origin` there is nothing to fetch and no `origin/main` to
+//! read, so [`read`] exports what the collectors read of its `HEAD` instead, as committed: still
+//! never its working tree. Until 2026-10-12 it failed every snapshot on `git fetch --quiet origin`.
+//! Every other member is fetched whatever its remotes, and one that has no `origin` fails the
+//! snapshot as before.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -70,6 +79,9 @@ const STORE: &str = ".engineering";
 
 /// The commit every store and specification is read at.
 const MAIN: &str = "origin/main";
+
+/// The commit the records are read at when they have no `origin` remote, with no fetch.
+const HEAD: &str = "HEAD";
 
 /// The status of a blocker that still blocks.
 const OPEN: &str = "open";
@@ -309,13 +321,17 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
             absent.push((name, repository));
             continue;
         }
+        let origin = origin_url(&checkout, sources.bound);
         members.push(Member {
             name,
             export: sources.exports.join(&repository),
             repository,
-            forge: forge_name(&checkout, sources.bound),
+            forge: origin.as_deref().and_then(forge_name),
         });
-        checkouts.push(checkout);
+        // Only the records, the member that is `root` itself, is read without an `origin`; every
+        // other member is fetched, and fails the snapshot when it cannot be.
+        let fetched = origin.is_some() || !same_dir(&checkout, &sources.root);
+        checkouts.push((checkout, fetched));
     }
     let skipped = |absent: Vec<(String, String)>| {
         absent
@@ -338,8 +354,8 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
     if !marked || !members.iter().all(|member| member.export.is_dir()) {
         name_absent(&absent);
         remove(&mark)?;
-        for (member, checkout) in members.iter().zip(&checkouts) {
-            twice(|| export(sources, &member.repository, checkout))
+        for (member, (checkout, fetched)) in members.iter().zip(&checkouts) {
+            twice(|| export(sources, &member.repository, checkout, *fetched))
                 .with_context(|| format!("repository {}, tried twice", member.repository))?;
         }
         fs::create_dir_all(&sources.exports)
@@ -360,18 +376,31 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
     })
 }
 
-/// The repository the checkout `dir`'s `origin` remote names: the last component of its URL
-/// without `.git`, read from the git config with no network read; `None` when there is no such
-/// remote or nothing is left.
-fn forge_name(dir: &Path, bound: Duration) -> Option<String> {
+/// The URL of the checkout `dir`'s `origin` remote, read from the git config with no network
+/// read; `None` when it has no such remote.
+fn origin_url(dir: &Path, bound: Duration) -> Option<String> {
     let url = succeed(
         &words(&["git", "config", "--get", "remote.origin.url"]),
         Some(dir),
         bound,
     )
     .ok()?;
-    let url = String::from_utf8_lossy(&url);
-    let last = url.trim().trim_end_matches('/').rsplit(['/', ':']).next()?;
+    Some(String::from_utf8_lossy(&url).trim().to_owned())
+}
+
+/// Whether `a` and `b` are one directory: compared as their canonical paths when both resolve,
+/// else as given.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+/// The repository an `origin` remote's `url` names: the last component of the URL without
+/// `.git`; `None` when nothing is left.
+fn forge_name(url: &str) -> Option<String> {
+    let last = url.trim_end_matches('/').rsplit(['/', ':']).next()?;
     let name = last.strip_suffix(".git").unwrap_or(last);
     (!name.is_empty()).then(|| name.to_owned())
 }
@@ -447,10 +476,16 @@ fn field<'a>(value: &'a Value, name: &str) -> Result<&'a str> {
 
 /// Fetches `checkout`'s `origin` and exports what the collectors read of its `origin/main`
 /// ([`exported`]) into `<exports>/<repository>/`, replacing what an earlier export left there.
-fn export(sources: &Sources, repository: &str, checkout: &Path) -> Result<PathBuf> {
-    succeed(&sources.fetch, Some(checkout), sources.bound)?;
+/// Unless `fetched`, it fetches nothing and exports `checkout`'s `HEAD`.
+fn export(sources: &Sources, repository: &str, checkout: &Path, fetched: bool) -> Result<PathBuf> {
+    let at = if fetched {
+        succeed(&sources.fetch, Some(checkout), sources.bound)?;
+        MAIN
+    } else {
+        HEAD
+    };
     let mut list = words(&["git", "ls-tree", "-r", "-z", "--name-only"]);
-    list.push(OsString::from(MAIN));
+    list.push(OsString::from(at));
     let files: Vec<String> =
         String::from_utf8_lossy(&succeed(&list, Some(checkout), sources.bound)?)
             .split('\0')
@@ -459,7 +494,7 @@ fn export(sources: &Sources, repository: &str, checkout: &Path) -> Result<PathBu
             .collect();
     let paths = exported(&files, |manifest| {
         let mut show = words(&["git", "show"]);
-        show.push(OsString::from(format!("{MAIN}:{manifest}")));
+        show.push(OsString::from(format!("{at}:{manifest}")));
         let text = succeed(&show, Some(checkout), sources.bound)?;
         Ok(String::from_utf8_lossy(&text).into_owned())
     })?;
@@ -478,7 +513,7 @@ fn export(sources: &Sources, repository: &str, checkout: &Path) -> Result<PathBu
     let tar = sources.exports.join(format!("{repository}.tar"));
     let mut archive = words(&["git", "archive", "--format=tar", "-o"]);
     archive.push(tar.clone().into_os_string());
-    archive.push(OsString::from(MAIN));
+    archive.push(OsString::from(at));
     if let Some(paths) = paths {
         archive.push(OsString::from("--"));
         archive.extend(paths.into_iter().map(OsString::from));

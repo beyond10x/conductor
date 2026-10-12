@@ -296,9 +296,12 @@ fn start_snapshot_refuses_at_start_naming_a_missing_program() {
     assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(stderr.lines().count(), 1, "{}", shown(&output));
-    assert!(
-        stderr.contains("`aep`") && stderr.contains("conductor doctor"),
-        "the refusal names the program and the command that lists them: {}",
+    assert_eq!(
+        stderr.trim_end(),
+        "conductor: snapshot start-snapshot: `aep` is not on PATH, and a snapshot's collectors \
+         start it; `conductor doctor` lists every program conductor starts",
+        "the refusal names the program, the collectors that start it and the command that lists \
+         them: {}",
         shown(&output)
     );
     assert!(output.stdout.is_empty(), "{}", shown(&output));
