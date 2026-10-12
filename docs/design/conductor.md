@@ -436,7 +436,7 @@ owns conductor's development, watches how conductor behaves, and rebuilds and re
 
 | who | writes |
 |---|---|
-| conductor | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md` |
+| conductor | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
 | conductor-dev | `crates/`, `spec/`, `.engineering/`, `docs/`, `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; the instance's `rules.md` |
 
 Conductor sends its faults and requests to conductor-dev as `[NEED conductor <id>] conductor-dev
