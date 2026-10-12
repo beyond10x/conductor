@@ -1344,3 +1344,49 @@ fn absent_member_snapshot() {
         .collect();
     assert_eq!(repositories, vec!["alpha", "beta.io"]);
 }
+
+/// A checkout whose directory is not its repository's name on the forge (the records checkout
+/// `records` is `conductor-archive` there) is matched to the owner's listing through the
+/// repository its `origin` remote names, and the snapshot completes (conductor's NEED
+/// N-20261012-03).
+#[test]
+fn a_member_whose_directory_differs_from_its_forge_name_is_matched_by_its_origin() {
+    let case = Case::new("forge_name");
+    case.workspace(&["alpha", "beta.io"]);
+    for repo in ["alpha", "beta.io"] {
+        case.repository(
+            repo,
+            &[],
+            &[fixture(repo), vec![project(&member(repo))]].concat(),
+        );
+    }
+    git(
+        &case.checkout("beta.io"),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/example-org/forge-name.git",
+        ],
+    );
+    let repositories = case.dir.join("repositories.json");
+    write(
+        &repositories,
+        r#"[{"name": "alpha", "isArchived": false},
+            {"name": "forge-name", "isArchived": false}]"#,
+    );
+    let specification_sources = case.specification_sources(&repositories);
+
+    let taken = case.take("specifications", move |record| {
+        specifications::collect_from(&specification_sources, record)
+    });
+
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+    let mut repositories: Vec<String> = case
+        .specifications()
+        .into_iter()
+        .map(|row| row.repository.0)
+        .collect();
+    repositories.sort();
+    assert_eq!(repositories, vec!["alpha", "forge-name"]);
+}
