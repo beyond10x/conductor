@@ -180,7 +180,7 @@ const THREE: [(&str, &str); 4] = [
     ("alpha-api", "../../checkouts/alpha-api"),
     ("beta-web", "../../checkouts/Beta.Web"),
     ("gamma-tools", "../../local/gamma-tools"),
-    ("records", ".."),
+    ("records", "../../records"),
 ];
 
 #[test]
@@ -191,6 +191,13 @@ fn config_workspace_writes_each_checkout_of_the_sources_and_the_records() {
     let output = case.conductor(&config, &["config", "workspace"]);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     assert_eq!(members(&case.workspace()), pairs(&THREE));
+    // The blockers collector takes a member's repository from its source's last component.
+    for (name, source) in members(&case.workspace()) {
+        assert!(
+            Path::new(&source).file_name().is_some(),
+            "the source {source:?} of {name} ends in a directory name"
+        );
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     for (name, _) in THREE {
         assert!(stdout.contains(name), "names {name}: {}", shown(&output));
@@ -254,7 +261,7 @@ fn config_workspace_check_names_each_difference_and_writes_nothing() {
                  \x20 - name: old-site\n\
                  \x20   source: ../../checkouts/old-site\n\
                  \x20 - name: records\n\
-                 \x20   source: ..\n";
+                 \x20   source: ../../records\n";
     fs::write(case.workspace(), stale).expect("write a stale file");
 
     let output = case.conductor(&config, &["config", "workspace", "--check"]);
@@ -343,7 +350,7 @@ fn init_writes_the_workspace_into_the_skeleton_and_commits_it() {
         members(&case.workspace()),
         pairs(&[
             ("alpha-api", "../../checkouts/alpha-api"),
-            ("records", ".."),
+            ("records", "../../records"),
         ])
     );
     let tracked = case.git(

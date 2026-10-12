@@ -2390,7 +2390,9 @@ fn physical(path: &Path) -> PathBuf {
 }
 
 /// `target` relative to `base`, both absolute: `..` for each step of `base` past what they
-/// share, then the rest of `target`; `.` when they are one.
+/// share, then the rest of `target`, always ending in `target`'s own name. A `target` that holds
+/// `base` (the records, from their `.engineering/`) is `../../records`, never `..`: the blockers
+/// collector takes a member's repository from its source's last component.
 fn relative(base: &Path, target: &Path) -> Result<String> {
     let base: Vec<_> = base.components().collect();
     let target: Vec<_> = target.components().collect();
@@ -2398,7 +2400,8 @@ fn relative(base: &Path, target: &Path) -> Result<String> {
         .iter()
         .zip(&target)
         .take_while(|(left, right)| left == right)
-        .count();
+        .count()
+        .min(target.len().saturating_sub(1));
     let mut out = PathBuf::new();
     for _ in shared..base.len() {
         out.push("..");
