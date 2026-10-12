@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:ci-build-cache
 kind: story
-status: draft
+status: active
 title: CI's task check restores a cargo cache
 relations:
 - decomposes: epic:disk-and-gate
 scope:
 - confidence: cited
   path: .github/workflows/check.yml
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T19:01:41Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-12T19:01:41Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

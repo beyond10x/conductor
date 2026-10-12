@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:agents-ci-gate
 kind: story
-status: draft
+status: active
 title: AGENTS.md names CI's task check as the merge and release gate
 relations:
 - decomposes: epic:disk-and-gate
 scope:
 - confidence: cited
   path: AGENTS.md
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T19:01:41Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-12T19:01:41Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 
