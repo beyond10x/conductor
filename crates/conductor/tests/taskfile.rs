@@ -1845,3 +1845,217 @@ fn the_conductor_profile_names_controllers_by_their_session_name() {
         "the profile says where the name comes from: {flat}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// `story:restart-current-profile`: a start refuses a profile checkout behind its upstream
+// ---------------------------------------------------------------------------------------------
+
+/// Runs git in `dir` with no configuration of the user's and answers its standard output; a
+/// failing git fails the case.
+fn fixture_git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .args([
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+            "-c",
+            "core.hooksPath=/dev/null",
+        ])
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {}: {}",
+        args.join(" "),
+        shown(&output)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// What the upstream of a profile checkout holds.
+#[derive(Clone, Copy)]
+enum Upstream {
+    /// No upstream: the checkout tracks nothing.
+    Absent,
+    /// The commit the checkout holds.
+    Even,
+    /// One commit more, pushed from another clone, which the checkout has not fetched.
+    Ahead,
+}
+
+/// A git checkout `product/` of the case holding the committed profile `.agents/conductor.md`;
+/// with an upstream, its branch `main` tracks `origin/main` of the bare `upstream.git` of the
+/// case. Answers the checkout and the profile.
+fn profile_checkout(case: &Case, upstream: Upstream) -> (PathBuf, PathBuf) {
+    let checkout = case.dir.join("product");
+    let profile = checkout.join(".agents/conductor.md");
+    fs::create_dir_all(checkout.join(".agents")).expect("create the checkout");
+    fixture_git(&checkout, &["init", "--quiet"]);
+    fs::write(&profile, "a profile\n").expect("write the profile");
+    fixture_git(&checkout, &["add", "."]);
+    fixture_git(&checkout, &["commit", "--quiet", "-m", "profile"]);
+    if let Upstream::Absent = upstream {
+        return (checkout, profile);
+    }
+    fixture_git(&case.dir, &["init", "--quiet", "--bare", "upstream.git"]);
+    let bare = case.dir.join("upstream.git").display().to_string();
+    fixture_git(&checkout, &["remote", "add", "origin", &bare]);
+    fixture_git(&checkout, &["push", "--quiet", "-u", "origin", "main"]);
+    if let Upstream::Ahead = upstream {
+        fixture_git(&case.dir, &["clone", "--quiet", &bare, "other"]);
+        let other = case.dir.join("other");
+        fs::write(other.join(".agents/conductor.md"), "a newer profile\n")
+            .expect("write the newer profile");
+        fixture_git(&other, &["commit", "--quiet", "-am", "newer profile"]);
+        fixture_git(&other, &["push", "--quiet", "origin", "main"]);
+    }
+    (checkout, profile)
+}
+
+/// Asserts that `output` is a refusal naming the checkout and the command that fast-forwards it.
+fn assert_refused_behind(output: &Output, checkout: &Path) {
+    assert_ne!(output.status.code(), Some(0), "{}", shown(output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("git -C {} merge --ff-only", checkout.display())),
+        "the refusal names the checkout and the fast-forward: {}",
+        shown(output)
+    );
+}
+
+/// The profile's checkout is behind its upstream once fetched: `conductor:start` refuses, names
+/// the checkout and `git -C <checkout> merge --ff-only`, and starts nothing.
+#[test]
+fn conductor_start_refuses_a_profile_checkout_behind_its_upstream() {
+    let Some(case) = Case::new("start-profile-behind") else {
+        return;
+    };
+    let (checkout, profile) = profile_checkout(&case, Upstream::Ahead);
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_refused_behind(&output, &checkout);
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+}
+
+/// `conductor:restart` stops nothing when the profile's checkout is behind its upstream: the
+/// running conductor keeps running and no new one starts.
+#[test]
+fn conductor_restart_stops_nothing_when_the_profile_checkout_is_behind() {
+    let Some(case) = Case::new("restart-profile-behind") else {
+        return;
+    };
+    let (checkout, profile) = profile_checkout(&case, Upstream::Ahead);
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case.task("conductor:restart", Some(&config));
+    assert_refused_behind(&output, &checkout);
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+    assert!(
+        case.dir.join("claude/live").exists(),
+        "the session was stopped"
+    );
+}
+
+/// A fetch that fails does not block the check: the checkout is compared with the upstream ref
+/// it already has, which is ahead of it, so `conductor:start` refuses.
+#[test]
+fn conductor_start_refuses_a_checkout_behind_the_ref_it_has_when_the_fetch_fails() {
+    let Some(case) = Case::new("start-profile-behind-no-fetch") else {
+        return;
+    };
+    let (checkout, profile) = profile_checkout(&case, Upstream::Ahead);
+    fixture_git(&checkout, &["fetch", "--quiet"]);
+    fs::remove_dir_all(case.dir.join("upstream.git")).expect("remove the upstream");
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_refused_behind(&output, &checkout);
+    assert!(case.calls().is_empty(), "{:?}", case.calls());
+}
+
+/// The profile's checkout is even with its upstream: `conductor:start` starts with the profile.
+#[test]
+fn conductor_start_starts_from_a_profile_checkout_even_with_its_upstream() {
+    let Some(case) = Case::new("start-profile-even") else {
+        return;
+    };
+    let (_, profile) = profile_checkout(&case, Upstream::Even);
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert!(
+        calls[0].1.starts_with(&format!(
+            "--bg -n conductor --append-system-prompt-file {} ",
+            profile.display()
+        )),
+        "{calls:?}"
+    );
+}
+
+/// The profile's checkout is even with its upstream: `conductor:restart` stops the running
+/// conductor and starts a new one.
+#[test]
+fn conductor_restart_restarts_from_a_profile_checkout_even_with_its_upstream() {
+    let Some(case) = Case::new("restart-profile-even") else {
+        return;
+    };
+    let (_, profile) = profile_checkout(&case, Upstream::Even);
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case.task("conductor:restart", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    let verbs: Vec<&str> = calls
+        .iter()
+        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
+        .collect();
+    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
+}
+
+/// A fetch that fails does not block the start: the checkout is even with the upstream ref it
+/// has, so `conductor:start` starts.
+#[test]
+fn conductor_start_starts_when_the_fetch_of_an_even_checkout_fails() {
+    let Some(case) = Case::new("start-profile-even-no-fetch") else {
+        return;
+    };
+    let (_, profile) = profile_checkout(&case, Upstream::Even);
+    fs::remove_dir_all(case.dir.join("upstream.git")).expect("remove the upstream");
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+}
+
+/// The profile's checkout has no upstream: `conductor:start` starts as before.
+#[test]
+fn conductor_start_starts_from_a_profile_checkout_without_an_upstream() {
+    let Some(case) = Case::new("start-profile-no-upstream") else {
+        return;
+    };
+    let (_, profile) = profile_checkout(&case, Upstream::Absent);
+    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
+
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+}
