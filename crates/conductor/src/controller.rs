@@ -259,13 +259,14 @@ pub fn controllers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 }
 
 /// The ports the controller commands run over: the store, and the `StartController` behaviour
-/// the specification leaves to the implementation.
-struct Ports {
-    store: Store,
+/// the specification leaves to the implementation. `conductor spawn` records through them too
+/// ([`crate::spawn`]).
+pub(crate) struct Ports {
+    pub(crate) store: Store,
 }
 
 /// Opens the store a command records into, creating it when it is not there.
-fn record(state: Option<&Path>) -> Result<Generated<Ports>> {
+pub(crate) fn record(state: Option<&Path>) -> Result<Generated<Ports>> {
     Ok(Generated::new(Ports {
         store: crate::state::open(state)?,
     }))

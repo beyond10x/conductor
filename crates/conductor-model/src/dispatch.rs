@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bbab129970cd10b92fa4ba8dba245b5e44fd03a471459cd2fbdc4df57a446275
-// contract digest 540bcb6daeeacde30880234fabcdd297d3d3de0911029a111426d35d4fd599c0
+// model digest c5626e6b20bc9311239949a75a8acfdc64a7041aa62b5d4e0086a3ebc78bd3b3
+// contract digest 685686674349543d473098244328bf2d70eddfc082ffd1af3e7f8db27fed3d84
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -136,6 +136,51 @@ pub enum ResourceRequestState {
 /// ResourceRequestId — `conductor.dispatch.ResourceRequestId`: a distinct wrapper around `Uuid`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceRequestId(pub crate::primitives::Uuid);
+
+/// SpawnController — `conductor.dispatch.SpawnController`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpawnController {
+    /// `repository` — `Optional<String>`.
+    pub repository: Option<String>,
+}
+
+/// SpawnRefusal — `conductor.dispatch.SpawnRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnRefusal {
+    /// `AlreadyRunning`.
+    AlreadyRunning,
+    /// `SessionRunning`.
+    SessionRunning,
+    /// `SessionsUnread`.
+    SessionsUnread,
+    /// `NoControllerRole`.
+    NoControllerRole,
+    /// `NotClaude`.
+    NotClaude,
+    /// `NoProfile`.
+    NoProfile,
+    /// `NoSettings`.
+    NoSettings,
+    /// `NoCheckout`.
+    NoCheckout,
+    /// `UntrustedCheckout`.
+    UntrustedCheckout,
+    /// `NoCharter`.
+    NoCharter,
+    /// `LaunchFailed`.
+    LaunchFailed,
+}
+
+/// SpawnRefused — `conductor.dispatch.SpawnRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpawnRefused {
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `refusal` — `conductor.dispatch.SpawnRefusal`.
+    pub refusal: SpawnRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
 
 /// Transport — `conductor.dispatch.Transport`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

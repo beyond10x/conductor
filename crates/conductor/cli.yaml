@@ -81,6 +81,22 @@ callables:
     input: conductor.observation.CollectGarbage
     result: List<conductor.observation.GarbageRow>
     errors: {}
+  spawn:
+    target: {kind: local, owner: conductor-cli, action: spawn}
+    input: conductor.dispatch.SpawnController
+    result: String
+    errors:
+      already-running: conductor.dispatch.SpawnRefused
+      session-running: conductor.dispatch.SpawnRefused
+      sessions-unread: conductor.dispatch.SpawnRefused
+      no-controller-role: conductor.dispatch.SpawnRefused
+      not-claude: conductor.dispatch.SpawnRefused
+      no-profile: conductor.dispatch.SpawnRefused
+      no-settings: conductor.dispatch.SpawnRefused
+      no-checkout: conductor.dispatch.SpawnRefused
+      untrusted-checkout: conductor.dispatch.SpawnRefused
+      no-charter: conductor.dispatch.SpawnRefused
+      launch-failed: conductor.dispatch.SpawnRefused
 commands:
   - path: [goal, goals]
     callable: goals
@@ -186,3 +202,9 @@ commands:
         source: {kind: option, long: dry-run}
       - field: format
         source: {kind: option, long: format}
+  - path: [spawn]
+    callable: spawn
+    about: Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs
+    arguments:
+      - field: repository
+        source: {kind: option, long: repository}

@@ -50,6 +50,56 @@ types:
     kind: enum
     variants: [Allow, Deny]
 
+  # The input of `conductor spawn` (story:spawn), which starts the controller session of
+  # `repository`. With its working directory the checkout `<checkouts.root>/<repository>`, it runs,
+  # as one program with its arguments and never through a shell, `claude --bg -n <session name>
+  # --append-system-prompt-file <profile> --model <model> --permission-mode bypassPermissions
+  # --setting-sources project,local --settings <settings> <charter>`: the session name is the
+  # instance's for the repository, as `StartController` takes it; profile, model and settings are
+  # the `controller` role's in `conductor config show`; the charter is the text of
+  # `<records>/charters/<repository>.md`, one argument. It records `StartController` before it
+  # launches, and `StopController` when the launch fails. It prints what `claude --bg` printed: the
+  # background session's id.
+  - name: conductor.dispatch.SpawnController
+    kind: struct
+    fields:
+      - {name: repository, type: Optional<String>}
+
+  # Why `conductor spawn` started no session, each found before anything is recorded or launched
+  # but the last: `AlreadyRunning`, the repository has a `Running` or `Paused` controller
+  # (`StartController`'s `already-running`); `SessionRunning`, a live session holds the session
+  # name; `SessionsUnread`, the session list (`claude agents --json`) could not be read, so a live
+  # one could not be told apart; `NoControllerRole`, the instance names no `controller` role;
+  # `NotClaude`, that role runs on another harness; `NoProfile`, `NoSettings`, the role names no
+  # profile or settings, or names one that is not a file; `NoCheckout`, the repository names no git
+  # checkout directly, or one group down, under the checkouts root; `UntrustedCheckout`,
+  # `~/.claude.json` does not mark that checkout trusted (`conductor trust`); `NoCharter`, the
+  # charter file is missing, empty, not text, or starts with `-`, which `claude` would read as a
+  # flag; `LaunchFailed`, `claude --bg` failed after the controller was recorded, which is then
+  # recorded stopped.
+  - name: conductor.dispatch.SpawnRefusal
+    kind: enum
+    variants:
+      - AlreadyRunning
+      - SessionRunning
+      - SessionsUnread
+      - NoControllerRole
+      - NotClaude
+      - NoProfile
+      - NoSettings
+      - NoCheckout
+      - UntrustedCheckout
+      - NoCharter
+      - LaunchFailed
+
+  # A refusal of `conductor spawn`: the repository it was asked to start, why, and what it found.
+  - name: conductor.dispatch.SpawnRefused
+    kind: struct
+    fields:
+      - {name: repository, type: String}
+      - {name: refusal, type: conductor.dispatch.SpawnRefusal}
+      - {name: detail, type: String}
+
 entities:
   - name: conductor.dispatch.Controller
     identity:

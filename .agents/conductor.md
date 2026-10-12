@@ -179,9 +179,17 @@ else. `[DECISION …]` always carries the decision id it rests on; a notice or a
 `[REPORT …]`. Relay every `rules.md` commit at once to every running controller, naming the
 items that changed, and every moved path with its old and new form.
 
-Start a controller with
+Start a controller with `conductor spawn --repository <repo>`. It runs the start form below in
+`<checkouts root>/<repo>`, the charter `<records>/charters/<repo>.md` as one argument, records the
+controller running and prints the session id. It refuses, naming why, and starts nothing while a
+session of that name runs or the repository has a running or paused controller (`conductor
+controller controllers`; stop one whose session is gone with `controller stop-controller` first),
+and when the `controller` role, the checkout, its trust (`conductor trust`) or the charter is not
+ready. The start form itself,
 `cd <checkouts root>/<repo> && claude --bg -n <controller session name> --append-system-prompt-file <controller profile> --model <controller model> --permission-mode bypassPermissions --setting-sources project,local --settings <controller settings> "$(cat <records>/charters/<repo>.md)"`,
-or `conductor spawn <repo>` once it exists. `<controller session name>` is
+is the fallback only where `conductor spawn` refuses for a reason the operator must fix and the
+operator tells you to start the controller anyway; record such a start with `conductor controller
+start-controller`. `<controller session name>` is
 `<session_prefix>-<repo>`, or `<repo>` when `session_prefix` is null in `conductor config show`.
 `<controller profile>` is the `controller` role's `profile`; `--agent` is never a controller's
 start form, because `--setting-sources project,local` loads no user-level agent; `conductor config

@@ -31,9 +31,10 @@
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
 //!
-//! Four such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
+//! Five such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
 //! (`story:first-run-seed`), which read the config file themselves as `config show` does,
-//! `doctor` (`story:install-prerequisites`), which reads none, and `gc` (`story:conductor-gc`).
+//! `doctor` (`story:install-prerequisites`), which reads none, `gc` (`story:conductor-gc`) and
+//! `spawn` (`story:spawn`).
 //!
 //! [`LEAVES`] declares of every leaf whether it writes, and so whether a controller's session may
 //! run it ([`Access`]); the guard reads that declaration, not a list of its own
@@ -246,6 +247,7 @@ impl Cli {
             Group::Doctor => crate::doctor::doctor(),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
+            Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
             Group::Store(command) => match command {
                 StoreCommand::Migrate(args) => crate::store::migrate::store_migrate(state, &args),
@@ -321,6 +323,10 @@ pub enum Group {
     #[command(name = "init")]
     Init(InitArgs),
 
+    /// Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs
+    #[command(name = "spawn")]
+    Spawn(SpawnArgs),
+
     // No help, as for `dashboard`: the binding declares the group only through `store migrate`.
     #[command(subcommand)]
     Store(StoreCommand),
@@ -345,8 +351,8 @@ pub enum Access {
     /// controller is given (`dashboard serve`, `repository shipped`, `resource usage`).
     ConductorReads,
     /// Writes: the store under the state directory, conductor's records, the instance's files or
-    /// `~/.claude.json`, or removes what the disk panel marks reclaimable (`gc`). Only conductor's
-    /// session runs it.
+    /// `~/.claude.json`, removes what the disk panel marks reclaimable (`gc`), or starts a
+    /// controller's session (`spawn`). Only conductor's session runs it.
     Writes,
     /// Writes the guard's record of its own verdict: every session runs it, as the guard hook
     /// (`guard record-guard-decision`).
@@ -460,6 +466,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Removes the build caches, trees and targets the disk panel marks reclaimable.
     (&["gc"], Access::Writes),
     (&["init"], Access::Writes),
+    // Starts a controller's session and records the controller in the store.
+    (&["spawn"], Access::Writes),
     // Copies the store into the tree layout under the state directory.
     (&["store", "migrate"], Access::Writes),
     (&["trust"], Access::Writes),
@@ -1002,6 +1010,15 @@ pub struct InitArgs {
     /// file's default, else its only instance
     #[arg(long, value_name = "NAME")]
     pub instance: Option<String>,
+}
+
+/// The input of the binding's `spawn` callable, `conductor.dispatch.SpawnController`.
+#[derive(Debug, Clone, Args)]
+pub struct SpawnArgs {
+    /// The repository whose controller starts: its checkout under the instance's checkouts root,
+    /// `<repo>` or `<group>/<repo>`, and its charter `<records>/charters/<repo>.md`
+    #[arg(long, value_name = "NAME")]
+    pub repository: Option<String>,
 }
 
 /// The input of the binding's `config-show` callable, `conductor.config.ShowConfig`. The format

@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:watch-disk-reading
 kind: story
-status: active
+status: implemented
 title: The watch reads free disk again after a jump of more than 20G
 scope:
 - confidence: cited
   path: crates/conductor/src/watch.rs
 - confidence: cited
   path: crates/conductor/tests/watch.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-12T20:25:58Z", actor: "human:timo", revision: 4}
 - {from: "proposed", to: "active", at: "2026-10-12T20:25:58Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-12T20:30:03Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

@@ -1,0 +1,471 @@
+//! `story:spawn`: `conductor spawn --repository <repo>` starts the repository's controller session
+//! with the controller start form of the conductor profile, built from the config, and records the
+//! controller `Running`; it refuses, launching nothing and recording nothing, while a session of
+//! that name runs, and for every other reason the specification's `SpawnRefusal` names.
+//!
+//! Each case is a directory of its own under this test target's temporary directory: `home/`, the
+//! `HOME` the binary runs with, holding the checkouts root `example-org/` with the checkout
+//! `alpha` and `~/.claude.json` marking it trusted; `records/` with the charter
+//! `charters/alpha.md`; `state/`; `roles/` with the controller role's profile and settings; and the
+//! config file `conductor.yaml` naming them, under the session prefix `ex`.
+//!
+//! `claude` is a stand-in first on `PATH`: `claude agents --json` prints the case's session list;
+//! any other call is a launch, which writes each argument to a file of its own under `launch/`
+//! (`1`, `2`, …), its physical working directory to `launch/cwd`, counts itself in `launches`,
+//! and prints a session id, or, when the case holds `fail`, exits 1. No real session starts.
+
+mod common;
+
+use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::{Path, PathBuf};
+use std::process::{Output, Stdio};
+
+use conductor_cli::cli::{Access, LEAVES};
+use serde_json::{Value, json};
+
+/// The id the stand-in prints for a session it started.
+const SESSION_ID: &str = "bg-session-0001";
+
+/// A charter whose text a shell would expand: a `$(…)`, a backtick, both quotes and a line break.
+/// It reaches `claude` as one argument, byte for byte, and nothing in it runs.
+const CHARTER: &str = "Charter for alpha: $(touch expanded) `touch ticked` \"quoted\" 'single'\n\
+                       forge: github\n";
+
+/// A case directory of its own; see the module documentation.
+struct Case {
+    dir: PathBuf,
+}
+
+/// A case that passed leaves nothing behind; a failed one keeps its directory to read.
+impl Drop for Case {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+}
+
+fn write(path: &Path, text: &str) {
+    fs::create_dir_all(path.parent().expect("a parent")).expect("create a case directory");
+    fs::write(path, text).expect("write a case file");
+}
+
+impl Case {
+    fn new(name: &str) -> Self {
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("spawn")
+            .join(name);
+        if dir.exists() {
+            fs::remove_dir_all(&dir).expect("clear the case's directory");
+        }
+        fs::create_dir_all(dir.join("home")).expect("create the case's home");
+        let case = Self {
+            dir: dir.canonicalize().expect("the case's directory"),
+        };
+        case.fixture();
+        case
+    }
+
+    fn home(&self) -> PathBuf {
+        self.dir.join("home")
+    }
+
+    fn root(&self) -> PathBuf {
+        self.home().join("example-org")
+    }
+
+    fn checkout(&self) -> PathBuf {
+        self.root().join("alpha")
+    }
+
+    fn records(&self) -> PathBuf {
+        self.dir.join("records")
+    }
+
+    fn charter(&self) -> PathBuf {
+        self.records().join("charters/alpha.md")
+    }
+
+    fn state(&self) -> PathBuf {
+        self.dir.join("state")
+    }
+
+    fn profile(&self) -> PathBuf {
+        self.dir.join("roles/repo-controller.md")
+    }
+
+    fn settings(&self) -> PathBuf {
+        self.dir.join("roles/controller-settings.json")
+    }
+
+    fn config(&self) -> PathBuf {
+        self.dir.join("conductor.yaml")
+    }
+
+    fn launch(&self) -> PathBuf {
+        self.dir.join("launch")
+    }
+
+    /// Writes the config file; `controller` is the controller role's entry of `roles`.
+    fn write_config(&self, controller: &str) {
+        write(
+            &self.config(),
+            &format!(
+                "version: conductor.config/1\n\
+                 instances:\n\
+                 \x20 - name: example-org\n\
+                 \x20   session_prefix: ex\n\
+                 \x20   sources: [{{github: example-org}}]\n\
+                 \x20   checkouts: {{root: {root}, trees: {trees}}}\n\
+                 \x20   records: {records}\n\
+                 \x20   state: {state}\n\
+                 \x20   roles:\n\
+                 \x20     - {{role: conductor, harness: claude, model: opus}}\n\
+                 \x20     - {controller}\n",
+                root = self.root().display(),
+                trees = self.dir.join("trees").display(),
+                records = self.records().display(),
+                state = self.state().display(),
+            ),
+        );
+    }
+
+    /// The controller role every case starts with but the one that changes it.
+    fn full_role(&self) -> String {
+        format!(
+            "{{role: controller, harness: claude, model: sonnet, profile: {}, settings: {}}}",
+            self.profile().display(),
+            self.settings().display()
+        )
+    }
+
+    /// The live sessions `claude agents --json` prints.
+    fn sessions(&self, sessions: &Value) {
+        write(&self.dir.join("agents.json"), &sessions.to_string());
+    }
+
+    /// Marks the checkout trusted in `~/.claude.json`, or not.
+    fn trust(&self, trusted: bool) {
+        let checkout = self.checkout().display().to_string();
+        write(
+            &self.home().join(".claude.json"),
+            &json!({"numStartups": 3, "projects": {checkout: {"hasTrustDialogAccepted": trusted}}})
+                .to_string(),
+        );
+    }
+
+    fn fixture(&self) {
+        write(&self.checkout().join(".git/HEAD"), "ref: refs/heads/main\n");
+        write(&self.charter(), CHARTER);
+        write(&self.profile(), "# Repository controller\n");
+        write(&self.settings(), "{}\n");
+        fs::create_dir_all(self.state()).expect("create the state directory");
+        self.write_config(&self.full_role());
+        self.trust(true);
+        // A live session of another name, and an exited one of the controller's name: neither
+        // holds the name.
+        self.sessions(&json!([
+            {"id": "s-other", "name": "ex-beta", "cwd": self.root().join("beta"), "pid": 101,
+             "status": "busy"},
+            {"id": "s-gone", "name": "ex-alpha", "cwd": self.checkout(), "status": "idle"}
+        ]));
+        let bin = self.dir.join("bin");
+        let path = bin.join("claude");
+        write(
+            &path,
+            &format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = agents ]; then cat '{agents}'; exit 0; fi\n\
+                 n=$(( $(cat '{launches}' 2>/dev/null || echo 0) + 1 ))\n\
+                 echo \"$n\" > '{launches}'\n\
+                 rm -rf '{launch}'\n\
+                 mkdir -p '{launch}'\n\
+                 i=0\n\
+                 for arg; do i=$((i + 1)); printf '%s' \"$arg\" > '{launch}'/\"$i\"; done\n\
+                 pwd -P > '{launch}/cwd'\n\
+                 if [ -e '{fail}' ]; then echo 'Workspace not trusted' >&2; exit 1; fi\n\
+                 echo '{SESSION_ID}'\n",
+                agents = self.dir.join("agents.json").display(),
+                launches = self.dir.join("launches").display(),
+                launch = self.launch().display(),
+                fail = self.dir.join("fail").display(),
+            ),
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("make it executable");
+    }
+
+    /// `conductor <args>` from the records directory, with `HOME` naming the case's home, the
+    /// case's config file, and the stand-in first on `PATH`.
+    fn run(&self, args: &[&str]) -> Output {
+        let path = format!("{}:/usr/bin:/bin", self.dir.join("bin").display());
+        common::conductor(self.home())
+            .args(args)
+            .current_dir(self.records())
+            .env("CONDUCTOR_CONFIG", self.config())
+            .env("PATH", path)
+            .stdin(Stdio::null())
+            .output()
+            .expect("conductor runs")
+    }
+
+    fn spawn(&self) -> Output {
+        self.run(&["spawn", "--repository", "alpha"])
+    }
+
+    /// How many sessions the stand-in launched.
+    fn launches(&self) -> usize {
+        fs::read_to_string(self.dir.join("launches"))
+            .map_or(0, |text| text.trim().parse().expect("a launch count"))
+    }
+
+    /// The arguments of the last launch, in order.
+    fn argv(&self) -> Vec<String> {
+        (1..)
+            .map(|at| self.launch().join(at.to_string()))
+            .take_while(|file| file.exists())
+            .map(|file| fs::read_to_string(file).expect("read an argument"))
+            .collect()
+    }
+
+    /// The physical working directory of the last launch.
+    fn cwd(&self) -> String {
+        fs::read_to_string(self.launch().join("cwd"))
+            .expect("read the launch's working directory")
+            .trim_end()
+            .to_owned()
+    }
+
+    /// The rows of `controller controllers --format json`.
+    fn controllers(&self) -> Vec<Value> {
+        let output = self.run(&["controller", "controllers", "--format", "json"]);
+        assert!(
+            output.status.success(),
+            "controllers: {}",
+            describe(&output)
+        );
+        match serde_json::from_slice(&output.stdout).expect("the view prints JSON") {
+            Value::Array(rows) => rows,
+            other => panic!("the view printed {other}, not an array"),
+        }
+    }
+
+    /// Whether the store was created at all.
+    fn recorded(&self) -> bool {
+        self.state().join("tree").exists()
+    }
+}
+
+fn describe(output: &Output) -> String {
+    format!(
+        "exit {:?}, stdout {:?}, stderr {:?}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+/// The controller start form of `.agents/conductor.md`, with the case's values.
+fn start_form(case: &Case) -> Vec<String> {
+    [
+        "--bg",
+        "-n",
+        "ex-alpha",
+        "--append-system-prompt-file",
+        &case.profile().display().to_string(),
+        "--model",
+        "sonnet",
+        "--permission-mode",
+        "bypassPermissions",
+        "--setting-sources",
+        "project,local",
+        "--settings",
+        &case.settings().display().to_string(),
+        CHARTER,
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+#[test]
+fn spawn_is_declared_a_writing_leaf_only_conductor_runs() {
+    let declared = LEAVES
+        .iter()
+        .find(|(words, _)| *words == ["spawn"])
+        .map(|(_, access)| *access);
+    assert_eq!(declared, Some(Access::Writes));
+    assert!(!Access::Writes.controller_runs());
+}
+
+#[test]
+fn spawn_starts_the_controller_start_form_in_the_checkout_and_records_it_running() {
+    let case = Case::new("starts");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("{SESSION_ID}\n"),
+        "spawn prints the session id claude --bg printed"
+    );
+    assert_eq!(case.launches(), 1, "one session is launched");
+    assert_eq!(case.argv(), start_form(&case), "the controller start form");
+    assert_eq!(
+        case.cwd(),
+        case.checkout().display().to_string(),
+        "the session starts in the checkout"
+    );
+    for word in ["expanded", "ticked"] {
+        assert!(
+            !case.checkout().join(word).exists() && !case.records().join(word).exists(),
+            "no shell expanded the charter: {word}"
+        );
+    }
+
+    let rows = case.controllers();
+    assert_eq!(rows.len(), 1, "one controller: {rows:#?}");
+    let row = &rows[0];
+    assert_eq!(row["state"], "Running", "{row}");
+    assert_eq!(row["repository"], "alpha", "{row}");
+    assert_eq!(row["harness"], "Claude", "{row}");
+    assert_eq!(row["session_name"], "ex-alpha", "{row}");
+    assert_eq!(row["charter_revision"], 1, "{row}");
+}
+
+#[test]
+fn spawn_refuses_while_a_session_of_that_name_runs_launching_and_recording_nothing() {
+    let case = Case::new("session-running");
+    case.sessions(&json!([
+        {"id": "s-live", "name": "ex-alpha", "cwd": case.checkout(), "pid": 4242,
+         "status": "idle"}
+    ]));
+    let output = case.spawn();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(
+        stderr.contains("SessionRunning") && stderr.contains("ex-alpha"),
+        "the refusal names its error and the session: {stderr}"
+    );
+    assert!(output.stdout.is_empty(), "{}", describe(&output));
+    assert_eq!(case.launches(), 0, "nothing is launched");
+    assert!(!case.recorded(), "nothing is recorded");
+}
+
+#[test]
+fn spawn_refuses_a_repository_whose_controller_is_recorded_running() {
+    let case = Case::new("already-running");
+    let first = case.spawn();
+    assert!(first.status.success(), "first spawn: {}", describe(&first));
+    let second = case.spawn();
+    let stderr = String::from_utf8_lossy(&second.stderr);
+    assert_eq!(second.status.code(), Some(1), "{}", describe(&second));
+    assert!(stderr.contains("AlreadyRunning"), "{stderr}");
+    assert_eq!(case.launches(), 1, "the second spawn launches nothing");
+    assert_eq!(case.controllers().len(), 1, "and records nothing");
+}
+
+/// Each refusal found before anything is recorded: it names its `SpawnRefusal`, launches nothing
+/// and creates no store.
+#[test]
+fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
+    type Setup = fn(&Case);
+    let cases: [(&str, &str, Setup); 9] = [
+        ("no-charter", "NoCharter", |case| {
+            fs::remove_file(case.charter()).expect("remove the charter");
+        }),
+        ("empty-charter", "NoCharter", |case| {
+            write(&case.charter(), "")
+        }),
+        ("dash-charter", "NoCharter", |case| {
+            write(&case.charter(), "--dangerously-skip-permissions\n");
+        }),
+        ("untrusted", "UntrustedCheckout", |case| case.trust(false)),
+        ("no-checkout", "NoCheckout", |case| {
+            fs::remove_dir_all(case.checkout().join(".git")).expect("remove .git");
+        }),
+        ("no-profile", "NoProfile", |case| {
+            case.write_config(&format!(
+                "{{role: controller, harness: claude, model: sonnet, settings: {}}}",
+                case.settings().display()
+            ));
+        }),
+        ("missing-profile", "NoProfile", |case| {
+            fs::remove_file(case.profile()).expect("remove the profile");
+        }),
+        ("no-settings", "NoSettings", |case| {
+            case.write_config(&format!(
+                "{{role: controller, harness: claude, model: sonnet, profile: {}}}",
+                case.profile().display()
+            ));
+        }),
+        ("codex", "NotClaude", |case| {
+            case.write_config(
+                &case
+                    .full_role()
+                    .replace("harness: claude", "harness: codex"),
+            );
+        }),
+    ];
+    let mut problems = Vec::new();
+    for (name, refusal, setup) in cases {
+        let case = Case::new(name);
+        setup(&case);
+        let output = case.spawn();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.status.code() != Some(1)
+            || !stderr.contains(&format!("refused: {refusal}:"))
+            || stderr.lines().count() != 1
+            || case.launches() != 0
+            || case.recorded()
+        {
+            problems.push(format!(
+                "{name}: expected exit 1 naming {refusal} on one line, nothing launched or \
+                 recorded; {}, {} launch(es), store created: {}",
+                describe(&output),
+                case.launches(),
+                case.recorded()
+            ));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn spawn_refuses_a_repository_that_is_no_checkout_under_the_root() {
+    let case = Case::new("outside");
+    for repository in [
+        "../alpha", "alpha/..", "-alpha", "", "a/b/c", "/alpha", "alpha/",
+    ] {
+        let output = case.run(&["spawn", &format!("--repository={repository}")]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.code() == Some(1) && stderr.contains("refused: NoCheckout:"),
+            "{repository:?}: {}",
+            describe(&output)
+        );
+    }
+    assert_eq!(case.launches(), 0, "nothing is launched");
+    assert!(!case.recorded(), "nothing is recorded");
+}
+
+#[test]
+fn a_launch_that_fails_is_refused_and_the_controller_recorded_stopped() {
+    let case = Case::new("launch-fails");
+    write(&case.dir.join("fail"), "");
+    let output = case.spawn();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(
+        stderr.contains("refused: LaunchFailed:") && stderr.contains("Workspace not trusted"),
+        "the refusal names its error and what claude said: {stderr}"
+    );
+    assert_eq!(case.launches(), 1);
+    let rows = case.controllers();
+    assert_eq!(rows.len(), 1, "{rows:#?}");
+    assert_eq!(rows[0]["state"], "Stopped", "{}", rows[0]);
+
+    // Stopped, the repository may be spawned again.
+    fs::remove_file(case.dir.join("fail")).expect("let the launch succeed");
+    let again = case.spawn();
+    assert!(again.status.success(), "{}", describe(&again));
+    assert_eq!(case.launches(), 2);
+}
