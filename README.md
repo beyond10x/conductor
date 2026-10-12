@@ -164,6 +164,8 @@ not loaded; the role's settings file carries what the session needs.
 
 Agents and people working on this repository follow [`AGENTS.md`](AGENTS.md): specification
 first, Rust with clap derive, every command in `Taskfile.yml`, and `task check` before a push.
+[Developer onboarding](https://beyond10x.github.io/conductor/docs/develop/onboarding) walks through
+the setup and a first change, from story to pull request.
 
 ## Licence
 
