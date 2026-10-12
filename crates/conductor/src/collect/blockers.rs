@@ -45,12 +45,14 @@
 //! snapshot's mark. Until 2026-10-10 such a member failed every snapshot. A checkout that is there
 //! but whose fetch fails still fails the snapshot.
 //!
-//! **A checkout with no `origin` remote is read at its `HEAD`, unfetched.** `conductor config
-//! workspace` leaves out every such checkout but one: the records directory, a member whatever its
-//! remotes, which `conductor init` makes and commits with none. With no `origin` there is nothing
-//! to fetch and no `origin/main` to read, so [`read`] exports what the collectors read of its
-//! `HEAD` instead, as committed: still never its working tree. Until 2026-10-12 such a member
-//! failed every snapshot on `git fetch --quiet origin`.
+//! **The records with no `origin` remote are read at their `HEAD`, unfetched.** The records
+//! directory is the member that is the workspace file's own directory, `root` ([`Sources::root`]),
+//! and `conductor config workspace` writes it whatever its remotes, while `conductor init` makes
+//! and commits it with none. With no `origin` there is nothing to fetch and no `origin/main` to
+//! read, so [`read`] exports what the collectors read of its `HEAD` instead, as committed: still
+//! never its working tree. Until 2026-10-12 it failed every snapshot on `git fetch --quiet origin`.
+//! Every other member is fetched whatever its remotes, and one that has no `origin` fails the
+//! snapshot as before.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -78,7 +80,7 @@ const STORE: &str = ".engineering";
 /// The commit every store and specification is read at.
 const MAIN: &str = "origin/main";
 
-/// The commit a checkout with no `origin` remote is read at, with no fetch.
+/// The commit the records are read at when they have no `origin` remote, with no fetch.
 const HEAD: &str = "HEAD";
 
 /// The status of a blocker that still blocks.
@@ -326,7 +328,10 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
             repository,
             forge: origin.as_deref().and_then(forge_name),
         });
-        checkouts.push((checkout, origin.is_some()));
+        // Only the records, the member that is `root` itself, is read without an `origin`; every
+        // other member is fetched, and fails the snapshot when it cannot be.
+        let fetched = origin.is_some() || !same_dir(&checkout, &sources.root);
+        checkouts.push((checkout, fetched));
     }
     let skipped = |absent: Vec<(String, String)>| {
         absent
@@ -349,8 +354,8 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
     if !marked || !members.iter().all(|member| member.export.is_dir()) {
         name_absent(&absent);
         remove(&mark)?;
-        for (member, (checkout, origin)) in members.iter().zip(&checkouts) {
-            twice(|| export(sources, &member.repository, checkout, *origin))
+        for (member, (checkout, fetched)) in members.iter().zip(&checkouts) {
+            twice(|| export(sources, &member.repository, checkout, *fetched))
                 .with_context(|| format!("repository {}, tried twice", member.repository))?;
         }
         fs::create_dir_all(&sources.exports)
@@ -381,6 +386,15 @@ fn origin_url(dir: &Path, bound: Duration) -> Option<String> {
     )
     .ok()?;
     Some(String::from_utf8_lossy(&url).trim().to_owned())
+}
+
+/// Whether `a` and `b` are one directory: compared as their canonical paths when both resolve,
+/// else as given.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 /// The repository an `origin` remote's `url` names: the last component of the URL without
@@ -462,9 +476,9 @@ fn field<'a>(value: &'a Value, name: &str) -> Result<&'a str> {
 
 /// Fetches `checkout`'s `origin` and exports what the collectors read of its `origin/main`
 /// ([`exported`]) into `<exports>/<repository>/`, replacing what an earlier export left there.
-/// A checkout with no `origin` (`origin` false) is not fetched, and its `HEAD` is exported.
-fn export(sources: &Sources, repository: &str, checkout: &Path, origin: bool) -> Result<PathBuf> {
-    let at = if origin {
+/// Unless `fetched`, it fetches nothing and exports `checkout`'s `HEAD`.
+fn export(sources: &Sources, repository: &str, checkout: &Path, fetched: bool) -> Result<PathBuf> {
+    let at = if fetched {
         succeed(&sources.fetch, Some(checkout), sources.bound)?;
         MAIN
     } else {
