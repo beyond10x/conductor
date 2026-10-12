@@ -12,7 +12,8 @@ In the product repository: `crates/`, `spec/`, `.engineering/`, `docs/design/`, 
 the instance's `rules.md`.
 
 Conductor owns the rest of the records: `decisions/`, `dispatches/`, `charters/`, `STATUS.md`,
-`NORTHSTAR.md` and `docs/handoff/`. Never write them. Commit only your own files, with a pathspec,
+`NORTHSTAR.md`, `docs/handoff/` and `.engineering/workspace.yaml` (written by `conductor config
+workspace`). Never write them. Commit only your own files, with a pathspec,
 through the repository's bot route.
 
 ## What you do
