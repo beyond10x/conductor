@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-12T19:44:37Z",
+  "actor": "human:timo",
+  "artifact": "story:lease-guard",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/09b: green; security review F1 fixed, F2 to story:lease-by-process",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38299247797"
+  }
+}
