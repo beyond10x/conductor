@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:agent-needs-user-setting-source
 kind: story
-status: draft
+status: implemented
 title: A role started with project and local setting sources takes its profile, never a user-level agent
 scope:
 - confidence: cited
@@ -19,7 +19,11 @@ scope:
   path: docs/config.md
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 4
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T12:33:13Z", actor: "human:timo", revision: 5}
+- {from: "proposed", to: "active", at: "2026-10-12T12:33:14Z", actor: "human:timo", revision: 6}
+- {from: "active", to: "implemented", at: "2026-10-12T12:33:19Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

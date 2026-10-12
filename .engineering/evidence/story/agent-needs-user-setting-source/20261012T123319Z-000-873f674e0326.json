@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-12T12:33:19Z",
+  "actor": "human:timo",
+  "artifact": "story:agent-needs-user-setting-source",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check on wave/05 at 5874a37: exit 0, 640 passed, 0 failed; config 45, taskfile 44 passed"
+  }
+}
