@@ -2,12 +2,16 @@
 format: aep.planning-md/3
 id: story:workspace-snapshot-end-to-end
 kind: story
-status: draft
+status: implemented
 title: A workspace conductor config workspace writes is read by both snapshot collectors in one test
 scope:
 - confidence: cited
   path: crates/conductor/tests/collect_stores.rs
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T12:33:13Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-12T12:33:13Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-12T12:33:18Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
