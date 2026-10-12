@@ -2472,7 +2472,7 @@ impl Found {
 
 /// The workspace member name of a checkout directory `name`: aep takes lower-case letters, digits
 /// and hyphens only, so it is `name` lower-cased with every other character a hyphen, and without
-/// a leading or trailing hyphen (`beyond10x.github.io` is `beyond10x-github-io`); `None` when
+/// a leading or trailing hyphen (`Example-Org.github.io` is `example-org-github-io`); `None` when
 /// nothing is left. The collectors find a member by its source, never by this name.
 #[must_use]
 pub fn workspace_member_name(name: &str) -> Option<String> {
