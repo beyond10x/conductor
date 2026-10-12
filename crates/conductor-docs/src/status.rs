@@ -20,7 +20,7 @@ pub const DATA: &str = "website/data/status.json";
 pub const PAGE: &str = "website/docs/status.md";
 
 /// The date the list below was last checked against `main`.
-const AS_OF: &str = "2026-10-12";
+const AS_OF: &str = "2026-10-08";
 
 /// One capability on the status page.
 pub struct Capability {
@@ -298,20 +298,6 @@ pub const CAPABILITIES: &[Capability] = &[
         None,
     ),
     shipped(
-        GUARD,
-        "Credential writes are the operator's",
-        "A gh secret, auth, ssh-key or gpg-key write is denied as class H, with the command to hand the operator.",
-        "crates/conductor/tests/guard_hook.rs::a_gh_credential_write_is_handed_to_the_operator_as_class_h",
-        Some("/docs/security/the-guard"),
-    ),
-    shipped(
-        CONFIG,
-        "Controllers start from their profile",
-        "A controller role that names an agent and no profile is refused, because sessions load no user-level agent.",
-        "crates/conductor/tests/config.rs::a_controller_role_with_an_agent_and_no_profile_is_refused",
-        Some("/docs/reference/config"),
-    ),
-    shipped(
         WATCH,
         "Session exits",
         "A session gone from the session list is reported, and a start is not.",
@@ -494,8 +480,8 @@ pub const CAPABILITIES: &[Capability] = &[
     ),
     planned(
         GUARD,
-        "One conductor per instance",
-        "A second conductor session, started or resumed, is refused while the first one lives.",
+        "Every tool call is guarded",
+        "Every tool call reaches the guard, and a tool it does not know is denied.",
     ),
     planned(
         GUARD,
