@@ -1,7 +1,7 @@
 # Wave 04
 
-Coordinator: conductor-dev. Approved by the operator's standing word for waves 03–11 (rules item
-31). Build slot: conductor's DEC-20261011-22 (10G hard cap, a hold under 20G free on `/`, a stop
+Coordinator: conductor-dev. Approved by the operator's standing word for waves 03–11.
+Build slot granted by conductor (10G hard cap, a hold under 20G free on `/`, a stop
 under 15G).
 
 One managed tree, `wt-8d21329a67c8`, holds every change of the round; units ran one after the
@@ -45,7 +45,7 @@ Closing gate on `wave/04` at `919c09e` (the tree `main` now carries): `task chec
 the Gates scan with the instance's policy, run separately because the session's environment did
 not name it: 556 files, exit 0.
 
-The unit commits were first made under the personal identity, against rules item 42. They were
+The unit commits were first made under a personal identity instead of the bot route. They were
 replayed through the bot route onto `wave/04-bot` with the same messages; its tree is identical to
 `wave/04` (`git diff wave/04 wave/04-bot` empty), and `wave/04-bot` is what merged.
 

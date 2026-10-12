@@ -1,7 +1,7 @@
 # Wave 05
 
-Coordinator: conductor-dev. Approved by the operator's standing word for waves 03–11 (rules item
-31). Build slot: conductor's DEC-20261012-06 (4G du limit, start at 24G free on `/`, wait before a
+Coordinator: conductor-dev. Approved by the operator's standing word for waves 03–11.
+Build slot granted by conductor (4G du limit, start at 24G free on `/`, wait before a
 step that would leave it under 21G).
 
 One managed tree, `conductor-wave-05`, holds every change of the round; units ran one after the
@@ -9,9 +9,9 @@ other in it, each by an `aep:implementor`.
 
 ## Selection
 
-From the hand-over `handoff-conductor-dev-2026-10-12b.md`, items 2 and 3, and
-`story:class-h-handover`, filed this session from conductor's transcript (the org secret refresh of
-2026-10-12, 11:41–11:44Z).
+From the previous hand-over, its items 2 and 3, and
+`story:class-h-handover`, filed from conductor's transcript (a credential change that took
+three extra operator messages).
 
 ## Units
 
