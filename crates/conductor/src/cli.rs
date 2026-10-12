@@ -34,6 +34,10 @@
 //! (`story:first-run-seed`), which read the config file themselves as `config show` does, and
 //! `doctor` (`story:install-prerequisites`), which reads none.
 //!
+//! [`LEAVES`] declares of every leaf whether it writes, and so whether a controller's session may
+//! run it ([`Access`]); the guard reads that declaration, not a list of its own
+//! (`story:guard-store-migrate`).
+//!
 //! [`Cli::run`] wires every subcommand to its handler, in the module of the story that fills it.
 //! Until that story lands, the handler answers [`NotImplemented`](crate::NotImplemented).
 
@@ -315,6 +319,131 @@ pub enum Group {
     #[command(subcommand)]
     Watch(WatchCommand),
 }
+
+/// What a leaf of the tree does with what it touches, declared per leaf in [`LEAVES`] and never
+/// read from its arguments: whether it writes, and so whether a controller's session may run it.
+/// The guard denies a controller every leaf it may not run (`guard::rules`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// Writes nothing; every session runs it.
+    Reads,
+    /// Writes nothing, but only conductor's session runs it: it is not among the reads a
+    /// controller is given (`dashboard serve`, `repository shipped`, `resource usage`).
+    ConductorReads,
+    /// Writes: the store under the state directory, conductor's records, the instance's files or
+    /// `~/.claude.json`. Only conductor's session runs it.
+    Writes,
+    /// Writes the guard's record of its own verdict: every session runs it, as the guard hook
+    /// (`guard record-guard-decision`).
+    HookWrites,
+}
+
+impl Access {
+    /// Whether the leaf writes.
+    #[must_use]
+    pub const fn writes(self) -> bool {
+        matches!(self, Self::Writes | Self::HookWrites)
+    }
+
+    /// Whether a controller's session may run the leaf.
+    #[must_use]
+    pub const fn controller_runs(self) -> bool {
+        matches!(self, Self::Reads | Self::HookWrites)
+    }
+}
+
+/// Every leaf of the tree, by the words that name it after `conductor`, with its [`Access`]: a
+/// leaf of a group is two words, a leaf with no group (`doctor`, `init`, `trust`) one.
+/// `tests/guard_rules.rs` walks the tree and fails on a leaf missing here or named here and not in
+/// the tree, so a leaf added to the tree is declared before it builds green.
+pub const LEAVES: &[(&[&str], Access)] = &[
+    (&["snapshot", "complete-snapshot"], Access::Writes),
+    (&["snapshot", "fail-snapshot"], Access::Writes),
+    (&["snapshot", "publish-board"], Access::Writes),
+    (&["snapshot", "record-blocker"], Access::Writes),
+    (&["snapshot", "record-merged-pull-request"], Access::Writes),
+    (&["snapshot", "record-pull-request"], Access::Writes),
+    (&["snapshot", "record-release"], Access::Writes),
+    (&["snapshot", "record-repository"], Access::Writes),
+    (&["snapshot", "record-session"], Access::Writes),
+    (&["snapshot", "record-specification"], Access::Writes),
+    (&["snapshot", "record-workflow-run"], Access::Writes),
+    (&["snapshot", "start-snapshot"], Access::Writes),
+    (&["snapshot", "blockers"], Access::Reads),
+    (&["snapshot", "boards"], Access::Reads),
+    (&["snapshot", "merged-pull-requests"], Access::Reads),
+    (&["snapshot", "pull-requests"], Access::Reads),
+    (&["snapshot", "releases"], Access::Reads),
+    (&["snapshot", "repositories"], Access::Reads),
+    (&["snapshot", "sessions"], Access::Reads),
+    (&["snapshot", "snapshots"], Access::Reads),
+    (&["snapshot", "specifications"], Access::Reads),
+    (&["snapshot", "workflow-runs"], Access::Reads),
+    (&["goal", "add-serving"], Access::Writes),
+    (&["goal", "confirm-goal"], Access::Writes),
+    (&["goal", "drop-goal"], Access::Writes),
+    (&["goal", "mark-goal-met"], Access::Writes),
+    (&["goal", "propose-goal"], Access::Writes),
+    (&["goal", "remove-serving"], Access::Writes),
+    (&["goal", "servings"], Access::Reads),
+    (&["goal", "goals"], Access::Reads),
+    (&["repository", "activate-repository"], Access::Writes),
+    (&["repository", "deactivate-repository"], Access::Writes),
+    (&["repository", "mark-repository"], Access::Writes),
+    (&["repository", "repository-marks"], Access::Reads),
+    (&["repository", "activity"], Access::Reads),
+    (&["repository", "shipped"], Access::ConductorReads),
+    (&["decision", "answer-escalated-request"], Access::Writes),
+    (&["decision", "answer-request"], Access::Writes),
+    (&["decision", "escalate-request"], Access::Writes),
+    (&["decision", "raise-decision-request"], Access::Writes),
+    (&["decision", "record-conductor-decision"], Access::Writes),
+    (&["decision", "record-operator-decision"], Access::Writes),
+    (&["decision", "reverse-conductor-decision"], Access::Writes),
+    (&["decision", "reverse-operator-decision"], Access::Writes),
+    (&["decision", "withdraw-request"], Access::Writes),
+    (&["decision", "decisions"], Access::Reads),
+    (&["decision", "hands-todo"], Access::Reads),
+    (&["decision", "requests"], Access::Reads),
+    (&["decision", "show"], Access::Reads),
+    (&["controller", "pause-controller"], Access::Writes),
+    (&["controller", "resume-controller"], Access::Writes),
+    (&["controller", "revise-charter"], Access::Writes),
+    (&["controller", "start-controller"], Access::Writes),
+    (&["controller", "stop-controller"], Access::Writes),
+    (&["controller", "controllers"], Access::Reads),
+    (&["dispatch", "cancel-dispatch"], Access::Writes),
+    (&["dispatch", "report-blocked"], Access::Writes),
+    (&["dispatch", "report-done"], Access::Writes),
+    (&["dispatch", "report-failed"], Access::Writes),
+    (&["dispatch", "report-started"], Access::Writes),
+    (&["dispatch", "report-unblocked"], Access::Writes),
+    (&["dispatch", "send-dispatch"], Access::Writes),
+    (&["dispatch", "dispatches"], Access::Reads),
+    (&["message", "handle-message"], Access::Writes),
+    (&["message", "receive-message"], Access::Writes),
+    (&["message", "reject-message"], Access::Writes),
+    (&["message", "route-need"], Access::Writes),
+    (&["message", "messages"], Access::Reads),
+    (&["resource", "grant-resource"], Access::Writes),
+    (&["resource", "refuse-resource"], Access::Writes),
+    (&["resource", "release-resource"], Access::Writes),
+    (&["resource", "request-resource"], Access::Writes),
+    (&["resource", "resource-requests"], Access::Reads),
+    (&["resource", "usage"], Access::ConductorReads),
+    (&["guard", "record-guard-decision"], Access::HookWrites),
+    (&["guard", "guard-decisions"], Access::Reads),
+    (&["config", "show"], Access::Reads),
+    (&["config", "validate"], Access::Reads),
+    (&["config", "workspace"], Access::Writes),
+    (&["dashboard", "serve"], Access::ConductorReads),
+    (&["doctor"], Access::Reads),
+    (&["init"], Access::Writes),
+    // Copies the store into the tree layout under the state directory.
+    (&["store", "migrate"], Access::Writes),
+    (&["trust"], Access::Writes),
+    (&["watch", "run"], Access::Writes),
+];
 
 /// `conductor snapshot`: one sense run and what it observed.
 #[derive(Debug, Subcommand)]

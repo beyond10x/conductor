@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf that is not one of [`READ_LEAVES`] ([`conductor_write`]); or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_write`]); or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -64,6 +64,7 @@ use conductor_model::dispatch::Verdict;
 use serde_json::Value;
 
 use super::shell;
+use crate::cli::{self, Access};
 use crate::collect::{self, Under};
 use crate::config::{self, Active};
 
@@ -627,66 +628,27 @@ fn config_dir_in_home() -> Option<&'static Path> {
 /// widen where it writes.
 const NOT_CONFIG: &str = "a controller does not write conductor's config";
 
-/// The groups of the `conductor` command tree (`src/cli.rs`): a `conductor` word followed by one
-/// of them is a run of the binary. `tests/guard_rules.rs` holds this list to the tree.
-/// The leaves of the `conductor` tree that stand alone, with no group, and write: only conductor
-/// runs them.
-const WRITE_SINGLE_LEAVES: [&str; 2] = ["trust", "init"];
-
-const GROUPS: [&str; 12] = [
-    "snapshot",
-    "goal",
-    "repository",
-    "decision",
-    "controller",
-    "dispatch",
-    "message",
-    "resource",
-    "guard",
-    "config",
-    "dashboard",
-    "watch",
-];
-
 /// The global options of the `conductor` command tree that take a value (`src/cli.rs`), so that
 /// the value is not read as a group or a leaf. `tests/guard_rules.rs` runs each leaf with every
 /// global option of the tree that takes one.
 const GLOBAL_VALUES: [&str; 2] = ["--state-dir", "--config"];
 
-/// The `conductor` leaves a controller's session may run, as `(group, leaf)`: every view,
-/// `decision show`, and the guard hook's own `guard record-guard-decision`. Every other leaf
-/// writes conductor's records, and only conductor runs it (wave 06 U7 brief, decision 1). The
-/// generated model does not say which leaves are views, so this is a list, and
-/// `tests/guard_rules.rs` holds it to the command tree: every view is in it, and no command but
-/// the hook's is.
-const READ_LEAVES: [(&str, &str); 26] = [
-    ("snapshot", "blockers"),
-    ("snapshot", "boards"),
-    ("snapshot", "pull-requests"),
-    ("snapshot", "repositories"),
-    ("snapshot", "sessions"),
-    ("snapshot", "snapshots"),
-    ("snapshot", "specifications"),
-    ("snapshot", "workflow-runs"),
-    ("snapshot", "releases"),
-    ("snapshot", "merged-pull-requests"),
-    ("goal", "servings"),
-    ("goal", "goals"),
-    ("repository", "repository-marks"),
-    ("repository", "activity"),
-    ("decision", "decisions"),
-    ("decision", "hands-todo"),
-    ("decision", "requests"),
-    ("decision", "show"),
-    ("controller", "controllers"),
-    ("dispatch", "dispatches"),
-    ("message", "messages"),
-    ("resource", "resource-requests"),
-    ("guard", "guard-decisions"),
-    ("guard", "record-guard-decision"),
-    ("config", "show"),
-    ("config", "validate"),
-];
+/// The [`Access`] the `conductor` command tree declares for the leaf named by `path`, the words
+/// after `conductor` ([`cli::LEAVES`]), or `None` when the tree has no such leaf.
+fn declared(path: &[&str]) -> Option<Access> {
+    cli::LEAVES
+        .iter()
+        .find(|(leaf, _)| *leaf == path)
+        .map(|&(_, access)| access)
+}
+
+/// Whether `word` is a group of the `conductor` command tree: the first of the two words of a
+/// leaf of [`cli::LEAVES`]. A `conductor` word followed by one is a run of the binary.
+fn is_group(word: &str) -> bool {
+    cli::LEAVES
+        .iter()
+        .any(|(leaf, _)| matches!(leaf, [group, _] if *group == word))
+}
 
 /// Which rule set decides a session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1403,12 +1365,13 @@ fn is_assignment(word: &str) -> bool {
     })
 }
 
-/// The `conductor` leaf a simple command runs that is not one of [`READ_LEAVES`], as
-/// `<group> <leaf>`. A run is a word naming the `conductor` program, wherever it stands (after
-/// `env`, `timeout` or a path), followed by a group of [`GROUPS`] and a leaf: the first two words
-/// after it that are not flags, each of [`GLOBAL_VALUES`] taking its value. A `conductor` word that
-/// no group and leaf follow runs none (`which conductor`, `conductor --help`, a path ending in
-/// `conductor`).
+/// The `conductor` leaf a simple command runs that a controller may not run, as `<group> <leaf>`
+/// or `<leaf>`: a leaf whose [`Access`] in [`cli::LEAVES`] does not let a controller run it, or a
+/// word under a group that names no leaf of the group. A run is a word naming the `conductor`
+/// program, wherever it stands (after `env`, `timeout` or a path), followed by a group of the tree
+/// and a leaf, or by a leaf with no group: the first two words after it that are not flags, each
+/// of [`GLOBAL_VALUES`] taking its value. A `conductor` word that no leaf follows runs none
+/// (`which conductor`, `conductor --help`, a path ending in `conductor`).
 fn conductor_write(words: &[String]) -> Option<String> {
     words
         .iter()
@@ -1428,13 +1391,16 @@ fn conductor_write(words: &[String]) -> Option<String> {
             }
             match operands[..] {
                 [group, leaf]
-                    if GROUPS.contains(&group) && !READ_LEAVES.contains(&(group, leaf)) =>
+                    if is_group(group)
+                        && !declared(&[group, leaf]).is_some_and(Access::controller_runs) =>
                 {
                     Some(format!("{group} {leaf}"))
                 }
-                // A single-word leaf that writes: `trust` (`~/.claude.json`) and `init` (a records
-                // directory). `doctor` reads.
-                [leaf, ..] if WRITE_SINGLE_LEAVES.contains(&leaf) => Some(leaf.to_owned()),
+                // A leaf with no group a controller may not run: `trust` (`~/.claude.json`) and
+                // `init` (a records directory). `doctor` reads.
+                [leaf, ..] if declared(&[leaf]).map(Access::controller_runs) == Some(false) => {
+                    Some(leaf.to_owned())
+                }
                 _ => None,
             }
         })

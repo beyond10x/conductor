@@ -20,6 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use conductor_cli::cli::{Access, LEAVES};
 use conductor_cli::config;
 use conductor_cli::guard::{self, Decision, Places, SessionList};
 use conductor_model::dispatch::Verdict;
@@ -1198,105 +1199,175 @@ fn gh_long_help_is_a_read_anywhere_and_short_help_only_without_a_group() {
 // Wave 06 U7, decision 1: a controller's session runs only conductor's read leaves.
 // -------------------------------------------------------------------------------------------------
 
-/// What a leaf of the command tree is, read from its own arguments: a command takes
-/// `--input-json`, a view takes `--format` and nothing else, and a command the binding declares
-/// over a `local` callable (`decision show`, `dashboard serve`) takes neither shape.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Leaf {
-    Command,
-    View,
-    Local,
+/// Every leaf of the `conductor` command tree, read from the tree itself (`Cli::command()`) at
+/// any depth, as the words that name it after `conductor` and the ids of its arguments: the
+/// leaves of each group, and the leaves with no group (`doctor`, `init`, `trust`).
+fn tree_leaves() -> Vec<(Vec<String>, Vec<String>)> {
+    use clap::CommandFactory as _;
+    fn walk(
+        command: &clap::Command,
+        path: &[String],
+        leaves: &mut Vec<(Vec<String>, Vec<String>)>,
+    ) {
+        for subcommand in command.get_subcommands() {
+            let mut words = path.to_vec();
+            words.push(subcommand.get_name().to_owned());
+            if subcommand.has_subcommands() {
+                walk(subcommand, &words, leaves);
+            } else {
+                let arguments = subcommand
+                    .get_arguments()
+                    .map(|argument| argument.get_id().as_str().to_owned())
+                    .collect();
+                leaves.push((words, arguments));
+            }
+        }
+    }
+    let mut leaves = Vec::new();
+    walk(&conductor_cli::cli::Cli::command(), &[], &mut leaves);
+    leaves
 }
 
-/// Every `(group, leaf, what it is)` of the `conductor` command tree, from the tree itself.
-fn leaves() -> Vec<(String, String, Leaf)> {
-    use clap::CommandFactory as _;
-    let tree = conductor_cli::cli::Cli::command();
+/// The [`Access`] `cli::LEAVES` declares for the leaf named by `path`, if it declares one.
+fn declared(path: &[String]) -> Option<Access> {
+    LEAVES
+        .iter()
+        .find(|(leaf, _)| leaf.iter().eq(path.iter()))
+        .map(|&(_, access)| access)
+}
+
+/// Every leaf of the tree with the [`Access`] it declares. A leaf it does not declare panics here,
+/// and `every_leaf_of_the_tree_declares_whether_it_writes` names each one.
+fn leaves() -> Vec<(Vec<String>, Access)> {
     let mut leaves = Vec::new();
-    for group in tree.get_subcommands() {
-        for leaf in group.get_subcommands() {
-            let arguments: Vec<&str> = leaf
-                .get_arguments()
-                .map(|argument| argument.get_id().as_str())
-                .filter(|id| !["help", "state_dir"].contains(id))
-                .collect();
-            let kind = if arguments.contains(&"input_json") {
-                Leaf::Command
-            } else if arguments == ["format"] {
-                Leaf::View
-            } else {
-                Leaf::Local
-            };
-            leaves.push((
-                group.get_name().to_owned(),
-                leaf.get_name().to_owned(),
-                kind,
-            ));
-        }
+    for (path, _) in tree_leaves() {
+        let Some(access) = declared(&path) else {
+            panic!(
+                "`conductor {}` declares no access in `cli::LEAVES`",
+                path.join(" ")
+            );
+        };
+        leaves.push((path, access));
     }
     leaves
 }
 
-/// The ways a session writes one run of `conductor <group> <leaf>` on a Bash line: the forms
-/// below, and each global option of the tree that takes a value, read from `Cli::command()`,
-/// written before the group and between the group and the leaf, so that an option added later is
-/// decided here without this list changing.
-fn runs(group: &str, leaf: &str) -> Vec<String> {
+/// `story:guard-store-migrate`: every leaf of the tree declares in `cli::LEAVES`, once, whether it
+/// writes, and the list names no leaf the tree lacks; every command of the specification, a leaf
+/// that takes `--input-json`, is declared writing; and `store migrate`, which copies the store
+/// into a new layout, is declared writing. The tree is read from `Cli::command()`, so a leaf added
+/// to it fails here until it is declared, whatever its arguments.
+#[test]
+fn every_leaf_of_the_tree_declares_whether_it_writes() {
+    let tree = tree_leaves();
+    assert!(
+        tree.iter().any(|(path, _)| path.len() == 1)
+            && tree.iter().any(|(path, _)| path.len() == 2),
+        "the walk reaches the leaves with and without a group: {tree:?}"
+    );
+    let mut problems = Vec::new();
+    for (path, arguments) in &tree {
+        let named = format!("`conductor {}`", path.join(" "));
+        let command = arguments.iter().any(|id| id == "input_json");
+        match declared(path) {
+            None => problems.push(format!("{named} is not declared in `cli::LEAVES`")),
+            Some(access) if command && !access.writes() => {
+                problems.push(format!(
+                    "{named} takes --input-json, a command, but is declared {access:?}"
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    for (path, _) in LEAVES {
+        let named = format!("`conductor {}`", path.join(" "));
+        if !tree.iter().any(|(leaf, _)| leaf.iter().eq(path.iter())) {
+            problems.push(format!("{named} is declared but is no leaf of the tree"));
+        }
+        if LEAVES.iter().filter(|(other, _)| other == path).count() > 1 {
+            problems.push(format!("{named} is declared more than once"));
+        }
+    }
+    let migrate = declared(&["store".to_owned(), "migrate".to_owned()]);
+    if migrate != Some(Access::Writes) {
+        problems.push(format!(
+            "`conductor store migrate` writes the state directory, but is declared {migrate:?}"
+        ));
+    }
+    assert!(
+        problems.is_empty(),
+        "{} problems with the declaration:\n  - {}",
+        problems.len(),
+        problems.join("\n  - ")
+    );
+}
+
+/// The ways a session writes one run of the leaf `path` on a Bash line: the forms below, and each
+/// global option of the tree that takes a value, read from `Cli::command()`, written before the
+/// leaf and, for a leaf of a group, between the group and the leaf, so that an option added later
+/// is decided here without this list changing.
+fn runs(path: &[String]) -> Vec<String> {
     use clap::CommandFactory as _;
+    let words = path.join(" ");
     let mut runs = vec![
-        format!("conductor {group} {leaf}"),
-        format!("conductor --state-dir ~/example-org/conductor/state {group} {leaf} --format json"),
-        format!("cd src && FOO=1 ~/.cargo/bin/conductor {group} --state-dir=state {leaf}"),
-        format!("bash -c 'conductor {group} {leaf} --input-json -' < input.json"),
-        format!("ls && env timeout 5 conductor {group} {leaf} | head"),
+        format!("conductor {words}"),
+        format!("conductor --state-dir ~/example-org/conductor/state {words} --format json"),
+        format!("bash -c 'conductor {words} --input-json -' < input.json"),
+        format!("ls && env timeout 5 conductor {words} | head"),
     ];
+    if let [group, leaf] = path {
+        runs.push(format!(
+            "cd src && FOO=1 ~/.cargo/bin/conductor {group} --state-dir=state {leaf}"
+        ));
+    }
     let tree = conductor_cli::cli::Cli::command();
     for argument in tree.get_arguments() {
         if let Some(flag) = argument.get_long()
             && argument.is_global_set()
             && argument.get_action().takes_values()
         {
-            runs.push(format!("conductor --{flag} some-value {group} {leaf}"));
-            runs.push(format!("conductor {group} --{flag} some-value {leaf}"));
+            runs.push(format!("conductor --{flag} some-value {words}"));
+            if let [group, leaf] = path {
+                runs.push(format!("conductor {group} --{flag} some-value {leaf}"));
+            }
         }
     }
     runs
 }
 
-/// Decision 1 of the wave 06 U7 brief: in a controller's session, and in a worker in a
-/// controller's tree, the guard allows every view of the tree, `decision show` and the hook's own
-/// `guard record-guard-decision`, and denies every other leaf, naming it. The tree is read from
-/// `Cli::command()`, so a leaf added to it is decided here without this case changing: a view the
-/// guard's list misses is denied, and a command it lists is allowed, and either fails.
+/// Decision 1 of the wave 06 U7 brief, held to the declaration (`story:guard-store-migrate`): in a
+/// controller's session, and in a worker in a controller's tree, the guard allows exactly the
+/// leaves `cli::LEAVES` declares a controller runs (`Access::controller_runs`: the leaves that
+/// write nothing but conductor's own reads, and the hook's `guard record-guard-decision`), and
+/// denies every other leaf, naming it. The tree is read from `Cli::command()`, so a leaf added to
+/// it is decided here without this case changing: a guard that allows a leaf the declaration
+/// does not, or denies one it allows, fails.
 #[test]
 fn a_controller_runs_only_conductors_read_leaves() {
     let home = home("controller-conductor-leaves");
     let leaves = leaves();
     assert!(
-        leaves.iter().any(|(_, _, kind)| *kind == Leaf::View)
-            && leaves.iter().any(|(_, _, kind)| *kind == Leaf::Command),
-        "the tree has views and commands: {leaves:?}"
+        leaves.iter().any(|(_, access)| access.controller_runs())
+            && leaves.iter().any(|(_, access)| !access.controller_runs()),
+        "the tree has leaves a controller runs and leaves it does not: {leaves:?}"
     );
     let mut problems = Vec::new();
     for cwd in [
         PROBE,
         "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
     ] {
-        for (group, leaf, kind) in &leaves {
-            let reads = *kind == Leaf::View
-                || (group.as_str(), leaf.as_str()) == ("decision", "show")
-                || (group.as_str(), leaf.as_str()) == ("guard", "record-guard-decision")
-                || (group.as_str(), leaf.as_str()) == ("config", "show")
-                || (group.as_str(), leaf.as_str()) == ("config", "validate");
-            for command in runs(group, leaf) {
+        for (path, access) in &leaves {
+            let reads = access.controller_runs();
+            let words = path.join(" ");
+            for command in runs(path) {
                 let decision = bash(&home, cwd, &command);
                 let expected = if reads { Verdict::Allow } else { Verdict::Deny };
                 let named = format!(
-                    "`conductor {group} {leaf}` writes conductor's records; only conductor runs it"
+                    "`conductor {words}` writes conductor's records; only conductor runs it"
                 );
                 if decision.verdict != expected || (!reads && decision.reason != named) {
                     problems.push(format!(
-                        "{cwd}: {command:?} ({kind:?}): expected {expected:?}, got {:?}: {}",
+                        "{cwd}: {command:?} ({access:?}): expected {expected:?}, got {:?}: {}",
                         decision.verdict, decision.reason
                     ));
                 }
@@ -1311,14 +1382,38 @@ fn a_controller_runs_only_conductors_read_leaves() {
     );
 }
 
+/// `story:guard-store-migrate`: `conductor store migrate` copies the store into a new layout, so it
+/// writes the state directory, and a controller is denied it, in its checkout and in a worker's
+/// tree, with its options or not. Conductor runs it.
+#[test]
+fn a_controller_is_denied_store_migrate() {
+    let home = home("controller-store-migrate");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for command in [
+            "conductor store migrate",
+            "conductor store migrate --format json",
+            "conductor --state-dir state store migrate",
+            "conductor store --state-dir=state migrate --format text",
+        ] {
+            let decision = bash(&home, cwd, command);
+            assert_verdict(&decision, Verdict::Deny, "`conductor store migrate`");
+        }
+    }
+    let decision = bash(&home, CONDUCTOR, "conductor store migrate");
+    assert_verdict(&decision, Verdict::Allow, "");
+}
+
 /// Conductor's own session runs every leaf of the tree, the operator's three included (decision
 /// 1: it records the operator's decisions on his word).
 #[test]
 fn conductor_runs_every_leaf() {
     let home = home("conductor-conductor-leaves");
     let mut denied = Vec::new();
-    for (group, leaf, _) in leaves() {
-        for command in runs(&group, &leaf) {
+    for (path, _) in leaves() {
+        for command in runs(&path) {
             let decision = bash(&home, CONDUCTOR, &command);
             if decision.verdict != Verdict::Allow {
                 denied.push(format!("{command:?}: {}", decision.reason));

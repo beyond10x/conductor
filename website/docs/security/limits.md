@@ -105,8 +105,6 @@ model, not code. A model can fail to follow them.
 
 ## Smaller gaps
 
-- **`conductor store migrate` is not on the guard's list of `conductor` command groups**, so a
-  controller's Bash is not denied it, although it writes the store.
 - **A sub-agent is recognised by the shape of its id** in a controller's SendMessage, not by who
   started it.
 - **Recording a denial can fail** (no state directory named, or the store's lock held for more
