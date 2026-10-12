@@ -57,7 +57,9 @@
 //!   keep the last run as it was. `ci.state` keeps the conclusion as GitHub printed it. While
 //!   the store under the state directory holds no complete snapshot, no run list is read.
 //! - **disk** under the instance's `disk_low` GiB, once per fall: the next report waits until
-//!   free disk was back at its `disk_clear` GiB.
+//!   free disk was back at its `disk_clear` GiB. A reading more than [`DISK_JUMP`] from the
+//!   last pass's is read again before it is compared, and the second reading stands
+//!   (`story:watch-disk-reading`): one odd reading is not reported.
 //!
 //! An empty or unreadable session list skips the four session probes for that pass. A source
 //! that does not answer is named once on standard error, `conductor watch: <error>`, until it
@@ -69,7 +71,8 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `limit.reported`
-//! (`<instant> <text>`, the last report of each limit text), `disk-low`, and, in the formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen`
+//! (`<instant> <text>`, the last report of each limit text), `disk-low`, `disk.free` (the bytes
+//! free the last pass read), and, in the formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen`
 //! (`YYYY-MM-DD <text>`), `context-reported` (a `sessionId` per line) and `ci.state`
 //! (`repo|workflow|run|conclusion|createdAt`). The dashboard reads the last four from
 //! `<conductor repository>/state/watch/` once that holds `ci.state`, which a watch run in the
@@ -120,6 +123,10 @@ const NOTIFY_BOUND: Duration = Duration::from_secs(10);
 /// The bytes a transcript is read by, from its end.
 const CHUNK: u64 = 64 * 1024;
 
+/// How far, in bytes, a free-disk reading may lie from the previous pass's before it is read
+/// again (`story:watch-disk-reading`): 20 GiB.
+pub const DISK_JUMP: u64 = 20 << 30;
+
 /// The characters of a run list's standard error a note carries.
 const EXCERPT: usize = 300;
 
@@ -149,6 +156,7 @@ const LIMIT_REPORTED: &str = "limit.reported";
 const CONTEXT_REPORTED: &str = "context-reported";
 const CI_STATE: &str = "ci.state";
 const DISK_LOW: &str = "disk-low";
+const DISK_FREE: &str = "disk.free";
 const CONDUCTORS_REPORTED: &str = "conductors.reported";
 
 /// The role of conductor's own session, whose session name two live sessions must not carry.
@@ -1067,18 +1075,35 @@ impl Watch {
     // -----------------------------------------------------------------------------------------
 
     /// Free disk under the instance's `disk_low`, once per fall: the next report waits until
-    /// free disk was back at its `disk_clear`.
+    /// free disk was back at its `disk_clear`. A reading more than [`DISK_JUMP`] from the one
+    /// kept in `disk.free` is read again, and the second reading stands and is kept.
     fn disk(&mut self, lines: &mut Vec<String>, notes: &mut dyn Write) -> Result<()> {
-        let free = match self.free_bytes() {
-            Ok(free) => {
+        let kept = self.state(DISK_FREE);
+        let previous = fs::read_to_string(&kept)
+            .ok()
+            .and_then(|text| text.trim().parse::<u64>().ok());
+        let reading = self.free_bytes().and_then(|first| {
+            if previous.is_some_and(|previous| first.abs_diff(previous) > DISK_JUMP) {
+                self.free_bytes()
+            } else {
+                Ok(first)
+            }
+        });
+        let bytes = match reading {
+            Ok(bytes) => {
                 self.answered("disk");
-                free.div_ceil(1 << 30)
+                bytes
             }
             Err(error) => {
                 self.failed("disk", &error, notes);
                 return Ok(());
             }
         };
+        if previous != Some(bytes) {
+            fs::write(&kept, format!("{bytes}\n"))
+                .with_context(|| format!("write {}", kept.display()))?;
+        }
+        let free = bytes.div_ceil(1 << 30);
         let marker = self.state(DISK_LOW);
         if free < self.settings.disk_low && !marker.exists() {
             lines.push(format!("disk low: {free}G free on /"));

@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:watch-disk-reading
 kind: story
-status: draft
-title: The watch's free-disk reading matches df
+status: active
+title: The watch reads free disk again after a jump of more than 20G
 scope:
 - confidence: cited
   path: crates/conductor/src/watch.rs
 - confidence: cited
   path: crates/conductor/tests/watch.rs
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-12T20:25:58Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-12T20:25:58Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 

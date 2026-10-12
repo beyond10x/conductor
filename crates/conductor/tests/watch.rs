@@ -192,7 +192,19 @@ impl Case {
 
     /// The free disk read as `bytes`.
     fn disk(&self, bytes: u64) {
-        replace(&self.dir.join("free.txt"), &format!("{bytes}\n"));
+        self.readings(&[bytes]);
+    }
+
+    /// The free disk read as each of `bytes` in turn, the last one from then on.
+    fn readings(&self, bytes: &[u64]) {
+        let text: String = bytes.iter().map(|bytes| format!("{bytes}\n")).collect();
+        replace(&self.dir.join("free.txt"), &text);
+    }
+
+    /// The readings [`Case::readings`] wrote that the watch has not taken yet, the last one
+    /// always among them.
+    fn unread(&self) -> String {
+        fs::read_to_string(self.dir.join("free.txt")).expect("read the readings")
     }
 
     fn state(&self) -> PathBuf {
@@ -246,9 +258,17 @@ impl Case {
     }
 }
 
-/// The free disk of a case: the number of bytes `file` holds, which [`Case::disk`] writes.
+/// The free disk of a case: the number of bytes on the first line of `file`, which
+/// [`Case::readings`] writes. A line after it is the next reading, so the first is taken off.
 fn written_bytes(file: &Path) -> anyhow::Result<u64> {
-    Ok(fs::read_to_string(file)?.trim().parse()?)
+    let text = fs::read_to_string(file)?;
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or_default();
+    let rest: String = lines.map(|line| format!("{line}\n")).collect();
+    if !rest.is_empty() {
+        replace(file, &rest);
+    }
+    Ok(first.trim().parse()?)
 }
 
 /// Writes `text` to `file` through a sibling file and a rename.
@@ -1410,6 +1430,50 @@ fn free_disk_is_reported_under_the_instances_disk_low_and_rearmed_at_its_disk_cl
     assert_eq!(at(39), NOTHING);
     assert_eq!(at(45), NOTHING);
     assert_eq!(at(39), ["disk low: 39G free on /"], "rearmed at 45G");
+}
+
+/// `story:watch-disk-reading`: a reading more than 20G from the watch's previous one is read
+/// again before it is reported, and the second reading stands.
+#[test]
+fn a_reading_more_than_20g_from_the_previous_one_is_read_again_before_it_is_reported() {
+    let case = Case::new("disk-jump");
+    let mut watch = case.watch(None);
+    assert_eq!(pass(&mut watch), NOTHING, "100G free is not under 100G");
+
+    case.readings(&[2 * GIB, 100 * GIB]);
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "the second reading, 100G, stands"
+    );
+    assert_eq!(case.unread(), format!("{}\n", 100 * GIB), "read twice");
+
+    case.readings(&[2 * GIB, 2 * GIB]);
+    assert_eq!(pass(&mut watch), ["disk low: 2G free on /"]);
+}
+
+/// A reading within 20G of the previous one, here exactly 20G under it, is read once and
+/// reported as it stands.
+#[test]
+fn a_reading_within_20g_of_the_previous_one_is_read_once() {
+    let case = Case::new("disk-step");
+    let mut watch = case.watch(None);
+    assert_eq!(pass(&mut watch), NOTHING);
+
+    case.readings(&[80 * GIB, 100 * GIB]);
+    assert_eq!(pass(&mut watch), ["disk low: 80G free on /"]);
+    assert_eq!(case.unread(), format!("{}\n", 100 * GIB), "read once");
+}
+
+/// The previous reading is the last pass's, kept under the state directory, so a watch started
+/// again after it ended on a change compares with it too.
+#[test]
+fn a_new_watch_compares_with_the_reading_the_last_one_kept() {
+    let case = Case::new("disk-kept");
+    assert_eq!(pass(&mut case.watch(None)), NOTHING);
+
+    case.readings(&[2 * GIB, 100 * GIB]);
+    assert_eq!(pass(&mut case.watch(None)), NOTHING);
 }
 
 // ---------------------------------------------------------------------------------------------
