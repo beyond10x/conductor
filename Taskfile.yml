@@ -258,7 +258,7 @@ tasks:
         pid=$(CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}} sh -c 'nohup "$0" dashboard serve --port "$2" </dev/null >>"$1" 2>&1 & echo $!' "$(command -v conductor)" "$state/dashboard.log" {{shellQuote .PORT}})
         echo "$pid" > "$pidfile"
         echo "the dashboard runs as pid $pid; its output is in $state/dashboard.log"
-      - echo "Open http://127.0.0.1:{{.PORT}}/"
+      - echo Open http://127.0.0.1:{{shellQuote .PORT}}/
 
   dashboard:stop:
     desc: Stop the active instance's dashboard; where systemctl is on PATH its user service, <session_prefix>-conductor-dashboard or conductor-dashboard without a prefix, elsewhere the pid in dashboard.pid of the instance's state directory (conductor config show), whose file it removes

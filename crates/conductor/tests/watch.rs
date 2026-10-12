@@ -1991,9 +1991,9 @@ fn the_session_tasks_start_their_role_on_the_harness_and_model_config_show_names
     }
 }
 
-/// The templates of `Taskfile.yml` that are command text, not values: `SESSION_ID` is a command
-/// line the tasks run inside `$(…)`.
-const TEMPLATED_COMMANDS: [&str; 1] = ["{{.SESSION_ID}}"];
+/// The templates of `Taskfile.yml` that are command text, not values: `SESSION_ID` and
+/// `SESSION_COUNT` are command lines the tasks run inside `$(…)`.
+const TEMPLATED_COMMANDS: [&str; 2] = ["{{.SESSION_ID}}", "{{.SESSION_COUNT}}"];
 
 /// Every value `Taskfile.yml` writes into a shell command (a `cmds:` line or a precondition's
 /// `sh:`) is written `{{shellQuote .X}}`, so a value read from the config, from a session list or
