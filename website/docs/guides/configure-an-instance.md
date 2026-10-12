@@ -30,6 +30,7 @@ instances:
         model: opus
         agent: repo-controller
         settings: ~/example-org/conductor/.claude/controller-settings.json
+        profile: ~/example-org/conductor/.agents/repo-controller.md
 ```
 
 | key | why |
@@ -37,7 +38,7 @@ instances:
 | `sources` | where the repositories come from: `github: <owner>`, `local: <path>` or `gitlab: <group>` |
 | `checkouts.root`, `checkouts.trees` | where their checkouts and managed worktrees are; the guard and the collectors read them |
 | `records` | the directory conductor runs in and keeps its records in; the guard gives conductor its rules only there. Default `~/.b10x/conductor/<name>/records` |
-| `roles` | the harness and model of each session; the controller role's `agent` and `settings` are the adapter and the settings file each controller starts with. A list given replaces the whole default |
+| `roles` | the harness and model of each session; the controller role's `profile` and `settings` are the profile file and the settings file each controller starts with; `conductor config validate` refuses a controller role that names an `agent` and no `profile`. A list given replaces the whole default |
 
 The repository's `conductor.example.yaml` has two complete instances, one with a catalog and one
 with a `local` source. Every key is in the [config reference](/docs/reference/config).

@@ -19,7 +19,7 @@ scope:
   path: docs/config.md
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 2
+revision: 4
 ---
 ## Why
 

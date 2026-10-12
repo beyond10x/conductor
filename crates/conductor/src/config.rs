@@ -1703,6 +1703,20 @@ impl Reader<'_> {
             }
             None => Some(None),
         };
+        // A controller starts with `--setting-sources project,local`, which loads no user-level
+        // agent, so a controller role that names an agent names its profile as well
+        // (`story:agent-needs-user-setting-source`).
+        if role.as_deref() == Some(CONTROLLER)
+            && Self::get(map, "agent").is_some()
+            && Self::get(map, "profile").is_none()
+        {
+            self.problem(
+                &join(path, "profile"),
+                "is absent beside an agent: a controller starts from its profile, the file its \
+                 session starts with through --append-system-prompt-file, never from an agent, \
+                 because --setting-sources project,local loads no user-level agent",
+            );
+        }
         // As the file writes it; the instance holds it to the derived name
         // (`Reader::session_names`).
         let session_name = match Self::get(map, "session_name") {

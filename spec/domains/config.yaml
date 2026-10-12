@@ -141,6 +141,11 @@ types:
   # own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied.
   # A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is
   # decided by that rule whatever this list says. Absent, it is empty.
+  # A `controller` role the file writes that names an `agent` names a `profile` as well
+  # (story:agent-needs-user-setting-source): every session of the instance starts with
+  # `--setting-sources project,local`, which loads no user-level agent, so a controller starts
+  # only from its profile, never from its agent; a controller role with an agent and no profile
+  # is refused by its `profile` path. One with neither is valid, as the built-in role is.
   - name: conductor.config.Role
     kind: struct
     fields:

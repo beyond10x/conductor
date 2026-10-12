@@ -382,11 +382,12 @@ impl Case {
             .collect()
     }
 
-    /// Puts the agent `name` where claude finds it from any directory, as `task agents:link`
-    /// does: `~/.claude/agents/<name>.md` of the case's home.
+    /// Puts the agent `name` where claude finds it when conductor starts in the records
+    /// directory with `--setting-sources project,local`, which loads no user-level agent: the
+    /// records' own `.claude/agents/<name>.md` (story:agent-needs-user-setting-source).
     fn link_agent(&self, name: &str) {
-        let agents = self.dir.join("home/.claude/agents");
-        fs::create_dir_all(&agents).expect("create ~/.claude/agents");
+        let agents = self.records().join(".claude/agents");
+        fs::create_dir_all(&agents).expect("create the records' .claude/agents");
         fs::write(agents.join(format!("{name}.md")), "an agent\n").expect("write the agent");
     }
 }
@@ -610,8 +611,8 @@ fn adv_config(case: &Case, records: &str, role_extra: &str) -> PathBuf {
     file
 }
 
-/// The agent is found in the records directory's own `.claude/agents/` as well as in
-/// `~/.claude/agents/` (coordinator decision 3, pass 1).
+/// The agent is found in the records directory's own `.claude/agents/`, the one place
+/// `--setting-sources project,local` reads it from there (story:agent-needs-user-setting-source).
 #[test]
 fn conductor_start_finds_the_agent_in_the_records_directory() {
     let Some(case) = Case::new("start-agent-in-records") else {
@@ -626,9 +627,9 @@ fn conductor_start_finds_the_agent_in_the_records_directory() {
     assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
 }
 
-/// The refusal names the task that puts the agent in place.
+/// The refusal says why the agent is not found and names the profile as the way to start.
 #[test]
-fn conductor_start_without_the_agent_names_agents_link() {
+fn conductor_start_without_the_agent_names_the_profile() {
     let Some(case) = Case::new("start-no-agent-message") else {
         return;
     };
@@ -636,7 +637,7 @@ fn conductor_start_without_the_agent_names_agents_link() {
     let output = case.task("conductor:start", Some(&config));
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("task agents:link"),
+        String::from_utf8_lossy(&output.stderr).contains("name a profile for the role conductor"),
         "{}",
         shown(&output)
     );
@@ -654,7 +655,7 @@ fn conductor_restart_stops_nothing_when_the_agent_is_not_found() {
     let output = case.task("conductor:restart", Some(&config));
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("task agents:link"),
+        String::from_utf8_lossy(&output.stderr).contains("name a profile for the role conductor"),
         "{}",
         shown(&output)
     );
@@ -958,15 +959,18 @@ fn the_conductor_profile_starts_and_resumes_controllers_without_user_settings() 
         }
         assert!(!command.contains("--agent"), "the profile form: {command}");
     }
+    // `story:agent-needs-user-setting-source`: `--setting-sources project,local` loads no
+    // user-level agent, so the profile form is a controller's only start form.
     assert!(
-        flat.contains("--agent <controller agent>"),
-        "the agent form, when the controller role names no profile: {flat}"
+        !flat.contains("<controller agent>"),
+        "no agent form for a controller: {flat}"
     );
 }
 
 /// `conductor:start` now runs claude outside this checkout, where the project-level
-/// `.claude/agents/conductor.md` is not found; `--agent conductor` resolves only when `task
-/// agents:link` has run (or the records carry their own adapter). With neither, start must
+/// `.claude/agents/conductor.md` is not found; `--agent conductor` resolves only when the
+/// records carry their own adapter (`--setting-sources project,local` loads no user-level
+/// agent, story:agent-needs-user-setting-source). Without it, start must
 /// refuse rather than start a bypass-permissions session without conductor's agent; this is the
 /// first `conductor:restart` after the merge, which conductor-dev runs on its own.
 #[test]
@@ -1042,9 +1046,9 @@ fn adv_conductor_start_quotes_a_records_path_with_shell_metacharacters() {
     let Some(case) = Case::new("adv-start-metachar") else {
         return;
     };
-    case.link_agent("conductor");
     let records = case.dir.join("rec ords 'q' $(touch pwned) `touch pwned2`");
-    fs::create_dir_all(&records).expect("create the records directory");
+    fs::create_dir_all(records.join(".claude/agents")).expect("create the records directory");
+    fs::write(records.join(".claude/agents/conductor.md"), "an agent\n").expect("the agent");
     let config = adv_config(&case, &records.display().to_string(), "");
 
     let output = case.task("conductor:start", Some(&config));
@@ -1738,6 +1742,64 @@ fn conductor_restart_with_a_prefix_stops_only_its_own_conductor() {
     assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
     assert_eq!(calls[0].1, "stop s-0001");
     assert!(calls[2].1.starts_with("--bg -n a-conductor "), "{calls:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The start form of each role under `--setting-sources project,local`
+// (story:agent-needs-user-setting-source)
+// ---------------------------------------------------------------------------------------------
+
+/// `--setting-sources project,local` loads no user-level agent, so `--agent <name>` resolves only
+/// from the start directory's own `.claude/agents/`. The choice the tasks hold: a role that names
+/// a `profile` starts with `--append-system-prompt-file` and no `--agent`
+/// (`conductor_start_with_a_role_profile_appends_it_and_passes_no_agent`,
+/// `dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev`); without one,
+/// `conductor:start` and `conductor:restart` start `--agent <agent>` only when the records
+/// directory, where they start, holds `.claude/agents/<agent>.md`, and refuse an agent found only
+/// in `~/.claude/agents/`; `dev:start` starts `--agent conductor-dev` in this checkout, which
+/// holds `.claude/agents/conductor-dev.md`.
+#[test]
+fn an_agent_start_needs_the_adapter_in_the_start_directory() {
+    let dev = &taskfile()["tasks"]["dev:start"];
+    assert!(dev["dir"].is_null(), "dev:start starts in this checkout");
+    for command in shell_commands(dev) {
+        assert!(
+            !command.contains("cd "),
+            "dev:start starts in this checkout: {command}"
+        );
+        assert!(command.contains("who=conductor-dev"), "{command}");
+    }
+    assert!(
+        root().join(".claude/agents/conductor-dev.md").is_file(),
+        "this checkout holds the conductor-dev adapter"
+    );
+
+    for task in ["conductor:start", "conductor:restart"] {
+        let Some(case) = Case::new(&format!("user-agent-only-{}", task.replace(':', "-"))) else {
+            return;
+        };
+        let agents = case.dir.join("home/.claude/agents");
+        fs::create_dir_all(&agents).expect("create ~/.claude/agents");
+        fs::write(agents.join("conductor.md"), "an agent\n").expect("write the agent");
+        let config = case.config("opus", None);
+        if task == "conductor:restart" {
+            fs::write(case.dir.join("claude/live"), "").expect("a live session");
+        }
+        let output = case.task(task, Some(&config));
+        assert_ne!(
+            output.status.code(),
+            Some(0),
+            "{task} started --agent conductor found only in ~/.claude/agents/: {}",
+            shown(&output)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("--setting-sources project,local"),
+            "{task}: the refusal says why: {}",
+            shown(&output)
+        );
+        assert!(case.calls().is_empty(), "{task}: {:?}", case.calls());
+    }
 }
 
 /// Every text scalar of `value`, depth first, as written.

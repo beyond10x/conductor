@@ -74,9 +74,9 @@ accepted, defaulted and shown by `config show`.
 | `roles[].role` | string | required | | the role name; the tasks, the watch and the profiles know `conductor`, `conductor-dev` and `controller` |
 | `roles[].harness` | `claude` \| `codex` | required | | the harness the role runs on; the start tasks start `claude` only |
 | `roles[].model` | string | required | | the model name passed to the harness |
-| `roles[].agent` | string | none | conductor profile, `task conductor:start` | the harness agent the role starts with, such as `repo-controller`, when it names no `profile`; for the `conductor` role the start tasks default to `conductor`, for `conductor-dev` to `conductor-dev` |
+| `roles[].agent` | string | none | `task conductor:start` | the harness agent the role starts with when it names no `profile`, found only in the start directory's `.claude/agents/` (`--setting-sources project,local` loads no user-level agent); for the `conductor` role the start task defaults to `conductor`, for `conductor-dev` to `conductor-dev`. The `controller` role starts from its `profile`, never with `--agent`: `conductor config validate` refuses a controller role that names an `agent` and no `profile` |
 | `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below) |
-| `roles[].profile` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter needs linking |
+| `roles[].profile` | path | none; required for a `controller` role that names an `agent` | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter is needed. A `controller` role the file writes with an `agent` and without a profile is refused by this path |
 | `roles[].session_name` | string | derived | `task conductor:start`, `task conductor:restart`, `task dev:start` | the name the role's session starts under: `<session_prefix>-<role>`, or `<role>` without a prefix; none for `controller`, whose sessions are named per repository. Derived, never chosen: a file may write only that value |
 | `roles[].read_only_tools` | list of tool names | empty | guard | the tools, beyond the guard's built-in read-only allowlist (`Read`, `Glob`, `Grep`, `WebFetch`, the session's own task and schedule tools and the like; `READ_ONLY` in `crates/conductor/src/guard.rs`), that the guard allows this role's sessions, such as a read-only MCP tool `mcp__<server>__<tool>`. Read for the `conductor` and `controller` roles. Every other tool without a rule of its own is denied; `Edit`, `Write`, `NotebookEdit`, `SendMessage`, `Bash` and `Monitor` keep their rules whatever the list says |
 | `conductor.served_by` | instance name | derived | conductor profile, controller profile | the `default` instance whose conductor serves this one, when this one names no `conductor` role; otherwise none. Derived, never chosen: a file may write only that value |
@@ -150,24 +150,26 @@ when none does. When the instance names no catalog, or the catalog repository ha
 Every session start passes `--setting-sources project,local`, so the user's own settings
 (`~/.claude/settings.json`) are not loaded, and the role's `settings` file with `--settings`.
 When a role names a `profile`, its session starts with `--append-system-prompt-file <profile>` and
-no `--agent`; otherwise with `--agent <agent>`.
+no `--agent`. With these setting sources Claude Code loads no user-level agent, so `--agent
+<agent>` finds an agent only in the start directory's `.claude/agents/`, never in
+`~/.claude/agents/`; a controller, which starts in another repository's checkout, therefore always
+starts from its `profile`.
 
 The start tasks read the `conductor` and `conductor-dev` roles' `harness`, `model`, `settings`
 and `profile`. `task conductor:start` starts conductor in the instance's `records` directory with
 the `conductor` role's `settings` (default this checkout's `.claude/conductor-settings.json`) and
 its `profile`, or without one its `agent` (default `conductor`). It refuses a `profile` that is
-not a file and, without a profile, an agent that is not a file in `~/.claude/agents/` or
-`<records>/.claude/agents/` (`task agents:link` links the shipped adapters there).
+not a file and, without a profile, an agent that is not a file in `<records>/.claude/agents/`.
 `task dev:start` starts conductor-dev in this checkout with the `conductor-dev` role's `settings`
-(default none) and its `profile`, or without one `--agent conductor-dev`; it refuses a `profile`
-that is not a file.
+(default none) and its `profile`, or without one `--agent conductor-dev`, which this checkout's
+`.claude/agents/conductor-dev.md` holds; it refuses a `profile` that is not a file.
 
 Conductor starts each controller with the `controller` role's `model`, `settings` and `profile`,
-or without a profile its `agent`. The repository ships the profile `.agents/repo-controller.md`,
-its adapter `.claude/agents/repo-controller.md` and the settings file
-`.claude/controller-settings.json`, which wires the guard. A controller starts in another
-repository's checkout: a `profile` is read from its path, while an adapter must be reachable from
-there, for example linked into `~/.claude/agents/`. `settings` and `profile` must be absolute or
+never with `--agent`: `conductor config validate` refuses a `controller` role that names an
+`agent` and no `profile`. The repository ships the profile `.agents/repo-controller.md`, its adapter
+`.claude/agents/repo-controller.md` and the settings file `.claude/controller-settings.json`,
+which wires the guard. A controller starts in another repository's checkout, where its `profile`
+is read from its path. `settings` and `profile` must be absolute or
 `~/` paths. A start command passes `model`, `agent`, `settings` and `profile` to the harness as
 single shell words, so each holds only letters, digits and `.`, `_`, `:`, `/`, `-`
 (`conductor.config.CommandWord`). The guard denies every session a file-tool write to any role's

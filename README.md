@@ -115,6 +115,7 @@ instances:
         model: opus
         agent: repo-controller
         settings: ~/example-org/conductor/.claude/controller-settings.json
+        profile: ~/example-org/conductor/.agents/repo-controller.md
 ```
 
 `records` is the directory the conductor session runs in, and the guard gives conductor its rules

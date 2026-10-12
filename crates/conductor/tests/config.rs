@@ -580,7 +580,8 @@ fn the_session_profile_keys_validate_and_show_as_written() {
         &one_instance(
             "\x20   roles:\n\
              \x20     - {role: controller, harness: claude, model: opus, agent: repo-controller, \
-             settings: ~/profiles/controller.json, read_only_tools: [mcp__example__read]}\n\
+             settings: ~/profiles/controller.json, profile: ~/profiles/repo-controller.md, \
+             read_only_tools: [mcp__example__read]}\n\
              \x20     - {role: conductor, harness: codex, model: gpt-fixture, settings: \
              /srv/conductor.json}\n\
              \x20   controllers: {max_working: 3, max_subagents: 2}\n\
@@ -603,7 +604,8 @@ fn the_session_profile_keys_validate_and_show_as_written() {
                 "role": "controller", "harness": "claude", "model": "opus",
                 "agent": "repo-controller",
                 "settings": path_text(&home.join("profiles/controller.json")),
-                "profile": null, "session_name": null,
+                "profile": path_text(&home.join("profiles/repo-controller.md")),
+                "session_name": null,
                 "read_only_tools": ["mcp__example__read"],
             },
             {
@@ -840,7 +842,8 @@ fn a_role_s_command_words_hold_only_shell_safe_characters() {
         "allowed.yaml",
         &one_instance(
             "\x20   roles: [{role: controller, harness: claude, model: claude-opus-4.1:beta/x_y, \
-             agent: plugin:repo-controller, settings: ~/p/controller-settings.json}]\n",
+             agent: plugin:repo-controller, settings: ~/p/controller-settings.json, \
+             profile: ~/p/repo-controller.md}]\n",
         ),
     );
     let validated = case.with_file(&file, &["config", "validate"]);
@@ -941,6 +944,66 @@ fn a_role_s_profile_is_a_path_shown_absolute_and_refused_when_relative() {
         }),
         "Role.profile is an optional CommandWord: {field:#}"
     );
+}
+
+/// `story:agent-needs-user-setting-source`: a controller starts with `--setting-sources
+/// project,local`, which loads no user-level agent, so it starts only from its profile. A
+/// `controller` role the file writes with an `agent` and no `profile` is refused by the
+/// profile's YAML path, and the refusal says why; one with a profile validates, with or without
+/// an agent, and so does one with neither, as the built-in roles are.
+#[test]
+fn a_controller_role_with_an_agent_and_no_profile_is_refused() {
+    let case = Case::new("controller-agent-without-profile");
+    let file = case.write(
+        "agent-only.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: conductor, harness: claude, model: opus, agent: conductor}\n\
+             \x20     - {role: conductor-dev, harness: claude, model: opus}\n\
+             \x20     - {role: controller, harness: claude, model: opus, agent: repo-controller}\n",
+        ),
+    );
+    let problems = refused(&case, &file);
+    let line = problems
+        .lines()
+        .find(|line| line.contains("instances[0].roles[2].profile: "))
+        .unwrap_or_else(|| panic!("no problem names the profile: {problems}"));
+    assert!(
+        line.contains("--setting-sources project,local") && line.contains("user-level agent"),
+        "the refusal says why: {line}"
+    );
+    assert_eq!(
+        problems.lines().count(),
+        1,
+        "only the controller role is refused: {problems}"
+    );
+    for (name, controller) in [
+        (
+            "neither",
+            "{role: controller, harness: claude, model: opus}",
+        ),
+        (
+            "profile-only",
+            "{role: controller, harness: claude, model: opus, profile: ~/repo-controller.md}",
+        ),
+        (
+            "agent-and-profile",
+            "{role: controller, harness: claude, model: opus, agent: repo-controller, \
+             profile: ~/repo-controller.md}",
+        ),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &one_instance(&format!("\x20   roles: [{controller}]\n")),
+        );
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&validated)
+        );
+    }
 }
 
 #[test]
