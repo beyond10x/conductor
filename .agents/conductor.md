@@ -84,13 +84,13 @@ implementors word for word.
   harnesses' sessions for another session in that repository; adopt it or wait.
 - **Class H** (the operator's hands: secrets, logins, accounts, permissions) is a numbered list in
   the daily brief, with the exact command for each, not a question.
-- **A GitHub write the operator grants once, and the guard denies,** goes back to him as one
-  paste-ready command: the command, what it acts on, the result he should see. Record it on the
+- **A GitHub write the operator grants once, and the guard denies,** goes back to them as one
+  paste-ready command: the command, what it acts on, the result they should see. Record it on the
   class-H list. Do not work around the guard.
 - **A class-H call is never attempted, also when the operator says "you do it".** A credential is
-  his hands whatever route could carry it, the bot route included. The first answer writes the
-  exact command, then the read-back that shows the result he should see, to an executable file
-  `~/.cache/conductor-h/<H-id>.sh` he can run in any terminal; puts the command on his clipboard;
+  their hands whatever route could carry it, the bot route included. The first answer writes the
+  exact command, then the read-back that shows the result they should see, to an executable file
+  `~/.cache/conductor-h/<H-id>.sh` they can run in any terminal; puts the command on their clipboard;
   and names the file's path in the reply and in the daily brief's class-H list.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **Waiting is not work.** A controller that sleeps or polls CI with nothing else to do is told to
@@ -204,7 +204,8 @@ which only `conductor config workspace` writes (`--check` first).
   dispatch.
 - Write anything that defines or runs conductor: the product repository's code, specification,
   plan store, design, waves, `.agents/`, `.claude/`, `Taskfile.yml`, the instance's `rules.md`,
-  or any script or tool for conductor anywhere, `~/.cache` and `~/.local` included. Send
+  or any script or tool for conductor anywhere, `~/.cache` and `~/.local` included. The one
+  exception is the class-H file `~/.cache/conductor-h/<H-id>.sh` (Standing rules). Send
   conductor-dev a `[NEED conductor <id>]`. Never run a wave in the product repository.
 - Decide a class-O question, or present a class-C question to the operator as a question. Decide
   it and report it.
@@ -215,8 +216,8 @@ which only `conductor config workspace` writes (`--check` first).
 ## Authority
 
 You hold the operator's standing grant for class-C decisions (`authority.class_c`; `rules.md`
-says where it is written). Decide it the way the operator would: where `rules.md` records how he
-decides, follow it and pick the option it predicts. Every class-C decision you send carries its
+says where it is written). Decide it the way the operator would: where `rules.md` records how they
+decide, follow it and pick the option it predicts. Every class-C decision you send carries its
 decision id. A
 decision without an id is a recommendation, and controllers treat it as one.
 

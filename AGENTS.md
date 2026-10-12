@@ -4,15 +4,12 @@ Operating guide for agents in this repository. Humans start at [`README.md`](REA
 design is [`docs/design/conductor.md`](docs/design/conductor.md); the config fields are
 [`docs/config.md`](docs/config.md).
 
-## Serves
+## Purpose
 
-The organization-wide objectives this repository serves, by the id the organization's catalog gives them:
-
-- **O2 — decisions as data, with evidence.** Every decision conductor takes or relays is a record
-  with an id, a class, a reason and the evidence it rests on, in the instance's decision log and
-  store.
-- **O6 — self-improvement, built into all of it.** conductor-dev reads conductor's records and
-  transcripts, files what went wrong as stories, and delivers the fixes in waves.
+Conductor makes the coordination of coding-agent sessions across one organization's repositories
+a recorded, checkable process: every decision conductor takes or relays is a record with a class,
+a reason and its evidence, and conductor-dev turns what went wrong into stories and delivers the
+fixes in waves.
 
 ## Who reads this
 
@@ -55,7 +52,7 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | who | writes |
 |---|---|
 | conductor | its records, in the instance's records directory: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
-| conductor-dev | in this repository: `crates/`, `spec/`, `.engineering/`, `docs/`, `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; and the instance's `rules.md` |
+| conductor-dev | in this repository: `crates/`, `spec/`, `.engineering/`, `docs/` (`docs/analysis/` included), `website/` (the hand-written pages), `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; and the instance's `rules.md` |
 | the `conductor` CLI | the store under the state directory |
 
 Each session commits only the files it writes, with a pathspec.
@@ -133,6 +130,20 @@ Run `task check` on the exact commit before you push or merge. For a quick loop,
 - Run at most one full `task check` per repository at a time; prefer `cargo test -p conductor-cli`
   on what you touched.
 
+## Commits, gates and public text
+
+- Every commit, push, pull request and tag goes through the bot route:
+  `b10x-gates bot -- <git args>`. A GitHub API write goes through `b10x-gates api`.
+- A `task check` that printed "the Gates scan is skipped" ran no secret scan and is no gate. Set
+  `B10X_GATES_POLICY` and run it again.
+- Every pull-request and release body passes `b10x-gates scan-text` before it is sent.
+- This repository is public. Committed text (code, docs, wave pages, commit messages) names no
+  private repository, session or decision id, host detail or person.
+- Record a story's gate on the story: `aep plan artifact evidence <id> --kind test_result`.
+- Fast-forward the product checkout before `task conductor:restart`: the roles read their profile
+  from it.
+- `cargo clean` a tree's `target/` once its gate has run.
+
 ## Releases
 
 A release is a tag `v<version>` on `main` and a GitHub Release of the same name; the binary is
@@ -162,8 +173,8 @@ mode `bypassPermissions`, so messages between sessions are not held for approval
 
 | task | does |
 |---|---|
-| `task conductor:start`, `task dev:start` | start the session with its adapter (`--agent conductor`, `--agent conductor-dev`) on the model of its role in `conductor config show`; refuse unless the role's harness is `claude`, and while a session of that name runs. Conductor starts in the active instance's `records` directory with its role's `settings`, by default this checkout's `.claude/conductor-settings.json`; conductor-dev starts in this checkout |
-| `task agents:link` | link `.claude/agents/{conductor,repo-controller,conductor-dev}.md` into `~/.claude/agents/`, so a session started in another directory finds its adapter; refuses to overwrite a different file |
+| `task conductor:start`, `task dev:start` | start the session under its role's session name (`<session_prefix>-<role>`, or the role without a prefix) on the model of its role in `conductor config show`, with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless the role's harness is `claude`, and while a session of that name runs. A role with a `profile` starts from it with `--append-system-prompt-file <profile>`; without one, with `--agent <agent>`, which is found only in the start directory's `.claude/agents/`. Conductor starts in the active instance's `records` directory with its role's `settings`, by default this checkout's `.claude/conductor-settings.json`, and refuses until the bypass-permissions disclaimer was accepted once; conductor-dev starts in this checkout |
+| `task agents:link` | legacy: links `.claude/agents/{conductor,repo-controller,conductor-dev}.md` into `~/.claude/agents/`. No session started with `--setting-sources project,local` reads `~/.claude/agents/`, so it serves none of the sessions above |
 | `task conductor:attach`, `task dev:attach` | open a session in this terminal |
 | `task conductor:restart` | stop conductor and start a new one that reads the newest hand-over; conductor-dev runs it after `[RESTART conductor]` |
 | `task sessions` | list both sessions |
@@ -173,19 +184,16 @@ mode `bypassPermissions`, so messages between sessions are not held for approval
 ## CLI quick reference
 
 ```console
+conductor doctor                                # each program conductor starts, its version and pin
 conductor config validate                       # exit 1 naming each problem by its YAML path
 conductor config show --format json             # the effective instance after defaults; profiles read section.key here
-conductor config workspace [--check]            # write <records>/.engineering/workspace.yaml from the config; --check only compares
 conductor snapshot start-snapshot               # run every collector; git fetch in every checkout
-conductor snapshot <view> --format json         # repositories, pull-requests, workflow-runs, blockers, specifications, sessions, releases, merged-pull-requests, snapshots
+conductor snapshot <view> --format json         # repositories, pull-requests, workflow-runs, blockers, sessions, ...
 conductor repository activity                   # each repository Active or Inactive
-conductor repository shipped --since <RFC 3339> # releases and merged pull requests since an instant
-conductor resource usage --since <RFC 3339>     # token spend per repository and session
-conductor watch run --follow                    # one line per change
 conductor guard guard-decisions                 # the guard's recorded denials
-conductor decision show --decision-id <id>
-conductor store migrate                         # move an older store into the tree layout
+conductor store migrate                         # copy an older store into the tree layout; the old one is kept beside it
 ```
 
-The views list every kept snapshot's rows; filter on the newest `snapshot_id`.
+The views list every kept snapshot's rows; filter on the newest `snapshot_id`. Every command and
+flag is in the generated [`website/docs/reference/cli.md`](website/docs/reference/cli.md);
 `conductor <group> --help` lists every command of a group.

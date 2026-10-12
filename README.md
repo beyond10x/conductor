@@ -1,195 +1,170 @@
 # conductor
 
-Conductor coordinates coding-agent sessions across the repositories of one organization. One
-background session, `conductor`, tracks what happens in every repository, starts one controller
-session per repository, and takes the routine decisions those controllers raise. Architectural
-decisions go to a person, the operator.
+Conductor coordinates Claude Code sessions across the repositories of one organization: one
+session tracks every repository and starts one controller session per repository.
 
-The `conductor` CLI is the session's tool: it reads the repositories, keeps the records, and guards
-the sessions.
+Documentation: [beyond10x.github.io/conductor](https://beyond10x.github.io/conductor/).
 
-- Design: [`docs/design/conductor.md`](docs/design/conductor.md)
-- Config reference: [`docs/config.md`](docs/config.md)
-- Documentation: [beyond10x.github.io/conductor](https://beyond10x.github.io/conductor/): [getting started](https://beyond10x.github.io/conductor/docs/getting-started/), [CLI reference](https://beyond10x.github.io/conductor/docs/reference/cli/), [status](https://beyond10x.github.io/conductor/docs/status/)
-- Working on this repository (agents and contributors): [`AGENTS.md`](AGENTS.md)
+## What it is
 
-## How it works
+- A background Claude Code session, `conductor`, that reads the state of every repository of an
+  instance, starts one controller session per repository, and answers the routine decisions those
+  controllers raise. Architectural decisions, spending and anything public go to a person, the
+  operator.
+- The `conductor` CLI, written in Rust. It reads the repositories, keeps the records in an
+  append-only store, guards every tool call of the sessions, watches for events, and serves a
+  read-only dashboard.
+- Three generic profiles in [`.agents/`](.agents/) that tell each session what to do. The rules of
+  one organization go in its own `rules.md`; this repository ships none.
 
-1. **Sense.** `conductor snapshot start-snapshot` reads every repository of the instance: git
-   state, pull requests, `main` CI, releases, open planning blockers, specification status, live
-   sessions and, when the instance names a catalog, whether each repository is in it. The result
-   is one snapshot in the store.
-2. **Compare and decide.** The conductor session compares the snapshot with its goals and answers
-   the decision requests controllers sent. Routine decisions (class C) it takes and records.
-   Architectural ones (class O) and ones that need a person's hands (class H) go to the operator.
-3. **Dispatch.** Conductor sends each controller a brief. A controller works only in its own
-   repository and talks only to conductor.
-4. **Guard.** A PreToolUse hook, `conductor guard record-guard-decision --from-pre-tool-use`,
-   denies a controller's Edit and Write outside its repository and its messages to anyone but
-   conductor, and keeps conductor's own edits to its records. It catches mistakes; it is not a
-   sandbox (see [Security model](#security-model)).
-5. **Watch.** Between cycles, `conductor watch run --follow` wakes conductor when a session exits,
-   hits a usage limit or fills its context, when `main` CI turns red or green, or when disk runs
-   low.
+## Who it is for
 
-## What a session reads
+Someone who already works with Claude Code across many repositories and wants the routine
+coordination done by agents: what changed, which pull request waits, which CI run is red, which
+repository needs work next. It assumes you plan work with AEP stores in each repository and
+accept agents that run unattended under your account (see the next section).
 
-Each session follows a generic profile in `.agents/`: `conductor.md`, `conductor-dev.md` and
-`repo-controller.md`. A profile names config values as `section.key`, such as
-`thresholds.disk_low`; the value is that field of `conductor config show --format json`.
+## Safety model in short
 
-After its profile, every session reads the instance's `rules.md` in the instance's records
-directory: the rules of that one organization, one section per role, each rule with its source.
-This repository ships no `rules.md`; you write your own.
+- **Bypass permissions.** Every session runs with `--permission-mode bypassPermissions`: no tool
+  call asks you first. That is what lets conductor and controllers work unattended.
+- **The guard is the only check.** A PreToolUse hook,
+  `conductor guard record-guard-decision --from-pre-tool-use`, sees every tool call of conductor
+  and of each controller. It denies a file write outside the session's own repository, records or
+  scratch, a message to anyone but the session's own peers, any `gh` call that is not a read, and
+  any tool it has no rule for, MCP tools included. A missing binary blocks the call.
+- **Bash is not confined.** The Bash rules are a heuristic: they deny a few forms (a `cd` into
+  another checkout, a `gh` write, a write naming a settings or config path), not where a command
+  writes. `git push` and `curl` to a forge API are not checked. The guard catches mistakes; it is
+  no defence against a hostile prompt in an issue or pull request a controller reads.
+- **Not every session is guarded.** conductor-dev runs without the guard by default, a session
+  started by hand without the instance's settings is not guarded, and `task trust` lets each
+  checkout's own project hooks run. There is no operating-system sandbox yet.
+- **Run it under an account whose reach you accept** for an unattended agent: its files, its forge
+  credentials and its tokens. Use branch protection and scoped tokens on the forge.
 
-For Claude Code, `.claude/agents/` holds one adapter per profile (`conductor.md`,
-`conductor-dev.md`, `repo-controller.md`), each a pointer at its `.agents/` file, and `.claude/`
-holds the two settings files that wire the guard: `conductor-settings.json` and
-`controller-settings.json`.
+The full model, with what is enforced and what is only instructed:
+[Security overview](https://beyond10x.github.io/conductor/docs/security/overview).
 
-Sessions can start without your own Claude Code configuration: a role that names a `profile`
-starts with `--append-system-prompt-file <profile>` instead of an adapter, every start passes
-`--setting-sources project,local`, and the role's `settings` file carries what the session needs
-(env, plugins, attribution, `claudeMdExcludes` for your global `CLAUDE.md`, the guard hook).
-[`docs/config.md`](docs/config.md) § Sessions without the user's config lists the keys.
+## Requirements
+
+| program | pin | used for |
+|---|---|---|
+| Claude Code (`claude`) | | the sessions; `claude agents --json` for the sessions collector and the tasks |
+| Rust toolchain and `cargo` | edition 2024 | building and installing the CLI |
+| `git` | | the repositories collector, worktree listing |
+| `gh`, logged in | | pull requests, CI runs, releases, repository lists of a GitHub source |
+| `task` (go-task) | | the tasks in [`Taskfile.yml`](Taskfile.yml) |
+| `jq` | | the tasks in `Taskfile.yml` |
+| `aep` | 0.69 | the planning stores: blockers per repository |
+| `ess` | 0.56 | the specification gate of `task check` |
+| `worktree` | 0.13 | managed worktrees for controllers and their workers |
+| `b10x-gates` | | the bot route for commits and pushes; the secret scan of `task check` |
+| `notify-send` (optional) | | the watch's desktop notification on a usage limit |
+
+The pins are in [`b10x.toml`](b10x.toml). `aep`, `ess`, `worktree` and `b10x-gates` come from the
+`b10x` marketplace (`/plugin marketplace add beyond10x/agentplugins` in Claude Code).
 
 ## Install
 
-The ecosystem tools come from the `b10x` marketplace and its installer, pinned in
-[`b10x.toml`](b10x.toml):
-
-```console
-/plugin marketplace add beyond10x/agentplugins     # in Claude Code
-/plugin install b10x@b10x                         # installs the b10x binary
-b10x init aep,ess,worktree --host claude --out plan.json
-b10x setup apply --plan plan.json --yes
-```
-
-The system tools:
-
-| tool | used for |
-|---|---|
-| Rust toolchain (edition 2024) and `cargo` | building the CLI |
-| `git` | the repositories collector, worktree listing |
-| `gh`, logged in | pull requests, CI runs, releases, repository lists |
-| `claude` (Claude Code) | the sessions; `claude agents --json` for the sessions collector, the guard, the watch and the dashboard |
-| `task` (go-task) and `jq` | the tasks in `Taskfile.yml` |
-| `notify-send` (optional) | the watch's desktop notification on a usage limit |
-
-Install the binary, then check every program it starts:
-
 ```console
 cargo install --git https://github.com/beyond10x/conductor --tag v0.2.0 --locked conductor-cli
-                                                   # from a checkout: task install
 conductor doctor
 ```
 
-`conductor doctor` lists each program with its version, and exits 1 when one is missing or older
-than its pin in `b10x.toml`. `conductor snapshot start-snapshot` refuses at start, naming a missing
-program, instead of failing inside a collector.
+From a checkout, `task install` does the same. `conductor doctor` lists each program conductor
+starts with its version, and exits 1 when one is missing or older than its pin.
 
-A role without a `profile` starts with an adapter, which a session in another directory finds only
-in `~/.claude/agents/`: `task agents:link` links the three. With profiles (above), no link is
-needed.
+## Quickstart (no sessions)
 
-## Configure
-
-Write `~/.b10x/conductor/conductor.yaml`. An instance needs a name, its sources and its checkouts;
-every other key has a default.
+Write a config file. The default path is `~/.b10x/conductor/conductor.yaml`; `--config` or
+`$CONDUCTOR_CONFIG` names another. An instance needs a name, its sources and its checkouts:
 
 ```yaml
 version: conductor.config/1
 instances:
   - name: personal
     sources:
-      - github: example-org
+      - local: ~/example-org
     checkouts:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
-    records: ~/example-org/conductor
-    roles:
-      - {role: conductor, harness: claude, model: opus}
-      - {role: conductor-dev, harness: claude, model: opus}
-      - role: controller
-        harness: claude
-        model: opus
-        agent: repo-controller
-        settings: ~/example-org/conductor/.claude/controller-settings.json
-        profile: ~/example-org/conductor/.agents/repo-controller.md
 ```
 
-`records` is the directory the conductor session runs in, and the guard gives conductor its rules
-only there. `task conductor:start` starts the session in that directory, wherever it is: a git
-repository of the instance's own, kept apart from this checkout (default
-`~/.b10x/conductor/<name>/records`). The controller role's `agent` and
-`settings` are the adapter and the settings file conductor starts each controller with.
-
-[`conductor.example.yaml`](conductor.example.yaml) has two instances, one with a catalog and one
-without. Every field is in [`docs/config.md`](docs/config.md).
-
-Check the file, and see the effective values after defaults:
+Then check it, take one snapshot, and read it:
 
 ```console
-$ conductor config validate
-~/.b10x/conductor/conductor.yaml: valid, 1 instance(s): personal
-$ conductor config show
+conductor config validate        # exit 1 naming each problem by its YAML path
+conductor config show            # the effective values after defaults
+conductor snapshot start-snapshot
+conductor repository activity    # each repository Active or Inactive
 ```
 
-Then `conductor init` writes the instance's records directory: a git repository with `NORTHSTAR.md`, a first hand-over in `docs/handoff/`, a `rules.md` with one section per role, the workspace file `.engineering/workspace.yaml`, and `decisions/`, `dispatches/`, `charters/`. It refuses to overwrite a file. `conductor config workspace` rewrites that workspace file from the config when checkouts are added or removed; `conductor config workspace --check` exits 1 naming each member that differs. Write the instance's own rules into that `rules.md`.
+`snapshot start-snapshot` refuses up front, naming the program, when one it needs is missing.
+[`conductor.example.yaml`](conductor.example.yaml) has a fuller instance, a GitHub source and a
+catalog; [`docs/config.md`](docs/config.md) lists every field.
 
-## Run
+## Run sessions
 
-From this checkout:
+1. `conductor init` writes the instance's records directory: a git repository with `NORTHSTAR.md`,
+   `rules.md` (one section per role), a first hand-over in `docs/handoff/`, and the workspace file.
+   It refuses to overwrite a file. Write your organization's rules into `rules.md`.
+2. Add the roles to the instance. Each `profile` points at this checkout's `.agents/` file, each
+   `settings` at its `.claude/` settings file, which wires the guard:
 
-```console
-task agents:link          # link the three Claude Code adapters into ~/.claude/agents
-task trust                # trust every checkout under checkouts.root and the records directory
-task conductor:start      # start the conductor session in the records directory, in the background
-task conductor:attach     # open it in this terminal
-task sessions             # which conductor sessions are running
-task dashboard            # a read-only page on http://127.0.0.1:7313/
-```
+   ```yaml
+       roles:
+         - role: conductor
+           harness: claude
+           model: opus
+           profile: ~/example-org/conductor/.agents/conductor.md
+           settings: ~/example-org/conductor/.claude/conductor-settings.json
+         - role: conductor-dev
+           harness: claude
+           model: opus
+           profile: ~/example-org/conductor/.agents/conductor-dev.md
+         - role: controller
+           harness: claude
+           model: opus
+           profile: ~/example-org/conductor/.agents/repo-controller.md
+           settings: ~/example-org/conductor/.claude/controller-settings.json
+   ```
 
-`task conductor:start` starts Claude Code with the `conductor` agent, the model the instance's
-`conductor` role names and `.claude/conductor-settings.json`, and refuses while a session named
-`conductor` is running. `task --list` shows every task.
+3. `task trust` marks every checkout under `checkouts.root` and the records directory as trusted
+   Claude Code workspaces.
+4. Accept Claude Code's bypass-permissions disclaimer once: run
+   `claude --dangerously-skip-permissions` interactively in the records directory, or set
+   `"skipDangerousModePermissionPrompt": true` in the role's settings file. `task conductor:start`
+   refuses until one is in place.
+5. `task conductor:start` starts conductor in the background in the records directory;
+   `task conductor:attach` opens it in this terminal. `task sessions` lists the sessions and
+   `task dashboard` serves a read-only page on http://127.0.0.1:7313/.
 
-Claude Code starts a background session in bypass-permissions mode only after its disclaimer has
-been accepted once. Run `claude --dangerously-skip-permissions` once interactively in the records
-directory and accept it (Claude Code records `"skipDangerousModePermissionPrompt": true` in
-`~/.claude/settings.json`), or set that key in the role's settings file. `task conductor:start`
-refuses, and says so, while neither is in place.
+Sessions start with `--setting-sources project,local`, so your user-level settings and agents are
+not loaded; the role's settings file carries what the session needs.
 
-`task dashboard` runs the dashboard as the systemd user service `conductor-dashboard` where
-`systemctl` is available. Elsewhere, macOS included, it runs it in the background and keeps its pid
-and log (`dashboard.pid`, `dashboard.log`) in the instance's state directory. `task dashboard:stop`
-stops it either way.
+## How it works
 
-## Security model
+1. **Sense.** `conductor snapshot start-snapshot` reads git state, pull requests, CI, releases, planning blockers and sessions into one snapshot.
+2. **Decide.** Conductor compares the snapshot with its goals; class C it decides, class O and class H go to the operator.
+3. **Dispatch.** Conductor sends each controller a brief; a controller works only in its repository and reports only to conductor.
+4. **Guard.** Every tool call of conductor and the controllers passes the guard; denials are recorded.
+5. **Watch.** `conductor watch run --follow` wakes conductor when a session ends, CI changes or disk runs low.
 
-Read this before you start sessions on repositories you care about.
+## Documentation
 
-- Every session runs Claude Code with `--permission-mode bypassPermissions`: no tool call asks
-  you first. Conductor and controllers work unattended because of it.
-- The guard is the only check. Every tool call reaches it: Edit, Write, NotebookEdit, SendMessage,
-  Bash and Monitor have rules, a read-only tool (Read, Glob, Grep and the like) is allowed from its
-  allowlist or the role's `read_only_tools`, and any other tool, an MCP server's tools included,
-  is denied.
-- For Edit, Write and NotebookEdit the guard resolves the target path, links included, and denies
-  a write outside the session's own repository, records or scratch directory.
-- The guard does not check where a Bash command writes. A controller can write, overwrite or
-  delete any file its user can: other checkouts, conductor's records and the `conductor` binary
-  included. For Bash the guard denies only a `cd`, `pushd` or `git -C` into another checkout or
-  the records, a `gh` write, a `conductor` write, and a write that names a settings file or
-  conductor's config, and a command written to avoid those forms is allowed. A controller that reads
-  an issue or pull request written by someone else can be told to run such a command.
-- `git push` is not checked; the forge's branch protection is the place for that.
-- The conductor-dev session starts without the guard.
-- `task trust` marks every checkout under `checkouts.root` as a trusted Claude Code workspace, so
-  the project settings and hooks of each of those repositories run without a prompt.
-- Run conductor under a user account, and with forge credentials, whose reach you accept for an
-  unattended agent. An operating-system sandbox for Bash is planned.
+- Site: [getting started](https://beyond10x.github.io/conductor/docs/getting-started),
+  [CLI reference](https://beyond10x.github.io/conductor/docs/reference/cli),
+  [config reference](https://beyond10x.github.io/conductor/docs/reference/config),
+  [status](https://beyond10x.github.io/conductor/docs/status)
+- Design: [`docs/design/conductor.md`](docs/design/conductor.md)
+- Config fields: [`docs/config.md`](docs/config.md)
+
+## Contributing
+
+Agents and people working on this repository follow [`AGENTS.md`](AGENTS.md): specification
+first, Rust with clap derive, every command in `Taskfile.yml`, and `task check` before a push.
 
 ## Licence
 
-Licence: Apache-2.0, see [`LICENSE`](LICENSE).
+Apache-2.0, see [`LICENSE`](LICENSE).
