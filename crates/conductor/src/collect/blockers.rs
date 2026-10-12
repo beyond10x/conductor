@@ -235,6 +235,9 @@ pub(crate) struct Member {
     pub(crate) repository: String,
     /// Where its `origin/main` is exported.
     pub(crate) export: PathBuf,
+    /// The repository its checkout's `origin` names on the forge ([`forge_name`]), when that can be
+    /// read: the records checkout `records` is `conductor-archive` there, for one.
+    pub(crate) forge: Option<String>,
 }
 
 /// One artifact of a member's store.
@@ -310,6 +313,7 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
             name,
             export: sources.exports.join(&repository),
             repository,
+            forge: forge_name(&checkout, sources.bound),
         });
         checkouts.push(checkout);
     }
@@ -354,6 +358,22 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
         members,
         absent: skipped(absent),
     })
+}
+
+/// The repository the checkout `dir`'s `origin` remote names: the last component of its URL
+/// without `.git`, read from the git config with no network read; `None` when there is no such
+/// remote or nothing is left.
+fn forge_name(dir: &Path, bound: Duration) -> Option<String> {
+    let url = succeed(
+        &words(&["git", "config", "--get", "remote.origin.url"]),
+        Some(dir),
+        bound,
+    )
+    .ok()?;
+    let url = String::from_utf8_lossy(&url);
+    let last = url.trim().trim_end_matches('/').rsplit(['/', ':']).next()?;
+    let name = last.strip_suffix(".git").unwrap_or(last);
+    (!name.is_empty()).then(|| name.to_owned())
 }
 
 /// The `state` `aep plan workspace members` gives a member whose store is not there.

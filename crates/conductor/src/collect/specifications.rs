@@ -201,11 +201,13 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
     let listed = enumerated(sources)?;
     let snapshot = record.snapshot().clone();
     let workspace = blockers::read(&sources.workspace, &snapshot)?;
+    // A member is found by its source's last component, else by the repository its checkout's
+    // `origin` names: a checkout's directory may differ from its name on the forge.
     let member = |name: &str| {
-        workspace
-            .members
-            .iter()
+        let members = || workspace.members.iter();
+        members()
             .find(|member| member.repository == name)
+            .or_else(|| members().find(|member| member.forge.as_deref() == Some(name)))
     };
     // A repository an owner lists whose member's checkout is absent is not read
     // ([`blockers::read`] named it).
