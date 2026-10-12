@@ -17,12 +17,14 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use conductor_cli::dashboard::{self, Sources};
+use conductor_cli::disk;
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
@@ -905,6 +907,142 @@ fn the_disk_measurement_is_reused_for_ten_minutes() {
         data["disk"]["measured_at"] != before["disk"]["measured_at"]
             && bytes(row(data, Some("alpha"), what)) == 9 * GIB
     });
+}
+
+/// The bytes `path` itself takes on disk, by its own `lstat`: `st_blocks * 512`.
+fn allocated(path: &Path) -> u64 {
+    fs::symlink_metadata(path)
+        .unwrap_or_else(|error| panic!("lstat {}: {error}", path.display()))
+        .blocks()
+        * 512
+}
+
+/// `story:portable-tree-sizes`: a known tree with a second name for one file and a link to a
+/// large file outside it measures the allocated bytes of each of its inodes once, and follows no
+/// link; overlapping paths count nothing twice.
+#[test]
+fn a_known_tree_measures_each_inode_once_and_follows_no_link() {
+    let case = Case::new("tree-size");
+    let root = case.home.join("tree");
+    let sub = root.join("sub");
+    fill(&root.join("a.bin"), 64 * 1024);
+    fill(&sub.join("b.bin"), 128 * 1024);
+    fs::hard_link(root.join("a.bin"), sub.join("a-again.bin")).expect("link a second name");
+    let outside = case.home.join("outside/big.bin");
+    fill(&outside, 4 * MIB);
+    std::os::unix::fs::symlink(&outside, sub.join("big")).expect("link the outside file");
+
+    let expected: u64 = [
+        root.clone(),
+        sub.clone(),
+        root.join("a.bin"),
+        sub.join("b.bin"),
+        sub.join("big"),
+    ]
+    .iter()
+    .map(PathBuf::as_path)
+    .map(allocated)
+    .sum();
+    let size = disk::tree_size(std::slice::from_ref(&root), None).expect("no deadline");
+    assert!(size.unreadable.is_empty(), "{size:?}");
+    assert_eq!(size.allocated, expected, "{size:?}");
+    assert!(
+        (192 * 1024..MIB).contains(&size.allocated),
+        "the link to the outside file is not followed: {size:?}"
+    );
+
+    let overlapping = disk::tree_size(
+        &[
+            root.clone(),
+            sub.clone(),
+            sub.join("b.bin"),
+            sub.join("a-again.bin"),
+        ],
+        None,
+    )
+    .expect("no deadline");
+    assert_eq!(overlapping.allocated, expected, "{overlapping:?}");
+}
+
+#[test]
+fn a_tree_size_names_what_it_cannot_read_and_stops_at_its_deadline() {
+    let case = Case::new("tree-size-unreadable");
+    let root = case.home.join("tree");
+    fill(&root.join("open/a.bin"), 64 * 1024);
+    let missing = root.join("not-there");
+    let size = disk::tree_size(&[root.clone(), missing.clone()], None).expect("no deadline");
+    assert_eq!(
+        size.unreadable
+            .iter()
+            .map(|unreadable| &unreadable.path)
+            .collect::<Vec<_>>(),
+        [&missing],
+        "{size:?}"
+    );
+    assert!(size.allocated >= 64 * 1024, "{size:?}");
+
+    let locked = root.join("locked");
+    fill(&locked.join("hidden.bin"), 64 * 1024);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("lock a directory");
+    // A privileged reader reads it anyway; the case then has nothing unreadable to show.
+    let readable = fs::read_dir(&locked).is_ok();
+    let size = disk::tree_size(std::slice::from_ref(&root), None).expect("no deadline");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("unlock it again");
+    if !readable {
+        assert_eq!(size.unreadable.len(), 1, "{size:?}");
+        assert_eq!(size.unreadable[0].path, locked, "{size:?}");
+    }
+
+    let timed_out = disk::tree_size(std::slice::from_ref(&root), Some(Instant::now()));
+    assert!(
+        matches!(timed_out, Err(disk::TimedOut)),
+        "a passed deadline ends the walk: {timed_out:?}"
+    );
+}
+
+/// `story:portable-tree-sizes`: no product source spawns `du`, whose `-B1` another `du` (BSD's)
+/// refuses; read the way `free_space.rs` reads for `df`.
+#[test]
+fn no_product_source_spawns_du() {
+    fn files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).expect("read a directory") {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                files(&path, out);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("the workspace root");
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(root.join("crates")).expect("read crates/") {
+        let src = entry.expect("a crate").path().join("src");
+        if src.is_dir() {
+            files(&src, &mut paths);
+        }
+    }
+    assert!(!paths.is_empty(), "no source file was read");
+    let mut offending = Vec::new();
+    for path in paths {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for (at, line) in text.lines().enumerate() {
+            if line.contains("\"du\"") || line.contains("\"du ") || line.contains("\"-B1\"") {
+                offending.push(format!(
+                    "{}:{}: {}",
+                    path.strip_prefix(&root).unwrap_or(&path).display(),
+                    at + 1,
+                    line.trim()
+                ));
+            }
+        }
+    }
+    assert!(offending.is_empty(), "{offending:#?}");
 }
 
 #[test]

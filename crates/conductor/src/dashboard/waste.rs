@@ -3,21 +3,25 @@
 //!
 //! A tracked repository is a checkout directly under the instance's checkouts root. Per
 //! repository the measurement reads the recognised build cache of its idle managed trees
-//! (`worktree sweep --dry-run`), its trees eligible for removal (`worktree gc --dry-run`, then
-//! `du`), its archives under `~/.local/state/worktree/archives/` and its checkout's `target/`.
+//! (`worktree sweep --dry-run`), its trees eligible for removal (`worktree gc --dry-run`, then a
+//! walk of each), its archives under `~/.local/state/worktree/archives/` and its checkout's
+//! `target/`.
 //! Shared, it reads each entry of the shared build targets (`target` under the instance's cache
 //! when a config file names it, else `~/.cache/<namespace>-target`: [`built_in_targets`]), sccache, the
 //! rustup toolchains, the agents' scratch `~/.cache/claude-tmp` and the entries of `/var/tmp`. It
 //! deletes nothing.
 //!
-//! Every command runs under [`Sources::measure_timeout`]; one that runs longer is stopped and its
-//! row says so. A request never waits for a measurement: it shows the last complete one and
+//! Every size is the allocated bytes of a walk in Rust, [`disk::tree_size`], not `du`, whose
+//! options differ between platforms (`story:portable-tree-sizes`).
+//!
+//! Every command and every walk runs under [`Sources::measure_timeout`]; one that runs longer is
+//! stopped and its row says so. A request never waits for a measurement: it shows the last complete one and
 //! starts the next when that one is older than [`Sources::measure_every`].
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
-use std::io::Read;
+use std::io::{self, Read};
 use std::os::unix::fs::MetadataExt as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -31,6 +35,7 @@ use time::OffsetDateTime;
 
 use super::{Sources, ago, rfc3339};
 use crate::collect;
+use crate::disk::{self, TreeSize};
 
 /// A `/var/tmp` entry at least this large is a row of its own; the smaller ones share one row.
 const VAR_TMP_ROW: u64 = 64 << 20;
@@ -200,7 +205,7 @@ fn measure(sources: &Sources) -> Vec<Row> {
         });
     }
     for (repository, trees) in &eligible {
-        let (bytes, state) = du(trees, timeout);
+        let (bytes, state) = size(trees, timeout);
         rows.push(Row {
             repository: Some(repository.clone()),
             what: ELIGIBLE,
@@ -278,7 +283,7 @@ fn entries(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn path_row(repository: Option<&str>, what: &'static str, path: &Path, timeout: Duration) -> Row {
-    let (bytes, state) = du(&[path.to_path_buf()], timeout);
+    let (bytes, state) = size(&[path.to_path_buf()], timeout);
     Row {
         repository: repository.map(str::to_owned),
         what,
@@ -296,47 +301,22 @@ fn var_tmp(dir: &Path, timeout: Duration, rows: &mut Vec<Row>) {
     if entries.is_empty() {
         return;
     }
-    let mut command: Vec<OsString> = ["du", "-s", "-B1", "--"].map(OsString::from).to_vec();
-    command.extend(entries.iter().map(|entry| entry.clone().into_os_string()));
-    let (stdout, stderr) = match run(&command, timeout) {
-        Ran::Done { stdout, stderr, .. } => (stdout, stderr),
-        Ran::TimedOut => {
-            rows.push(Row {
-                what: "/var/tmp entries",
-                path: Some(dir.display().to_string()),
-                state: timed_out(timeout),
-                ..Row::default()
-            });
-            return;
+    let deadline = Instant::now() + timeout;
+    let mut sizes = Vec::with_capacity(entries.len());
+    for entry in &entries {
+        match disk::tree_size(std::slice::from_ref(entry), Some(deadline)) {
+            Ok(size) => sizes.push(size),
+            Err(disk::TimedOut) => {
+                rows.push(Row {
+                    what: "/var/tmp entries",
+                    path: Some(dir.display().to_string()),
+                    state: timed_out(timeout),
+                    ..Row::default()
+                });
+                return;
+            }
         }
-        Ran::Failed(error) => {
-            rows.push(Row {
-                what: "/var/tmp entries",
-                path: Some(dir.display().to_string()),
-                state: format!("failed: `du`: {error}"),
-                ..Row::default()
-            });
-            return;
-        }
-    };
-    let sizes: HashMap<&str, u64> = stdout
-        .lines()
-        .filter_map(|line| {
-            let (bytes, path) = line.split_once('\t')?;
-            Some((path, bytes.parse().ok()?))
-        })
-        .collect();
-    // `du` names what it cannot read as `'<path>'`, one line each.
-    let state = |entry: &str| {
-        let unreadable = stderr.lines().any(|line| {
-            line.contains(&format!("'{entry}/")) || line.contains(&format!("'{entry}'"))
-        });
-        if unreadable {
-            "incomplete: parts are unreadable".to_owned()
-        } else {
-            "measured".to_owned()
-        }
-    };
+    }
     let owners = owners();
     let now = OffsetDateTime::now_utc();
     let mut small = Row {
@@ -347,16 +327,20 @@ fn var_tmp(dir: &Path, timeout: Duration, rows: &mut Vec<Row>) {
         state: "measured".to_owned(),
         ..Row::default()
     };
-    for entry in &entries {
-        let shown = entry.display().to_string();
-        let Some(&bytes) = sizes.get(shown.as_str()) else {
+    for (entry, size) in entries.iter().zip(&sizes) {
+        // An entry removed since the listing is not a row.
+        let removed = size.unreadable.first().is_some_and(|unreadable| {
+            unreadable.path == *entry && unreadable.error.kind() == io::ErrorKind::NotFound
+        });
+        if removed {
             continue;
-        };
+        }
+        let (bytes, state) = (size.allocated, state(size));
         if bytes < VAR_TMP_ROW {
             small.count = small.count.map(|count| count + 1);
             small.bytes = small.bytes.map(|sum| sum + bytes);
-            if state(&shown) != "measured" {
-                small.state = state(&shown);
+            if state != "measured" {
+                small.state = state;
             }
             continue;
         }
@@ -372,8 +356,8 @@ fn var_tmp(dir: &Path, timeout: Duration, rows: &mut Vec<Row>) {
             age: metadata
                 .and_then(|metadata| metadata.modified().ok())
                 .map(|modified| ago(now - OffsetDateTime::from(modified))),
-            state: state(&shown),
-            path: Some(shown),
+            state,
+            path: Some(entry.display().to_string()),
             bytes: Some(bytes),
             ..Row::default()
         });
@@ -397,29 +381,23 @@ fn owners() -> HashMap<u32, String> {
         .collect()
 }
 
-/// The bytes `du` counts under `paths` together, and the row's state.
-fn du(paths: &[PathBuf], timeout: Duration) -> (Option<u64>, String) {
-    let mut command: Vec<OsString> = ["du", "-s", "-c", "-B1", "--"].map(OsString::from).to_vec();
-    command.extend(paths.iter().map(|path| path.clone().into_os_string()));
-    match run(&command, timeout) {
-        Ran::Done {
-            status,
-            stdout,
-            stderr,
-        } => {
-            let total = stdout
-                .lines()
-                .last()
-                .and_then(|line| line.split_whitespace().next()?.parse().ok());
-            let state = match (total, status.success()) {
-                (Some(_), true) => "measured".to_owned(),
-                (Some(_), false) => format!("incomplete: {}", first_line(&stderr)),
-                (None, _) => format!("failed: `du`: {status}: {}", first_line(&stderr)),
-            };
-            (total, state)
-        }
-        Ran::TimedOut => (None, timed_out(timeout)),
-        Ran::Failed(error) => (None, format!("failed: `du`: {error}")),
+/// The bytes allocated under `paths` together ([`disk::tree_size`]), and the row's state.
+fn size(paths: &[PathBuf], timeout: Duration) -> (Option<u64>, String) {
+    match disk::tree_size(paths, Some(Instant::now() + timeout)) {
+        Ok(size) => (Some(size.allocated), state(&size)),
+        Err(disk::TimedOut) => (None, timed_out(timeout)),
+    }
+}
+
+/// `measured`, or `incomplete: …` naming the first entry `size` could not read.
+fn state(size: &TreeSize) -> String {
+    match size.unreadable.first() {
+        None => "measured".to_owned(),
+        Some(unreadable) => format!(
+            "incomplete: cannot read {}: {}",
+            unreadable.path.display(),
+            unreadable.error
+        ),
     }
 }
 
