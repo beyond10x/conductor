@@ -13,6 +13,9 @@
 //! records keep the old one, which this build still reads. `story:sessions-outside-root-explained`
 //! added the sessions view's `role` column after `repository`: `snapshot-sessions.json` holds it
 //! as `null` in every row, which is what this build reads from a record written without one.
+//! `story:operator-decision-guarded` added the decisions view's `recorded_by` and `operator_words`
+//! columns, last in each row: `decision-decisions.json` and `decision-show.json` hold them as
+//! `null`, which is what this build reads from a decision written without them.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not

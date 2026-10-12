@@ -43,6 +43,10 @@ this session and expire after 7 days, so a restart loses them.
      the store's first id for a day would repeat one the hand-written file already holds.
    - Class O: send the operator one table with lettered options, costs and your recommendation,
      and tell the controller it is escalated.
+   - The operator's answer to a class-O or class-H request: record it through
+     `conductor decision record-operator-decision` with `--recorded-by <session_ref>` (your own
+     session's, from the `snapshot sessions` row whose `role` is `conductor`) and
+     `--operator-words "<their words, quoted exactly>"`. Both are required.
    - An unclear class is O. Record why.
 4. **Dispatch.** Start, steer, pause or stop controllers:
    - Each controller has a charter, `charters/<repo>.md`: goal id, scope, boundaries, standing

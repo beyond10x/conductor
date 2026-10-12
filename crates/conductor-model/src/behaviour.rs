@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 84b592f140125cd3aed1146902af06286fe074e51bd37c3058ef048e00488ad7
-// contract digest c8299a1d4e391c17946b1ecfd88291bc6e943579106a6dbdb518a86ed8ae0125
+// model digest 5e04ee2a70f7fb642c3ebb51aea9262374d5083015546c28beb90965d42ae4b8
+// contract digest b512924600f906dd7a91b7b249c420453be4c9c03f416ea3a48b7a3da05cc626
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -654,6 +654,8 @@ where
             reason: input.reason.clone(),
             evidence: input.evidence.clone(),
             decided_at: input.decided_at.clone(),
+            recorded_by: None,
+            operator_words: None,
         };
         let answer = crate::decision::RecordConductorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Conductor } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
@@ -684,6 +686,8 @@ where
             reason: input.reason.clone(),
             evidence: input.evidence.clone(),
             decided_at: input.decided_at.clone(),
+            recorded_by: Some(input.recorded_by.clone()),
+            operator_words: Some(input.operator_words.clone()),
         };
         let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
@@ -2169,6 +2173,8 @@ where
                 reason: held.data.reason,
                 evidence: held.data.evidence,
                 decided_at: held.data.decided_at,
+                recorded_by: held.data.recorded_by,
+                operator_words: held.data.operator_words,
             })
             .collect())
     }

@@ -69,6 +69,9 @@ impl Case {
             "--decided-at",
             at,
         ];
+        if who == "record-operator-decision" {
+            args.extend_from_slice(&["--recorded-by", "session-1", "--operator-words", "A"]);
+        }
         args.extend_from_slice(more);
         args
     }

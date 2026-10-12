@@ -21,6 +21,12 @@ use serde_json::{Value, json};
 /// The instant most records here are decided or raised at.
 const AT: &str = "2026-10-07T10:00:00Z";
 
+/// The session that records an operator's decision here (`--recorded-by`).
+const RECORDED_BY: &str = "session-1";
+
+/// The operator's words an operator's decision is recorded on here (`--operator-words`).
+const OPERATOR_WORDS: &str = "A, go ahead";
+
 /// One case's directories: where the binary runs, and the state directory it is pointed at.
 struct Case {
     work: PathBuf,
@@ -163,7 +169,8 @@ impl Case {
     }
 
     /// The arguments of a `record-<who>-decision` command of class `class`, decided at `at`, with
-    /// `more` after them.
+    /// `more` after them. An operator's decision also names the session that records it and the
+    /// operator's words it is recorded on.
     fn record_args<'a>(
         who: &'a str,
         class: &'a str,
@@ -188,6 +195,14 @@ impl Case {
             "--decided-at",
             at,
         ];
+        if who == "record-operator-decision" {
+            args.extend_from_slice(&[
+                "--recorded-by",
+                RECORDED_BY,
+                "--operator-words",
+                OPERATOR_WORDS,
+            ]);
+        }
         args.extend_from_slice(more);
         args
     }
@@ -468,7 +483,7 @@ fn a_reversed_decision_answers_no_request() {
         "DecisionNotFound",
     );
 
-    // A decision the operator recorded is his to reverse.
+    // A decision the operator recorded is theirs to reverse.
     let operators = case.operator_decision("C");
     case.refused(
         &[
@@ -851,7 +866,8 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
             "{{\"decision_id\":\"{first}\",\"state\":\"Reversed\",\"decision_class\":\"C\",\
              \"decided_by\":\"Conductor\",\"choice\":\"A\",\"question\":\"which way?\",\
              \"options\":\"A: one way; B: the other\",\"reason\":\"A is reversible\",\
-             \"evidence\":\"the request's own text\",\"decided_at\":\"{AT}\"}}"
+             \"evidence\":\"the request's own text\",\"decided_at\":\"{AT}\",\
+             \"recorded_by\":null,\"operator_words\":null}}"
         ),
         "the view's fields in the specification's order"
     );
@@ -877,6 +893,71 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
         )),
         "the view's fields in the specification's order: {raw:?}"
     );
+}
+
+/// `story:operator-decision-guarded`: an operator's decision keeps the session that recorded it
+/// (`--recorded-by`) and the operator's words it was recorded on (`--operator-words`). Both are
+/// required: one left out or blank is refused, naming its flag, before any store is opened.
+/// `decision show` prints both, and a decision conductor takes carries neither.
+#[test]
+fn an_operator_decision_keeps_the_session_that_recorded_it_and_their_words() {
+    let case = Case::new("operator-evidence");
+    let full = Case::record_args("record-operator-decision", "O", AT, &[]);
+    for flag in ["--recorded-by", "--operator-words"] {
+        let at = full
+            .iter()
+            .position(|arg| *arg == flag)
+            .expect("the flag is given");
+        let missing = [&full[..at], &full[at + 2..]].concat();
+        let stderr = case.failed(&missing);
+        assert!(
+            stderr.contains(flag),
+            "a missing {flag} is named: {stderr:?}"
+        );
+        for blank in ["", "  "] {
+            let mut empty = full.clone();
+            empty[at + 1] = blank;
+            let stderr = case.failed(&empty);
+            assert!(stderr.contains(flag), "a blank {flag} is named: {stderr:?}");
+        }
+    }
+    assert!(
+        !case.state.exists(),
+        "a refused operator's decision opened the store at {}",
+        case.state.display()
+    );
+
+    let operators = case.operator_decision("O");
+    let conductors = case.conductor_decision("C");
+    let row = case.decision(&operators);
+    assert_eq!(row["decided_by"], "Operator");
+    assert_eq!(row["recorded_by"], RECORDED_BY);
+    assert_eq!(row["operator_words"], OPERATOR_WORDS);
+    let row = case.decision(&conductors);
+    assert_eq!(row["recorded_by"], Value::Null);
+    assert_eq!(row["operator_words"], Value::Null);
+
+    let shown = case.ok(&["decision", "show", "--decision-id", &operators]);
+    for line in [
+        format!("recorded_by: {RECORDED_BY}"),
+        format!("operator_words: {OPERATOR_WORDS}"),
+    ] {
+        assert!(
+            shown.lines().any(|printed| printed == line),
+            "`decision show` prints {line:?}: {shown:?}"
+        );
+    }
+    let object: Value = serde_json::from_str(&case.ok(&[
+        "decision",
+        "show",
+        "--decision-id",
+        &operators,
+        "--format",
+        "json",
+    ]))
+    .expect("one JSON object");
+    assert_eq!(object["recorded_by"], RECORDED_BY);
+    assert_eq!(object["operator_words"], OPERATOR_WORDS);
 }
 
 #[test]

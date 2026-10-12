@@ -92,9 +92,10 @@ impl Case {
             .collect()
     }
 
-    /// Records a decision with `who`'s command, the id given, and `question`.
+    /// Records a decision with `who`'s command, the id given, and `question`. An operator's
+    /// decision also names the session that records it and the operator's words.
     fn record(&self, who: &str, decision: &str, class: &str, question: &str) {
-        let printed = self.ok(&[
+        let mut args = vec![
             "decision",
             who,
             "--decision-id",
@@ -113,7 +114,16 @@ impl Case {
             "the pilot holds 200 records",
             "--decided-at",
             AT,
-        ]);
+        ];
+        if who == "record-operator-decision" {
+            args.extend_from_slice(&[
+                "--recorded-by",
+                "session-1",
+                "--operator-words",
+                "A, the file store",
+            ]);
+        }
+        let printed = self.ok(&args);
         assert_eq!(printed, format!("{decision}\n"));
     }
 
@@ -174,7 +184,8 @@ fn describe(output: &Output) -> String {
 
 /// `decision show --decision-id <id>` renders that decision's row of the `decisions` view: one
 /// `field: value` line each, in the order id, state, class, decided by, decided at, question,
-/// options, choice, reason, evidence, with a line break inside a value written as a space; and
+/// options, choice, reason, evidence, recorded by, operator's words, with a line break inside a
+/// value written as a space; and
 /// `--format json` gives one object with the view's values.
 #[test]
 fn decision_show_renders_one_decision_as_field_lines_or_one_json_object() {
@@ -203,6 +214,8 @@ options: A: the file store; B: a database
 choice: A
 reason: the file store is enough
 evidence: the pilot holds 200 records
+recorded_by: null
+operator_words: null
 ";
     assert_eq!(
         case.ok(&["decision", "show", "--decision-id", "DEC-20261007-01"]),
@@ -252,9 +265,11 @@ evidence: the pilot holds 200 records
         "choice",
         "reason",
         "evidence",
+        "recorded_by",
+        "operator_words",
     ];
     sorted.sort_unstable();
-    assert_eq!(keys, sorted, "the object holds exactly the ten fields");
+    assert_eq!(keys, sorted, "the object holds exactly the twelve fields");
     let row = case
         .rows("decision", "decisions")
         .into_iter()
@@ -286,7 +301,9 @@ evidence: the pilot holds 200 records
             "options",
             "choice",
             "reason",
-            "evidence"
+            "evidence",
+            "recorded_by",
+            "operator_words"
         ],
         "the object's keys are in the text's order: {printed}"
     );

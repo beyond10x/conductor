@@ -790,6 +790,8 @@ Usage: conductor decision record-operator-decision [OPTIONS]
 | `--reason <REASON>` | no | none | string |
 | `--evidence <EVIDENCE>` | no | none | string |
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
+| `--recorded-by <RECORDED_BY>` | no | none | string |
+| `--operator-words <OPERATOR_WORDS>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision reverse-conductor-decision`

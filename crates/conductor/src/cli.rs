@@ -1708,6 +1708,12 @@ pub struct RecordOperatorDecisionArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub decided_at: Option<String>,
+    /// string
+    #[arg(long)]
+    pub recorded_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub operator_words: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

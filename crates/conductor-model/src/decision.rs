@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 84b592f140125cd3aed1146902af06286fe074e51bd37c3058ef048e00488ad7
-// contract digest c8299a1d4e391c17946b1ecfd88291bc6e943579106a6dbdb518a86ed8ae0125
+// model digest 5e04ee2a70f7fb642c3ebb51aea9262374d5083015546c28beb90965d42ae4b8
+// contract digest b512924600f906dd7a91b7b249c420453be4c9c03f416ea3a48b7a3da05cc626
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -100,6 +100,10 @@ pub struct DecisionData {
     pub evidence: String,
     /// `decided_at` — `Timestamp`.
     pub decided_at: crate::primitives::Timestamp,
+    /// `recorded_by` — `Optional<String>`.
+    pub recorded_by: Option<String>,
+    /// `operator_words` — `Optional<String>`.
+    pub operator_words: Option<String>,
 }
 
 /// The states of `conductor.decision.Decision`, at the type level.
@@ -766,6 +770,10 @@ pub struct RecordOperatorDecision {
     pub evidence: String,
     /// `decided_at` — `Timestamp`.
     pub decided_at: crate::primitives::Timestamp,
+    /// `recorded_by` — `String`.
+    pub recorded_by: String,
+    /// `operator_words` — `String`.
+    pub operator_words: String,
 }
 
 /// Everything `conductor.decision.RecordOperatorDecision` can result in — one variant per declared outcome.
@@ -1086,6 +1094,10 @@ pub struct Decisions {
     pub evidence: String,
     /// `decided_at` — `Timestamp`.
     pub decided_at: crate::primitives::Timestamp,
+    /// `recorded_by` — `Optional<String>`.
+    pub recorded_by: Option<String>,
+    /// `operator_words` — `Optional<String>`.
+    pub operator_words: Option<String>,
 }
 
 /// Class-H to-do — one row of the view `conductor.decision.HandsTodo`.
