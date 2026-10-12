@@ -38,9 +38,17 @@ when all five answered.
 |---|---|---|
 | repositories | `git` in each checkout, `gh` for each `github` source | one row per repository: visibility, archived, open issues, `main` head, real commits in 7 days, behind `main`, dirty files, worktrees, latest release, unreleased commits, planning-store version, and `in_catalog` when the instance names a catalog |
 | github | `gh pr list`, `gh run list` and releases per repository | open pull requests, the newest `main` run per workflow, releases, merged pull requests |
-| blockers | `git fetch`, an export of `origin/main`, `aep plan workspace list` | open decision blockers across the planning stores |
+| blockers | the members of the records' workspace file (`aep plan workspace members`), then per member `git fetch origin`, an export of `origin/main`, and `aep plan workspace list` over the exports | open blockers across the planning stores: each open artifact whose kind ends in `blocker` |
 | specifications | the same exports, `ess specify validate`, `ess verify conform synthesize` | per repository: specification present, opted out or missing; valid or refused; scenario count |
-| sessions | `claude agents --json` | live sessions, their working directory, the repository each is bound to |
+| sessions | `claude agents --json`, and the Codex session files under `~/.codex/sessions` written in the last hour | live Claude Code and Codex sessions, their working directory, the repository each is bound to |
+
+The blockers collector reads only the repositories the workspace file
+`<records>/.engineering/workspace.yaml` lists, which `conductor config workspace` writes from the
+config ([instances and config](./instances-and-config.md#the-workspace-file)); without that file it
+records no blockers. Every member must have an `origin` remote with a `main` branch, the records
+directory included: a fetch that fails fails the snapshot. A member whose checkout is absent is
+skipped with one line on standard error. The specifications collector reads a `github` source's
+repositories in the same exports, and a `local` source's repositories at their `HEAD`.
 
 A `gitlab` source is not read by the binary. The session reads that forge through its own
 integration and records the rows with the `conductor snapshot record-*` commands.

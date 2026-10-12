@@ -1,21 +1,21 @@
 ---
 title: Getting started
 sidebar_position: 2
-description: Build the conductor CLI, write a one-instance config, validate it and take one snapshot of two local repositories.
+description: Install the conductor CLI, check the programs it starts, write a one-instance config, validate it and take one snapshot of two local repositories.
 ---
 
-This page builds the `conductor` CLI, writes the smallest config, checks it, and takes one snapshot
-of two tiny local repositories. It starts no session; [Start conductor](./guides/start-conductor.md)
-does that.
+This page installs the `conductor` CLI, checks the programs it starts, writes the smallest config,
+checks it, and takes one snapshot of two tiny local repositories. It starts no session;
+[Start conductor](./guides/start-conductor.md) does that.
 
-Every command below was run as shown. The CLI prints absolute paths; the output here writes the
-home directory as `~`.
+The CLI prints absolute paths; the output here writes the home directory as `~`. Version lines,
+ids, times and sizes differ on your machine.
 
 ## Install
 
 You need a Rust toolchain (edition 2024) with `cargo`, and `git`. Taking a snapshot also runs `aep`
 and `claude` (Claude Code), `gh` for a `github` source and `ess` for repositories with a
-specification; the [README](https://github.com/beyond10x/conductor#install) lists every tool.
+specification; the [README](https://github.com/beyond10x/conductor#requirements) lists every tool.
 
 Install from the repository:
 
@@ -24,15 +24,29 @@ cargo install --git https://github.com/beyond10x/conductor --tag v0.2.0 --locked
 ```
 
 or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.
-Either installs one binary, `conductor`.
+Either installs one binary, `conductor`; `conductor --help` lists its commands.
+
+## Check the programs
+
+`conductor doctor` lists every program conductor starts, present with the first line its
+`--version` prints, or missing:
 
 ```console
-$ conductor --help
-The records conductor and the repository controllers keep
-
-Usage: conductor [OPTIONS] <COMMAND>
-...
+$ conductor doctor
+git: present, git version 2.55.0
+gh: present, gh version 2.100.0 (2026-09-04)
+claude: present, 2.1.296 (Claude Code)
+jq: present, jq-1.8.2
+task: present, 3.53.1+ff3372fc
+aep: present, aep 0.71.2
+worktree: present, b10x-worktree-cli 0.14.0
+ess: present, ess 0.59.0
+pins: no pins, no b10x.toml in ~/work or a directory above it
 ```
+
+It writes nothing and exits 1 when a program is missing. Run at or below a directory holding a
+`b10x.toml` (a checkout of the conductor repository has one), it also says whether each pinned
+program meets its pin, and exits 1 when one is older.
 
 ## Two repositories to watch
 
@@ -48,9 +62,9 @@ $ echo "fn main() {}" > ~/work/alpha/main.rs && git -C ~/work/alpha add main.rs 
 
 ## A config
 
-Write `~/.b10x/conductor/conductor.yaml`. An instance needs a name, its sources and its checkouts;
-every other key has a default. The repository's `conductor.example.yaml` has two complete instances
-to copy from.
+Write `~/.b10x/conductor/conductor.yaml`, the default path; `--config` or `$CONDUCTOR_CONFIG` names
+another. An instance needs a name, its sources and its checkouts; every other key has a default.
+The repository's `conductor.example.yaml` has two complete instances to copy from.
 
 ```yaml
 version: conductor.config/1
@@ -74,10 +88,11 @@ See the effective values after defaults. The first lines name where the instance
 records, its store and its cache:
 
 ```console
-$ conductor config show | head -9
+$ conductor config show | head -10
 version: conductor.config/1
 default: demo
 instances[0].name: demo
+instances[0].session_prefix: null
 instances[0].sources[0].local: ~/work
 instances[0].checkouts.root: ~/work
 instances[0].checkouts.trees: ~/.local/state/worktree/trees/work
@@ -116,18 +131,29 @@ Inactive; `alpha` has one real commit in 7 days and is Active. Conductor process
 requests only for Active repositories ([the loop](./concepts/the-loop.md)). `in_catalog` is `null`
 because the instance names no catalog.
 
-A collector that cannot run fails the snapshot and names itself. With `aep` missing from `PATH`:
+This instance has no records directory yet, so the blockers collector has no workspace to list and
+records no blockers. [Initialise the records](./guides/initialise-the-records.md) writes one.
+
+## When a program is missing
+
+A program a collector would start must be on `PATH`. When one is missing, `start-snapshot` refuses
+up front, names it, and takes no snapshot. With `aep` missing:
 
 ```console
 $ conductor snapshot start-snapshot
-01a11c9d-8a1c-7341-be7d-eb6d9b53578a
-conductor: snapshot start-snapshot: snapshot 01a11c9d-8a1c-7341-be7d-eb6d9b53578a failed: blockers: list the members of ~/.b10x/conductor/demo/records/.engineering/workspace.yaml, tried twice: `aep plan workspace members --format json --root ~/.b10x/conductor/demo/records`: start `aep`: No such file or directory (os error 2)
+conductor: snapshot start-snapshot: `aep` is not on PATH, and a snapshot's collectors starts it; `conductor doctor` lists every program conductor starts
+$ echo $?
+1
 ```
 
-The failed snapshot is kept with its reason and is never read as the current state.
+A collector that runs and does not answer fails the snapshot and names itself. The failed snapshot
+is kept with its reason and is never read as the current state
+([troubleshoot](./guides/troubleshoot.md#a-failed-snapshot)).
 
 ## Next
 
 - [Configure an instance](./guides/configure-an-instance.md) for a real organization.
-- [Start conductor](./guides/start-conductor.md) and its controllers.
+- [Initialise the records](./guides/initialise-the-records.md) with `conductor init`.
+- Read the [security overview](/docs/security/overview), then
+  [start conductor](./guides/start-conductor.md) and its controllers.
 - [The CLI reference](/docs/reference/cli) for every command.

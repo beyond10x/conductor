@@ -1,0 +1,123 @@
+---
+title: Troubleshoot
+sidebar_position: 6
+description: Check the programs with conductor doctor, read why a start was refused or a snapshot failed, read the guard's denials, and find a session that runs without the guard.
+lede: Conductor refuses rather than half-works, and every refusal names its cause, so start from the message and the command that prints it.
+source: crates/conductor/src/doctor.rs; crates/conductor/src/snapshot.rs, crates/conductor/src/collect/; crates/conductor/src/guard.rs; Taskfile.yml, conductor:start; .claude/conductor-settings.json, .claude/controller-settings.json
+---
+
+## Start with doctor
+
+```console
+conductor config validate
+conductor doctor
+```
+
+Every command resolves the instance first and stops on a config problem, named by its YAML path.
+The tasks read the instance through `conductor config show`, so a config that does not validate
+shows up there as a missing role or records directory; validate it first.
+
+`conductor doctor` lists every program conductor starts (`git`, `gh`, `claude`, `jq`, `task`, `aep`,
+`worktree`, `ess`), present with its version line or missing, and, below a `b10x.toml`, whether each
+pinned program meets its pin. It exits 1 when one is missing or older than its pin, and writes
+nothing.
+
+## A refused start
+
+`task conductor:start` checks everything before it starts a session, and starts nothing when a
+check fails. Each message names its fix:
+
+| message | cause | fix |
+|---|---|---|
+| `conductor config show names no role conductor` | the instance's `roles` has no `conductor` entry, or the config does not load | `conductor config validate`; add the role |
+| `the role conductor runs on codex …; this task starts claude only` | the role's `harness` is not `claude` | set `harness: claude` for this role |
+| `the records directory … is not a directory` | the records were never written | [initialise the records](./initialise-the-records.md) with `conductor init` |
+| `the profile … of the role conductor is not a file` | the `profile` path is wrong | point it at `.agents/conductor.md` in a checkout of the conductor repository |
+| `the agent … is not in <records>/.claude/agents/` | the role names no `profile`, and sessions load no user-level agent | name a `profile` for the role ([start conductor](./start-conductor.md#2-name-each-roles-profile-and-settings)) |
+| `Claude Code's bypass-permissions disclaimer is not accepted …` | `claude --bg` refuses `bypassPermissions` until the disclaimer was accepted once | run `claude --dangerously-skip-permissions` once in the records directory, or set `"skipDangerousModePermissionPrompt": true` in the role's settings file |
+| `a session named … is already running; see task sessions` | a live session of that name exists | attach to it, or stop it before you start another; two conductors of one instance would answer the same controllers |
+
+`task conductor:restart` makes the same checks before it stops the running session, so a restart
+that would not start again stops nothing. `conductor config validate` refuses a controller role
+that names an `agent` and no `profile`, before any controller is started.
+
+## A failed snapshot
+
+There are two ways a snapshot does not complete.
+
+**Refused up front.** When a program a collector would start is not on `PATH`, `start-snapshot`
+names it, takes no snapshot and exits 1:
+
+```console
+$ conductor snapshot start-snapshot
+conductor: snapshot start-snapshot: `aep` is not on PATH, and a snapshot's collectors starts it; `conductor doctor` lists every program conductor starts
+```
+
+Install the program and run `conductor doctor`.
+
+**Failed by a collector.** A collector that runs and does not answer fails the snapshot. The
+command prints the id and one line naming the collector and the command that failed, and exits 1.
+The failed snapshot is kept with its reason and never read as the current state; the newest
+complete one stays current. Read the reasons back with:
+
+```console
+conductor snapshot snapshots --format json | jq -r '.[] | select(.state == "Failed") | .failure_reason'
+```
+
+| reason names | likely cause | fix |
+|---|---|---|
+| `blockers: repository <repo>, tried twice: git fetch --quiet origin …` | that member's checkout has no reachable `origin`, often the records directory | give it an `origin` with `main` pushed ([initialise the records](./initialise-the-records.md#4-give-the-records-an-origin)), or rewrite the workspace file |
+| `blockers: list the members of …/workspace.yaml` | `aep` cannot read the workspace file | `conductor config workspace --check`, then `conductor config workspace` |
+| `repositories: …` or `github: …`, with a `gh` command | `gh` is not logged in, or the forge did not answer | `gh auth status`, then take a new snapshot |
+| `specifications: …` | `ess` is missing or did not run for a repository that holds a specification; a specification `ess` refuses is recorded as `Refused`, not a failure | `conductor doctor`, then the command the reason names |
+
+A member whose checkout is absent is not a failure: the collector skips it and names it on one line
+of standard error, `member <name>: checkout absent, skipped`.
+
+## Reading guard denials
+
+The guard records every denial, and only denials:
+
+```console
+$ conductor guard guard-decisions
+guard_decision_id  repository  session_ref  tool  target  verdict  reason  decided_at
+```
+
+Each row names the repository, the session, the tool, the target (a path, a command or a
+recipient), the reason and the time. `--format json` gives the same rows for `jq`. Run it with the
+instance's config, since denials are kept in the instance's state directory.
+
+The reason says which rule denied the call. Most denials are the guard doing its job: a controller
+that tried to write outside its checkout, message another controller, or call `gh` for a write. A
+denial is not the session's last word: the session sees the reason and can take another route.
+
+- **A tool with no rule.** A tool not on the built-in read-only list, MCP tools included, is denied
+  with the list in the reason. When the tool only reads, add it to the role's `read_only_tools`
+  ([instances and config](../concepts/instances-and-config.md#roles-profile-settings-read-only-tools)).
+- **A credential write.** A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write is class H:
+  the denial carries the exact command for the operator to run themselves.
+- **Every call denied.** When every tool call of a session is blocked, the hook could not run
+  `conductor`: the settings run `conductor guard record-guard-decision --from-pre-tool-use || exit 2`,
+  so a binary missing from the session's `PATH` blocks the call. Install it with `task install`.
+
+What each rule allows and denies is in [the guard](/docs/security/the-guard).
+
+## A session that started without the guard
+
+A session is guarded only when it started with a settings file that wires the hook, such as this
+repository's `.claude/conductor-settings.json` or `.claude/controller-settings.json`. The tasks and
+conductor's start form for controllers pass one with `--settings`. A session started or resumed by
+hand without `--settings`, or conductor-dev started without a `settings` for its role, runs with
+`bypassPermissions` and no guard at all.
+
+The guard records nothing for an allowed call, so an unguarded session leaves no trace in
+`guard-decisions`; the absence of denials proves nothing. Check how the session was started. When
+it was not started through the tasks or with the role's settings:
+
+1. Stop it: `claude stop <id>` (find the id with `claude agents --json`).
+2. Start it again the guarded way: `task conductor:start` for conductor; for a controller, let
+   conductor start it with its `--settings`.
+3. Review what it changed while unguarded, in its checkout and on the forge.
+
+Nothing yet stops a second conductor of the same instance from running beside the first; a lease
+that does is planned. See [the limits](/docs/security/limits).
