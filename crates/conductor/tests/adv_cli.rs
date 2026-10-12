@@ -237,8 +237,9 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// (`story:controller-commands`), `goal goals` by `tests/state_dir.rs` (`story:state-dir`),
 /// `guard guard-decisions` by `tests/guard_hook.rs` (`story:guard-hook`), the `decision` leaves by
 /// `tests/decision.rs` and the `dispatch` and `message` leaves by `tests/dispatch.rs`
-/// (`story:decision-commands`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 69] = [
+/// (`story:decision-commands`), and the `session` leaves by `tests/session.rs`
+/// (`story:single-conductor-lease`). In the order the leaves are placed.
+const IMPLEMENTED: [&str; 71] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot record-blocker",
@@ -308,6 +309,8 @@ const IMPLEMENTED: [&str; 69] = [
     "resource request-resource",
     "resource resource-requests",
     "guard guard-decisions",
+    "session claim",
+    "session leases",
 ];
 
 #[test]
