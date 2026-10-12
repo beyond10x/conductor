@@ -61,14 +61,20 @@ connection. A URL can carry data out.
   when the `conductor-dev` role names a settings file.
 - **A session started or resumed by hand** without `--settings <role settings file>` is not
   guarded.
-- **Nothing stops two conductors.** `task conductor:start` refuses while a live session of that
-  name runs, but a session resumed by hand, or one under another name, is not refused, and two
-  conductors can then write the same records.
+- **Two conductors are refused only at session start, and only with the role's settings.** A
+  conductor session started or resumed with the shipped `.claude/conductor-settings.json` claims
+  the instance's conductor lease from its SessionStart hook (`conductor session claim`). While
+  another live session holds the lease, the claim is refused and names that session's id and
+  pid; once the holder's process is gone, the next claim takes the lease over and records whom
+  from. The refusal is shown to the operator; it does not end the second session, and nothing
+  denies that session's tool calls yet. A session started or resumed without those settings
+  claims nothing and is not refused, and two conductors can then write the same records.
 
 - **Do:** start and resume only through the tasks and the documented start form. Check
-  `claude agents` for a live conductor session before starting or resuming one.
-- **Planned:** a conductor lease, so that a second start or resume of conductor is refused and a
-  stale holder is taken over (drafted).
+  `claude agents` for a live conductor session before starting or resuming one, and
+  `conductor session leases` for the session that holds the lease.
+- **Planned:** the guard denies the tool calls of a conductor session that does not hold the
+  lease, and the watch reports two live conductor sessions, settings or not (drafted).
 
 ## No operating-system sandbox, no resource limits
 

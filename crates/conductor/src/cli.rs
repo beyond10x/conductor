@@ -14,7 +14,8 @@
 //! Three presentation options apply everywhere, and nothing else does: `--input-json -` on every
 //! command, `--format` on every view, and the global `--state-dir`, named by `globals.state` of
 //! the `ess-cli/1` binding `crates/conductor/cli.yaml`, before or after any subcommand.
-//! `guard record-guard-decision` alone also takes `--from-pre-tool-use`.
+//! `guard record-guard-decision` alone also takes `--from-pre-tool-use`, and `session claim` alone
+//! `--from-session-start`: each reads the payload of the Claude Code hook it is wired as.
 //!
 //! No flag is required on its own, because every input field may arrive through
 //! `--input-json -` instead: the handler decides what is missing.
@@ -52,8 +53,8 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::{
-    controller, dashboard, decide, dispatch, goal, guard, message, repository, resource, shipped,
-    snapshot, status,
+    controller, dashboard, decide, dispatch, goal, guard, message, repository, resource, session,
+    shipped, snapshot, status,
 };
 
 /// The records conductor and the repository controllers keep.
@@ -226,6 +227,10 @@ impl Cli {
                 }
                 GuardCommand::GuardDecisions(view) => guard::guard_decisions(state, view),
             },
+            Group::Session(command) => match command {
+                SessionCommand::Claim(args) => session::claim(state, args),
+                SessionCommand::Leases(view) => session::leases(state, view),
+            },
             Group::Config(command) => match command {
                 ConfigCommand::Show(args) => crate::config::show(self.config.as_deref(), &args),
                 ConfigCommand::Validate(args) => {
@@ -289,6 +294,10 @@ pub enum Group {
     /// The controller hook and the record of its verdicts
     #[command(subcommand)]
     Guard(GuardCommand),
+
+    /// The instance's one conductor session and the lease it holds
+    #[command(subcommand)]
+    Session(SessionCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `config validate`
     // and `config show` (`story:config-file`).
@@ -433,6 +442,10 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["resource", "usage"], Access::ConductorReads),
     (&["guard", "record-guard-decision"], Access::HookWrites),
     (&["guard", "guard-decisions"], Access::Reads),
+    // Conductor's own SessionStart hook runs it; a controller that claimed the lease would be
+    // taken for the instance's conductor.
+    (&["session", "claim"], Access::Writes),
+    (&["session", "leases"], Access::Reads),
     (&["config", "show"], Access::Reads),
     (&["config", "validate"], Access::Reads),
     (&["config", "workspace"], Access::Writes),
@@ -806,6 +819,18 @@ pub enum GuardCommand {
     /// Guard decisions
     #[command(name = "guard-decisions")]
     GuardDecisions(ViewArgs),
+}
+
+/// `conductor session`: the instance's one conductor session and the lease it holds.
+#[derive(Debug, Subcommand)]
+pub enum SessionCommand {
+    /// Claim the conductor lease
+    #[command(name = "claim")]
+    Claim(ClaimLeaseArgs),
+
+    /// Conductor leases
+    #[command(name = "leases")]
+    Leases(ViewArgs),
 }
 
 // `conductor dashboard`: the commands the binding declares over the `local` callable
@@ -2137,4 +2162,27 @@ pub struct RecordGuardDecisionArgs {
     /// Read a Claude Code PreToolUse payload from standard input and compute the verdict
     #[arg(long, conflicts_with = "input_json")]
     pub from_pre_tool_use: bool,
+}
+
+/// The input of `conductor.session.ClaimLease`.
+#[derive(Debug, Clone, Args)]
+pub struct ClaimLeaseArgs {
+    /// InstanceName
+    #[arg(long)]
+    pub instance: Option<String>,
+    /// SessionId
+    #[arg(long)]
+    pub session_id: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub pid: Option<i64>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub taken_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+    /// Read the session id from a Claude Code SessionStart payload on standard input
+    #[arg(long, conflicts_with_all = ["input_json", "session_id"])]
+    pub from_session_start: bool,
 }

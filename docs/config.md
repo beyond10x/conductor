@@ -181,8 +181,10 @@ write (README, Security model).
 
 With `--setting-sources project,local` a session reads no user settings, and the shipped
 `.claude/conductor-settings.json` and `.claude/controller-settings.json` carry only the guard
-wiring. An instance that needs more gives each role its own `settings` file, outside this
-repository, that carries everything its sessions used to take from the user's settings:
+wiring, and conductor's also the SessionStart hook that claims the instance's conductor lease
+(`conductor session claim`). An instance that needs more gives each role its own `settings` file,
+outside this repository, that carries both hooks of the shipped file and everything its sessions
+used to take from the user's settings:
 
 | key | what |
 |---|---|

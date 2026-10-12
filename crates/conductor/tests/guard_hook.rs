@@ -1291,14 +1291,14 @@ fn settings(name: &str) -> Value {
 }
 
 /// The matchers of `settings`' PreToolUse hooks, sorted, after asserting each runs the guard
-/// command and nothing else, and that no other hook event is wired.
+/// command and nothing else, and that the hook events wired are exactly `events`.
 #[track_caller]
-fn guarded_matchers(settings: &Value) -> Vec<String> {
+fn guarded_matchers(settings: &Value, events: &[&str]) -> Vec<String> {
     let hooks = settings["hooks"].as_object().expect("a hooks object");
     assert_eq!(
-        hooks.keys().collect::<Vec<_>>(),
-        ["PreToolUse"],
-        "only PreToolUse is wired"
+        hooks.keys().map(String::as_str).collect::<Vec<_>>(),
+        events,
+        "the hook events wired"
     );
     let mut matchers: Vec<String> = hooks["PreToolUse"]
         .as_array()
@@ -1319,7 +1319,7 @@ fn guarded_matchers(settings: &Value) -> Vec<String> {
 #[test]
 fn the_controller_settings_wire_the_guard_on_every_tool() {
     let controller = settings("controller-settings.json");
-    assert_eq!(guarded_matchers(&controller), MATCHERS);
+    assert_eq!(guarded_matchers(&controller, &["PreToolUse"]), MATCHERS);
     assert_eq!(
         controller["disableAllHooks"],
         Value::Bool(false),
@@ -1330,7 +1330,12 @@ fn the_controller_settings_wire_the_guard_on_every_tool() {
 #[test]
 fn conductor_settings_wire_the_guard_and_keep_background_isolation_off() {
     let conductor = settings("conductor-settings.json");
-    assert_eq!(guarded_matchers(&conductor), MATCHERS);
+    // Conductor's settings also claim the instance's conductor lease when a session starts
+    // (`story:single-conductor-lease`, `tests/session.rs`).
+    assert_eq!(
+        guarded_matchers(&conductor, &["PreToolUse", "SessionStart"]),
+        MATCHERS
+    );
     assert_eq!(conductor["worktree"]["bgIsolation"], "none");
     assert_eq!(conductor["disableAllHooks"], Value::Bool(false));
 }

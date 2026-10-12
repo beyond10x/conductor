@@ -25,6 +25,7 @@ pub mod init;
 pub mod message;
 pub mod repository;
 pub mod resource;
+pub mod session;
 pub mod shipped;
 pub mod snapshot;
 pub mod spawn;

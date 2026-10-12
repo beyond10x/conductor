@@ -8,6 +8,7 @@ specification:
   - domains/decision.yaml
   - domains/dispatch.yaml
   - domains/config.yaml
+  - domains/session.yaml
 scenarios:
   - scenarios/grant-disk-under-floor.yaml
   - scenarios/adv-route-need-unsent-dispatch.yaml
@@ -27,3 +28,4 @@ scenarios:
   - scenarios/raise-request-twice.yaml
   - scenarios/send-dispatch-twice.yaml
   - scenarios/receive-message-unknown-kind.yaml
+  - scenarios/claim-lease.yaml

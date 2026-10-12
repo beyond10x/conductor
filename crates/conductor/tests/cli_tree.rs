@@ -11,7 +11,8 @@
 //!   by qualified name);
 //! - on each command, one flag per input field (`naming.wire`, or the field name in kebab case),
 //!   accepting what the field's type holds and refusing what it does not, plus `--input-json -`;
-//! - on `conductor.dispatch.RecordGuardDecision`, also `--from-pre-tool-use`;
+//! - on `conductor.dispatch.RecordGuardDecision`, also `--from-pre-tool-use`, and on
+//!   `conductor.session.ClaimLease`, also `--from-session-start`;
 //! - on each view, `--format text|json|jsonl|markdown`;
 //! - everywhere, the state-directory flag and the config-file flag the `ess-cli/1` binding
 //!   `crates/conductor/cli.yaml` names in `globals.state` and `globals.config`, read from
@@ -40,8 +41,16 @@ use serde_json::Value;
 /// The renderings every view offers, in the order its help lists them.
 const FORMATS: [&str; 4] = ["text", "json", "jsonl", "markdown"];
 
-/// The one command that also reads a Claude Code PreToolUse payload (`story:guard-hook`).
-const PRE_TOOL_USE_COMMAND: &str = "conductor.dispatch.RecordGuardDecision";
+/// The commands that also read the payload of a Claude Code hook, each with the flag that says
+/// so: the guard's PreToolUse (`story:guard-hook`) and the lease claim's SessionStart
+/// (`story:single-conductor-lease`).
+const HOOK_FLAGS: [(&str, &str); 2] = [
+    (
+        "conductor.dispatch.RecordGuardDecision",
+        "from-pre-tool-use",
+    ),
+    ("conductor.session.ClaimLease", "from-session-start"),
+];
 
 /// What a flag accepts, read from its field's type.
 #[derive(Debug, Clone)]
@@ -77,7 +86,8 @@ struct LocalFlag {
 enum Kind {
     Command {
         fields: Vec<Field>,
-        pre_tool_use: bool,
+        /// The flag that reads a hook's payload, on a command of [`HOOK_FLAGS`].
+        hook: Option<&'static str>,
     },
     View,
     /// A command the binding declares over a `local` callable outside the `cli:` block.
@@ -414,7 +424,10 @@ fn read_spec() -> Spec {
                 display: command["naming"]["display"].as_str().map(str::to_owned),
                 kind: Kind::Command {
                     fields,
-                    pre_tool_use: qualified == PRE_TOOL_USE_COMMAND,
+                    hook: HOOK_FLAGS
+                        .iter()
+                        .find(|(command, _)| *command == qualified)
+                        .map(|(_, flag)| *flag),
                 },
                 qualified,
             });
@@ -694,18 +707,15 @@ fn derive_tree_is_the_cli_block() {
             }
             let mut expected = global.clone();
             match &leaf.kind {
-                Kind::Command {
-                    fields,
-                    pre_tool_use,
-                } => {
+                Kind::Command { fields, hook } => {
                     if !expected.insert("input-json".to_owned()) {
                         problems.push(format!(
                             "`{path}`: `--input-json` collides with the binding's `--{}`",
                             binding.state
                         ));
                     }
-                    if *pre_tool_use {
-                        expected.insert("from-pre-tool-use".to_owned());
+                    if let Some(flag) = hook {
+                        expected.insert((*flag).to_owned());
                     }
                     for field in fields {
                         if !expected.insert(field.flag.clone()) {
@@ -852,13 +862,11 @@ fn every_flag_accepts_what_its_field_holds() {
             );
             expect_value_refused(&argv(&base, &[config_flag.as_str(), ""]), &mut problems);
             match &leaf.kind {
-                Kind::Command {
-                    fields,
-                    pre_tool_use,
-                } => {
+                Kind::Command { fields, hook } => {
                     expect_accepted(&argv(&base, &["--input-json", "-"]), &mut problems);
-                    if *pre_tool_use {
-                        expect_accepted(&argv(&base, &["--from-pre-tool-use"]), &mut problems);
+                    if let Some(flag) = hook {
+                        let flag = format!("--{flag}");
+                        expect_accepted(&argv(&base, &[flag.as_str()]), &mut problems);
                     }
                     for field in fields {
                         let flag = format!("--{}", field.flag);

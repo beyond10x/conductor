@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5e04ee2a70f7fb642c3ebb51aea9262374d5083015546c28beb90965d42ae4b8
-// contract digest b512924600f906dd7a91b7b249c420453be4c9c03f416ea3a48b7a3da05cc626
+// model digest 75ae36bcd64ac6ed7ea7350fa76e1813347a0d4390844f42e75e83fd78193d30
+// contract digest 218b3db30bad06f16859184bd6831e8cd6288a02160b6f0fec5f8e61a9fbd7ee
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -378,6 +378,24 @@ pub trait WorkflowRunObservationStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::observation::WorkflowRunObservationSnapshot>;
+}
+
+/// Where `conductor.session.Lease` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `instance`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait LeaseStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::config::InstanceName) -> Option<crate::session::LeaseSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::session::LeaseSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::config::InstanceName);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::session::LeaseSnapshot>;
 }
 
 /// What the specification leaves to the implementor's context — a port the implementor provides.
@@ -2153,6 +2171,12 @@ where
     }
 }
 
+impl<P: crate::session::obligations::ClaimLeaseBehavior> crate::session::obligations::ClaimLeaseBehavior for Generated<P> {
+    fn claim_lease(&mut self, input: crate::session::ClaimLease) -> Result<crate::session::ClaimLeaseOutcome, UnmetObligation> {
+        crate::session::obligations::ClaimLeaseBehavior::claim_lease(&mut self.ports, input)
+    }
+}
+
 /// `conductor.decision.Decisions`, generated: every row is one the specification fully determines from the stored `conductor.decision.Decision`s.
 impl<P> crate::decision::obligations::DecisionsQuery for Generated<P>
 where
@@ -2635,6 +2659,28 @@ where
                 workflow: held.data.workflow,
                 conclusion: held.data.conclusion,
                 run_at: held.data.run_at,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.session.Leases`, generated: every row is one the specification fully determines from the stored `conductor.session.Lease`s.
+impl<P> crate::session::obligations::LeasesQuery for Generated<P>
+where
+    P: LeaseStorage,
+{
+    fn leases(&self) -> Result<Vec<crate::session::Leases>, UnmetObligation> {
+        let admitted = LeaseStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::session::Leases {
+                instance: held.data.instance,
+                state: held.state,
+                session_id: held.data.session_id,
+                pid: held.data.pid,
+                taken_at: held.data.taken_at,
+                taken_over_session_id: held.data.taken_over_session_id,
+                taken_over_pid: held.data.taken_over_pid,
             })
             .collect())
     }

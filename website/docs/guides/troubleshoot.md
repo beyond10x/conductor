@@ -119,5 +119,7 @@ it was not started through the tasks or with the role's settings:
    conductor start it with its `--settings`.
 3. Review what it changed while unguarded, in its checkout and on the forge.
 
-Nothing yet stops a second conductor of the same instance from running beside the first; a lease
-that does is planned. See [the limits](/docs/security/limits).
+A second conductor of the same instance started with the role's settings is refused when it
+starts, and the refusal names the session that holds the conductor lease
+(`conductor session leases` lists it); one started without them is not. Neither is stopped from
+running beside the first yet. See [the limits](/docs/security/limits).

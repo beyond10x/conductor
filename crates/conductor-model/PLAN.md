@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 5e04ee2a70f7fb642c3ebb51aea9262374d5083015546c28beb90965d42ae4b8
-  contract digest b512924600f906dd7a91b7b249c420453be4c9c03f416ea3a48b7a3da05cc626
+  model digest 75ae36bcd64ac6ed7ea7350fa76e1813347a0d4390844f42e75e83fd78193d30
+  contract digest 218b3db30bad06f16859184bd6831e8cd6288a02160b6f0fec5f8e61a9fbd7ee
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-356 capabilities: **347 generated**, **1 obligations**, **8 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+367 capabilities: **356 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -107,6 +107,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.Visibility` |
 | domain type | `conductor.observation.WatchRun` |
 | domain type | `conductor.observation.WorkflowRunObservation.State` |
+| domain type | `conductor.session.Lease.State` |
+| domain type | `conductor.session.SessionId` |
 | entity lifecycle | `conductor.decision.Decision` |
 | entity lifecycle | `conductor.decision.DecisionRequest` |
 | entity lifecycle | `conductor.direction.Goal` |
@@ -127,6 +129,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.observation.Snapshot` |
 | entity lifecycle | `conductor.observation.SpecificationObservation` |
 | entity lifecycle | `conductor.observation.WorkflowRunObservation` |
+| entity lifecycle | `conductor.session.Lease` |
 | command contract | `conductor.decision.AnswerEscalatedRequest` |
 | command behaviour | `conductor.decision.AnswerEscalatedRequest` |
 | command contract | `conductor.decision.AnswerRequest` |
@@ -228,6 +231,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.observation.RecordWorkflowRun` |
 | command contract | `conductor.observation.StartSnapshot` |
 | command behaviour | `conductor.observation.StartSnapshot` |
+| command contract | `conductor.session.ClaimLease` |
 | event type | `conductor.decision.DecisionRecorded` |
 | event type | `conductor.decision.DecisionRequested` |
 | event type | `conductor.decision.DecisionReversedEvent` |
@@ -276,6 +280,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.observation.SnapshotStarted` |
 | event type | `conductor.observation.SpecificationRecorded` |
 | event type | `conductor.observation.WorkflowRunRecorded` |
+| event type | `conductor.session.LeaseTaken` |
+| event type | `conductor.session.LeaseTakenOver` |
 | error type | `conductor.decision.DecisionExists` |
 | error type | `conductor.decision.DecisionNotFound` |
 | error type | `conductor.decision.DecisionReversed` |
@@ -318,6 +324,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.observation.SnapshotNotCollecting` |
 | error type | `conductor.observation.SnapshotNotComplete` |
 | error type | `conductor.observation.SnapshotNotFound` |
+| error type | `conductor.session.LeaseHeld` |
 | view type | `conductor.decision.Decisions` |
 | view query | `conductor.decision.Decisions` |
 | view type | `conductor.decision.HandsTodo` |
@@ -360,6 +367,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.observation.Specifications` |
 | view type | `conductor.observation.WorkflowRuns` |
 | view query | `conductor.observation.WorkflowRuns` |
+| view type | `conductor.session.Leases` |
+| view query | `conductor.session.Leases` |
 | component port | `conductor-cli` |
 
 ## Ports — yours to provide
@@ -376,6 +385,7 @@ What the specification fully determines is generated; what it cannot determine i
 | capability | source | why not generated | contract |
 | --- | --- | --- | --- |
 | command behaviour | `conductor.dispatch.StartController` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-running` | given `conductor.dispatch.StartController` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `already-running` when, of the `conductor.dispatch.Controller` rows satisfying `(repository == input.repository and state in [Running, Paused])`, at least 1 rows are selected, error `conductor.dispatch.ControllerAlreadyRunning`; `started` otherwise, creates `conductor.dispatch.Controller`, emits `conductor.dispatch.ControllerStarted` |
+| command behaviour | `conductor.session.ClaimLease` | kept an obligation by an unknown identity, which reaches no declared outcome (neither `unknown_instance:` nor `wrong_state:`) | given `conductor.session.ClaimLease` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `taken` when, of the `conductor.session.Lease` rows satisfying `instance == input.instance`, no row is selected, creates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `renewed` when, of the `conductor.session.Lease` rows satisfying `(instance == input.instance and pid == input.pid)`, at least one row is selected, updates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `held` externally decided (the process the lease names lives and is not the claiming one), error `conductor.session.LeaseHeld`; `taken-over` otherwise, updates `conductor.session.Lease`, emits `conductor.session.LeaseTakenOver` |
 
 ## Refused — not represented by this synthesis
 
@@ -389,3 +399,4 @@ What the specification fully determines is generated; what it cannot determine i
 | actor grants | `conductor.dispatch.Conductor` | planning | may invoke `conductor.dispatch.CancelDispatch`, `conductor.dispatch.GrantResource`, `conductor.dispatch.HandleMessage`, `conductor.dispatch.PauseController`, `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.RefuseResource`, `conductor.dispatch.RejectMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.ResumeController`, `conductor.dispatch.ReviseCharter`, `conductor.dispatch.RouteNeed`, `conductor.dispatch.SendDispatch`, `conductor.dispatch.StartController`, `conductor.dispatch.StopController`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.dispatch.RepositoryController` | planning | may invoke `conductor.dispatch.RecordGuardDecision`, `conductor.dispatch.ReleaseResource`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.RequestResource`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.observation.Collector` | planning | may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.session.Conductor` | planning | may invoke `conductor.session.ClaimLease`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
