@@ -7,6 +7,7 @@ title: Starting a controller launches its session
 relations:
 - depends_on: story:instance-session-names
 - depends_on: story:guard-all-tools
+- decomposes: epic:session-confinement
 scope:
 - confidence: cited
   path: crates/conductor-model

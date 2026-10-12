@@ -4,6 +4,8 @@ id: story:codex-controller-profile
 kind: story
 status: draft
 title: Codex controller profile
+relations:
+- depends_on: story:mailbox
 revision: 1
 ---
 # Codex controller profile

@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:guard-lock-timeout
 kind: story
-status: draft
+status: archived
 title: A store lock timeout in the guard says so, not a denial of the tool
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-12T18:55:43Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 

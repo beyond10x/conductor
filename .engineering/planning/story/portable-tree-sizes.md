@@ -6,6 +6,8 @@ status: draft
 title: The dashboard measures tree sizes without GNU du
 tags:
 - session-review
+relations:
+- decomposes: epic:disk-and-gate
 revision: 1
 ---
 ## Why

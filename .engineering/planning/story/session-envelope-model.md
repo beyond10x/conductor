@@ -6,7 +6,6 @@ status: draft
 title: A session's envelope is requested, measured and recorded
 relations:
 - decomposes: epic:session-confinement
-- depends_on: story:host-grants
 scope:
 - confidence: cited
   path: crates/conductor-model

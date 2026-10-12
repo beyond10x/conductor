@@ -4,6 +4,9 @@ id: story:conformance
 kind: story
 status: draft
 title: The conformance suite runs against the CLI
+relations:
+- depends_on: story:spawn
+- depends_on: story:status-board
 revision: 1
 ---
 # The conformance suite runs against the CLI

@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:specifications-owner-nonmembers
 kind: story
-status: draft
+status: archived
 title: A github repository outside the workspace gets a specifications row
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-12T18:55:44Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 

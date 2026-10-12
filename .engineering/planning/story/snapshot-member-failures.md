@@ -4,6 +4,8 @@ id: story:snapshot-member-failures
 kind: story
 status: draft
 title: A member a collector cannot read is a recorded failure, not a failed snapshot
+relations:
+- supersedes: story:specifications-owner-nonmembers
 revision: 1
 ---
 ## Why

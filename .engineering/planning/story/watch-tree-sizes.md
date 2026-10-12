@@ -2,9 +2,11 @@
 format: aep.planning-md/3
 id: story:watch-tree-sizes
 kind: story
-status: draft
+status: archived
 title: The watch reports the largest managed trees by size
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-12T18:56:04Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 
