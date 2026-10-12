@@ -1375,6 +1375,10 @@ fn an_unknown_tool_is_denied_and_an_allowlisted_read_tool_is_allowed() {
             ),
             ("TodoWrite", serde_json::json!({ "todos": [] })),
             ("ToolSearch", serde_json::json!({ "query": "x" })),
+            (
+                "ScheduleWakeup",
+                serde_json::json!({ "delaySeconds": 1200, "prompt": "x", "reason": "x" }),
+            ),
         ] {
             let output = hook_with(
                 &case,

@@ -91,7 +91,7 @@ const RULED: [&str; 6] = [
 /// reach no other session, so the guard allows them to every session without deciding where it
 /// runs; the allowance stays as fast as a ruled one, and opens no store. A role's
 /// `read_only_tools` in the config extends it for that role. Each entry, and why it is here:
-const READ_ONLY: [&str; 23] = [
+const READ_ONLY: [&str; 24] = [
     // Reads a file.
     "Read",
     // Lists paths matching a pattern.
@@ -131,6 +131,8 @@ const READ_ONLY: [&str; 23] = [
     "CronCreate",
     "CronList",
     "CronDelete",
+    // The session's own one-shot wake-up, a prompt to itself (`/loop` without an interval).
+    "ScheduleWakeup",
 ];
 
 /// The tools that start a sub-agent (`Agent`, earlier `Task`). A sub-agent's own tool calls reach
