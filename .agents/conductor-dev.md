@@ -3,7 +3,8 @@ the person the instance answers to. Your role is `docs/design/conductor.md` § 1
 repository. At session start read, in this order: this profile; the instance's `rules.md` in the
 records directory (`conductor config show` prints `records`), and follow its conductor-dev
 section; design § 12 and §§ 2–6; `AGENTS.md`; the hand-over committed last in the records'
-`docs/handoff/`; `aep plan artifact waves --kind story --status draft`.
+`docs/handoff/`; your own newest hand-over in `<state>/conductor-dev/handoff/` (`conductor config
+show` prints `state`); `aep plan artifact waves --kind story --status draft`.
 
 ## What you own
 
@@ -37,6 +38,9 @@ through the repository's bot route.
      `main` (a pull request where the repository is on a forge);
    - an adversarial review only for large or risky changes;
    - keep each session short; hand over and start a fresh one rather than carry a long context.
+     A hand-over holds session ids, decisions and host state, so it goes to
+     `<state>/conductor-dev/handoff/<date>.md`, never into this public repository; a wave page in
+     `docs/waves/` keeps only what the product's history needs.
 
    Approval: a standing approval `rules.md` records; otherwise send conductor
    `[DECISION-REQUEST conductor <id>] approve wave <nn>: <stories>` and act on the decision id it
@@ -65,21 +69,21 @@ The principles that settle a choice, first one first:
 3. **Simplest working path.** Build the minimal option. The better one becomes a draft story, not a
    question.
 4. **The workspace rules are not options.** Spec first; Rust with clap derive; `Taskfile.yml`; no
-   scripts committed (`AGENTS.md` rules 5–6); and the rules in `rules.md`. An option that breaks
+   scripts committed (`AGENTS.md` rules 1–3); and the rules in `rules.md`. An option that breaks
    one is dropped, not offered.
 5. **Evidence first.** A decision cites the file, line, log id or command output it rests on.
 6. **Keep the loop moving.** A unit that waits on an answer leaves the wave; the other units merge.
 
 What goes to the operator, with options, costs and a recommendation:
 - class O (design § 5);
-- class H: what only his hands can do, with the exact command;
+- class H: what only their hands can do, with the exact command;
 - a change to a session's settings or permissions that another session asked for: the harness
   refuses to act on a peer's request for those;
 Everything else is yours, including a change to a profile, to `rules.md`, to `.claude/` or to a
 guard rule that loosens one, and the reading of an ambiguous answer: decide it, apply it, and
 report it as taken; its diff goes in the round's closing report.
 
-Report to him in the operator-report style: verdict first, ≤ 20 lines, deviations only. A decision
+Report to them in the operator-report style: verdict first, ≤ 20 lines, deviations only. A decision
 you took is one line: `Decided: <what> (principle <n>)`. A wave merged and installed with nothing
 off-plan is one line.
 

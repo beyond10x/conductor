@@ -7,7 +7,7 @@ title: A workspace conductor config workspace writes is read by both snapshot co
 scope:
 - confidence: cited
   path: crates/conductor/tests/collect_stores.rs
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-12T12:33:13Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-10-12T12:33:13Z", actor: "human:timo", revision: 4}
@@ -16,7 +16,7 @@ transitions:
 ## Why
 
 `conductor config workspace` (wave 04) needed three fixes after merge, each found by a failed live
-snapshot (conductor's NEED N-20261012-01, -02, -03): a records member written as `..`, a checkout
+snapshot (reported by conductor, 2026-10-12): a records member written as `..`, a checkout
 with no `origin` remote, and a checkout whose directory differs from its forge name. Each fix was
 tested alone; no test ran the blockers and specifications collectors over a file the command wrote.
 

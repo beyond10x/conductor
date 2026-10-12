@@ -11,13 +11,13 @@ scope:
   path: docs/design/conductor.md
 - confidence: cited
   path: spec/domains
-revision: 2
+revision: 3
 ---
 ## Why
 
 On 2026-10-12 two sessions named `conductor` were live: the managed background session in the
-records directory (355bf50a) and the first conductor session of 2026-10-06 (d5745017, transcript
-`25c3323a…`), resumed by the operator with cwd `~/beyond10x`. It came back under the same name,
+records directory and the first conductor session of 2026-10-06,
+resumed by hand with the parent directory of the checkouts as its cwd. It came back under the same name,
 and nothing refused it. Two conductors can each dispatch, decide, write the records and grant
 build slots; a peer that addresses `conductor` gets an ambiguity error or reaches the wrong one
 (the second session's own NEED to conductor-dev, 2026-10-12, operator request). `task
@@ -37,7 +37,7 @@ A new noun, so it is modelled in `spec/` first (`ess:specifying`): `conductor.se
   holder exists, a call from another session id is denied for every write (records, SendMessage,
   Bash writes), naming the holder. Reads stay allowed.
 - A holder whose pid is gone is stale: the next claim takes the lease over and records that it did.
-- A session resumed without the instance's settings (no guard, as d5745017 in `~/beyond10x`) is
+- A session resumed without the instance's settings (no guard, as that resumed session) is
   outside both. `conductor watch` reports two live sessions named `conductor` (from `claude agents
   --json`) as an incident, so conductor-dev and the operator hear of it.
 
