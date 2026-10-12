@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-12T17:00:41Z",
+  "actor": "human:timo",
+  "artifact": "story:operator-decision-guarded",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:ops-hardening-acceptance-r1",
+    "reference": "finding: website security pages name no check (operator-decision-guarded.md:36)",
+    "review": "review-result:ops-hardening-acceptance-r1",
+    "outcome": "fixed"
+  }
+}

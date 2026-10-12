@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-12T17:00:41Z",
+  "actor": "human:timo",
+  "artifact": "story:operator-decision-guarded",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:ops-hardening-parallel-r1",
+    "reference": "finding: shares guard/rules.rs and guard_rules.rs with guard-store-migrate (operator-decision-guarded.md:9)",
+    "review": "review-result:ops-hardening-parallel-r1",
+    "outcome": "fixed"
+  }
+}

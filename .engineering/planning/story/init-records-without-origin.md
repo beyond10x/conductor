@@ -4,14 +4,14 @@ id: story:init-records-without-origin
 kind: story
 status: draft
 title: A snapshot completes over freshly initialised records that have no origin yet
+relations:
+- decomposes: epic:operating-loop-hardening
 scope:
 - confidence: cited
   path: crates/conductor/src/collect/blockers.rs
 - confidence: cited
   path: crates/conductor/tests/workspace_snapshot.rs
-- confidence: cited
-  path: website/docs/guides/initialise-the-records.md
-revision: 2
+revision: 4
 ---
 ## Why
 
@@ -23,11 +23,15 @@ records member is written regardless. Reproduced by the docs overhaul, 2026-10-1
 
 ## Acceptance
 
-- A snapshot over a workspace whose records member has no `origin` completes; the blockers collector
-  reads the records' store without fetching. Test in `tests/workspace_snapshot.rs`.
-- The guide drops the "add an origin first" step.
+- A snapshot over a workspace whose records member has no `origin` remote completes, the blockers
+  collector reading the records' store without fetching; a test in
+  `crates/conductor/tests/workspace_snapshot.rs` holds it.
+
+## Notes
+
+- Once this lands, `website/docs/guides/initialise-the-records.md` can drop its "add an origin
+  first" step; a later docs edit.
 
 ## Scope
 
-`crates/conductor/src/collect/blockers.rs`, `crates/conductor/tests/workspace_snapshot.rs`,
-`website/docs/guides/initialise-the-records.md`.
+`crates/conductor/src/collect/blockers.rs`, `crates/conductor/tests/workspace_snapshot.rs`.

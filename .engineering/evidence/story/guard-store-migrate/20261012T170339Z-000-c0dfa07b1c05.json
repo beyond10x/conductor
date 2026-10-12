@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-12T17:03:39Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-store-migrate",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:ops-hardening-acceptance-r2",
+    "reference": "guard-store-migrate.md:31",
+    "review": "review-result:ops-hardening-acceptance-r2",
+    "outcome": "fixed"
+  }
+}

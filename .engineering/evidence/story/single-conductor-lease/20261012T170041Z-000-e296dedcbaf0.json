@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-12T17:00:41Z",
+  "actor": "human:timo",
+  "artifact": "story:single-conductor-lease",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:ops-hardening-acceptance-r1",
+    "reference": "finding: settings template runs conductor session claim (single-conductor-lease.md:48)",
+    "review": "review-result:ops-hardening-acceptance-r1",
+    "outcome": "fixed"
+  }
+}

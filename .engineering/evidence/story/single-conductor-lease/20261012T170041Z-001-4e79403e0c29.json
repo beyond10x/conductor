@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-12T17:00:41Z",
+  "actor": "human:timo",
+  "artifact": "story:single-conductor-lease",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:ops-hardening-parallel-r1",
+    "reference": "finding: shares spec, model, cli.rs and guard with operator-decision-guarded (single-conductor-lease.md:29)",
+    "review": "review-result:ops-hardening-parallel-r1",
+    "outcome": "fixed"
+  }
+}

@@ -9,6 +9,7 @@ relations:
 - depends_on: story:instance-session-names
 - depends_on: story:guard-all-tools
 - depends_on: story:spawn
+- depends_on: story:restart-current-profile
 scope:
 - confidence: cited
   path: Taskfile.yml

@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-12T17:00:41Z",
+  "actor": "human:timo",
+  "artifact": "story:session-tasks-follow-prefix",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:ops-hardening-parallel-r1",
+    "reference": "finding: scope names dashboard/ and doctor.rs, not dashboard.rs:1096 (session-tasks-follow-prefix.md:35)",
+    "review": "review-result:ops-hardening-parallel-r1",
+    "outcome": "fixed"
+  }
+}
