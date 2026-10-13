@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T09:50:00Z",
+  "actor": "human:timo",
+  "artifact": "epic:forge-neutral",
+  "kind": "epic",
+  "revision": 1,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1",
+    "reference": "forge-scope-r1#2",
+    "review": "review-result:forge-scope-r1",
+    "outcome": "fixed"
+  }
+}

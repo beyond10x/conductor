@@ -4,11 +4,12 @@ id: story:gh-optional
 kind: story
 status: draft
 title: conductor runs without gh for a workspace with no GitHub repository
+relations:
+- decomposes: epic:forge-neutral
+- depends_on: story:gitlab-source-host
 scope:
 - confidence: cited
-  path: README.md
-- confidence: cited
-  path: crates/conductor/src/collect/github.rs
+  path: crates/conductor-model
 - confidence: cited
   path: crates/conductor/src/collect/mod.rs
 - confidence: cited
@@ -16,33 +17,50 @@ scope:
 - confidence: cited
   path: crates/conductor/tests/doctor.rs
 - confidence: cited
-  path: website/docs/getting-started.md
-revision: 2
+  path: crates/conductor/tests/grouped_instance.rs
+- confidence: cited
+  path: crates/conductor/tests/instance_sources.rs
+- confidence: cited
+  path: spec/domains/config.yaml
+- confidence: cited
+  path: website/docs/reference/config.md
+revision: 12
 ---
 ## Why
 
 Engineers of a team trying conductor v0.4.0 (2026-10-13) ran `conductor doctor`; every posted run
 exited 1, and `gh` was missing on all four that posted output. One asked to drop the dependency:
-the team keeps no repository on GitHub. `gh` is one of the eight `PROGRAMS` in
-`crates/conductor/src/doctor.rs:24`, but only the GitHub collectors (`crates/conductor/src/collect/
-github.rs`, and the GitHub rows of `repositories.rs` and `specifications.rs`) and the watch's CI
-line call it.
+the team keeps no repository on GitHub. `gh` is one of the eight `PROGRAMS` that `doctor` always
+requires (`crates/conductor/src/doctor.rs:24`), while the snapshot already asks for `gh` only with
+a `github` owner (`collect::programs`, `crates/conductor/src/collect/mod.rs:109`) and for nothing
+on a `gitlab` source.
 
 ## Acceptance
 
-- With a workspace whose members name no GitHub repository, `conductor doctor` reports a missing
-  `gh` as `not needed: no GitHub repository in the workspace` and exits 0 when every other program
-  is present; a test in `crates/conductor/tests/doctor.rs` with a fixture workspace and a `PATH`
-  without `gh` holds it.
-- With such a workspace, a snapshot completes without `gh` on `PATH`, recording no GitHub rows; a
-  test in `crates/conductor/tests/` holds it.
+- With a gitlab-only config and no `gh` on `PATH`, `conductor doctor` prints `gh: not needed` and
+  exits 0 when every other program is present; with a github-only config it prints `glab: not
+  needed`; with a `gitlab` source and no `glab` on `PATH` it exits 1 naming `glab`. A test in
+  `crates/conductor/tests/doctor.rs` holds the three cases.
+- `collect::programs` asks for `glab` when the instance has a `gitlab` source, so a snapshot of a
+  gitlab instance without `glab` is refused before it starts; a case in
+  `crates/conductor/tests/instance_sources.rs` holds it.
 
 ## Notes
 
-- With at least one GitHub member, `gh` stays required, as now.
+- `not needed` is a new variant of `conductor.config.PrerequisiteState` in
+  `spec/domains/config.yaml`; this story lands after `story:gitlab-source-host`, which also changes
+  that file and the generated model and reference page.
+- `story:doctor-verdict` and `story:doctor-minimum-versions` also land on `doctor.rs` and
+  `tests/doctor.rs`; both depend on this story. The GitLab collector stories land on
+  `collect/mod.rs` after it.
+- The README and website wording is `story:gitlab-guide`'s.
+- The existing gitlab case of `crates/conductor/tests/grouped_instance.rs` starts a snapshot on a
+  `PATH` without `glab`; this story puts a fake `glab` on that `PATH` (the file is shared with
+  `story:gitlab-source-host` before it and `story:gitlab-repositories` after it).
 
 ## Scope
 
+`spec/domains/config.yaml`, `crates/conductor-model`, `website/docs/reference/config.md`,
 `crates/conductor/src/doctor.rs`, `crates/conductor/src/collect/mod.rs`,
-`crates/conductor/src/collect/github.rs`, `crates/conductor/tests/doctor.rs`, `README.md`,
-`website/docs/getting-started.md`.
+`crates/conductor/tests/doctor.rs`, `crates/conductor/tests/instance_sources.rs`,
+`crates/conductor/tests/grouped_instance.rs`.

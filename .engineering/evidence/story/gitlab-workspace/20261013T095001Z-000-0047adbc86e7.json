@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T09:50:01Z",
+  "actor": "human:timo",
+  "artifact": "story:gitlab-workspace",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1",
+    "reference": "forge-acceptance-r1#6",
+    "review": "review-result:forge-acceptance-r1",
+    "outcome": "fixed"
+  }
+}

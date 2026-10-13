@@ -11,7 +11,7 @@ scope:
   path: crates/conductor/src/dashboard/waste.rs
 - confidence: cited
   path: crates/conductor/tests/gc.rs
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -19,15 +19,15 @@ revision: 2
 output in worktree archives … not measured": `archive_strip` in
 `crates/conductor/src/dashboard/waste.rs` passes `sources.root`, the records directory, as
 `worktree prune-archives --scope profile --repo`, and `worktree` refuses it with
-`workspace-not-activated: no active profile contains <records>`. The records directory is in no
-worktree profile; the instance's checkouts are.
+`workspace-not-activated: no active profile contains <records>`. The apply path passes the same
+`--repo` (`waste.rs:341`).
 
 ## Acceptance
 
-- `conductor gc --dry-run` passes `--repo` a repository under the config's `checkouts.root` (the
-  first checkout the workspace names), not the records directory; a test in
+- `conductor gc --dry-run` and `conductor gc` pass `--repo` a git checkout under the config's
+  `checkouts.root` (the first in name order), not the records directory; a test in
   `crates/conductor/tests/gc.rs` with a fixture `worktree` on `PATH` records the `--repo` argument
-  of the `prune-archives` call and finds the checkout's path in it.
+  of both `prune-archives` calls and finds the checkout's path in each.
 
 ## Notes
 

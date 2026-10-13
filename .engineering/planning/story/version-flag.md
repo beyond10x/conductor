@@ -4,27 +4,36 @@ id: story:version-flag
 kind: story
 status: draft
 title: conductor --version prints the installed version
-revision: 1
+relations:
+- depends_on: story:doctor-minimum-versions
+scope:
+- confidence: cited
+  path: crates/conductor/src/cli.rs
+- confidence: cited
+  path: crates/conductor/tests/cli_tree.rs
+- confidence: cited
+  path: website/docs/reference/cli.md
+revision: 3
 ---
 ## Why
 
 `conductor --version` is refused ("unexpected argument '--version' found", 2026-10-13, after the
-v0.5.0 install), so nobody can check which conductor is installed without reading cargo's install
-log; `ess`, `aep` and `worktree` all answer `--version`.
+v0.5.0 install), so nobody can check which conductor is installed; a team trying v0.4.0 hit the
+same. `ess`, `aep` and `worktree` all answer `--version`.
 
 ## Acceptance
 
 - `conductor --version` prints `conductor <version>` from the crate version and exits 0; a test in
-  `crates/conductor/tests/` holds it.
+  `crates/conductor/tests/cli_tree.rs` holds it, and the tree comparison there names `--version`
+  on the root as a harness flag beside `--help`, not a modelled command.
 
 ## Notes
 
-- `tests/cli_tree.rs` holds the tree to exactly the specification's `cli:` block and the binding's
-  globals, so the flag is modelled first: whether `ess-cli/1` (`crates/conductor/cli.yaml`) can
-  declare a version global, else an exception named in `cli_tree.rs`; the generated reference page
-  (`website/docs/reference/cli.md`) follows.
+- `ess-cli/1` declares no version global (`crates/conductor/cli.yaml` `globals`); asking ESS for
+  one is a follow-up for conductor to pass on. Until then the flag is clap's own.
+- The generated `website/docs/reference/cli.md` changes with it (`conductor-docs generate`).
 
 ## Scope
 
-`crates/conductor/src/cli.rs`, `crates/conductor/cli.yaml`, `crates/conductor/tests/cli_tree.rs`,
+`crates/conductor/src/cli.rs`, `crates/conductor/tests/cli_tree.rs`,
 `website/docs/reference/cli.md`.

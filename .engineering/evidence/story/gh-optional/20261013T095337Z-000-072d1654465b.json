@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T09:53:37Z",
+  "actor": "human:timo",
+  "artifact": "story:gh-optional",
+  "kind": "story",
+  "revision": 12,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2",
+    "reference": "forge-parallel-r2#1",
+    "review": "review-result:forge-parallel-r2",
+    "outcome": "fixed"
+  }
+}

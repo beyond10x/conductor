@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T09:50:02Z",
+  "actor": "human:timo",
+  "artifact": "story:doctor-verdict",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1",
+    "reference": "forge-acceptance-r1#10",
+    "review": "review-result:forge-acceptance-r1",
+    "outcome": "fixed"
+  }
+}
