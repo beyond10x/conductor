@@ -825,7 +825,153 @@ fn the_context_threshold_is_the_instances() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The instance's settings (W4 decisions 2, 3 and 5)
+// A silent controller (story:watch-silent-controller)
+// ---------------------------------------------------------------------------------------------
+
+/// One hour after [`noon`], the clock of a later watch.
+fn one_pm() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T13:00:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+/// `entry` with the list's `state` set to `state`, its `status` and `pid` kept.
+fn in_state(mut entry: Value, state: &str) -> Value {
+    let object = entry.as_object_mut().expect("a session entry");
+    object.insert("state".to_owned(), json!(state));
+    entry
+}
+
+/// Writes `file` (and its directories), last modified `minutes` before [`noon`]; a negative
+/// `minutes` lies after it.
+fn written_before_noon(file: &Path, minutes: i64) {
+    fs::create_dir_all(file.parent().expect("a file under a directory"))
+        .expect("create the transcript's directory");
+    fs::write(file, "{\"type\":\"user\"}\n").expect("write the transcript");
+    let at = std::time::SystemTime::from(noon() - time::Duration::minutes(minutes));
+    fs::File::options()
+        .write(true)
+        .open(file)
+        .and_then(|file| file.set_modified(at))
+        .expect("set the transcript's modification time");
+}
+
+/// The directory Claude Code keeps the transcripts of the sessions working in `cwd` in, under
+/// `projects`.
+fn project(projects: &Path, cwd: &str) -> PathBuf {
+    let directory: String = cwd
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    projects.join(directory)
+}
+
+/// The transcript of the fixture session `entry` under `projects`.
+fn transcript_of(projects: &Path, entry: &Value) -> PathBuf {
+    let cwd = entry["cwd"].as_str().expect("a cwd");
+    let id = entry["sessionId"].as_str().expect("a sessionId");
+    project(projects, cwd).join(format!("{id}.jsonl"))
+}
+
+/// A sub-agent transcript of the fixture session `entry` under `projects`, at `under` below its
+/// `subagents/`.
+fn subagent_of(projects: &Path, entry: &Value, under: &str) -> PathBuf {
+    transcript_of(projects, entry)
+        .with_extension("")
+        .join("subagents")
+        .join(under)
+}
+
+fn delta() -> Value {
+    session(
+        "d7d7d7d7-0000-4000-8000-000000000007",
+        "delta",
+        2107,
+        "/fixture-home/example-org/delta",
+    )
+}
+
+/// At noon: alpha (working) last wrote 40 minutes ago and its sub-agent 35; beta (working) 50
+/// minutes ago, but a sub-agent of a workflow nested under its `subagents/` 5; conductor 60, but
+/// it is the conductor role, not a controller; delta 90, but it is idle; and gamma (waiting) 45.
+/// Alpha and gamma are silent, once each, until one of them writes and falls silent again.
+#[test]
+fn a_live_controller_whose_transcripts_stay_silent_is_reported_once_per_silence() {
+    let case = Case::new("silent");
+    let projects = case.dir.join("projects");
+    let gamma = in_state(gamma(), "waiting");
+    let delta = in_state(delta(), "idle");
+    written_before_noon(&transcript_of(&projects, &alpha()), 40);
+    written_before_noon(&subagent_of(&projects, &alpha(), "agent-a1.jsonl"), 35);
+    written_before_noon(&transcript_of(&projects, &beta()), 50);
+    written_before_noon(
+        &subagent_of(&projects, &beta(), "workflows/run-1/agent-b1.jsonl"),
+        5,
+    );
+    written_before_noon(&transcript_of(&projects, &conductor()), 60);
+    written_before_noon(&transcript_of(&projects, &delta), 90);
+    written_before_noon(&transcript_of(&projects, &gamma), 45);
+    case.sessions(&[alpha(), beta(), conductor(), delta, gamma]);
+    let mut sources = case.sources(None);
+    sources.projects.clone_from(&projects);
+    let mut watch = Watch::new(sources.clone(), case.state());
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "session silent: alpha a1a1a1a1 35m",
+            "session silent: gamma e5e5e5e5 45m",
+        ],
+        "alpha's newest write is its sub-agent's; beta's nested sub-agent wrote 5 minutes ago"
+    );
+    assert_eq!(pass(&mut watch), NOTHING, "each silence once");
+
+    written_before_noon(&subagent_of(&projects, &alpha(), "agent-a1.jsonl"), 1);
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "alpha's sub-agent wrote a minute ago"
+    );
+
+    let mut later = sources;
+    later.clock = one_pm;
+    let mut watch = Watch::new(later, case.state());
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "session silent: alpha a1a1a1a1 61m",
+            "session silent: beta b2b2b2b2 65m",
+        ],
+        "an hour later alpha has fallen silent anew and beta's sub-agent too; gamma's silence \
+         was reported already, however long it lasts"
+    );
+    assert_eq!(pass(&mut watch), NOTHING);
+}
+
+/// The silence is the instance's `thresholds.silent_session`: under 40 minutes alpha's 35 are
+/// not reported, gamma's 45 are.
+#[test]
+fn the_silence_threshold_is_the_instances() {
+    let case = Case::new("silent-threshold");
+    let projects = case.dir.join("projects");
+    let gamma = in_state(gamma(), "waiting");
+    written_before_noon(&transcript_of(&projects, &alpha()), 35);
+    written_before_noon(&transcript_of(&projects, &gamma), 45);
+    case.sessions(&[alpha(), gamma]);
+    let mut sources = case.sources(None);
+    sources.projects = projects;
+    let mut watch = Watch::new(sources, case.state()).with_settings(Settings {
+        silent_session: Duration::from_secs(40 * 60),
+        ..Settings::default()
+    });
+    assert_eq!(pass(&mut watch), ["session silent: gamma e5e5e5e5 45m"]);
+}
+
+/// A session without a transcript is not reported: nothing says how long it has been silent.
+#[test]
+fn a_controller_without_a_transcript_is_not_reported() {
+    let case = Case::new("silent-none");
+    case.sessions(&[alpha(), in_state(gamma(), "waiting")]);
+    let mut watch = case.watch(None);
+    assert_eq!(pass(&mut watch), NOTHING);
+}
 // ---------------------------------------------------------------------------------------------
 
 /// A config of one instance, `acme`, holding `extra` as further keys of the instance.
@@ -860,12 +1006,18 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
     assert_eq!(built_in.thresholds.disk_clear, Gibibytes(110));
     assert_eq!(built_in.thresholds.context_handover, Tokens(300_000));
     assert_eq!(
+        built_in.thresholds.silent_session,
+        conductor_model::primitives::Duration("PT30M".to_owned()),
+        "a controller silent for 30 minutes is reported"
+    );
+    assert_eq!(
         Settings::default(),
         Settings {
             instance: built_in.name.0.clone(),
             context_handover: 300_000,
             disk_low: 100,
             disk_clear: 110,
+            silent_session: Duration::from_secs(30 * 60),
             conductor: Some("conductor".to_owned()),
         },
         "a watch without settings runs on the built-in instance's"
@@ -875,8 +1027,10 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
 
 #[test]
 fn the_settings_are_the_instances_name_and_thresholds() {
-    let instance =
-        acme("\x20   thresholds: {context_handover: 150k, disk_low: 40G, disk_clear: 45G}\n");
+    let instance = acme(
+        "\x20   thresholds: {context_handover: 150k, disk_low: 40G, disk_clear: 45G, \
+         silent_session: 2h}\n",
+    );
     assert_eq!(
         Settings::of(&instance),
         Settings {
@@ -884,6 +1038,7 @@ fn the_settings_are_the_instances_name_and_thresholds() {
             context_handover: 150_000,
             disk_low: 40,
             disk_clear: 45,
+            silent_session: Duration::from_secs(2 * 3600),
             conductor: Some("conductor".to_owned()),
         }
     );

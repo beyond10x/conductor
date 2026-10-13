@@ -103,6 +103,7 @@ instances:
       gate_stop: 16G
       gate_resume: 18G
       watchdog_every: 5s
+      silent_session: 45m
     retention:
       snapshots: 3
     reports:

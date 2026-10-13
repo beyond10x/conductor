@@ -9,8 +9,8 @@
 //! It watches the instance the process runs ([`config::active`]): its checkouts, its records,
 //! its first `github` owner, its cadence (`cadence.watch` and `cadence.ci`, which `--every` and
 //! `--ci-every` override; [`Options::of`]) and its thresholds (`thresholds.context_handover`,
-//! `disk_low` and `disk_clear`; [`Settings::of`]), and names it in the usage-limit
-//! notification's title. Without a config file that is the built-in instance.
+//! `disk_low`, `disk_clear` and `silent_session`; [`Settings::of`]), and names it in the
+//! usage-limit notification's title. Without a config file that is the built-in instance.
 //!
 //! It runs cheap probes, not snapshots. A pass, every [`Options::every`]:
 //!
@@ -19,6 +19,7 @@
 //! | sessions | the session list (`claude agents --json`); only the entries whose working directory lies in the instance's checkouts root or managed trees, or in its records when a config file names them, so no other session is ever named | `session exited (blocked): <name> <id>`, `session gone: <name> <id>`, `conductors: <n> live sessions named <name>: <id> <id>…` |
 //! | usage limit | the last [`TAIL`] lines of each such session's transcript | `usage limit: <text>; <n> sessions: <names>` |
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
+//! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /` |
 //!
@@ -48,6 +49,12 @@
 //!   (`story:controller-context`). `<repo>` is the directory the session works in under the
 //!   managed trees or the checkouts root, else the session's name; conductor's line reads
 //!   `context: conductor` either way.
+//! - **silent** when a live controller (a `pid`, its list `state` `working` or `waiting`, and not
+//!   named as one of the instance's roles) and every one of its sub-agents have written nothing
+//!   to their transcripts for longer than the instance's `silent_session`, by the newest
+//!   modification time among them (`story:watch-silent-controller`). Once per silence
+//!   (`silent.reported`, `<sessionId> <newest write>` per line): it is reported again only after
+//!   it has written and fallen silent anew. A session without a transcript is not read.
 //! - **CI** when a workflow's newest `main` run that decided something (completed, `success` or
 //!   one of [`RED`], as the github collector maps them) is not older than the one kept and turns
 //!   it red (one of [`RED`] after another conclusion), or green again (`success` after one of
@@ -61,7 +68,7 @@
 //!   last pass's is read again before it is compared, and the second reading stands
 //!   (`story:watch-disk-reading`): one odd reading is not reported.
 //!
-//! An empty or unreadable session list skips the four session probes for that pass. A source
+//! An empty or unreadable session list skips the five session probes for that pass. A source
 //! that does not answer is named once on standard error, `conductor watch: <error>`, until it
 //! answers again; the watch goes on. A CI pass runs each repository's run list once, and a
 //! repository whose list does not answer is such a source of its own, named in its line; a
@@ -70,10 +77,11 @@
 //! [`Watch::run`] exits after the first pass that printed a line, with every line of that pass;
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
-//! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `limit.reported`
-//! (`<instant> <text>`, the last report of each limit text), `disk-low`, `disk.free` (the bytes
-//! free the last pass read), and, in the formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen`
-//! (`YYYY-MM-DD <text>`), `context-reported` (a `sessionId` per line) and `ci.state`
+//! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
+//! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
+//! `disk.free` (the bytes free the last pass read), and, in the formats of the stopgap,
+//! `limit.new` (`<text>\t<name>`), `limit.seen` (`YYYY-MM-DD <text>`), `context-reported` (a
+//! `sessionId` per line) and `ci.state`
 //! (`repo|workflow|run|conclusion|createdAt`). The dashboard reads the last four from
 //! `<conductor repository>/state/watch/` once that holds `ci.state`, which a watch run in the
 //! conductor repository without `--state-dir` writes; until then it reads the stopgap's
@@ -86,7 +94,7 @@ use std::io::{self, ErrorKind, Read as _, Seek as _, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -158,6 +166,11 @@ const CI_STATE: &str = "ci.state";
 const DISK_LOW: &str = "disk-low";
 const DISK_FREE: &str = "disk.free";
 const CONDUCTORS_REPORTED: &str = "conductors.reported";
+const SILENT_REPORTED: &str = "silent.reported";
+
+/// The states of the session list in which a live controller is expected to write to its
+/// transcripts.
+const LIVE: [&str; 2] = ["working", "waiting"];
 
 /// The role of conductor's own session, whose session name two live sessions must not carry.
 const CONDUCTOR: &str = "conductor";
@@ -278,6 +291,9 @@ pub struct Settings {
     pub disk_low: u64,
     /// Free GiB on `/` from which a further fall is reported again: `thresholds.disk_clear`.
     pub disk_clear: u64,
+    /// How long a live controller, and each of its sub-agents, may write nothing to its
+    /// transcript before it is reported silent: `thresholds.silent_session`.
+    pub silent_session: Duration,
     /// The full session name of the instance's conductor role (`<session_prefix>-conductor`, or
     /// `conductor` without a prefix), two live sessions of which are reported; `None` for an
     /// instance without a conductor role.
@@ -295,6 +311,10 @@ impl Settings {
             context_handover: count(thresholds.context_handover.0),
             disk_low: count(thresholds.disk_low.0),
             disk_clear: count(thresholds.disk_clear.0),
+            silent_session: Duration::from_secs(
+                config::seconds(&thresholds.silent_session)
+                    .unwrap_or(config::SILENT_SESSION_MINUTES * 60),
+            ),
             conductor: instance
                 .roles
                 .iter()
@@ -413,6 +433,9 @@ struct Session {
     pid: Option<u64>,
     /// Its `status`, else its `state`, else `-`.
     state: String,
+    /// Its `state` alone, else `-`: `working`, `waiting`, `idle`, `blocked` and so on.
+    #[serde(default)]
+    phase: String,
     cwd: String,
 }
 
@@ -543,6 +566,7 @@ impl Watch {
                     self.conductors(&sessions, &mut lines)?;
                     self.limits(now, &sessions, &mut lines, notes)?;
                     self.context(&sessions, &mut lines)?;
+                    self.silent(now, &sessions, &mut lines)?;
                 }
             }
             Err(error) => self.failed("sessions", &error, notes),
@@ -625,6 +649,7 @@ impl Watch {
                     .or_else(|| text("state"))
                     .unwrap_or("-")
                     .to_owned(),
+                phase: text("state").unwrap_or("-").to_owned(),
                 cwd: cwd.to_owned(),
             });
         }
@@ -935,17 +960,7 @@ impl Watch {
                 // A role's session is matched by its session name (`<session_prefix>-<role>`, or
                 // the role without a prefix) and labelled by the role, so conductor's line reads
                 // `context: conductor` whatever the prefix (story:instance-session-names).
-                let role_named = crate::config::active()
-                    .instance
-                    .roles
-                    .iter()
-                    .find(|role| {
-                        role.session_name
-                            .as_ref()
-                            .is_some_and(|name| name.0 == session.name)
-                    })
-                    .map(|role| role.role.clone());
-                let named = if let Some(role) = role_named {
+                let named = if let Some(role) = role_named(&session.name) {
                     role
                 } else {
                     self.sources
@@ -960,6 +975,63 @@ impl Watch {
                 ));
                 append_line(&file, &session.session)?;
             }
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Silent controllers
+    // -----------------------------------------------------------------------------------------
+
+    /// Each live controller, one with a `pid` the list shows `working` or `waiting` and not named
+    /// as one of the instance's roles, whose transcript and every one of its sub-agents' have
+    /// written nothing for longer than the instance's `silent_session` at `now`
+    /// (`story:watch-silent-controller`). Once per silence: `silent.reported` keeps, per session,
+    /// the newest write its report was of, and forgets it once the session writes again or
+    /// leaves the list. A session without a transcript is not read.
+    fn silent(
+        &self,
+        now: OffsetDateTime,
+        sessions: &[Session],
+        lines: &mut Vec<String>,
+    ) -> Result<()> {
+        let file = self.state(SILENT_REPORTED);
+        let before = read_optional(&file)?.unwrap_or_default();
+        let reported: BTreeMap<&str, &str> = before
+            .lines()
+            .filter_map(|line| line.split_once(' '))
+            .collect();
+        let now = SystemTime::from(now);
+        let mut kept = String::new();
+        for session in sessions {
+            if role_named(&session.name).is_some() {
+                continue;
+            }
+            let Some(newest) = newest_write(&self.transcript(session)) else {
+                continue;
+            };
+            let written = newest
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |since| since.as_nanos())
+                .to_string();
+            if reported.get(session.session.as_str()) == Some(&written.as_str()) {
+                kept.push_str(&format!("{} {written}\n", session.session));
+                continue;
+            }
+            let silence = now.duration_since(newest).unwrap_or_default();
+            let live = session.pid.is_some() && LIVE.contains(&session.phase.as_str());
+            if live && silence > self.settings.silent_session {
+                lines.push(format!(
+                    "session silent: {} {} {}m",
+                    session.name,
+                    session.id,
+                    silence.as_secs() / 60
+                ));
+                kept.push_str(&format!("{} {written}\n", session.session));
+            }
+        }
+        if kept != before {
+            replace(&file, &kept)?;
         }
         Ok(())
     }
@@ -1335,6 +1407,51 @@ fn context_tokens(transcript: &Path) -> Option<u64> {
         );
     }
     None
+}
+
+/// The role of the instance the process runs whose session name is `name` (`conductor`,
+/// `conductor-dev`, by their full names), if any: such a session is no controller.
+fn role_named(name: &str) -> Option<String> {
+    config::active()
+        .instance
+        .roles
+        .iter()
+        .find(|role| {
+            role.session_name
+                .as_ref()
+                .is_some_and(|session_name| session_name.0 == name)
+        })
+        .map(|role| role.role.clone())
+}
+
+/// When a session last wrote: the newest modification time of its `transcript` and of every
+/// `*.jsonl` at any depth under `<transcript without .jsonl>/subagents/`, where its sub-agents
+/// keep theirs; `None` when its transcript cannot be read.
+fn newest_write(transcript: &Path) -> Option<SystemTime> {
+    let mut newest = fs::metadata(transcript).ok()?.modified().ok()?;
+    let mut directories = vec![transcript.with_extension("").join("subagents")];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                directories.push(path);
+            } else if kind.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension == "jsonl")
+                && let Some(modified) = entry.metadata().ok().and_then(|meta| meta.modified().ok())
+            {
+                newest = newest.max(modified);
+            }
+        }
+    }
+    Some(newest)
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {

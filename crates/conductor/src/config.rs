@@ -203,6 +203,10 @@ pub const DISK_LOW_GIB: u64 = 100;
 /// Free GiB on `/` from which a further fall is reported again.
 pub const DISK_CLEAR_GIB: u64 = 110;
 
+/// Minutes a live controller session, and each of its sub-agents, may write nothing to its
+/// transcript before `conductor watch run` reports it silent (`story:watch-silent-controller`).
+pub const SILENT_SESSION_MINUTES: u64 = 30;
+
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
 const INSTANCE_KEYS: [&str; 20] = [
@@ -250,7 +254,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 2] = ["max_working", "max_subagents"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 10] = [
+const THRESHOLD_KEYS: [&str; 11] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -261,6 +265,7 @@ const THRESHOLD_KEYS: [&str; 10] = [
     "gate_stop",
     "gate_resume",
     "watchdog_every",
+    "silent_session",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -865,6 +870,7 @@ fn default_thresholds() -> Thresholds {
         gate_stop: Gibibytes(GATE_STOP_GIB),
         gate_resume: Gibibytes(GATE_RESUME_GIB),
         watchdog_every: Duration(format!("PT{WATCHDOG_EVERY}S")),
+        silent_session: Duration(format!("PT{SILENT_SESSION_MINUTES}M")),
     }
 }
 
@@ -2215,6 +2221,10 @@ impl Reader<'_> {
             Some(value) => self.duration(value, &join(path, "watchdog_every")),
             None => Some(defaults.watchdog_every),
         };
+        let silent_session = match Self::get(map, "silent_session") {
+            Some(value) => self.duration(value, &join(path, "silent_session")),
+            None => Some(defaults.silent_session),
+        };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -2239,6 +2249,7 @@ impl Reader<'_> {
             gate_stop: gate_stop?,
             gate_resume: gate_resume?,
             watchdog_every: watchdog_every?,
+            silent_session: silent_session?,
         })
     }
 
@@ -2579,6 +2590,7 @@ pub fn document(instance: &Instance) -> Yaml {
                 ("gate_stop", size(&thresholds.gate_stop)),
                 ("gate_resume", size(&thresholds.gate_resume)),
                 ("watchdog_every", text(&written(&thresholds.watchdog_every))),
+                ("silent_session", text(&written(&thresholds.silent_session))),
             ]),
         ),
         (

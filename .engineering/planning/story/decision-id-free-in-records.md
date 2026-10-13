@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:decision-id-free-in-records
 kind: story
-status: draft
+status: active
 title: A new decision id is free in the store and in the hand-written decision files
 scope:
 - confidence: cited
   path: crates/conductor/src/decide.rs
 - confidence: cited
   path: crates/conductor/tests/decision.rs
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T02:22:17Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-13T02:22:17Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

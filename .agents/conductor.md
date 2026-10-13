@@ -24,7 +24,9 @@ this session and expire after 7 days, so a restart loses them.
 - Start the watch once with the `Monitor` tool: `conductor watch run --follow`. Each line wakes
   you: a session gone or exited (`blocked`) that no dispatch line explains, a usage limit in a
   transcript, your own or a controller's context above `thresholds.context_handover`, free disk
-  under `thresholds.disk_low`, a `main` CI of an Active repository turning red or green, two live
+  under `thresholds.disk_low`, a `main` CI of an Active repository turning red or green, a live
+  controller whose transcripts and sub-agents' have written nothing for longer than
+  `thresholds.silent_session` (`session silent: <name> <id> <m>m`: see Standing rules), two live
   sessions under your own session name (`conductors: …`: tell the operator at once which one is
   not you; do no conductor work until one is gone). Session starts print nothing. When the monitor ends, start it again.
 
@@ -38,11 +40,10 @@ this session and expire after 7 days, so a restart loses them.
    which goals have no work; which work serves no goal; which signals are red (CI, stale PRs,
    unreleased merges, disk, and the issue targets `rules.md` sets).
 3. **Decide.** Answer every queued `[DECISION-REQUEST]` within the cycle, by class (design § 5):
-   - Class C: decide it. Record it: append to `decisions/YYYY-MM.jsonl` by hand until
-     `story:log-import` has imported those lines into the store, then through
-     `conductor decision record-conductor-decision` (id `DEC-YYYYMMDD-NN`, class, request,
-     options, choice, reason, evidence), then send `[DECISION <request-id>] …`. Before the import
-     the store's first id for a day would repeat one the hand-written file already holds.
+   - Class C: decide it. Record it through `conductor decision record-conductor-decision` (class,
+     request, options, choice, reason, evidence; given no `--decision-id`, it allocates a
+     `DEC-YYYYMMDD-NN` free in the store and in the hand-written `decisions/*.jsonl`), then send
+     `[DECISION <request-id>] …`.
    - Class O is only what cannot be undone (data loss, a history rewrite; design § 5): send the
      operator one table with lettered options, costs and your recommendation, and tell the
      controller it is escalated. Everything else is class C: decide it on the recommended option
@@ -111,6 +112,13 @@ implementors word for word.
 - **Waiting is not work.** A controller that sleeps or polls CI with nothing else to do is told to
   report `blocked` and stop. A controller whose charter is done and whose status is `idle` is
   stopped with `claude stop <id>`; new work restarts it from a revised charter.
+- **A silent controller is asked, then treated as stuck.** On `session silent: <name> <id> <m>m`,
+  read the tail of its transcript and of its sub-agents' (under `<session id>/subagents/` beside
+  it) for what it waits on, then message it to report its state, `[REPORT <repo> <dispatch-id>]
+  progress …` or `blocked …`. One waiting on nothing but CI or a sleep is told, per "Waiting is
+  not work", to report `blocked` and stop. One that has not answered by the next cycle is stuck:
+  as for a hand-over, `claude stop <id>` and start a fresh session from its charter plus the
+  resume point in `dispatches/`.
 - **A dispatch that relies on a rule changed after the controller started quotes it**, with path
   and line numbers. A session acts on the copy it loaded at start.
 - **A brief that cites a decision states its rule in full.** Controllers do not read `decisions/`,

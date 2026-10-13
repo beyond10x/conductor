@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 58bd82088247fdb82d6ffa0a810185129db9ebf3830641f8a7d2dc8f2fbe9e98
-// contract digest b8742a1b05a82479548731af80040d371fc9e8077603df4c239ead0923944c27
+// model digest 8c4a1163a6c38ac2d26bab2ebb91cd524dd8d65874fa9ff21b6cfad2685dbbce
+// contract digest db2beb6f9b1137f6118890fc2947cd374f642bd1842ac6e053a9fee85ff36c3d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -391,6 +391,8 @@ pub struct Thresholds {
     pub gate_resume: Gibibytes,
     /// `watchdog_every` — `Duration`.
     pub watchdog_every: crate::primitives::Duration,
+    /// `silent_session` — `Duration`.
+    pub silent_session: crate::primitives::Duration,
 }
 
 /// TimeOfDay — `conductor.config.TimeOfDay`: a distinct wrapper around `String`.

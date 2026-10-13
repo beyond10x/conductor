@@ -283,7 +283,10 @@ types:
   # from which a further fall is reported again, under which no session starts, and under which a
   # full gate takes a build slot; the size above which a build is expected to write enough to ask
   # for a slot; free disk under which the full-gate watchdog stops the gate's process group and
-  # from which it resumes it; and how often the watchdog reads it. Absent, the filesystem is `/`.
+  # from which it resumes it; how often the watchdog reads it; and how long a live controller
+  # session, and every one of its sub-agents, may write nothing to its transcript before the watch
+  # reports it silent (story:watch-silent-controller), a duration as `cadence` writes one. Absent,
+  # the filesystem is `/` and the silence 30 minutes.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -297,6 +300,7 @@ types:
       - {name: gate_stop, type: conductor.config.Gibibytes}
       - {name: gate_resume, type: conductor.config.Gibibytes}
       - {name: watchdog_every, type: Duration}
+      - {name: silent_session, type: Duration}
     invariants:
       - gate_resume > gate_stop
 
