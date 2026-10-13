@@ -86,6 +86,12 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
   `thresholds.gate_stop`, `kill -CONT` over `thresholds.gate_resume`; a second stop is a
   `[RESOURCE <repo>] disk <G>`. A rerun waits until `kill -0 -<old group>` fails (never
   `pgrep -f`); both ids go in the wave page.
+- A gate that runs over an hour resumes: after a failure, rerun only the failed steps and the
+  steps that depend on them, never the whole suite again. Keep one full run for the release
+  commit.
+- While a gate expected to run over an hour runs, propose your next wave units to conductor and
+  work on them in a separate tree, within the build-slot budget, instead of waiting for it. Their
+  tests stay package-scoped: the full-workspace gate is still one at a time.
 - Merge pull requests one at a time, each after the last landed.
 - Scratch: under `mktemp -d` (in `$TMPDIR`) or `~/.cache/<repo>-<purpose>/`; the Write and Edit
   tools may write there and nowhere else outside your repository. Waits over 60 s run

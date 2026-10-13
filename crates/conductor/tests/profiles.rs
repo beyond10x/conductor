@@ -87,3 +87,102 @@ fn a_controller_reads_the_sections_for_all_sessions_and_reports_pr_ci_and_merge(
         "repo-controller.md: reports PR, CI red and merge"
     );
 }
+
+/// `story:resumable-gates`: a gate over an hour reruns only what failed and what depends on it,
+/// and one full run stays for the release commit; the controller profile and the charters
+/// conductor writes both say so.
+#[test]
+fn a_long_gate_reruns_only_the_failed_steps_and_keeps_one_full_run_for_the_release() {
+    let controller = profile("repo-controller.md");
+    assert!(
+        controller.contains(
+            "A gate that runs over an hour resumes: after a failure, rerun only the failed steps \
+             and the steps that depend on them, never the whole suite again. Keep one full run \
+             for the release commit."
+        ),
+        "repo-controller.md: a long gate reruns only what failed"
+    );
+    let conductor = profile("conductor.md");
+    assert!(
+        conductor.contains(
+            "A charter for a repository whose gate runs over an hour says: after a failure, rerun \
+             only the failed steps and the steps that depend on them; keep one full run for the \
+             release commit."
+        ),
+        "conductor.md: charters carry the resumable-gate rule"
+    );
+}
+
+/// `story:work-beside-long-gate`: while a gate expected to run over an hour runs, conductor
+/// dispatches the repository's next wave units beside it and the controller proposes them
+/// instead of waiting.
+#[test]
+fn next_units_run_beside_a_gate_expected_to_run_over_an_hour() {
+    let conductor = profile("conductor.md");
+    assert!(
+        conductor.contains(
+            "While a controller's gate is expected to run over an hour, dispatch the repository's \
+             next wave units beside it, in a separate tree, within the build-slot budget \
+             (`thresholds.build_slot`)."
+        ),
+        "conductor.md: dispatch next units beside a long gate"
+    );
+    let controller = profile("repo-controller.md");
+    assert!(
+        controller.contains(
+            "While a gate expected to run over an hour runs, propose your next wave units to \
+             conductor and work on them in a separate tree, within the build-slot budget, instead \
+             of waiting for it."
+        ),
+        "repo-controller.md: propose work beside a long gate"
+    );
+}
+
+/// `story:claims-cite-source`: a news or status claim names the source it was read from and is
+/// checked against it before it is sent.
+#[test]
+fn a_news_or_status_claim_cites_its_source_and_is_checked_against_it() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "Every news or status claim about a release, an issue or a gate, in a report or the \
+             daily brief, cites the source it was read from (the release page, the issue, the \
+             runner's exit line) and is checked against that source before it is sent."
+        ),
+        "conductor.md: claims cite their source"
+    );
+}
+
+/// `story:operator-items-age`: an operator item older than a day is re-sent with the default
+/// conductor will take and its deadline, and the default is taken at the deadline when the step
+/// can be undone.
+#[test]
+fn an_old_operator_item_is_re_sent_with_a_default_and_a_deadline() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains("An operator item older than a day"),
+        "conductor.md: the re-send applies after a day"
+    );
+    assert!(
+        text.contains("is re-sent with the default you will take and its deadline."),
+        "conductor.md: an old operator item is re-sent with its default and deadline"
+    );
+    assert!(
+        text.contains("At the deadline, take that default when the step can be undone"),
+        "conductor.md: the default is taken at the deadline"
+    );
+}
+
+/// `story:gc-before-pause`: conductor runs `conductor gc`, which removes, before it pauses work
+/// for disk.
+#[test]
+fn conductor_runs_gc_before_it_pauses_work_for_disk() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "before you pause work for disk, run `conductor gc` (without `--dry-run` it removes \
+             and strips archive build output)"
+        ),
+        "conductor.md: gc runs before work pauses for disk"
+    );
+}

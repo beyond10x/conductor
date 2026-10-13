@@ -1,5 +1,6 @@
 //! `conductor gc` (`story:conductor-gc`): removes what the dashboard's disk panel marks
-//! reclaimable, and nothing else.
+//! reclaimable and strips build output from worktree archives through `worktree`, and nothing
+//! else.
 //!
 //! The command is presented by the `ess-cli/1` binding `crates/conductor/cli.yaml`, over the
 //! `local` callable `gc`, its input `conductor.observation.CollectGarbage` and its rows
@@ -9,14 +10,24 @@
 //! through the panel's own classification ([`waste::repositories`]), so it lists and removes
 //! exactly the rows the panel marks reclaimable: the build cache of idle managed trees, the trees
 //! eligible for removal and a checkout's cargo `target/`, none of them where a live session works.
-//! The panel's module documentation says what keeps every other row. With `--dry-run` it prints
-//! those rows with the bytes the panel measures and removes nothing.
+//! The panel's module documentation says what keeps every other row. Beside them it lists the
+//! build output `worktree` would strip from the instance's worktree archives
+//! ([`waste::archive_strip`], `story:gc-before-pause`), read from `worktree prune-archives
+//! --strip-build-output`'s own dry run, which writes nothing. With `--dry-run` it prints those
+//! rows with the bytes measured and removes nothing; `worktree prune-archives
+//! --strip-build-output --apply` runs only without it.
+//!
+//! After the rows it prints one table of the holders it measures and never reclaims: the panel's
+//! shared rows ([`waste::shared_rows`]: shared build targets, sccache, the rustup toolchains, the
+//! Go build cache, the agents' scratch and `/var/tmp`), and the archive strip when it could not be
+//! listed or has nothing to strip, each with its path, its bytes and why it is kept.
 //!
 //! Otherwise it takes the rows one by one. It reads the live sessions again and makes every check
 //! the listing made again ([`Reclaim::recheck`]): it refuses a row one of whose trees a live session
 //! now works in, and a checkout's `target/` when a live session or any process on the host now
 //! works in the checkout, or the target is no longer cargo's. Else it runs the row's commands
-//! ([`Reclaim::commands`]: `worktree discard-cache`, `worktree gc --apply` or `cargo clean`), each
+//! ([`Reclaim::commands`]: `worktree discard-cache`, `worktree gc --apply`, `cargo clean` or
+//! `worktree prune-archives --strip-build-output --apply`), each
 //! to its end without a time limit, so no removal is stopped half-way, and never deletes a path
 //! itself. The bytes freed are the bytes under the row's paths before less the bytes after, both
 //! walked by [`disk::tree_size`]. A row is removed when every command exited 0 without answering
@@ -70,9 +81,11 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
     if let Err(error) = &measured.live {
         bail!("{COMMAND}: the live sessions could not be read, so nothing is removed: {error}");
     }
+    let strip = waste::archive_strip(&sources);
     let rows: Vec<GarbageRow> = measured
         .rows
         .iter()
+        .chain(std::iter::once(&strip))
         .filter_map(|row| {
             let reclaim = row.reclaim.as_ref()?;
             Some(if dry_run {
@@ -82,7 +95,14 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
             })
         })
         .collect();
-    print(&rows, dry_run, json)?;
+    // The holders gc names and does not reclaim: a strip that could not be listed or has
+    // nothing to strip, then the panel's shared rows, measured once the rows above are done.
+    let shared = waste::shared_rows(&sources);
+    let holders: Vec<&Row> = std::iter::once(&strip)
+        .filter(|row| row.reclaim.is_none())
+        .chain(&shared)
+        .collect();
+    print(&rows, &holders, dry_run, json)?;
     let mut refused = false;
     let mut err = io::stderr().lock();
     for row in rows
@@ -219,12 +239,36 @@ fn number(value: Option<i64>) -> String {
     value.map_or_else(|| "?".to_owned(), |value| value.to_string())
 }
 
-/// Prints `rows` on standard output: one line each and a total, or one JSON object.
-fn print(rows: &[GarbageRow], dry_run: bool, json: bool) -> Result<()> {
+/// Why `conductor gc` keeps the holder `row`, with its measurement's state when that is not
+/// `measured`.
+fn kept_because(row: &Row) -> String {
+    let why = row.gc.strip_prefix("kept: ").unwrap_or(row.gc.as_str());
+    if row.state == "measured" {
+        why.to_owned()
+    } else {
+        format!("{why} ({})", row.state)
+    }
+}
+
+/// Prints `rows` and `holders` on standard output: one line each, the holders under a header of
+/// their own, and a total; or one JSON object.
+fn print(rows: &[GarbageRow], holders: &[&Row], dry_run: bool, json: bool) -> Result<()> {
     let reclaimable: i64 = rows.iter().filter_map(|row| row.bytes).sum();
     let freed: i64 = rows.iter().filter_map(|row| row.freed).sum();
     let mut out = io::stdout().lock();
     if json {
+        let holders: Vec<Value> = holders
+            .iter()
+            .map(|row| {
+                json!({
+                    "repository": row.repository,
+                    "what": row.what,
+                    "path": row.path,
+                    "bytes": row.bytes,
+                    "kept": kept_because(row),
+                })
+            })
+            .collect();
         let rows: Vec<Value> = rows
             .iter()
             .map(|row| {
@@ -245,6 +289,7 @@ fn print(rows: &[GarbageRow], dry_run: bool, json: bool) -> Result<()> {
             "rows": rows,
             "reclaimable_bytes": reclaimable,
             "freed_bytes": (!dry_run).then_some(freed),
+            "holders": holders,
         });
         writeln!(out, "{report}")?;
         out.flush()?;
@@ -268,6 +313,21 @@ fn print(rows: &[GarbageRow], dry_run: bool, json: bool) -> Result<()> {
             row.repository.as_deref().unwrap_or("-"),
             row.what,
             row.paths.join(" "),
+        )?;
+    }
+    if !holders.is_empty() {
+        writeln!(out, "measured and not reclaimed by gc:")?;
+    }
+    for row in holders {
+        writeln!(
+            out,
+            "kept  {} bytes  {}  {}  {}: {}",
+            row.bytes
+                .map_or_else(|| "?".to_owned(), |bytes| bytes.to_string()),
+            row.repository.as_deref().unwrap_or("-"),
+            row.what,
+            row.path.as_deref().unwrap_or("-"),
+            kept_because(row),
         )?;
     }
     if dry_run {

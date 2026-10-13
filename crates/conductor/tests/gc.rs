@@ -385,8 +385,8 @@ fn key(row: &Value) -> (Option<String>, String, Option<u64>, Option<u64>) {
     )
 }
 
-/// The logged calls that remove something: `worktree gc --apply`, `worktree discard-cache` and
-/// any `cargo` call.
+/// The logged calls that remove something: `worktree gc --apply`, `worktree discard-cache`,
+/// `worktree prune-archives … --apply` and any `cargo` call.
 fn removing(logged: &str) -> Vec<&str> {
     logged
         .lines()
@@ -394,6 +394,7 @@ fn removing(logged: &str) -> Vec<&str> {
             line.starts_with("cargo ")
                 || line.starts_with("worktree discard-cache")
                 || (line.starts_with("worktree gc") && line.contains(" --apply"))
+                || (line.starts_with("worktree prune-archives") && line.contains(" --apply"))
         })
         .collect()
 }
@@ -704,5 +705,188 @@ fn a_process_working_in_the_checkout_keeps_its_target() {
             .is_file(),
         "the target of a checkout a process works in was removed: {}",
         shown(&output)
+    );
+}
+
+/// What `conductor gc` calls the strip of build output from worktree archives.
+const ARCHIVE_BUILD_OUTPUT: &str = "build output in worktree archives";
+
+/// `story:gc-before-pause`: `conductor gc --dry-run` lists, beside the idle trees, the build
+/// output `worktree prune-archives --strip-build-output` would strip from the archives, read from
+/// that command's own dry run, and strips nothing; `conductor gc` strips it through `worktree
+/// prune-archives --strip-build-output --apply`, naming each strippable archive and no other.
+///
+/// The fixture's archives of `alpha`: `one` holds 32 KiB of build output in its patch, `two`
+/// holds none. A `worktree` first on `PATH` answers `prune-archives` as the real one would over
+/// them, and with `--apply` empties `one`'s patch; every other call goes to the fixture's fake.
+#[test]
+fn gc_strips_build_output_from_archives_and_its_dry_run_only_lists_it() {
+    let case = Case::new("strip-archives");
+    let archives = case.home().join(".local/state/worktree/archives/alpha");
+    let patch = archives.join("one/dirty.patch");
+    fill(&patch, 32 * KIB);
+    fill(&archives.join("two/commits.bundle"), 8 * KIB);
+    let assessment = |name: &str, verdict: &str, strip: u64| {
+        json!({
+            "archive_directory": name, "path": archives.join(name), "worktree_id": name,
+            "repository_root": case.checkout("alpha"), "bytes": 48 * KIB, "verdict": verdict,
+            "reason": "r", "strip_bytes": strip, "sections_stripped": u64::from(strip > 0),
+            "sections_kept": 0, "kept_patch_bytes": 0, "nested_images": 0,
+            "prune_verdict_after": null, "applied": false, "freed_bytes": 0,
+        })
+    };
+    write(
+        &case.dir.join("strip.json"),
+        &json!({"version": 4, "ok": true, "applied": false, "archives": [
+            assessment("one", "strippable", 32 * KIB),
+            assessment("two", "nothing-to-strip", 0),
+        ], "skipped": [], "totals": {"archives": 2, "strip_bytes": 32 * KIB, "freed_bytes": 0}})
+        .to_string(),
+    );
+    let bin = case.bin();
+    fs::rename(bin.join("worktree"), bin.join("worktree-fixture"))
+        .expect("keep the fixture's worktree");
+    program(
+        &bin,
+        "worktree",
+        &format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = prune-archives ]; then\n\
+             \x20 printf 'worktree %s\\n' \"$*\" >> '{calls}'\n\
+             \x20 case \" $* \" in\n\
+             \x20 *' --apply '*) : > '{patch}'; printf '{{\"version\":4,\"ok\":true}}\\n' ;;\n\
+             \x20 *) cat '{strip}' ;;\n\
+             \x20 esac\n\
+             \x20 exit 0\n\
+             fi\n\
+             exec '{fixture}' \"$@\"\n",
+            calls = case.calls().display(),
+            patch = patch.display(),
+            strip = case.dir.join("strip.json").display(),
+            fixture = bin.join("worktree-fixture").display(),
+        ),
+    );
+    let text = |path: PathBuf| path.display().to_string();
+
+    // The dry run: the strip row, read from worktree's own dry run, and nothing stripped.
+    let output = case.gc(&["--dry-run", "--format", "json"]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let listed: Value = serde_json::from_slice(&output.stdout).expect("gc prints JSON");
+    let row = listed["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|row| row["what"] == ARCHIVE_BUILD_OUTPUT)
+        .unwrap_or_else(|| panic!("no strip row: {}", shown(&output)));
+    assert_eq!(row["outcome"], "reclaimable", "{}", shown(&output));
+    assert_eq!(row["bytes"].as_u64(), Some(32 * KIB), "{}", shown(&output));
+    assert_eq!(row["count"].as_u64(), Some(1), "{}", shown(&output));
+    assert_eq!(row["paths"], json!([text(archives.join("one"))]));
+    let logged = case.logged();
+    assert!(
+        logged
+            .lines()
+            .any(|line| line.starts_with("worktree prune-archives --strip-build-output")),
+        "the dry run did not list the strip:\n{logged}"
+    );
+    assert!(
+        removing(&logged).is_empty(),
+        "the dry run removed or stripped through a call:\n{logged}"
+    );
+    assert_eq!(
+        fs::metadata(&patch).expect("the patch is there").len(),
+        32 * KIB,
+        "the dry run stripped the patch"
+    );
+
+    // The run: the strippable archive stripped by worktree, the other named nowhere.
+    let output = case.gc(&[]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let logged = case.logged();
+    let call = format!(
+        "worktree prune-archives --strip-build-output --apply --json --repo {} --id alpha/one",
+        text(case.records())
+    );
+    assert!(
+        logged.lines().any(|line| line == call),
+        "no `{call}`:\n{logged}"
+    );
+    assert!(
+        !removing(&logged).iter().any(|line| line.contains("two")),
+        "a removing call names the archive with nothing to strip:\n{logged}"
+    );
+    assert_eq!(fs::metadata(&patch).expect("the patch is kept").len(), 0);
+    assert!(archives.join("one").is_dir() && archives.join("two/commits.bundle").is_file());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line.starts_with("removed")
+            && line.contains("bytes freed of 32768")
+            && line.contains(ARCHIVE_BUILD_OUTPUT)),
+        "no removed strip row: {}",
+        shown(&output)
+    );
+}
+
+/// `story:gc-before-pause`: `conductor gc` prints one table of the holders the disk panel
+/// measures and gc never reclaims, the Go build cache `~/.cache/go-build` among them, each with
+/// its path and size, in the dry run and in the run, and removes none of them.
+#[test]
+fn gc_names_the_go_build_cache_among_the_holders_it_does_not_reclaim() {
+    let case = Case::new("holders");
+    let go = case.home().join(".cache/go-build");
+    fill(&go.join("0a/0123-d"), 16 * KIB);
+    let bytes = allocated(&go);
+    let path = go.display().to_string();
+
+    let output = case.gc(&["--dry-run", "--format", "json"]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let listed: Value = serde_json::from_slice(&output.stdout).expect("gc prints JSON");
+    let holders = listed["holders"].as_array().expect("holders");
+    let holder = |what: &str| holders.iter().find(|holder| holder["what"] == what);
+    let go_row = holder("Go build cache")
+        .unwrap_or_else(|| panic!("no Go build cache holder: {}", shown(&output)));
+    assert_eq!(go_row["path"], path.as_str());
+    assert_eq!(go_row["bytes"].as_u64(), Some(bytes));
+    assert_eq!(go_row["kept"], "shared Go build cache");
+    assert!(
+        holder("rustup toolchains").is_some(),
+        "the other holders stay in the table: {}",
+        shown(&output)
+    );
+    assert!(
+        listed["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .all(|row| row["what"] != "Go build cache"),
+        "the Go build cache is listed as reclaimable: {}",
+        shown(&output)
+    );
+
+    let line = format!("kept  {bytes} bytes  -  Go build cache  {path}: shared Go build cache");
+    for args in [&["--dry-run"][..], &[][..]] {
+        let output = case.gc(args);
+        assert!(output.status.success(), "{}", shown(&output));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut lines = stdout.lines();
+        assert!(
+            lines.any(|printed| printed == "measured and not reclaimed by gc:"),
+            "no holders table: {}",
+            shown(&output)
+        );
+        assert!(
+            lines.any(|printed| printed == line),
+            "no `{line}` under the table's header: {}",
+            shown(&output)
+        );
+    }
+    assert!(
+        go.join("0a/0123-d").is_file(),
+        "gc removed the Go build cache"
+    );
+    let logged = case.logged();
+    assert!(
+        !removing(&logged).iter().any(|call| call.contains(&path)),
+        "a removing call names the Go build cache:\n{logged}"
     );
 }

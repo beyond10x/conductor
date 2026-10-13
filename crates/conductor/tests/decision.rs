@@ -566,6 +566,81 @@ fn a_request_escalated_as_class_h_is_on_the_hands_todo_until_answered() {
     );
 }
 
+/// `story:operator-items-age`: `decision hands-todo` shows each open class-H item's age in whole
+/// days since it was raised. The fixture's item is raised two days before the fixture's now, the
+/// clock the binary reads too, so it reads `2d`.
+#[test]
+fn the_hands_todo_shows_each_item_s_age_in_whole_days() {
+    let case = Case::new("hands-todo-age");
+    let now = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .expect("a whole second is a valid instant");
+    let raised_at = (now - time::Duration::days(2))
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("an RFC 3339 instant");
+    case.quiet(&[
+        "decision",
+        "raise-decision-request",
+        "--request-id",
+        "hands-1",
+        "--repository",
+        "llm",
+        "--question",
+        "which token?",
+        "--options",
+        "A: renew it; B: drop the job",
+        "--recommendation",
+        "A",
+        "--raised-at",
+        &raised_at,
+    ]);
+    case.quiet(&[
+        "decision",
+        "escalate-request",
+        "--request-id",
+        "hands-1",
+        "--escalation-class",
+        "H",
+        "--reason",
+        "the operator's hands",
+    ]);
+
+    let text = case.ok(&["decision", "hands-todo"]);
+    let mut lines = text.lines();
+    let header = lines.next().unwrap_or_default();
+    assert_eq!(
+        header.split_whitespace().next_back(),
+        Some("age"),
+        "the text table ends on an age column: {text:?}"
+    );
+    assert!(
+        lines.any(|line| line.contains("hands-1") && line.trim_end().ends_with("  2d")),
+        "the item's row reads 2d: {text:?}"
+    );
+
+    let table = case.ok(&["decision", "hands-todo", "--format", "markdown"]);
+    assert!(
+        table
+            .lines()
+            .next()
+            .is_some_and(|line| line.ends_with("| age |")),
+        "the markdown table ends on an age column: {table:?}"
+    );
+    assert!(
+        table
+            .lines()
+            .any(|line| line.contains("hands-1") && line.ends_with("| 2d |")),
+        "the item's markdown row reads 2d: {table:?}"
+    );
+
+    // JSON keeps the specification's view: its fields, and no age.
+    let todo = case.rows("hands-todo");
+    assert_eq!(todo.len(), 1, "{todo:?}");
+    assert_eq!(todo[0]["request_id"], "hands-1");
+    assert_eq!(todo[0]["raised_at"], raised_at.as_str());
+    assert!(todo[0].get("age").is_none(), "{todo:?}");
+}
+
 #[test]
 fn decision_ids_are_allocated_per_utc_date() {
     let case = Case::new("ids");

@@ -8,12 +8,14 @@
 //! `target/`.
 //! Shared, it reads each entry of the shared build targets (`target` under the instance's cache
 //! when a config file names it, else `~/.cache/<namespace>-target`: [`built_in_targets`]), sccache, the
-//! rustup toolchains, the agents' scratch `~/.cache/claude-tmp` and the entries of `/var/tmp`. It
-//! deletes nothing.
+//! rustup toolchains, the Go build cache `~/.cache/go-build`, the agents' scratch
+//! `~/.cache/claude-tmp` and the entries of `/var/tmp` ([`shared_rows`]: the holders `conductor gc`
+//! names and never reclaims). It deletes nothing.
 //!
 //! Each row says whether `conductor gc` removes it (`story:conductor-gc`), and how, or why it is
-//! kept; [`repositories`] is the one classification both read. Only three kinds of row are ever
-//! reclaimable, each removed by the tool that owns it, never by a deletion of conductor's own:
+//! kept; [`repositories`] is the one classification both read. Only three kinds of the panel's row
+//! are ever reclaimable, each removed by the tool that owns it, never by a deletion of conductor's
+//! own (`conductor gc` adds a fourth, [`archive_strip`], which the panel does not measure):
 //! - the build cache of idle managed trees: `worktree discard-cache` on each tree, which deletes
 //!   only the cache it recognises and refuses a tree with a live lease or a process in it;
 //! - the trees eligible for removal: `worktree gc --apply --id` on each, which revalidates each
@@ -63,6 +65,11 @@ const POLL: Duration = Duration::from_millis(20);
 
 const BUILD_CACHE: &str = "build cache in idle managed trees";
 const ELIGIBLE: &str = "trees eligible for removal";
+const ARCHIVE_BUILD_OUTPUT: &str = "build output in worktree archives";
+
+/// How long the listing of [`archive_strip`] may run: `worktree` reads every archive's patch
+/// through, which takes minutes where archives hold build output.
+const STRIP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// The last complete measurement, and whether the next one runs; shared by every request.
 #[derive(Debug, Clone, Default)]
@@ -88,7 +95,7 @@ pub(crate) struct Row {
     /// The tracked repository, or none for a shared row.
     pub(crate) repository: Option<String>,
     pub(crate) what: &'static str,
-    path: Option<String>,
+    pub(crate) path: Option<String>,
     /// The trees or entries the row sums.
     pub(crate) count: Option<usize>,
     pub(crate) bytes: Option<u64>,
@@ -96,11 +103,11 @@ pub(crate) struct Row {
     owner: Option<String>,
     age: Option<String>,
     /// `measured`, `incomplete: …`, `timed out after N s` or `failed: …`.
-    state: String,
+    pub(crate) state: String,
     /// Whether `conductor gc` removes what the row measures: exactly when it has a [`Reclaim`].
     reclaimable: bool,
     /// The command `conductor gc` removes it with, or `kept: <why>`.
-    gc: String,
+    pub(crate) gc: String,
     /// How `conductor gc` removes it; none for a row it keeps.
     #[serde(skip)]
     pub(crate) reclaim: Option<Reclaim>,
@@ -143,6 +150,14 @@ pub(crate) enum Reclaim {
     RemoveTrees { root: PathBuf, trees: Vec<PathBuf> },
     /// `cargo clean --manifest-path <checkout>/Cargo.toml --target-dir <target>`.
     CargoClean { checkout: PathBuf, target: PathBuf },
+    /// `worktree prune-archives --strip-build-output --apply --json --repo <root> --id
+    /// <repository>/<archive>…`: the build output in the archives `worktree` listed strippable,
+    /// each re-assessed by `worktree` before it rewrites the archive's patch. No archive is
+    /// deleted.
+    StripArchives {
+        root: PathBuf,
+        archives: Vec<PathBuf>,
+    },
 }
 
 impl Reclaim {
@@ -151,14 +166,16 @@ impl Reclaim {
         match self {
             Self::DiscardCache(trees) | Self::RemoveTrees { trees, .. } => trees.clone(),
             Self::CargoClean { target, .. } => vec![target.clone()],
+            Self::StripArchives { archives, .. } => archives.clone(),
         }
     }
 
     /// The paths that must be gone once the removal succeeded: the trees `worktree gc` removes
-    /// and the target `cargo clean` removes; none for a cache, whose tree stays.
+    /// and the target `cargo clean` removes; none for a cache, whose tree stays, or for an
+    /// archive, which a strip rewrites and keeps.
     pub(crate) fn removed(&self) -> Vec<PathBuf> {
         match self {
-            Self::DiscardCache(_) => Vec::new(),
+            Self::DiscardCache(_) | Self::StripArchives { .. } => Vec::new(),
             Self::RemoveTrees { trees, .. } => trees.clone(),
             Self::CargoClean { target, .. } => vec![target.clone()],
         }
@@ -206,13 +223,30 @@ impl Reclaim {
                 ];
                 vec![(command, Some(checkout.clone()))]
             }
+            Self::StripArchives { root, archives } => {
+                let mut command = vec![
+                    os("worktree"),
+                    os("prune-archives"),
+                    os("--strip-build-output"),
+                    os("--apply"),
+                    os("--json"),
+                    os("--repo"),
+                    root.clone().into_os_string(),
+                ];
+                for archive in archives {
+                    command.push(os("--id"));
+                    command.push(OsString::from(archive_id(archive)));
+                }
+                vec![(command, None)]
+            }
         }
     }
 
     /// The command as the panel names it.
     /// Why the row must be kept now, read again just before it is removed, against the working
     /// directories `live`: a live session works in one of its trees; or, for a checkout's
-    /// `target/`, any check the listing made fails again ([`cargo_target`]). None when it may go.
+    /// `target/`, any check the listing made fails again ([`cargo_target`]). None when it may go;
+    /// always for archives, which no session works in and `worktree` re-assesses itself.
     pub(crate) fn recheck(&self, live: &[PathBuf]) -> Option<String> {
         match self {
             Self::DiscardCache(trees) | Self::RemoveTrees { trees, .. } => trees
@@ -220,6 +254,7 @@ impl Reclaim {
                 .find(|tree| works_in(live, tree))
                 .map(|tree| format!("a live session now works in {}", tree.display())),
             Self::CargoClean { checkout, target } => cargo_target(checkout, target, live).err(),
+            Self::StripArchives { .. } => None,
         }
     }
 
@@ -228,9 +263,84 @@ impl Reclaim {
             Self::DiscardCache(_) => "worktree discard-cache",
             Self::RemoveTrees { .. } => "worktree gc --apply",
             Self::CargoClean { .. } => "cargo clean --target-dir",
+            Self::StripArchives { .. } => "worktree prune-archives --strip-build-output --apply",
         }
         .to_owned()
     }
+}
+
+/// The archive at `path` as `worktree prune-archives --id` names it: `<repository>/<directory>`,
+/// the directory and the one above it under the archive root; the directory alone when `path`
+/// has no parent name.
+fn archive_id(path: &Path) -> String {
+    let name = |path: &Path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    };
+    match (path.parent().and_then(name), name(path)) {
+        (Some(repository), Some(directory)) => format!("{repository}/{directory}"),
+        (None, Some(directory)) => directory,
+        (_, None) => path.display().to_string(),
+    }
+}
+
+/// The build output `worktree` would strip from the instance's worktree archives
+/// (`story:gc-before-pause`), listed by `worktree prune-archives --strip-build-output --scope
+/// profile --json --repo <root>`, its own dry run, which writes nothing: one row summing the
+/// strippable archives' `strip_bytes`, which `conductor gc` strips through
+/// [`Reclaim::StripArchives`]. The listing reads every archive's patch, so it runs under
+/// [`STRIP_TIMEOUT`] when that is longer than [`Sources::measure_timeout`]. A row that could not
+/// be listed, or with nothing to strip, is kept.
+///
+/// The disk panel does not read it: its measurement repeats every [`Sources::measure_every`],
+/// and this listing is too slow for that.
+pub(crate) fn archive_strip(sources: &Sources) -> Row {
+    let mut command: Vec<OsString> = [
+        "worktree",
+        "prune-archives",
+        "--strip-build-output",
+        "--scope",
+        "profile",
+        "--json",
+        "--repo",
+    ]
+    .map(OsString::from)
+    .to_vec();
+    command.push(sources.root.clone().into_os_string());
+    let archive_root = sources.home.join(".local/state/worktree/archives");
+    let row = Row {
+        what: ARCHIVE_BUILD_OUTPUT,
+        path: Some(archive_root.display().to_string()),
+        ..Row::default()
+    };
+    let report = match json_of(&command, sources.measure_timeout.max(STRIP_TIMEOUT)) {
+        Ok(report) => report,
+        Err(state) => return Row { state, ..row }.kept("not measured"),
+    };
+    let mut archives = Vec::new();
+    let mut bytes: u64 = 0;
+    for item in report["archives"].as_array().into_iter().flatten() {
+        let Some(path) = item["path"].as_str() else {
+            continue;
+        };
+        if item["verdict"] == "strippable" {
+            archives.push(PathBuf::from(path));
+            bytes += item["strip_bytes"].as_u64().unwrap_or(0);
+        }
+    }
+    let row = Row {
+        count: Some(archives.len()),
+        bytes: Some(bytes),
+        state: "measured".to_owned(),
+        ..row
+    };
+    if archives.is_empty() {
+        return row.kept("nothing to strip");
+    }
+    row.reclaimed_by(Reclaim::StripArchives {
+        root: sources.root.clone(),
+        archives,
+    })
 }
 
 /// A tracked repository, and why `conductor gc` keeps the trees grouped under it: none when it
@@ -470,6 +580,14 @@ pub(crate) fn repositories(sources: &Sources) -> Waste {
     Waste { rows, live }
 }
 
+/// The shared rows, none of which `conductor gc` removes, which it names as the holders it does
+/// not reclaim (`story:gc-before-pause`).
+pub(crate) fn shared_rows(sources: &Sources) -> Vec<Row> {
+    let mut rows = Vec::new();
+    shared(sources, &mut rows);
+    rows
+}
+
 /// The shared rows, none of which `conductor gc` removes: something outside conductor's view may
 /// use each.
 fn shared(sources: &Sources, rows: &mut Vec<Row>) {
@@ -487,6 +605,7 @@ fn shared(sources: &Sources, rows: &mut Vec<Row>) {
             ".rustup/toolchains",
             "the toolchains builds run",
         ),
+        ("Go build cache", ".cache/go-build", "shared Go build cache"),
         (
             "agent scratch",
             ".cache/claude-tmp",

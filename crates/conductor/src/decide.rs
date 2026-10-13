@@ -87,6 +87,25 @@ const REQUEST_COLUMNS: [&str; 11] = [
     "blocker",
 ];
 
+/// The columns `decision hands-todo` prints as a table (`text`, `markdown`): the fields of the
+/// `HandsTodo` view, then `age`, how long each request has been open in whole days
+/// (`story:operator-items-age`). `age` is computed when the table is rendered and is no field of
+/// the specification's view, so `json` and `jsonl` print the view's fields alone.
+const HANDS_TODO_COLUMNS: [&str; 12] = [
+    "escalation_class",
+    "escalation_reason",
+    "request_id",
+    "state",
+    "repository",
+    "decision_id",
+    "question",
+    "options",
+    "recommendation",
+    "raised_at",
+    "blocker",
+    "age",
+];
+
 /// The fields of the `Decisions` view, in the specification's order.
 const DECISION_COLUMNS: [&str; 12] = [
     "decision_id",
@@ -603,7 +622,8 @@ pub fn requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 
 /// `conductor decision hands-todo`: the view `conductor.decision.HandsTodo`, every request
 /// escalated as class H and waiting for the operator's hands, served by the generated query over
-/// the existing store and rendered as `--format` asks. A view creates no store.
+/// the existing store and rendered as `--format` asks; a table also gives each row its age in
+/// whole days since it was raised ([`HANDS_TODO_COLUMNS`]). A view creates no store.
 ///
 /// # Errors
 ///
@@ -613,12 +633,16 @@ pub fn requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 pub fn hands_todo(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     const VIEW: &str = "decision hands-todo";
     let generated = existing(VIEW, state)?;
+    // The age is for the reader of a table; JSON and JSONL keep the specification's view.
+    let aged = matches!(view.format, Format::Text | Format::Markdown);
+    let now = OffsetDateTime::now_utc();
     let rows: Vec<Vec<Value>> = generated
         .hands_todo()
         .map_err(|unmet| anyhow!("{VIEW}: {unmet}"))?
         .into_iter()
         .map(|row| {
-            vec![
+            let age = age_in_days(&row.raised_at.0, now);
+            let mut values = vec![
                 Value::from(row.escalation_class.map(class_name)),
                 Value::from(row.escalation_reason),
                 Value::from(row.request_id.0),
@@ -630,14 +654,31 @@ pub fn hands_todo(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.recommendation),
                 Value::from(row.raised_at.0),
                 Value::from(row.blocker),
-            ]
+            ];
+            if aged {
+                values.push(Value::from(age));
+            }
+            values
         })
         .collect();
+    let columns: &[&str] = if aged {
+        &HANDS_TODO_COLUMNS
+    } else {
+        &REQUEST_COLUMNS
+    };
     crate::store::show(
         &generated.ports.store,
         "class-H to-do",
-        &view.render(&REQUEST_COLUMNS, &rows),
+        &view.render(columns, &rows),
     )
+}
+
+/// How long the request raised at the RFC 3339 instant `raised_at` has been open at `now`, in
+/// whole days, written `<n>d` (`story:operator-items-age`); none when `raised_at` does not parse.
+/// An instant after `now` is `0d`.
+fn age_in_days(raised_at: &str, now: OffsetDateTime) -> Option<String> {
+    let raised = OffsetDateTime::parse(raised_at, &Rfc3339).ok()?;
+    Some(format!("{}d", (now - raised).whole_days().max(0)))
 }
 
 /// `conductor decision decisions`: the view `conductor.decision.Decisions`, served by the generated

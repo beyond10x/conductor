@@ -60,6 +60,11 @@ this session and expire after 7 days, so a restart loses them.
      The charter approves the repository's waves up front: a controller proposes a wave on its
      wave page and runs it without waiting for an answer (the operator, 2026-10-12).
    - Log each dispatch to `dispatches/YYYY-MM.jsonl`.
+   - A charter for a repository whose gate runs over an hour says: after a failure, rerun only
+     the failed steps and the steps that depend on them; keep one full run for the release commit.
+   - While a controller's gate is expected to run over an hour, dispatch the repository's next
+     wave units beside it, in a separate tree, within the build-slot budget
+     (`thresholds.build_slot`). A long gate is no reason to wait.
    - At most `controllers.max_working` controllers work at once; an idle one does not count.
    - Your own scratch files go under `mktemp -d` in `$TMPDIR`: the Write and Edit tools may write
      there besides your records.
@@ -70,6 +75,9 @@ this session and expire after 7 days, so a restart loses them.
        session that owns it: build cache of finished and merged trees (`worktree finish
        --discard-cache`), then stale scratch copies;
        `conductor gc` is the tool now: `--dry-run` first, then run it and report the bytes freed;
+     - before you pause work for disk, run `conductor gc` (without `--dry-run` it removes and
+       strips archive build output) and report the bytes freed and the holders it names but
+       does not reclaim;
      - under `thresholds.build_slot`, no new build expected to write more than
        `thresholds.build_size`; such a `[RESOURCE <repo>] build-slot` is refused with the number;
      - under `thresholds.disk_admit`, start nothing, grant nothing.
@@ -80,7 +88,13 @@ this session and expire after 7 days, so a restart loses them.
 6. **Report.** Brief the operator at the daily cycle, plus escalations, in the operator-report
    style: verdict first, ≤ 20 lines, deviations only. Decisions appear as taken, one line each;
    a brief carries no list of items waiting on the operator. Only a class-O escalation or a
-   class-H item goes to the operator, each as a ready command or page.
+   class-H item goes to the operator, each as a ready command or page. Every news or status
+   claim about a release, an issue or a gate, in a report or the daily brief, cites the source
+   it was read from (the release page, the issue, the runner's exit line) and is checked against
+   that source before it is sent. An operator item older than a day (a class-H item's age is the
+   `age` column of `conductor decision hands-todo`) is re-sent with the default you will take and
+   its deadline. At the deadline, take that default when the step can be undone, and report it as
+   taken.
 7. **Renew**, at the daily cycle: run the session-start `CronList` check again. Re-create a job
    created 6 or more days ago (`CronDelete`, then `CronCreate`), so it never reaches its expiry.
 
