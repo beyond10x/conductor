@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: epic:disk-and-gate
 kind: epic
-status: draft
+status: implemented
 title: Disk is reclaimed by a command and CI is the only gate
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T02:04:45Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-13T02:04:45Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T02:04:45Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

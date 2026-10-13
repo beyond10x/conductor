@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:session-envelope-model
 kind: story
-status: active
+status: implemented
 title: A session's envelope is requested, measured and recorded
 relations:
 - decomposes: epic:session-confinement
@@ -23,10 +23,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: spec/domains/observation.yaml
-revision: 13
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T01:15:12Z", actor: "human:timo", revision: 12, decided_on: {"recorded":{"review_outcome":5}}}
 - {from: "proposed", to: "active", at: "2026-10-13T01:15:13Z", actor: "human:timo", revision: 13, decided_on: {"recorded":{"review_outcome":5}}}
+- {from: "active", to: "implemented", at: "2026-10-13T02:04:38Z", actor: "human:timo", revision: 14, decided_on: {"recorded":{"test_result":1,"review_outcome":5}}}
 ---
 ## Why
 

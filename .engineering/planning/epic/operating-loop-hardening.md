@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: epic:operating-loop-hardening
 kind: epic
-status: draft
+status: implemented
 title: The operating loop moves without the host as its gate, and its gaps found on 2026-10-12 are closed
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T02:04:45Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-13T02:04:45Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-13T02:04:45Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 

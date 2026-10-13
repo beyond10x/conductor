@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T02:04:37Z",
+  "actor": "human:timo",
+  "artifact": "story:session-envelope-model",
+  "kind": "story",
+  "revision": 13,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/12 at 51af5cc: green",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38333594459"
+  }
+}
