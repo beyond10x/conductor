@@ -200,3 +200,48 @@ fn a_hand_over_keeps_only_open_work_and_lists_no_jobs_or_watch() {
         "conductor.md: a hand-over lists no jobs or watch"
     );
 }
+
+/// A profile as written, line by line.
+fn profile_lines(name: &str) -> Vec<String> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.agents")
+        .join(name);
+    let text = fs::read_to_string(&path).expect("read the profile");
+    text.lines().map(str::to_owned).collect()
+}
+
+/// How many commands of `program` the line names, each as a code span that is the program or
+/// starts with it and a space.
+fn named(line: &str, program: &str) -> usize {
+    let alone = format!("`{program}`");
+    let first = format!("`{program} ");
+    line.matches(&alone).count() + line.matches(&first).count()
+}
+
+/// `story:profiles-forge-neutral`: each profile says what GitHub's words are on GitLab, and every
+/// line of it that names a `gh` command names its `glab` counterpart on the same line.
+#[test]
+fn the_profiles_name_glab_beside_every_gh_command() {
+    for name in ["conductor.md", "repo-controller.md"] {
+        assert!(
+            profile(name).contains(
+                "On GitLab, a pull request is a merge request, `gh` is `glab` and a workflow run \
+                 is a pipeline."
+            ),
+            "{name}: says what GitHub's words are on GitLab"
+        );
+        let mut with_gh = 0;
+        for line in profile_lines(name) {
+            let gh = named(&line, "gh");
+            if gh == 0 {
+                continue;
+            }
+            with_gh += 1;
+            assert!(
+                named(&line, "glab") >= gh,
+                "{name}: the line names a `gh` command without its `glab` counterpart: {line}"
+            );
+        }
+        assert!(with_gh > 0, "{name}: names no `gh` command");
+    }
+}

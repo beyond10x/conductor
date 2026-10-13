@@ -438,7 +438,26 @@ impl Lexer {
 
 #[cfg(test)]
 mod tests {
-    use super::{commands, written};
+    use super::{commands, program, written};
+
+    /// `story:guard-glab-writes`: `glab` is named as `gh` is, by its last path component, and a
+    /// `glab` call inside a substitution or a shell script is a command of its own.
+    #[test]
+    fn glab_is_a_program_word_wherever_it_runs() {
+        for word in ["glab", "/usr/bin/glab", "./bin/glab", "~/.local/bin/glab"] {
+            assert_eq!(program(word), "glab");
+        }
+        assert_eq!(program("/usr/bin/gh"), "gh");
+        assert_eq!(
+            words("echo \"$(glab mr list)\" && bash -c 'glab mr merge 3'"),
+            [
+                vec!["glab", "mr", "list"],
+                vec!["echo", "$(glab mr list)"],
+                vec!["bash", "-c", "glab mr merge 3"],
+                vec!["glab", "mr", "merge", "3"],
+            ]
+        );
+    }
 
     #[test]
     fn a_redirection_writes_a_file_only_outside_quotes() {

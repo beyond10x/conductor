@@ -1196,6 +1196,175 @@ fn gh_long_help_is_a_read_anywhere_and_short_help_only_without_a_group() {
 }
 
 // -------------------------------------------------------------------------------------------------
+// `story:guard-glab-writes`: the guard holds `glab` writes as it holds `gh` writes, for a
+// controller and for conductor.
+// -------------------------------------------------------------------------------------------------
+
+/// Every `glab` read the story lists: `mr view|list|diff`, `issue view|list`, `release
+/// view|list|download`, `repo view|list`, `ci view|list|status|trace|get`, `api` with GET and no
+/// request fields, `auth status`, any call with `--help`, and `--version`.
+const GLAB_READS: [&str; 26] = [
+    "glab mr view 12",
+    "glab mr list --state opened",
+    "glab mr diff 12",
+    "glab issue view 3",
+    "glab issue list",
+    "glab release view v1.0.0",
+    "glab release list",
+    "glab release download v1.0.0 --asset-name x.tar.gz",
+    "glab repo view example-org/r",
+    "glab repo list",
+    "glab ci view",
+    "glab ci list",
+    "glab ci status",
+    "glab ci trace 123",
+    "glab ci get --pipeline-id 7",
+    "glab api projects/1/merge_requests",
+    "glab api -X GET projects/1",
+    "glab api --method GET projects/1",
+    "glab api --method=get projects/1",
+    "glab api graphql",
+    "glab auth status",
+    "glab --help",
+    "glab mr merge 12 --help",
+    "glab --help api -X POST projects/1",
+    "glab --version",
+    "glab -R example-org/r mr view 12",
+];
+
+/// The `glab` writes the story lists: `mr create|merge|note|approve`, `issue create|close`,
+/// `release create|delete`, `repo create` and `api -X POST|PUT|DELETE`.
+const GLAB_WRITES: [&str; 12] = [
+    "glab mr create --title t --description d",
+    "glab mr merge 12 --squash",
+    "glab mr note 12 -m hi",
+    "glab mr approve 12",
+    "glab issue create --title t --description d",
+    "glab issue close 3",
+    "glab release create v1.0.0",
+    "glab release delete v1.0.0",
+    "glab repo create example-org/r",
+    "glab api -X POST projects/1/issues",
+    "glab api -X PUT projects/1",
+    "glab api -X DELETE projects/1/repository/branches/x",
+];
+
+#[test]
+fn glab_reads_are_allowed_for_a_controller_and_for_conductor() {
+    let home = home("glab-reads");
+    for cwd in [PROBE, CONDUCTOR] {
+        for command in GLAB_READS.iter().copied().chain([
+            "which glab",
+            "type glab",
+            "man glab",
+            "command -v glab && glab mr list",
+            "b10x-gates glab -- mr merge 3",
+            "glab mr view 12 && gh pr view 12",
+        ]) {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+#[test]
+fn every_other_glab_call_is_a_gitlab_write_for_a_controller_and_for_conductor() {
+    let home = home("glab-writes");
+    for cwd in [PROBE, CONDUCTOR] {
+        for command in GLAB_WRITES.iter().copied().chain([
+            "glab",
+            "glab mr",
+            "glab mr checkout 12",
+            "glab mr update 12 --ready",
+            "glab mr ls",
+            "glab issue note 3 -m hi",
+            "glab release upload v1.0.0 x.tar.gz",
+            "glab repo clone example-org/r",
+            "glab repo fork example-org/r",
+            "glab ci run",
+            "glab ci retry 123",
+            "glab ci cancel 123",
+            "glab label list",
+            "glab schedule run 1",
+            "glab version",
+            "glab mr merge 12 -h",
+            "glab -R example-org/r mr merge 12",
+            "glab api projects/1/issues -f title=t",
+            "glab api projects/1/issues -Ftitle=t",
+            "glab api projects/1/issues --raw-field title=t",
+            "glab api projects/1/issues --input body.json",
+            "glab api --method=POST projects/1/issues",
+            "glab api -XPOST projects/1/issues",
+            "glab api -iX PATCH projects/1",
+            "glab api -X GET projects/1/issues -f title=t",
+            "glab api graphql -f query='query { currentUser { id } }'",
+            "/usr/local/bin/glab mr merge 12",
+            "git push && glab mr create --fill",
+            "bash -c \"glab mr merge 3\"",
+            "env GITLAB_HOST=gitlab.example.com glab mr merge 3",
+            "echo \"$(glab mr note 3 -m x)\"",
+            "cat body.md | glab mr note 4 -m -",
+            "gh pr view 12 && glab mr merge 12",
+        ]) {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Deny, "GitLab write");
+        }
+    }
+}
+
+#[test]
+fn a_glab_write_of_a_credential_is_the_operator_s_for_a_controller_and_for_conductor() {
+    let home = home("glab-credential");
+    for cwd in [PROBE, CONDUCTOR] {
+        for command in [
+            "glab variable set TOKEN x",
+            "glab auth login --token x",
+            "glab ssh-key add key.pub",
+            "glab gpg-key add key.asc",
+            "glab deploy-key add key.pub",
+            "glab token create t",
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                "GitLab write of a credential",
+            );
+        }
+    }
+}
+
+/// Each `glab` call and the `gh` call it stands for, with the verdict both get.
+const FORGE_PAIRS: [(&str, &str, Verdict); 9] = [
+    ("glab mr view 12", "gh pr view 12", Verdict::Allow),
+    ("glab mr merge 12", "gh pr merge 12", Verdict::Deny),
+    ("glab mr note 12 -m hi", "gh pr comment 12 --body hi", Verdict::Deny),
+    ("glab issue list", "gh issue list", Verdict::Allow),
+    ("glab release create v1.0.0", "gh release create v1.0.0", Verdict::Deny),
+    ("glab ci view", "gh run view 1", Verdict::Allow),
+    ("glab api projects", "gh api repos", Verdict::Allow),
+    ("glab api -X POST projects", "gh api -X POST repos", Verdict::Deny),
+    ("glab auth status", "gh auth status", Verdict::Allow),
+];
+
+#[test]
+fn each_glab_call_is_decided_as_its_gh_counterpart_for_a_controller_and_for_conductor() {
+    let home = home("glab-gh-pairs");
+    for cwd in [PROBE, CONDUCTOR] {
+        for (glab, gh, verdict) in FORGE_PAIRS {
+            let by_glab = bash(&home, cwd, glab);
+            let by_gh = bash(&home, cwd, gh);
+            assert_eq!(
+                by_glab.verdict, by_gh.verdict,
+                "from {cwd}, `{glab}` is decided {by_glab:#?} and `{gh}` {by_gh:#?}"
+            );
+            assert_eq!(
+                by_glab.verdict, verdict,
+                "from {cwd}, `{glab}` and `{gh}` are decided {:?}, not {verdict:?}",
+                by_glab.verdict
+            );
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
 // Wave 06 U7, decision 1: a controller's session runs only conductor's read leaves.
 // -------------------------------------------------------------------------------------------------
 

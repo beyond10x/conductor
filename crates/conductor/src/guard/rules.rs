@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` call that is not a read ([`github_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` or `glab` call that is not a read ([`forge_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -597,7 +597,7 @@ impl Places {
 }
 
 /// The `gh` verbs that read, after any command group; everything else from `gh` is a GitHub
-/// write, apart from the other reads [`github_write`] names.
+/// write, apart from the other reads [`forge_write`] names.
 const GH_READ_VERBS: [&str; 7] = [
     "view", "list", "status", "diff", "checks", "search", "download",
 ];
@@ -609,9 +609,95 @@ const GH_RUN_READ_VERBS: [&str; 4] = ["view", "list", "watch", "download"];
 /// whatever route would carry it.
 const GH_CREDENTIAL_GROUPS: [&str; 4] = ["secret", "auth", "ssh-key", "gpg-key"];
 
-/// Commands that name `gh` without running it, or run it through the bot route, which this rule
-/// leaves alone.
+/// The `glab` calls that read, each group with its verbs that read; everything else from `glab`
+/// is a GitLab write, apart from the other reads [`forge_write`] names
+/// (`story:guard-glab-writes`). Unlike `gh`, no verb reads after any group: a `glab` group not
+/// named here makes only writes.
+const GLAB_READS: [(&str, &[&str]); 5] = [
+    ("mr", &["view", "list", "diff"]),
+    ("issue", &["view", "list"]),
+    ("release", &["view", "list", "download"]),
+    ("repo", &["view", "list"]),
+    ("ci", &["view", "list", "status", "trace", "get"]),
+];
+
+/// The `glab` groups whose writes are credentials, as [`GH_CREDENTIAL_GROUPS`] are for `gh`: CI
+/// variables (GitLab's secrets), the login, keys and access tokens.
+const GLAB_CREDENTIAL_GROUPS: [&str; 6] = [
+    "variable",
+    "auth",
+    "ssh-key",
+    "gpg-key",
+    "deploy-key",
+    "token",
+];
+
+/// Commands that name `gh` or `glab` without running it, or run it through the bot route, which
+/// this rule leaves alone.
 const GH_NOT_RUN: [&str; 6] = ["b10x-gates", "which", "type", "whereis", "man", "hash"];
+
+/// A forge whose command-line tool the guard reads: `gh` for GitHub, `glab` for GitLab. A write
+/// through either is held alike for each role ([`forge_write`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Forge {
+    GitHub,
+    GitLab,
+}
+
+impl Forge {
+    /// Every forge, in the order a command's words are read for each.
+    const ALL: [Self; 2] = [Self::GitHub, Self::GitLab];
+
+    /// The program that reaches the forge.
+    fn program(self) -> &'static str {
+        match self {
+            Self::GitHub => "gh",
+            Self::GitLab => "glab",
+        }
+    }
+
+    /// Whether the command word `word` runs the forge's program, by any path.
+    fn runs(self, word: &str) -> bool {
+        shell::program(word) == self.program()
+    }
+
+    /// The forge's name in a denial.
+    fn name(self) -> &'static str {
+        match self {
+            Self::GitHub => "GitHub",
+            Self::GitLab => "GitLab",
+        }
+    }
+
+    /// The groups whose writes are credentials.
+    fn credential_groups(self) -> &'static [&'static str] {
+        match self {
+            Self::GitHub => &GH_CREDENTIAL_GROUPS,
+            Self::GitLab => &GLAB_CREDENTIAL_GROUPS,
+        }
+    }
+
+    /// The calls that read, as a denial names them.
+    fn reads(self) -> String {
+        match self {
+            Self::GitHub => format!(
+                "{} after any group; run {}; api GET; auth status; help; --help",
+                GH_READ_VERBS.join(", "),
+                GH_RUN_READ_VERBS.join(", ")
+            ),
+            Self::GitLab => {
+                let groups: Vec<String> = GLAB_READS
+                    .iter()
+                    .map(|(group, verbs)| format!("{group} {}", verbs.join("|")))
+                    .collect();
+                format!(
+                    "{}; api GET; auth status; --help; --version",
+                    groups.join("; ")
+                )
+            }
+        }
+    }
+}
 
 /// The write forms that, in a controller's Bash command that names `.claude/settings` or
 /// conductor's config, deny it: as substrings. A redirection is a write form too, read by the
@@ -1165,18 +1251,22 @@ impl Session<'_> {
     pub(super) fn bash(&self, command: &str) -> (Verdict, String) {
         let commands = shell::commands(command);
         for words in &commands {
-            if let Some(write) = github_write(words) {
+            for forge in Forge::ALL {
+                let Some(write) = forge_write(words, forge) else {
+                    continue;
+                };
                 if write
                     .split(' ')
                     .nth(1)
-                    .is_some_and(|group| GH_CREDENTIAL_GROUPS.contains(&group))
+                    .is_some_and(|group| forge.credential_groups().contains(&group))
                 {
                     return (
                         Verdict::Deny,
                         format!(
-                            "`{write}` is a GitHub write of a credential: class H, the operator's \
+                            "`{write}` is a {} write of a credential: class H, the operator's \
                              hands, whoever authorized it; no session runs it by any route. Hand \
                              the operator the exact command to run: ! {}",
+                            forge.name(),
                             command.trim()
                         ),
                     );
@@ -1184,11 +1274,11 @@ impl Session<'_> {
                 return (
                     Verdict::Deny,
                     format!(
-                        "`{write}` is a GitHub write: gh here only reads ({} after any group; \
-                         run {}; api GET; auth status; help; --help); writes go through the bot \
-                         route",
-                        GH_READ_VERBS.join(", "),
-                        GH_RUN_READ_VERBS.join(", ")
+                        "`{write}` is a {} write: {} here only reads ({}); writes go through the \
+                         bot route",
+                        forge.name(),
+                        forge.program(),
+                        forge.reads()
                     ),
                 );
             }
@@ -1242,7 +1332,7 @@ impl Session<'_> {
             );
         }
         if self.rules == Rules::Conductor {
-            return (Verdict::Allow, "no GitHub write".to_owned());
+            return (Verdict::Allow, "no GitHub or GitLab write".to_owned());
         }
         let mut here = self.cwd.clone();
         for words in &commands {
@@ -1286,7 +1376,7 @@ impl Session<'_> {
         }
         (
             Verdict::Allow,
-            "no cd or git -C into another repository and no GitHub write".to_owned(),
+            "no cd or git -C into another repository and no GitHub or GitLab write".to_owned(),
         )
     }
 
@@ -1769,16 +1859,23 @@ fn lexical(path: &Path) -> PathBuf {
     out
 }
 
-/// The GitHub write a simple command makes through `gh`: any `gh` call that is not a read, as
-/// `gh <group> <verb>`. A read is `<group> view|list|status|diff|checks|search|download`,
+/// The forge write a simple command makes through `forge`'s program: any call that is not a read,
+/// as `<program> <group> <verb>`. The group and the verb are the first two words after the
+/// program that are not flags, `-R`/`--repo` taking its value. A program named by [`GH_NOT_RUN`]
+/// before it, or by `command -v`, is not run here.
+///
+/// A `gh` read is `<group> view|list|status|diff|checks|search|download`,
 /// `run view|list|watch|download`, `api` with GET and no request fields, `api graphql` without a
 /// mutation, `auth status`, `search …`, `status`, `help`, any call carrying `--help`, or
 /// `--version`/`-h` with no group: with one, `-h` may be another flag (`gh auth login -h
-/// github.com` is `--hostname`). The group and the verb are the first two words after `gh` that
-/// are not flags, `-R`/`--repo` taking its value.
-/// `gh` named by [`GH_NOT_RUN`] before it, or by `command -v`, is not run here.
-fn github_write(words: &[String]) -> Option<String> {
-    let at = words.iter().position(|word| shell::program(word) == "gh")?;
+/// github.com` is `--hostname`).
+///
+/// A `glab` read is `mr view|list|diff`, `issue view|list`, `release view|list|download`,
+/// `repo view|list`, `ci view|list|status|trace|get` ([`GLAB_READS`]), `api` with GET and no
+/// request fields, `auth status`, any call carrying `--help`, or `--version` with no group
+/// (`story:guard-glab-writes`).
+fn forge_write(words: &[String], forge: Forge) -> Option<String> {
+    let at = words.iter().position(|word| forge.runs(word))?;
     let before = &words[..at];
     if before
         .iter()
@@ -1805,29 +1902,47 @@ fn github_write(words: &[String]) -> Option<String> {
     let group = operands.first().map(|(_, word)| *word);
     let verb = operands.get(1).map(|(_, word)| *word);
     let read = flags.contains(&"--help")
-        || match (group, verb) {
-            (None, _) => flags.iter().any(|flag| matches!(*flag, "--version" | "-h")),
-            (Some("help" | "search"), _)
-            | (Some("status"), None)
-            | (Some("auth"), Some("status")) => true,
-            (Some("api"), _) => api_reads(&rest[operands[0].0 + 1..]),
-            (Some("run"), Some(verb)) => GH_RUN_READ_VERBS.contains(&verb),
-            (Some(_), Some(verb)) => GH_READ_VERBS.contains(&verb),
-            (Some(_), None) => false,
+        || match forge {
+            Forge::GitHub => match (group, verb) {
+                (None, _) => flags.iter().any(|flag| matches!(*flag, "--version" | "-h")),
+                (Some("help" | "search"), _)
+                | (Some("status"), None)
+                | (Some("auth"), Some("status")) => true,
+                (Some("api"), _) => api_reads(&rest[operands[0].0 + 1..], forge),
+                (Some("run"), Some(verb)) => GH_RUN_READ_VERBS.contains(&verb),
+                (Some(_), Some(verb)) => GH_READ_VERBS.contains(&verb),
+                (Some(_), None) => false,
+            },
+            Forge::GitLab => match (group, verb) {
+                (None, _) => flags.contains(&"--version"),
+                (Some("auth"), Some("status")) => true,
+                (Some("api"), _) => api_reads(&rest[operands[0].0 + 1..], forge),
+                (Some(group), Some(verb)) => glab_reads(group, verb),
+                (Some(_), None) => false,
+            },
         };
     (!read).then(|| {
         let named: Vec<&str> = operands.iter().take(2).map(|(_, word)| *word).collect();
-        format!("gh {}", named.join(" ")).trim_end().to_owned()
+        let shown = format!("{} {}", forge.program(), named.join(" "));
+        shown.trim_end().to_owned()
     })
 }
 
-/// Whether the arguments of `gh api` make a read: GET (no method or GET named, by `-X`,
-/// `--method` or a flag cluster holding `X`) and no request field (`-f`, `-F`, `--field`,
-/// `--raw-field`, `--input`), or `graphql` without a mutation. A query from a file
-/// (`=@…`) or `--input` may be a mutation, and is taken as one.
-fn api_reads(arguments: &[String]) -> bool {
+/// Whether `glab <group> <verb>` is one of the reads [`GLAB_READS`] names.
+fn glab_reads(group: &str, verb: &str) -> bool {
+    GLAB_READS
+        .iter()
+        .any(|(name, verbs)| *name == group && verbs.contains(&verb))
+}
+
+/// Whether the arguments of `gh api` or `glab api` make a read: GET (no method or GET named, by
+/// `-X`, `--method` or a flag cluster holding `X`) and no request field (`-f`, `-F`, `--field`,
+/// `--raw-field`, `--input`), or, for `gh` only, `graphql` without a mutation. A query from a
+/// file (`=@…`) or `--input` may be a mutation, and is taken as one. `glab api graphql` reads only
+/// as any other endpoint does: by GET with no field.
+fn api_reads(arguments: &[String], forge: Forge) -> bool {
     /// Flags of `gh api` that take the next word as their value.
-    const VALUED: [&str; 10] = [
+    const GH_VALUED: &[&str] = &[
         "-H",
         "--header",
         "-q",
@@ -1839,6 +1954,17 @@ fn api_reads(arguments: &[String]) -> bool {
         "--hostname",
         "--cache",
     ];
+    /// The short flags of `gh api` that take a value, attached or as the next word.
+    const GH_SHORT_VALUED: &[char] = &['f', 'F', 'H', 'q', 't', 'p'];
+    /// Flags of `glab api` that take the next word as their value, besides the method and the
+    /// request fields.
+    const GLAB_VALUED: &[&str] = &["-H", "--header", "--hostname"];
+    /// The short flags of `glab api` that take a value, attached or as the next word.
+    const GLAB_SHORT_VALUED: &[char] = &['f', 'F', 'H'];
+    let (valued, short_valued) = match forge {
+        Forge::GitHub => (GH_VALUED, GH_SHORT_VALUED),
+        Forge::GitLab => (GLAB_VALUED, GLAB_SHORT_VALUED),
+    };
     let mut method: Option<&str> = None;
     let mut fields = false;
     let mut endpoint = None;
@@ -1855,7 +1981,7 @@ fn api_reads(arguments: &[String]) -> bool {
                 fields = true;
                 next += 1;
             }
-            _ if VALUED.contains(&word) => next += 1,
+            _ if valued.contains(&word) => next += 1,
             _ if word.starts_with("--method=") => method = word.strip_prefix("--method="),
             _ if ["--field=", "--raw-field=", "--input="]
                 .iter()
@@ -1877,7 +2003,7 @@ fn api_reads(arguments: &[String]) -> bool {
                             };
                             break;
                         }
-                        'f' | 'F' | 'H' | 'q' | 't' | 'p' => {
+                        _ if short_valued.contains(&flag) => {
                             fields |= matches!(flag, 'f' | 'F');
                             if value.is_empty() {
                                 next += 1;
@@ -1899,7 +2025,7 @@ fn api_reads(arguments: &[String]) -> bool {
             || word == "--input"
             || word.starts_with("--input=")
     });
-    if endpoint == Some("graphql") {
+    if forge == Forge::GitHub && endpoint == Some("graphql") {
         return !mutation;
     }
     method.is_none_or(|method| method.eq_ignore_ascii_case("GET")) && !fields

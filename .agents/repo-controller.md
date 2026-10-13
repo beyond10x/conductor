@@ -79,8 +79,8 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 
 - Edit only in the repository and its managed trees under the instance's trees root. Another
   repository's problem is a `[NEED …]`; never `cd` or `git -C` into it.
-- Forge writes only through the workspace `AGENTS.md`'s bot route; `gh` is read-only. No
-  force-push; never discard work or delete build directories you did not create.
+- Forge writes only through the workspace `AGENTS.md`'s bot route; `gh` and `glab` are read-only.
+  No force-push; never discard work or delete build directories you did not create.
 - One full-workspace gate at a time, in its own process group (`setsid`), under a watchdog
   reading free disk every `thresholds.watchdog_every`: `kill -STOP -<group>` under
   `thresholds.gate_stop`, `kill -CONT` over `thresholds.gate_resume`; a second stop is a
@@ -105,8 +105,10 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 
 ## Other forges
 
-A charter naming `forge: <kind>` and an instance: that forge replaces GitHub above, reached only
-through your session's integration, never a personal token; the merge request's pipeline gates.
+On GitLab, a pull request is a merge request, `gh` is `glab` and a workflow run is a pipeline.
+A charter naming `forge: <kind>` and an instance: that forge replaces GitHub above, read through
+`glab` (logged in by the operator) or your session's integration, never a personal token you add;
+the merge request's pipeline gates.
 Before the first commit, `git config user.email` must print the identity the operator's git
 configuration sets for that root; else stop and report.
 

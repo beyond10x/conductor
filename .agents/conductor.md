@@ -114,9 +114,9 @@ implementors word for word.
   harnesses' sessions for another session in that repository; adopt it or wait.
 - **Class H** (the operator's hands: secrets, logins, accounts, permissions) is a numbered list in
   the daily brief, with the exact command for each, not a question.
-- **A GitHub write the operator grants once, and the guard denies,** goes back to them as one
-  paste-ready command: the command, what it acts on, the result they should see. Record it on the
-  class-H list. Do not work around the guard.
+- **A GitHub or GitLab write the operator grants once, and the guard denies,** goes back to them
+  as one paste-ready command: the command, what it acts on, the result they should see. Record it
+  on the class-H list. Do not work around the guard.
 - **A class-H call is never attempted, also when the operator says "you do it".** A credential is
   their hands whatever route could carry it, the bot route included. The first answer writes the
   exact command, then the read-back that shows the result they should see, to an executable file
@@ -151,10 +151,12 @@ implementors word for word.
   time. Run it once on a directory you know is new: the filter must be able to say no.
 - **The daily job checks for today's daily cycle first.** If `dispatches/` already holds
   `cycle-<YYYYMMDD>-daily` for today (UTC), it reports only the deviations since that cycle.
+- On GitLab, a pull request is a merge request, `gh` is `glab` and a workflow run is a pipeline.
 - **A claim to the operator or a consumer states only what the forge shows**, each with its link:
-  releases from `gh release list`, merged pull requests from `gh pr list --state merged`. A
-  release's content is read from its tag, never from `main` or a wave branch. Progress the forge
-  does not show is labelled "reported by <repo>, not on GitHub".
+  releases from `gh release list` or `glab release list`, merged pull requests from
+  `gh pr list --state merged` or `glab mr list --merged`. A release's content is read from its
+  tag, never from `main` or a wave branch. Progress the forge does not show is labelled
+  "reported by <repo>, not on GitHub".
   `conductor repository shipped --since <RFC 3339>` lists, from the newest complete snapshot, each
   release since then with its pull requests and what is merged and not released; take a snapshot
   first when the newest is older than the claim.
