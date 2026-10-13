@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:spawn-session-id
 kind: story
-status: active
+status: implemented
 title: spawn records the session id, and a dispatch without a priority runs first
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T18:32:09Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T18:32:09Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T18:43:08Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

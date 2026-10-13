@@ -14,4 +14,5 @@ asked for by message.
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `326ed0827`
+(https://github.com/beyond10x/conductor/actions/runs/38447608895), first run. Released as v0.10.1.
