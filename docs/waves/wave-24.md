@@ -14,4 +14,5 @@ The local check ran under `conductor build run`.
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `2631396d6`
+(https://github.com/beyond10x/conductor/actions/runs/38451208491), first run. Released as v0.10.2.

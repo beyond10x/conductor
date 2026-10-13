@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:ledger-concurrency
 kind: story
-status: active
+status: implemented
 title: The host ledger keeps concurrent writes and counts only what running builds have not written
 relations:
 - decomposes: epic:disk-protocol
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T18:58:49Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T18:58:49Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T19:06:35Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
