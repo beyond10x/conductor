@@ -18,6 +18,12 @@ fn a_report_verb_followed_by_a_colon_parses() {
 }
 
 #[test]
+fn a_report_verb_followed_by_a_semicolon_or_comma_parses() {
+    assert!(read("[REPORT gates DSP-1] started; wave 3 in tree t").parsed);
+    assert!(read("[REPORT gates DSP-1] done, released v1.0.0").parsed);
+}
+
+#[test]
 fn a_report_with_another_word_for_its_dispatch_id_or_verb_still_does_not_parse() {
     assert!(!read("[REPORT alpha x] started").parsed);
     assert!(!read("[REPORT alpha DSP-1] maybe: something").parsed);

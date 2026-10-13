@@ -59,7 +59,7 @@ $ conductor doctor
 host: workstation
 system: Linux 6.18.0
 architecture: x86_64
-conductor 0.10.2
+conductor 0.10.3
 git: present, git version 2.55.0
 gh: present, gh version 2.80.0
 glab: not needed

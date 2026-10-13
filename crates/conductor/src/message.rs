@@ -109,7 +109,7 @@ const FORMS: [Form; 7] = [
                     "failed",
                     "ready",
                 ]
-                .contains(&words[0].strip_suffix(':').unwrap_or(words[0]))
+                .contains(&words[0].trim_end_matches([':', ';', ',']))
         },
     },
     Form {
@@ -165,7 +165,7 @@ pub struct Reading {
 /// or `]`, so a line that names a kind with its tag is of that kind even when its `]` is missing.
 /// A field inside the brackets whose type declares a prefix holds a value with that prefix; a
 /// dispatch id may be `-`, a report that answers no dispatch (`[REPORT conductor -] ready …`). A
-/// report's verb may end in `:` (`progress: …`). A line holding a line break is no first line, and
+/// report's verb may end in `:`, `;` or `,` (`progress: …`, `started; …`). A line holding a line break is no first line, and
 /// does not parse.
 #[must_use]
 pub fn read(line: &str) -> Reading {
