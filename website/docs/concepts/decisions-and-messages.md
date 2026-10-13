@@ -18,18 +18,16 @@ record-conductor-decision`) and tells the operator only by exception.
 - Order and priority inside an accepted epic or initiative. Design choices inside an approved
   design.
 - Issue triage, which profile or model a dispatch uses, and which repository waits for which.
+- Everything else that is not class O or H, architecture and repository changes included:
+  conductor takes the recommended option that can be undone, records it and reports it as taken.
+  Nothing is held for the operator.
 
-**Class O: the operator decides.** Conductor prepares the options and a recommendation, and
-escalates (`conductor decision escalate-request`).
+**Class O: the operator decides, only for what cannot be undone.** Conductor prepares the options
+and a recommendation, and escalates (`conductor decision escalate-request`).
 
-- New, renamed, split, merged or retired repositories.
-- Architecture-level changes: a contract between repositories, a noun crossing repositories, the
-  direction or an objective.
-- Public-facing breakage, data loss, outages.
-- Security trade-offs outside an approved design.
-- Credentials, accounts and spending.
-- Deleting another session's or person's work.
-- Changes to the operator's own rules.
+- Data loss: deleting another session's or person's work, an archive that is the only copy, a
+  repository.
+- Rewriting published history.
 
 **Class H: the operator's hands, not judgement.** Setting a secret, a login, a paid account, a
 permission only the operator holds. Conductor keeps one numbered list, with the exact command or
@@ -45,7 +43,8 @@ write is denied to every guarded session, whoever authorized it, and the denial 
 the exact command to run themselves. Every other `gh` write from a guarded session is denied too,
 as not a read ([the guard](/docs/security/the-guard)).
 
-When a class is unclear, conductor treats it as class O and records why. That record is how the
+When a class is unclear, conductor treats it as class C, takes the option that can be undone, and
+records why. That record is how the
 boundary moves over time. A request already answered is answered again from the record, never
 asked of the operator a second time.
 

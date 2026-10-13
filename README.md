@@ -146,7 +146,7 @@ not loaded; the role's settings file carries what the session needs.
 ## How it works
 
 1. **Sense.** `conductor snapshot start-snapshot` reads git state, pull requests, CI, releases, planning blockers and sessions into one snapshot.
-2. **Decide.** Conductor compares the snapshot with its goals; class C it decides, class O and class H go to the operator.
+2. **Decide.** Conductor compares the snapshot with its goals; it decides everything it can undo (class C); only what cannot be undone (class O) and credentials only the operator can enter (class H) go to the operator.
 3. **Dispatch.** Conductor sends each controller a brief; a controller works only in its repository and reports only to conductor.
 4. **Guard.** Every tool call of conductor and the controllers passes the guard; denials are recorded.
 5. **Watch.** `conductor watch run --follow` wakes conductor when a session ends, CI changes or disk runs low.

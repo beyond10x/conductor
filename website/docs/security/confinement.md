@@ -101,8 +101,8 @@ repository is a rule of the conductor profile, not something the code checks.
 Every decision has a class ([decisions and messages](/docs/concepts/decisions-and-messages)):
 
 - **class C**: conductor decides, within the instance's authority grant;
-- **class O**: the operator decides (architecture, spending, public-facing risk, credentials and
-  accounts);
+- **class O**: the operator decides, only for what cannot be undone (data loss, a history
+  rewrite); everything else conductor decides on the option that can be undone;
 - **class H**: the operator's hands (setting a secret, a login, a paid account).
 
 `conductor decision record-conductor-decision` refuses a class O or H decision as

@@ -42,9 +42,9 @@ through the repository's bot route.
      `<state>/conductor-dev/handoff/<date>.md`, never into this public repository; a wave page in
      `docs/waves/` keeps only what the product's history needs.
 
-   Approval: a standing approval `rules.md` records; otherwise send conductor
-   `[DECISION-REQUEST conductor <id>] approve wave <nn>: <stories>` and act on the decision id it
-   returns. A round ends with its tree finished and gc-ed (`worktree finish --discard-cache
+   Approval: waves are approved up front (the operator, 2026-10-12: "there should be no 'Waiting
+   on you'"); propose a wave on its wave page and run it. Hold nothing for the operator except a
+   step that cannot be undone or a credential only they can enter. A round ends with its tree finished and gc-ed (`worktree finish --discard-cache
    --archive`, then `worktree gc` on the exact reviewed id) and its merged branches deleted with
    `git branch -d`.
 4. **Rebuild.** After a wave merges into `main` and `task check` is green there: `task install`.

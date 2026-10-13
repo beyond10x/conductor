@@ -62,7 +62,7 @@ flowchart LR
 
 | | |
 |---|---|
-| **Decision classes** | Class C (routine: waves, merges, CI repair, upgrades) conductor decides and records. Class O (architecture, new or retired repositories, credentials, spending, anything public) the operator decides. Class H (setting a secret, a login, an account) needs the operator's hands. The store refuses a class-O or class-H decision recorded as conductor's ([decision classes](./concepts/decisions-and-messages.md)). |
+| **Decision classes** | Class C (routine: waves, merges, CI repair, upgrades) conductor decides and records. Class O (only what cannot be undone: data loss, a history rewrite) the operator decides; everything else conductor decides on the option that can be undone and reports as taken. Class H (setting a secret, a login, an account) needs the operator's hands. The store refuses a class-O or class-H decision recorded as conductor's ([decision classes](./concepts/decisions-and-messages.md)). |
 | **The authority grant** | Conductor decides class C only within the instance's `authority.class_c` and the grant the operator writes down in the instance's `rules.md`. |
 | **Reversal** | The operator answers escalations and may reverse any decision; conductor may reverse only its own. |
 | **Pause and stop** | A repository can be marked Inactive, so conductor leaves its issues and pull requests alone ([add a repository rule](./guides/add-a-repository-rule.md)). `conductor controller pause-controller` and `stop-controller` record a pause or a stop; they do not end the session yet. The sessions are ordinary Claude Code background sessions, which `claude stop` ends. |

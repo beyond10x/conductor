@@ -130,21 +130,22 @@ tells the operator only by exception.
 - Order and priority inside an accepted epic or initiative. Design choices inside an approved
   design.
 - Issue triage, which profile or model a dispatch uses, and which repository waits for which.
+- Everything else that is not class O or H below, architecture and repository changes included:
+  conductor takes the recommended option that can be undone, records it and reports it as taken.
+  The operator asks for nothing to be held for them ("there should be no 'Waiting on you' — that's
+  the point of conductor", 2026-10-12).
 
-**Class O: the operator decides.** Conductor prepares the options and a recommendation, and
-escalates (`decision escalate-request`).
+**Class O: the operator decides, and only for what cannot be undone.** Conductor prepares the
+options and a recommendation, and escalates (`decision escalate-request`).
 
-- New, renamed, split, merged or retired repositories.
-- Architecture-level changes: a contract between repositories, a noun crossing repositories, the
-  direction or an objective.
-- Public-facing breakage, data loss, outages.
-- Security trade-offs outside an approved design.
-- Credentials, accounts and spending.
-- Deleting another session's or person's work.
-- Changes to the operator's own rules.
+- Data loss: deleting another session's or person's work, an archive that is the only copy, a
+  repository.
+- Rewriting published history.
 
 **Class H: needs the operator's hands, not judgement.** Setting a secret, a login, a paid account,
-a permission only the operator holds. Conductor keeps one numbered list, with the exact command or
+a permission only the operator holds.
+
+Conductor keeps one numbered list, with the exact command or
 page for each item and the controllers waiting on it (`decision hands-todo`). Conductor never
 records a class-H decision: `record-conductor-decision` refuses it as `ReservedForOperator`. The
 operator records what was done with `record-operator-decision`, class H.
@@ -154,7 +155,8 @@ Conductor answers an open request (`decision answer-request`). Conductor reverse
 decisions (`decision reverse-conductor-decision`); the operator reverses any
 (`decision reverse-operator-decision`).
 
-When a class is unclear, conductor treats it as class O and records why. That record is how the
+When a class is unclear, conductor treats it as class C, takes the option that can be undone, and
+records why. That record is how the
 boundary moves over time. A request already answered is answered again from the record, never
 asked of the operator a second time.
 

@@ -43,16 +43,21 @@ this session and expire after 7 days, so a restart loses them.
      `conductor decision record-conductor-decision` (id `DEC-YYYYMMDD-NN`, class, request,
      options, choice, reason, evidence), then send `[DECISION <request-id>] …`. Before the import
      the store's first id for a day would repeat one the hand-written file already holds.
-   - Class O: send the operator one table with lettered options, costs and your recommendation,
-     and tell the controller it is escalated.
+   - Class O is only what cannot be undone (data loss, a history rewrite; design § 5): send the
+     operator one table with lettered options, costs and your recommendation, and tell the
+     controller it is escalated. Everything else is class C: decide it on the recommended option
+     that can be undone, and report it as taken. Hold nothing for the operator: no pending lists,
+     no "waiting on you" (the operator, 2026-10-12).
    - The operator's answer to a class-O or class-H request: record it through
      `conductor decision record-operator-decision` with `--recorded-by <session_ref>` (your own
      session's, from the `snapshot sessions` row whose `role` is `conductor`) and
      `--operator-words "<their words, quoted exactly>"`. Both are required.
-   - An unclear class is O. Record why.
+   - An unclear class is C: take the option that can be undone. Record why.
 4. **Dispatch.** Start, steer, pause or stop controllers:
    - Each controller has a charter, `charters/<repo>.md`: goal id, scope, boundaries, standing
      decisions, current dispatch, and the paths of `.agents/repo-controller.md` and `rules.md`.
+     The charter approves the repository's waves up front: a controller proposes a wave on its
+     wave page and runs it without waiting for an answer (the operator, 2026-10-12).
    - Log each dispatch to `dispatches/YYYY-MM.jsonl`.
    - At most `controllers.max_working` controllers work at once; an idle one does not count.
    - Your own scratch files go under `mktemp -d` in `$TMPDIR`: the Write and Edit tools may write
@@ -72,7 +77,9 @@ this session and expire after 7 days, so a restart loses them.
    decides, else the newest complete snapshot. An Inactive repository gets a dispatch only for a
    hygiene row or a class-O decision.
 6. **Report.** Brief the operator at the daily cycle, plus escalations, in the operator-report
-   style: verdict first, ≤ 20 lines, deviations only.
+   style: verdict first, ≤ 20 lines, deviations only. Decisions appear as taken, one line each;
+   a brief carries no list of items waiting on the operator. Only a class-O escalation or a
+   class-H item goes to the operator, each as a ready command or page.
 7. **Renew**, at the daily cycle: run the session-start `CronList` check again. Re-create a job
    created 6 or more days ago (`CronDelete`, then `CronCreate`), so it never reaches its expiry.
 
@@ -227,8 +234,8 @@ which only `conductor config workspace` writes (`--check` first).
   or any script or tool for conductor anywhere, `~/.cache` and `~/.local` included. The one
   exception is the class-H file `$TMPDIR/conductor-h/<H-id>.sh` (Standing rules). Send
   conductor-dev a `[NEED conductor <id>]`. Never run a wave in the product repository.
-- Decide a class-O question, or present a class-C question to the operator as a question. Decide
-  it and report it.
+- Take a class-O step (one that cannot be undone) yourself, or present any other question to the
+  operator as a question. Decide it and report it.
 - Copy a fact that has an owner: link to the catalog `rules.md` names, the AEP store or the forge.
 - Treat a green exit as evidence without knowing which tree ran.
 - Repeat a reported finding. Something said once has been said.
