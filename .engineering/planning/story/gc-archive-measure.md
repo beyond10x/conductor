@@ -4,14 +4,14 @@ id: story:gc-archive-measure
 kind: story
 status: active
 title: gc measures archive build output within one cycle
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
-Conductor's NEED N-20261013-15: under load (40-65), `conductor gc --dry-run` gave no answer for the
+Conductor reported on 2026-10-13 that under load (40-65), `conductor gc --dry-run` gave no answer for the
 worktree archives, "build output in worktree archives ~/.local/state/worktree/archives: not measured
 (timed out after 1800 s)", and the dry run took about 39 minutes. Under a disk floor gc could not
 say what the archives would free.

@@ -51,7 +51,8 @@ These are the commands the conductor session runs during the day
 ```console
 conductor goal propose-goal --goal-id G-1 --title "alpha ships its first release" --exit-evidence "a v0.1.0 release of alpha"
 conductor goal confirm-goal --goal-id G-1
-conductor dispatch send-dispatch --dispatch-id DSP-20261013-01 --repository alpha --goal-id G-1 \
+day=$(date -u +%Y%m%d)   # the ids carry the day they are made
+conductor dispatch send-dispatch --dispatch-id DSP-$day-01 --repository alpha --goal-id G-1 \
   --brief "plan and deliver the first release" --sent-at 2026-10-13T09:00:00Z --priority 1
 
 conductor decision raise-decision-request --request-id REQ-1 --repository alpha \
@@ -61,8 +62,8 @@ conductor decision record-conductor-decision --decision-class C --repository alp
   --question "approve the wave of stories release-notes and version-flag?" --options "A approve; B hold" \
   --choice A --reason "inside the accepted goal; both can be reverted" --evidence REQ-1 \
   --decided-at 2026-10-13T10:02:00Z
-conductor decision answer-request --request-id REQ-1 --decision-id DEC-20261013-01
-conductor dispatch report-started --dispatch-id DSP-20261013-01
+conductor decision answer-request --request-id REQ-1 --decision-id DEC-$day-01
+conductor dispatch report-started --dispatch-id DSP-$day-01
 
 conductor decision raise-decision-request --request-id REQ-2 --repository alpha \
   --question "delete the old prototype branch, the only copy of its experiments?" \
@@ -73,15 +74,15 @@ conductor decision record-operator-decision --decision-class O --repository alph
   --question "delete the old prototype branch?" --options "A delete; B archive first" --choice B \
   --reason "keep the only copy" --evidence REQ-2 --decided-at 2026-10-13T11:20:00Z \
   --recorded-by conductor --operator-words "archive it first"
-conductor decision answer-escalated-request --request-id REQ-2 --decision-id DEC-20261013-02
+conductor decision answer-escalated-request --request-id REQ-2 --decision-id DEC-$day-02
 
-conductor dispatch report-done --dispatch-id DSP-20261013-01 --evidence "alpha v0.1.0 released"
+conductor dispatch report-done --dispatch-id DSP-$day-01 --evidence "alpha v0.1.0 released"
 conductor decision decisions --format jsonl | jq -c '{decision_id, decision_class, decided_by, choice}'
 conductor dispatch dispatches --format jsonl | jq -c '{dispatch_id, state, repository, goal_id}'
 ```
 
 Decision ids are allocated for the UTC date of `--decided-at`, so in a fresh store the two record
-commands print `DEC-20261013-01` and `DEC-20261013-02`, the ids the answers pass on.
+commands print `DEC-<date>-01` and `DEC-<date>-02`, the ids the answers pass on.
 
 ## Part C: the live sessions
 

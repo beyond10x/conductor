@@ -70,7 +70,7 @@ $ conductor spawn --repository alpha
 
 `spawn` starts `alpha`'s controller in its checkout, with the controller role's profile, model and
 settings (so the [guard](/docs/security/the-guard) runs) and its charter, and records it running.
-The brief reaches it as `[DISPATCH alpha DSP-20261013-01] G-1 plan and deliver the first release`.
+The brief reaches it as `[DISPATCH alpha DSP-<date>-01] G-1 plan and deliver the first release`.
 
 ### 3. The controller's wave
 
@@ -96,8 +96,8 @@ DEC-20261013-01
 $ conductor decision answer-request --request-id REQ-1 --decision-id DEC-20261013-01
 ```
 
-The controller reads `[DECISION REQ-1] A … (DEC-20261013-01)`, works the wave with its own
-workers, and reports `[REPORT alpha DSP-20261013-01] started …`, which conductor records with
+The controller reads `[DECISION REQ-1] A … (DEC-<date>-01)`, works the wave with its own
+workers, and reports `[REPORT alpha DSP-<date>-01] started …`, which conductor records with
 `conductor dispatch report-started`. No person was asked.
 
 ### 4. An escalation, answered
@@ -142,7 +142,7 @@ decision and dispatch logs, CI, usage and disk ([read the dashboard](../guides/r
 
 ### 6. Evening
 
-The controller reports `[REPORT alpha DSP-20261013-01] done alpha v0.1.0 released`:
+The controller reports `[REPORT alpha DSP-<date>-01] done alpha v0.1.0 released`:
 
 ```console
 $ conductor dispatch report-done --dispatch-id DSP-20261013-01 --evidence "alpha v0.1.0 released"

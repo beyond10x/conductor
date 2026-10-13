@@ -2,7 +2,7 @@
 
 Coordinator: conductor-dev. Approved up front (rules item 99). One managed tree,
 `conductor-wave-20`, branch `wave/20`. Target: v0.8.2. One pull request. The stories come from the
-engineering team's cases of 2026-10-13 and conductor's NEED N-20261013-15.
+engineering team's cases of 2026-10-13 and conductor's request about gc under load.
 
 ## Units
 
