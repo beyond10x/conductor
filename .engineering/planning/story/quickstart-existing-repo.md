@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:quickstart-existing-repo
 kind: story
-status: active
+status: implemented
 title: 'A guide: one task in an existing repository, start to merged'
 relations:
 - decomposes: epic:onboarding-from-url
 - depends_on: story:merge-human
 - depends_on: story:controller-without-store
 - depends_on: story:worktree-activation
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 4}
 - {from: "proposed", to: "active", at: "2026-10-13T16:33:57Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-13T17:17:46Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

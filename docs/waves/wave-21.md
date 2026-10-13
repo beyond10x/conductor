@@ -35,4 +35,6 @@ One round of the four plan critics; every finding was answered in the stories (t
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `b529bbd74`
+(https://github.com/beyond10x/conductor/actions/runs/38436644034), first run; eight stories moved to
+`implemented` on that record. Released as v0.9.0.

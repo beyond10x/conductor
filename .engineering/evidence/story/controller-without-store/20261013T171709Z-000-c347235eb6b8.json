@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T17:17:09Z",
+  "actor": "human:timo",
+  "artifact": "story:controller-without-store",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check (CI Check)",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38436644034"
+  }
+}

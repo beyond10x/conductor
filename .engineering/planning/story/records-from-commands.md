@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:records-from-commands
 kind: story
-status: active
+status: implemented
 title: The commands that record an event write the records' decision and dispatch logs
 relations:
 - decomposes: epic:loop-without-handwork
@@ -43,10 +43,11 @@ scope:
   path: spec/domains/dispatch.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 4}
 - {from: "proposed", to: "active", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-13T17:17:45Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
