@@ -2634,3 +2634,42 @@ fn status_publishes_the_snapshot_it_took_and_nothing_when_it_failed() {
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
     assert_eq!(calls(), ["snapshot start-snapshot"], "{}", shown(&output));
 }
+
+/// `story:self-arming-restart`: `conductor:restart` starts the new session through
+/// `conductor:start`, whose prompt names the two recurring jobs by their cadence keys in
+/// `conductor config show` and the watch command, so the session arms them without a hand-over.
+#[test]
+fn the_restart_prompt_names_the_recurring_jobs_and_the_watch() {
+    let taskfile = taskfile();
+    let restart = serde_yaml::to_string(&taskfile["tasks"]["conductor:restart"]["cmds"])
+        .expect("conductor:restart cmds as text");
+    assert!(
+        restart.contains("task: conductor:start"),
+        "conductor:restart starts the new session through conductor:start: {restart}"
+    );
+    let start = shell_commands(&taskfile["tasks"]["conductor:start"]).join("\n");
+    assert!(
+        start.contains("{{shellQuote .CONDUCTOR_PROMPT}}"),
+        "conductor:start passes CONDUCTOR_PROMPT: {start}"
+    );
+    let prompt = taskfile["vars"]["CONDUCTOR_PROMPT"]
+        .as_str()
+        .expect("a CONDUCTOR_PROMPT");
+    for part in [
+        "CronList",
+        "CronCreate",
+        "cadence.cycle",
+        "cadence.daily",
+        "conductor config show",
+        "Monitor",
+        "conductor watch run --follow",
+    ] {
+        assert!(prompt.contains(part), "the prompt names {part}: {prompt}");
+    }
+    let arm = prompt.find("cadence.cycle").expect("cadence.cycle");
+    let handoff = prompt.find("-- docs/handoff/").expect("the hand-over");
+    assert!(
+        arm < handoff,
+        "the prompt arms the jobs before it reads the hand-over: {prompt}"
+    );
+}

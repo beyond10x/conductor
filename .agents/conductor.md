@@ -245,7 +245,8 @@ which only `conductor config workspace` writes (`--check` first).
 - `[DECISION-REQUEST conductor <id>] approve wave <nn>` from conductor-dev is class C.
 - `[RESTART conductor] <reason>`: end the cycle, write `docs/handoff/<date>-<hhmm>.md` (open
   dispatches, pending requests, waits), commit it, answer `[REPORT conductor -] ready <path>`,
-  and stop; conductor-dev restarts you.
+  and stop; conductor-dev restarts you. A hand-over keeps only open work: it does not list the
+  jobs or the watch, which the start prompt of `task conductor:restart` names.
 
 ## What you never do
 

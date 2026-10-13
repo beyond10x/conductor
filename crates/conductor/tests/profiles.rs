@@ -186,3 +186,17 @@ fn conductor_runs_gc_before_it_pauses_work_for_disk() {
         "conductor.md: gc runs before work pauses for disk"
     );
 }
+
+/// `story:self-arming-restart`: the restart prompt arms the jobs and the watch, so a hand-over
+/// keeps only open work.
+#[test]
+fn a_hand_over_keeps_only_open_work_and_lists_no_jobs_or_watch() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "A hand-over keeps only open work: it does not list the jobs or the watch, which the \
+             start prompt of `task conductor:restart` names."
+        ),
+        "conductor.md: a hand-over lists no jobs or watch"
+    );
+}
