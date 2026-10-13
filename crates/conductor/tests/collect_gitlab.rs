@@ -7,7 +7,7 @@
 //! Each case runs the built binary's `snapshot start-snapshot` with `CONDUCTOR_CONFIG` naming a
 //! config file in the case's directory: one instance, `acme`, whose one source is the group
 //! `example-org` on `gitlab.example.com`. `HOME` names the case's `home/`, and `PATH` only its
-//! `bin/`: a fake `glab` that logs its words and answers `cat` of a file under the case's
+//! `bin/`: a fake `glab` that logs its words and answers with the file under the case's
 //! `answers/` (a copy of `tests/fixtures/gitlab/`, which a case may change), chosen by the API
 //! path it is asked; `aep` an empty workspace; `claude` no session; `ess` a valid specification;
 //! and the real `git` and `tar`. No `gh` is on `PATH`, so a case that asked it would fail.
@@ -39,7 +39,7 @@ const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gitl
 /// The forge the instance's group is on.
 const HOST: &str = "gitlab.example.com";
 
-/// The fake `glab`: it logs its words, then answers `cat` of the file under `answers/` the API
+/// The fake `glab`: it logs its words, then answers with the file under `answers/` the API
 /// path it is asked (its last word) names. `{log}` and `{answers}` are filled in.
 const GLAB: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> '{log}'
@@ -62,7 +62,10 @@ case "$last" in
   projects/*/pipelines\?*) file=$id.pipelines.json ;;
   *) printf 'no answer for %s\n' "$last" >&2; exit 1 ;;
 esac
-if [ -f '{answers}'/"$file" ]; then exec cat '{answers}'/"$file"; fi
+if [ -f '{answers}'/"$file" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line"; done < '{answers}'/"$file"
+  exit 0
+fi
 printf 'no answer file %s for %s\n' "$file" "$last" >&2
 exit 1
 "#;
