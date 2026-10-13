@@ -2,15 +2,16 @@
 format: aep.planning-md/3
 id: story:disk-escalation
 kind: story
-status: active
+status: implemented
 title: A disk shortfall becomes one operator item; conductor stops granting slots by message
 relations:
 - decomposes: epic:disk-protocol
 - depends_on: story:build-run
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T17:12:18Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T17:12:18Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T18:12:43Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

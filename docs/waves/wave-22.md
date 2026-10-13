@@ -31,4 +31,8 @@ colon; the macOS provenance troubleshooting row names its cause (an `ess` older 
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `3a6a16fcc`
+(https://github.com/beyond10x/conductor/actions/runs/38443915639), first run; five stories moved to
+`implemented` on that record. The branch was rebuilt on `main` as one bot commit
+(`wave/22-release`) because a rebase had left a commit with a person as committer. Released as
+v0.10.0.
