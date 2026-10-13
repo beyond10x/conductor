@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:installed-profiles
 kind: story
-status: draft
+status: implemented
 title: A restart reads the installed profiles, not a checkout
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:47:17Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-13T13:47:18Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-13T14:20:52Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

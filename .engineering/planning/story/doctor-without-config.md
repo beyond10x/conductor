@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:doctor-without-config
 kind: story
-status: draft
+status: implemented
 title: Doctor needs no forge CLI without a config file
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:47:17Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-13T13:47:19Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T14:20:53Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

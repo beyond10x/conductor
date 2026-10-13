@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:ssh-command-kept
 kind: story
-status: draft
+status: implemented
 title: A snapshot keeps the user's core.sshCommand
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:47:17Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-13T13:47:19Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T14:20:53Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
