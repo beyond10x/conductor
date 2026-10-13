@@ -4,7 +4,7 @@ id: story:agents-link-local
 kind: story
 status: implemented
 title: agents:link links into the checkout, not ~/.claude/agents
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:38Z", actor: "human:timo", revision: 3}
@@ -12,11 +12,10 @@ transitions:
 ---
 ## Why
 
-The founder's first run (2026-10-08, FIRST-4 in brain's case list) found that `task agents:link`
-links the product's agent definitions, `repo-controller` among them, into `~/.claude/agents/`, so
-every Claude Code session on the machine sees a controller agent it should not start. He suggested
-linking into the checkout's own `.claude/agents/` and excluding the link through
-`.git/info/exclude`.
+An evaluation run on 2026-10-08 found that `task agents:link` links the product's agent definitions,
+`repo-controller` among them, into `~/.claude/agents/`, so every Claude Code session on the machine
+sees a controller agent it should not start. Linking into the repository's own `.claude/agents/`,
+excluded through `.git/info/exclude`, was proposed instead.
 
 ## What
 

@@ -4,7 +4,7 @@ Coordinator: conductor-dev, `aep:implementing` 0.22.8, wave mode. Approved up fr
 the operator, 2026-10-13: "make sure the next release will have those fixed … then dispatch those
 waves"). One managed tree, `conductor-wave-17`, branch `wave/17`; implementors write without a
 local build and CI gates the round. Epic: `epic:forge-neutral`, with the doctor, version and gc
-fixes from a team's trial of v0.4.0. Target: v0.7.0.
+fixes from a trial of v0.4.0. Target: v0.7.0.
 
 ## Units
 

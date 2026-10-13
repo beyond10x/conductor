@@ -43,7 +43,7 @@ scope:
   path: spec/domains/dispatch.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -100,3 +100,9 @@ logs.
 `crates/conductor/cli.yaml`, `crates/conductor/tests/records_log.rs` (new),
 `crates/conductor/tests/spawn.rs`, `crates/conductor/tests/profiles.rs`, `.agents/conductor.md`,
 `docs/design/conductor.md`, `website/docs/reference/cli.md`.
+
+## Shared files
+
+`docs/design/conductor.md`: this story edits § 10 only; `story:guard-write-targets` edits § 7.
+`crates/conductor-model` and `website/docs/reference/cli.md` are regenerated once by the
+coordinator after every spec edit of the wave.

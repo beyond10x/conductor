@@ -4,7 +4,7 @@ id: epic:loop-without-handwork
 kind: epic
 status: draft
 title: Conductor runs a day without hand-kept records, needless restarts or blind waits
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -29,3 +29,8 @@ hand-over is drafted from the store, and the guard decides a write on where it l
 `story:conductor-start-reading`, `story:handover-draft`, `story:guard-write-targets`,
 `story:rules-show`, `story:gate-run`, `story:plan-hygiene`, `story:news-pending`,
 `story:status-command`.
+
+## Added 2026-10-13
+
+`story:report-md-in-records`: conductor's run report at the records root was denied and written
+elsewhere by hand; it belongs with the guard deciding a write on where it lands.

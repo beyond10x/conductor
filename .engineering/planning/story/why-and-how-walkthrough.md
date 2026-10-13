@@ -4,7 +4,7 @@ id: story:why-and-how-walkthrough
 kind: story
 status: implemented
 title: Why conductor, and one day with it
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 3}
@@ -12,11 +12,9 @@ transitions:
 ---
 ## Why
 
-An IVR engineer asked on 2026-10-09 for a demo and the motivation behind the workflow ("best way is
-you to demo stuff … folks would probably like to see and understand motivations"), and after setup
-trouble on 2026-10-12 said they would "research more and see can I adapt to my current workflows"
-(brain's case list). The docs say what each command does, not why the loop is worth adopting or
-what a day with it looks like.
+Users asked for a demonstration of conductor and the motivation behind its workflow, and one stopped
+after setup trouble to see whether it fits their own way of working. The docs say what each command
+does, not why the loop is worth adopting or what a day with it looks like.
 
 ## What
 

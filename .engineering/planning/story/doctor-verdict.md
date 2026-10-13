@@ -11,7 +11,7 @@ scope:
   path: crates/conductor/src/doctor.rs
 - confidence: cited
   path: crates/conductor/tests/doctor.rs
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T10:42:55Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":4}}}
 - {from: "proposed", to: "active", at: "2026-10-13T10:42:55Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":4}}}
@@ -19,7 +19,7 @@ transitions:
 ---
 ## Why
 
-In the team's `conductor doctor` runs (v0.4.0, 2026-10-13), three of the four posted outputs end on
+In users' `conductor doctor` runs (v0.4.0, 2026-10-13), three of the four posted outputs end on
 `pins: no pins, no b10x.toml in /home/<user> or a directory above it`
 (`crates/conductor/src/doctor.rs:348`), so pass or fail shows only in the exit code, and the line
 prints the home path. One engineer read the output as "there are setup issues" without knowing

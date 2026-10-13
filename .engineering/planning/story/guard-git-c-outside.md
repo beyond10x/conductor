@@ -4,7 +4,7 @@ id: story:guard-git-c-outside
 kind: story
 status: implemented
 title: The guard decides git -C and GIT_DIR writes on their target
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 3}
@@ -12,10 +12,10 @@ transitions:
 ---
 ## Why
 
-The founder's first run (2026-10-08, NOTE-1 in brain's case list) found that the guard allows
-`git -C <path>` where the path is outside `checkouts.root` and the records: a controller can run git
-in any repository on the machine. He noted it matches the README's security model, which says the
-guard bounds writes by path; `git -C` moves the write target and the guard does not follow it.
+An evaluation run on 2026-10-08 found that the guard allows `git -C <path>` where the path is
+outside `checkouts.root` and the records: a controller can run git in any repository on the machine.
+The README's security model says the guard bounds writes by path; `git -C` moves the write target
+and the guard did not follow it.
 
 ## What
 

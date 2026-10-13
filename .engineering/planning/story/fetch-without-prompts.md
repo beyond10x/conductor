@@ -15,7 +15,7 @@ scope:
   path: crates/conductor/src/collect/repositories.rs
 - confidence: cited
   path: crates/conductor/tests/collect_stores.rs
-revision: 10
+revision: 11
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T13:13:53Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":2}}}
 - {from: "proposed", to: "active", at: "2026-10-13T13:14:04Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":2}}}
@@ -23,7 +23,7 @@ transitions:
 ---
 ## Why
 
-A team's snapshots failed ("There was a bug with snapshoting", 2026-10-13). Reproduced on v0.6.0
+A user's snapshots failed (2026-10-13). Reproduced on v0.6.0
 (v0.4.0 has the same code): the blockers collector runs `git fetch --quiet origin` in every
 member's checkout (`crates/conductor/src/collect/blockers.rs:157`, run through `run()` at
 `:607-614`) without `GIT_TERMINAL_PROMPT=0` or ssh batch mode; the specifications collector runs its

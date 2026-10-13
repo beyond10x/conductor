@@ -4,7 +4,7 @@ id: story:run-isolated-guide
 kind: story
 status: implemented
 title: A guide to running conductor isolated today
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 3}
@@ -12,11 +12,9 @@ transitions:
 ---
 ## Why
 
-Two engineers asked how to run conductor away from the rest of their machine and got no answer: a
-backend/SRE engineer asked whether it should run in a VM or a container to keep it from other data
-and ssh keys on the laptop; an IVR engineer asked how people run it given runners with no
-permissions (brain's case list, cases 8c and 9). The sandbox (`epic:session-confinement`) is not
-built yet.
+Users asked how to run conductor away from the rest of their machine: whether in a VM or a
+container, to keep it from other data and ssh keys on the same laptop, and how it behaves on CI
+runners without permissions. The sandbox (`epic:session-confinement`) is not built yet.
 
 ## What
 

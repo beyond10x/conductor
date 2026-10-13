@@ -9,7 +9,7 @@ request.
 | unit | story | from |
 |---|---|---|
 | A | installed-profiles | after v0.8.0 a conductor restart needed a git fast-forward in the product checkout |
-| B | doctor-without-config | a team engineer's `conductor doctor` on v0.7.0 with no config file: `gh: missing` |
+| B | doctor-without-config | a user's `conductor doctor` on v0.7.0 with no config file: `gh: missing` |
 | C | ssh-command-kept | the follow-up of `story:fetch-without-prompts`: a `core.sshCommand` was overridden |
 
 ## Outcome

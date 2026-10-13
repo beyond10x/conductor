@@ -4,7 +4,7 @@ id: epic:onboarding-from-url
 kind: epic
 status: draft
 title: A session given conductor's URL sets conductor up in its repository
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -26,3 +26,9 @@ it stays that way: two recorded runs prove it and are repeated before a release 
 
 `story:setup-guide-for-agents`, `story:doctor-identity`, `story:setup-command`,
 `story:onboarding-run`.
+
+## Added 2026-10-13
+
+The outcome extends to the first task: in an existing repository, with or without a planning
+store, a session goes from setup to a merged or reviewed pull request. Stories:
+`story:worktree-activation`, `story:controller-without-store`, `story:quickstart-existing-repo`.

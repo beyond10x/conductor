@@ -4,7 +4,7 @@ id: story:install-hints
 kind: story
 status: implemented
 title: Doctor and setup print an install command for each missing program
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 3}
@@ -12,9 +12,9 @@ transitions:
 ---
 ## Why
 
-The team's doctor runs on 2026-10-13 showed `task`, `claude`, `jq`, `worktree` and `gh` missing on
-Linux and macOS, and nobody in the check thread said where to get them (brain's case list, cases 1-5
-and 7). `conductor setup` prints `to install: <program>` and no command.
+Doctor runs by several users on 2026-10-13 showed `task`, `claude`, `jq`, `worktree` and `gh`
+missing on Linux and macOS, with nothing saying where to get them. `conductor setup` printed `to
+install: <program>` and no command.
 
 ## What
 

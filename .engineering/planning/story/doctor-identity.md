@@ -27,7 +27,7 @@ scope:
   path: website/docs/guides/troubleshoot.md
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 11
+revision: 12
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T13:13:49Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":3}}}
 - {from: "proposed", to: "active", at: "2026-10-13T13:14:02Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":3}}}
@@ -35,7 +35,7 @@ transitions:
 ---
 ## Why
 
-When engineers post `conductor doctor` output to ask for help (a team's trial, 2026-10-13), the
+When engineers post `conductor doctor` output to ask for help (a trial, 2026-10-13), the
 reader cannot tell which forge account a CLI is logged in as, on which host, or which machine and
 conductor version produced the output; each answer needs a second round trip. The operator,
 2026-10-13: "would be good to see gh + glab identities under doctor? also hostname, system, etc".

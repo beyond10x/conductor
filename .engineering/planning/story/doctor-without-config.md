@@ -4,7 +4,7 @@ id: story:doctor-without-config
 kind: story
 status: implemented
 title: Doctor needs no forge CLI without a config file
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T13:47:17Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T13:47:19Z", actor: "human:timo", revision: 3}
@@ -12,9 +12,9 @@ transitions:
 ---
 ## Why
 
-A team engineer ran `conductor doctor` on v0.7.0 with no config file and was told `gh: missing`
-and `not ready`, though the team has no repository on GitHub. Without a config file doctor checked
-the built-in instance, whose placeholder source is on GitHub (`crates/conductor/src/config.rs`,
+A user ran `conductor doctor` on v0.7.0 with no config file and was told `gh: missing` and `not
+ready`, though their repositories are not on GitHub. Without a config file doctor checked the
+built-in instance, whose placeholder source is on GitHub (`crates/conductor/src/config.rs`,
 `built_in`), so `gh` counted as needed. v0.8.0 did the same.
 
 ## What

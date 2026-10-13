@@ -344,7 +344,7 @@ fn doctor_needs_no_gh_for_a_gitlab_only_instance() {
 }
 
 /// Without a config file no source is named, so neither forge CLI is needed: a GitLab team that has
-/// not yet written its instance is not told `gh: missing` (the team's report on v0.7.0).
+/// not yet written its instance is not told `gh: missing` (a user's report on v0.7.0).
 #[test]
 fn doctor_needs_no_forge_cli_without_a_config_file() {
     let case = Case::new("no-config-no-gh");

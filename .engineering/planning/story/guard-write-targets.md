@@ -17,7 +17,7 @@ scope:
   path: crates/conductor/tests/guard_rules.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -46,7 +46,11 @@ named no allowed alternative: two Write denials did not say where scratch is, an
 - A Write or Edit denial names `$TMPDIR` and `~/.cache/<repo>-*/` as scratch, and a `cd` denial
   into another checkout adds "read it by absolute path, without cd"; cases in
   `crates/conductor/tests/guard_rules.rs` read both messages.
-- Design § 7's Bash paragraph and the README's security model say the write target decides.
+- Design § 7's Bash paragraph and the README's security model each hold the sentence "A Bash
+  command is decided on its write targets"; `rg 'decided on its write targets' docs/design/conductor.md
+  README.md` finds both. These are the only edits to those files in this story: design § 7 (not
+  § 10, which `story:records-from-commands` edits) and the README's security section (not its first
+  screen, which `story:quickstart-existing-repo` edits).
 
 ## Notes
 
