@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:doctor-minimum-versions
 kind: story
-status: draft
+status: implemented
 title: conductor doctor refuses an aep, ess or worktree older than its build's pins
 relations:
 - depends_on: story:doctor-verdict
@@ -19,7 +19,11 @@ scope:
   path: crates/conductor/tests/doctor.rs
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 6
+revision: 9
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T10:42:56Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-13T10:42:57Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-13T10:42:57Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

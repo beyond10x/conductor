@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:gitlab-repositories
 kind: story
-status: draft
+status: implemented
 title: A snapshot records a GitLab group's projects
 relations:
 - decomposes: epic:forge-neutral
@@ -31,7 +31,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 14
+revision: 17
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T10:43:02Z", actor: "human:timo", revision: 15, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-13T10:43:03Z", actor: "human:timo", revision: 16, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-13T10:43:03Z", actor: "human:timo", revision: 17, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

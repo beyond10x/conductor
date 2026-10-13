@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:watch-gitlab-ci
 kind: story
-status: draft
+status: implemented
 title: The watch reports a GitLab default branch turning red or green
 relations:
 - decomposes: epic:forge-neutral
@@ -13,7 +13,11 @@ scope:
   path: crates/conductor/src/watch.rs
 - confidence: cited
   path: crates/conductor/tests/watch.rs
-revision: 4
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T10:43:04Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "proposed", to: "active", at: "2026-10-13T10:43:04Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "active", to: "implemented", at: "2026-10-13T10:43:05Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":3}}}
 ---
 ## Why
 

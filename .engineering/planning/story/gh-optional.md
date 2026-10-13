@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:gh-optional
 kind: story
-status: draft
+status: implemented
 title: conductor runs without gh for a workspace with no GitHub repository
 relations:
 - decomposes: epic:forge-neutral
@@ -24,7 +24,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 12
+revision: 15
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T10:42:54Z", actor: "human:timo", revision: 13, decided_on: {"recorded":{"review_outcome":6}}}
+- {from: "proposed", to: "active", at: "2026-10-13T10:42:54Z", actor: "human:timo", revision: 14, decided_on: {"recorded":{"review_outcome":6}}}
+- {from: "active", to: "implemented", at: "2026-10-13T10:42:55Z", actor: "human:timo", revision: 15, decided_on: {"recorded":{"test_result":1,"review_outcome":6}}}
 ---
 ## Why
 

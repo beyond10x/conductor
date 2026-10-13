@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:gitlab-source-host
 kind: story
-status: draft
+status: implemented
 title: A gitlab source names its host
 relations:
 - decomposes: epic:forge-neutral
@@ -19,7 +19,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 8
+revision: 11
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T10:42:54Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":1}}}
+- {from: "proposed", to: "active", at: "2026-10-13T10:42:54Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":1}}}
+- {from: "active", to: "implemented", at: "2026-10-13T10:42:54Z", actor: "human:timo", revision: 11, decided_on: {"recorded":{"test_result":1,"review_outcome":1}}}
 ---
 ## Why
 

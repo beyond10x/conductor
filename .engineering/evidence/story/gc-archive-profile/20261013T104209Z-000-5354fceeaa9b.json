@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T10:42:09Z",
+  "actor": "human:timo",
+  "artifact": "story:gc-archive-profile",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check (CI, wave/17 d14a5172b)",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38384745935"
+  }
+}

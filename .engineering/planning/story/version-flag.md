@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:version-flag
 kind: story
-status: draft
+status: implemented
 title: conductor --version prints the installed version
 relations:
 - depends_on: story:doctor-minimum-versions
@@ -13,7 +13,11 @@ scope:
   path: crates/conductor/tests/cli_tree.rs
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T10:43:01Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-13T10:43:01Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-13T10:43:02Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

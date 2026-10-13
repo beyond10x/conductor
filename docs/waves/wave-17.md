@@ -29,6 +29,24 @@ the merge.
 Commits the approval covers: one commit per unit on `wave/17`, CI fixes, the closing store commit,
 the fast-forward of `main` once CI is green, and the v0.7.0 release commit and tag.
 
+## Off-plan
+
+- The security review of `story:guard-glab-writes` found five ways past the forge guard that
+  `gh` shared before this wave (flags before `api`, a flag between group and verb, `--help` as a
+  flag's value, a not-run name off program position, an expanding program word) and one in the
+  new `glab` table (`config`, `securefile` not credentials). Unit B2 fixed all six in the shared
+  parser; a forge call inside another language's string (`python3 -c`) stays outside what parsing
+  can bound, which `epic:session-confinement` now addresses.
+- The adversarial review of A1 found doctor reading one instance, an unreadable config ending
+  `ready`, a project pin file dropping the build's pins, and two host values accepted; unit A1b
+  and the host check fixed them.
+- `story:dashboard-worktree-repo` was found while implementing `story:gc-archive-profile` and
+  delivered in the same wave.
+- CI needed three fixes after the units landed: formatting, a fake `glab` using `cat` on a bare
+  `PATH`, and an organization name in the GitLab collector's examples.
+
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `d14a5172b`
+(https://github.com/beyond10x/conductor/actions/runs/38384745935); fourteen stories moved to
+`implemented` on that record. Released as v0.7.0.
