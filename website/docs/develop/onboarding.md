@@ -31,7 +31,7 @@ If you only want to run conductor, start at [Getting started](../getting-started
 | `task` (go-task) | | every command in `Taskfile.yml` |
 | `ess` | 0.59 (`b10x.toml`); the specification needs at least 0.59 (`requires:` in `spec/ess-inputs.yaml`) | validating the specification, the conformance run, generating `crates/conductor-model` |
 | `aep` | 0.71 | the planning store under `.engineering/planning/` |
-| `worktree` | 0.17 | managed worktrees |
+| `worktree` | 0.18 | managed worktrees |
 | `b10x-gates` (optional) | | the secret scan in `task check`, and the bot route maintainers commit and push through |
 | Node.js and `npm` (optional) | 22 in CI | previewing this site |
 
