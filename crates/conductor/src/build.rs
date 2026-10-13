@@ -315,6 +315,8 @@ pub fn run(
         });
     }
     host::fall_over(state)?;
+    // Held until the grant is released, so no sweep takes the grant from this run.
+    let run_lock = host::hold_run(state, &grant)?;
     drop(ledger);
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
     let start = size(&measured(&request.cwd), sources.every).unwrap_or(0);
@@ -383,6 +385,7 @@ pub fn run(
     if let Err(error) = host::release(state, &grant, Some(reason), &host::now((sources.clock)())) {
         eprintln!("conductor: build run: the grant was not released: {error:#}");
     }
+    host::end_run(state, &grant, run_lock);
     Ok(Outcome::Ran {
         grant,
         code,

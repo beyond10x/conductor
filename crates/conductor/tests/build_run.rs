@@ -659,6 +659,69 @@ fn runs_at_once_keep_every_ledger_write() {
 }
 
 #[test]
+fn a_grant_whose_run_still_holds_its_lock_is_not_swept_when_its_group_is_gone() {
+    let case = Case::new("group-gone-run-held");
+    // A command that has ended while its `build run` still records its peak and releases.
+    let mut child = {
+        use std::os::unix::process::CommandExt as _;
+        Command::new("true")
+            .process_group(0)
+            .spawn()
+            .expect("start true")
+    };
+    let group = i64::from(child.id());
+    child.wait().expect("wait for true");
+    let grant = {
+        let mut ledger = host::Ledger::lock(&case.state()).expect("the ledger opens");
+        let grant = ledger
+            .request(
+                "example-org",
+                None,
+                None,
+                GIB,
+                "true",
+                &host::now(OffsetDateTime::now_utc()),
+            )
+            .expect("a disk request is recorded");
+        ledger
+            .reserve(&grant, 0, 0)
+            .expect("the request is granted");
+        grant
+    };
+    host::start_run(
+        &case.state(),
+        &grant,
+        group,
+        &host::now(OffsetDateTime::now_utc()),
+    )
+    .expect("the grant runs");
+    let lock = host::hold_run(&case.state(), &grant).expect("the run lock is held");
+
+    let swept = host::Ledger::lock(&case.state())
+        .expect("the ledger opens")
+        .sweep(&host::now(OffsetDateTime::now_utc()))
+        .expect("the sweep reads");
+    assert!(swept.is_empty(), "a held run is not swept: {swept:?}");
+    host::record_peak_of(&case.state(), &grant, GIB / 2).expect("its peak is recorded");
+    host::release(
+        &case.state(),
+        &grant,
+        Some(ReleaseReason::Exited),
+        &host::now(OffsetDateTime::now_utc()),
+    )
+    .expect("its own release is kept");
+    host::end_run(&case.state(), &grant, lock);
+    let grants = case.grants();
+    let row = grants.iter().find(|row| row.grant_id == grant).unwrap();
+    assert_eq!(row.release_reason, Some(ReleaseReason::Exited), "{row:?}");
+    assert_eq!(
+        row.peak_bytes,
+        Some(i64::try_from(GIB / 2).unwrap()),
+        "{row:?}"
+    );
+}
+
+#[test]
 fn a_grant_whose_process_group_is_gone_is_released_by_the_next_run() {
     let case = Case::new("group-gone");
     // A process group that has ended: a child that led its own group and was waited for.
