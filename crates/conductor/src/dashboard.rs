@@ -528,7 +528,7 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
         (HEALTH_PATH, _) => Resource::Health,
         (_, Some(known)) => Resource::Snapshot(known),
         (overview::EVENTS_PATH, _) => Resource::Events,
-        _ if repo::PATHS.iter().any(|known| *known == path) => Resource::Repo(
+        _ if repo::PATHS.contains(&path) => Resource::Repo(
             repo::PATHS
                 .into_iter()
                 .find(|known| *known == path)
@@ -806,11 +806,11 @@ fn session(row: &Value, dispatches: &[Value], now: OffsetDateTime) -> Value {
 /// event line of the newest dispatch, as before.
 fn dispatch(name: &str, dispatches: &[Value], now: OffsetDateTime) -> Option<Value> {
     let sent_to = |line: &Value| line["to"].as_str() == Some(name) && line["brief"].is_string();
-    let line = dispatches.iter().rev().find(|line| sent_to(*line))?;
+    let line = dispatches.iter().rev().find(|line| sent_to(line))?;
     let id = line["id"].as_str()?;
     let sent: HashSet<&str> = dispatches
         .iter()
-        .filter(|line| sent_to(*line))
+        .filter(|line| sent_to(line))
         .filter_map(|line| line["id"].as_str())
         .collect();
     let newest_report = dispatches

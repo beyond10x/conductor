@@ -85,6 +85,9 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
   repository's problem is a `[NEED …]`; never `cd` or `git -C` into it.
 - Forge writes only through the workspace `AGENTS.md`'s bot route; `gh` and `glab` are read-only.
   No force-push; never discard work or delete build directories you did not create.
+- No full gate until every unit of the release is merged into the wave's integration branch;
+  never a gate for a queued or intermediate branch. Then one full gate on the final integration
+  head, one push and one pull request. A unit's own package-scoped tests are not a full gate.
 - One full-workspace gate at a time, in its own process group (`setsid`), under a watchdog
   reading free disk every `thresholds.watchdog_every`: `kill -STOP -<group>` under
   `thresholds.gate_stop`, `kill -CONT` over `thresholds.gate_resume`; a second stop is a
