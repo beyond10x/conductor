@@ -27,14 +27,21 @@
 //! No other word parses: no catch-all, no inferred prefix, no `help` word, no positional. The
 //! binding's `globals` must also name an output flag (`ess-cli/1` refuses a binding without
 //! one); the tree does not present it, and the flag comparison below refuses it.
+//!
+//! Two flags are the harness's, clap's own, and compared as such rather than as modelled words:
+//! `--help` (with `-h`) on every command, and `--version` (with `-V`) on the root only
+//! (`story:version-flag`). `ess-cli/1` declares no version global, so the binding names none.
+
+mod common;
 
 use std::collections::BTreeSet;
+use std::fs;
 use std::io::ErrorKind as IoErrorKind;
 use std::path::PathBuf;
 use std::process::Command as Process;
 
 use clap::error::ErrorKind;
-use clap::{Command, CommandFactory, Parser};
+use clap::{ArgAction, Command, CommandFactory, Parser};
 use conductor_cli::cli::Cli;
 use serde_json::Value;
 
@@ -537,12 +544,25 @@ fn compare_order(
     }
 }
 
-/// Every word on `command` besides its subcommands: long flags, plus a problem for anything
-/// that is not a long flag (a positional, a short flag, an alias).
-fn flag_words(path: &str, command: &Command, problems: &mut Vec<String>) -> BTreeSet<String> {
+/// The harness flags clap adds to every command: `--help`, with `-h`.
+const HARNESS: &[&str] = &["help"];
+
+/// The harness flags clap adds to the root: `--help`, and `--version` from `#[command(version)]`
+/// (`story:version-flag`), each with its short flag.
+const ROOT_HARNESS: &[&str] = &["help", "version"];
+
+/// Every word on `command` besides its subcommands and the `harness` flags clap adds on its own:
+/// long flags, plus a problem for anything that is not a long flag (a positional, a short flag,
+/// an alias).
+fn flag_words(
+    path: &str,
+    command: &Command,
+    harness: &[&str],
+    problems: &mut Vec<String>,
+) -> BTreeSet<String> {
     let mut longs = BTreeSet::new();
     for arg in command.get_arguments() {
-        if arg.get_id() == "help" {
+        if harness.contains(&arg.get_id().as_str()) {
             continue;
         }
         match arg.get_long() {
@@ -621,7 +641,22 @@ fn derive_tree_is_the_cli_block() {
             spec.binary
         ));
     }
-    let root_flags = flag_words(&spec.binary, &root, &mut problems);
+    let root_flags = flag_words(&spec.binary, &root, ROOT_HARNESS, &mut problems);
+    // The root's `--version` is clap's own flag, not a modelled word that merely shares its id.
+    match root.get_arguments().find(|arg| arg.get_id() == "version") {
+        Some(arg)
+            if matches!(arg.get_action(), ArgAction::Version)
+                && arg.get_long() == Some("version")
+                && !arg.is_global_set() => {}
+        Some(_) => problems.push(format!(
+            "`{}`: `version` is not clap's own root-only `--version` flag",
+            spec.binary
+        )),
+        None => problems.push(format!(
+            "`{}`: `--version` is missing; the root takes it as a harness flag",
+            spec.binary
+        )),
+    }
     compare_flags(&spec.binary, &global, &root_flags, &mut problems);
     for flag in [&binding.state, &binding.config] {
         match root
@@ -667,7 +702,7 @@ fn derive_tree_is_the_cli_block() {
         };
         let path = format!("{} {}", spec.binary, group.name);
         check_about(&path, actual, group.summary.as_deref(), &mut problems);
-        let group_flags = flag_words(&path, actual, &mut problems);
+        let group_flags = flag_words(&path, actual, HARNESS, &mut problems);
         // A one-word local command takes the binding's flags beside the global ones; a group
         // takes the global ones only.
         let mut expected_flags = global.clone();
@@ -770,7 +805,7 @@ fn derive_tree_is_the_cli_block() {
                     }
                 }
             }
-            let actual_flags = flag_words(&path, command, &mut problems);
+            let actual_flags = flag_words(&path, command, HARNESS, &mut problems);
             compare_flags(&path, &expected, &actual_flags, &mut problems);
         }
     }
@@ -1268,6 +1303,44 @@ fn the_binding_presents_only_placed_leaves_and_local_commands() {
         problems,
         "the binding crates/conductor/cli.yaml presents a word the cli block does not place",
     );
+}
+
+/// `conductor --version` prints `conductor <version>` from the crate version on standard output
+/// and exits 0 (`story:version-flag`), and the flag is the root's alone: after a subcommand it is
+/// a word clap refuses.
+#[test]
+fn version_prints_the_crate_version() {
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("cli_tree-version");
+    fs::create_dir_all(&home).expect("create the case's home");
+    let output = common::conductor(&home)
+        .arg("--version")
+        .output()
+        .expect("run conductor --version");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "`conductor --version` exits {:?}; stdout {stdout:?}, stderr {stderr:?}",
+        output.status.code()
+    );
+    assert_eq!(
+        stdout,
+        format!("conductor {}\n", env!("CARGO_PKG_VERSION")),
+        "`conductor --version` prints the crate version; stderr {stderr:?}"
+    );
+    assert!(
+        stderr.is_empty(),
+        "`conductor --version` writes nothing to stderr: {stderr:?}"
+    );
+
+    let mut problems = Vec::new();
+    expect_refused_as(
+        &["conductor", "doctor", "--version"],
+        ErrorKind::UnknownArgument,
+        "`--version` is the root's harness flag, not a subcommand's",
+        &mut problems,
+    );
+    fail(problems, "`--version` parses where it is not the root's");
 }
 
 #[test]

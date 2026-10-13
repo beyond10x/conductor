@@ -19,6 +19,10 @@
 //! guard also takes `--pid`, the calling session's process, which its payload does not name
 //! (`story:lease-by-process`).
 //!
+//! The root also takes `--version` (and clap's `-V`), which prints `conductor <version>` from the
+//! crate version and exits 0 (`story:version-flag`). Like `--help`, it is clap's own, not a word
+//! of the `cli:` block: `ess-cli/1` declares no version global, so the binding names none.
+//!
 //! No flag is required on its own, because every input field may arrive through
 //! `--input-json -` instead: the handler decides what is missing.
 //!
@@ -62,7 +66,7 @@ use crate::{
 
 /// The records conductor and the repository controllers keep.
 #[derive(Debug, Parser)]
-#[command(name = "conductor", disable_help_subcommand = true)]
+#[command(name = "conductor", version, disable_help_subcommand = true)]
 pub struct Cli {
     /// The state directory; conductor's records are kept in its tree/. Default: the instance's
     /// state when a config file names it, else state/ under the working directory
