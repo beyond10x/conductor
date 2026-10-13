@@ -30,7 +30,8 @@
 //! - One `RecordPullRequest` per open merge request (`merge_requests?state=opened`), by its `iid`:
 //!   a draft when GitLab marks it one; `Conflicting` when it has conflicts or cannot be merged,
 //!   `Mergeable` when it can, else `Unknown`; and one failing check when its head pipeline
-//!   (`merge_requests/<iid>`) concluded a `Failure` ([`conclusion`]), else none.
+//!   (`merge_requests/<iid>`) concluded a `Failure` ([`conclusion`]), else none; with its page
+//!   (`web_url`) as its link (`story:dashboard-overview`).
 //! - One `RecordMergedPullRequest` per merge request merged at or after the window's start
 //!   (`merge_requests?state=merged&updated_after=<start>`), with its page as its link.
 //! - One `RecordRelease` per release published at or after the window's start, upcoming ones aside
@@ -190,6 +191,9 @@ struct ApiMergeRequest {
     merge_status: Option<String>,
     created_at: String,
     updated_at: String,
+    /// The merge request's page; `None` from a forge that does not answer it.
+    #[serde(default)]
+    web_url: Option<String>,
 }
 
 /// One merge request, as `merge_requests/<iid>` answers it, in the part the list lacks.
@@ -264,6 +268,7 @@ fn observe(
             failing_checks: i64::from(failing),
             opened_at: Timestamp(utc(what, &request.created_at)?),
             updated_at: Timestamp(utc(what, &request.updated_at)?),
+            url: request.web_url,
         });
     }
 

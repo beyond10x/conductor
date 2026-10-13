@@ -585,8 +585,8 @@ fn get(port: u16, path: &str) -> String {
 }
 
 /// `/data.json` carries the per-repository table under `usage`, the rows `conductor resource
-/// usage --since <today, 00:00Z>` prints, measured on the disk measurement's cadence; the page
-/// shows them, and neither carries anything private.
+/// usage --since <today, 00:00Z>` prints, measured on the disk measurement's cadence; the app
+/// shows them from there (`story:dashboard-spa`), and neither carries anything private.
 #[test]
 fn the_dashboard_carries_the_repository_table_under_usage() {
     let now = OffsetDateTime::now_utc();
@@ -647,20 +647,18 @@ fn the_dashboard_carries_the_repository_table_under_usage() {
     assert_eq!(usage["rows"], printed["repositories"], "{usage:#}");
     assert_eq!(usage["errors"], json!([]), "{usage:#}");
 
-    let page = get(port, "/");
-    assert_private_kept(&page, "the page");
-    assert!(
-        page.contains(&format!("<h2>Token spend since {since}</h2>")),
-        "the page has no token spend heading:\n{page}"
-    );
-    for row in printed["repositories"].as_array().expect("rows") {
-        let cells: String = words(row, TABLES[0].1)
-            .iter()
-            .map(|word| format!("<td>{word}</td>"))
-            .collect();
-        assert!(
-            page.contains(&format!("<tr>{cells}</tr>")),
-            "the page has no row {cells}:\n{page}"
+    // The app's heading, `Token spend since <since>`, and its table, one row per repository with
+    // the cells `resource usage` prints, in its columns' order.
+    assert!(usage["measured_at"].is_string(), "{usage:#}");
+    let rows = usage["rows"].as_array().expect("usage rows");
+    assert!(!rows.is_empty(), "no repository row to show: {usage:#}");
+    let printed_rows = printed["repositories"].as_array().expect("rows");
+    for (served, printed) in rows.iter().zip(printed_rows) {
+        assert_eq!(
+            words(served, TABLES[0].1),
+            words(printed, TABLES[0].1),
+            "{usage:#}"
         );
     }
+    assert_private_kept(&get(port, "/"), "the app's index.html");
 }

@@ -21,12 +21,28 @@ Every command resolves the instance first and stops on a config problem, named b
 The tasks read the instance through `conductor config show`, so a config that does not validate
 shows up there as a missing role or records directory; validate it first.
 
-`conductor doctor` lists every program conductor starts (`git`, `gh`, `glab`, `claude`, `jq`,
+`conductor doctor` first names the machine: its host name, operating system and release,
+architecture, and the conductor version, so a report you post says where it came from. It then
+lists every program conductor starts (`git`, `gh`, `glab`, `claude`, `jq`,
 `task`, `aep`, `worktree`, `ess`), present with its version line, missing, or not needed. A forge's
 CLI is needed only for an instance with a source on that forge, `gh` for `github` and `glab` for
 `gitlab`, across every instance of the config file; the other reads `not needed` whether it is
 installed or not. A GitLab instance needs `glab` logged in to its source's `host`
 ([GitLab](./gitlab.md)).
+
+For each host of the config file's sources, `github.com` for a `github` source and the `host` of a
+`gitlab` source, across every instance, doctor asks the forge's CLI, when it is installed, which
+account it is logged in as there (`gh auth status --hostname <host>`,
+`glab auth status --hostname <host>`), and prints the login name only, never a token or an e-mail
+address:
+
+```console
+gh: logged in to github.com as example-user
+glab: not logged in to gitlab.example.com
+```
+
+A CLI not logged in to such a host makes the run not ready; `gh auth login --hostname github.com`
+or `glab auth login --hostname <host>` logs it in.
 
 Doctor then names the pins it checks against: the nearest `b10x.toml` in the working directory or
 a directory above it, or `pins: none` when there is none. `aep`, `ess` and `worktree` keep the pins
@@ -41,6 +57,7 @@ line is the verdict:
 | `not ready: <program> (too old), …` | its version is older than the pin; upgrade it |
 | `not ready: <program> (version unread), …` | it is pinned and its `--version` names no version doctor can read |
 | `not ready: <program> (pin unread), …` | its pin is not `x.y.z` or `x.y`; correct the `b10x.toml` |
+| `not ready: <program> (not logged in to <host>), …` | the forge's CLI is not logged in to a host of the config file's sources; log it in to that host |
 
 Doctor exits 1 on any `not ready:` line, and writes nothing.
 

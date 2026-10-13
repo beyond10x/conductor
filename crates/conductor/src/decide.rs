@@ -107,7 +107,7 @@ const HANDS_TODO_COLUMNS: [&str; 12] = [
 ];
 
 /// The fields of the `Decisions` view, in the specification's order.
-const DECISION_COLUMNS: [&str; 12] = [
+const DECISION_COLUMNS: [&str; 13] = [
     "decision_id",
     "state",
     "decision_class",
@@ -120,6 +120,7 @@ const DECISION_COLUMNS: [&str; 12] = [
     "decided_at",
     "recorded_by",
     "operator_words",
+    "repository",
 ];
 
 /// `conductor decision raise-decision-request`: the command
@@ -200,6 +201,7 @@ pub fn record_conductor_decision(
             reason: args.reason,
             evidence: args.evidence,
             decided_at: args.decided_at,
+            repository: args.repository,
         },
     )?;
     let input = |decision_id| RecordConductorDecision {
@@ -211,6 +213,7 @@ pub fn record_conductor_decision(
         reason: fields.reason.clone(),
         evidence: fields.evidence.clone(),
         decided_at: fields.decided_at.clone(),
+        repository: fields.repository.clone(),
     };
     // The specification refuses class O and H on the input alone (`reserved`, before it reads a
     // record), so it is asked over a store that holds and keeps nothing before an id is allocated:
@@ -283,6 +286,7 @@ pub fn record_operator_decision(
             reason: args.reason,
             evidence: args.evidence,
             decided_at: args.decided_at,
+            repository: args.repository,
         },
     )?;
     let recorded_by = not_blank(COMMAND, "--recorded-by", args.recorded_by)?;
@@ -300,6 +304,7 @@ pub fn record_operator_decision(
                 decided_at: fields.decided_at.clone(),
                 recorded_by: recorded_by.clone(),
                 operator_words: operator_words.clone(),
+                repository: fields.repository.clone(),
             })
             .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
         Ok(match outcome {
@@ -710,6 +715,7 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.decided_at.0),
                 Value::from(row.recorded_by),
                 Value::from(row.operator_words),
+                Value::from(row.repository.map(|repository| repository.0)),
             ]
         })
         .collect();
@@ -721,7 +727,7 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 }
 
 /// The fields `decision show` renders, in its order: a row of the `Decisions` view.
-const SHOWN: [&str; 12] = [
+const SHOWN: [&str; 13] = [
     "decision_id",
     "state",
     "decision_class",
@@ -734,6 +740,7 @@ const SHOWN: [&str; 12] = [
     "evidence",
     "recorded_by",
     "operator_words",
+    "repository",
 ];
 
 /// `conductor decision show`: the binding's `decision-show` callable over
@@ -786,6 +793,7 @@ pub fn show(state: Option<&Path>, args: ShowDecisionArgs) -> Result<ExitCode> {
         Value::from(row.evidence),
         Value::from(row.recorded_by),
         Value::from(row.operator_words),
+        Value::from(row.repository.map(|repository| repository.0)),
     ];
     let rendered = if json {
         ViewArgs {
@@ -893,6 +901,7 @@ struct Flags {
     reason: Option<String>,
     evidence: Option<String>,
     decided_at: Option<String>,
+    repository: Option<String>,
 }
 
 /// The input fields both record commands take, read from their flags.
@@ -906,10 +915,12 @@ struct Fields {
     reason: String,
     evidence: String,
     decided_at: Timestamp,
+    /// `--repository`, when it was given: the repository the decision is about.
+    repository: Option<RepositoryName>,
 }
 
 impl Fields {
-    /// Every flag but `--decision-id` is required; the first one missing is named, in the order
+    /// Every flag but `--decision-id` and `--repository` is required; the first one missing is named, in the order
     /// the specification lists the input fields. A `--decision-id` given is then held to the
     /// allocator's form.
     fn read(command: &str, flags: Flags) -> Result<Self> {
@@ -923,6 +934,7 @@ impl Fields {
             reason: flag(command, "--reason", flags.reason)?,
             evidence: flag(command, "--evidence", flags.evidence)?,
             decided_at: Timestamp(flag(command, "--decided-at", flags.decided_at)?),
+            repository: flags.repository.map(RepositoryName),
         };
         if let Some(given) = &fields.decision_id {
             in_allocator_form(command, "--decision-id", DECISION_PREFIX, &given.0)?;

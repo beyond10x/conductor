@@ -132,8 +132,16 @@ fn the_check_finds_a_name_and_passes_the_allowed_uses() {
     assert_eq!(offending("b10x-gates and ~/b10x").len(), 1);
 }
 
-/// The public text: the tracked files under these pathspecs.
-const PUBLIC: [&str; 5] = ["docs", "website/docs", "README.md", "AGENTS.md", ".agents"];
+/// The public text: the tracked files under these pathspecs. `SETUP.md` is the step list an
+/// agent follows to set conductor up (`story:setup-guide-for-agents`).
+const PUBLIC: [&str; 6] = [
+    "docs",
+    "website/docs",
+    "README.md",
+    "SETUP.md",
+    "AGENTS.md",
+    ".agents",
+];
 
 /// The pages `conductor-docs generate` writes, left out of the public text.
 const GENERATED: [&str; 2] = ["website/docs/reference/", "website/docs/status.md"];

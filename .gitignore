@@ -5,3 +5,4 @@ crates/conductor-model/.ess-output/
 website/node_modules/
 website/build/
 website/.docusaurus/
+crates/conductor/dashboard/node_modules/

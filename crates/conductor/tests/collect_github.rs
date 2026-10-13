@@ -1441,3 +1441,99 @@ fn a_failed_snapshot_is_not_compared_with() {
     );
     assert_eq!(asked(&calls, "alpha"), 2);
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:dashboard-overview
+// ---------------------------------------------------------------------------------------------
+
+/// A fake `gh` in `dir`: it answers the owner's list with `alpha`, alpha's open pull requests
+/// with #7 and its merged ones with #5, each with its `url` only when the `--json` list it is
+/// asked for names `url`, as `gh` does, and no run and no release. Its path.
+fn fake_gh(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let open = r#"{"number":7,"title":"feat: link the board","isDraft":false,"mergeable":"MERGEABLE","statusCheckRollup":[],"createdAt":"2026-10-06T09:00:00Z","updatedAt":"2026-10-06T10:00:00Z""#;
+    let merged = r#"{"number":5,"title":"fix: count the cards","mergedAt":"2026-10-05T09:00:00Z""#;
+    let script = format!(
+        "#!/bin/sh\n\
+         json=''\n\
+         for word in \"$@\"; do case \"$word\" in number,*) json=\"$word\";; esac; done\n\
+         case \"$1 $2\" in\n\
+         'repo list') echo '[{{\"name\":\"alpha\",\"isArchived\":false}}]' ;;\n\
+         'pr list')\n\
+           case \"$*\" in\n\
+           *'--state open'*) row='{open}' ; url='https://github.com/example-org/alpha/pull/7' ;;\n\
+           *) row='{merged}' ; url='https://github.com/example-org/alpha/pull/5' ;;\n\
+           esac\n\
+           case \",$json,\" in\n\
+           *,url,*) echo \"[$row,\\\"url\\\":\\\"$url\\\"}}]\" ;;\n\
+           *) echo \"[$row}}]\" ;;\n\
+           esac ;;\n\
+         *) echo '[]' ;;\n\
+         esac\n"
+    );
+    fs::create_dir_all(dir).expect("create the fake gh's directory");
+    let gh = dir.join("gh");
+    fs::write(&gh, script).expect("write the fake gh");
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).expect("make the fake gh run");
+    gh
+}
+
+/// `command` with its program `gh` replaced by `gh`: the collector's own argument lists, asked of
+/// the fake.
+fn through(command: &[String], gh: &Path) -> Vec<String> {
+    let mut command = command.to_vec();
+    assert_eq!(command[0], "gh", "{command:?}");
+    command[0] = text(gh).to_owned();
+    command
+}
+
+/// The collector asks `gh` for each open and each merged pull request's `url` and records it: the
+/// `pull-requests` and `merged-pull-requests` rows each carry the `url` the fake answered.
+#[test]
+fn open_and_merged_pull_requests_carry_the_url_gh_answers() {
+    use conductor_model::observation::obligations::MergedPullRequestsQuery as _;
+    let world = World::new("pull-urls");
+    let gh = fake_gh(&world.root.join("bin"));
+    let instance = conductor_cli::config::built_in(&world.root, &world.root);
+    let mut sources = github::Sources::of(&instance);
+    sources.organization = "example-org".to_owned();
+    sources.repository_list = through(&sources.repository_list, &gh);
+    sources.pull_requests = through(&sources.pull_requests, &gh);
+    sources.workflow_runs = through(&sources.workflow_runs, &gh);
+    let mut shipments = github::Shipments::live(now());
+    shipments.releases = through(&shipments.releases, &gh);
+    shipments.merged_pull_requests = through(&shipments.merged_pull_requests, &gh);
+    let collector = Collector::new("github", move |record| {
+        github::collect_all_from(&sources, &shipments, record)
+    });
+    let taken =
+        snapshot::take_in(&world.state(), &[collector]).expect("the driver ends the snapshot");
+    complete(&taken);
+
+    let generated = generated(&world);
+    let open: Vec<(i64, Option<String>)> = generated
+        .pull_requests()
+        .expect("the pull-requests view answers")
+        .into_iter()
+        .filter(|row| row.snapshot_id == taken.snapshot_id)
+        .map(|row| (row.number, row.url))
+        .collect();
+    assert_eq!(
+        open,
+        [(
+            7,
+            Some("https://github.com/example-org/alpha/pull/7".to_owned())
+        )]
+    );
+    let merged: Vec<(i64, String)> = generated
+        .merged_pull_requests()
+        .expect("the merged-pull-requests view answers")
+        .into_iter()
+        .filter(|row| row.snapshot_id == taken.snapshot_id)
+        .map(|row| (row.number, row.url))
+        .collect();
+    assert_eq!(
+        merged,
+        [(5, "https://github.com/example-org/alpha/pull/5".to_owned())]
+    );
+}

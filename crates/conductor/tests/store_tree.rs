@@ -16,6 +16,8 @@
 //! `story:operator-decision-guarded` added the decisions view's `recorded_by` and `operator_words`
 //! columns, last in each row: `decision-decisions.json` and `decision-show.json` hold them as
 //! `null`, which is what this build reads from a decision written without them.
+//! `story:dashboard-repo-view` added the decisions view's `repository` column after them, which
+//! the two files hold as `null` for the same reason.
 //! `story:session-envelope-model` added the sessions view's seven `envelope_*` columns, last in
 //! each row: `snapshot-sessions.json` holds them as `null`, which is what this build reads from a
 //! session written without them.

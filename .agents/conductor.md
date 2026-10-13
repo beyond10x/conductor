@@ -24,9 +24,11 @@ this session and expire after 7 days, so a restart loses them.
 - Start the watch once with the `Monitor` tool: `conductor watch run --follow`. Each line wakes
   you: a session gone or exited (`blocked`) that no dispatch line explains, a usage limit in a
   transcript, your own or a controller's context above `thresholds.context_handover`, free disk
-  under `thresholds.disk_low`, a `main` CI of an Active repository turning red or green, a live
-  controller whose transcripts and sub-agents' have written nothing for longer than
-  `thresholds.silent_session` (`session silent: <name> <id> <m>m`: see Standing rules), two live
+  under a floor (each once per fall: `disk low: <n>G free on /` under `thresholds.disk_low`,
+  `disk admit: <n>G free on / (builds wait)` under `thresholds.disk_admit`, `disk gate stop: <n>G
+  free on / (gates stop)` under `thresholds.gate_stop`; see Dispatch for what each asks), a
+  `main` CI of an Active repository turning red or green, a live controller whose transcripts
+  and sub-agents' have written nothing for longer than `thresholds.silent_session` (`session silent: <name> <id> <m>m`: see Standing rules), two live
   sessions under your own session name (`conductors: …`: tell the operator at once which one is
   not you; do no conductor work until one is gone). Session starts print nothing. When the monitor ends, start it again.
 
@@ -81,6 +83,11 @@ this session and expire after 7 days, so a restart loses them.
      - under `thresholds.build_slot`, no new build expected to write more than
        `thresholds.build_size`; such a `[RESOURCE <repo>] build-slot` is refused with the number;
      - under `thresholds.disk_admit`, start nothing, grant nothing.
+     - The watch says which floor was crossed. `disk low` asks for the cleanup above. On `disk
+       admit`, pause new builds: start nothing, grant nothing until free disk is back at
+       `thresholds.disk_admit`. On `disk gate stop`, run `conductor gc` at once and tell every
+       controller running a gate that it is stopped until free disk is back at
+       `thresholds.gate_resume`.
 5. **Process only Active repositories.** Triage issues and pull requests, and dispatch work from
    them, only for repositories Active in `conductor repository activity` (design § 10): a mark
    decides, else the newest complete snapshot. An Inactive repository gets a dispatch only for a

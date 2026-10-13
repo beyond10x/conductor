@@ -123,6 +123,7 @@ fn take_at(root: &Path, started_at: &str, collectors: &[Collector]) -> Taken {
     let start = StartSnapshot {
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1,
+        budget: None,
     };
     snapshot::take_from(store, start, collectors).expect("the driver ends the snapshot")
 }

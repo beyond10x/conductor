@@ -342,8 +342,9 @@ fn adv_the_dashboard_reads_main_ci_where_the_watch_run_from_the_conductor_reposi
     assert!(
         stdout.is_empty()
             || (stdout.starts_with("disk low: ")
-                && stdout.ends_with("G free on /\n")
-                && stdout.lines().count() == 1),
+                && stdout.lines().skip(1).all(|line| {
+                    line.starts_with("disk admit: ") || line.starts_with("disk gate stop: ")
+                })),
         "stdout {stdout:?}, stderr {stderr:?}"
     );
     assert!(

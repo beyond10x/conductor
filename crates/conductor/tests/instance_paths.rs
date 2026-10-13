@@ -429,10 +429,10 @@ fn with_a_config_file_the_dashboard_serves_the_instance_records_and_its_watch_st
         "the instance's records read: {errors}"
     );
 
-    let page = get(&served, "/");
-    assert!(
-        page.contains("<h2>Sessions under ~/checkouts ("),
-        "the page names the instance's checkouts root:\n{page}"
+    // The checkouts root the app's heading names, `Sessions under ~/checkouts (…)`.
+    assert_eq!(
+        data["reading"]["checkouts"], "~/checkouts",
+        "/data.json names the instance's checkouts root: {data:#}"
     );
 }
 
@@ -474,10 +474,11 @@ fn without_a_config_file_the_dashboard_reads_today_s_root_and_watch_stopgap() {
     let home = case.home();
     let built_in = config::built_in(&home, &work).checkouts.root;
     let shown = built_in.replacen(text(&home), "~", 1);
-    let page = get(&served, "/");
-    assert!(
-        page.contains(&format!("<h2>Sessions under {shown} (")),
-        "the page names the built-in checkouts root {shown}:\n{page}"
+    // The checkouts root the app's heading names, `Sessions under <root> (…)`.
+    assert_eq!(
+        data["reading"]["checkouts"],
+        json!(shown),
+        "/data.json names the built-in checkouts root: {data:#}"
     );
 }
 

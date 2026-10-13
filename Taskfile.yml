@@ -303,8 +303,15 @@ tasks:
       - cargo test --release --locked -p conductor-cli --test store_tree -- --ignored --nocapture appends_at_5000_events_cost_less_than_three_times_appends_at_500
       - cargo test --release --locked -p conductor-cli --test guard_latency -- --ignored --nocapture
 
+  ui:
+    desc: Build the dashboard app (crates/conductor/dashboard, Vue 3 and Vite on the Node version of its .nvmrc) into crates/conductor/dashboard/dist/, which is committed and which the conductor binary embeds; installs the locked packages first (npm ci)
+    dir: crates/conductor/dashboard
+    cmds:
+      - npm ci
+      - npm run build
+
   check:
-    desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, then format, lint and test
+    desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, test the dashboard app and hold crates/conductor/dashboard/dist to a fresh build, then format, lint and test
     cmds:
       - if [ -n "${B10X_GATES_POLICY:-}" ]; then git ls-files -z | xargs -0 b10x-gates scan-text; else echo "B10X_GATES_POLICY is not set; the Gates scan is skipped" >&2; fi
       - ess specify validate --path spec
@@ -314,6 +321,11 @@ tasks:
       - rm -rf .check/conductor-model
       - ess generate synthesize --path spec --target rust --layout crate --out .check/conductor-model
       - diff -r --exclude=.ess-output crates/conductor-model .check/conductor-model
+      - npm --prefix crates/conductor/dashboard ci
+      - npm --prefix crates/conductor/dashboard test
+      - task: ui
+      - git diff --exit-code -- crates/conductor/dashboard/dist
+      - test -z "$(git status --porcelain --untracked-files=all -- crates/conductor/dashboard/dist)" || { git status --short --untracked-files=all -- crates/conductor/dashboard/dist; echo "crates/conductor/dashboard/dist differs from a fresh build; run task ui and commit dist/" >&2; exit 1; }
       - cargo fmt --check
       - cargo clippy --all-targets -- -D warnings
       - cargo test

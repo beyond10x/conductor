@@ -34,16 +34,26 @@
 //! `acme.github.io` is the member `acme-github-io`), its id as the reference, its kind,
 //! and its title, empty when it has none.
 //!
-//! A repository whose fetch or export fails, and a member list or listing that fails, is tried once
-//! more; failing again, the collector answers an error naming the repository and the command. The
-//! specifications collector reads the same exports and listing through [`read`].
+//! A member list or listing that fails is tried once more; failing again, the collector answers an
+//! error naming the command. The specifications collector reads the same exports and listing
+//! through [`read`].
+//!
+//! **A member that cannot be read is a member failure, not a failed snapshot**
+//! (`story:snapshot-member-failures`). Its fetch, and its export, are each tried once more; failing
+//! again, the collector records `RecordMemberFailure` with the member's repository, its own name
+//! and the error's first line ([`first_line`]), and goes on with the other members. A member
+//! whose fetch failed is still exported, at its `origin/main` as last fetched, so its blockers are
+//! read beside its failure; one whose export failed has no export, and nothing of it is listed.
+//! The failures are recorded by the collector whose [`read`] fetched and exported: a later
+//! [`read`] in the same snapshot finds the members without an export and leaves them out, without
+//! recording them again.
 //!
 //! **A member whose checkout is absent is skipped.** `aep plan workspace members` reports it
 //! `"state": "absent"`, with exit 0; one with no directory at its `tree` is neither fetched, nor
 //! exported, nor listed, and [`read`] names it on one line of standard error,
 //! `member <name>: checkout absent, skipped`, once per snapshot: not again when it finds its own
 //! snapshot's mark. Until 2026-10-10 such a member failed every snapshot. A checkout that is there
-//! but whose fetch fails still fails the snapshot.
+//! but whose fetch fails is a member failure, as above.
 //!
 //! **The records with no `origin` remote are read at their `HEAD`, unfetched.** The records
 //! directory is the member that is the workspace file's own directory, `root` ([`Sources::root`]),
@@ -51,17 +61,20 @@
 //! and commits it with none. With no `origin` there is nothing to fetch and no `origin/main` to
 //! read, so [`read`] exports what the collectors read of its `HEAD` instead, as committed: still
 //! never its working tree. Until 2026-10-12 it failed every snapshot on `git fetch --quiet origin`.
-//! Every other member is fetched whatever its remotes, and one that has no `origin` fails the
-//! snapshot as before.
+//! Every other member is fetched whatever its remotes, and one that has no `origin` is a member
+//! failure.
 
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::observation::{RecordBlocker, RepositoryName, SnapshotId};
+use conductor_model::observation::{
+    RecordBlocker, RecordMemberFailure, RepositoryName, SnapshotId,
+};
 use serde_json::Value;
 
 use crate::collect::{self, specifications};
@@ -85,6 +98,9 @@ const HEAD: &str = "HEAD";
 
 /// The status of a blocker that still blocks.
 const OPEN: &str = "open";
+
+/// This collector's name, as a member failure it records names it.
+const COLLECTOR: &str = "blockers";
 
 /// What the collector reads, the one seam a test points at fixtures. [`Sources::new`] gives the
 /// real ones.
@@ -187,6 +203,7 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
 pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> {
     let snapshot = record.snapshot().clone();
     let workspace = read(sources, &snapshot)?;
+    record_failures(record, COLLECTOR, &workspace.failures)?;
     for artifact in &workspace.artifacts {
         let kind = artifact.kind();
         if artifact.status != OPEN || !is_blocker(kind) {
@@ -202,6 +219,30 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
                 title: artifact.title.clone().unwrap_or_default(),
             })
             .with_context(|| format!("record {} of {repository}", artifact.id))?;
+    }
+    Ok(())
+}
+
+/// Records each of `failures` into the recorder's snapshot as a member failure of the collector
+/// `collector` (`RecordMemberFailure`).
+///
+/// # Errors
+///
+/// A failure the recorder refused.
+pub(crate) fn record_failures(
+    record: &mut Recorder<'_>,
+    collector: &str,
+    failures: &[Failure],
+) -> Result<()> {
+    for failure in failures {
+        record
+            .member_failure(RecordMemberFailure {
+                snapshot_id: record.snapshot().clone(),
+                member: RepositoryName(failure.repository.clone()),
+                collector: collector.to_owned(),
+                error_line: failure.error_line.clone(),
+            })
+            .with_context(|| format!("record the failure of member {}", failure.repository))?;
     }
     Ok(())
 }
@@ -230,12 +271,39 @@ pub(crate) fn root() -> Result<PathBuf> {
 /// The organization's workspace, read at each member's `origin/main`.
 #[derive(Debug)]
 pub(crate) struct Workspace {
-    /// Every member, in the workspace file's order, but those whose checkout is absent.
+    /// Every member with an export, in the workspace file's order: all but those whose checkout
+    /// is absent and those that could not be exported.
     pub(crate) members: Vec<Member>,
     /// The repository of each member whose checkout is absent, which nothing reads.
     pub(crate) absent: Vec<String>,
+    /// Each member whose checkout is there but has no export in this snapshot: its export
+    /// failed, in this read or in an earlier one of the same snapshot. Nothing of it is listed.
+    pub(crate) unread: Vec<Member>,
+    /// What this read could not read, each member's fetch or export that failed twice, to be
+    /// recorded as member failures by the collector that called it. Empty when the exports were
+    /// this snapshot's already.
+    pub(crate) failures: Vec<Failure>,
     /// Every artifact of every member's store, as `aep plan workspace list` orders them.
     pub(crate) artifacts: Vec<Artifact>,
+}
+
+/// One member a read could not read in full, as a member failure records it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Failure {
+    /// The member's repository.
+    pub(crate) repository: String,
+    /// The error's first line ([`first_line`]).
+    pub(crate) error_line: String,
+}
+
+impl Failure {
+    /// The failure of the member `repository`, which `error` stopped.
+    pub(crate) fn of(repository: &str, error: &anyhow::Error) -> Self {
+        Self {
+            repository: repository.to_owned(),
+            error_line: first_line(error),
+        }
+    }
 }
 
 /// One member of the workspace.
@@ -284,13 +352,15 @@ impl Workspace {
 }
 
 /// The workspace of `sources.root` at `origin/main`, for `snapshot`: each member fetched and
-/// exported, unless the exports already carry `snapshot`'s mark and hold every member; the
-/// exports' workspace file written; and that workspace listed.
+/// exported ([`read_member`]), unless the exports already carry `snapshot`'s mark; the exports'
+/// workspace file written, naming each member with an export; and that workspace listed. A member
+/// that could not be read is among [`Workspace::failures`] and [`Workspace::unread`], or only
+/// among the latter when an earlier read of the snapshot made the exports.
 ///
 /// # Errors
 ///
-/// A member list, export or listing that failed twice, naming the repository and the command; an
-/// answer that is not the JSON `aep` prints; or a file that cannot be written or removed.
+/// A member list or listing that failed twice, naming the command; an answer that is not the JSON
+/// `aep` prints; or a file of the exports that cannot be written or removed.
 pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace> {
     let listed = twice(|| json(&sources.members, None, sources.bound)).with_context(|| {
         format!(
@@ -329,7 +399,7 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
             forge: origin.as_deref().and_then(forge_name),
         });
         // Only the records, the member that is `root` itself, is read without an `origin`; every
-        // other member is fetched, and fails the snapshot when it cannot be.
+        // other member is fetched, and is a member failure when it cannot be.
         let fetched = origin.is_some() || !same_dir(&checkout, &sources.root);
         checkouts.push((checkout, fetched));
     }
@@ -347,20 +417,50 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
             artifacts: Vec::new(),
             members,
             absent: skipped(absent),
+            unread: Vec::new(),
+            failures: Vec::new(),
         });
     }
     let mark = sources.exports.join(MARK);
     let marked = fs::read_to_string(&mark).is_ok_and(|held| held == snapshot.0.0);
-    if !marked || !members.iter().all(|member| member.export.is_dir()) {
+    let mut failures = Vec::new();
+    let mut exported = Vec::new();
+    let mut unread = Vec::new();
+    if marked {
+        // This snapshot's exports, made by an earlier read: a member without one could not be
+        // read then, and that read's collector recorded why.
+        for member in members {
+            if member.export.is_dir() {
+                exported.push(member);
+            } else {
+                unread.push(member);
+            }
+        }
+    } else {
         name_absent(&absent);
         remove(&mark)?;
-        for (member, (checkout, fetched)) in members.iter().zip(&checkouts) {
-            twice(|| export(sources, &member.repository, checkout, *fetched))
-                .with_context(|| format!("repository {}, tried twice", member.repository))?;
+        for (member, (checkout, fetched)) in members.into_iter().zip(checkouts) {
+            if read_member(sources, &member, &checkout, fetched, &mut failures)? {
+                exported.push(member);
+            } else {
+                unread.push(member);
+            }
         }
         fs::create_dir_all(&sources.exports)
             .with_context(|| format!("create {}", sources.exports.display()))?;
         fs::write(&mark, &snapshot.0.0).with_context(|| format!("write {}", mark.display()))?;
+    }
+    let members = exported;
+    if members.is_empty() {
+        // No member could be read: there is nothing to list, and `aep` refuses a workspace of no
+        // members.
+        return Ok(Workspace {
+            artifacts: Vec::new(),
+            members,
+            absent: skipped(absent),
+            unread,
+            failures,
+        });
     }
     write_workspace(&sources.exports, &members)?;
     let listing = twice(|| json(&sources.list, None, sources.bound)).with_context(|| {
@@ -373,7 +473,52 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
         artifacts: artifacts_of(&listing)?,
         members,
         absent: skipped(absent),
+        unread,
+        failures,
     })
+}
+
+/// Reads the member `member`, whose checkout is `checkout`, into its export: fetches its `origin`
+/// when `fetched`, then exports its `origin/main`, or its `HEAD` unless `fetched` ([`export`]),
+/// each tried twice. A fetch that fails twice is a failure of the member, pushed onto `failures`,
+/// and the checkout's `origin/main` as last fetched is exported still. An export that fails twice
+/// is one too, and leaves no export of the member. Answers whether the member has an export.
+///
+/// # Errors
+///
+/// The collector's budget is spent ([`collect::OverBudget`]), which stops it rather than failing
+/// the member; or the earlier export of a member whose export failed cannot be removed.
+fn read_member(
+    sources: &Sources,
+    member: &Member,
+    checkout: &Path,
+    fetched: bool,
+    failures: &mut Vec<Failure>,
+) -> Result<bool> {
+    let at = if fetched {
+        if let Err(error) = twice(|| succeed(&sources.fetch, Some(checkout), sources.bound)) {
+            if collect::is_over_budget(&error) {
+                return Err(error);
+            }
+            failures.push(Failure::of(&member.repository, &error));
+        }
+        MAIN
+    } else {
+        HEAD
+    };
+    match twice(|| export(sources, &member.repository, checkout, at)) {
+        Ok(_) => Ok(true),
+        Err(error) if collect::is_over_budget(&error) => Err(error),
+        Err(error) => {
+            failures.push(Failure::of(&member.repository, &error));
+            if fs::symlink_metadata(&member.export).is_ok() {
+                fs::remove_dir_all(&member.export).with_context(|| {
+                    format!("remove the earlier export {}", member.export.display())
+                })?;
+            }
+            Ok(false)
+        }
+    }
 }
 
 /// The URL of the checkout `dir`'s `origin` remote, read from the git config with no network
@@ -474,16 +619,9 @@ fn field<'a>(value: &'a Value, name: &str) -> Result<&'a str> {
         .ok_or_else(|| anyhow!("an entry has no text `{name}`: {value}"))
 }
 
-/// Fetches `checkout`'s `origin` and exports what the collectors read of its `origin/main`
-/// ([`exported`]) into `<exports>/<repository>/`, replacing what an earlier export left there.
-/// Unless `fetched`, it fetches nothing and exports `checkout`'s `HEAD`.
-fn export(sources: &Sources, repository: &str, checkout: &Path, fetched: bool) -> Result<PathBuf> {
-    let at = if fetched {
-        succeed(&sources.fetch, Some(checkout), sources.bound)?;
-        MAIN
-    } else {
-        HEAD
-    };
+/// Exports what the collectors read of `checkout`'s commit `at` ([`exported`]) into
+/// `<exports>/<repository>/`, replacing what an earlier export left there. It fetches nothing.
+fn export(sources: &Sources, repository: &str, checkout: &Path, at: &str) -> Result<PathBuf> {
     let mut list = words(&["git", "ls-tree", "-r", "-z", "--name-only"]);
     list.push(OsString::from(at));
     let files: Vec<String> =
@@ -599,7 +737,10 @@ pub(crate) fn shown(words: &[OsString]) -> String {
         .join(" ")
 }
 
-/// Runs the command `words`, in `dir` when it is given, through [`collect::run`] within `bound`.
+/// Runs the command `words`, in `dir` when it is given, through [`collect::run`] within `bound`,
+/// with the git environment of every collector ([`collect::git_environment`]): every git command
+/// of this collector and of the specifications collector runs here, and so does each program that
+/// starts git itself (`aep`).
 ///
 /// # Errors
 ///
@@ -607,7 +748,7 @@ pub(crate) fn shown(words: &[OsString]) -> String {
 pub(crate) fn run(words: &[OsString], dir: Option<&Path>, bound: Duration) -> Result<Output> {
     let (program, arguments) = words.split_first().context("an empty command line")?;
     let mut command = Command::new(program);
-    command.args(arguments);
+    collect::git_environment(command.args(arguments));
     if let Some(dir) = dir {
         command.current_dir(dir);
     }
@@ -627,14 +768,74 @@ pub(crate) fn succeed(words: &[OsString], dir: Option<&Path>, bound: Duration) -
     Ok(output.stdout)
 }
 
-/// The error for the command `words`, which answered `output` and not as it should.
+/// The error for the command `words`, which answered `output` and not as it should: a
+/// [`CommandFailed`].
 pub(crate) fn failed(words: &[OsString], output: &Output) -> anyhow::Error {
-    anyhow!(
-        "`{}` {}: {}",
-        shown(words),
-        exited(output.status),
-        one_line(&String::from_utf8_lossy(&output.stderr))
-    )
+    anyhow::Error::new(CommandFailed {
+        command: shown(words),
+        exited: exited(output.status),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+/// A command that answered, and not as it should: shown as the command line, how it ended and
+/// everything it printed on standard error on one line.
+#[derive(Debug)]
+pub(crate) struct CommandFailed {
+    /// The command line, as [`shown`] shows it.
+    command: String,
+    /// How it ended: `exited <code>`, or stopped by a signal.
+    exited: String,
+    /// What it printed on standard error.
+    stderr: String,
+}
+
+impl CommandFailed {
+    /// The command line, how it ended and the first line it printed on standard error that is not
+    /// blank, when it printed one.
+    fn first_line(&self) -> String {
+        match self
+            .stderr
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+        {
+            Some(line) => format!("`{}` {}: {line}", self.command, self.exited),
+            None => format!("`{}` {}", self.command, self.exited),
+        }
+    }
+}
+
+impl fmt::Display for CommandFailed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "`{}` {}: {}",
+            self.command,
+            self.exited,
+            one_line(&self.stderr)
+        )
+    }
+}
+
+impl std::error::Error for CommandFailed {}
+
+/// The first line of `error`, as a member failure records it: when a command failed
+/// ([`CommandFailed`]), the command line, how it ended and the first line it printed on standard
+/// error; else the first line of the error and its causes, joined by `: `, which for a command
+/// that did not answer in time names it and the bound ([`collect::run`]).
+pub(crate) fn first_line(error: &anyhow::Error) -> String {
+    if let Some(failed) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<CommandFailed>())
+    {
+        return failed.first_line();
+    }
+    format!("{error:#}")
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// What [`succeed`] answers, read as JSON.

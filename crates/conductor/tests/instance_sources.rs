@@ -735,7 +735,7 @@ fn the_github_collector_asks_each_owner_about_its_own_repositories() {
         expected.extend([
             format!(
                 "pr list -R {repository} --state open --limit 1000 --json \
-                 number,title,isDraft,mergeable,statusCheckRollup,createdAt,updatedAt"
+                 number,title,isDraft,mergeable,statusCheckRollup,createdAt,updatedAt,url"
             ),
             format!(
                 "run list -R {repository} --branch main --limit 20 --json \

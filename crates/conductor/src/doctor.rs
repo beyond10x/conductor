@@ -8,6 +8,16 @@
 //! `not needed`. A config file that does not load makes the run not ready. The last line is the
 //! verdict, `ready` or `not ready: ` and why (`story:doctor-verdict`).
 //!
+//! Before the program rows it prints the machine it runs on, as `uname` gives it, and its own
+//! version ([`machine`]); after them, for each host of the config file's sources whose CLI is
+//! present, the account that CLI is logged in as there, or `not logged in`, which makes the run
+//! not ready (`story:doctor-identity`). Only the login name is printed: never a token or an
+//! e-mail address the CLI prints beside it ([`account_of`]).
+//!
+//! [`check`] computes every row, [`Doctor::failures`] what is not ready and [`verdict_of`] the
+//! last line, so `conductor setup` prints the same rows and adds its own failures to the same
+//! verdict (`story:setup-command`).
+//!
 //! [`find`] is the one check of whether a program is there: `conductor snapshot start-snapshot`
 //! runs it on the programs its collectors start ([`crate::collect::programs`]) and refuses at
 //! start, naming each one missing, rather than failing inside a collector.
@@ -21,7 +31,10 @@ use std::process::{Command, ExitCode};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::{Instance, Prerequisite, PrerequisiteState, Source};
+use conductor_model::config::{
+    Config, DoctorReport, ForgeLogin, ForgeLoginState, Instance, Machine, Prerequisite,
+    PrerequisiteState, Source,
+};
 
 use crate::collect;
 use crate::config;
@@ -77,6 +90,153 @@ pub fn merge_pins(
 
 /// How long `<program> --version` may take.
 const VERSION_BOUND: Duration = Duration::from_secs(10);
+
+/// How long `<forge CLI> auth status --hostname <host>` may take: it may ask the host.
+const AUTH_BOUND: Duration = Duration::from_secs(20);
+
+/// The host of a `github` source.
+pub const GITHUB_HOST: &str = "github.com";
+
+/// What a machine row reads for a value `uname` does not give.
+const UNKNOWN: &str = "unknown";
+
+/// Where `uname` is looked for besides `PATH`, which may hold none (a test's `PATH` holds only
+/// its fakes).
+const UNAME: [&str; 2] = ["/usr/bin/uname", "/bin/uname"];
+
+/// What `uname <flag>` prints, trimmed: `uname` from `PATH`, else from [`UNAME`]; [`UNKNOWN`]
+/// when none runs or it prints nothing.
+fn uname(flag: &str) -> String {
+    let candidates = find("uname").into_iter().chain(
+        UNAME
+            .iter()
+            .map(PathBuf::from)
+            .filter(|path| path.is_file()),
+    );
+    for path in candidates {
+        let Ok(output) = collect::run(Command::new(&path).arg(flag), VERSION_BOUND) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if output.status.success() && !text.is_empty() {
+            return text;
+        }
+    }
+    UNKNOWN.to_owned()
+}
+
+/// The machine `conductor doctor` runs on (`story:doctor-identity`): `uname -n`, `-s`, `-r` and
+/// `-m`, and this binary's version.
+#[must_use]
+pub fn machine() -> Machine {
+    Machine {
+        host: uname("-n"),
+        system: uname("-s"),
+        release: uname("-r"),
+        architecture: uname("-m"),
+        conductor: env!("CARGO_PKG_VERSION").to_owned(),
+    }
+}
+
+/// The lines `conductor doctor` prints for `machine`, before its program rows.
+#[must_use]
+pub fn machine_lines(machine: &Machine) -> Vec<String> {
+    vec![
+        format!("host: {}", machine.host),
+        format!("system: {} {}", machine.system, machine.release),
+        format!("architecture: {}", machine.architecture),
+        format!("conductor {}", machine.conductor),
+    ]
+}
+
+/// The hosts of `config`'s sources, across every instance, each with the forge CLI that logs in
+/// to it, each pair once, in the order the file names them: [`GITHUB_HOST`] with `gh` for a
+/// `github` source, the source's `host` with `glab` for a `gitlab` source.
+#[must_use]
+pub fn forge_hosts(config: &Config) -> Vec<(&'static str, String)> {
+    let mut hosts: Vec<(&'static str, String)> = Vec::new();
+    for source in config
+        .instances
+        .iter()
+        .flat_map(|instance| &instance.sources)
+    {
+        let host = match source {
+            Source::GitHub(_) => ("gh", GITHUB_HOST.to_owned()),
+            Source::GitLab(gitlab) => ("glab", gitlab.host.clone()),
+            Source::Local(_) => continue,
+        };
+        if !hosts.contains(&host) {
+            hosts.push(host);
+        }
+    }
+    hosts
+}
+
+/// The login name `text`, what `<forge CLI> auth status --hostname <host>` printed, gives for
+/// `host`: the word after `Logged in to <host> account` (`gh`) or `Logged in to <host> as`
+/// (`glab`, and an older `gh`), when it is a plain name of letters, digits, `-`, `_` and `.`.
+/// Nothing else of `text` is answered, so no token or e-mail address the CLI prints beside it is.
+#[must_use]
+pub fn account_of(text: &str, host: &str) -> Option<String> {
+    let marker = format!("Logged in to {host} ");
+    text.lines().find_map(|line| {
+        let (_, rest) = line.split_once(&marker)?;
+        let rest = rest
+            .strip_prefix("account ")
+            .or_else(|| rest.strip_prefix("as "))?;
+        let name = rest
+            .split_whitespace()
+            .next()?
+            .trim_end_matches([',', ';', ':']);
+        (!name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')))
+        .then(|| name.to_owned())
+    })
+}
+
+/// Whether `program`, found at `path`, is logged in to `host` (`story:doctor-identity`): its
+/// `auth status --hostname <host>` exits 0; and the account it names there ([`account_of`]).
+fn login(program: &str, path: &Path, host: &str) -> ForgeLogin {
+    let answered = collect::run(
+        Command::new(path).args(["auth", "status", "--hostname", host]),
+        AUTH_BOUND,
+    );
+    let (state, account) = match answered {
+        Ok(output) if output.status.success() => {
+            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+            text.push('\n');
+            text.push_str(&String::from_utf8_lossy(&output.stderr));
+            (ForgeLoginState::LoggedIn, account_of(&text, host))
+        }
+        _ => (ForgeLoginState::NotLoggedIn, None),
+    };
+    ForgeLogin {
+        program: program.to_owned(),
+        host: host.to_owned(),
+        state,
+        account,
+    }
+}
+
+/// The line `conductor doctor` prints for `login`.
+#[must_use]
+pub fn login_line(login: &ForgeLogin) -> String {
+    let ForgeLogin {
+        program,
+        host,
+        state,
+        account,
+    } = login;
+    match (state, account) {
+        (ForgeLoginState::LoggedIn, Some(account)) => {
+            format!("{program}: logged in to {host} as {account}")
+        }
+        (ForgeLoginState::LoggedIn, None) => format!("{program}: logged in to {host}"),
+        (ForgeLoginState::NotLoggedIn, _) => format!("{program}: not logged in to {host}"),
+    }
+}
 
 /// The forge CLIs of [`FORGES`] that `instance` starts (`story:gh-optional`): `gh` when it has a
 /// `github` source, `glab` when it has a `gitlab` source.
@@ -311,7 +471,12 @@ fn uncommented(line: &str) -> &str {
 
 /// One row per program of [`PROGRAMS`], with its pin from `pins` when there is one; a forge
 /// CLI of [`FORGES`] that `needed` does not name is `NotNeeded`, whether it is there or not.
-fn examine(pins: &[(String, String)], needed: &[&str]) -> Vec<Prerequisite> {
+/// Each program is looked for on `search`, a `PATH`; none finds nothing.
+fn examine(
+    pins: &[(String, String)],
+    needed: &[&str],
+    search: Option<&OsStr>,
+) -> Vec<Prerequisite> {
     PROGRAMS
         .iter()
         .map(|program| {
@@ -328,7 +493,7 @@ fn examine(pins: &[(String, String)], needed: &[&str]) -> Vec<Prerequisite> {
                     pin,
                 };
             }
-            let Some(path) = find(program) else {
+            let Some(path) = search.and_then(|search| find_in(program, search)) else {
                 return Prerequisite {
                     program: (*program).to_owned(),
                     state: PrerequisiteState::Missing,
@@ -389,25 +554,44 @@ fn lines(row: &Prerequisite, its: &str) -> Vec<String> {
     lines
 }
 
-/// The forge CLIs of [`FORGES`] that any instance of the config `flag` (the global `--config`)
-/// and the environment name starts ([`forges`]), in [`FORGES`]' order: every instance of the
-/// file, not only the one a command would select, since the default instance's conductor serves
-/// them all; the built-in instance's when there is no config file. Why the config does not load
-/// when it does not, each line of it.
-fn needed_forges(flag: Option<&Path>) -> Result<Vec<&'static str>, Vec<String>> {
-    let loaded = config::Environment::from_process()
-        .and_then(|environment| config::load(flag, &environment));
+/// The forge CLIs a config needs, and the hosts of its file's sources with the CLI of each
+/// ([`read_config`]).
+type Forges = (Vec<&'static str>, Vec<(&'static str, String)>);
+
+/// What doctor reads of the config `flag` (the global `--config`) and the environment name: the
+/// forge CLIs of [`FORGES`] that any of its instances starts ([`forges`]), in [`FORGES`]' order,
+/// every instance of the file, not only the one a command would select, since the default
+/// instance's conductor serves them all, the built-in instance's when there is no config file;
+/// and the hosts of the file's sources ([`forge_hosts`]), none without a file. Why the config
+/// does not load when it does not, each line of it. The environment is `environment`, or this
+/// process's when none is given.
+fn read_config(
+    flag: Option<&Path>,
+    environment: Option<&config::Environment>,
+) -> Result<Forges, Vec<String>> {
+    let loaded = match environment {
+        Some(environment) => config::load(flag, environment),
+        None => config::Environment::from_process()
+            .and_then(|environment| config::load(flag, &environment)),
+    };
     match loaded {
-        Ok(loaded) => Ok(FORGES
-            .into_iter()
-            .filter(|forge| {
-                loaded
-                    .config
-                    .instances
-                    .iter()
-                    .any(|instance| forges(instance).contains(forge))
-            })
-            .collect()),
+        Ok(loaded) => Ok((
+            FORGES
+                .into_iter()
+                .filter(|forge| {
+                    loaded
+                        .config
+                        .instances
+                        .iter()
+                        .any(|instance| forges(instance).contains(forge))
+                })
+                .collect(),
+            if loaded.read {
+                forge_hosts(&loaded.config)
+            } else {
+                Vec::new()
+            },
+        )),
         Err(error) => Err(format!("{error:#}")
             .split(['\n', '\r'])
             .filter(|line| !line.trim().is_empty())
@@ -426,25 +610,140 @@ pub fn doctor() -> Result<ExitCode> {
     doctor_with(None)
 }
 
-/// `conductor doctor`: when the config `flag` and the environment name does not load, a
-/// `config: ` line for each line of why; one line per program of [`PROGRAMS`], `present` with
-/// its version line, `missing`, or `not needed` for a forge CLI that no instance of that config
-/// starts; the `b10x.toml` it read, or `pins: none`; one line per pinned program, meeting its pin
-/// or older than it, the build's own pin ([`build_pins`]) standing for each program the file
-/// does not pin ([`merge_pins`]); and last the verdict, `ready` or `not ready: ` with what failed.
-/// Exits 1 when the config does not load, or a program is missing, older than its pin, or pinned
-/// with a pin or version that does not read; 0 otherwise. Writes nothing.
+/// What `conductor doctor` found, before it is printed ([`check`]).
+#[derive(Debug, Clone)]
+pub struct Doctor {
+    /// The machine it runs on.
+    pub machine: Machine,
+    /// Why the config does not load, each line of it; empty when it loads.
+    pub config_problems: Vec<String>,
+    /// One row per program of [`PROGRAMS`].
+    pub rows: Vec<Prerequisite>,
+    /// One login per host of the config file's sources whose CLI is present.
+    pub logins: Vec<ForgeLogin>,
+    /// The `b10x.toml` read, if any.
+    pub pin_file: Option<PathBuf>,
+    /// The pins of that file, which win over the build's.
+    project: Vec<(String, String)>,
+}
+
+impl Doctor {
+    /// Whether the config does not load.
+    #[must_use]
+    pub fn config_unreadable(&self) -> bool {
+        !self.config_problems.is_empty()
+    }
+
+    /// What `conductor doctor` prints but its verdict: a `config: ` line for each line of why the
+    /// config does not load, when it does not; the machine; one line per program; one per login;
+    /// the `b10x.toml` read, or `pins: none`; and one line per pinned program, meeting its pin or
+    /// older than it, the build's own pin ([`build_pins`]) standing for each program the file
+    /// does not pin ([`merge_pins`]).
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.config_unreadable() {
+            out.extend(
+                self.config_problems
+                    .iter()
+                    .map(|line| format!("config: {line}")),
+            );
+            out.push("config: does not load, so gh and glab are each counted as needed".to_owned());
+        }
+        out.extend(machine_lines(&self.machine));
+        let its = |program: &str| {
+            if self.project.iter().any(|(name, _)| name == program) {
+                "its pin"
+            } else {
+                "the build's pin"
+            }
+        };
+        for row in &self.rows {
+            if let Some(first) = lines(row, its(row.program.as_str())).first() {
+                out.push(first.clone());
+            }
+        }
+        out.extend(self.logins.iter().map(login_line));
+        match &self.pin_file {
+            Some(file) => out.push(format!("pins: {}", file.display())),
+            None => out.push("pins: none".to_owned()),
+        }
+        for row in self
+            .rows
+            .iter()
+            .filter(|row| row.pin.is_some() && row.state != PrerequisiteState::Missing)
+        {
+            out.extend(lines(row, its(row.program.as_str())).into_iter().skip(1));
+        }
+        out
+    }
+
+    /// What is not ready, in the verdict's order ([`failures`]).
+    #[must_use]
+    pub fn failures(&self) -> Vec<String> {
+        failures(&self.rows, &self.logins, self.config_unreadable())
+    }
+
+    /// The report the specification declares, `conductor.config.DoctorReport`.
+    #[must_use]
+    pub fn report(&self) -> DoctorReport {
+        DoctorReport {
+            machine: self.machine.clone(),
+            prerequisites: self.rows.clone(),
+            logins: self.logins.clone(),
+            verdict: verdict_of(&self.failures()),
+        }
+    }
+}
+
+/// Every check of `conductor doctor` for the config `flag` and the environment name: the
+/// machine ([`machine`]); why that config does not load, when it does not; one row per program
+/// of [`PROGRAMS`], `present` with its version line, `missing`, or `not needed` for a forge CLI
+/// that no instance of that config starts; one login per host of the config file's sources whose
+/// CLI is present ([`forge_hosts`]); and the `b10x.toml` found from the working directory upward,
+/// whose pins win over the build's own ([`merge_pins`]). Writes nothing.
 ///
 /// # Errors
 ///
 /// The working directory cannot be read, or the `b10x.toml` found cannot be read or holds a line
 /// in `[pins]` that is no pin.
-pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
+pub fn check(flag: Option<&Path>) -> Result<Doctor> {
+    let cwd = env::current_dir().context("doctor")?;
+    check_at(flag, &cwd)
+}
+
+/// [`check`] with the `b10x.toml` found from `start` upward rather than from the working
+/// directory: `conductor setup` reads the pins of the repository it checks
+/// (`story:setup-command`).
+///
+/// # Errors
+///
+/// The `b10x.toml` found cannot be read or holds a line in `[pins]` that is no pin.
+pub fn check_at(flag: Option<&Path>, start: &Path) -> Result<Doctor> {
+    check_in(None, flag, start, env::var_os("PATH").as_deref())
+}
+
+/// [`check_at`] in the environment `environment` (this process's when none is given: its
+/// `HOME`, its working directory and its config variables), looking for each program on
+/// `search`, a `PATH` (none finds nothing): the dashboard's health view takes doctor's rows this
+/// way, over the sources it is given (`story:dashboard-health`).
+///
+/// # Errors
+///
+/// What [`check_at`] answers.
+pub fn check_in(
+    environment: Option<&config::Environment>,
+    flag: Option<&Path>,
+    start: &Path,
+    search: Option<&OsStr>,
+) -> Result<Doctor> {
     const WHAT: &str = "doctor";
-    let cwd = env::current_dir().context(WHAT)?;
-    let home = env::var_os("HOME").map(PathBuf::from);
-    let file = pin_file(&cwd, home.as_deref());
-    let project = match &file {
+    let home = match environment {
+        Some(environment) => environment.home.clone(),
+        None => env::var_os("HOME").map(PathBuf::from),
+    };
+    let pin_file = pin_file(start, home.as_deref());
+    let project = match &pin_file {
         Some(file) => {
             let text = fs::read_to_string(file)
                 .with_context(|| format!("{WHAT}: read {}", file.display()))?;
@@ -455,42 +754,52 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     // The build's own pins stay the minimum for each program the file does not pin
     // (story:doctor-minimum-versions).
     let pins = merge_pins(&project, &build_pins());
-    let its = |program: &str| {
-        if project.iter().any(|(name, _)| name == program) {
-            "its pin"
-        } else {
-            "the build's pin"
-        }
+    let (needed, hosts, config_problems) = match read_config(flag, environment) {
+        Ok((needed, hosts)) => (needed, hosts, Vec::new()),
+        Err(why) => (FORGES.to_vec(), Vec::new(), why),
     };
-    let (needed, config_unreadable) = match needed_forges(flag) {
-        Ok(needed) => (needed, false),
-        Err(why) => {
-            for line in &why {
-                println!("config: {line}");
-            }
-            println!("config: does not load, so gh and glab are each counted as needed");
-            (FORGES.to_vec(), true)
-        }
-    };
-    let rows = examine(&pins, &needed);
-    for row in &rows {
-        if let Some(first) = lines(row, its(row.program.as_str())).first() {
-            println!("{first}");
-        }
-    }
-    match &file {
-        Some(file) => println!("pins: {}", file.display()),
-        None => println!("pins: none"),
-    }
-    for row in rows
+    let rows = examine(&pins, &needed, search);
+    // A login is read only for a CLI that is there (story:doctor-identity).
+    let logins = hosts
         .iter()
-        .filter(|row| row.pin.is_some() && row.state != PrerequisiteState::Missing)
-    {
-        for line in lines(row, its(row.program.as_str())).into_iter().skip(1) {
-            println!("{line}");
-        }
+        .filter_map(|(program, host)| {
+            let row = rows.iter().find(|row| row.program == *program)?;
+            if matches!(
+                row.state,
+                PrerequisiteState::Missing | PrerequisiteState::NotNeeded
+            ) {
+                return None;
+            }
+            search
+                .and_then(|search| find_in(program, search))
+                .map(|path| login(program, &path, host))
+        })
+        .collect();
+    Ok(Doctor {
+        machine: machine(),
+        config_problems,
+        rows,
+        logins,
+        pin_file,
+        project,
+    })
+}
+
+/// `conductor doctor`: every line of [`Doctor::lines`] for what [`check`] finds, and last the
+/// verdict, `ready` or `not ready: ` with what failed ([`verdict_of`]). Exits 1 when the config
+/// does not load, a program is missing, older than its pin, or pinned with a pin or version that
+/// does not read, or a forge CLI is not logged in to a host of the config file's sources; 0
+/// otherwise. Writes nothing.
+///
+/// # Errors
+///
+/// What [`check`] answers.
+pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
+    let doctor = check(flag)?;
+    for line in doctor.lines() {
+        println!("{line}");
     }
-    let verdict = verdict(&rows, config_unreadable);
+    let verdict = verdict_of(&doctor.failures());
     println!("{verdict}");
     Ok(if verdict == READY {
         ExitCode::SUCCESS
@@ -500,17 +809,22 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
 }
 
 /// The verdict of a run every program of which passed (`story:doctor-verdict`).
-const READY: &str = "ready";
+pub const READY: &str = "ready";
 
-/// The last line `conductor doctor` prints (`story:doctor-verdict`): [`READY`] when the config
-/// loads and every row is `Present` or `NotNeeded`; otherwise `not ready: ` and what failed,
-/// comma-separated: `config (unreadable)` first when `config_unreadable`, then each program in
+/// What is not ready (`story:doctor-verdict`), in this order: `config (unreadable)` when
+/// `config_unreadable`; then each program of `rows` that is not `Present` or `NotNeeded`, in
 /// [`PROGRAMS`]' order, as `<program> (missing)`, `<program> (too old)`,
 /// `<program> (pin unread)` (its version was read, its pin is no version) or
-/// `<program> (version unread)`.
-fn verdict(rows: &[Prerequisite], config_unreadable: bool) -> String {
+/// `<program> (version unread)`; then each of `logins` that is not logged in, as
+/// `<program> (not logged in to <host>)` (`story:doctor-identity`).
+#[must_use]
+pub fn failures(
+    rows: &[Prerequisite],
+    logins: &[ForgeLogin],
+    config_unreadable: bool,
+) -> Vec<String> {
     let config = config_unreadable.then(|| "config (unreadable)".to_owned());
-    let failed: Vec<String> = config
+    config
         .into_iter()
         .chain(rows.iter().filter_map(|row| {
             let why = match row.state {
@@ -530,11 +844,24 @@ fn verdict(rows: &[Prerequisite], config_unreadable: bool) -> String {
             };
             Some(format!("{} ({why})", row.program))
         }))
-        .collect();
-    if failed.is_empty() {
+        .chain(
+            logins
+                .iter()
+                .filter(|login| login.state == ForgeLoginState::NotLoggedIn)
+                .map(|login| format!("{} (not logged in to {})", login.program, login.host)),
+        )
+        .collect()
+}
+
+/// The last line `conductor doctor` prints (`story:doctor-verdict`), and `conductor setup` with
+/// its own failures added (`story:setup-command`): [`READY`] when `failures` is empty, otherwise
+/// `not ready: ` and each failure, comma-separated, in their order.
+#[must_use]
+pub fn verdict_of(failures: &[String]) -> String {
+    if failures.is_empty() {
         READY.to_owned()
     } else {
-        format!("not ready: {}", failed.join(", "))
+        format!("not ready: {}", failures.join(", "))
     }
 }
 
@@ -620,12 +947,55 @@ mod tests {
             row("worktree", None, "latest"),
         ];
         assert_eq!(
-            verdict(&rows, true),
+            verdict_of(&failures(&rows, &[], true)),
             "not ready: config (unreadable), aep (pin unread), ess (version unread), \
              worktree (version unread)"
         );
-        assert_eq!(verdict(&[], true), "not ready: config (unreadable)");
-        assert_eq!(verdict(&[], false), READY);
+        assert_eq!(
+            verdict_of(&failures(&[], &[], true)),
+            "not ready: config (unreadable)"
+        );
+        assert_eq!(verdict_of(&failures(&[], &[], false)), READY);
+        let login = |state| ForgeLogin {
+            program: "glab".to_owned(),
+            host: "gitlab.example.com".to_owned(),
+            state,
+            account: None,
+        };
+        assert_eq!(
+            verdict_of(&failures(
+                &rows[..1],
+                &[
+                    login(ForgeLoginState::LoggedIn),
+                    login(ForgeLoginState::NotLoggedIn)
+                ],
+                false
+            )),
+            "not ready: aep (pin unread), glab (not logged in to gitlab.example.com)"
+        );
+    }
+
+    #[test]
+    fn the_account_is_the_login_name_and_nothing_else() {
+        let gh = "github.com\n  \u{2713} Logged in to github.com account example-user (keyring)\n\
+                  \x20 - Token: example-token\n";
+        assert_eq!(
+            account_of(gh, "github.com").as_deref(),
+            Some("example-user")
+        );
+        let glab = "gitlab.example.com\n  \u{2713} Logged in to gitlab.example.com as \
+                    example.user (~/.config/glab-cli/config.yml)\n";
+        assert_eq!(
+            account_of(glab, "gitlab.example.com").as_deref(),
+            Some("example.user")
+        );
+        assert_eq!(account_of(glab, "github.com"), None);
+        let mail = "  Logged in to github.com account user@example.com (keyring)\n";
+        assert_eq!(account_of(mail, "github.com"), None);
+        assert_eq!(
+            account_of("You are not logged into any GitHub hosts.", "github.com"),
+            None
+        );
     }
 
     #[test]

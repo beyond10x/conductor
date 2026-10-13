@@ -95,7 +95,7 @@ nothing.
 | context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
 | silent controllers | the modification times of each live controller's transcript and its sub-agents' | `session silent: <name> <id> <m>m` when a controller `working` or `waiting` and all its sub-agents have written nothing for longer than `thresholds.silent_session`, once per silence |
 | `main` CI | for each Active repository of the newest complete snapshot, `gh run list` for a `github` source, the default-branch pipeline through `glab api --hostname <host>` for a `gitlab` source | `CI red on main: …`, `CI green again on main: …` |
-| free disk | `df` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, again only after it was back at `thresholds.disk_clear` |
+| free disk | `statvfs` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, `disk admit: <n>G free on / (builds wait)` under `thresholds.disk_admit`, `disk gate stop: <n>G free on / (gates stop)` under `thresholds.gate_stop`; each once per fall, again only after free space was back above its floor (`disk_clear`, `disk_admit`, `gate_resume`) |
 
 A pass runs every `cadence.watch` (`--every`), and CI is read every `cadence.ci` (`--ci-every`).
 A session exit that a dispatch log line explains is not reported. Without `--follow`, the watch

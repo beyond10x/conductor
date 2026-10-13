@@ -130,6 +130,7 @@ impl Case {
             StartSnapshot {
                 started_at: Timestamp(started_at.to_owned()),
                 disk_free_bytes: 1,
+                budget: None,
             },
             collectors,
         )
@@ -356,6 +357,7 @@ fn every_kind() -> Collector {
             failing_checks: 0,
             opened_at: Timestamp("2026-09-01T00:00:00Z".to_owned()),
             updated_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
+            url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
             snapshot_id: snapshot.clone(),

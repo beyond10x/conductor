@@ -61,7 +61,7 @@ Each session commits only the files it writes, with a pathspec.
 
 | command | does |
 |---|---|
-| `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check` |
+| `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check`, and for the dashboard app (`crates/conductor/dashboard`, Node as `.nvmrc` pins) `npm ci`, Vitest and a check that the committed `dist/` equals a fresh `task ui` build |
 | `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton; trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
 | `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency); run alone on a quiet host |
 | `task regen` | regenerates `crates/conductor-model` from `spec/` |
@@ -165,12 +165,19 @@ a day, without asking: several waves may go into one release.
    `website/docs/getting-started.md` (`cargo install --tag` and the archive download) at the new
    version.
 2. The `task check` job (`.github/workflows/check.yml`) and the Gates job green on that exact
-   commit; CI runs them in a fresh checkout by construction, on the pull request of step 3. Read
+   commit; CI runs them in a fresh checkout by construction, on the pull request of step 4. Read
    each job's own conclusion.
    Only where CI cannot run: `task check` in a fresh clone at that commit with `B10X_GATES_POLICY`
    set, exit 0.
-3. A pull request through the bot route, its checks green, then fast-forward `main` to it.
-4. `b10x-gates bot -- tag -a v<version> -m <title> <commit>` and `b10x-gates bot -- push origin
+3. When the release changes anything onboarding runs — `SETUP.md`, the README pointer to it,
+   `conductor setup`, `conductor doctor`, the install path (the release archives) or the
+   prerequisites — repeat both onboarding runs of `docs/analysis/onboarding-run.md` on that
+   commit (a fresh Claude Code session in a scratch repository with a GitHub `origin` and one
+   with a self-hosted GitLab `origin`, each with a planning store one format old, given only the
+   repository URL), and append them to that record. Both end `ready`, with questions only for
+   logins and the store migration; a gap either hits is fixed on the branch and the runs repeated.
+4. A pull request through the bot route, its checks green, then fast-forward `main` to it.
+5. `b10x-gates bot -- tag -a v<version> -m <title> <commit>` and `b10x-gates bot -- push origin
    v<version>`; then the GitHub Release through `b10x-gates api` (`POST
    /repos/beyond10x/conductor/releases`, `tag_name`, `name`, `body`: the stories implemented since
    the last tag, one line each). The tag push has started the Release workflow; it attaches the
@@ -178,7 +185,7 @@ a day, without asking: several waves may go into one release.
    with the tag's message as its notes, and the `body` goes on with `PATCH
    /repos/beyond10x/conductor/releases/<id>` instead. A failed run is re-run, or the archives of an
    existing tag backfilled, with `workflow_dispatch` and `tag: v<version>`.
-5. Verify: the tag points at `main`'s commit, the tag's checks are green, the Release workflow's
+6. Verify: the tag points at `main`'s commit, the tag's checks are green, the Release workflow's
    run on the tag is green, the Release exists and lists five assets (the four archives and
    `SHA256SUMS`), an archive downloaded from it passes `sha256sum --check` against `SHA256SUMS` and
    its `conductor --help` exits 0, and `cargo install` from the tag with `--root <scratch dir>`

@@ -216,6 +216,7 @@ reason: the file store is enough
 evidence: the pilot holds 200 records
 recorded_by: null
 operator_words: null
+repository: null
 ";
     assert_eq!(
         case.ok(&["decision", "show", "--decision-id", "DEC-20261007-01"]),
@@ -267,9 +268,10 @@ operator_words: null
         "evidence",
         "recorded_by",
         "operator_words",
+        "repository",
     ];
     sorted.sort_unstable();
-    assert_eq!(keys, sorted, "the object holds exactly the twelve fields");
+    assert_eq!(keys, sorted, "the object holds exactly the thirteen fields");
     let row = case
         .rows("decision", "decisions")
         .into_iter()
@@ -303,7 +305,8 @@ operator_words: null
             "reason",
             "evidence",
             "recorded_by",
-            "operator_words"
+            "operator_words",
+            "repository"
         ],
         "the object's keys are in the text's order: {printed}"
     );

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest e5cc31d24c269034216a3a8e3ebf160a7b44a90eafdecb68cbdd5e8645c17674
-// contract digest d50fe6221b3c0243d2ee6252f4f099cfd69a0fbbd91ec36800ee65c6637805c3
+// model digest 12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb
+// contract digest a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -42,6 +42,27 @@ pub struct CollectGarbage {
     pub format: Option<String>,
 }
 
+/// The states of `conductor.observation.CollectorRunObservation`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `CollectorRunObservation<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectorRunObservationState {
+    /// `Recorded`.
+    Recorded,
+}
+
+/// CollectorRunOutcome — `conductor.observation.CollectorRunOutcome`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectorRunOutcome {
+    /// `Completed`.
+    Completed,
+    /// `Failed`.
+    Failed,
+    /// `OverBudget`.
+    OverBudget,
+}
+
 /// CommitSha — `conductor.observation.CommitSha`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitSha(pub String);
@@ -60,6 +81,21 @@ pub struct DashboardServe {
 pub enum EnvelopeProvider {
     /// `Systemd`.
     Systemd,
+}
+
+/// FailureClass — `conductor.observation.FailureClass`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureClass {
+    /// `NeedsLogin`.
+    NeedsLogin,
+    /// `UnreachableHost`.
+    UnreachableHost,
+    /// `TimedOut`.
+    TimedOut,
+    /// `OldStore`.
+    OldStore,
+    /// `Other`.
+    Other,
 }
 
 /// GarbageOutcome — `conductor.observation.GarbageOutcome`: one of a closed set of names.
@@ -101,6 +137,16 @@ pub enum Harness {
     Claude,
     /// `Codex`.
     Codex,
+}
+
+/// The states of `conductor.observation.MemberFailureObservation`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `MemberFailureObservation<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberFailureObservationState {
+    /// `Recorded`.
+    Recorded,
 }
 
 /// Mergeability — `conductor.observation.Mergeability`: one of a closed set of names.
@@ -146,6 +192,25 @@ pub enum PullRequestObservationState {
 pub enum ReleaseObservationState {
     /// `Recorded`.
     Recorded,
+}
+
+/// RepositoryFigures — `conductor.observation.RepositoryFigures`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryFigures {
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `deviations` — `List<String>`.
+    pub deviations: Vec<String>,
+    /// `open_prs` — `Integer`.
+    pub open_prs: i64,
+    /// `failing_prs` — `Integer`.
+    pub failing_prs: i64,
+    /// `non_green_workflows` — `Integer`.
+    pub non_green_workflows: i64,
+    /// `open_blockers` — `Integer`.
+    pub open_blockers: i64,
+    /// `specifications_present` — `Integer`.
+    pub specifications_present: i64,
 }
 
 /// RepositoryName — `conductor.observation.RepositoryName`: a distinct wrapper around `String`.
@@ -603,6 +668,298 @@ impl AnyBoard {
     }
 }
 
+/// What CollectorRunObservation — `conductor.observation.CollectorRunObservation` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`CollectorRunObservation<S>`], and at a boundary by [`CollectorRunObservationSnapshot::state`].
+///
+/// Every value satisfies `duration_ms >= 0` — checked by [`CollectorRunObservationData::broken_invariant`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectorRunObservationData {
+    /// The identity: `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    ///
+    /// Carries `snapshot`: `conductor.observation.CollectorRunObservation` references one `conductor.observation.Snapshot`.
+    pub snapshot_id: SnapshotId,
+    /// `collector` — `String`.
+    pub collector: String,
+    /// `started_at` — `Timestamp`.
+    pub started_at: crate::primitives::Timestamp,
+    /// `duration_ms` — `Integer`.
+    pub duration_ms: i64,
+    /// `outcome` — `conductor.observation.CollectorRunOutcome`.
+    pub outcome: CollectorRunOutcome,
+}
+
+impl CollectorRunObservationData {
+    /// The first declared invariant of `conductor.observation.CollectorRunObservation` this value breaks, as the specification declares it,
+    /// or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value. One that reads something
+    /// absent — an empty `Optional`, a list position past the end, or `state`, which this
+    /// type does not hold — decides nothing, as the conformance interpreter reads it.
+    pub fn broken_invariant(&self) -> Option<&'static str> {
+        use crate::primitives::invariant as iv;
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.duration_ms)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+            return Some("duration_ms >= 0");
+        }
+        None
+    }
+}
+
+/// The states of `conductor.observation.CollectorRunObservation`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](collector_run_observation_state::Marker), so [`CollectorRunObservation<S>`](CollectorRunObservation) can only ever rest in a real state.
+pub mod collector_run_observation_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Recorded {}
+    }
+
+    /// A declared state of `CollectorRunObservation`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::CollectorRunObservationState;
+    }
+
+    /// `Recorded`. Where a new instance starts.
+    pub struct Recorded;
+
+    impl Marker for Recorded {
+        const STATE: super::CollectorRunObservationState = super::CollectorRunObservationState::Recorded;
+    }
+}
+
+/// CollectorRunObservation — `conductor.observation.CollectorRunObservation` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Recorded`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`CollectorRunObservationSnapshot`]
+/// and [`CollectorRunObservationSnapshot::refine`].
+pub struct CollectorRunObservation<S: collector_run_observation_state::Marker> {
+    data: CollectorRunObservationData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: collector_run_observation_state::Marker> CollectorRunObservation<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> CollectorRunObservationState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &CollectorRunObservationData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> CollectorRunObservationData {
+        self.data
+    }
+}
+
+impl CollectorRunObservation<collector_run_observation_state::Recorded> {
+    /// A new instance, resting in `Recorded` — the only state the lifecycle starts one in.
+    pub fn new(data: CollectorRunObservationData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.observation.CollectorRunObservation` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`CollectorRunObservationSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectorRunObservationSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: CollectorRunObservationState,
+    /// What it holds.
+    pub data: CollectorRunObservationData,
+}
+
+/// An `CollectorRunObservation` in whichever declared state it was found.
+pub enum AnyCollectorRunObservation {
+    /// Resting in `Recorded`.
+    Recorded(CollectorRunObservation<collector_run_observation_state::Recorded>),
+}
+
+impl CollectorRunObservationSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `CollectorRunObservationState` cannot spell one.
+    pub fn refine(self) -> AnyCollectorRunObservation {
+        match self.state {
+            CollectorRunObservationState::Recorded => AnyCollectorRunObservation::Recorded(CollectorRunObservation {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyCollectorRunObservation {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> CollectorRunObservationState {
+        match self {
+            Self::Recorded(_) => CollectorRunObservationState::Recorded,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> CollectorRunObservationSnapshot {
+        match self {
+            Self::Recorded(instance) => CollectorRunObservationSnapshot {
+                state: CollectorRunObservationState::Recorded,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
+/// What MemberFailureObservation — `conductor.observation.MemberFailureObservation` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`MemberFailureObservation<S>`], and at a boundary by [`MemberFailureObservationSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberFailureObservationData {
+    /// The identity: `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    ///
+    /// Carries `snapshot`: `conductor.observation.MemberFailureObservation` references one `conductor.observation.Snapshot`.
+    pub snapshot_id: SnapshotId,
+    /// `member` — `conductor.observation.RepositoryName`.
+    pub member: RepositoryName,
+    /// `collector` — `String`.
+    pub collector: String,
+    /// `error_line` — `String`.
+    pub error_line: String,
+}
+
+/// The states of `conductor.observation.MemberFailureObservation`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](member_failure_observation_state::Marker), so [`MemberFailureObservation<S>`](MemberFailureObservation) can only ever rest in a real state.
+pub mod member_failure_observation_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Recorded {}
+    }
+
+    /// A declared state of `MemberFailureObservation`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::MemberFailureObservationState;
+    }
+
+    /// `Recorded`. Where a new instance starts.
+    pub struct Recorded;
+
+    impl Marker for Recorded {
+        const STATE: super::MemberFailureObservationState = super::MemberFailureObservationState::Recorded;
+    }
+}
+
+/// MemberFailureObservation — `conductor.observation.MemberFailureObservation` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Recorded`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`MemberFailureObservationSnapshot`]
+/// and [`MemberFailureObservationSnapshot::refine`].
+pub struct MemberFailureObservation<S: member_failure_observation_state::Marker> {
+    data: MemberFailureObservationData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: member_failure_observation_state::Marker> MemberFailureObservation<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> MemberFailureObservationState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &MemberFailureObservationData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> MemberFailureObservationData {
+        self.data
+    }
+}
+
+impl MemberFailureObservation<member_failure_observation_state::Recorded> {
+    /// A new instance, resting in `Recorded` — the only state the lifecycle starts one in.
+    pub fn new(data: MemberFailureObservationData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.observation.MemberFailureObservation` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`MemberFailureObservationSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberFailureObservationSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: MemberFailureObservationState,
+    /// What it holds.
+    pub data: MemberFailureObservationData,
+}
+
+/// An `MemberFailureObservation` in whichever declared state it was found.
+pub enum AnyMemberFailureObservation {
+    /// Resting in `Recorded`.
+    Recorded(MemberFailureObservation<member_failure_observation_state::Recorded>),
+}
+
+impl MemberFailureObservationSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `MemberFailureObservationState` cannot spell one.
+    pub fn refine(self) -> AnyMemberFailureObservation {
+        match self.state {
+            MemberFailureObservationState::Recorded => AnyMemberFailureObservation::Recorded(MemberFailureObservation {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyMemberFailureObservation {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> MemberFailureObservationState {
+        match self {
+            Self::Recorded(_) => MemberFailureObservationState::Recorded,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> MemberFailureObservationSnapshot {
+        match self {
+            Self::Recorded(instance) => MemberFailureObservationSnapshot {
+                state: MemberFailureObservationState::Recorded,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
 /// What MergedPullRequestObservation — `conductor.observation.MergedPullRequestObservation` — holds, apart from where it is in its lifecycle.
 ///
 /// The identity and every declared field. The state is deliberately not one: inside the domain it
@@ -792,6 +1149,8 @@ pub struct PullRequestObservationData {
     pub opened_at: crate::primitives::Timestamp,
     /// `updated_at` — `Timestamp`.
     pub updated_at: crate::primitives::Timestamp,
+    /// `url` — `Optional<String>`.
+    pub url: Option<String>,
 }
 
 impl PullRequestObservationData {
@@ -2078,6 +2437,105 @@ pub enum RecordBlockerOutcome {
     },
 }
 
+/// Record a collector's run — the input of `conductor.observation.RecordCollectorRun`.
+///
+/// Everything it can result in is [`RecordCollectorRunOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordCollectorRun {
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `collector` — `String`.
+    pub collector: String,
+    /// `started_at` — `Timestamp`.
+    pub started_at: crate::primitives::Timestamp,
+    /// `duration_ms` — `Integer`.
+    pub duration_ms: i64,
+    /// `outcome` — `conductor.observation.CollectorRunOutcome`.
+    pub outcome: CollectorRunOutcome,
+}
+
+/// Everything `conductor.observation.RecordCollectorRun` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordCollectorRunOutcome {
+    /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
+    ///
+    /// No snapshot has this id, and nothing was recorded.
+    NoSuchSnapshot {
+        /// Why it was refused: `conductor.observation.SnapshotNotFound`.
+        error: SnapshotNotFound,
+    },
+    /// `closed` — when the `conductor.observation.Snapshot` that `input.snapshot_id` names satisfies `state != Collecting`.
+    ///
+    /// The snapshot is not collecting, and nothing was recorded.
+    Closed {
+        /// Why it was refused: `conductor.observation.SnapshotNotCollecting`.
+        error: SnapshotNotCollecting,
+    },
+    /// `negative-duration` — when `duration_ms < 0`.
+    ///
+    /// A duration is never negative; nothing was recorded.
+    NegativeDuration {
+        /// Why it was refused: `conductor.observation.InvalidCount`.
+        error: InvalidCount,
+    },
+    /// `recorded` — otherwise.
+    ///
+    /// The collector's run, its start, duration and outcome, is recorded.
+    Recorded {
+        /// The `conductor.observation.CollectorRunRecorded` this outcome publishes.
+        collector_run_recorded: CollectorRunRecorded,
+    },
+}
+
+/// Record a member a collector could not read — the input of `conductor.observation.RecordMemberFailure`.
+///
+/// Everything it can result in is [`RecordMemberFailureOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordMemberFailure {
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `member` — `conductor.observation.RepositoryName`.
+    pub member: RepositoryName,
+    /// `collector` — `String`.
+    pub collector: String,
+    /// `error_line` — `String`.
+    pub error_line: String,
+}
+
+/// Everything `conductor.observation.RecordMemberFailure` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordMemberFailureOutcome {
+    /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
+    ///
+    /// No snapshot has this id, and nothing was recorded.
+    NoSuchSnapshot {
+        /// Why it was refused: `conductor.observation.SnapshotNotFound`.
+        error: SnapshotNotFound,
+    },
+    /// `closed` — when the `conductor.observation.Snapshot` that `input.snapshot_id` names satisfies `state != Collecting`.
+    ///
+    /// The snapshot is not collecting, and nothing was recorded.
+    Closed {
+        /// Why it was refused: `conductor.observation.SnapshotNotCollecting`.
+        error: SnapshotNotCollecting,
+    },
+    /// `recorded` — otherwise.
+    ///
+    /// The member the collector could not read, and why, is recorded; the snapshot goes on.
+    Recorded {
+        /// The `conductor.observation.MemberFailureRecorded` this outcome publishes.
+        member_failure_recorded: MemberFailureRecorded,
+    },
+}
+
 /// Record a merged pull request — the input of `conductor.observation.RecordMergedPullRequest`.
 ///
 /// Everything it can result in is [`RecordMergedPullRequestOutcome`].
@@ -2157,6 +2615,8 @@ pub struct RecordPullRequest {
     pub opened_at: crate::primitives::Timestamp,
     /// `updated_at` — `Timestamp`.
     pub updated_at: crate::primitives::Timestamp,
+    /// `url` — `Optional<String>`.
+    pub url: Option<String>,
 }
 
 /// Everything `conductor.observation.RecordPullRequest` can result in — one variant per declared outcome.
@@ -2514,6 +2974,8 @@ pub struct StartSnapshot {
     pub started_at: crate::primitives::Timestamp,
     /// `disk_free_bytes` — `Integer`.
     pub disk_free_bytes: i64,
+    /// `budget` — `Optional<Integer>`.
+    pub budget: Option<i64>,
 }
 
 /// Everything `conductor.observation.StartSnapshot` can result in — one variant per declared outcome.
@@ -2561,6 +3023,34 @@ pub struct BoardPublished {
     pub snapshot_id: SnapshotId,
     /// `deviation_rows` — `Integer`.
     pub deviation_rows: i64,
+}
+
+/// CollectorRunRecorded — the event `conductor.observation.CollectorRunRecorded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectorRunRecorded {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `collector` — `String`.
+    pub collector: String,
+    /// `duration_ms` — `Integer`.
+    pub duration_ms: i64,
+    /// `outcome` — `conductor.observation.CollectorRunOutcome`.
+    pub outcome: CollectorRunOutcome,
+}
+
+/// MemberFailureRecorded — the event `conductor.observation.MemberFailureRecorded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberFailureRecorded {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `member` — `conductor.observation.RepositoryName`.
+    pub member: RepositoryName,
+    /// `collector` — `String`.
+    pub collector: String,
 }
 
 /// MergedPullRequestRecorded — the event `conductor.observation.MergedPullRequestRecorded`.
@@ -2764,6 +3254,46 @@ pub struct Boards {
     pub path: String,
 }
 
+/// Collector runs — one row of the view `conductor.observation.CollectorRuns`.
+///
+/// Projects `conductor.observation.CollectorRunObservation` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectorRuns {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `collector` — `String`.
+    pub collector: String,
+    /// `started_at` — `Timestamp`.
+    pub started_at: crate::primitives::Timestamp,
+    /// `duration_ms` — `Integer`.
+    pub duration_ms: i64,
+    /// `outcome` — `conductor.observation.CollectorRunOutcome`.
+    pub outcome: CollectorRunOutcome,
+}
+
+/// Members a collector could not read — one row of the view `conductor.observation.MemberFailures`.
+///
+/// Projects `conductor.observation.MemberFailureObservation` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberFailures {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `member` — `conductor.observation.RepositoryName`.
+    pub member: RepositoryName,
+    /// `collector` — `String`.
+    pub collector: String,
+    /// `error_line` — `String`.
+    pub error_line: String,
+}
+
 /// Merged pull requests — one row of the view `conductor.observation.MergedPullRequests`.
 ///
 /// Projects `conductor.observation.MergedPullRequestObservation` at `read_your_writes` consistency.
@@ -2814,6 +3344,8 @@ pub struct PullRequests {
     pub opened_at: crate::primitives::Timestamp,
     /// `updated_at` — `Timestamp`.
     pub updated_at: crate::primitives::Timestamp,
+    /// `url` — `Optional<String>`.
+    pub url: Option<String>,
 }
 
 /// Releases — one row of the view `conductor.observation.Releases`.
@@ -3049,6 +3581,28 @@ pub mod obligations {
         fn record_blocker(&mut self, input: super::RecordBlocker) -> Result<super::RecordBlockerOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.observation.RecordCollectorRun` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RecordCollectorRunBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordCollectorRun`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn record_collector_run(&mut self, input: super::RecordCollectorRun) -> Result<super::RecordCollectorRunOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.observation.RecordMemberFailure` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RecordMemberFailureBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordMemberFailure`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn record_member_failure(&mut self, input: super::RecordMemberFailure) -> Result<super::RecordMemberFailureOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.observation.RecordMergedPullRequest` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -3157,6 +3711,28 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn boards(&self) -> Result<Vec<super::Boards>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.observation.CollectorRuns` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait CollectorRunsQuery {
+        /// Serves `conductor.observation.CollectorRuns` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn collector_runs(&self) -> Result<Vec<super::CollectorRuns>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.observation.MemberFailures` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait MemberFailuresQuery {
+        /// Serves `conductor.observation.MemberFailures` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn member_failures(&self) -> Result<Vec<super::MemberFailures>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.MergedPullRequests` — generated.

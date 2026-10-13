@@ -61,6 +61,24 @@ types:
     kind: enum
     variants: [Valid, Refused, NotRun]
 
+  # How one collector's run in a snapshot ended (story:snapshot-duration): `Completed`, it
+  # answered; `Failed`, it answered an error, which fails the snapshot; `OverBudget`, it ran past
+  # the budget `start-snapshot --budget` gave it and was stopped there, which does not.
+  - name: conductor.observation.CollectorRunOutcome
+    kind: enum
+    variants: [Completed, Failed, OverBudget]
+
+  # What a member failure's first line says went wrong (story:dashboard-health), the key of the
+  # fix the dashboard's health view shows beside it: `NeedsLogin`, a prompt for a credential or a
+  # credential refused (`could not read Username`, `Permission denied (publickey)`);
+  # `UnreachableHost`, a host name that does not resolve or a host that does not answer;
+  # `TimedOut`, a command stopped at its bound (`gave no answer within`); `OldStore`, a first line
+  # holding `[unsupported_protocol_version]`, the code `aep` refuses an `aep.project/1` store with;
+  # `Other`, anything else. Computed when it is read, never stored.
+  - name: conductor.observation.FailureClass
+    kind: enum
+    variants: [NeedsLogin, UnreachableHost, TimedOut, OldStore, Other]
+
   - name: conductor.observation.BoardId
     kind: newtype
     of: Uuid
@@ -129,6 +147,23 @@ types:
       - {name: freed, type: Optional<Integer>}
       - {name: outcome, type: conductor.observation.GarbageOutcome}
       - {name: detail, type: Optional<String>}
+
+  # One repository that is not archived, as the board compares it (story:dashboard-overview):
+  # its deviations, in the order `STATUS.md` lists them, and the five counts its delta compares.
+  # `conductor snapshot publish-board` and the dashboard's `/api/board` compute it in one place
+  # (`figures` in crates/conductor/src/status.rs). It is a row a handler answers rather than a view:
+  # every field is worked out over several observations of one snapshot, which no view's source
+  # holds.
+  - name: conductor.observation.RepositoryFigures
+    kind: struct
+    fields:
+      - {name: repository, type: String}
+      - {name: deviations, type: List<String>}
+      - {name: open_prs, type: Integer}
+      - {name: failing_prs, type: Integer}
+      - {name: non_green_workflows, type: Integer}
+      - {name: open_blockers, type: Integer}
+      - {name: specifications_present, type: Integer}
 
 entities:
   - name: conductor.observation.Snapshot
@@ -261,6 +296,10 @@ entities:
         type: Timestamp
       - name: updated_at
         type: Timestamp
+      # The pull or merge request's page on its forge (story:dashboard-overview); absent in an
+      # observation recorded before the collectors filled it.
+      - name: url
+        type: Optional<String>
     invariants:
       - number > 0
       - failing_checks >= 0
@@ -473,6 +512,67 @@ entities:
       states: [Recorded]
       terminal: [Recorded]
 
+  # One workspace member a collector could not read in one snapshot (story:snapshot-member-failures):
+  # its fetch, its export or a command over its specification failed twice, or did not answer in
+  # time. The collector records it here and goes on with the other members, so the snapshot
+  # completes with their rows. `member` is the member's repository, as its other rows name it;
+  # `collector` the collector's name (`blockers`, `specifications`); `error_line` the first line
+  # of the error, the command and what it printed first.
+  - name: conductor.observation.MemberFailureObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: member
+        type: conductor.observation.RepositoryName
+      - name: collector
+        type: String
+      - name: error_line
+        type: String
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # One collector's run in one snapshot (story:snapshot-duration): when it started, how long it
+  # took in milliseconds, and how it ended. The driver records one per collector it ran, so the
+  # collector a slow snapshot spends its time in can be named.
+  - name: conductor.observation.CollectorRunObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: collector
+        type: String
+      - name: started_at
+        type: Timestamp
+      - name: duration_ms
+        type: Integer
+      - name: outcome
+        type: conductor.observation.CollectorRunOutcome
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    invariants:
+      - duration_ms >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
   # STATUS.md as published from one complete snapshot, compared with the previous one.
   - name: conductor.observation.Board
     identity:
@@ -517,6 +617,8 @@ actors:
       - conductor.observation.RecordSession
       - conductor.observation.RecordBlocker
       - conductor.observation.RecordSpecification
+      - conductor.observation.RecordMemberFailure
+      - conductor.observation.RecordCollectorRun
       - conductor.observation.CompleteSnapshot
       - conductor.observation.FailSnapshot
       - conductor.observation.PublishBoard
@@ -564,6 +666,12 @@ commands:
         type: Timestamp
       - name: disk_free_bytes
         type: Integer
+      # The seconds each collector may run (story:snapshot-duration): one that runs past them is
+      # stopped, its run recorded `OverBudget`, and the snapshot goes on with the next. None when
+      # absent. Read by the driver; the snapshot does not keep it.
+      - name: budget
+        type: Optional<Integer>
+        example: 120
     outcomes:
       - name: negative-disk
         when: disk_free_bytes < 0
@@ -719,6 +827,9 @@ commands:
       - name: updated_at
         type: Timestamp
         example: "2026-10-01T00:00:00Z"
+      - name: url
+        type: Optional<String>
+        example: "https://github.com/example-org/x/pull/7"
     outcomes:
       - name: invalid-number
         when: number <= 0
@@ -761,6 +872,7 @@ commands:
           failing_checks: input.failing_checks
           opened_at: input.opened_at
           updated_at: input.updated_at
+          url: input.url
         emits:
           - conductor.observation.PullRequestRecorded
         payload:
@@ -1151,6 +1263,114 @@ commands:
             validation: input.validation
         summary: The repository's specification status at this snapshot is recorded.
 
+  - name: conductor.observation.RecordMemberFailure
+    naming:
+      wire: record-member-failure
+      display: Record a member a collector could not read
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: member
+        type: conductor.observation.RepositoryName
+      - name: collector
+        type: String
+        example: "blockers"
+      - name: error_line
+        type: String
+        example: "`git fetch --quiet origin` exited 128: fatal: could not read from remote repository"
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.MemberFailureObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          member: input.member
+          collector: input.collector
+          error_line: input.error_line
+        emits:
+          - conductor.observation.MemberFailureRecorded
+        payload:
+          conductor.observation.MemberFailureRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            member: input.member
+            collector: input.collector
+        summary: The member the collector could not read, and why, is recorded; the snapshot goes on.
+
+  - name: conductor.observation.RecordCollectorRun
+    naming:
+      wire: record-collector-run
+      display: Record a collector's run
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: collector
+        type: String
+        example: "blockers"
+      - name: started_at
+        type: Timestamp
+        example: "2026-10-13T10:03:00Z"
+      - name: duration_ms
+        type: Integer
+        example: 41250
+      - name: outcome
+        type: conductor.observation.CollectorRunOutcome
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: negative-duration
+        when: duration_ms < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.duration_ms
+        summary: A duration is never negative; nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.CollectorRunObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          collector: input.collector
+          started_at: input.started_at
+          duration_ms: input.duration_ms
+          outcome: input.outcome
+        emits:
+          - conductor.observation.CollectorRunRecorded
+        payload:
+          conductor.observation.CollectorRunRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            collector: input.collector
+            duration_ms: input.duration_ms
+            outcome: input.outcome
+        summary: The collector's run, its start, duration and outcome, is recorded.
+
   - name: conductor.observation.PublishBoard
     naming:
       wire: publish-board
@@ -1366,6 +1586,30 @@ events:
       - name: validation
         type: conductor.observation.ValidationResult
 
+  - name: conductor.observation.MemberFailureRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: member
+        type: conductor.observation.RepositoryName
+      - name: collector
+        type: String
+
+  - name: conductor.observation.CollectorRunRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: collector
+        type: String
+      - name: duration_ms
+        type: Integer
+      - name: outcome
+        type: conductor.observation.CollectorRunOutcome
+
   - name: conductor.observation.BoardPublished
     fields:
       - name: board_id
@@ -1478,6 +1722,8 @@ views:
         type: Timestamp
       - name: updated_at
         type: Timestamp
+      - name: url
+        type: Optional<String>
     naming:
       wire: pull-requests
       display: Pull requests
@@ -1595,6 +1841,48 @@ views:
     naming:
       wire: specifications
       display: Specifications
+
+  # The members a collector could not read, one row per failure recorded, each with its snapshot,
+  # member, collector and the error's first line (story:snapshot-member-failures).
+  - name: conductor.observation.MemberFailures
+    source: conductor.observation.MemberFailureObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: member
+        type: conductor.observation.RepositoryName
+      - name: collector
+        type: String
+      - name: error_line
+        type: String
+    naming:
+      wire: member-failures
+      display: Members a collector could not read
+
+  # Each collector's run of every kept snapshot, with its start, duration and outcome
+  # (story:snapshot-duration).
+  - name: conductor.observation.CollectorRuns
+    source: conductor.observation.CollectorRunObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: collector
+        type: String
+      - name: started_at
+        type: Timestamp
+      - name: duration_ms
+        type: Integer
+      - name: outcome
+        type: conductor.observation.CollectorRunOutcome
+    naming:
+      wire: collector-runs
+      display: Collector runs
 
   - name: conductor.observation.Boards
     source: conductor.observation.Board

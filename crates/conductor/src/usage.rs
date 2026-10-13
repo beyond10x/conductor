@@ -673,8 +673,8 @@ fn short(session: &str) -> String {
 }
 
 /// A path as the session tool names its project directory: every character but an ASCII letter or
-/// digit written `-`.
-fn encode(path: &Path) -> String {
+/// digit written `-`. The dashboard's sessions endpoint names a transcript by it.
+pub(crate) fn encode(path: &Path) -> String {
     path.to_string_lossy()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })

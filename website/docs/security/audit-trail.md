@@ -56,7 +56,7 @@ opens only an existing store and creates nothing. It lists every row it can read
 cannot read is named on standard error, and the view exits 1.
 
 `conductor dashboard serve` shows the sessions, their dispatches, the decision and dispatch logs,
-CI, usage and disk on a page that reloads itself. It listens on `127.0.0.1` only (port 7313 by
+CI, usage and disk in an app embedded in the binary that reads its data from the same server. It listens on `127.0.0.1` only (port 7313 by
 default), answers only `GET`, refuses a request naming another `Host`, and writes nothing. It does
 not show guard denials; use `guard guard-decisions` for those.
 

@@ -475,6 +475,7 @@ fn an_open_merge_request_is_a_pull_request_row_failing_when_its_head_pipeline_fa
                 "failing_checks": 0,
                 "opened_at": "2026-10-05T09:00:00Z",
                 "updated_at": "2026-10-06T09:00:00Z",
+                "url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/1",
             }),
             json!({
                 "repository": "alpha",
@@ -485,6 +486,7 @@ fn an_open_merge_request_is_a_pull_request_row_failing_when_its_head_pipeline_fa
                 "failing_checks": 1,
                 "opened_at": "2026-10-04T09:00:00Z",
                 "updated_at": "2026-10-06T11:00:00Z",
+                "url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/2",
             }),
         ]
     );
@@ -530,6 +532,52 @@ fn a_merge_request_merged_within_the_window_is_a_merged_pull_request_row() {
          updated_after=2026-09-23T12%3A00%3A00Z&per_page=100&page=1"
     );
     assert!(asked.contains(&line), "{line}: {asked:#?}");
+}
+
+/// `story:dashboard-overview`: one open and one merged merge request each carry the page the
+/// fake `glab` answered as its `web_url`, in the `pull-requests` and `merged-pull-requests` rows.
+#[test]
+fn an_open_and_a_merged_merge_request_carry_their_web_url() {
+    let case = Case::new("merge-request-urls");
+    case.alpha();
+    let opened = json!([{"iid": 7, "title": "Link the board", "draft": false,
+        "work_in_progress": false, "has_conflicts": false, "merge_status": "can_be_merged",
+        "created_at": "2026-10-06T09:00:00Z", "updated_at": "2026-10-06T10:00:00Z",
+        "web_url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/7"}]);
+    fs::write(case.answers().join("101.opened.json"), opened.to_string())
+        .expect("answer one open merge request");
+    fs::copy(
+        case.answers().join("101.mr-1.json"),
+        case.answers().join("101.mr-7.json"),
+    )
+    .expect("answer its head pipeline");
+    let config = case.config();
+    case.snapshot(&config);
+
+    let open: Vec<(Value, Value)> = case
+        .rows(&config, "pull-requests")
+        .into_iter()
+        .map(|row| (row["number"].clone(), row["url"].clone()))
+        .collect();
+    assert_eq!(
+        open,
+        [(
+            json!(7),
+            json!("https://gitlab.example.com/example-org/alpha/-/merge_requests/7")
+        )]
+    );
+    let merged: Vec<(Value, Value)> = case
+        .rows(&config, "merged-pull-requests")
+        .into_iter()
+        .map(|row| (row["number"].clone(), row["url"].clone()))
+        .collect();
+    assert_eq!(
+        merged,
+        [(
+            json!(3),
+            json!("https://gitlab.example.com/example-org/alpha/-/merge_requests/3")
+        )]
+    );
 }
 
 /// Acceptance 3: a release published within the window is a release row: `alpha`'s `v1.2.0` of

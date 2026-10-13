@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest e5cc31d24c269034216a3a8e3ebf160a7b44a90eafdecb68cbdd5e8645c17674
-// contract digest d50fe6221b3c0243d2ee6252f4f099cfd69a0fbbd91ec36800ee65c6637805c3
+// model digest 12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb
+// contract digest a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -104,6 +104,8 @@ pub struct DecisionData {
     pub recorded_by: Option<String>,
     /// `operator_words` — `Optional<String>`.
     pub operator_words: Option<String>,
+    /// `repository` — `Optional<conductor.observation.RepositoryName>`.
+    pub repository: Option<crate::observation::RepositoryName>,
 }
 
 /// The states of `conductor.decision.Decision`, at the type level.
@@ -717,6 +719,8 @@ pub struct RecordConductorDecision {
     pub evidence: String,
     /// `decided_at` — `Timestamp`.
     pub decided_at: crate::primitives::Timestamp,
+    /// `repository` — `Optional<conductor.observation.RepositoryName>`.
+    pub repository: Option<crate::observation::RepositoryName>,
 }
 
 /// Everything `conductor.decision.RecordConductorDecision` can result in — one variant per declared outcome.
@@ -774,6 +778,8 @@ pub struct RecordOperatorDecision {
     pub recorded_by: String,
     /// `operator_words` — `String`.
     pub operator_words: String,
+    /// `repository` — `Optional<conductor.observation.RepositoryName>`.
+    pub repository: Option<crate::observation::RepositoryName>,
 }
 
 /// Everything `conductor.decision.RecordOperatorDecision` can result in — one variant per declared outcome.
@@ -1098,6 +1104,8 @@ pub struct Decisions {
     pub recorded_by: Option<String>,
     /// `operator_words` — `Optional<String>`.
     pub operator_words: Option<String>,
+    /// `repository` — `Optional<conductor.observation.RepositoryName>`.
+    pub repository: Option<crate::observation::RepositoryName>,
 }
 
 /// Class-H to-do — one row of the view `conductor.decision.HandsTodo`.

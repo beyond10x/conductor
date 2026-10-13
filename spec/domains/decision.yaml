@@ -115,6 +115,10 @@ entities:
         type: Optional<String>
       - name: operator_words
         type: Optional<String>
+      # The repository the decision is about (story:dashboard-repo-view), so a repository's page
+      # shows its decisions. Absent on a decision about none, and on one recorded before it.
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
     lifecycle:
       initial: InForce
       states: [InForce, Reversed]
@@ -283,6 +287,9 @@ commands:
         type: String
       - name: decided_at
         type: Timestamp
+      # The repository the decision is about, when it is about one.
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
     outcomes:
       - name: reserved
         when:
@@ -304,6 +311,7 @@ commands:
           reason: input.reason
           evidence: input.evidence
           decided_at: input.decided_at
+          repository: input.repository
         emits:
           - conductor.decision.DecisionRecorded
         payload:
@@ -349,6 +357,9 @@ commands:
       # The operator's words the decision is recorded on, quoted: the evidence that he decided.
       - name: operator_words
         type: String
+      # The repository the decision is about, when it is about one.
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
     outcomes:
       - name: recorded
         creates: conductor.decision.Decision
@@ -364,6 +375,7 @@ commands:
           decided_at: input.decided_at
           recorded_by: input.recorded_by
           operator_words: input.operator_words
+          repository: input.repository
         emits:
           - conductor.decision.DecisionRecorded
         payload:
@@ -772,6 +784,8 @@ views:
         type: Optional<String>
       - name: operator_words
         type: Optional<String>
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
     naming:
       wire: decisions
       display: Decisions

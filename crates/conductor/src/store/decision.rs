@@ -105,6 +105,7 @@ fn encode_decision(decision: &DecisionSnapshot) -> Value {
         "decided_at": data.decided_at.0,
         "recorded_by": data.recorded_by,
         "operator_words": data.operator_words,
+        "repository": data.repository.as_ref().map(|repository| &repository.0),
     })
 }
 
@@ -123,6 +124,7 @@ fn decode_decision(body: &Value) -> Result<DecisionSnapshot, String> {
             decided_at: Timestamp(text(body, "decided_at")?),
             recorded_by: added_text(body, "recorded_by")?,
             operator_words: added_text(body, "operator_words")?,
+            repository: added_text(body, "repository")?.map(RepositoryName),
         },
     })
 }

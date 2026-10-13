@@ -14,6 +14,7 @@
 //! managed trees are, and, when a config file names the instance, its records and cache. Without
 //! a file that instance is the built-in one, whose values are today's.
 
+use std::cell::Cell;
 use std::fmt;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -366,16 +367,110 @@ pub fn built_in_checkouts(home: &Path) -> Checkouts {
 /// A source that does not answer in this time has not answered.
 pub const BOUND: Duration = Duration::from_secs(120);
 
-/// Runs `command` with no standard input and answers its exit status and output. A command still
-/// running after `bound` is killed, and the answer is an error naming the program and the bound,
-/// so no collector waits on a source for ever (`gh` on a network that does not answer). Every
-/// external command a collector runs goes through here.
+/// The variable git reads the ssh command it starts from, and the one a caller names its own in.
+pub const SSH_COMMAND: &str = "GIT_SSH_COMMAND";
+
+/// The options [`git_environment`] gives ssh: never ask (no password, passphrase or host-key
+/// prompt), and give up on a host that does not answer within 10 s.
+pub const SSH_OPTIONS: &str = "-o BatchMode=yes -o ConnectTimeout=10";
+
+/// Sets on `command` the environment every git command of the repositories, blockers and
+/// specifications collectors runs with (`story:fetch-without-prompts`), so that no `origin` that
+/// asks for a login, a passphrase or a host key stops a snapshot until its bound:
+/// `GIT_TERMINAL_PROMPT=0`, so git asks for no login on the terminal, and [`SSH_COMMAND`], the ssh
+/// command the caller's own environment names (`ssh` when it names none) with [`SSH_OPTIONS`]
+/// after it. A command that is not git ignores both.
+pub fn git_environment(command: &mut Command) -> &mut Command {
+    let ssh = std::env::var(SSH_COMMAND)
+        .ok()
+        .map(|ssh| ssh.trim().to_owned())
+        .filter(|ssh| !ssh.is_empty())
+        .unwrap_or_else(|| "ssh".to_owned());
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env(SSH_COMMAND, format!("{ssh} {SSH_OPTIONS}"))
+}
+
+thread_local! {
+    /// When the budget of the collector this thread runs for is spent ([`within`]); `None` when
+    /// it has none.
+    static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// Runs `body` with `deadline` as the deadline of the collector this thread runs for
+/// (`story:snapshot-duration`), and gives the thread its earlier deadline back afterwards, even
+/// when `body` panics. Until `deadline` [`run`] stops each command at it, and once it has passed
+/// every command and every observation the collector records answers [`OverBudget`]
+/// ([`spent`]), which stops the collector at its next command or record. A collector that reads on
+/// threads of its own gives each the deadline it was given ([`deadline`]).
+pub fn within<T>(deadline: Option<Instant>, body: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Instant>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DEADLINE.with(|held| held.set(self.0));
+        }
+    }
+    let _restore = Restore(DEADLINE.with(|held| held.replace(deadline)));
+    body()
+}
+
+/// The deadline of the collector this thread runs for, as [`within`] set it.
+#[must_use]
+pub fn deadline() -> Option<Instant> {
+    DEADLINE.with(Cell::get)
+}
+
+/// What is left of the budget of the collector this thread runs for; `None` when it has none.
 ///
 /// # Errors
 ///
-/// The program does not start, or it is still running after `bound`.
+/// [`OverBudget`] when the budget is spent.
+pub fn spent() -> Result<Option<Duration>> {
+    match deadline() {
+        None => Ok(None),
+        Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
+            Some(left) if !left.is_zero() => Ok(Some(left)),
+            _ => Err(anyhow::Error::new(OverBudget)),
+        },
+    }
+}
+
+/// The error a collector's command, or an observation it records, answers once the budget
+/// `start-snapshot --budget` gave the collector is spent ([`within`]): the collector stops there,
+/// and the driver records its run `OverBudget`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverBudget;
+
+impl fmt::Display for OverBudget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("the collector ran past its budget and was stopped")
+    }
+}
+
+impl std::error::Error for OverBudget {}
+
+/// Whether `error`, or one of its causes, is [`OverBudget`]: the collector was stopped, and no
+/// member of it is to be recorded as a failure.
+#[must_use]
+pub fn is_over_budget(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.is::<OverBudget>())
+}
+
+/// Runs `command` with no standard input and answers its exit status and output. A command still
+/// running after `bound` is killed, and the answer is an error naming the program and the bound,
+/// so no collector waits on a source for ever (`gh` on a network that does not answer). Every
+/// external command a collector runs goes through here. Within a collector's budget ([`within`]),
+/// a command is not started once the budget is spent, and one still running when it is spent is
+/// killed; either answers [`OverBudget`].
+///
+/// # Errors
+///
+/// The program does not start, it is still running after `bound`, or the collector's budget is
+/// spent.
 pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
     let program = command.get_program().to_string_lossy().into_owned();
+    let left = spent()?;
+    let limit = left.map_or(bound, |left| left.min(bound));
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -392,9 +487,12 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
         {
             break status;
         }
-        if started.elapsed() >= bound {
+        if started.elapsed() >= limit {
             let _ = child.kill();
             let _ = child.wait();
+            if left.is_some_and(|left| left < bound) {
+                return Err(anyhow::Error::new(OverBudget));
+            }
             bail!("`{program}` gave no answer within {} s", bound.as_secs());
         }
         thread::sleep(Duration::from_millis(20));
@@ -452,6 +550,34 @@ mod tests {
             started.elapsed()
         );
         assert_eq!(refused.to_string(), "`sleep` gave no answer within 1 s");
+    }
+
+    #[test]
+    fn a_command_past_the_collectors_budget_is_stopped_as_over_budget() {
+        let started = Instant::now();
+        let refused = super::within(Some(started + Duration::from_secs(1)), || {
+            run(Command::new("sleep").arg("30"), Duration::from_secs(20))
+        })
+        .expect_err("sleep 30 runs past a budget of 1 s");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "run waited {:?}",
+            started.elapsed()
+        );
+        assert!(super::is_over_budget(&refused), "{refused:#}");
+        assert_eq!(super::deadline(), None, "the deadline is given back");
+    }
+
+    #[test]
+    fn a_spent_budget_starts_no_command() {
+        let refused = super::within(Some(Instant::now()), || {
+            run(
+                &mut Command::new("conductor-no-such-program"),
+                Duration::from_secs(1),
+            )
+        })
+        .expect_err("the budget is spent");
+        assert!(super::is_over_budget(&refused), "{refused:#}");
     }
 
     #[test]

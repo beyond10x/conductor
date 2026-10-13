@@ -6,10 +6,21 @@
 //! not a placed command of the `cli:` block: what it shows is presentation, not a record, and
 //! nothing it reads enters the store.
 //!
-//! It listens on `127.0.0.1` only and answers two requests: `GET /`, an HTML page that reloads
-//! itself every 20 s, and `GET /data.json`, the same data as JSON. Any other path is 404, any
-//! other method on those two 405, and a request naming another `Host` 403, so a page served from
-//! elsewhere cannot read the data through DNS rebinding.
+//! It listens on `127.0.0.1` only and answers `GET` of the app and of its data
+//! (`story:dashboard-spa`): `/` is the `index.html` of the Vue app built into
+//! `crates/conductor/dashboard/dist/` (`task ui`), each file under that directory is served at its
+//! own path with its content type, and `/data.json` is the data the app reads every 20 s. The
+//! build is embedded in the binary ([`APP`]), so serving it needs neither Node nor a file next to
+//! the binary. Any other path is 404, any other method on those 405, and a request naming another
+//! `Host` 403, so a page served from elsewhere cannot read the data through DNS rebinding. Every
+//! answer carries [`CONTENT_SECURITY_POLICY`]: the app loads its script, its style and its data
+//! from this server and nothing else.
+//!
+//! The overview's endpoints (`story:dashboard-overview`, [`overview`]): `/api/board`,
+//! `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs` and `/api/releases` answer
+//! the newest complete snapshot of the store under the instance's state directory, opened only
+//! when it is there ([`serve_over`] names another); `/api/events?since=<rfc3339>` the events since
+//! then, 00:00 UTC of the day without `since`.
 //!
 //! Each request reads its [`Sources`] afresh and writes nothing:
 //! - the session list a command prints (`claude agents --json`): one row per session whose working
@@ -30,15 +41,19 @@
 //! its own, at most every [`Sources::measure_every`], and each request shows the last complete
 //! measurement with its `measured_at`.
 //!
-//! A source that cannot be read is named on the page; the others still show. No path under the
-//! home directory is printed in full: every string the page carries writes it as `~`.
+//! A source that cannot be read is named in `errors`; the others still show. No path under the
+//! home directory is printed in full: every string `/data.json` carries writes it as `~`.
 
+mod health;
+pub mod overview;
+pub mod repo;
 mod usage;
 pub(crate) mod waste;
 
+pub use health::{HealthSources, failure_class};
+
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, ErrorKind, Read as _, Write as _};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -49,6 +64,8 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use conductor_model::config::Instance;
+use conductor_model::observation::FailureClass;
+use include_dir::{Dir, File, include_dir};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -59,13 +76,17 @@ use crate::config;
 /// The port `dashboard serve` listens on without `--port`.
 pub const DEFAULT_PORT: u16 = 7313;
 
-/// Seconds between two reloads of the page.
-const RELOAD_SECONDS: u32 = 20;
+/// The dashboard app as `task ui` builds it: `index.html` and its assets, embedded at build time.
+static APP: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/dashboard/dist");
 
-/// Characters of a brief, a reason or a question the page carries.
+/// The policy every answer carries: the app's script, style and data come from this server only.
+pub const CONTENT_SECURITY_POLICY: &str =
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'";
+
+/// Characters of a brief, a reason or a question `/data.json` carries.
 const EXCERPT: usize = 120;
 
-/// Decision lines the page carries.
+/// Decision lines `/data.json` carries.
 const RECENT_DECISIONS: usize = 10;
 
 /// The longest request head read; a longer one is answered 400.
@@ -73,6 +94,45 @@ const MAX_HEAD: usize = 16 * 1024;
 
 /// How long one connection may take to send its request or to take the answer.
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// What to do about a member a collector could not read, by the class of its error's first line
+/// ([`failure_class`]): the one table the health view's fixes come from
+/// (`story:dashboard-health`), each class with the name `/api/health` gives it.
+pub const FAILURE_FIXES: [(FailureClass, &str, &str); 5] = [
+    (
+        FailureClass::NeedsLogin,
+        "needs login",
+        "The member's remote asked for a login or refused the credential: load the SSH key \
+         (`ssh-add`) or cache HTTPS credentials for its host, check with `git fetch` in its \
+         checkout, then take the snapshot again.",
+    ),
+    (
+        FailureClass::UnreachableHost,
+        "unreachable host",
+        "The member's host did not resolve or answer: check its remote's host name \
+         (`git remote -v` in its checkout), the network and any VPN the host needs, then take the \
+         snapshot again.",
+    ),
+    (
+        FailureClass::TimedOut,
+        "timed out",
+        "A command passed its bound and was stopped: run it by hand in the member's checkout to \
+         see where it waits (a prompt, a slow remote), fix that, then take the snapshot again.",
+    ),
+    (
+        FailureClass::OldStore,
+        "old store",
+        "The member's planning store is `aep.project/1`, which this `aep` refuses: in its \
+         checkout, review `aep plan store migrate git --dry-run`, then run it without \
+         `--dry-run`.",
+    ),
+    (
+        FailureClass::Other,
+        "other",
+        "Read the error line, then run the command it names by hand in the member's checkout; \
+         `conductor doctor` checks the programs the collectors start.",
+    ),
+];
 
 /// What the page reads, the one seam a test points at fixtures. [`Sources::new`] gives the real
 /// ones.
@@ -111,6 +171,8 @@ pub struct Sources {
     /// Tokens of a session's context above which the watch reports it, which the context line
     /// names: the instance's `thresholds.context_handover`.
     pub context_handover: u64,
+    /// What the health view reads besides the disk-waste measurement (`story:dashboard-health`).
+    pub health: HealthSources,
 }
 
 impl Sources {
@@ -145,7 +207,9 @@ impl Sources {
         ];
         let targets = Path::new(&instance.cache).join("target");
         let context_handover = tokens(instance.thresholds.context_handover.0);
-        Self::with(home, root, watch, checkouts, targets, context_handover)
+        let mut sources = Self::with(home, root, watch, checkouts, targets, context_handover);
+        sources.health = HealthSources::of(sources.home.clone(), instance);
+        sources
     }
 
     /// The sources of the instance this process runs ([`config::active`]) under the home
@@ -203,6 +267,8 @@ impl Sources {
             var_tmp: PathBuf::from("/var/tmp"),
             measure_every: Duration::from_secs(600),
             measure_timeout: Duration::from_secs(180),
+            // The built-in instance's; [`Sources::of`] gives an instance's own.
+            health: HealthSources::new(home.clone(), &root),
             root,
             home,
             checkouts,
@@ -266,29 +332,56 @@ fn find_root(start: &Path) -> PathBuf {
         .to_path_buf()
 }
 
-/// What every connection shares: the sources and the last disk and token measurements.
+/// What every connection shares: the sources, the state directory whose store the snapshot
+/// endpoints read, and the last disk and token measurements.
 struct Server {
     sources: Sources,
+    state: Option<PathBuf>,
     waste: waste::Cache,
     usage: usage::Cache,
+    /// Doctor's last rows, which the health view serves (`story:dashboard-health`).
+    doctor: health::Doctor,
 }
 
 /// Answers every connection `listener` accepts, each on a thread of its own, from `sources`. The
-/// first disk and token measurements start at once.
+/// first disk and token measurements start at once. The snapshot endpoints read the store under
+/// the state directory [`crate::state::dir`] decides without a flag: the instance's `state`.
 ///
 /// # Errors
 ///
 /// When the listener has no local address. Otherwise it does not return: a failed connection is
 /// reported on standard error and the next one is taken.
 pub fn serve(listener: TcpListener, sources: Sources) -> Result<()> {
+    serve_over(listener, sources, crate::state::dir(None).ok())
+}
+
+/// [`serve`], the snapshot endpoints reading the store under `state`, or none when it is `None`:
+/// the seam a test points at a fixture store (`story:dashboard-overview`).
+///
+/// # Errors
+///
+/// As [`serve`].
+pub fn serve_over(listener: TcpListener, sources: Sources, state: Option<PathBuf>) -> Result<()> {
     let port = listener.local_addr()?.port();
     let server = Arc::new(Server {
         sources,
+        state,
         waste: waste::Cache::default(),
         usage: usage::Cache::default(),
+        doctor: health::Doctor::default(),
     });
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
+    // Doctor is taken at start and again once its last rows are older than their interval, off
+    // the request path (story:dashboard-health).
+    let doctor = server.doctor.clone();
+    let sources = server.sources.health.clone();
+    std::thread::spawn(move || {
+        loop {
+            doctor.refresh(&sources);
+            std::thread::sleep(health::TICK);
+        }
+    });
     for stream in listener.incoming() {
         let stream = match stream {
             Ok(stream) => stream,
@@ -343,25 +436,74 @@ fn read_head(stream: &mut TcpStream) -> io::Result<Option<String>> {
     }
 }
 
-/// The two resources served.
+/// What a path names: a file of the app, or the data.
 enum Resource {
-    Page,
+    App(&'static File<'static>),
     Data,
+    /// One of [`overview::SNAPSHOT_PATHS`], by its path.
+    Snapshot(&'static str),
+    /// [`overview::EVENTS_PATH`].
+    Events,
+    /// [`HEALTH_PATH`].
+    Health,
+    /// One of [`repo::PATHS`], by its path (`story:dashboard-repo-view`).
+    Repo(&'static str),
+}
+
+/// The health view's data (`story:dashboard-health`, `dashboard/health.rs`).
+pub const HEALTH_PATH: &str = "/api/health";
+
+/// The file of the app at the request path `path`: `index.html` for `/`, else the file at that
+/// path under the build, or none. A path with an empty, `.` or `..` segment names none.
+fn app_file(path: &str) -> Option<&'static File<'static>> {
+    let relative = path.strip_prefix('/')?;
+    if relative.is_empty() {
+        return APP.get_file("index.html");
+    }
+    if relative
+        .split('/')
+        .any(|segment| matches!(segment, "" | "." | ".."))
+        || relative.contains('\\')
+    {
+        return None;
+    }
+    APP.get_file(relative)
+}
+
+/// The content type of a file of the app, by its extension.
+fn content_type(file: &File<'_>) -> &'static str {
+    match file
+        .path()
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js" | "mjs") => "text/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
+        Some("txt") => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
 }
 
 /// The whole HTTP answer to one request head.
 fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
     const PLAIN: &str = "text/plain; charset=utf-8";
+    let bad = || response(400, "Bad Request", PLAIN, b"bad request\n", "");
     let Some(head) = head else {
-        return response(400, "Bad Request", PLAIN, "bad request\n", "");
+        return bad();
     };
     let mut lines = head.split("\r\n");
     let words: Vec<&str> = lines.next().unwrap_or_default().split(' ').collect();
     let [method, target, version] = words.as_slice() else {
-        return response(400, "Bad Request", PLAIN, "bad request\n", "");
+        return bad();
     };
     if !version.starts_with("HTTP/1.") {
-        return response(400, "Bad Request", PLAIN, "bad request\n", "");
+        return bad();
     }
     let host = lines
         .filter_map(|line| line.split_once(':'))
@@ -373,58 +515,170 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
             403,
             "Forbidden",
             PLAIN,
-            "this server answers only its own host\n",
+            b"this server answers only its own host\n",
             "",
         );
     }
     let path = target.split_once('?').map_or(*target, |(path, _)| path);
-    let resource = match path {
-        "/" => Resource::Page,
-        "/data.json" => Resource::Data,
-        _ => return response(404, "Not Found", PLAIN, "not found\n", ""),
+    let snapshot: Option<&'static str> = overview::SNAPSHOT_PATHS
+        .into_iter()
+        .find(|known| *known == path);
+    let resource = match (path, snapshot) {
+        ("/data.json", _) => Resource::Data,
+        (HEALTH_PATH, _) => Resource::Health,
+        (_, Some(known)) => Resource::Snapshot(known),
+        (overview::EVENTS_PATH, _) => Resource::Events,
+        _ if repo::PATHS.iter().any(|known| *known == path) => Resource::Repo(
+            repo::PATHS
+                .into_iter()
+                .find(|known| *known == path)
+                .unwrap_or_default(),
+        ),
+        _ => match app_file(path) {
+            Some(file) => Resource::App(file),
+            None => return response(404, "Not Found", PLAIN, b"not found\n", ""),
+        },
     };
     if *method != "GET" {
         return response(
             405,
             "Method Not Allowed",
             PLAIN,
-            "only GET\n",
+            b"only GET\n",
             "Allow: GET\r\n",
         );
     }
-    server.waste.refresh(&server.sources);
-    server.usage.refresh(&server.sources);
-    let now = OffsetDateTime::now_utc();
-    let data = collect(
-        &server.sources,
-        server.waste.view(now),
-        server.usage.view(now),
-        now,
-    );
     match resource {
-        Resource::Page => response(200, "OK", "text/html; charset=utf-8", &page(&data), ""),
+        Resource::App(file) => response(200, "OK", content_type(file), file.contents(), ""),
         Resource::Data => {
+            server.waste.refresh(&server.sources);
+            server.usage.refresh(&server.sources);
+            let now = OffsetDateTime::now_utc();
+            let data = collect(
+                &server.sources,
+                server.waste.view(now),
+                server.usage.view(now),
+                now,
+            );
             let mut body = serde_json::to_string_pretty(&data).unwrap_or_default();
             body.push('\n');
-            response(200, "OK", "application/json", &body, "")
+            response(200, "OK", "application/json", body.as_bytes(), "")
         }
+        Resource::Health => {
+            server.waste.refresh(&server.sources);
+            server.doctor.refresh(&server.sources.health);
+            let waste = server.waste.view(OffsetDateTime::now_utc());
+            json_answer(&health::answer(&server.sources, &server.doctor, waste))
+        }
+        Resource::Snapshot(path) => match open_store(server.state.as_deref()) {
+            Ok(store) => json_answer(
+                &overview::snapshot_endpoint(path, store.as_ref()).unwrap_or(Value::Null),
+            ),
+            Err(error) => store_failure(&error),
+        },
+        Resource::Events => {
+            let now = OffsetDateTime::now_utc();
+            let since = match overview::since(target) {
+                Ok(since) => since.unwrap_or_else(|| overview::start_of_day(now)),
+                Err(problem) => {
+                    return response(
+                        400,
+                        "Bad Request",
+                        PLAIN,
+                        format!("{problem}\n").as_bytes(),
+                        "",
+                    );
+                }
+            };
+            let store = match open_store(server.state.as_deref()) {
+                Ok(store) => store,
+                Err(error) => return store_failure(&error),
+            };
+            let mut errors = Vec::new();
+            let root = &server.sources.root;
+            let dispatches = jsonl(&root.join("dispatches"), &mut errors);
+            let decisions = jsonl(&root.join("decisions"), &mut errors);
+            let events = overview::events(
+                store.as_ref(),
+                &dispatches,
+                &decisions,
+                &config::active().instance,
+                since,
+            );
+            // `&repository=<name>` keeps that repository's rows (`story:dashboard-repo-view`).
+            let events = match repo::query(target, "repository") {
+                Some(name) => {
+                    let rows = events["rows"].as_array().cloned().unwrap_or_default();
+                    json!({"rows": repo::events_for_repository(rows, &name)})
+                }
+                None => events,
+            };
+            let home = server.sources.home.display().to_string();
+            json_answer(&tilde_all(events, home.trim_end_matches('/')))
+        }
+        Resource::Repo(path) => match open_store(server.state.as_deref()) {
+            Ok(store) => {
+                server.usage.refresh(&server.sources);
+                let now = OffsetDateTime::now_utc();
+                let usage = server.usage.view(now);
+                let answer =
+                    repo::endpoint(path, target, store.as_ref(), &server.sources, &usage, now)
+                        .unwrap_or(Value::Null);
+                let home = server.sources.home.display().to_string();
+                json_answer(&tilde_all(answer, home.trim_end_matches('/')))
+            }
+            Err(error) => store_failure(&error),
+        },
     }
 }
 
-fn response(status: u16, reason: &str, content_type: &str, body: &str, extra: &str) -> Vec<u8> {
-    format!(
+/// `value` answered as JSON, `200 OK`.
+fn json_answer(value: &Value) -> Vec<u8> {
+    let mut body = serde_json::to_string_pretty(value).unwrap_or_default();
+    body.push('\n');
+    response(200, "OK", "application/json", body.as_bytes(), "")
+}
+
+/// The store under `state`, opened read-only as a view opens it ([`crate::store::open_existing`]),
+/// or none when there is no state directory or no store in it (`tree/`, as
+/// [`crate::store::open_existing`] looks for it): an endpoint then answers no snapshot.
+///
+/// # Errors
+///
+/// A store is there and does not open.
+fn open_store(state: Option<&Path>) -> Result<Option<crate::store::Store>> {
+    match state {
+        Some(state) if state.join("tree").exists() => crate::store::open_existing(state).map(Some),
+        _ => Ok(None),
+    }
+}
+
+/// A store that is there and does not open, answered `500` with its reason on one line.
+fn store_failure(error: &anyhow::Error) -> Vec<u8> {
+    response(
+        500,
+        "Internal Server Error",
+        "text/plain; charset=utf-8",
+        format!("the store does not open: {error:#}\n").as_bytes(),
+        "",
+    )
+}
+
+fn response(status: u16, reason: &str, content_type: &str, body: &[u8], extra: &str) -> Vec<u8> {
+    let mut answer = format!(
         "HTTP/1.1 {status} {reason}\r\n\
          Content-Type: {content_type}\r\n\
          Content-Length: {}\r\n\
          Cache-Control: no-store\r\n\
          X-Content-Type-Options: nosniff\r\n\
-         Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'\r\n\
+         Content-Security-Policy: {CONTENT_SECURITY_POLICY}\r\n\
          Connection: close\r\n\
-         {extra}\r\n\
-         {body}",
+         {extra}\r\n",
         body.len()
     )
-    .into_bytes()
+    .into_bytes();
+    answer.extend_from_slice(body);
+    answer
 }
 
 /// Everything the page shows, read from `sources` at `now` with the disk measurement `waste` and
@@ -546,17 +800,40 @@ fn session(row: &Value, dispatches: &[Value], now: OffsetDateTime) -> Value {
 }
 
 /// The newest dispatch line to `name` (a line whose `to` is `name` and that carries a brief),
-/// with the newest event line of that dispatch.
+/// with the session's last event: of the event lines of every dispatch sent to `name`, the one
+/// whose `at` is latest, so a report of minutes ago wins over a state written after it with an
+/// older `at` (`story:dashboard-overview`). Without an event line whose `at` reads, the last
+/// event line of the newest dispatch, as before.
 fn dispatch(name: &str, dispatches: &[Value], now: OffsetDateTime) -> Option<Value> {
-    let line = dispatches
-        .iter()
-        .rev()
-        .find(|line| line["to"].as_str() == Some(name) && line["brief"].is_string())?;
+    let sent_to = |line: &Value| line["to"].as_str() == Some(name) && line["brief"].is_string();
+    let line = dispatches.iter().rev().find(|line| sent_to(*line))?;
     let id = line["id"].as_str()?;
-    let event = dispatches
+    let sent: HashSet<&str> = dispatches
         .iter()
-        .rev()
-        .find(|event| event["id"].as_str() == Some(id) && event["event"].is_string());
+        .filter(|line| sent_to(*line))
+        .filter_map(|line| line["id"].as_str())
+        .collect();
+    let newest_report = dispatches
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| {
+            event["event"].is_string()
+                && event["id"]
+                    .as_str()
+                    .is_some_and(|dispatch| sent.contains(dispatch))
+        })
+        .filter_map(|(read, event)| {
+            let at = OffsetDateTime::parse(event["at"].as_str()?, &Rfc3339).ok()?;
+            Some(((at, read), event))
+        })
+        .max_by_key(|(key, _)| *key)
+        .map(|(_, event)| event);
+    let event = newest_report.or_else(|| {
+        dispatches
+            .iter()
+            .rev()
+            .find(|event| event["id"].as_str() == Some(id) && event["event"].is_string())
+    });
     let at = event
         .and_then(|event| event["at"].as_str())
         .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok());
@@ -882,360 +1159,4 @@ fn tilde(text: &str, home: &str) -> String {
     }
     out.push_str(rest);
     out
-}
-
-/// `text` safe inside HTML text and attribute values.
-fn escape(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-/// A value as a table cell shows it, escaped: a string as it is, null as `—`, anything else as
-/// compact JSON.
-fn cell(value: &Value) -> String {
-    match value {
-        Value::Null => "—".to_owned(),
-        Value::String(text) => escape(text),
-        other => escape(&other.to_string()),
-    }
-}
-
-fn gib(bytes: &Value) -> String {
-    bytes.as_u64().map_or_else(
-        || "—".to_owned(),
-        |bytes| format!("{:.1} GiB", bytes as f64 / f64::from(1_u32 << 30)),
-    )
-}
-
-/// A size in GiB, MiB or KiB, whichever is the largest below it.
-fn size(bytes: &Value) -> String {
-    let Some(bytes) = bytes.as_u64() else {
-        return "—".to_owned();
-    };
-    let bytes = bytes as f64;
-    let [kib, mib, gib] = [10, 20, 30].map(|shift| f64::from(1_u32 << shift));
-    if bytes >= gib {
-        format!("{:.1} GiB", bytes / gib)
-    } else if bytes >= mib {
-        format!("{:.1} MiB", bytes / mib)
-    } else {
-        format!("{:.0} KiB", bytes / kib)
-    }
-}
-
-/// One column of a table: its heading, and the escaped cell it shows for a row.
-type Column<'a> = (&'a str, &'a dyn Fn(&Value) -> String);
-
-/// A table of `rows`, one column per `(heading, cell)`.
-fn table(out: &mut String, rows: &[Value], columns: &[Column<'_>]) {
-    out.push_str("<table><tr>");
-    for (heading, _) in columns {
-        let _ = write!(out, "<th>{heading}</th>");
-    }
-    out.push_str("</tr>\n");
-    for row in rows {
-        out.push_str("<tr>");
-        for (_, value) in columns {
-            let _ = write!(out, "<td>{}</td>", value(row));
-        }
-        out.push_str("</tr>\n");
-    }
-    out.push_str("</table>\n");
-}
-
-/// The HTML page of `data`: plain HTML and CSS, no script, no external request.
-fn page(data: &Value) -> String {
-    let none = Vec::new();
-    let rows = |key: &str| data[key].as_array().unwrap_or(&none).clone();
-    let mut out = String::new();
-    let _ = write!(
-        out,
-        "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-         <meta http-equiv=\"refresh\" content=\"{RELOAD_SECONDS}\">\n\
-         <title>conductor: what every session works on</title>\n<style>\n\
-         body{{font:14px/1.4 system-ui,sans-serif;margin:1.5em;color:#222}}\n\
-         table{{border-collapse:collapse;margin-bottom:1.5em}}\n\
-         th,td{{border:1px solid #ccc;padding:.25em .5em;text-align:left;vertical-align:top}}\n\
-         th{{background:#f2f2f2}} .meta{{color:#666}} .red{{color:#b00}}\n\
-         </style></head><body>\n<h1>What every session works on</h1>\n\
-         <p class=\"meta\">read {} · free on {}: {} of {} · controllers running: {} · \
-         build slot: {}</p>\n",
-        cell(&data["generated_at"]),
-        cell(&data["disk"]["path"]),
-        gib(&data["disk"]["free_bytes"]),
-        gib(&data["disk"]["size_bytes"]),
-        cell(&data["controllers"]),
-        cell(&data["build_slot"]),
-    );
-
-    let sessions = rows("sessions");
-    let gone = sessions.iter().filter(|row| row["exited"] == true).count();
-    let _ = writeln!(
-        out,
-        "<h2>Sessions under {} ({} live, {gone} exited)</h2>",
-        cell(&data["reading"]["checkouts"]),
-        sessions.len() - gone
-    );
-    let state = |row: &Value| match (row["status"].as_str(), row["state"].as_str()) {
-        (Some(status), Some(state)) if status != state => escape(&format!("{status} ({state})")),
-        (Some(one), _) | (None, Some(one)) => escape(one),
-        (None, None) => "—".to_owned(),
-    };
-    let event = |row: &Value| {
-        let dispatch = &row["dispatch"];
-        if dispatch["event"].is_null() {
-            "—".to_owned()
-        } else {
-            format!(
-                "{}, {} ago",
-                cell(&dispatch["event"]),
-                cell(&dispatch["event_ago"])
-            )
-        }
-    };
-    table(
-        &mut out,
-        &sessions,
-        &[
-            ("name", &|row: &Value| cell(&row["name"])),
-            ("kind", &|row: &Value| cell(&row["kind"])),
-            ("state", &state),
-            ("started", &|row: &Value| {
-                format!("{} ago", cell(&row["started_ago"]))
-            }),
-            ("cwd", &|row: &Value| cell(&row["cwd"])),
-            ("dispatch", &|row: &Value| cell(&row["dispatch"]["id"])),
-            ("goal", &|row: &Value| cell(&row["dispatch"]["goal"])),
-            ("brief", &|row: &Value| cell(&row["dispatch"]["brief"])),
-            ("last event", &event),
-        ],
-    );
-
-    out.push_str("<h2>Usage limit and context</h2>\n");
-    watch_lines(&mut out, &data["watch"], &data["context_handover"]);
-
-    out.push_str("<h2>Red CI on main</h2>\n");
-    match data["red_ci"].as_array() {
-        None => out.push_str("<p class=\"meta\">no watch state</p>\n"),
-        Some(red) if red.is_empty() => out.push_str("<p class=\"meta\">none</p>\n"),
-        Some(red) => table(
-            &mut out,
-            red,
-            &[
-                ("repository", &|row: &Value| cell(&row["repo"])),
-                ("workflow", &|row: &Value| cell(&row["workflow"])),
-                ("run", &|row: &Value| cell(&row["run_id"])),
-                ("conclusion", &|row: &Value| {
-                    format!("<span class=\"red\">{}</span>", cell(&row["conclusion"]))
-                }),
-                ("time", &|row: &Value| cell(&row["time"])),
-            ],
-        ),
-    }
-
-    let waiting = rows("awaiting_operator");
-    let _ = writeln!(out, "<h2>Awaiting the operator ({})</h2>", waiting.len());
-    table(
-        &mut out,
-        &waiting,
-        &[
-            ("decision", &|row: &Value| cell(&row["id"])),
-            ("class", &|row: &Value| cell(&row["class"])),
-            ("question", &|row: &Value| cell(&row["question"])),
-        ],
-    );
-
-    out.push_str("<h2>Recent decisions</h2>\n");
-    table(
-        &mut out,
-        &rows("decisions"),
-        &[
-            ("decision", &|row: &Value| cell(&row["id"])),
-            ("class", &|row: &Value| cell(&row["class"])),
-            ("choice", &|row: &Value| cell(&row["choice"])),
-            ("reason", &|row: &Value| cell(&row["reason"])),
-        ],
-    );
-
-    out.push_str("<h2>Disk waste</h2>\n");
-    waste_table(&mut out, &data["disk"]);
-
-    usage_table(&mut out, &data["usage"]);
-
-    let errors = rows("errors");
-    if !errors.is_empty() {
-        out.push_str("<h2 class=\"red\">Could not read</h2>\n<ul>\n");
-        for error in &errors {
-            let _ = writeln!(out, "<li>{}</li>", cell(error));
-        }
-        out.push_str("</ul>\n");
-    }
-    let reading = &data["reading"];
-    let _ = write!(
-        out,
-        "<p class=\"meta\">sessions from <code>{}</code> · records under {} · CI from {} · \
-         reloads every {RELOAD_SECONDS} s</p>\n</body></html>\n",
-        cell(&reading["sessions"]),
-        cell(&reading["root"]),
-        cell(&reading["ci_state"]),
-    );
-    out
-}
-
-/// The watch's lines as it prints them: each usage limit found now with its sessions, each
-/// reported earlier today, and each session whose context passed `context_handover` tokens,
-/// written in thousands with `k` when it is a whole number of them, as the config writes it.
-fn watch_lines(out: &mut String, watch: &Value, context_handover: &Value) {
-    let none = Vec::new();
-    let list = |key: &str| watch[key].as_array().unwrap_or(&none);
-    if ["usage_limit", "usage_limit_today", "context"]
-        .iter()
-        .all(|key| watch[*key].is_null())
-    {
-        out.push_str("<p class=\"meta\">no watch state</p>\n");
-        return;
-    }
-    let threshold = match context_handover.as_u64() {
-        Some(count) if count != 0 && count % 1000 == 0 => format!("{}k", count / 1000),
-        Some(count) => count.to_string(),
-        None => cell(context_handover),
-    };
-    let mut lines = Vec::new();
-    for limit in list("usage_limit") {
-        let sessions: Vec<String> = limit["sessions"]
-            .as_array()
-            .unwrap_or(&none)
-            .iter()
-            .map(cell)
-            .collect();
-        lines.push(format!(
-            "<li class=\"red\">usage limit: {}; {} sessions: {}</li>",
-            cell(&limit["text"]),
-            sessions.len(),
-            sessions.join(" ")
-        ));
-    }
-    for limit in list("usage_limit_today") {
-        lines.push(format!("<li>usage limit seen today: {}</li>", cell(limit)));
-    }
-    for context in list("context") {
-        let name = context["name"]
-            .as_str()
-            .map_or_else(|| "a session".to_owned(), escape);
-        lines.push(format!(
-            "<li class=\"red\">context: {name} over {threshold} tokens (session {})</li>",
-            cell(&context["session"])
-        ));
-    }
-    if lines.is_empty() {
-        out.push_str("<p class=\"meta\">none</p>\n");
-    } else {
-        let _ = writeln!(out, "<ul>\n{}\n</ul>", lines.join("\n"));
-    }
-}
-
-/// The disk waste of the `disk` object: its total and age, then its rows, largest first.
-fn waste_table(out: &mut String, disk: &Value) {
-    let again = if disk["measuring"] == true {
-        " · measuring again"
-    } else {
-        ""
-    };
-    if disk["measured_at"].is_null() {
-        out.push_str(if disk["measuring"] == true {
-            "<p class=\"meta\">measuring, no measurement yet</p>\n"
-        } else {
-            "<p class=\"meta\">no measurement</p>\n"
-        });
-        return;
-    }
-    let none = Vec::new();
-    let rows = disk["rows"].as_array().unwrap_or(&none);
-    let _ = writeln!(
-        out,
-        "<p class=\"meta\">total {} over {} rows, {} reclaimable · measured {} ({} ago){again} · \
-         read-only: <code>conductor gc</code> removes the reclaimable rows</p>",
-        size(&disk["total_bytes"]),
-        rows.len(),
-        size(&disk["reclaimable_bytes"]),
-        cell(&disk["measured_at"]),
-        cell(&disk["measured_ago"]),
-    );
-    table(
-        out,
-        rows,
-        &[
-            ("size", &|row: &Value| size(&row["bytes"])),
-            ("repository", &|row: &Value| cell(&row["repository"])),
-            ("what", &|row: &Value| cell(&row["what"])),
-            ("path", &|row: &Value| cell(&row["path"])),
-            ("trees or entries", &|row: &Value| cell(&row["count"])),
-            ("owner", &|row: &Value| cell(&row["owner"])),
-            ("age", &|row: &Value| cell(&row["age"])),
-            ("state", &|row: &Value| cell(&row["state"])),
-            ("conductor gc", &|row: &Value| cell(&row["gc"])),
-        ],
-    );
-}
-
-/// The token spend of the `usage` object: the instant it counts from and its age, its rows
-/// largest first, then what could not be read.
-fn usage_table(out: &mut String, usage: &Value) {
-    if usage["measured_at"].is_null() {
-        out.push_str("<h2>Token spend</h2>\n");
-        out.push_str(if usage["measuring"] == true {
-            "<p class=\"meta\">measuring, no measurement yet</p>\n"
-        } else {
-            "<p class=\"meta\">no measurement</p>\n"
-        });
-        return;
-    }
-    let again = if usage["measuring"] == true {
-        " · measuring again"
-    } else {
-        ""
-    };
-    let _ = writeln!(
-        out,
-        "<h2>Token spend since {}</h2>\n<p class=\"meta\">measured {} ({} ago){again} · from the \
-         session transcripts; per session: <code>conductor resource usage</code></p>",
-        cell(&usage["since"]),
-        cell(&usage["measured_at"]),
-        cell(&usage["measured_ago"]),
-    );
-    let none = Vec::new();
-    table(
-        out,
-        usage["rows"].as_array().unwrap_or(&none),
-        &[
-            ("repository", &|row: &Value| cell(&row["repository"])),
-            ("sessions", &|row: &Value| cell(&row["sessions"])),
-            ("calls", &|row: &Value| cell(&row["calls"])),
-            ("input", &|row: &Value| cell(&row["input"])),
-            ("output", &|row: &Value| cell(&row["output"])),
-            ("cache read", &|row: &Value| cell(&row["cache_read"])),
-            ("cache write", &|row: &Value| cell(&row["cache_write"])),
-            ("cache read %", &|row: &Value| {
-                cell(&row["cache_read_percent"])
-            }),
-        ],
-    );
-    let errors = usage["errors"].as_array().unwrap_or(&none);
-    if !errors.is_empty() {
-        out.push_str("<ul>\n");
-        for error in errors {
-            let _ = writeln!(out, "<li class=\"red\">{}</li>", cell(error));
-        }
-        out.push_str("</ul>\n");
-    }
 }

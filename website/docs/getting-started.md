@@ -11,6 +11,13 @@ checks it, and takes one snapshot of two tiny local repositories. It starts no s
 The CLI prints absolute paths; the output here writes the home directory as `~`. Version lines,
 ids, times and sizes differ on your machine.
 
+An agent that sets conductor up in a repository follows
+[`SETUP.md`](https://github.com/beyond10x/conductor/blob/main/SETUP.md) instead: a numbered list
+of steps, each with a check, the exact fix, and what only the person can do (a login, an install
+that needs root, approving a planning store migration). Give a Claude Code session in the
+repository its raw URL, `https://raw.githubusercontent.com/beyond10x/conductor/main/SETUP.md`, and
+ask it to set conductor up.
+
 ## Install
 
 You need `git`, and a Rust toolchain (edition 2024) with `cargo` to build from source. Taking a snapshot also runs `aep`
@@ -41,6 +48,12 @@ install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
 
 On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`.
 
+To upgrade an installed conductor, run `conductor upgrade`. It does the same steps for the newest
+release: downloads the archive for the target the binary was built for and `SHA256SUMS`, checks
+the sum, runs the new binary's `--version`, and replaces the binary in place, keeping the old one
+as `conductor.previous`. `conductor upgrade --check` only says whether a newer release exists;
+`conductor upgrade --release <x.y.z>` installs a named release, an older one too.
+
 Each way installs one binary, `conductor`; `conductor --version` prints its version and
 `conductor --help` lists its commands:
 
@@ -51,11 +64,16 @@ conductor 0.7.0
 
 ## Check the programs
 
-`conductor doctor` lists every program conductor starts, present with the first line its
-`--version` prints, missing, or not needed, and ends with its verdict:
+`conductor doctor` names the machine it runs on and its own version, lists every program
+conductor starts, present with the first line its `--version` prints, missing, or not needed, and
+ends with its verdict:
 
 ```console
 $ conductor doctor
+host: workstation
+system: Linux 6.18.0
+architecture: x86_64
+conductor 0.7.0
 git: present, git version 2.55.0
 gh: present, gh version 2.100.0 (2026-09-04)
 glab: not needed
@@ -78,13 +96,21 @@ instance, whose one source is on GitHub, so `glab` is not needed; once the confi
 written, its `local` source needs neither. A GitLab instance needs `glab` instead of `gh`; the
 [GitLab guide](./guides/gitlab.md) sets one up.
 
+The first four lines are the machine, as `uname` names it, and the conductor version: quote them
+with the rest when you ask for help. Once a config file names a `github` or `gitlab` source, doctor
+also prints, after the programs, the account each forge CLI is logged in as on each source's host,
+such as `gh: logged in to github.com as example-user`, or `glab: not logged in to
+gitlab.example.com`. It prints the login name only, never a token or an e-mail address. A CLI not
+logged in to a source's host makes the run not ready.
+
 `pins: none` says no `b10x.toml` was found in the working directory or a directory above it, so
 doctor checks `aep`, `ess` and `worktree` against the pins the binary was built with. Run at or
 below a directory holding a `b10x.toml` (a checkout of the conductor repository has one), it
 names that file and checks each program it pins instead.
 
 The last line is `ready`, or `not ready:` and each program that failed, such as
-`not ready: worktree (too old)`; doctor then exits 1. It writes nothing.
+`not ready: worktree (too old)` or `not ready: gh (not logged in to github.com)`; doctor then exits
+1. It writes nothing.
 
 ## Two repositories to watch
 

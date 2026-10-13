@@ -10,8 +10,8 @@
 //! the seams a test points at fixtures. A local source has no GitHub, so this collector reads
 //! none. A name two owners list fails the collector naming it and both owners.
 //!
-//! - One `RecordPullRequest` per open pull request ([`Sources::pull_requests`]). Its
-//!   `failing_checks` counts the rollup entries whose `conclusion` is `FAILURE`, `TIMED_OUT` or
+//! - One `RecordPullRequest` per open pull request ([`Sources::pull_requests`]), with GitHub's
+//!   link (`story:dashboard-overview`). Its `failing_checks` counts the rollup entries whose `conclusion` is `FAILURE`, `TIMED_OUT` or
 //!   `ACTION_REQUIRED`; a status context, which carries a `state` and no `conclusion`, is not
 //!   counted, as the reference loop in `docs/analysis/check-prs-ci.md` does not count it.
 //! - One `RecordWorkflowRun` per workflow: the latest by `createdAt` of the last 20 `main` runs
@@ -99,7 +99,7 @@ pub struct Sources {
     /// `isArchived`.
     pub repository_list: Vec<String>,
     /// Prints one repository's open pull requests as one JSON array of objects with `number`,
-    /// `title`, `isDraft`, `mergeable`, `statusCheckRollup`, `createdAt` and `updatedAt`.
+    /// `title`, `isDraft`, `mergeable`, `statusCheckRollup`, `createdAt`, `updatedAt` and `url`.
     pub pull_requests: Vec<String>,
     /// Prints one repository's latest `main` runs as one JSON array of objects with
     /// `workflowName`, `conclusion` and `createdAt`. Asked [`ANSWERS`] times, and up to
@@ -144,7 +144,7 @@ impl Sources {
                 "--limit",
                 "1000",
                 "--json",
-                "number,title,isDraft,mergeable,statusCheckRollup,createdAt,updatedAt",
+                "number,title,isDraft,mergeable,statusCheckRollup,createdAt,updatedAt,url",
             ]),
             workflow_runs: words(&[
                 "gh",
@@ -621,6 +621,9 @@ struct Pull {
     status_check_rollup: Option<Vec<Check>>,
     created_at: String,
     updated_at: String,
+    /// The pull request's page; `None` from a source that does not print it.
+    #[serde(default)]
+    url: Option<String>,
 }
 
 /// One entry of a pull request's check rollup: a check run's conclusion, or none for a status
@@ -877,6 +880,7 @@ impl Observed<'_> {
             failing_checks: i64::try_from(failing_checks).unwrap_or(i64::MAX),
             opened_at: Timestamp(utc(what, &pull.created_at)?),
             updated_at: Timestamp(utc(what, &pull.updated_at)?),
+            url: pull.url,
         })
     }
 

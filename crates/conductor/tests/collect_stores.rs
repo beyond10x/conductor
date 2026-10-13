@@ -14,9 +14,9 @@
 //! `aep` and `ess` are the installed ones, run offline on these fixtures: a `cat` of a canned
 //! listing could not tell which tree was exported, which is what these cases decide. `gh repo list`
 //! is `cat` on `tests/fixtures/specifications/repositories.json`, or on a list the case writes.
-//! Snapshots are taken through the library ([`snapshot::take`]). Blockers are read back through
-//! the built binary's `snapshot blockers`, specifications through the generated query, since the
-//! view `snapshot specifications` is not written yet.
+//! Snapshots are taken through the library ([`snapshot::take`]). Blockers and member failures are
+//! read back through the built binary's `snapshot blockers` and `snapshot member-failures`,
+//! specifications through the generated query.
 
 mod active;
 mod common;
@@ -24,10 +24,12 @@ mod common;
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fs;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
-use conductor_cli::collect::{Collector, blockers, specifications};
+use conductor_cli::collect::{Collector, blockers, repositories, specifications};
 use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::store;
 use conductor_model::behaviour::Generated;
@@ -162,6 +164,22 @@ impl Case {
             .collect()
     }
 
+    /// Gives the checkout of `repo` an `origin` a real `git fetch` reads with no network: the bare
+    /// repository `forge/<repo>.git` of the case, whose `main` is the checkout's `upstream`.
+    fn origin(&self, repo: &str) {
+        let forge = self.dir.join("forge");
+        fs::create_dir_all(&forge).expect("create forge/");
+        let bare = forge.join(format!("{repo}.git"));
+        git(&forge, &["init", "--bare", "--quiet", path(&bare)]);
+        let checkout = self.checkout(repo);
+        // Pushed to the path, not to `origin`, so `refs/remotes/origin/main` stays where it was.
+        git(
+            &checkout,
+            &["push", "--quiet", path(&bare), "upstream:main"],
+        );
+        git(&checkout, &["remote", "add", "origin", path(&bare)]);
+    }
+
     /// The blockers collector's sources over this case, with the fetch replaced.
     fn blocker_sources(&self) -> blockers::Sources {
         let mut sources = blockers::Sources::new(self.hub(), &self.state());
@@ -192,16 +210,28 @@ impl Case {
     /// The recorded blockers, through `snapshot blockers --format json`, without the identities
     /// the store assigns, sorted.
     fn blockers(&self) -> Vec<Value> {
+        self.view("blockers")
+    }
+
+    /// The recorded member failures, through `snapshot member-failures --format json`, without
+    /// the identities the store assigns, sorted (`story:snapshot-member-failures`).
+    fn member_failures(&self) -> Vec<Value> {
+        self.view("member-failures")
+    }
+
+    /// The rows of `snapshot <view> --format json`, without the identities the store assigns,
+    /// sorted.
+    fn view(&self, view: &str) -> Vec<Value> {
         let output = common::conductor(self.dir.join("home"))
             .current_dir(self.dir.join("work"))
             .args(["--state-dir", path(&self.state())])
-            .args(["snapshot", "blockers", "--format", "json"])
+            .args(["snapshot", view, "--format", "json"])
             .stdin(Stdio::null())
             .output()
             .expect("the conductor binary runs");
         assert!(
             output.status.success(),
-            "snapshot blockers: {}",
+            "snapshot {view}: {}",
             describe(&output)
         );
         assert_eq!(
@@ -209,13 +239,10 @@ impl Case {
                 .expect("read work/")
                 .count(),
             0,
-            "`snapshot blockers` planted something in its working directory"
+            "`snapshot {view}` planted something in its working directory"
         );
         let Value::Array(rows) = serde_json::from_slice(&output.stdout).expect("JSON rows") else {
-            panic!(
-                "`snapshot blockers` printed no array: {}",
-                describe(&output)
-            );
+            panic!("`snapshot {view}` printed no array: {}", describe(&output));
         };
         let mut rows: Vec<Value> = rows
             .into_iter()
@@ -497,14 +524,25 @@ fn blockers_are_the_open_blocker_artifacts_each_store_holds_at_origin_main_after
     }
 }
 
+/// A fetch that fails twice is a member failure, not a failed snapshot
+/// (`story:snapshot-member-failures`): the snapshot completes, one member failure names the
+/// repository, the collector and the command's first error line, and the member's blockers are
+/// read at its `origin/main` as last fetched, beside the other member's.
 #[test]
-fn a_fetch_that_fails_twice_fails_the_snapshot_naming_the_repository_and_the_command() {
+fn a_fetch_that_fails_twice_is_a_member_failure_naming_the_repository_and_the_command() {
     let case = Case::new("blockers_fetch_fails");
     case.workspace(&["alpha", "beta.io"]);
     for repo in ["alpha", "beta.io"] {
         case.repository(
             repo,
-            &[],
+            &[
+                project(&member(repo)),
+                artifact(
+                    "decision-blocker:last-fetched",
+                    "open",
+                    Some("Last fetched"),
+                ),
+            ],
             &[
                 project(&member(repo)),
                 artifact("decision-blocker:x", "open", Some("X")),
@@ -513,28 +551,48 @@ fn a_fetch_that_fails_twice_fails_the_snapshot_naming_the_repository_and_the_com
     }
     let log = case.dir.join("fetches.log");
     let mut sources = case.blocker_sources();
-    sources.fetch = words(&["sh", "-c", "pwd >> \"$0\"; exit 1", path(&log)]);
+    // The fetch fails in alpha's checkout, printing two lines; in beta.io's it moves the ref.
+    let script = "pwd >> \"$0\"; case \"$(pwd)\" in */alpha) \
+                  echo 'fatal: could not read from remote repository' >&2; \
+                  echo 'Please make sure you have the correct access rights' >&2; exit 1;; esac; \
+                  exec git update-ref refs/remotes/origin/main refs/heads/upstream";
+    sources.fetch = words(&["sh", "-c", script, path(&log)]);
 
     let taken = case.take("blockers", move |record| {
         blockers::collect_from(&sources, record)
     });
 
-    assert_eq!(taken.state, SnapshotState::Failed);
-    let reason = taken.reason.expect("a failed snapshot has a reason");
-    assert!(reason.starts_with("blockers: "), "{reason}");
-    assert!(reason.contains("alpha"), "names the repository: {reason}");
-    assert!(
-        reason.contains(&format!("pwd >> \"$0\"; exit 1 {}", path(&log))),
-        "names the command: {reason}"
-    );
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
     let fetches = fs::read_to_string(&log).expect("the fetch ran");
     let alpha = fs::canonicalize(case.checkout("alpha")).expect("alpha's checkout");
+    let beta = fs::canonicalize(case.checkout("beta.io")).expect("beta.io's checkout");
     assert_eq!(
         fetches.lines().collect::<Vec<_>>(),
-        vec![path(&alpha); 2],
-        "the fetch ran in alpha's checkout, once and once more, and no further"
+        vec![path(&alpha), path(&alpha), path(&beta)],
+        "the fetch ran in alpha's checkout once and once more, then in beta.io's once"
     );
-    assert_eq!(case.blockers(), Vec::<Value>::new());
+    let failures = case.member_failures();
+    assert_eq!(failures.len(), 1, "one member failure: {failures:?}");
+    let failure = &failures[0];
+    assert_eq!(failure["member"], json!("alpha"), "{failure}");
+    assert_eq!(failure["collector"], json!("blockers"), "{failure}");
+    let line = failure["error_line"].as_str().expect("an error line");
+    assert!(
+        line.contains(&format!("{script} {}", path(&log))),
+        "names the command: {line}"
+    );
+    assert!(
+        line.ends_with("exited 1: fatal: could not read from remote repository"),
+        "the command's first error line, and no more: {line}"
+    );
+    let mut expected = vec![
+        json!({"repository": "alpha", "reference": "decision-blocker:last-fetched",
+               "blocker_kind": "decision-blocker", "title": "Last fetched"}),
+        json!({"repository": "beta.io", "reference": "decision-blocker:x",
+               "blocker_kind": "decision-blocker", "title": "X"}),
+    ];
+    expected.sort_by_key(Value::to_string);
+    assert_eq!(case.blockers(), expected);
 }
 
 #[test]
@@ -1208,34 +1266,57 @@ fn a_repository_not_in_the_workspace_fails_the_snapshot_naming_it() {
     assert!(reason.contains("omega"), "names the repository: {reason}");
 }
 
+/// An `ess` that fails twice over one repository is a member failure, not a failed snapshot
+/// (`story:snapshot-member-failures`): the snapshot completes, one member failure names the
+/// repository, the collector and the command's first error line, no specification of it is
+/// recorded, and the other repository's is.
 #[test]
-fn an_ess_that_fails_twice_fails_the_snapshot_naming_the_repository_and_the_command() {
+fn an_ess_that_fails_twice_is_a_member_failure_naming_the_repository_and_the_command() {
     let case = Case::new("specifications_ess_fails");
-    case.workspace(&["alpha"]);
+    case.workspace(&["alpha", "beta.io"]);
     case.repository("alpha", &[], &fixture("alpha"));
+    case.repository("beta.io", &[], &fixture("beta.io"));
     let repositories = case.dir.join("repositories.json");
-    write(&repositories, r#"[{"name": "alpha", "isArchived": false}]"#);
+    write(
+        &repositories,
+        r#"[{"name": "alpha", "isArchived": false}, {"name": "beta.io", "isArchived": false}]"#,
+    );
     let log = case.dir.join("ess.log");
     let mut sources = case.specification_sources(&repositories);
-    sources.ess = words(&["sh", "-c", "echo ran >> \"$0\"; exit 3", path(&log)]);
+    let script = "echo ran >> \"$0\"; echo 'error: ess broke' >&2; echo 'more' >&2; exit 3";
+    sources.ess = words(&["sh", "-c", script, path(&log)]);
 
     let taken = case.take("specifications", move |record| {
         specifications::collect_from(&sources, record)
     });
 
-    assert_eq!(taken.state, SnapshotState::Failed);
-    let reason = taken.reason.expect("a failed snapshot has a reason");
-    assert!(reason.contains("alpha"), "names the repository: {reason}");
-    assert!(
-        reason.contains(&format!("echo ran >> \"$0\"; exit 3 {}", path(&log))),
-        "names the command: {reason}"
-    );
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
     assert_eq!(
         fs::read_to_string(&log).expect("ess ran").lines().count(),
         2,
-        "ess ran once and once more"
+        "ess ran once and once more, over alpha only"
     );
-    assert!(case.specifications().is_empty());
+    let failures = case.member_failures();
+    assert_eq!(failures.len(), 1, "one member failure: {failures:?}");
+    let failure = &failures[0];
+    assert_eq!(failure["member"], json!("alpha"), "{failure}");
+    assert_eq!(failure["collector"], json!("specifications"), "{failure}");
+    let line = failure["error_line"].as_str().expect("an error line");
+    assert!(
+        line.contains(&format!("{script} {}", path(&log))),
+        "names the command: {line}"
+    );
+    assert!(
+        line.ends_with("exited 3: error: ess broke"),
+        "the command's first error line, and no more: {line}"
+    );
+    let rows = case.specifications();
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.repository.0.as_str(), row.presence))
+            .collect::<Vec<_>>(),
+        [("beta.io", SpecificationPresence::Missing)]
+    );
 }
 
 // story:snapshot-absent-member
@@ -1389,4 +1470,354 @@ fn a_member_whose_directory_differs_from_its_forge_name_is_matched_by_its_origin
         .collect();
     repositories.sort();
     assert_eq!(repositories, vec!["alpha", "forge-name"]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:fetch-without-prompts
+// ---------------------------------------------------------------------------------------------
+
+/// The environment variable that makes a case of [`git_environment_of`] run its snapshots in a
+/// child process; it names the directory of the fake `git`.
+const PROMPT_CHILD: &str = "CONDUCTOR_COLLECT_STORES_PROMPT_CHILD";
+
+/// The ssh options every git command of a collector runs with.
+const SSH_OPTIONS: &str = "-o BatchMode=yes -o ConnectTimeout=10";
+
+/// The collectors whose git commands [`git_environment_of`] records, in the order it runs them.
+const GIT_COLLECTORS: [&str; 3] = ["repositories", "blockers", "specifications"];
+
+/// (a) Every git command the repositories, blockers and specifications collectors run has
+/// `GIT_TERMINAL_PROMPT=0`, and a `GIT_SSH_COMMAND` of `ssh` with batch mode and a connect
+/// timeout, when the caller names no ssh command of its own.
+#[test]
+fn every_collector_git_command_runs_with_no_prompt_and_ssh_in_batch_mode() {
+    const NAME: &str = "every_collector_git_command_runs_with_no_prompt_and_ssh_in_batch_mode";
+    if let Some(fake) = std::env::var_os(PROMPT_CHILD) {
+        prompted_snapshots("prompt_default", Path::new(&fake));
+        return;
+    }
+    let expected = format!("ssh {SSH_OPTIONS}");
+    for (collector, lines) in git_environment_of("prompt_default", NAME, None) {
+        for line in lines {
+            let fields: Vec<&str> = line.split('\t').collect();
+            assert_eq!(
+                fields.get(1..),
+                Some(&["0", expected.as_str()][..]),
+                "{collector}: {line:?}"
+            );
+        }
+    }
+}
+
+/// (b) A `GIT_SSH_COMMAND` the caller sets is kept, with batch mode and the connect timeout after
+/// it.
+#[test]
+fn a_callers_ssh_command_is_kept_with_batch_mode_after_it() {
+    const NAME: &str = "a_callers_ssh_command_is_kept_with_batch_mode_after_it";
+    if let Some(fake) = std::env::var_os(PROMPT_CHILD) {
+        prompted_snapshots("prompt_caller", Path::new(&fake));
+        return;
+    }
+    let expected = format!("ssh -i /tmp/key {SSH_OPTIONS}");
+    for (collector, lines) in git_environment_of("prompt_caller", NAME, Some("ssh -i /tmp/key")) {
+        for line in lines {
+            let fields: Vec<&str> = line.split('\t').collect();
+            assert_eq!(
+                fields.get(1..),
+                Some(&["0", expected.as_str()][..]),
+                "{collector}: {line:?}"
+            );
+        }
+    }
+}
+
+/// Runs the case `test` of this file again in a child process whose `PATH` starts with a fake
+/// `git`, which writes its arguments, `GIT_TERMINAL_PROMPT` and `GIT_SSH_COMMAND` (tab-separated,
+/// `unset` for a variable that is not set) on one line of its log and then runs the real `git`.
+/// The child's `GIT_SSH_COMMAND` is `ssh` when given, else not set. Answers each collector of
+/// [`GIT_COLLECTORS`] with the lines its git commands wrote, each collector having run at least
+/// one.
+fn git_environment_of(case: &str, test: &str, ssh: Option<&str>) -> Vec<(String, Vec<String>)> {
+    let fake = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("collect_stores")
+        .join(format!("{case}-fake-git"));
+    if fake.exists() {
+        fs::remove_dir_all(&fake).expect("clear the fake git's directory");
+    }
+    fs::create_dir_all(&fake).expect("create the fake git's directory");
+    let path_variable = std::env::var_os("PATH").unwrap_or_default();
+    let real = std::env::split_paths(&path_variable)
+        .map(|dir| dir.join("git"))
+        .find(|git| git.is_file())
+        .expect("git is on PATH");
+    let script = fake.join("git");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '%s\\t%s\\t%s\\n' \"$*\" \"${{GIT_TERMINAL_PROMPT-unset}}\" \
+             \"${{GIT_SSH_COMMAND-unset}}\" >> '{}'\nexec '{}' \"$@\"\n",
+            path(&fake.join("git.log")),
+            path(&real)
+        ),
+    )
+    .expect("write the fake git");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    let child_path = std::env::join_paths(
+        std::iter::once(fake.clone()).chain(std::env::split_paths(&path_variable)),
+    )
+    .expect("a PATH");
+    let mut child = Command::new(std::env::current_exe().expect("the test binary's path"));
+    child
+        .args([test, "--exact", "--nocapture", "--test-threads=1"])
+        .env(PROMPT_CHILD, &fake)
+        .env("PATH", child_path)
+        .stdin(Stdio::null());
+    match ssh {
+        Some(ssh) => child.env("GIT_SSH_COMMAND", ssh),
+        None => child.env_remove("GIT_SSH_COMMAND"),
+    };
+    let output = child.output().expect("the test binary runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("test result: ok. 1 passed"),
+        "the child case failed: {}",
+        describe(&output)
+    );
+    GIT_COLLECTORS
+        .iter()
+        .map(|collector| {
+            let lines: Vec<String> = fs::read_to_string(fake.join(format!("{collector}.log")))
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_owned)
+                .collect();
+            assert!(!lines.is_empty(), "the {collector} collector ran no git");
+            ((*collector).to_owned(), lines)
+        })
+        .collect()
+}
+
+/// What [`git_environment_of`] runs in its child process: two members whose `origin` is a bare
+/// repository of the case, read by one snapshot of each collector of [`GIT_COLLECTORS`] with its
+/// real git commands, the fetch included. After each snapshot the fake `git`'s log under `fake` is
+/// kept as `<collector>.log`.
+fn prompted_snapshots(name: &str, fake: &Path) {
+    let case = Case::new(name);
+    let repos = ["alpha", "beta.io"];
+    case.workspace(&repos);
+    for repo in repos {
+        case.repository(
+            repo,
+            &[project(&member(repo))],
+            &[
+                project(&member(repo)),
+                artifact("decision-blocker:x", "open", Some("X")),
+            ],
+        );
+        case.origin(repo);
+    }
+    let listing = case.dir.join("listing.json");
+    write(
+        &listing,
+        r#"[{"name": "alpha", "visibility": "PUBLIC", "isArchived": false, "hasIssuesEnabled": false},
+            {"name": "beta.io", "visibility": "PUBLIC", "isArchived": false, "hasIssuesEnabled": false}]"#,
+    );
+    let empty = case.dir.join("empty.json");
+    write(&empty, "[]");
+    let repositories_json = case.dir.join("repositories.json");
+    write(
+        &repositories_json,
+        r#"[{"name": "alpha", "isArchived": false}, {"name": "beta.io", "isArchived": false}]"#,
+    );
+    let cat = |file: &Path| vec!["cat".to_owned(), path(file).to_owned()];
+    let repository_sources = repositories::Sources {
+        organization: "example-org".to_owned(),
+        workspace: case.dir.join("example-org"),
+        catalog: None,
+        now: time::OffsetDateTime::now_utc(),
+        repository_list: cat(&listing),
+        open_issues: cat(&empty),
+        latest_release: cat(&empty),
+        main_commit: vec!["false".to_owned()],
+        main_commits: vec!["false".to_owned()],
+        commit: vec!["false".to_owned()],
+        width: 2,
+        bound: Duration::from_secs(60),
+    };
+    let real_fetch = words(&["git", "fetch", "--quiet", "origin"]);
+    let mut blocker_sources = case.blocker_sources();
+    blocker_sources.fetch = real_fetch.clone();
+    let mut specification_sources = case.specification_sources(&repositories_json);
+    specification_sources.workspace.fetch = real_fetch;
+    // The fixtures' own git commands ran through the fake too: only the collectors' are kept.
+    let log = fake.join("git.log");
+    let _ = fs::remove_file(&log);
+
+    let collectors: [(&'static str, Collector); 3] = [
+        (
+            "repositories",
+            Collector::new("repositories", move |record| {
+                repositories::collect_from(&repository_sources, record)
+            }),
+        ),
+        (
+            "blockers",
+            Collector::new("blockers", move |record| {
+                blockers::collect_from(&blocker_sources, record)
+            }),
+        ),
+        (
+            "specifications",
+            Collector::new("specifications", move |record| {
+                specifications::collect_from(&specification_sources, record)
+            }),
+        ),
+    ];
+    for (collector, run) in collectors {
+        let store = store::open(&case.state()).expect("open the store");
+        let taken = snapshot::take(store, &[run]).expect("the driver ends the snapshot");
+        assert_eq!(
+            taken.state,
+            SnapshotState::Complete,
+            "{collector}: {:?}",
+            taken.reason
+        );
+        let kept = fake.join(format!("{collector}.log"));
+        if log.exists() {
+            fs::rename(&log, &kept).expect("keep the collector's log");
+        } else {
+            fs::write(&kept, "").expect("write an empty log");
+        }
+    }
+    assert!(
+        case.member_failures().is_empty(),
+        "every member was read: {:?}",
+        case.member_failures()
+    );
+}
+
+/// (c) A fetch that hangs past the collector's bound is stopped there, and is a member failure
+/// naming the member, `blockers` and the bound, the text [`collect::run`] gives; the snapshot
+/// completes, with the member's blockers as last fetched beside the other member's.
+///
+/// [`collect::run`]: conductor_cli::collect::run
+#[test]
+fn a_fetch_that_hangs_past_the_bound_is_a_member_failure_and_the_snapshot_completes() {
+    let case = Case::new("fetch_hangs");
+    case.workspace(&["alpha", "beta.io"]);
+    for repo in ["alpha", "beta.io"] {
+        case.repository(
+            repo,
+            &[
+                project(&member(repo)),
+                artifact(
+                    "decision-blocker:last-fetched",
+                    "open",
+                    Some("Last fetched"),
+                ),
+            ],
+            &[
+                project(&member(repo)),
+                artifact("decision-blocker:x", "open", Some("X")),
+            ],
+        );
+    }
+    let mut sources = case.blocker_sources();
+    sources.bound = Duration::from_secs(3);
+    sources.fetch = words(&[
+        "sh",
+        "-c",
+        "case \"$(pwd)\" in */alpha) exec sleep 60;; esac; \
+         exec git update-ref refs/remotes/origin/main refs/heads/upstream",
+    ]);
+
+    let started = Instant::now();
+    let taken = case.take("blockers", move |record| {
+        blockers::collect_from(&sources, record)
+    });
+
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+    assert!(
+        started.elapsed() < Duration::from_secs(40),
+        "the hanging fetch was not stopped at its bound: {:?}",
+        started.elapsed()
+    );
+    let failures = case.member_failures();
+    assert_eq!(failures.len(), 1, "one member failure: {failures:?}");
+    assert_eq!(failures[0]["member"], json!("alpha"));
+    assert_eq!(failures[0]["collector"], json!("blockers"));
+    let line = failures[0]["error_line"].as_str().expect("an error line");
+    assert!(
+        line.contains("gave no answer within 3 s"),
+        "says it timed out: {line}"
+    );
+    let mut expected = vec![
+        json!({"repository": "alpha", "reference": "decision-blocker:last-fetched",
+               "blocker_kind": "decision-blocker", "title": "Last fetched"}),
+        json!({"repository": "beta.io", "reference": "decision-blocker:x",
+               "blocker_kind": "decision-blocker", "title": "X"}),
+    ];
+    expected.sort_by_key(Value::to_string);
+    assert_eq!(case.blockers(), expected);
+}
+
+/// (d) A member whose real `git fetch --quiet origin` is refused (its `origin` is no repository)
+/// is a member failure naming the fetch's first error line, and its blockers are read at its
+/// `refs/remotes/origin/main` as last fetched; the other member is fetched from its `origin`.
+#[test]
+fn a_member_whose_fetch_is_refused_is_read_as_last_fetched() {
+    let case = Case::new("fetch_refused");
+    case.workspace(&["alpha", "beta.io"]);
+    for repo in ["alpha", "beta.io"] {
+        case.repository(
+            repo,
+            &[
+                project(&member(repo)),
+                artifact(
+                    "decision-blocker:last-fetched",
+                    "open",
+                    Some("Last fetched"),
+                ),
+            ],
+            &[
+                project(&member(repo)),
+                artifact("decision-blocker:x", "open", Some("X")),
+            ],
+        );
+    }
+    case.origin("beta.io");
+    git(
+        &case.checkout("alpha"),
+        &[
+            "remote",
+            "add",
+            "origin",
+            path(&case.dir.join("forge/no-such-repository.git")),
+        ],
+    );
+    let sources = blockers::Sources::new(case.hub(), &case.state());
+    assert_eq!(sources.fetch, words(&["git", "fetch", "--quiet", "origin"]));
+
+    let taken = case.take("blockers", move |record| {
+        blockers::collect_from(&sources, record)
+    });
+
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+    let failures = case.member_failures();
+    assert_eq!(failures.len(), 1, "one member failure: {failures:?}");
+    assert_eq!(failures[0]["member"], json!("alpha"));
+    assert_eq!(failures[0]["collector"], json!("blockers"));
+    let line = failures[0]["error_line"].as_str().expect("an error line");
+    assert!(
+        line.starts_with("`git fetch --quiet origin` exited 128: fatal: "),
+        "the fetch and its first error line: {line}"
+    );
+    let mut expected = vec![
+        json!({"repository": "alpha", "reference": "decision-blocker:last-fetched",
+               "blocker_kind": "decision-blocker", "title": "Last fetched"}),
+        json!({"repository": "beta.io", "reference": "decision-blocker:x",
+               "blocker_kind": "decision-blocker", "title": "X"}),
+    ];
+    expected.sort_by_key(Value::to_string);
+    assert_eq!(case.blockers(), expected);
 }

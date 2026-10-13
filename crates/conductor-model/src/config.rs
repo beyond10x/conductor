@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest e5cc31d24c269034216a3a8e3ebf160a7b44a90eafdecb68cbdd5e8645c17674
-// contract digest d50fe6221b3c0243d2ee6252f4f099cfd69a0fbbd91ec36800ee65c6637805c3
+// model digest 12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb
+// contract digest a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -133,6 +133,41 @@ pub struct Controllers {
     pub max_subagents: i64,
 }
 
+/// DoctorReport — `conductor.config.DoctorReport`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DoctorReport {
+    /// `machine` — `conductor.config.Machine`.
+    pub machine: Machine,
+    /// `prerequisites` — `List<conductor.config.Prerequisite>`.
+    pub prerequisites: Vec<Prerequisite>,
+    /// `logins` — `List<conductor.config.ForgeLogin>`.
+    pub logins: Vec<ForgeLogin>,
+    /// `verdict` — `String`.
+    pub verdict: String,
+}
+
+/// ForgeLogin — `conductor.config.ForgeLogin`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgeLogin {
+    /// `program` — `String`.
+    pub program: String,
+    /// `host` — `String`.
+    pub host: String,
+    /// `state` — `conductor.config.ForgeLoginState`.
+    pub state: ForgeLoginState,
+    /// `account` — `Optional<String>`.
+    pub account: Option<String>,
+}
+
+/// ForgeLoginState — `conductor.config.ForgeLoginState`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForgeLoginState {
+    /// `LoggedIn`.
+    LoggedIn,
+    /// `NotLoggedIn`.
+    NotLoggedIn,
+}
+
 /// Gibibytes — `conductor.config.Gibibytes`: a distinct wrapper around `Integer`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gibibytes(pub i64);
@@ -247,6 +282,21 @@ pub struct LocalSource {
     pub exclude: Vec<String>,
 }
 
+/// Machine — `conductor.config.Machine`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Machine {
+    /// `host` — `String`.
+    pub host: String,
+    /// `system` — `String`.
+    pub system: String,
+    /// `release` — `String`.
+    pub release: String,
+    /// `architecture` — `String`.
+    pub architecture: String,
+    /// `conductor` — `String`.
+    pub conductor: String,
+}
+
 /// Network — `conductor.config.Network`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Network {
@@ -293,6 +343,19 @@ pub struct Report {
     pub r#as: String,
     /// `when` — `List<String>`.
     pub when: Vec<String>,
+}
+
+/// RepositoryCheck — `conductor.config.RepositoryCheck`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryCheck {
+    /// `check` — `String`.
+    pub check: String,
+    /// `ready` — `Boolean`.
+    pub ready: bool,
+    /// `detail` — `String`.
+    pub detail: String,
+    /// `fix` — `Optional<String>`.
+    pub fix: Option<String>,
 }
 
 /// RepositoryRule — `conductor.config.RepositoryRule`.
@@ -349,6 +412,28 @@ pub struct SessionName(pub String);
 /// Every character is one of `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionPrefix(pub String);
+
+/// SetupReport — `conductor.config.SetupReport`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupReport {
+    /// `doctor` — `conductor.config.DoctorReport`.
+    pub doctor: DoctorReport,
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `checks` — `List<conductor.config.RepositoryCheck>`.
+    pub checks: Vec<RepositoryCheck>,
+    /// `verdict` — `String`.
+    pub verdict: String,
+}
+
+/// SetupRepository — `conductor.config.SetupRepository`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupRepository {
+    /// `repository` — `Optional<String>`.
+    pub repository: Option<String>,
+    /// `apply` — `Optional<Boolean>`.
+    pub apply: Option<bool>,
+}
 
 /// ShowConfig — `conductor.config.ShowConfig`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,6 +497,69 @@ pub struct Tokens(pub i64);
 pub struct TrustWorkspaces {
     /// `instance` — `Optional<String>`.
     pub instance: Option<String>,
+}
+
+/// UpgradeBinary — `conductor.config.UpgradeBinary`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpgradeBinary {
+    /// `check` — `Optional<Boolean>`.
+    pub check: Option<bool>,
+    /// `release` — `Optional<String>`.
+    pub release: Option<String>,
+}
+
+/// UpgradeOutcome — `conductor.config.UpgradeOutcome`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpgradeOutcome {
+    /// `UpgradeAvailable`.
+    UpgradeAvailable,
+    /// `NoneAvailable`.
+    NoneAvailable,
+    /// `Upgraded`.
+    Upgraded,
+    /// `AlreadyCurrent`.
+    AlreadyCurrent,
+}
+
+/// UpgradeRefusal — `conductor.config.UpgradeRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpgradeRefusal {
+    /// `ReleaseUnread`.
+    ReleaseUnread,
+    /// `NoArchiveForTarget`.
+    NoArchiveForTarget,
+    /// `ChecksumMismatch`.
+    ChecksumMismatch,
+    /// `NewBinaryDoesNotRun`.
+    NewBinaryDoesNotRun,
+    /// `BinaryNotWritable`.
+    BinaryNotWritable,
+}
+
+/// UpgradeRefused — `conductor.config.UpgradeRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpgradeRefused {
+    /// `release` — `String`.
+    pub release: String,
+    /// `target` — `String`.
+    pub target: String,
+    /// `refusal` — `conductor.config.UpgradeRefusal`.
+    pub refusal: UpgradeRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
+
+/// UpgradeReport — `conductor.config.UpgradeReport`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpgradeReport {
+    /// `installed` — `String`.
+    pub installed: String,
+    /// `release` — `String`.
+    pub release: String,
+    /// `outcome` — `conductor.config.UpgradeOutcome`.
+    pub outcome: UpgradeOutcome,
+    /// `binary` — `String`.
+    pub binary: String,
 }
 
 /// ValidateConfig — `conductor.config.ValidateConfig`.

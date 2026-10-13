@@ -27,13 +27,13 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use super::snapshot::{
-    BLOCKER, MERGED_PULL_REQUEST, PULL_REQUEST, RELEASE, REPOSITORY, SESSION, SPECIFICATION,
-    WORKFLOW_RUN,
+    BLOCKER, COLLECTOR_RUN, MEMBER_FAILURE, MERGED_PULL_REQUEST, PULL_REQUEST, RELEASE, REPOSITORY,
+    SESSION, SPECIFICATION, WORKFLOW_RUN,
 };
 use super::{Store, backend, stream_id};
 
 /// The entities the observation store holds: every `*Observation` of the observation domain.
-pub const ENTITIES: [&str; 8] = [
+pub const ENTITIES: [&str; 10] = [
     REPOSITORY,
     PULL_REQUEST,
     RELEASE,
@@ -42,6 +42,8 @@ pub const ENTITIES: [&str; 8] = [
     SESSION,
     BLOCKER,
     SPECIFICATION,
+    MEMBER_FAILURE,
+    COLLECTOR_RUN,
 ];
 
 /// Whether `entity`'s records are kept in the observation store.

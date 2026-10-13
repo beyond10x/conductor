@@ -295,7 +295,7 @@ runs it with `--follow` under the harness `Monitor` tool.
 | context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
 | silent controllers | the modification times of each live controller's transcript and its sub-agents' | `session silent: <name> <id> <m>m` when a controller `working` or `waiting` and all its sub-agents have written nothing for longer than `thresholds.silent_session`; again only after it wrote and fell silent anew |
 | `main` CI | for each Active repository of the newest complete snapshot, `gh run list` for a `github` source, the default-branch pipeline through `glab api --hostname <host>` for a `gitlab` source | `CI red on main: …`, `CI green again on main: …` |
-| free disk | `statvfs` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, again only after it was back at `disk_clear` |
+| free disk | `statvfs` on `/` | each floor once per fall: `disk low: <n>G free on /` under `thresholds.disk_low`, again only after it was back at `disk_clear`; `disk admit: <n>G free on / (builds wait)` under `thresholds.disk_admit`, again only after it was back at `disk_admit`; `disk gate stop: <n>G free on / (gates stop)` under `thresholds.gate_stop`, again only after it was back at `gate_resume` |
 
 A pass runs every `cadence.watch` (`--every <SECONDS>`), and CI is read every `cadence.ci`
 (`--ci-every <SECONDS>`). A session exit that a dispatch log line explains is not reported. The

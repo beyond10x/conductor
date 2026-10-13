@@ -199,6 +199,7 @@ fn everything() -> Collector {
             failing_checks: 0,
             opened_at: Timestamp("2026-09-01T00:00:00Z".to_owned()),
             updated_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
+            url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
             snapshot_id: snapshot.clone(),
@@ -391,6 +392,7 @@ fn adv_every_recorder_method_records_only_into_the_snapshot_it_is_given() {
             failing_checks: 0,
             opened_at: Timestamp("2026-09-01T00:00:00Z".to_owned()),
             updated_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
+            url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
             snapshot_id: stale.clone(),
@@ -615,6 +617,8 @@ fn record_flags() -> [(&'static str, Vec<&'static str>); 5] {
                 "2026-09-01T01:02:03Z",
                 "--updated-at",
                 "2026-10-04T05:06:07Z",
+                "--url",
+                "https://github.com/example-org/beta/pull/42",
             ],
         ),
         (
@@ -711,6 +715,7 @@ fn adv_each_record_command_reads_back_through_its_view() {
                 "snapshot_id": STALE, "repository": "beta", "number": 42, "title": "Forty-two",
                 "draft": true, "mergeability": "Conflicting", "failing_checks": 3,
                 "opened_at": "2026-09-01T01:02:03Z", "updated_at": "2026-10-04T05:06:07Z",
+                "url": "https://github.com/example-org/beta/pull/42",
             }),
         ),
         (

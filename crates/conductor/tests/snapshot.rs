@@ -9,10 +9,12 @@
 mod active;
 mod common;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
+use std::time::Duration;
 
 use anyhow::bail;
 use conductor_cli::collect::Collector;
@@ -23,7 +25,7 @@ use conductor_model::observation::obligations::SpecificationsQuery;
 use conductor_model::observation::{
     CommitSha, EnvelopeProvider, Harness, Mergeability, RecordBlocker, RecordPullRequest,
     RecordRepository, RecordSession, RecordSpecification, RecordWorkflowRun, RepositoryName,
-    RunConclusion, SessionState, SnapshotId, SnapshotState, SpecificationPresence,
+    RunConclusion, SessionState, SnapshotId, SnapshotState, SpecificationPresence, StartSnapshot,
     ValidationResult, Visibility,
 };
 use conductor_model::primitives::Timestamp;
@@ -407,6 +409,7 @@ fn a_refused_observation_fails_the_snapshot_with_the_refusal() {
             failing_checks: 0,
             opened_at: Timestamp("2026-09-01T00:00:00Z".to_owned()),
             updated_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
+            url: None,
         };
         record.pull_request(input)?;
         Ok(())
@@ -439,6 +442,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             failing_checks: 3,
             opened_at: Timestamp("2026-09-01T00:00:00Z".to_owned()),
             updated_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
+            url: None,
         })?;
         record.workflow_run(RecordWorkflowRun {
             snapshot_id: snapshot.clone(),
@@ -497,6 +501,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             "failing_checks": 3,
             "opened_at": "2026-09-01T00:00:00Z",
             "updated_at": "2026-10-01T00:00:00Z",
+            "url": null,
         })]
     );
     assert_eq!(
@@ -748,6 +753,131 @@ fn start_snapshot_refuses_a_negative_free_disk() {
         &root,
         Some(&offline(&root)),
         &["snapshot", "start-snapshot", "--disk-free-bytes", "-1"],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("InvalidCount"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(rows(&root, "snapshots"), Vec::<Value>::new());
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:snapshot-duration
+// ---------------------------------------------------------------------------------------------
+
+/// A fake collector named `name` that waits `millis` milliseconds, then records the repository
+/// `name`.
+fn waits(name: &'static str, millis: u64) -> Collector {
+    Collector::new(name, move |record: &mut Recorder<'_>| {
+        std::thread::sleep(Duration::from_millis(millis));
+        let input = repository(record.snapshot(), name);
+        record.repository(input)?;
+        Ok(())
+    })
+}
+
+/// The rows of `snapshot collector-runs` of `snapshot`, by collector: (outcome, duration in
+/// milliseconds, start).
+fn collector_runs(root: &Path, snapshot: &SnapshotId) -> BTreeMap<String, (String, i64, String)> {
+    rows(root, "collector-runs")
+        .into_iter()
+        .filter(|row| row["snapshot_id"] == id(snapshot))
+        .map(|row| {
+            let text = |field: &str| {
+                row[field]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{field} is text: {row}"))
+                    .to_owned()
+            };
+            let duration = row["duration_ms"]
+                .as_i64()
+                .unwrap_or_else(|| panic!("duration_ms is an integer: {row}"));
+            (
+                text("collector"),
+                (text("outcome"), duration, text("started_at")),
+            )
+        })
+        .collect()
+}
+
+/// Each collector's run is recorded with its start, its duration and how it ended, and
+/// `snapshot collector-runs` shows them: fake collectors of known delay read back with durations
+/// that hold those delays, and the one that failed reads `Failed`.
+#[test]
+fn each_collectors_run_is_recorded_with_its_duration() {
+    let root = case_dir("collector-runs");
+    let taken = take(&root, &[waits("quick", 0), waits("slow", 400), fails()]);
+    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
+
+    let runs = collector_runs(&root, &taken.snapshot_id);
+    assert_eq!(
+        runs.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["fails", "quick", "slow"],
+        "one run per collector the driver ran: {runs:?}"
+    );
+    let (outcome, quick, started_at) = &runs["quick"];
+    assert_eq!(outcome, "Completed");
+    assert!((0..400).contains(quick), "quick took {quick} ms");
+    assert!(
+        time::OffsetDateTime::parse(started_at, &time::format_description::well_known::Rfc3339)
+            .is_ok(),
+        "the start is RFC 3339: {started_at}"
+    );
+    let (outcome, slow, _) = &runs["slow"];
+    assert_eq!(outcome, "Completed");
+    assert!(*slow >= 400, "slow took {slow} ms");
+    assert_eq!(runs["fails"].0, "Failed");
+}
+
+/// `start-snapshot --budget` through the library: a collector that runs past the budget is
+/// stopped at its next record, its run reads `OverBudget`, and the snapshot completes with the
+/// other collectors' rows.
+#[test]
+fn a_collector_past_its_budget_is_over_budget_and_the_snapshot_completes() {
+    let root = case_dir("over-budget");
+    let store = store::open(&root.join("state")).expect("open the store");
+    let start = StartSnapshot {
+        started_at: Timestamp("2026-10-13T10:00:00Z".to_owned()),
+        disk_free_bytes: 1,
+        budget: Some(1),
+    };
+    let taken = snapshot::take_from(
+        store,
+        start,
+        &[waits("before", 0), waits("slow", 2500), waits("after", 0)],
+    )
+    .expect("the driver ends the snapshot");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+
+    let runs = collector_runs(&root, &taken.snapshot_id);
+    assert_eq!(runs["before"].0, "Completed", "{runs:?}");
+    assert_eq!(runs["after"].0, "Completed", "{runs:?}");
+    let (outcome, slow, _) = &runs["slow"];
+    assert_eq!(outcome, "OverBudget", "{runs:?}");
+    assert!(*slow >= 1000, "slow ran {slow} ms");
+
+    let mut repositories: Vec<String> = rows(&root, "repositories")
+        .into_iter()
+        .map(|row| row["repository"].as_str().expect("a name").to_owned())
+        .collect();
+    repositories.sort();
+    assert_eq!(
+        repositories,
+        ["after", "before"],
+        "the slow collector's record past its budget was refused"
+    );
+}
+
+/// A budget that is not positive is refused with `InvalidCount`, and no snapshot is started.
+#[test]
+fn start_snapshot_refuses_a_budget_that_is_not_positive() {
+    let root = case_dir("budget-zero");
+    let output = conductor_with(
+        &root,
+        Some(&offline(&root)),
+        &["snapshot", "start-snapshot", "--budget", "0"],
     );
     assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
     assert!(

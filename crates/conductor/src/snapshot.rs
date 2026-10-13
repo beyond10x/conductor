@@ -12,6 +12,16 @@
 //! with the bound. `snapshot start-snapshot` is the driver over
 //! [`collect::registered`](crate::collect::registered) (design § 4).
 //!
+//! The driver records each collector's run as it ends (`RecordCollectorRun`,
+//! `story:snapshot-duration`): its start, its duration in milliseconds, and `Completed`, `Failed`
+//! or `OverBudget`, which `snapshot collector-runs` shows. With a budget (`StartSnapshot`'s
+//! `budget`, `start-snapshot --budget <seconds>`), each collector runs within it
+//! ([`collect::within`]): one that runs past it is stopped at its next command or record, its run
+//! is `OverBudget`, and the snapshot goes on with the next collector rather than failing. A member
+//! a collector cannot read is not a collector that did not answer: the collector records it
+//! (`RecordMemberFailure`, `snapshot member-failures`, `story:snapshot-member-failures`) and goes
+//! on.
+//!
 //! Once a snapshot is kept `Complete`, by the driver or by `complete-snapshot`, the store drops the
 //! observations of the snapshots the instance's `retention.snapshots` does not keep
 //! ([`Store::retain`], `story:observation-retention`); the `Snapshot` records stay.
@@ -36,10 +46,12 @@ use std::io::{self, Write as _};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{
-    BlockerObservationStorage, Generated, MergedPullRequestObservationStorage,
+    BlockerObservationStorage, CollectorRunObservationStorage, Generated,
+    MemberFailureObservationStorage, MergedPullRequestObservationStorage,
     PullRequestObservationStorage, ReleaseObservationStorage, RepositoryObservationStorage,
     SessionObservationStorage, SnapshotStorage, SpecificationObservationStorage, TryContext,
     WorkflowRunObservationStorage, unmet_context,
@@ -48,25 +60,29 @@ use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{GuardDecisionId, MessageId, ResourceRequestId};
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::obligations::{
-    BlockersQuery, CompleteSnapshotBehavior, FailSnapshotBehavior, MergedPullRequestsQuery,
-    PullRequestsQuery, RecordBlockerBehavior, RecordMergedPullRequestBehavior,
+    BlockersQuery, CollectorRunsQuery, CompleteSnapshotBehavior, FailSnapshotBehavior,
+    MemberFailuresQuery, MergedPullRequestsQuery, PullRequestsQuery, RecordBlockerBehavior,
+    RecordCollectorRunBehavior, RecordMemberFailureBehavior, RecordMergedPullRequestBehavior,
     RecordPullRequestBehavior, RecordReleaseBehavior, RecordRepositoryBehavior,
     RecordSessionBehavior, RecordSpecificationBehavior, RecordWorkflowRunBehavior, ReleasesQuery,
     RepositoriesQuery, SessionsQuery, SnapshotsQuery, SpecificationsQuery, StartSnapshotBehavior,
     WorkflowRunsQuery,
 };
 use conductor_model::observation::{
-    BlockerObservationSnapshot, BoardId, CommitSha, CompleteSnapshot, CompleteSnapshotOutcome,
-    EnvelopeProvider, FailSnapshot, FailSnapshotOutcome, Harness, Mergeability,
+    BlockerObservationSnapshot, BoardId, CollectorRunObservationSnapshot, CollectorRunOutcome,
+    CommitSha, CompleteSnapshot, CompleteSnapshotOutcome, EnvelopeProvider, FailSnapshot,
+    FailSnapshotOutcome, Harness, MemberFailureObservationSnapshot, Mergeability,
     MergedPullRequestObservationSnapshot, ObservationId, PullRequestObservationSnapshot,
-    RecordBlocker, RecordBlockerOutcome, RecordMergedPullRequest, RecordMergedPullRequestOutcome,
-    RecordPullRequest, RecordPullRequestOutcome, RecordRelease, RecordReleaseOutcome,
-    RecordRepository, RecordRepositoryOutcome, RecordSession, RecordSessionOutcome,
-    RecordSpecification, RecordSpecificationOutcome, RecordWorkflowRun, RecordWorkflowRunOutcome,
-    ReleaseObservationSnapshot, RepositoryName, RepositoryObservationSnapshot, RunConclusion,
-    SessionObservationSnapshot, SessionState, SnapshotId, SnapshotSnapshot, SnapshotState,
-    SpecificationObservationSnapshot, SpecificationPresence, StartSnapshot, StartSnapshotOutcome,
-    ValidationResult, Visibility, WorkflowRunObservationSnapshot,
+    RecordBlocker, RecordBlockerOutcome, RecordCollectorRun, RecordCollectorRunOutcome,
+    RecordMemberFailure, RecordMemberFailureOutcome, RecordMergedPullRequest,
+    RecordMergedPullRequestOutcome, RecordPullRequest, RecordPullRequestOutcome, RecordRelease,
+    RecordReleaseOutcome, RecordRepository, RecordRepositoryOutcome, RecordSession,
+    RecordSessionOutcome, RecordSpecification, RecordSpecificationOutcome, RecordWorkflowRun,
+    RecordWorkflowRunOutcome, ReleaseObservationSnapshot, RepositoryName,
+    RepositoryObservationSnapshot, RunConclusion, SessionObservationSnapshot, SessionState,
+    SnapshotId, SnapshotSnapshot, SnapshotState, SpecificationObservationSnapshot,
+    SpecificationPresence, StartSnapshot, StartSnapshotOutcome, ValidationResult, Visibility,
+    WorkflowRunObservationSnapshot,
 };
 use conductor_model::primitives::{Timestamp, Uuid};
 use serde_json::Value;
@@ -74,9 +90,10 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::{
-    CompleteSnapshotArgs, FailSnapshotArgs, JsonInput, RecordBlockerArgs,
-    RecordMergedPullRequestArgs, RecordPullRequestArgs, RecordReleaseArgs, RecordRepositoryArgs,
-    RecordSessionArgs, RecordSpecificationArgs, RecordWorkflowRunArgs, StartSnapshotArgs, ViewArgs,
+    CompleteSnapshotArgs, FailSnapshotArgs, JsonInput, RecordBlockerArgs, RecordCollectorRunArgs,
+    RecordMemberFailureArgs, RecordMergedPullRequestArgs, RecordPullRequestArgs, RecordReleaseArgs,
+    RecordRepositoryArgs, RecordSessionArgs, RecordSpecificationArgs, RecordWorkflowRunArgs,
+    StartSnapshotArgs, ViewArgs,
 };
 use crate::collect::{self, Collector};
 use crate::not_implemented;
@@ -113,6 +130,7 @@ pub fn take_in(state: &Path, collectors: &[Collector]) -> Result<Taken> {
     let start = StartSnapshot {
         started_at: Timestamp(now()?),
         disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
+        budget: None,
     };
     drive(crate::store::open(&state)?, Some(&state), start, collectors)
 }
@@ -127,12 +145,14 @@ pub fn take(store: Store, collectors: &[Collector]) -> Result<Taken> {
     let start = StartSnapshot {
         started_at: Timestamp(now()?),
         disk_free_bytes: disk_free_bytes(Path::new(DISK))?,
+        budget: None,
     };
     drive(store, None, start, collectors)
 }
 
 /// [`take`], started as `start` says rather than now: its time and free bytes, as
-/// `start-snapshot --started-at --disk-free-bytes` give them.
+/// `start-snapshot --started-at --disk-free-bytes` give them, and each collector's budget, as
+/// `--budget` gives it.
 ///
 /// # Errors
 ///
@@ -158,6 +178,7 @@ fn drive(
     start: StartSnapshot,
     collectors: &[Collector],
 ) -> Result<Taken> {
+    let budget = budget_of(start.budget)?;
     let mut generated = Generated::new(Ports { store });
     let snapshot_id = match generated
         .start_snapshot(start)
@@ -179,14 +200,19 @@ fn drive(
 
     let mut reason = None;
     for collector in collectors {
-        let answered = panic::catch_unwind(AssertUnwindSafe(|| {
-            collector.collect(&mut Recorder {
-                generated: &mut generated,
-                snapshot: &snapshot_id,
-                state,
-            })
-        }))
-        .unwrap_or_else(|payload| Err(anyhow!("panicked: {}", panic_message(payload.as_ref()))));
+        let started_at = Timestamp(now()?);
+        let clock = Instant::now();
+        let answered = collect::within(budget.map(|budget| clock + budget), || {
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                collector.collect(&mut Recorder {
+                    generated: &mut generated,
+                    snapshot: &snapshot_id,
+                    state,
+                })
+            }))
+            .unwrap_or_else(|payload| Err(anyhow!("panicked: {}", panic_message(payload.as_ref()))))
+        });
+        let took = clock.elapsed();
         generated.ports.store.check().with_context(|| {
             format!(
                 "keep what collector {} recorded; snapshot {} is left collecting",
@@ -194,7 +220,26 @@ fn drive(
                 snapshot_id.0.0
             )
         })?;
-        if let Err(error) = answered {
+        // A collector past its budget was stopped, or finished late: either way the snapshot goes
+        // on without the rest of it (`story:snapshot-duration`).
+        let over = budget.is_some_and(|budget| took >= budget)
+            || answered.as_ref().is_err_and(collect::is_over_budget);
+        let outcome = match &answered {
+            _ if over => CollectorRunOutcome::OverBudget,
+            Ok(()) => CollectorRunOutcome::Completed,
+            Err(_) => CollectorRunOutcome::Failed,
+        };
+        record_run(
+            &mut generated,
+            RecordCollectorRun {
+                snapshot_id: snapshot_id.clone(),
+                collector: collector.name().to_owned(),
+                started_at,
+                duration_ms: i64::try_from(took.as_millis()).unwrap_or(i64::MAX),
+                outcome,
+            },
+        )?;
+        if let (CollectorRunOutcome::Failed, Err(error)) = (outcome, answered) {
             reason = Some(format!("{}: {error:#}", collector.name()));
             break;
         }
@@ -223,6 +268,53 @@ fn drive(
         state,
         reason,
     })
+}
+
+/// The budget each collector has, from `start-snapshot --budget <seconds>`; `None` without one.
+///
+/// # Errors
+///
+/// `InvalidCount` for a budget that is not positive; no snapshot is started.
+fn budget_of(seconds: Option<i64>) -> Result<Option<Duration>> {
+    seconds
+        .map(|seconds| match u64::try_from(seconds) {
+            Ok(seconds) if seconds > 0 => Ok(Duration::from_secs(seconds)),
+            _ => Err(refused(
+                "InvalidCount",
+                format_args!("budget {seconds} s is not positive; no snapshot started"),
+            )),
+        })
+        .transpose()
+}
+
+/// `RecordCollectorRun` for one collector the driver ran, kept before the next one runs.
+///
+/// # Errors
+///
+/// `SnapshotNotFound`, `SnapshotNotCollecting`, `InvalidCount`, or the store did not keep it.
+fn record_run(generated: &mut Generated<Ports>, run: RecordCollectorRun) -> Result<()> {
+    let collector = run.collector.clone();
+    match generated
+        .record_collector_run(run)
+        .map_err(unmet)
+        .with_context(|| format!("record the run of collector {collector}"))?
+    {
+        RecordCollectorRunOutcome::Recorded { .. } => {}
+        RecordCollectorRunOutcome::NoSuchSnapshot { error } => {
+            return Err(not_found(&error.snapshot_id));
+        }
+        RecordCollectorRunOutcome::Closed { error } => {
+            return Err(not_collecting(&error.snapshot_id));
+        }
+        RecordCollectorRunOutcome::NegativeDuration { error } => {
+            return Err(invalid_count(error.count));
+        }
+    }
+    generated
+        .ports
+        .store
+        .check()
+        .with_context(|| format!("keep the run of collector {collector}"))
 }
 
 /// The complete snapshots whose observations the instance keeps: its `retention.snapshots`.
@@ -331,6 +423,7 @@ impl Recorder<'_> {
     ///
     /// `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
     pub fn repository(&mut self, mut input: RecordRepository) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self.generated.record_repository(input).map_err(unmet)? {
             RecordRepositoryOutcome::Recorded {
@@ -353,6 +446,7 @@ impl Recorder<'_> {
     /// `InvalidPullRequestNumber`, `InvalidCount`, `SnapshotNotFound`, `SnapshotNotCollecting`,
     /// or the store did not keep it.
     pub fn pull_request(&mut self, mut input: RecordPullRequest) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self.generated.record_pull_request(input).map_err(unmet)? {
             RecordPullRequestOutcome::Recorded {
@@ -383,6 +477,7 @@ impl Recorder<'_> {
     ///
     /// `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
     pub fn workflow_run(&mut self, mut input: RecordWorkflowRun) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self.generated.record_workflow_run(input).map_err(unmet)? {
             RecordWorkflowRunOutcome::Recorded {
@@ -404,6 +499,7 @@ impl Recorder<'_> {
     ///
     /// `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
     pub fn session(&mut self, mut input: RecordSession) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self.generated.record_session(input).map_err(unmet)? {
             RecordSessionOutcome::Recorded { session_recorded } => session_recorded.observation_id,
@@ -423,6 +519,7 @@ impl Recorder<'_> {
     ///
     /// `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
     pub fn blocker(&mut self, mut input: RecordBlocker) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self.generated.record_blocker(input).map_err(unmet)? {
             RecordBlockerOutcome::Recorded { blocker_recorded } => blocker_recorded.observation_id,
@@ -442,6 +539,7 @@ impl Recorder<'_> {
     ///
     /// `SnapshotNotFound`, `SnapshotNotCollecting`, `InvalidCount`, or the store did not keep it.
     pub fn specification(&mut self, mut input: RecordSpecification) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self.generated.record_specification(input).map_err(unmet)? {
             RecordSpecificationOutcome::Recorded {
@@ -455,6 +553,29 @@ impl Recorder<'_> {
             }
             RecordSpecificationOutcome::NegativeRefusals { error } => {
                 return Err(invalid_count(error.count));
+            }
+        };
+        self.kept(recorded)
+    }
+
+    /// `RecordMemberFailure`: one member a collector could not read, which it goes on without
+    /// (`story:snapshot-member-failures`).
+    ///
+    /// # Errors
+    ///
+    /// `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
+    pub fn member_failure(&mut self, mut input: RecordMemberFailure) -> Result<ObservationId> {
+        collect::spent()?;
+        input.snapshot_id = self.snapshot.clone();
+        let recorded = match self.generated.record_member_failure(input).map_err(unmet)? {
+            RecordMemberFailureOutcome::Recorded {
+                member_failure_recorded,
+            } => member_failure_recorded.observation_id,
+            RecordMemberFailureOutcome::NoSuchSnapshot { error } => {
+                return Err(not_found(&error.snapshot_id));
+            }
+            RecordMemberFailureOutcome::Closed { error } => {
+                return Err(not_collecting(&error.snapshot_id));
             }
         };
         self.kept(recorded)
@@ -478,6 +599,7 @@ impl Recorder<'_> {
     ///
     /// `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
     pub fn release(&mut self, mut input: RecordRelease) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self.generated.record_release(input).map_err(unmet)? {
             RecordReleaseOutcome::Recorded { release_recorded } => release_recorded.observation_id,
@@ -501,6 +623,7 @@ impl Recorder<'_> {
         &mut self,
         mut input: RecordMergedPullRequest,
     ) -> Result<ObservationId> {
+        collect::spent()?;
         input.snapshot_id = self.snapshot.clone();
         let recorded = match self
             .generated
@@ -564,7 +687,8 @@ pub(crate) fn record(
 
 /// `conductor snapshot start-snapshot`: the driver over the registered collectors
 /// ([`collect::registered`]). `--started-at` and `--disk-free-bytes` replace the current time and
-/// the measured free bytes.
+/// the measured free bytes; `--budget <seconds>` stops a collector that runs past it and records
+/// its run `OverBudget`, and the snapshot goes on with the next (`story:snapshot-duration`).
 ///
 /// Prints the snapshot's id. Exits 0 when it completed, and 1 with one line naming the collector
 /// that did not answer when it failed. Takes no snapshot when a program the collectors start for
@@ -572,8 +696,8 @@ pub(crate) fn record(
 ///
 /// # Errors
 ///
-/// `InvalidCount` for negative free bytes, a program the collectors start is missing (named), or
-/// what [`take`] answers.
+/// `InvalidCount` for negative free bytes or a budget that is not positive, a program the
+/// collectors start is missing (named), or what [`take`] answers.
 pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<ExitCode> {
     const COMMAND: &str = "snapshot start-snapshot";
     no_input_json(args.input_json, "snapshot start-snapshot --input-json")?;
@@ -589,6 +713,7 @@ pub fn start_snapshot(state: Option<&Path>, args: StartSnapshotArgs) -> Result<E
         let start = StartSnapshot {
             started_at: Timestamp(started_at),
             disk_free_bytes,
+            budget: args.budget,
         };
         let dir = absolute(&crate::state::dir(state)?)?;
         let store = crate::store::open(&dir)?;
@@ -670,6 +795,7 @@ pub fn record_pull_request(state: Option<&Path>, args: RecordPullRequestArgs) ->
             failing_checks: given(args.failing_checks, "failing-checks")?,
             opened_at: Timestamp(given(args.opened_at, "opened-at")?),
             updated_at: Timestamp(given(args.updated_at, "updated-at")?),
+            url: args.url,
         };
         record(state, &snapshot, |recorder| recorder.pull_request(input))
     })
@@ -908,6 +1034,83 @@ pub fn record_specification(
     })
 }
 
+/// `conductor snapshot record-member-failure`: the command
+/// `conductor.observation.RecordMemberFailure`. Prints the observation's id.
+///
+/// # Errors
+///
+/// A field is missing, or the command is refused.
+pub fn record_member_failure(
+    state: Option<&Path>,
+    args: RecordMemberFailureArgs,
+) -> Result<ExitCode> {
+    no_input_json(
+        args.input_json,
+        "snapshot record-member-failure --input-json",
+    )?;
+    run("snapshot record-member-failure", || {
+        let snapshot = snapshot_id(args.snapshot_id)?;
+        let input = RecordMemberFailure {
+            snapshot_id: snapshot.clone(),
+            member: RepositoryName(given(args.member, "member")?),
+            collector: given(args.collector, "collector")?,
+            error_line: given(args.error_line, "error-line")?,
+        };
+        record(state, &snapshot, |recorder| recorder.member_failure(input))
+    })
+}
+
+/// `conductor snapshot record-collector-run`: the command
+/// `conductor.observation.RecordCollectorRun`. Prints the observation's id.
+///
+/// # Errors
+///
+/// A field is missing, or the command is refused.
+pub fn record_collector_run(
+    state: Option<&Path>,
+    args: RecordCollectorRunArgs,
+) -> Result<ExitCode> {
+    no_input_json(
+        args.input_json,
+        "snapshot record-collector-run --input-json",
+    )?;
+    run("snapshot record-collector-run", || {
+        let snapshot = snapshot_id(args.snapshot_id)?;
+        let input = RecordCollectorRun {
+            snapshot_id: snapshot.clone(),
+            collector: given(args.collector, "collector")?,
+            started_at: Timestamp(given(args.started_at, "started-at")?),
+            duration_ms: given(args.duration_ms, "duration-ms")?,
+            outcome: given_named(args.outcome, "outcome", collector_run_outcome_named)?,
+        };
+        let dir = absolute(&crate::state::dir(state)?)?;
+        let mut generated = Generated::new(Ports {
+            store: crate::store::open(&dir)?,
+        });
+        let recorded = match generated.record_collector_run(input).map_err(unmet)? {
+            RecordCollectorRunOutcome::Recorded {
+                collector_run_recorded,
+            } => collector_run_recorded.observation_id,
+            RecordCollectorRunOutcome::NoSuchSnapshot { error } => {
+                return Err(not_found(&error.snapshot_id));
+            }
+            RecordCollectorRunOutcome::Closed { error } => {
+                return Err(not_collecting(&error.snapshot_id));
+            }
+            RecordCollectorRunOutcome::NegativeDuration { error } => {
+                return Err(invalid_count(error.count));
+            }
+        };
+        generated
+            .ports
+            .store
+            .check()
+            .context("keep the observation")?;
+        line(&recorded.0.0)?;
+        Ok(ExitCode::SUCCESS)
+    })
+}
+
 /// `conductor snapshot complete-snapshot`: the command `conductor.observation.CompleteSnapshot`.
 ///
 /// # Errors
@@ -1051,7 +1254,7 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 10] = [
+    const COLUMNS: [&str; 11] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1062,6 +1265,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "failing_checks",
         "opened_at",
         "updated_at",
+        "url",
     ];
     let generated = Generated::new(crate::state::open_existing(state)?);
     let rows = generated
@@ -1081,6 +1285,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.failing_checks),
                 Value::from(row.opened_at.0),
                 Value::from(row.updated_at.0),
+                Value::from(row.url),
             ]
         })
         .collect();
@@ -1259,6 +1464,78 @@ pub fn specifications(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
     show(&generated, "specifications", view, &COLUMNS, rows)
 }
 
+/// `conductor snapshot member-failures`: the view `conductor.observation.MemberFailures`, every
+/// member a collector could not read, of every kept snapshot; a row's `snapshot_id` names its
+/// snapshot.
+///
+/// # Errors
+///
+/// There is no store, a read of it fails for a reason other than a record this build cannot read,
+/// or the rows cannot be written to standard output.
+pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
+    const COLUMNS: [&str; 5] = [
+        "observation_id",
+        "snapshot_id",
+        "member",
+        "collector",
+        "error_line",
+    ];
+    let generated = Generated::new(crate::state::open_existing(state)?);
+    let rows = generated
+        .member_failures()
+        .map_err(|unmet| anyhow!("snapshot member-failures: {unmet}"))?;
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            vec![
+                Value::from(row.observation_id.0.0),
+                Value::from(row.snapshot_id.0.0),
+                Value::from(row.member.0),
+                Value::from(row.collector),
+                Value::from(row.error_line),
+            ]
+        })
+        .collect();
+    show(&generated, "member failures", view, &COLUMNS, rows)
+}
+
+/// `conductor snapshot collector-runs`: the view `conductor.observation.CollectorRuns`, each
+/// collector's run of every kept snapshot, with its start, its duration in milliseconds and how it
+/// ended; a row's `snapshot_id` names its snapshot.
+///
+/// # Errors
+///
+/// There is no store, a read of it fails for a reason other than a record this build cannot read,
+/// or the rows cannot be written to standard output.
+pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
+    const COLUMNS: [&str; 6] = [
+        "observation_id",
+        "snapshot_id",
+        "collector",
+        "started_at",
+        "duration_ms",
+        "outcome",
+    ];
+    let generated = Generated::new(crate::state::open_existing(state)?);
+    let rows = generated
+        .collector_runs()
+        .map_err(|unmet| anyhow!("snapshot collector-runs: {unmet}"))?;
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            vec![
+                Value::from(row.observation_id.0.0),
+                Value::from(row.snapshot_id.0.0),
+                Value::from(row.collector),
+                Value::from(row.started_at.0),
+                Value::from(row.duration_ms),
+                Value::from(collector_run_outcome_name(row.outcome)),
+            ]
+        })
+        .collect();
+    show(&generated, "collector runs", view, &COLUMNS, rows)
+}
+
 /// Answers a view: its `rows`, rendered as `--format` asks, through [`crate::store::show`]. Its
 /// `columns` are the view's fields in the specification's order (`spec/domains/observation.yaml`).
 fn show(
@@ -1309,6 +1586,8 @@ delegate! {
     SessionObservationStorage: ObservationId => SessionObservationSnapshot;
     BlockerObservationStorage: ObservationId => BlockerObservationSnapshot;
     SpecificationObservationStorage: ObservationId => SpecificationObservationSnapshot;
+    MemberFailureObservationStorage: ObservationId => MemberFailureObservationSnapshot;
+    CollectorRunObservationStorage: ObservationId => CollectorRunObservationSnapshot;
 }
 
 impl TryContext for Ports {
@@ -1381,6 +1660,8 @@ names! {
     SpecificationPresence: specification_presence_name, specification_presence_named =
         [Present, OptedOut, Missing];
     ValidationResult: validation_result_name, validation_result_named = [Valid, Refused, NotRun];
+    CollectorRunOutcome: collector_run_outcome_name, collector_run_outcome_named =
+        [Completed, Failed, OverBudget];
 }
 
 /// A refusal the specification declares, as one line: the error's name, then what it says.

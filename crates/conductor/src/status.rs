@@ -50,8 +50,8 @@ use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::obligations::{BoardsQuery, PublishBoardBehavior};
 use conductor_model::observation::{
     BlockerObservationData, BoardId, BoardSnapshot, ObservationId, PublishBoard,
-    PublishBoardOutcome, PullRequestObservationData, RepositoryObservationData, RunConclusion,
-    SessionObservationData, SnapshotId, SnapshotSnapshot, SnapshotState,
+    PublishBoardOutcome, PullRequestObservationData, RepositoryFigures, RepositoryObservationData,
+    RunConclusion, SessionObservationData, SnapshotId, SnapshotSnapshot, SnapshotState,
     SpecificationObservationData, SpecificationPresence, ValidationResult,
     WorkflowRunObservationData,
 };
@@ -218,7 +218,7 @@ fn complete_one<'a>(
 
 /// The complete snapshot of `snapshots` that started last; with `before`, the one that started
 /// last before it.
-fn newest_complete<'a>(
+pub(crate) fn newest_complete<'a>(
     snapshots: &'a [SnapshotSnapshot],
     before: Option<&SnapshotSnapshot>,
 ) -> Option<&'a SnapshotSnapshot> {
@@ -328,7 +328,31 @@ struct Figures {
     counts: Counts,
 }
 
-/// The figures of each repository of `observed` that is not archived, by name.
+/// The figures of each repository of the snapshot `held` in `store` that is not archived, in name
+/// order, as `conductor.observation.RepositoryFigures`: the rows the dashboard's `/api/board`
+/// answers (`story:dashboard-overview`), worked out by the one [`figures`] the board's deviations
+/// and delta are, so the two never disagree.
+pub(crate) fn repository_figures(store: &Store, held: &SnapshotSnapshot) -> Vec<RepositoryFigures> {
+    figures(&observed(store, held))
+        .into_iter()
+        .map(|(repository, figures)| RepositoryFigures {
+            repository,
+            deviations: figures
+                .deviations
+                .iter()
+                .map(|deviation| (*deviation).to_owned())
+                .collect(),
+            open_prs: figures.counts.open_prs,
+            failing_prs: figures.counts.failing_prs,
+            non_green_workflows: figures.counts.non_green_workflows,
+            open_blockers: figures.counts.open_blockers,
+            specifications_present: figures.counts.specifications_present,
+        })
+        .collect()
+}
+
+/// The figures of each repository of `observed` that is not archived, by name: the board's
+/// deviations and delta, and [`repository_figures`].
 fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
     let started = instant(&observed.started_at);
     let mut out = BTreeMap::new();

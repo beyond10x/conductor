@@ -1018,6 +1018,9 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
             context_handover: 300_000,
             disk_low: 100,
             disk_clear: 110,
+            disk_admit: 20,
+            gate_stop: 15,
+            gate_resume: 17,
             silent_session: Duration::from_secs(30 * 60),
             conductor: Some("conductor".to_owned()),
         },
@@ -1030,7 +1033,7 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
 fn the_settings_are_the_instances_name_and_thresholds() {
     let instance = acme(
         "\x20   thresholds: {context_handover: 150k, disk_low: 40G, disk_clear: 45G, \
-         silent_session: 2h}\n",
+         disk_admit: 30G, gate_stop: 10G, gate_resume: 12G, silent_session: 2h}\n",
     );
     assert_eq!(
         Settings::of(&instance),
@@ -1039,6 +1042,9 @@ fn the_settings_are_the_instances_name_and_thresholds() {
             context_handover: 150_000,
             disk_low: 40,
             disk_clear: 45,
+            disk_admit: 30,
+            gate_stop: 10,
+            gate_resume: 12,
             silent_session: Duration::from_secs(2 * 3600),
             conductor: Some("conductor".to_owned()),
         }
@@ -1710,6 +1716,71 @@ fn free_disk_is_reported_under_the_instances_disk_low_and_rearmed_at_its_disk_cl
     assert_eq!(at(39), ["disk low: 39G free on /"], "rearmed at 45G");
 }
 
+/// `story:watch-disk-floors`: each floor is reported once per fall, `disk_low` (100G) rearmed at
+/// `disk_clear` (110G), `disk_admit` (20G) at itself and `gate_stop` (15G) at `gate_resume`
+/// (17G). Each reading is written twice, so a jump of more than 20G is read again as itself.
+#[test]
+fn each_disk_floor_is_reported_once_per_fall_low_admit_and_gate_stop() {
+    let case = Case::new("disk-floors");
+    let mut watch = case.watch(None);
+    let mut at = |gib: u64| {
+        case.readings(&[gib * GIB, gib * GIB]);
+        pass(&mut watch)
+    };
+    assert_eq!(at(120), NOTHING);
+    assert_eq!(at(90), ["disk low: 90G free on /"]);
+    assert_eq!(at(18), ["disk admit: 18G free on / (builds wait)"]);
+    assert_eq!(at(14), ["disk gate stop: 14G free on / (gates stop)"]);
+    assert_eq!(at(14), NOTHING, "once per fall");
+    assert_eq!(at(16), NOTHING, "not rearmed under gate_resume, 17G");
+    assert_eq!(
+        at(18),
+        NOTHING,
+        "gate stop rearmed at 17G; admit not at 18G"
+    );
+    assert_eq!(
+        at(14),
+        ["disk gate stop: 14G free on / (gates stop)"],
+        "rearmed at 17G"
+    );
+}
+
+/// The floors are the instance's: `disk_admit` rearmed at itself, `gate_stop` at `gate_resume`;
+/// a fall past all three in one pass reports each, in the order low, admit, gate stop.
+#[test]
+fn the_disk_floors_are_the_instances_and_one_fall_reports_each_crossed() {
+    let case = Case::new("disk-floors-instance");
+    let mut watch = case.watch(None).with_settings(Settings {
+        disk_low: 40,
+        disk_clear: 45,
+        disk_admit: 30,
+        gate_stop: 10,
+        gate_resume: 12,
+        ..Settings::default()
+    });
+    let mut at = |gib: u64| {
+        case.readings(&[gib * GIB, gib * GIB]);
+        pass(&mut watch)
+    };
+    assert_eq!(at(50), NOTHING);
+    assert_eq!(
+        at(9),
+        [
+            "disk low: 9G free on /",
+            "disk admit: 9G free on / (builds wait)",
+            "disk gate stop: 9G free on / (gates stop)",
+        ]
+    );
+    assert_eq!(
+        at(29),
+        NOTHING,
+        "admit not rearmed under 30G; gate stop at 12G"
+    );
+    assert_eq!(at(30), NOTHING);
+    assert_eq!(at(29), ["disk admit: 29G free on / (builds wait)"]);
+    assert_eq!(at(11), ["disk gate stop: 11G free on / (gates stop)"]);
+}
+
 /// `story:watch-disk-reading`: a reading more than 20G from the watch's previous one is read
 /// again before it is reported, and the second reading stands.
 #[test]
@@ -1727,7 +1798,14 @@ fn a_reading_more_than_20g_from_the_previous_one_is_read_again_before_it_is_repo
     assert_eq!(case.unread(), format!("{}\n", 100 * GIB), "read twice");
 
     case.readings(&[2 * GIB, 2 * GIB]);
-    assert_eq!(pass(&mut watch), ["disk low: 2G free on /"]);
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "disk low: 2G free on /",
+            "disk admit: 2G free on / (builds wait)",
+            "disk gate stop: 2G free on / (gates stop)",
+        ]
+    );
 }
 
 /// A reading within 20G of the previous one, here exactly 20G under it, is read once and
@@ -1910,7 +1988,8 @@ fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
         fs::create_dir_all(dir).expect("create the case's directories");
     }
     let config = case.config(&acme_config(
-        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G}\n",
+        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G, disk_admit: 1G, gate_stop: 1G, \
+         gate_resume: 2G}\n",
     ));
     let state = case.dir.join("state");
     let mut child = common::conductor(&home)
@@ -2139,7 +2218,8 @@ fn the_binary_on_an_acme_config_asks_gh_about_exactly_the_two_active_repositorie
         ),
     );
     let config = case.config(&acme_config(
-        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G}\n",
+        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G, disk_admit: 1G, gate_stop: 1G, \
+         gate_resume: 2G}\n",
     ));
     let watch = case.start_watch(Some(&config), &[]);
     wait_for("two run-list calls", || sorted_lines(&calls).len() >= 2);
@@ -2174,7 +2254,8 @@ fn the_binary_reports_disk_low_under_100g_without_a_file_and_under_the_instances
 
     let under = Case::new("binary-disk-acme-under");
     let config = under.config(&acme_config(&format!(
-        "\x20   thresholds: {{disk_low: {}G, disk_clear: {}G}}\n",
+        "\x20   thresholds: {{disk_low: {}G, disk_clear: {}G, \
+         disk_admit: 1G, gate_stop: 1G, gate_resume: 2G}}\n",
         free + 1000,
         free + 1001
     )));
@@ -2185,14 +2266,24 @@ fn the_binary_reports_disk_low_under_100g_without_a_file_and_under_the_instances
     let calls = acme.dir.join("claude-calls.txt");
     fake_claude(&bin, &calls);
     let config = acme.config(&acme_config(
-        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G}\n",
+        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G, disk_admit: 1G, gate_stop: 1G, \
+         gate_resume: 2G}\n",
     ));
     let configured = acme.start_watch(Some(&config), &["--every", "1"]);
 
     if free < 100 {
         let (code, stdout, stderr) = finish(built_in, Duration::from_secs(30));
         assert_eq!(code, Some(0), "{stderr}");
-        assert_disk_low(&stdout, free, &stderr);
+        // Under the built-in 20G and 15G the same pass reports `disk admit` and `disk gate
+        // stop` after it (`story:watch-disk-floors`).
+        let (low, floors) = stdout.split_at(stdout.find('\n').map_or(stdout.len(), |at| at + 1));
+        assert_disk_low(low, free, &stderr);
+        assert!(
+            floors.lines().all(
+                |line| line.starts_with("disk admit: ") || line.starts_with("disk gate stop: ")
+            ),
+            "{stdout:?}: {stderr}"
+        );
     } else {
         let (code, stdout, stderr) = finish(built_in, Duration::from_millis(3500));
         assert_eq!(code, None, "the watch ended: {stdout} {stderr}");
@@ -2327,7 +2418,8 @@ fn the_binary_reports_the_context_of_the_sessions_in_the_instance_over_its_thres
         &trees,
         &format!(
             "\x20   records: {}\n\
-             \x20   thresholds: {{context_handover: 400k, disk_low: 1G, disk_clear: 2G}}\n",
+             \x20   thresholds: {{context_handover: 400k, disk_low: 1G, disk_clear: 2G, \
+             disk_admit: 1G, gate_stop: 1G, gate_resume: 2G}}\n",
             records.display()
         ),
     ));

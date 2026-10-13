@@ -179,6 +179,7 @@ fn from_fixture(name: &str) -> Collector {
                 failing_checks: number(item, "failing_checks"),
                 opened_at: Timestamp(text(item, "opened_at")),
                 updated_at: Timestamp(text(item, "opened_at")),
+                url: None,
             })?;
         }
         for item in items(&fixture, "workflow_runs") {
@@ -250,6 +251,7 @@ fn take(root: &Path, started_at: &str, collectors: &[Collector]) -> Taken {
     let start = StartSnapshot {
         started_at: Timestamp(started_at.to_owned()),
         disk_free_bytes: 1_000_000,
+        budget: None,
     };
     snapshot::take_from(store, start, collectors).expect("the driver ends the snapshot")
 }

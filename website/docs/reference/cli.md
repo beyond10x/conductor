@@ -32,6 +32,8 @@ Every command takes these, before or after its name.
 | [`conductor snapshot fail-snapshot`](#conductor-snapshot-fail-snapshot) | Fail a snapshot |
 | [`conductor snapshot publish-board`](#conductor-snapshot-publish-board) | Publish the board |
 | [`conductor snapshot record-blocker`](#conductor-snapshot-record-blocker) | Record a blocker |
+| [`conductor snapshot record-collector-run`](#conductor-snapshot-record-collector-run) | Record a collector's run |
+| [`conductor snapshot record-member-failure`](#conductor-snapshot-record-member-failure) | Record a member a collector could not read |
 | [`conductor snapshot record-merged-pull-request`](#conductor-snapshot-record-merged-pull-request) | Record a merged pull request |
 | [`conductor snapshot record-pull-request`](#conductor-snapshot-record-pull-request) | Record a pull request |
 | [`conductor snapshot record-release`](#conductor-snapshot-record-release) | Record a release |
@@ -42,6 +44,8 @@ Every command takes these, before or after its name.
 | [`conductor snapshot start-snapshot`](#conductor-snapshot-start-snapshot) | Start a snapshot |
 | [`conductor snapshot blockers`](#conductor-snapshot-blockers) | Blockers |
 | [`conductor snapshot boards`](#conductor-snapshot-boards) | Boards |
+| [`conductor snapshot collector-runs`](#conductor-snapshot-collector-runs) | Collector runs |
+| [`conductor snapshot member-failures`](#conductor-snapshot-member-failures) | Members a collector could not read |
 | [`conductor snapshot merged-pull-requests`](#conductor-snapshot-merged-pull-requests) | Merged pull requests |
 | [`conductor snapshot pull-requests`](#conductor-snapshot-pull-requests) | Pull requests |
 | [`conductor snapshot releases`](#conductor-snapshot-releases) | Releases |
@@ -121,13 +125,15 @@ Every command takes these, before or after its name.
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
-| [`conductor doctor`](#conductor-doctor) | Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with |
+| [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
+| [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
+| [`conductor upgrade`](#conductor-upgrade) | Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release |
 | [`conductor watch`](#conductor-watch) |  |
 | [`conductor watch run`](#conductor-watch-run) | Watch sessions, usage limits, conductor's context, free disk and main's CI; exit after the first pass that finds a change |
 
@@ -199,6 +205,39 @@ Usage: conductor snapshot record-blocker [OPTIONS]
 | `--title <TITLE>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor snapshot record-collector-run`
+
+Record a collector's run
+
+```text
+Usage: conductor snapshot record-collector-run [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
+| `--collector <COLLECTOR>` | no | none | string |
+| `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--duration-ms <DURATION_MS>` | no | none | integer |
+| `--outcome <OUTCOME>` | no | none | CollectorRunOutcome One of `Completed`, `Failed`, `OverBudget`. |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor snapshot record-member-failure`
+
+Record a member a collector could not read
+
+```text
+Usage: conductor snapshot record-member-failure [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
+| `--member <MEMBER>` | no | none | RepositoryName |
+| `--collector <COLLECTOR>` | no | none | string |
+| `--error-line <ERROR_LINE>` | no | none | string |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
 ## `conductor snapshot record-merged-pull-request`
 
 Record a merged pull request
@@ -236,6 +275,7 @@ Usage: conductor snapshot record-pull-request [OPTIONS]
 | `--failing-checks <FAILING_CHECKS>` | no | none | integer |
 | `--opened-at <OPENED_AT>` | no | none | timestamp, RFC 3339 |
 | `--updated-at <UPDATED_AT>` | no | none | timestamp, RFC 3339 |
+| `--url <URL>` | no | none | string, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-release`
@@ -365,6 +405,7 @@ Usage: conductor snapshot start-snapshot [OPTIONS]
 |---|---|---|---|
 | `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--disk-free-bytes <DISK_FREE_BYTES>` | no | none | integer |
+| `--budget <BUDGET>` | no | none | integer, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot blockers`
@@ -385,6 +426,30 @@ Boards
 
 ```text
 Usage: conductor snapshot boards [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor snapshot collector-runs`
+
+Collector runs
+
+```text
+Usage: conductor snapshot collector-runs [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor snapshot member-failures`
+
+Members a collector could not read
+
+```text
+Usage: conductor snapshot member-failures [OPTIONS]
 ```
 
 | Argument | Required | Default | Meaning |
@@ -782,6 +847,7 @@ Usage: conductor decision record-conductor-decision [OPTIONS]
 | `--reason <REASON>` | no | none | string |
 | `--evidence <EVIDENCE>` | no | none | string |
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
+| `--repository <REPOSITORY>` | no | none | RepositoryName |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision record-operator-decision`
@@ -804,6 +870,7 @@ Usage: conductor decision record-operator-decision [OPTIONS]
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
 | `--recorded-by <RECORDED_BY>` | no | none | string |
 | `--operator-words <OPERATOR_WORDS>` | no | none | string |
+| `--repository <REPOSITORY>` | no | none | RepositoryName |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision reverse-conductor-decision`
@@ -1420,7 +1487,7 @@ Usage: conductor dashboard serve [OPTIONS]
 
 ## `conductor doctor`
 
-Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with
+Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources
 
 ```text
 Usage: conductor doctor [OPTIONS]
@@ -1450,6 +1517,19 @@ Usage: conductor init [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--instance <NAME>` | no | none | The instance whose records directory is written. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
+
+## `conductor setup`
+
+Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
+
+```text
+Usage: conductor setup [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--repository <DIR>` | no | none | The repository checked: its directory. Default: the working directory |
+| `--apply <BOOL>` | no | none | Write the instance config naming the repository, and run conductor init and conductor trust, when they are missing; never log in, install or migrate. `--apply` alone is `--apply true` One of `true`, `false`. |
 
 ## `conductor spawn`
 
@@ -1492,6 +1572,19 @@ Usage: conductor trust [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--instance <NAME>` | no | none | The instance whose checkouts and records directory are trusted. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
+
+## `conductor upgrade`
+
+Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release
+
+```text
+Usage: conductor upgrade [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--check <BOOL>` | no | none | Only compare the installed version with the newest release; change nothing. `--check` alone is `--check true` One of `true`, `false`. |
+| `--release <X.Y.Z>` | no | none | The release installed, x.y.z, newer or older than the installed one. Default: the newest |
 
 ## `conductor watch`
 

@@ -1,6 +1,8 @@
 //! `story:live-dashboard`: `conductor dashboard serve`, a live, read-only page of what every
 //! session works on; `story:dashboard-service`: exited sessions and the watch's lines;
-//! `story:disk-waste`: the disk waste across the tracked repositories.
+//! `story:disk-waste`: the disk waste across the tracked repositories; `story:dashboard-spa`: the
+//! page is the Vue app embedded from `dashboard/dist/`, and every fact it shows is asserted here
+//! on `/data.json` (how the app writes each one is the app's own Vitest suite, `dashboard/tests/`).
 //!
 //! The data cases serve [`dashboard::serve`] in this process on a free port of `127.0.0.1`,
 //! through its one seam, [`Sources`]: the session list and the two `worktree` dry-runs are the
@@ -154,6 +156,7 @@ impl Case {
             measure_every: Duration::from_secs(600),
             measure_timeout: Duration::from_secs(30),
             context_handover: 300_000,
+            health: health_view::sources(&self.home),
         }
     }
 
@@ -319,58 +322,133 @@ fn data_json_holds_one_row_per_session_under_the_checkouts_root_with_its_dispatc
     assert_eq!(data["errors"], json!([]), "{data:#}");
 }
 
+/// The app's build, `crates/conductor/dashboard/dist/`, which the binary embeds.
+fn dist() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("dashboard/dist")
+}
+
+/// The value of the header `name` in `answer`'s head, if it has one.
+fn header<'a>(answer: &'a Answer, name: &str) -> Option<&'a str> {
+    answer.head.split("\r\n").skip(1).find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.trim()
+            .eq_ignore_ascii_case(name)
+            .then_some(value.trim())
+    })
+}
+
+/// The path `index.html` names in its first `<attribute>="/assets/…<extension>"`.
+fn asset(index: &str, attribute: &str, extension: &str) -> String {
+    let start = format!("{attribute}=\"/assets/");
+    index
+        .split(start.as_str())
+        .skip(1)
+        .filter_map(|rest| rest.split_once('"').map(|(name, _)| name))
+        .find(|name| name.ends_with(extension))
+        .map(|name| format!("/assets/{name}"))
+        .unwrap_or_else(|| panic!("index.html names no {extension} asset:\n{index}"))
+}
+
+/// The policy `story:dashboard-spa` sets on every answer.
+const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'";
+
+/// `story:dashboard-spa`: `GET /` answers the app's `index.html` as the build wrote it, which
+/// loads its script and its style from this server and carries no data of its own.
 #[test]
-fn the_page_names_each_session_escapes_every_value_and_reloads_itself() {
-    let case = Case::new("page");
+fn get_slash_answers_the_embedded_index_html() {
+    let case = Case::new("index");
     let home = case.home.display().to_string();
     let port = start(case.sources());
-    let page = request(port, "GET", "/", None);
-    assert_eq!(page.status, 200, "{}", page.body);
-    assert!(
-        page.head
-            .to_ascii_lowercase()
-            .contains("content-type: text/html"),
+    let index = request(port, "GET", "/", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    assert_eq!(
+        header(&index, "content-type"),
+        Some("text/html; charset=utf-8"),
         "{}",
-        page.head
+        index.head
     );
-    for shown in [
-        "alpha",
-        "conductor",
-        "DSP-20261007-01",
-        "DEC-20261007-02",
-        "Release",
-    ] {
-        assert!(page.body.contains(shown), "the page lacks {shown}");
-    }
-    for hidden in [
-        "outsider",
-        "near-miss",
-        "<b>bold",
-        "<i>first",
-        "<script",
-        &home,
-    ] {
+    let built = fs::read_to_string(dist().join("index.html")).expect("read the built index.html");
+    assert_eq!(index.body, built, "GET / is not the embedded index.html");
+    assert!(
+        index.body.contains("<div id=\"app\">"),
+        "index.html mounts no app:\n{}",
+        index.body
+    );
+    for script in index.body.split("<script").skip(1) {
+        let tag = script.split_once('>').map_or(script, |(tag, _)| tag);
         assert!(
-            !page.body.contains(hidden),
-            "the page holds {hidden:?}:\n{}",
-            page.body
+            tag.contains("src=\"/assets/"),
+            "an inline script, which the policy refuses: <script{tag}>"
         );
     }
-    assert!(
-        page.body
-            .contains("&lt;b&gt;bold&lt;/b&gt; &amp; &quot;quoted&quot;")
-    );
-    assert!(
-        page.body
-            .contains(r#"<meta http-equiv="refresh" content="20">"#)
-    );
-    assert!(page.body.contains("~/example-org/alpha"));
+    for hidden in ["<style", "http://", "https://", "alpha", &home] {
+        assert!(
+            !index.body.contains(hidden),
+            "index.html holds {hidden:?}:\n{}",
+            index.body
+        );
+    }
+}
+
+/// `story:dashboard-spa`: each file of the build answers at its path with its content type and
+/// the bytes the build wrote.
+#[test]
+fn each_asset_answers_with_its_content_type() {
+    let case = Case::new("assets");
+    let port = start(case.sources());
+    let index = request(port, "GET", "/", None).body;
+    for (path, content_type) in [
+        (asset(&index, "src", ".js"), "text/javascript"),
+        (asset(&index, "href", ".css"), "text/css"),
+    ] {
+        let answer = request(port, "GET", &path, None);
+        assert_eq!(answer.status, 200, "GET {path}: {}", answer.head);
+        assert_eq!(
+            header(&answer, "content-type"),
+            Some(content_type),
+            "GET {path}: {}",
+            answer.head
+        );
+        let built = fs::read_to_string(dist().join(path.trim_start_matches('/')))
+            .unwrap_or_else(|error| panic!("read the built {path}: {error}"));
+        assert_eq!(answer.body, built, "GET {path} is not the embedded file");
+    }
+}
+
+/// `story:dashboard-spa`: the app, its data and every refusal carry the one policy.
+#[test]
+fn every_answer_carries_the_content_security_policy() {
+    let case = Case::new("policy");
+    let port = start(case.sources());
+    let index = request(port, "GET", "/", None).body;
+    let script = asset(&index, "src", ".js");
+    let style = asset(&index, "href", ".css");
+    let own = format!("127.0.0.1:{port}");
+    for (method, path, host, status) in [
+        ("GET", "/", own.as_str(), 200),
+        ("GET", script.as_str(), own.as_str(), 200),
+        ("GET", style.as_str(), own.as_str(), 200),
+        ("GET", "/data.json", own.as_str(), 200),
+        ("GET", "/nope", own.as_str(), 404),
+        ("POST", "/", own.as_str(), 405),
+        ("GET", "/", "attacker.example", 403),
+    ] {
+        let answer = request(port, method, path, Some(host));
+        assert_eq!(answer.status, status, "{method} {path} for {host}");
+        assert_eq!(
+            header(&answer, "content-security-policy"),
+            Some(POLICY),
+            "{method} {path} for {host}: {}",
+            answer.head
+        );
+    }
 }
 
 #[test]
-fn only_get_of_the_page_and_its_data_is_answered() {
+fn only_get_of_the_app_and_its_data_is_answered() {
     let case = Case::new("methods");
     let port = start(case.sources());
+    let script = asset(&request(port, "GET", "/", None).body, "src", ".js");
     let refused = request(port, "POST", "/", None);
     assert_eq!(refused.status, 405, "POST /");
     assert!(
@@ -378,19 +456,125 @@ fn only_get_of_the_page_and_its_data_is_answered() {
         "POST / names no allowed method: {}",
         refused.head
     );
+    assert_eq!(
+        request(port, "POST", &script, None).status,
+        405,
+        "POST {script}"
+    );
     assert_eq!(request(port, "POST", "/data.json", None).status, 405);
     assert_eq!(request(port, "DELETE", "/data.json", None).status, 405);
     assert_eq!(request(port, "GET", "/nope", None).status, 404);
     assert_eq!(request(port, "POST", "/nope", None).status, 404);
     assert_eq!(request(port, "GET", "/../data.json", None).status, 404);
+    // Paths outside the app's build: the crate's own files, its sources, a way up out of it.
+    for outside in [
+        "/assets/nope.js",
+        "/assets/../index.html",
+        "/./index.html",
+        "//index.html",
+        "/src/main.ts",
+        "/package.json",
+        "/dashboard/dist/index.html",
+        "/../Cargo.toml",
+        "/assets/",
+    ] {
+        assert_eq!(
+            request(port, "GET", outside, None).status,
+            404,
+            "GET {outside}"
+        );
+    }
     assert_eq!(
         request(port, "GET", "/data.json", Some("attacker.example")).status,
         403,
         "a request for another host is refused, so DNS rebinding cannot read the data"
     );
     assert_eq!(
+        request(port, "GET", &script, Some("attacker.example")).status,
+        403,
+        "the app is refused to another host too"
+    );
+    assert_eq!(
         request(port, "GET", "/", Some(&format!("localhost:{port}"))).status,
         200
+    );
+}
+
+/// Every key path of `fixture` that `served` does not have at the same place, or the other way
+/// round: the keys of each pair of objects, and of the first items of each pair of lists both of
+/// which hold one. A null on one side and a value on the other is not compared further.
+fn key_drift(at: &str, fixture: &Value, served: &Value, out: &mut Vec<String>) {
+    match (fixture, served) {
+        (Value::Object(fixture), Value::Object(served)) => {
+            for key in fixture.keys().filter(|key| !served.contains_key(*key)) {
+                out.push(format!("{at}.{key}: in the fixture, not served"));
+            }
+            for key in served.keys().filter(|key| !fixture.contains_key(*key)) {
+                out.push(format!("{at}.{key}: served, not in the fixture"));
+            }
+            for (key, value) in fixture {
+                if let Some(other) = served.get(key) {
+                    key_drift(&format!("{at}.{key}"), value, other, out);
+                }
+            }
+        }
+        (Value::Array(fixture), Value::Array(served)) => {
+            if let (Some(fixture), Some(served)) = (fixture.first(), served.first()) {
+                key_drift(&format!("{at}[0]"), fixture, served, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `story:dashboard-spa`: the fixture the app's tests render, `dashboard/src/fixtures/data.json`,
+/// has the keys `/data.json` serves, so the panels are tested on the real shape. The case fills
+/// every part the fixture fills: sessions with a dispatch, the watch's three files, red CI,
+/// decisions and a disk measurement with rows.
+#[test]
+fn the_app_fixture_has_the_keys_data_json_serves() {
+    let case = Case::new("fixture");
+    case.waste();
+    let watch = case.home.join(".cache/conductor-watch");
+    let today = OffsetDateTime::now_utc().date();
+    write(&watch.join("limit.new"), "Usage limit reached\talpha\n");
+    write(
+        &watch.join("limit.seen"),
+        &format!("{today} Weekly limit reached\n"),
+    );
+    write(&watch.join("context-reported"), "s2\n");
+    let port = start(case.sources());
+    let served = measured(port, |data| {
+        data["disk"]["rows"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+            && !data["usage"]["measured_at"].is_null()
+    });
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("dashboard/src/fixtures/data.json"),
+        )
+        .expect("read the app's fixture"),
+    )
+    .expect("the fixture is JSON");
+    for (key, filled) in [
+        ("sessions", served["sessions"][0]["dispatch"].is_object()),
+        ("watch", served["watch"]["context"][0].is_object()),
+        ("red_ci", served["red_ci"][0].is_object()),
+        (
+            "awaiting_operator",
+            served["awaiting_operator"][0].is_object(),
+        ),
+        ("disk", served["disk"]["rows"][0].is_object()),
+    ] {
+        assert!(filled, "the case serves no {key} to compare: {served:#}");
+    }
+    let mut drift = Vec::new();
+    key_drift("", &fixture, &served, &mut drift);
+    assert!(
+        drift.is_empty(),
+        "the fixture drifted from /data.json:\n{}\nserved: {served:#}",
+        drift.join("\n")
     );
 }
 
@@ -478,17 +662,14 @@ fn a_session_without_a_pid_is_exited_and_listed_below_the_live_ones() {
         data["controllers"], 1,
         "an exited session named after its checkout is no running controller"
     );
-
-    let page = request(port, "GET", "/", None).body;
-    let row = |name: &str| {
-        page.find(&format!("<tr><td>{name}</td>"))
-            .unwrap_or_else(|| panic!("the page has no row for {name}:\n{page}"))
-    };
-    assert!(row("conductor") < row("aardvark"), "{page}");
-    assert!(
-        page.contains("<tr><td>aardvark</td><td>background</td><td>exited</td>"),
-        "{page}"
+    // The row the app shows for it: name, kind and state, below the live ones.
+    let aardvark = &sessions[2];
+    assert_eq!(
+        [&aardvark["name"], &aardvark["kind"], &aardvark["state"]],
+        [&json!("aardvark"), &json!("background"), &json!("exited")],
+        "{data:#}"
     );
+    assert_eq!(aardvark["status"], Value::Null, "{data:#}");
 }
 
 #[test]
@@ -525,15 +706,10 @@ fn the_page_shows_the_watch_usage_limit_and_context_lines() {
         }),
         "{data:#}"
     );
-    let page = request(port, "GET", "/", None).body;
-    for line in [
-        format!("usage limit: {limit}; 2 sessions: alpha conductor"),
-        "Weekly limit reached".to_owned(),
-        "context: conductor over 300k tokens (session s2)".to_owned(),
-    ] {
-        assert!(page.contains(&line), "the page lacks {line:?}:\n{page}");
-    }
-    assert!(!page.contains("Old limit"), "{page}");
+    // The app writes these as `usage limit: <text>; 2 sessions: alpha conductor` and `context:
+    // conductor over 300k tokens (session s2)` (dashboard/tests/watch.spec.ts).
+    assert_eq!(data["context_handover"], 300_000, "{data:#}");
+    assert!(!data.to_string().contains("Old limit"), "{data:#}");
 }
 
 /// The context line names the hand-over threshold the instance configures
@@ -568,13 +744,13 @@ fn the_context_line_names_the_configured_hand_over_threshold() {
         "s2\n",
     );
     let data = data(port);
+    // The app names this threshold in the context line, `150k` (dashboard/tests/watch.spec.ts).
     assert_eq!(data["context_handover"], 150_000, "{data:#}");
-    let page = request(port, "GET", "/", None).body;
-    assert!(
-        page.contains("context: conductor over 150k tokens (session s2)"),
-        "{page}"
+    assert_eq!(
+        data["watch"]["context"],
+        json!([{"session": "s2", "name": "conductor"}]),
+        "{data:#}"
     );
-    assert!(!page.contains("300k"), "{page}");
 }
 
 #[test]
@@ -673,13 +849,15 @@ fn the_sessions_shown_are_those_under_the_checkouts_root() {
     assert_eq!(names, ["gamma"], "{data:#}");
     assert_eq!(data["controllers"], 1, "{data:#}");
 
-    let page = request(port, "GET", "/", None);
-    assert!(
-        page.body
-            .contains("<h2>Sessions under ~/acme (1 live, 0 exited)</h2>"),
-        "{}",
-        page.body
-    );
+    // The app's heading, `Sessions under ~/acme (1 live, 0 exited)`, from these.
+    assert_eq!(data["reading"]["checkouts"], "~/acme", "{data:#}");
+    let exited: Vec<&Value> = data["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .map(|row| &row["exited"])
+        .collect();
+    assert_eq!(exited, [&json!(false)], "1 live, 0 exited: {data:#}");
 }
 
 /// `story:dashboard-worktree-repo`: the disk measurement's `worktree sweep --dry-run` and
@@ -1034,16 +1212,20 @@ fn the_disk_object_carries_the_waste_rows_largest_first_with_their_total() {
         "the disk rows print the home directory in full: {data:#}"
     );
 
-    let page = request(port, "GET", "/", None).body;
-    let at = |text: &str| {
-        page.find(text)
-            .unwrap_or_else(|| panic!("the page lacks {text:?}:\n{page}"))
+    // The order the app's table shows them in, and the total it writes as `total 5.0 GiB`.
+    let at = |what: &str| {
+        rows.iter()
+            .position(|row| row["what"] == what)
+            .unwrap_or_else(|| panic!("no disk row {what:?}: {data:#}"))
     };
-    assert!(at("Disk waste") < at("build cache in idle managed trees"));
     assert!(at("build cache in idle managed trees") < at("target/ of the checkout"));
     assert!(at("target/ of the checkout") < at("agent scratch"));
-    at("total 5.0 GiB");
-    at(&format!("measured {measured_at}"));
+    let total = disk["total_bytes"].as_u64().expect("total_bytes");
+    assert_eq!(
+        format!("{:.1}", total as f64 / GIB as f64),
+        "5.0",
+        "{data:#}"
+    );
 }
 
 #[test]
@@ -1228,12 +1410,9 @@ fn a_slow_measurement_does_not_hold_the_page_and_a_timed_out_one_says_so() {
         Value::Null,
         "the page answered before the measurement ended: {first:#}"
     );
+    // The app says `measuring, no measurement yet` for these (dashboard/tests/disk-waste.spec.ts).
     assert_eq!(first["disk"]["measuring"], true, "{first:#}");
-    assert!(
-        request(port, "GET", "/", None)
-            .body
-            .contains("measuring, no measurement yet")
-    );
+    assert_eq!(first["disk"]["rows"], json!([]), "{first:#}");
 
     let data = measured(port, |_| true);
     let cache = row(&data, None, "build cache in idle managed trees");
@@ -1293,4 +1472,492 @@ fn the_binary_listens_on_a_free_port_of_127_0_0_1_and_says_so_first() {
     assert_eq!(request(port, "POST", "/", None).status, 405);
     assert_eq!(request(port, "GET", "/nope", None).status, 404);
     drop(server);
+}
+
+/// `story:dashboard-health`: `GET /api/health`, the health view's data: doctor's rows from a
+/// cache, the newest snapshot with its collector runs and member failures, each failure with its
+/// class and fix, and the free disk against the instance's floors with every disk-waste row.
+///
+/// Doctor runs over [`HealthSources`](conductor_cli::dashboard::HealthSources): its `PATH` is the
+/// case's `bin/`, so a fake `aep` there counts its runs, and its config is a file of the case,
+/// never the operator's. The store is the case's `state/`, filled through the snapshot driver
+/// ([`snapshot::take_in`](conductor_cli::snapshot::take_in)) with collectors of the test's own.
+mod health_view {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    use conductor_cli::collect::Collector;
+    use conductor_cli::config;
+    use conductor_cli::dashboard::{FAILURE_FIXES, HealthSources};
+    use conductor_cli::snapshot::{self, Taken};
+    use conductor_model::observation::{RecordMemberFailure, RepositoryName};
+
+    use super::*;
+
+    /// The health sources every case of this file serves: the store under the case's `state/`,
+    /// a config file of the case that is not there unless a case writes it, an empty `bin/` as
+    /// doctor's `PATH`, and the free space of `/`.
+    pub(super) fn sources(home: &Path) -> HealthSources {
+        let mut health =
+            HealthSources::new(home.to_path_buf(), &home.join("example-org/conductor"));
+        health.state = home.join("state");
+        health.config = Some(home.join("conductor.yaml"));
+        health.path = Some(home.join("bin").into_os_string());
+        health
+    }
+
+    /// `GET /api/health`, as JSON.
+    fn health(port: u16) -> Value {
+        let answer = request(port, "GET", "/api/health", None);
+        assert_eq!(answer.status, 200, "GET /api/health: {}", answer.body);
+        assert!(
+            answer
+                .head
+                .to_ascii_lowercase()
+                .contains("content-type: application/json"),
+            "GET /api/health is not JSON: {}",
+            answer.head
+        );
+        serde_json::from_str(&answer.body).expect("/api/health is JSON")
+    }
+
+    /// `/api/health` once `until` holds, polled for at most 60 s.
+    fn health_until(port: u16, until: impl Fn(&Value) -> bool) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let health = health(port);
+            if until(&health) {
+                return health;
+            }
+            assert!(Instant::now() < deadline, "not so in 60 s: {health:#}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    fn taken(health: &Value) -> bool {
+        !health["doctor"]["taken_at"].is_null()
+    }
+
+    impl Case {
+        /// An `aep` in the case's `bin/`, doctor's `PATH`, that adds a line to `aep.runs` as it
+        /// starts, waits `delay` and prints `aep 9.9.9`; the path of `aep.runs`.
+        fn fake_aep(&self, delay: Duration) -> PathBuf {
+            let runs = self.home.join("aep.runs");
+            let aep = self.home.join("bin/aep");
+            write(
+                &aep,
+                &format!(
+                    "#!/bin/sh\necho run >> '{}'\nsleep {}\necho 'aep 9.9.9'\n",
+                    runs.display(),
+                    delay.as_secs()
+                ),
+            );
+            let mode = <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
+            fs::set_permissions(&aep, mode).expect("make aep run");
+            runs
+        }
+
+        fn state(&self) -> PathBuf {
+            self.home.join("state")
+        }
+
+        /// A snapshot of the case's store whose one collector, `blockers`, records the member
+        /// `beta` as a failure with `line`.
+        fn failure(&self, line: &'static str) -> Taken {
+            snapshot::take_in(&self.state(), &[failing(line)])
+                .expect("the driver ends the snapshot")
+        }
+    }
+
+    /// The collector `blockers`, which records the member `beta` as a failure with `line`.
+    fn failing(line: &'static str) -> Collector {
+        Collector::new("blockers", move |recorder| {
+            let snapshot_id = recorder.snapshot().clone();
+            recorder.member_failure(RecordMemberFailure {
+                snapshot_id,
+                member: RepositoryName("beta".to_owned()),
+                collector: "blockers".to_owned(),
+                error_line: line.to_owned(),
+            })?;
+            Ok(())
+        })
+    }
+
+    fn runs(file: &Path) -> usize {
+        fs::read_to_string(file).map_or(0, |text| text.lines().count())
+    }
+
+    fn instant(value: &Value) -> OffsetDateTime {
+        OffsetDateTime::parse(value.as_str().expect("an instant"), &Rfc3339)
+            .unwrap_or_else(|error| panic!("{value} is no RFC 3339 instant: {error}"))
+    }
+
+    #[test]
+    fn doctor_is_taken_once_at_start_and_served_from_its_cache() {
+        let case = Case::new("health-doctor-cached");
+        let count = case.fake_aep(Duration::ZERO);
+        let port = start(case.sources());
+        let first = health_until(port, taken);
+        let second = health(port);
+        assert_eq!(second["doctor"], first["doctor"], "{second:#}");
+        assert_eq!(runs(&count), 1, "doctor ran again for a request");
+        let rows = first["doctor"]["rows"].as_array().expect("doctor's rows");
+        assert!(
+            rows.iter().any(|row| row == "aep: present, aep 9.9.9"),
+            "doctor's rows are its command's: {first:#}"
+        );
+        assert!(
+            first["doctor"]["verdict"]
+                .as_str()
+                .is_some_and(|verdict| verdict == "ready" || verdict.starts_with("not ready: ")),
+            "{first:#}"
+        );
+    }
+
+    /// The fixture clock of [`doctor_is_taken_again_after_its_interval_off_the_request_path`],
+    /// in Unix seconds.
+    static REFRESH_NOW: AtomicI64 = AtomicI64::new(1_791_000_000);
+
+    fn refresh_clock() -> OffsetDateTime {
+        OffsetDateTime::from_unix_timestamp(REFRESH_NOW.load(Ordering::SeqCst))
+            .expect("a fixture instant")
+    }
+
+    #[test]
+    fn doctor_is_taken_again_after_its_interval_off_the_request_path() {
+        let case = Case::new("health-doctor-refresh");
+        let count = case.fake_aep(Duration::from_secs(3));
+        let mut sources = case.sources();
+        sources.health.clock = refresh_clock;
+        sources.health.doctor_every = Duration::from_secs(60);
+        let port = start(sources);
+        let first = health_until(port, taken);
+        assert_eq!(runs(&count), 1);
+
+        REFRESH_NOW.fetch_add(61, Ordering::SeqCst);
+        let asked = Instant::now();
+        let after = health(port);
+        assert!(
+            asked.elapsed() < Duration::from_secs(2),
+            "the request waited for doctor: {:?}",
+            asked.elapsed()
+        );
+        assert_eq!(after["doctor"]["taken_at"], first["doctor"]["taken_at"]);
+        assert_eq!(after["doctor"]["rows"], first["doctor"]["rows"]);
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while runs(&count) < 2 {
+            assert!(Instant::now() < deadline, "doctor was not taken again");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let renewed = health_until(port, |health| {
+            health["doctor"]["taken_at"] != first["doctor"]["taken_at"]
+        });
+        assert!(
+            instant(&renewed["doctor"]["taken_at"]) > instant(&first["doctor"]["taken_at"]),
+            "{renewed:#}"
+        );
+        assert_eq!(runs(&count), 2);
+    }
+
+    #[test]
+    fn the_newest_snapshot_is_served_when_it_failed_with_its_reason() {
+        let case = Case::new("health-failed");
+        let quiet = Collector::new("repositories", |_| Ok(()));
+        snapshot::take_in(&case.state(), &[quiet]).expect("an older snapshot");
+        let refused = Collector::new("blockers", |_| anyhow::bail!("fetch refused"));
+        let failed = snapshot::take_in(&case.state(), &[refused]).expect("a failed snapshot");
+        let port = start(case.sources());
+        let health = health(port);
+        let snapshot = &health["snapshot"];
+        assert_eq!(
+            snapshot["snapshot_id"], failed.snapshot_id.0.0,
+            "{health:#}"
+        );
+        assert_eq!(snapshot["state"], "Failed", "{health:#}");
+        assert_eq!(snapshot["failure_reason"], "blockers: fetch refused");
+    }
+
+    #[test]
+    fn the_newest_snapshot_is_served_while_it_is_still_collecting() {
+        let case = Case::new("health-collecting");
+        let quiet = Collector::new("repositories", |_| Ok(()));
+        snapshot::take_in(&case.state(), &[quiet]).expect("an older snapshot");
+        let (started, collecting) = mpsc::channel();
+        let (release, held) = mpsc::channel::<()>();
+        let state = case.state();
+        let driver = std::thread::spawn(move || {
+            let held = Mutex::new(held);
+            let waiting = Collector::new("blockers", move |_| {
+                started.send(()).expect("say the collector started");
+                held.lock()
+                    .expect("the release")
+                    .recv_timeout(Duration::from_secs(60))
+                    .expect("released");
+                Ok(())
+            });
+            snapshot::take_in(&state, &[waiting]).expect("the snapshot ends")
+        });
+        collecting
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the collector started");
+        let port = start(case.sources());
+        let health = health(port);
+        release.send(()).expect("release the collector");
+        let taken = driver.join().expect("the driver ends");
+        assert_eq!(health["snapshot"]["state"], "Collecting", "{health:#}");
+        assert_eq!(health["snapshot"]["snapshot_id"], taken.snapshot_id.0.0);
+        assert_eq!(health["snapshot"]["failure_reason"], Value::Null);
+    }
+
+    #[test]
+    fn the_collector_runs_and_member_failures_are_the_newest_snapshots_rows() {
+        let case = Case::new("health-rows");
+        case.failure("fatal: an older failure");
+        let quiet = Collector::new("repositories", |_| Ok(()));
+        let line = "fatal: could not read from remote repository";
+        let newest =
+            snapshot::take_in(&case.state(), &[quiet, failing(line)]).expect("the newest snapshot");
+        let port = start(case.sources());
+        let health = health(port);
+        assert_eq!(health["snapshot"]["snapshot_id"], newest.snapshot_id.0.0);
+        let runs = health["collector_runs"].as_array().expect("collector runs");
+        let mut collectors: Vec<&str> = runs
+            .iter()
+            .map(|run| run["collector"].as_str().expect("a collector"))
+            .collect();
+        collectors.sort_unstable();
+        assert_eq!(collectors, ["blockers", "repositories"], "{health:#}");
+        assert!(
+            runs.iter()
+                .all(|run| run["duration_ms"].is_i64() && run["outcome"] == "Completed"),
+            "{health:#}"
+        );
+        let failures = health["member_failures"]
+            .as_array()
+            .expect("member failures");
+        assert_eq!(failures.len(), 1, "only the newest snapshot's: {health:#}");
+        assert_eq!(failures[0]["member"], "beta");
+        assert_eq!(failures[0]["collector"], "blockers");
+        assert_eq!(failures[0]["error_line"], line);
+    }
+
+    /// The class and fix `/api/health` answers for a member failure whose first line is `line`.
+    fn classified(name: &str, line: &'static str) -> (String, String) {
+        let case = Case::new(name);
+        case.failure(line);
+        let port = start(case.sources());
+        let health = health(port);
+        let failure = &health["member_failures"][0];
+        assert_eq!(failure["error_line"], line, "{health:#}");
+        (
+            failure["class"].as_str().expect("a class").to_owned(),
+            failure["fix"].as_str().expect("a fix").to_owned(),
+        )
+    }
+
+    /// The class `name` with the fix the one table in `dashboard.rs` gives it.
+    fn class(name: &str) -> (String, String) {
+        let (_, _, fix) = FAILURE_FIXES
+            .iter()
+            .find(|(_, class, _)| *class == name)
+            .unwrap_or_else(|| panic!("no fix for {name}"));
+        assert!(!fix.is_empty(), "the fix of {name} is empty");
+        (name.to_owned(), (*fix).to_owned())
+    }
+
+    #[test]
+    fn a_prompt_or_a_refused_credential_needs_login() {
+        assert_eq!(
+            classified(
+                "health-class-username",
+                "`git fetch --quiet origin` exited 128: fatal: could not read Username for \
+                 'https://example.com': terminal prompts disabled"
+            ),
+            class("needs login")
+        );
+        assert_eq!(
+            classified(
+                "health-class-publickey",
+                "`git fetch --quiet origin` exited 128: git@example.com: Permission denied \
+                 (publickey)."
+            ),
+            class("needs login")
+        );
+    }
+
+    #[test]
+    fn a_host_that_does_not_resolve_is_unreachable() {
+        assert_eq!(
+            classified(
+                "health-class-host",
+                "`git fetch --quiet origin` exited 128: ssh: Could not resolve hostname \
+                 git.example.com: Name or service not known"
+            ),
+            class("unreachable host")
+        );
+    }
+
+    #[test]
+    fn a_command_stopped_at_its_bound_timed_out() {
+        assert_eq!(
+            classified("health-class-timeout", "`git` gave no answer within 120 s"),
+            class("timed out")
+        );
+    }
+
+    #[test]
+    fn an_aep_project_1_store_is_an_old_store() {
+        assert_eq!(
+            classified(
+                "health-class-old-store",
+                "error: project document (.engineering/planning/project.json) is not valid: \
+                 [unsupported_protocol_version] project.version: this store is aep.project/1, \
+                 which this aep no longer reads"
+            ),
+            class("old store")
+        );
+    }
+
+    #[test]
+    fn any_other_first_line_is_other() {
+        assert_eq!(
+            classified("health-class-other", "fatal: bad object HEAD"),
+            class("other")
+        );
+    }
+
+    /// The health sources of a fixture config whose instance sets `thresholds.disk_low` to 40 GiB
+    /// and `thresholds.disk_admit` to 20 GiB.
+    fn configured(home: &Path) -> HealthSources {
+        let text = format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: example-org\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: {}, trees: {}}}\n\
+             \x20   thresholds: {{disk_low: 40G, disk_admit: 20G}}\n",
+            home.join("example-org").display(),
+            home.join(".local/state/worktree/trees/example-org")
+                .display(),
+        );
+        let config = config::parse(&text, home)
+            .unwrap_or_else(|problems| panic!("the fixture config parses: {problems:?}"));
+        let instance = config.instances.into_iter().next().expect("one instance");
+        HealthSources::of(home.to_path_buf(), &instance)
+    }
+
+    /// The free bytes the file at `path` holds: the fixture's reading.
+    fn written_bytes(path: &Path) -> anyhow::Result<u64> {
+        Ok(fs::read_to_string(path)?.trim().parse()?)
+    }
+
+    #[test]
+    fn the_free_disk_is_ok_above_disk_low_low_at_it_and_admit_only_at_disk_admit() {
+        let case = Case::new("health-disk");
+        let configured = configured(&case.home);
+        assert_eq!((configured.disk_low, configured.disk_admit), (40, 20));
+        let free = case.home.join("free.txt");
+        let mut sources = case.sources();
+        sources.health.disk_low = configured.disk_low;
+        sources.health.disk_admit = configured.disk_admit;
+        sources.health.disk = free.clone();
+        sources.health.free_bytes = written_bytes;
+        let port = start(sources);
+        for (bytes, state) in [
+            (40 * GIB + 1, "ok"),
+            (40 * GIB, "low"),
+            (20 * GIB + 1, "low"),
+            (20 * GIB, "admit-only"),
+        ] {
+            write(&free, &bytes.to_string());
+            let health = health(port);
+            let disk = &health["disk"];
+            assert_eq!(disk["free_bytes"], bytes, "{disk:#}");
+            assert_eq!(disk["disk_low_bytes"], 40 * GIB, "{disk:#}");
+            assert_eq!(disk["disk_admit_bytes"], 20 * GIB, "{disk:#}");
+            assert_eq!(disk["state"], state, "{bytes} bytes free: {disk:#}");
+        }
+    }
+
+    #[test]
+    fn every_disk_waste_row_is_served() {
+        let case = Case::new("health-waste");
+        for at in 0..85 {
+            let entry = format!(".cache/example-org-target/entry-{at:02}/lib.rlib");
+            fill(&case.home.join(entry), 4096);
+        }
+        let port = start(case.sources());
+        let health = health_until(port, |health| !health["disk"]["measured_at"].is_null());
+        let rows = health["disk"]["rows"].as_array().expect("disk rows");
+        assert_eq!(rows.len(), 85, "{health:#}");
+        assert!(rows.iter().all(|row| row["what"] == "shared build target"));
+    }
+
+    /// Holds the keys of `fixture` to those of `answer` at every level: an object's keys, and
+    /// the first item of each list both hold.
+    fn same_keys(at: &str, fixture: &Value, answer: &Value) {
+        match (fixture, answer) {
+            (Value::Object(fixture), Value::Object(answer)) => {
+                let keys = |object: &serde_json::Map<String, Value>| {
+                    let mut keys: Vec<String> = object.keys().cloned().collect();
+                    keys.sort();
+                    keys
+                };
+                assert_eq!(keys(fixture), keys(answer), "the keys of {at}");
+                for (key, value) in fixture {
+                    same_keys(&format!("{at}.{key}"), value, &answer[key]);
+                }
+            }
+            (Value::Array(fixture), Value::Array(answer)) => {
+                if let (Some(fixture), Some(answer)) = (fixture.first(), answer.first()) {
+                    same_keys(&format!("{at}[0]"), fixture, answer);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_apps_health_fixture_has_the_keys_the_server_sends() {
+        let case = Case::new("health-keys");
+        case.fake_aep(Duration::ZERO);
+        case.waste();
+        case.failure("fatal: could not read Username for 'https://example.com'");
+        let port = start(case.sources());
+        let health = health_until(port, |health| {
+            taken(health) && !health["disk"]["measured_at"].is_null()
+        });
+        for list in ["collector_runs", "member_failures"] {
+            assert!(
+                health[list].as_array().is_some_and(|rows| !rows.is_empty()),
+                "the case serves {list} rows to hold the fixture to: {health:#}"
+            );
+        }
+        let fixture: Value = serde_json::from_str(
+            &fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/dashboard/src/views/__tests__/fixtures/health.json"
+            ))
+            .expect("read the app's health fixture"),
+        )
+        .expect("the fixture is JSON");
+        same_keys("/api/health", &fixture, &health);
+    }
+
+    #[test]
+    fn only_get_of_the_health_data_is_answered_with_the_home_written_as_a_tilde() {
+        let case = Case::new("health-get");
+        let port = start(case.sources());
+        assert_eq!(request(port, "POST", "/api/health", None).status, 405);
+        assert_eq!(
+            request(port, "GET", "/api/health", Some("attacker.example")).status,
+            403
+        );
+        let body = request(port, "GET", "/api/health", None).body;
+        assert!(
+            !body.contains(&case.home.display().to_string()),
+            "the home directory in full: {body}"
+        );
+    }
 }

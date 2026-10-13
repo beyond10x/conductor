@@ -47,7 +47,11 @@
 //!   Absent when it has none.
 //!
 //! A command that fails (another exit status, no answer in time, no summary line) is tried once
-//! more; failing again, the collector answers an error naming the repository and the command. A
+//! more; failing again, the repository is a member failure (`story:snapshot-member-failures`):
+//! the collector records `RecordMemberFailure` with the repository, `specifications` and the
+//! error's first line ([`blockers::first_line`]), records no specification of it, and goes on with
+//! the others. So is a member [`blockers::read`] could not fetch or export when this collector's
+//! read made the exports; a repository an owner lists whose member has no export is not read. A
 //! repository an owner lists that is not archived and is no member of the workspace is an error
 //! naming it, raised before anything is recorded; a local source's repository needs no member.
 
@@ -87,6 +91,9 @@ const AGENTS: &str = "AGENTS.md";
 
 /// The kind of the artifact whose status is a repository's conformance status.
 const SPECIFICATION_ARTIFACT: &str = "executable-system-specification";
+
+/// This collector's name, as a member failure it records names it.
+const COLLECTOR: &str = "specifications";
 
 /// What the collector reads, the one seam a test points at fixtures. [`Sources::of`] gives an
 /// instance's.
@@ -204,32 +211,43 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
 /// Records one `RecordSpecification` per repository of `sources`, by name: each its owners list
 /// as not archived, read in the export of its `origin/main`, and each under one of its local
 /// directories, read in an export of its `HEAD`. A repository an owner lists whose workspace
-/// member's checkout is absent is skipped, as [`blockers::read`] skips it.
+/// member's checkout is absent is skipped, as [`blockers::read`] skips it. A repository that cannot
+/// be read is recorded as a member failure, and the others are read still.
 ///
 /// # Errors
 ///
 /// An owner's repository list failed twice or is not the JSON `gh` prints; a local directory
 /// cannot be listed; two origins list one name; a repository an owner lists is no member of the
-/// workspace; what [`blockers::read`] answers; a command that failed twice, naming the repository
-/// and the command; or an observation the recorder refused.
+/// workspace; what [`blockers::read`] answers; or an observation or member failure the recorder
+/// refused.
 pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> {
     let listed = enumerated(sources)?;
     let snapshot = record.snapshot().clone();
     let workspace = blockers::read(&sources.workspace, &snapshot)?;
+    blockers::record_failures(record, COLLECTOR, &workspace.failures)?;
     // A member is found by its source's last component, else by the repository its checkout's
     // `origin` names: a checkout's directory may differ from its name on the forge.
-    let member = |name: &str| {
-        let members = || workspace.members.iter();
-        members()
-            .find(|member| member.repository == name)
-            .or_else(|| members().find(|member| member.forge.as_deref() == Some(name)))
+    let found = |members: &[blockers::Member], name: &str| {
+        members
+            .iter()
+            .position(|member| member.repository == name)
+            .or_else(|| {
+                members
+                    .iter()
+                    .position(|member| member.forge.as_deref() == Some(name))
+            })
     };
+    let member = |name: &str| found(&workspace.members, name).map(|at| &workspace.members[at]);
     // A repository an owner lists whose member's checkout is absent is not read
-    // ([`blockers::read`] named it).
+    // ([`blockers::read`] named it), nor one whose member could not be exported (its failure is
+    // recorded).
     let absent = |name: &str| workspace.absent.iter().any(|repository| repository == name);
+    let not_exported = |name: &str| found(&workspace.unread, name).is_some();
     let listed: Vec<_> = listed
         .into_iter()
-        .filter(|(name, origin)| !(matches!(origin, Origin::Owner(_)) && absent(name)))
+        .filter(|(name, origin)| {
+            !(matches!(origin, Origin::Owner(_)) && (absent(name) || not_exported(name)))
+        })
         .collect();
     // Every other repository an owner lists is a member: checked before anything is exported or
     // recorded.
@@ -247,35 +265,42 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
         let conformance_status =
             member(name).and_then(|member| conformance(&workspace, &member.name));
         let observed = match origin {
-            Origin::Owner(_) => {
-                let export = member(name)
-                    .map(|member| member.export.clone())
-                    .ok_or_else(|| anyhow!("repository {name} is no member"))?;
-                observe(sources, name, &export, conformance_status, &snapshot)?
-            }
-            Origin::Local(dir) => {
-                let export = blockers::twice(|| export_head(sources, name, &dir.join(name)))
-                    .with_context(|| format!("repository {name}, tried twice"))?;
-                observe(sources, name, &export, conformance_status, &snapshot)?
-            }
+            Origin::Owner(_) => member(name)
+                .map(|member| member.export.clone())
+                .ok_or_else(|| anyhow!("repository {name} is no member"))
+                .and_then(|export| observe(sources, name, &export, conformance_status, &snapshot)),
+            Origin::Local(dir) => blockers::twice(|| export_head(sources, name, &dir.join(name)))
+                .with_context(|| format!("repository {name}, tried twice"))
+                .and_then(|export| observe(sources, name, &export, conformance_status, &snapshot)),
             Origin::GitLab {
                 checkout: Some(dir),
                 ..
-            } => {
-                let export = blockers::twice(|| export_head(sources, name, dir))
-                    .with_context(|| format!("repository {name}, tried twice"))?;
-                observe(sources, name, &export, conformance_status, &snapshot)?
-            }
-            Origin::GitLab { checkout: None, .. } => unread(
+            } => blockers::twice(|| export_head(sources, name, dir))
+                .with_context(|| format!("repository {name}, tried twice"))
+                .and_then(|export| observe(sources, name, &export, conformance_status, &snapshot)),
+            Origin::GitLab { checkout: None, .. } => Ok(unread(
                 name,
                 SpecificationPresence::Missing,
                 conformance_status,
                 &snapshot,
-            ),
+            )),
         };
-        record
-            .specification(observed)
-            .with_context(|| format!("record the specification of {name}"))?;
+        match observed {
+            Ok(observed) => {
+                record
+                    .specification(observed)
+                    .with_context(|| format!("record the specification of {name}"))?;
+            }
+            // A collector past its budget is stopped (`story:snapshot-duration`).
+            Err(error) if collect::is_over_budget(&error) => return Err(error),
+            // A repository that cannot be read is a member failure: the others are read still
+            // (`story:snapshot-member-failures`).
+            Err(error) => blockers::record_failures(
+                record,
+                COLLECTOR,
+                &[blockers::Failure::of(name, &error)],
+            )?,
+        }
     }
     Ok(())
 }

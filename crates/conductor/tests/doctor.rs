@@ -537,6 +537,141 @@ fn without_a_pin_file_doctor_refuses_a_cli_older_than_the_build_s_pins() {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// story:doctor-identity: the machine, and the account each forge CLI is logged in as.
+// ---------------------------------------------------------------------------------------------
+
+/// What `uname <flag>` prints on the machine the tests run on.
+fn uname(flag: &str) -> String {
+    let output = std::process::Command::new("uname")
+        .arg(flag)
+        .output()
+        .expect("uname runs");
+    assert!(output.status.success(), "uname {flag} exits 0");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// Doctor prints the machine before the program rows: its host name, its operating system and
+/// release, its architecture, as `uname` gives them, and the conductor version that ran. `PATH`
+/// holds only the fakes, so doctor finds `uname` where the system keeps it.
+#[test]
+fn doctor_prints_the_machine_before_the_program_rows() {
+    let case = Case::new("machine");
+    case.programs_but(&[]);
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    let expected = [
+        format!("host: {}", uname("-n")),
+        format!("system: {} {}", uname("-s"), uname("-r")),
+        format!("architecture: {}", uname("-m")),
+        format!("conductor {}", env!("CARGO_PKG_VERSION")),
+    ];
+    assert_eq!(
+        lines.get(..4),
+        Some(&expected[..]),
+        "the first four lines are the machine: {}",
+        shown(&output)
+    );
+    let first_program = lines
+        .iter()
+        .position(|line| line.starts_with("git: "))
+        .expect("a git row");
+    assert!(first_program >= 4, "{}", shown(&output));
+}
+
+/// The token and the e-mail address the fake `gh` prints beside the login; doctor prints neither.
+const FAKE_TOKEN: &str = "example-token-not-a-secret";
+const FAKE_EMAIL: &str = "example-user@example.com";
+
+impl Case {
+    /// A forge CLI `name` on the case's `PATH`: `--version` prints `version`, and
+    /// `auth status --hostname <host>` prints `status` (each line on standard output) and exits
+    /// `code` for `host`, and exits 1 naming no account for any other host.
+    fn forge(&self, name: &str, version: &str, host: &str, status: &[&str], code: i32) {
+        let quoted: Vec<String> = status.iter().map(|line| format!("'{line}'")).collect();
+        let file = self.bin().join(name);
+        fs::write(
+            &file,
+            format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = --version ]; then printf '%s\\n' '{version}'; exit 0; fi\n\
+                 if [ \"$1\" = auth ] && [ \"$2\" = status ] && [ \"$3\" = --hostname ] \
+                 && [ \"$4\" = '{host}' ]; then\n\
+                 printf '%s\\n' {lines}\n\
+                 exit {code}\n\
+                 fi\n\
+                 printf '%s\\n' 'not logged in to that host' >&2\n\
+                 exit 1\n",
+                lines = quoted.join(" "),
+            ),
+        )
+        .expect("write the forge CLI");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
+}
+
+/// For each host of the config file's sources whose CLI is present, doctor names the account the
+/// CLI is logged in as there, or `not logged in`, and nothing else the CLI printed; a CLI not
+/// logged in to such a host makes the run not ready.
+#[test]
+fn doctor_names_each_forge_login_and_never_a_token_or_an_e_mail() {
+    let case = Case::new("logins");
+    case.programs_but(&[]);
+    case.forge(
+        "gh",
+        "gh version 2.100.0 (2026-09-04)",
+        "github.com",
+        &[
+            "github.com",
+            "  ✓ Logged in to github.com account example-user (keyring)",
+            "  - Active account: true",
+            "  - Git operations protocol: https",
+            &format!("  - Token: {FAKE_TOKEN}"),
+            &format!("  - Account e-mail: {FAKE_EMAIL}"),
+        ],
+        0,
+    );
+    case.forge(
+        GLAB.0,
+        GLAB.1,
+        "gitlab.example.com",
+        &[
+            "gitlab.example.com",
+            "  x gitlab.example.com has not been authenticated with glab.",
+        ],
+        1,
+    );
+    let config =
+        case.config("[{github: example-org}, {gitlab: example-group, host: gitlab.example.com}]");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        lines.contains(&"gh: logged in to github.com as example-user".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        lines.contains(&"glab: not logged in to gitlab.example.com".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    let everything = shown(&output);
+    for secret in [FAKE_TOKEN, FAKE_EMAIL] {
+        assert!(
+            !everything.contains(secret),
+            "doctor printed {secret:?}: {everything}"
+        );
+    }
+    assert_eq!(
+        last(&output),
+        "not ready: glab (not logged in to gitlab.example.com)",
+        "{}",
+        shown(&output)
+    );
+}
+
 /// The collectors start `aep` on every run: without it `start-snapshot` refuses at start, with
 /// one line naming it, and takes no snapshot.
 #[test]

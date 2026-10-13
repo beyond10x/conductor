@@ -1,7 +1,8 @@
 //! `SnapshotStorage` and the observation storage ports on [`super::Store`], filled by
 //! `story:snapshot-driver`: one for the snapshot and one for each observation a collector records,
 //! `SpecificationObservation` included, so a collector story writes no storage of its own. The
-//! release and merged-pull-request observations are `story:release-digest`'s.
+//! release and merged-pull-request observations are `story:release-digest`'s, the member failures
+//! `story:snapshot-member-failures`'s.
 //!
 //! Each instance is one stream, as in `store.rs`: the snapshot's in `state/tree/`, an
 //! observation's in its snapshot's tenant of `state/observations/` ([`super::observations`]),
@@ -17,19 +18,22 @@
 //! bodies are; the records are not rewritten.
 
 use conductor_model::behaviour::{
-    BlockerObservationStorage, MergedPullRequestObservationStorage, PullRequestObservationStorage,
-    ReleaseObservationStorage, RepositoryObservationStorage, SessionObservationStorage,
-    SnapshotStorage, SpecificationObservationStorage, WorkflowRunObservationStorage,
+    BlockerObservationStorage, CollectorRunObservationStorage, MemberFailureObservationStorage,
+    MergedPullRequestObservationStorage, PullRequestObservationStorage, ReleaseObservationStorage,
+    RepositoryObservationStorage, SessionObservationStorage, SnapshotStorage,
+    SpecificationObservationStorage, WorkflowRunObservationStorage,
 };
 use conductor_model::observation::{
-    BlockerObservationData, BlockerObservationSnapshot, BlockerObservationState, CommitSha,
-    MergedPullRequestObservationData, MergedPullRequestObservationSnapshot,
-    MergedPullRequestObservationState, ObservationId, PullRequestObservationData,
-    PullRequestObservationSnapshot, PullRequestObservationState, ReleaseObservationData,
-    ReleaseObservationSnapshot, ReleaseObservationState, RepositoryName, RepositoryObservationData,
-    RepositoryObservationSnapshot, RepositoryObservationState, SessionObservationData,
-    SessionObservationSnapshot, SessionObservationState, SnapshotData, SnapshotId,
-    SnapshotSnapshot, SpecificationObservationData, SpecificationObservationSnapshot,
+    BlockerObservationData, BlockerObservationSnapshot, BlockerObservationState,
+    CollectorRunObservationData, CollectorRunObservationSnapshot, CollectorRunObservationState,
+    CommitSha, MemberFailureObservationData, MemberFailureObservationSnapshot,
+    MemberFailureObservationState, MergedPullRequestObservationData,
+    MergedPullRequestObservationSnapshot, MergedPullRequestObservationState, ObservationId,
+    PullRequestObservationData, PullRequestObservationSnapshot, PullRequestObservationState,
+    ReleaseObservationData, ReleaseObservationSnapshot, ReleaseObservationState, RepositoryName,
+    RepositoryObservationData, RepositoryObservationSnapshot, RepositoryObservationState,
+    SessionObservationData, SessionObservationSnapshot, SessionObservationState, SnapshotData,
+    SnapshotId, SnapshotSnapshot, SpecificationObservationData, SpecificationObservationSnapshot,
     SpecificationObservationState, WorkflowRunObservationData, WorkflowRunObservationSnapshot,
     WorkflowRunObservationState,
 };
@@ -38,11 +42,12 @@ use serde_json::{Value, json};
 
 use super::{DELETED, STORED, Store, StoreError, text, undecodable};
 use crate::snapshot::{
-    envelope_provider_name, envelope_provider_named, harness_name, harness_named,
-    mergeability_name, mergeability_named, run_conclusion_name, run_conclusion_named,
-    session_state_name, session_state_named, snapshot_state_name, snapshot_state_named,
-    specification_presence_name, specification_presence_named, validation_result_name,
-    validation_result_named, visibility_name, visibility_named,
+    collector_run_outcome_name, collector_run_outcome_named, envelope_provider_name,
+    envelope_provider_named, harness_name, harness_named, mergeability_name, mergeability_named,
+    run_conclusion_name, run_conclusion_named, session_state_name, session_state_named,
+    snapshot_state_name, snapshot_state_named, specification_presence_name,
+    specification_presence_named, validation_result_name, validation_result_named, visibility_name,
+    visibility_named,
 };
 
 /// `conductor.observation.Snapshot`.
@@ -71,6 +76,12 @@ pub(super) const BLOCKER: &str = "conductor.observation.BlockerObservation";
 
 /// `conductor.observation.SpecificationObservation`.
 pub(super) const SPECIFICATION: &str = "conductor.observation.SpecificationObservation";
+
+/// `conductor.observation.MemberFailureObservation`.
+pub(super) const MEMBER_FAILURE: &str = "conductor.observation.MemberFailureObservation";
+
+/// `conductor.observation.CollectorRunObservation`.
+pub(super) const COLLECTOR_RUN: &str = "conductor.observation.CollectorRunObservation";
 
 /// The one state of every observation, as the specification spells it.
 const RECORDED: &str = "Recorded";
@@ -192,6 +203,24 @@ storage!(
     observation_id,
     encode_specification,
     decode_specification
+);
+storage!(
+    MemberFailureObservationStorage,
+    MEMBER_FAILURE,
+    ObservationId,
+    MemberFailureObservationSnapshot,
+    observation_id,
+    encode_member_failure,
+    decode_member_failure
+);
+storage!(
+    CollectorRunObservationStorage,
+    COLLECTOR_RUN,
+    ObservationId,
+    CollectorRunObservationSnapshot,
+    observation_id,
+    encode_collector_run,
+    decode_collector_run
 );
 
 /// The instance `key` of `entity`, decoded; `None` when absent, or when the read or the decoding
@@ -331,6 +360,7 @@ fn encode_pull_request(observation: &PullRequestObservationSnapshot) -> Value {
         "failing_checks": data.failing_checks,
         "opened_at": data.opened_at.0,
         "updated_at": data.updated_at.0,
+        "url": data.url,
     })
 }
 
@@ -349,6 +379,8 @@ fn decode_pull_request(body: &Value) -> Result<PullRequestObservationSnapshot, S
             failing_checks: integer(body, "failing_checks")?,
             opened_at: Timestamp(text(body, "opened_at")?),
             updated_at: Timestamp(text(body, "updated_at")?),
+            // Absent in an observation recorded before the collectors filled it.
+            url: optional_text(body, "url")?,
         },
     })
 }
@@ -559,6 +591,62 @@ fn decode_specification(body: &Value) -> Result<SpecificationObservationSnapshot
             scenarios: optional_integer(body, "scenarios")?,
             synthesis_refusals: optional_integer(body, "synthesis_refusals")?,
             conformance_status: optional_text(body, "conformance_status")?,
+        },
+    })
+}
+
+fn encode_member_failure(observation: &MemberFailureObservationSnapshot) -> Value {
+    let MemberFailureObservationState::Recorded = observation.state;
+    let data = &observation.data;
+    json!({
+        "state": RECORDED,
+        "observation_id": data.observation_id.0.0,
+        "snapshot_id": data.snapshot_id.0.0,
+        "member": data.member.0,
+        "collector": data.collector,
+        "error_line": data.error_line,
+    })
+}
+
+fn decode_member_failure(body: &Value) -> Result<MemberFailureObservationSnapshot, String> {
+    recorded(body)?;
+    Ok(MemberFailureObservationSnapshot {
+        state: MemberFailureObservationState::Recorded,
+        data: MemberFailureObservationData {
+            observation_id: observation_id(body)?,
+            snapshot_id: snapshot_id(body)?,
+            member: RepositoryName(text(body, "member")?),
+            collector: text(body, "collector")?,
+            error_line: text(body, "error_line")?,
+        },
+    })
+}
+
+fn encode_collector_run(observation: &CollectorRunObservationSnapshot) -> Value {
+    let CollectorRunObservationState::Recorded = observation.state;
+    let data = &observation.data;
+    json!({
+        "state": RECORDED,
+        "observation_id": data.observation_id.0.0,
+        "snapshot_id": data.snapshot_id.0.0,
+        "collector": data.collector,
+        "started_at": data.started_at.0,
+        "duration_ms": data.duration_ms,
+        "outcome": collector_run_outcome_name(data.outcome),
+    })
+}
+
+fn decode_collector_run(body: &Value) -> Result<CollectorRunObservationSnapshot, String> {
+    recorded(body)?;
+    Ok(CollectorRunObservationSnapshot {
+        state: CollectorRunObservationState::Recorded,
+        data: CollectorRunObservationData {
+            observation_id: observation_id(body)?,
+            snapshot_id: snapshot_id(body)?,
+            collector: text(body, "collector")?,
+            started_at: Timestamp(text(body, "started_at")?),
+            duration_ms: integer(body, "duration_ms")?,
+            outcome: named(body, "outcome", collector_run_outcome_named)?,
         },
     })
 }

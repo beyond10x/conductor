@@ -10,7 +10,8 @@
 //! its first `github` owner and its `gitlab` sources ([`Watch::with_gitlab`]), its cadence
 //! (`cadence.watch` and `cadence.ci`, which `--every` and `--ci-every` override;
 //! [`Options::of`]) and its thresholds (`thresholds.context_handover`,
-//! `disk_low`, `disk_clear` and `silent_session`; [`Settings::of`]), and names it in the
+//! `disk_low`, `disk_clear`, `disk_admit`, `gate_stop`, `gate_resume` and `silent_session`;
+//! [`Settings::of`]), and names it in the
 //! usage-limit notification's title. Without a config file that is the built-in instance.
 //!
 //! It runs cheap probes, not snapshots. A pass, every [`Options::every`]:
@@ -22,7 +23,7 @@
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
-//! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /` |
+//! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
@@ -64,8 +65,11 @@
 //!   `stale`, and one GitHub adds) decides nothing; it, and a workflow missing from the list,
 //!   keep the last run as it was. `ci.state` keeps the conclusion as GitHub printed it. While
 //!   the store under the state directory holds no complete snapshot, no run list is read.
-//! - **disk** under the instance's `disk_low` GiB, once per fall: the next report waits until
-//!   free disk was back at its `disk_clear` GiB. A reading more than [`DISK_JUMP`] from the
+//! - **disk** under each of the instance's floors, once per fall (`story:watch-disk-floors`):
+//!   `disk low` under `disk_low` GiB, its next report waiting until free disk was back at
+//!   `disk_clear` GiB; `disk admit` under `disk_admit`, until it was back at `disk_admit`; and
+//!   `disk gate stop` under `gate_stop`, until it was back at `gate_resume`. One pass reports
+//!   each floor it crossed, in that order. A reading more than [`DISK_JUMP`] from the
 //!   last pass's is read again before it is compared, and the second reading stands
 //!   (`story:watch-disk-reading`): one odd reading is not reported.
 //!
@@ -80,9 +84,9 @@
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
 //! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
-//! `disk.free` (the bytes free the last pass read), and, in the formats of the stopgap,
-//! `limit.new` (`<text>\t<name>`), `limit.seen` (`YYYY-MM-DD <text>`), `context-reported` (a
-//! `sessionId` per line) and `ci.state`
+//! `disk-admit`, `gate-stop`, `disk.free` (the bytes free the last pass read), and, in the
+//! formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen` (`YYYY-MM-DD <text>`),
+//! `context-reported` (a `sessionId` per line) and `ci.state`
 //! (`repo|workflow|run|conclusion|createdAt`). The dashboard reads the last four from
 //! `<conductor repository>/state/watch/` once that holds `ci.state`, which a watch run in the
 //! conductor repository without `--state-dir` writes; until then it reads the stopgap's
@@ -166,6 +170,8 @@ const LIMIT_REPORTED: &str = "limit.reported";
 const CONTEXT_REPORTED: &str = "context-reported";
 const CI_STATE: &str = "ci.state";
 const DISK_LOW: &str = "disk-low";
+const DISK_ADMIT: &str = "disk-admit";
+const GATE_STOP: &str = "gate-stop";
 const DISK_FREE: &str = "disk.free";
 const CONDUCTORS_REPORTED: &str = "conductors.reported";
 const SILENT_REPORTED: &str = "silent.reported";
@@ -298,6 +304,15 @@ pub struct Settings {
     pub disk_low: u64,
     /// Free GiB on `/` from which a further fall is reported again: `thresholds.disk_clear`.
     pub disk_clear: u64,
+    /// Free GiB on `/` under which conductor starts no build, reported as `disk admit`, and from
+    /// which a further fall is reported again: `thresholds.disk_admit`.
+    pub disk_admit: u64,
+    /// Free GiB on `/` under which the full-gate watchdog stops a gate, reported as `disk gate
+    /// stop`: `thresholds.gate_stop`.
+    pub gate_stop: u64,
+    /// Free GiB on `/` from which a further fall under [`Settings::gate_stop`] is reported
+    /// again: `thresholds.gate_resume`.
+    pub gate_resume: u64,
     /// How long a live controller, and each of its sub-agents, may write nothing to its
     /// transcript before it is reported silent: `thresholds.silent_session`.
     pub silent_session: Duration,
@@ -318,6 +333,9 @@ impl Settings {
             context_handover: count(thresholds.context_handover.0),
             disk_low: count(thresholds.disk_low.0),
             disk_clear: count(thresholds.disk_clear.0),
+            disk_admit: count(thresholds.disk_admit.0),
+            gate_stop: count(thresholds.gate_stop.0),
+            gate_resume: count(thresholds.gate_resume.0),
             silent_session: Duration::from_secs(
                 config::seconds(&thresholds.silent_session)
                     .unwrap_or(config::SILENT_SESSION_MINUTES * 60),
@@ -1202,9 +1220,11 @@ impl Watch {
     // Disk
     // -----------------------------------------------------------------------------------------
 
-    /// Free disk under the instance's `disk_low`, once per fall: the next report waits until
-    /// free disk was back at its `disk_clear`. A reading more than [`DISK_JUMP`] from the one
-    /// kept in `disk.free` is read again, and the second reading stands and is kept.
+    /// Free disk under each of the instance's floors, once per fall (`story:watch-disk-floors`):
+    /// under `disk_low` the next report waits until free disk was back at its `disk_clear`,
+    /// under `disk_admit` until it was back at `disk_admit`, and under `gate_stop` until it was
+    /// back at `gate_resume`; each floor keeps its own marker. A reading more than [`DISK_JUMP`]
+    /// from the one kept in `disk.free` is read again, and the second reading stands and is kept.
     fn disk(&mut self, lines: &mut Vec<String>, notes: &mut dyn Write) -> Result<()> {
         let kept = self.state(DISK_FREE);
         let previous = fs::read_to_string(&kept)
@@ -1232,16 +1252,38 @@ impl Watch {
                 .with_context(|| format!("write {}", kept.display()))?;
         }
         let free = bytes.div_ceil(1 << 30);
-        let marker = self.state(DISK_LOW);
-        if free < self.settings.disk_low && !marker.exists() {
-            lines.push(format!("disk low: {free}G free on /"));
-            fs::write(&marker, "").with_context(|| format!("write {}", marker.display()))?;
-        } else if free >= self.settings.disk_clear {
-            match fs::remove_file(&marker) {
-                Ok(()) => {}
-                Err(error) if error.kind() == ErrorKind::NotFound => {}
-                Err(error) => {
-                    return Err(error).with_context(|| format!("remove {}", marker.display()));
+        let floors = [
+            (
+                DISK_LOW,
+                self.settings.disk_low,
+                self.settings.disk_clear,
+                format!("disk low: {free}G free on /"),
+            ),
+            (
+                DISK_ADMIT,
+                self.settings.disk_admit,
+                self.settings.disk_admit,
+                format!("disk admit: {free}G free on / (builds wait)"),
+            ),
+            (
+                GATE_STOP,
+                self.settings.gate_stop,
+                self.settings.gate_resume,
+                format!("disk gate stop: {free}G free on / (gates stop)"),
+            ),
+        ];
+        for (file, floor, clear, line) in floors {
+            let marker = self.state(file);
+            if free < floor && !marker.exists() {
+                lines.push(line);
+                fs::write(&marker, "").with_context(|| format!("write {}", marker.display()))?;
+            } else if free >= clear {
+                match fs::remove_file(&marker) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(error).with_context(|| format!("remove {}", marker.display()));
+                    }
                 }
             }
         }

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest e5cc31d24c269034216a3a8e3ebf160a7b44a90eafdecb68cbdd5e8645c17674
-// contract digest d50fe6221b3c0243d2ee6252f4f099cfd69a0fbbd91ec36800ee65c6637805c3
+// model digest 12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb
+// contract digest a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -234,6 +234,42 @@ pub trait BoardStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::observation::BoardSnapshot>;
+}
+
+/// Where `conductor.observation.CollectorRunObservation` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait CollectorRunObservationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::CollectorRunObservationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::observation::CollectorRunObservationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::observation::ObservationId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::observation::CollectorRunObservationSnapshot>;
+}
+
+/// Where `conductor.observation.MemberFailureObservation` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait MemberFailureObservationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::MemberFailureObservationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::observation::MemberFailureObservationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::observation::ObservationId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::observation::MemberFailureObservationSnapshot>;
 }
 
 /// Where `conductor.observation.MergedPullRequestObservation` is stored — a port the implementor provides.
@@ -674,6 +710,7 @@ where
             decided_at: input.decided_at.clone(),
             recorded_by: None,
             operator_words: None,
+            repository: input.repository.clone(),
         };
         let answer = crate::decision::RecordConductorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Conductor } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
@@ -706,6 +743,7 @@ where
             decided_at: input.decided_at.clone(),
             recorded_by: Some(input.recorded_by.clone()),
             operator_words: Some(input.operator_words.clone()),
+            repository: input.repository.clone(),
         };
         let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
@@ -1820,6 +1858,89 @@ where
     }
 }
 
+/// `conductor.observation.RecordCollectorRun`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::RecordCollectorRunBehavior for Generated<P>
+where
+    P: TryContext + CollectorRunObservationStorage + SnapshotStorage,
+{
+    fn record_collector_run(&mut self, input: crate::observation::RecordCollectorRun) -> Result<crate::observation::RecordCollectorRunOutcome, UnmetObligation> {
+        let _ = &input;
+        // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.snapshot_id);
+        let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
+        // `no-such-snapshot`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::observation::RecordCollectorRunOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+        }
+        let _ = &related;
+        // `negative-duration`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(compare_numbers(Some(&input.duration_ms).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.RecordCollectorRun")? {
+            return Ok(crate::observation::RecordCollectorRunOutcome::NegativeDuration { error: crate::observation::InvalidCount { count: input.duration_ms.clone() } });
+        }
+        // `closed`: selected by the present related row, in declaration order.
+        if let Some(related) = &related {
+        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordCollectorRun")? {
+            return Ok(crate::observation::RecordCollectorRunOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
+        }
+        }
+        // `recorded`: the default.
+        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let data = crate::observation::CollectorRunObservationData {
+            observation_id: identity.clone(),
+            snapshot_id: input.snapshot_id.clone(),
+            collector: input.collector.clone(),
+            started_at: input.started_at.clone(),
+            duration_ms: input.duration_ms.clone(),
+            outcome: input.outcome.clone(),
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::observation::RecordCollectorRunOutcome::Recorded { collector_run_recorded: crate::observation::CollectorRunRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), collector: input.collector.clone(), duration_ms: input.duration_ms.clone(), outcome: input.outcome.clone() } };
+        CollectorRunObservationStorage::put(&mut self.ports, crate::observation::AnyCollectorRunObservation::Recorded(crate::observation::CollectorRunObservation::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.observation.RecordMemberFailure`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::RecordMemberFailureBehavior for Generated<P>
+where
+    P: TryContext + MemberFailureObservationStorage + SnapshotStorage,
+{
+    fn record_member_failure(&mut self, input: crate::observation::RecordMemberFailure) -> Result<crate::observation::RecordMemberFailureOutcome, UnmetObligation> {
+        let _ = &input;
+        // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.snapshot_id);
+        let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
+        // `no-such-snapshot`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::observation::RecordMemberFailureOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+        }
+        let _ = &related;
+        // `closed`: selected by the present related row, in declaration order.
+        if let Some(related) = &related {
+        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordMemberFailure")? {
+            return Ok(crate::observation::RecordMemberFailureOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
+        }
+        }
+        // `recorded`: the default.
+        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let data = crate::observation::MemberFailureObservationData {
+            observation_id: identity.clone(),
+            snapshot_id: input.snapshot_id.clone(),
+            member: input.member.clone(),
+            collector: input.collector.clone(),
+            error_line: input.error_line.clone(),
+        };
+        let answer = crate::observation::RecordMemberFailureOutcome::Recorded { member_failure_recorded: crate::observation::MemberFailureRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), member: input.member.clone(), collector: input.collector.clone() } };
+        MemberFailureObservationStorage::put(&mut self.ports, crate::observation::AnyMemberFailureObservation::Recorded(crate::observation::MemberFailureObservation::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.observation.RecordMergedPullRequest`, generated: every outcome is one the specification fully determines.
 impl<P> crate::observation::obligations::RecordMergedPullRequestBehavior for Generated<P>
 where
@@ -1910,6 +2031,7 @@ where
             failing_checks: input.failing_checks.clone(),
             opened_at: input.opened_at.clone(),
             updated_at: input.updated_at.clone(),
+            url: input.url.clone(),
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
@@ -2206,6 +2328,7 @@ where
                 decided_at: held.data.decided_at,
                 recorded_by: held.data.recorded_by,
                 operator_words: held.data.operator_words,
+                repository: held.data.repository,
             })
             .collect())
     }
@@ -2476,6 +2599,47 @@ where
     }
 }
 
+/// `conductor.observation.CollectorRuns`, generated: every row is one the specification fully determines from the stored `conductor.observation.CollectorRunObservation`s.
+impl<P> crate::observation::obligations::CollectorRunsQuery for Generated<P>
+where
+    P: CollectorRunObservationStorage,
+{
+    fn collector_runs(&self) -> Result<Vec<crate::observation::CollectorRuns>, UnmetObligation> {
+        let admitted = CollectorRunObservationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::observation::CollectorRuns {
+                observation_id: held.data.observation_id,
+                snapshot_id: held.data.snapshot_id,
+                collector: held.data.collector,
+                started_at: held.data.started_at,
+                duration_ms: held.data.duration_ms,
+                outcome: held.data.outcome,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.observation.MemberFailures`, generated: every row is one the specification fully determines from the stored `conductor.observation.MemberFailureObservation`s.
+impl<P> crate::observation::obligations::MemberFailuresQuery for Generated<P>
+where
+    P: MemberFailureObservationStorage,
+{
+    fn member_failures(&self) -> Result<Vec<crate::observation::MemberFailures>, UnmetObligation> {
+        let admitted = MemberFailureObservationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::observation::MemberFailures {
+                observation_id: held.data.observation_id,
+                snapshot_id: held.data.snapshot_id,
+                member: held.data.member,
+                collector: held.data.collector,
+                error_line: held.data.error_line,
+            })
+            .collect())
+    }
+}
+
 /// `conductor.observation.MergedPullRequests`, generated: every row is one the specification fully determines from the stored `conductor.observation.MergedPullRequestObservation`s.
 impl<P> crate::observation::obligations::MergedPullRequestsQuery for Generated<P>
 where
@@ -2518,6 +2682,7 @@ where
                 failing_checks: held.data.failing_checks,
                 opened_at: held.data.opened_at,
                 updated_at: held.data.updated_at,
+                url: held.data.url,
             })
             .collect())
     }

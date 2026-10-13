@@ -1007,7 +1007,7 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
              \"decided_by\":\"Conductor\",\"choice\":\"A\",\"question\":\"which way?\",\
              \"options\":\"A: one way; B: the other\",\"reason\":\"A is reversible\",\
              \"evidence\":\"the request's own text\",\"decided_at\":\"{AT}\",\
-             \"recorded_by\":null,\"operator_words\":null}}"
+             \"recorded_by\":null,\"operator_words\":null,\"repository\":null}}"
         ),
         "the view's fields in the specification's order"
     );
@@ -1404,4 +1404,42 @@ fn a_markdown_cell_reads_back_as_its_value() {
         assert_eq!(cells.len(), header.len(), "{row:?}");
         assert_eq!(cells[question], expected, "{row:?}");
     }
+}
+
+/// `story:dashboard-repo-view`: a decision names the repository it is about with `--repository`,
+/// on either record command; the `decisions` view and `decision show` carry it, last, and a
+/// decision recorded without it carries `null`.
+#[test]
+fn a_decision_names_its_repository_and_the_decisions_view_reads_it_back() {
+    let case = Case::new("decision-repository");
+    let conductors = case.record(
+        "record-conductor-decision",
+        "C",
+        AT,
+        &["--repository", "alpha"],
+    );
+    let operators = case.record(
+        "record-operator-decision",
+        "O",
+        AT,
+        &["--repository", "beta"],
+    );
+    let without = case.conductor_decision("C");
+
+    assert_eq!(case.decision(&conductors)["repository"], "alpha");
+    assert_eq!(case.decision(&operators)["repository"], "beta");
+    assert_eq!(case.decision(&without)["repository"], Value::Null);
+
+    let raw = case.ok(&["decision", "decisions", "--format", "jsonl"]);
+    let first = raw.lines().next().expect("a row");
+    assert!(
+        first.ends_with(",\"operator_words\":null,\"repository\":\"alpha\"}"),
+        "repository is the view's last field: {first:?}"
+    );
+    let shown = case.ok(&["decision", "show", "--decision-id", &operators]);
+    assert_eq!(
+        shown.lines().last(),
+        Some("repository: beta"),
+        "`decision show` prints it last: {shown:?}"
+    );
 }

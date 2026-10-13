@@ -37,10 +37,11 @@
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
 //!
-//! Five such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
+//! Seven such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
 //! (`story:first-run-seed`), which read the config file themselves as `config show` does,
-//! `doctor` (`story:install-prerequisites`), which reads none, `gc` (`story:conductor-gc`) and
-//! `spawn` (`story:spawn`).
+//! `doctor` (`story:install-prerequisites`) and `setup` (`story:setup-command`), which read it
+//! for what they report and stop on no problem of it, `gc` (`story:conductor-gc`), `spawn`
+//! (`story:spawn`) and `upgrade` (`story:conductor-upgrade`), which reads no config file.
 //!
 //! [`LEAVES`] declares of every leaf whether it writes, and so whether a controller's session may
 //! run it ([`Access`]); the guard reads that declaration, not a list of its own
@@ -96,7 +97,12 @@ impl Cli {
         // the file themselves, to report each problem; the guard hook falls back to the built-in
         // instance rather than deny every tool call over a file that does not load.
         match &self.group {
-            Group::Config(_) | Group::Trust(_) | Group::Init(_) | Group::Doctor => {}
+            Group::Config(_)
+            | Group::Trust(_)
+            | Group::Init(_)
+            | Group::Doctor
+            | Group::Setup(_)
+            | Group::Upgrade(_) => {}
             Group::Guard(_) => {
                 let _ = crate::config::set_active(self.config.as_deref());
             }
@@ -122,6 +128,12 @@ impl Cli {
                 SnapshotCommand::RecordSpecification(args) => {
                     snapshot::record_specification(state, args)
                 }
+                SnapshotCommand::RecordCollectorRun(args) => {
+                    snapshot::record_collector_run(state, args)
+                }
+                SnapshotCommand::RecordMemberFailure(args) => {
+                    snapshot::record_member_failure(state, args)
+                }
                 SnapshotCommand::PublishBoard(args) => status::publish_board(state, args),
                 SnapshotCommand::CompleteSnapshot(args) => snapshot::complete_snapshot(state, args),
                 SnapshotCommand::FailSnapshot(args) => snapshot::fail_snapshot(state, args),
@@ -136,6 +148,8 @@ impl Cli {
                 SnapshotCommand::Sessions(view) => snapshot::sessions(state, view),
                 SnapshotCommand::Blockers(view) => snapshot::blockers(state, view),
                 SnapshotCommand::Specifications(view) => snapshot::specifications(state, view),
+                SnapshotCommand::MemberFailures(view) => snapshot::member_failures(state, view),
+                SnapshotCommand::CollectorRuns(view) => snapshot::collector_runs(state, view),
                 SnapshotCommand::Boards(view) => status::boards(state, view),
             },
             Group::Goal(command) => match command {
@@ -253,8 +267,10 @@ impl Cli {
             Group::Doctor => crate::doctor::doctor_with(self.config.as_deref()),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
+            Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
             Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
+            Group::Upgrade(args) => crate::upgrade::upgrade(&args),
             Group::Store(command) => match command {
                 StoreCommand::Migrate(args) => crate::store::migrate::store_migrate(state, &args),
             },
@@ -317,7 +333,7 @@ pub enum Group {
     #[command(subcommand)]
     Dashboard(DashboardCommand),
 
-    /// Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with
+    /// Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources
     #[command(name = "doctor")]
     Doctor,
 
@@ -328,6 +344,10 @@ pub enum Group {
     /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
     #[command(name = "init")]
     Init(InitArgs),
+
+    /// Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
+    #[command(name = "setup")]
+    Setup(SetupArgs),
 
     /// Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs
     #[command(name = "spawn")]
@@ -340,6 +360,10 @@ pub enum Group {
     /// Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json
     #[command(name = "trust")]
     Trust(TrustArgs),
+
+    /// Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release
+    #[command(name = "upgrade")]
+    Upgrade(UpgradeArgs),
 
     // No help, as for `dashboard`: the binding declares the group only through `watch run`.
     #[command(subcommand)]
@@ -472,11 +496,15 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Removes the build caches, trees and targets the disk panel marks reclaimable.
     (&["gc"], Access::Writes),
     (&["init"], Access::Writes),
+    // With --apply, writes the config file, the records and ~/.claude.json (story:setup-command).
+    (&["setup"], Access::Writes),
     // Starts a controller's session and records the controller in the store.
     (&["spawn"], Access::Writes),
     // Copies the store into the tree layout under the state directory.
     (&["store", "migrate"], Access::Writes),
     (&["trust"], Access::Writes),
+    // Replaces the running binary's file with a release's (story:conductor-upgrade).
+    (&["upgrade"], Access::Writes),
     (&["watch", "run"], Access::Writes),
 ];
 
@@ -498,6 +526,14 @@ pub enum SnapshotCommand {
     /// Record a blocker
     #[command(name = "record-blocker")]
     RecordBlocker(RecordBlockerArgs),
+
+    /// Record a collector's run
+    #[command(name = "record-collector-run")]
+    RecordCollectorRun(RecordCollectorRunArgs),
+
+    /// Record a member a collector could not read
+    #[command(name = "record-member-failure")]
+    RecordMemberFailure(RecordMemberFailureArgs),
 
     /// Record a merged pull request
     #[command(name = "record-merged-pull-request")]
@@ -538,6 +574,14 @@ pub enum SnapshotCommand {
     /// Boards
     #[command(name = "boards")]
     Boards(ViewArgs),
+
+    /// Collector runs
+    #[command(name = "collector-runs")]
+    CollectorRuns(ViewArgs),
+
+    /// Members a collector could not read
+    #[command(name = "member-failures")]
+    MemberFailures(ViewArgs),
 
     /// Merged pull requests
     #[command(name = "merged-pull-requests")]
@@ -1018,6 +1062,19 @@ pub struct InitArgs {
     pub instance: Option<String>,
 }
 
+/// The input of the binding's `setup` callable, `conductor.config.SetupRepository`.
+#[derive(Debug, Clone, Args)]
+pub struct SetupArgs {
+    /// The repository checked: its directory. Default: the working directory
+    #[arg(long, value_name = "DIR")]
+    pub repository: Option<PathBuf>,
+    /// Write the instance config naming the repository, and run conductor init and conductor
+    /// trust, when they are missing; never log in, install or migrate. `--apply` alone is
+    /// `--apply true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub apply: Option<bool>,
+}
+
 /// The input of the binding's `spawn` callable, `conductor.dispatch.SpawnController`.
 #[derive(Debug, Clone, Args)]
 pub struct SpawnArgs {
@@ -1025,6 +1082,18 @@ pub struct SpawnArgs {
     /// `<repo>` or `<group>/<repo>`, and its charter `<records>/charters/<repo>.md`
     #[arg(long, value_name = "NAME")]
     pub repository: Option<String>,
+}
+
+/// The input of the binding's `upgrade` callable, `conductor.config.UpgradeBinary`.
+#[derive(Debug, Clone, Args)]
+pub struct UpgradeArgs {
+    /// Only compare the installed version with the newest release; change nothing. `--check`
+    /// alone is `--check true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub check: Option<bool>,
+    /// The release installed, x.y.z, newer or older than the installed one. Default: the newest
+    #[arg(long, value_name = "X.Y.Z")]
+    pub release: Option<String>,
 }
 
 /// The input of the binding's `config-show` callable, `conductor.config.ShowConfig`. The format
@@ -1233,6 +1302,9 @@ pub struct StartSnapshotArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub disk_free_bytes: Option<i64>,
+    /// integer, optional
+    #[arg(long, allow_negative_numbers = true)]
+    pub budget: Option<i64>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -1333,6 +1405,9 @@ pub struct RecordPullRequestArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub updated_at: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub url: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -1481,6 +1556,49 @@ pub struct RecordBlockerArgs {
     /// string
     #[arg(long)]
     pub title: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.observation.RecordCollectorRun`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordCollectorRunArgs {
+    /// SnapshotId
+    #[arg(long, value_parser = uuid)]
+    pub snapshot_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub collector: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub started_at: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub duration_ms: Option<i64>,
+    /// CollectorRunOutcome
+    #[arg(long, value_parser = ["Completed", "Failed", "OverBudget"])]
+    pub outcome: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.observation.RecordMemberFailure`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordMemberFailureArgs {
+    /// SnapshotId
+    #[arg(long, value_parser = uuid)]
+    pub snapshot_id: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub member: Option<String>,
+    /// string
+    #[arg(long)]
+    pub collector: Option<String>,
+    /// string
+    #[arg(long)]
+    pub error_line: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -1766,6 +1884,9 @@ pub struct RecordConductorDecisionArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub decided_at: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub repository: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -1804,6 +1925,9 @@ pub struct RecordOperatorDecisionArgs {
     /// string
     #[arg(long)]
     pub operator_words: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub repository: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

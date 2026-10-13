@@ -74,7 +74,12 @@ callables:
   doctor:
     target: {kind: local, owner: conductor-cli, action: doctor}
     input: null
-    result: List<conductor.config.Prerequisite>
+    result: conductor.config.DoctorReport
+    errors: {}
+  setup:
+    target: {kind: local, owner: conductor-cli, action: setup}
+    input: conductor.config.SetupRepository
+    result: conductor.config.SetupReport
     errors: {}
   gc:
     target: {kind: local, owner: conductor-cli, action: gc}
@@ -98,6 +103,16 @@ callables:
       untrusted-checkout: conductor.dispatch.SpawnRefused
       no-charter: conductor.dispatch.SpawnRefused
       launch-failed: conductor.dispatch.SpawnRefused
+  upgrade:
+    target: {kind: local, owner: conductor-cli, action: upgrade}
+    input: conductor.config.UpgradeBinary
+    result: conductor.config.UpgradeReport
+    errors:
+      release-unread: conductor.config.UpgradeRefused
+      no-archive-for-target: conductor.config.UpgradeRefused
+      checksum-mismatch: conductor.config.UpgradeRefused
+      new-binary-does-not-run: conductor.config.UpgradeRefused
+      binary-not-writable: conductor.config.UpgradeRefused
 commands:
   - path: [goal, goals]
     callable: goals
@@ -193,8 +208,16 @@ commands:
         source: {kind: option, long: instance}
   - path: [doctor]
     callable: doctor
-    about: Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with
+    about: Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources
     arguments: []
+  - path: [setup]
+    callable: setup
+    about: Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
+    arguments:
+      - field: repository
+        source: {kind: option, long: repository}
+      - field: apply
+        source: {kind: option, long: apply}
   - path: [gc]
     callable: gc
     about: Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed
@@ -209,3 +232,11 @@ commands:
     arguments:
       - field: repository
         source: {kind: option, long: repository}
+  - path: [upgrade]
+    callable: upgrade
+    about: Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release
+    arguments:
+      - field: check
+        source: {kind: option, long: check}
+      - field: release
+        source: {kind: option, long: release}

@@ -3,6 +3,9 @@
 //! as `CONDUCTOR_BUILD_PINS`, `name=spec` pairs separated by `,`. `conductor doctor` compares
 //! with them for each of those programs that the `b10x.toml` it finds does not pin. A build
 //! without that file, such as a packaged crate, carries none.
+//!
+//! It also carries the target the binary is built for, as `CONDUCTOR_BUILD_TARGET`
+//! (`story:conductor-upgrade`).
 
 use std::env;
 use std::fs;
@@ -15,6 +18,9 @@ fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default());
     let file = manifest.join("../../b10x.toml");
     println!("cargo:rerun-if-changed=build.rs");
+    // The dashboard's built app is embedded with include_dir!; a new or changed file under dist/
+    // rebuilds the crate.
+    println!("cargo:rerun-if-changed=dashboard/dist");
     // Watched whether or not it is there yet, so a b10x.toml added after a build is carried by
     // the next one.
     println!("cargo:rerun-if-changed={}", file.display());
@@ -23,6 +29,12 @@ fn main() {
         Err(_) => Vec::new(),
     };
     println!("cargo:rustc-env=CONDUCTOR_BUILD_PINS={}", pins.join(","));
+    // The target the binary is built for, whose release archive `conductor upgrade` installs
+    // (`story:conductor-upgrade`). Cargo sets `TARGET` for every build script.
+    println!(
+        "cargo:rustc-env=CONDUCTOR_BUILD_TARGET={}",
+        env::var("TARGET").unwrap_or_default()
+    );
 }
 
 /// The `name=spec` pairs of the `[pins]` lines `name = "spec"` of `text` for the programs of

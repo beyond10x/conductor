@@ -1291,7 +1291,8 @@ pub(crate) fn checked(what: &str, name: String) -> Result<String> {
 /// `bound`. A run that exits non-zero is run once more; failing again, the answer is an error
 /// naming `what` (the repository or the organization), the command and what it printed on
 /// standard error. Git takes no optional locks, so reading a checkout never rewrites its index,
-/// and never prompts.
+/// and never prompts, neither for a login nor through ssh ([`collect::git_environment`],
+/// `story:fetch-without-prompts`).
 pub(crate) fn answer(
     what: &str,
     command: &[String],
@@ -1304,10 +1305,7 @@ pub(crate) fn answer(
     };
     let attempt = || {
         let mut command = Command::new(program);
-        command
-            .args(arguments)
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .env("GIT_TERMINAL_PROMPT", "0");
+        collect::git_environment(command.args(arguments).env("GIT_OPTIONAL_LOCKS", "0"));
         if let Some(dir) = dir {
             command.current_dir(dir);
         }
@@ -1351,7 +1349,8 @@ pub(crate) fn json<T: DeserializeOwned>(
 
 /// Runs `work` over each of `items`, up to `width` at once, and answers the results in the
 /// items' order, or the first error in that order. Once one item has failed, no further item is
-/// started.
+/// started. Each thread runs within the collector's budget, as the calling thread does
+/// ([`collect::within`]).
 pub(crate) fn each<T: Sync, R: Send>(
     items: &[T],
     width: usize,
@@ -1360,20 +1359,24 @@ pub(crate) fn each<T: Sync, R: Send>(
     let next = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
     let slots: Vec<Mutex<Option<Result<R>>>> = items.iter().map(|_| Mutex::new(None)).collect();
+    let deadline = collect::deadline();
     thread::scope(|scope| {
         for _ in 0..width.clamp(1, items.len().max(1)) {
             scope.spawn(|| {
-                while !failed.load(Ordering::SeqCst) {
-                    let index = next.fetch_add(1, Ordering::SeqCst);
-                    let Some(item) = items.get(index) else {
-                        break;
-                    };
-                    let answered = work(item);
-                    if answered.is_err() {
-                        failed.store(true, Ordering::SeqCst);
+                collect::within(deadline, || {
+                    while !failed.load(Ordering::SeqCst) {
+                        let index = next.fetch_add(1, Ordering::SeqCst);
+                        let Some(item) = items.get(index) else {
+                            break;
+                        };
+                        let answered = work(item);
+                        if answered.is_err() {
+                            failed.store(true, Ordering::SeqCst);
+                        }
+                        *slots[index].lock().unwrap_or_else(PoisonError::into_inner) =
+                            Some(answered);
                     }
-                    *slots[index].lock().unwrap_or_else(PoisonError::into_inner) = Some(answered);
-                }
+                });
             });
         }
     });

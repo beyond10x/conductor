@@ -1,5 +1,9 @@
 # conductor
 
+An agent asked to set conductor up in a repository follows [`SETUP.md`](SETUP.md), the step list
+at <https://raw.githubusercontent.com/beyond10x/conductor/main/SETUP.md>: each step has a check,
+the exact fix, and what only the person can do.
+
 Conductor coordinates Claude Code sessions across the repositories of one organization: one
 session tracks every repository and starts one controller session per repository.
 
@@ -95,6 +99,14 @@ conductor doctor
 ```
 
 On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`.
+
+To upgrade, run `conductor upgrade`: it reads the newest release, downloads its archive for the
+target the binary was built for and `SHA256SUMS`, checks the sum, runs the new binary's
+`--version`, and replaces the binary in place, keeping the old one as `conductor.previous`.
+`conductor upgrade --check` only says whether a newer release exists, and
+`conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
+`tar` and `sha256sum` (or `shasum` on macOS).
+
 `conductor --version` prints the installed version, `conductor 0.7.0`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;

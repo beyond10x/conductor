@@ -187,6 +187,37 @@ fn conductor_runs_gc_before_it_pauses_work_for_disk() {
     );
 }
 
+/// `story:watch-disk-floors`: the watch reports each disk floor crossed, and conductor knows what
+/// each line asks of it.
+#[test]
+fn conductor_acts_on_each_disk_floor_the_watch_reports() {
+    let text = profile("conductor.md");
+    for line in [
+        "`disk low: <n>G free on /`",
+        "`disk admit: <n>G free on / (builds wait)`",
+        "`disk gate stop: <n>G free on / (gates stop)`",
+    ] {
+        assert!(
+            text.contains(line),
+            "conductor.md: names the watch line {line}"
+        );
+    }
+    assert!(
+        text.contains(
+            "On `disk admit`, pause new builds: start nothing, grant nothing until free disk is \
+             back at `thresholds.disk_admit`."
+        ),
+        "conductor.md: disk admit pauses new builds"
+    );
+    assert!(
+        text.contains(
+            "On `disk gate stop`, run `conductor gc` at once and tell every controller running a \
+             gate that it is stopped until free disk is back at `thresholds.gate_resume`."
+        ),
+        "conductor.md: disk gate stop runs gc and tells the controllers"
+    );
+}
+
 /// `story:self-arming-restart`: the restart prompt arms the jobs and the watch, so a hand-over
 /// keeps only open work.
 #[test]

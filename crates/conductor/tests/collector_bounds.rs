@@ -213,13 +213,15 @@ fn spec_view_fields() -> Vec<(String, Vec<String>)> {
 /// repository dates were) is a column the view shows, or this is red.
 #[test]
 fn every_snapshot_view_shows_the_specifications_fields_in_order() {
-    const SHOWN: [&str; 6] = [
+    const SHOWN: [&str; 8] = [
         "snapshots",
         "repositories",
         "pull-requests",
         "workflow-runs",
         "sessions",
         "blockers",
+        "member-failures",
+        "collector-runs",
     ];
     let spec = spec_view_fields();
     let dir = case_dir("columns");

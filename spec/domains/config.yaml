@@ -474,3 +474,150 @@ types:
       - {name: version_line, type: Optional<String>}
       - {name: version, type: Optional<String>}
       - {name: pin, type: Optional<String>}
+
+  # The machine `conductor doctor` runs on (story:doctor-identity), printed before the program
+  # rows so that a posted report says where it came from: its host name, its operating system and
+  # that system's release, and its architecture, as `uname -n`, `uname -s`, `uname -r` and
+  # `uname -m` print them (`unknown` for one that cannot be read), and the version of the
+  # `conductor` that ran.
+  - name: conductor.config.Machine
+    kind: struct
+    fields:
+      - {name: host, type: String}
+      - {name: system, type: String}
+      - {name: release, type: String}
+      - {name: architecture, type: String}
+      - {name: conductor, type: String}
+
+  # Whether a forge's CLI is logged in to one host (story:doctor-identity), as its `auth status
+  # --hostname <host>` answers: `LoggedIn` when it exits 0, `NotLoggedIn` otherwise.
+  - name: conductor.config.ForgeLoginState
+    kind: enum
+    variants: [LoggedIn, NotLoggedIn]
+
+  # One host `conductor doctor` checks a login on (story:doctor-identity): `github.com` with `gh`
+  # for a `github` source, and the source's `host` with `glab` for a `gitlab` source, across every
+  # instance of the config file, each host once; only for a CLI that is present. `account` is the
+  # login name the CLI names for that host, and nothing else it prints: never a token or an
+  # e-mail address. It is absent when the CLI is not logged in, or names no login that is a plain
+  # name.
+  - name: conductor.config.ForgeLogin
+    kind: struct
+    fields:
+      - {name: program, type: String}
+      - {name: host, type: String}
+      - {name: state, type: conductor.config.ForgeLoginState}
+      - {name: account, type: Optional<String>}
+
+  # What `conductor doctor` reports (story:doctor-verdict, story:doctor-identity): the machine, one
+  # row per program conductor starts, one login per host of the config file's sources, and the
+  # verdict, its last line: `ready`, or `not ready: ` and each failure, comma-separated, in this
+  # order: `config (unreadable)`; then each program, as `<program> (missing)`,
+  # `<program> (too old)`, `<program> (pin unread)` or `<program> (version unread)`; then each
+  # login, as `<program> (not logged in to <host>)`.
+  - name: conductor.config.DoctorReport
+    kind: struct
+    fields:
+      - {name: machine, type: conductor.config.Machine}
+      - {name: prerequisites, type: List<conductor.config.Prerequisite>}
+      - {name: logins, type: List<conductor.config.ForgeLogin>}
+      - {name: verdict, type: String}
+
+  # The input of `conductor setup` (story:setup-command), which checks one repository's
+  # prerequisites: `repository` is its directory, by default the working directory; `apply`
+  # applies the fixes that are safe to repeat, and only those: it writes a config file with an
+  # instance naming the repository when there is no config file, and runs `conductor init` and
+  # `conductor trust` for the instance naming it when its records or its trust are missing. It
+  # never logs a CLI in, installs a program or migrates a planning store: it prints each of those
+  # as the command to run.
+  - name: conductor.config.SetupRepository
+    kind: struct
+    fields:
+      - {name: repository, type: Optional<String>}
+      - {name: apply, type: Optional<Boolean>}
+
+  # What one check of `conductor setup` found of the repository (story:setup-command). `check`
+  # is one of `store` (the planning store's version in `.engineering/project.yaml`: current,
+  # old, or none, which is no failure), `instance` (an instance of the config file whose
+  # checkouts root, or `local` source, holds the repository), `records` (that instance's records
+  # directory holds what `conductor init` writes) and `trust` (the repository is a trusted Claude
+  # Code workspace in `~/.claude.json`); `ready` whether it passes; `detail` what was found; `fix`
+  # the command that fixes it, when one does.
+  - name: conductor.config.RepositoryCheck
+    kind: struct
+    fields:
+      - {name: check, type: String}
+      - {name: ready, type: Boolean}
+      - {name: detail, type: String}
+      - {name: fix, type: Optional<String>}
+
+  # What `conductor setup` reports (story:setup-command): doctor's report, computed by doctor's
+  # own checks; the repository; one row per check of the repository, in the order `store`,
+  # `instance`, `records`, `trust`; and one verdict, doctor's verdict over doctor's failures and
+  # then each failing check as `<check> (<what>)`: `store (old)`, `instance (none)`,
+  # `records (missing)`, `trust (not trusted)`.
+  - name: conductor.config.SetupReport
+    kind: struct
+    fields:
+      - {name: doctor, type: conductor.config.DoctorReport}
+      - {name: repository, type: String}
+      - {name: checks, type: List<conductor.config.RepositoryCheck>}
+      - {name: verdict, type: String}
+
+  # The input of `conductor upgrade` (story:conductor-upgrade), which reads the releases of the
+  # repository the binary was built from. `check` only compares the installed version with the
+  # newest release and changes nothing; `release` names the release installed, `x.y.z`, by
+  # default the newest, and may name an older one (a rollback). It is `--release`, not
+  # `--version`, because `ess-cli/1` reserves `--version` for the binary's own. An upgrade downloads that
+  # release's `conductor-<version>-<target>.tar.gz`, for the target the binary was built for, and
+  # its `SHA256SUMS`, verifies the archive's sum, unpacks it, runs the unpacked binary's
+  # `--version`, and replaces the running binary's file by a rename in its own directory, keeping
+  # the old file as `conductor.previous` beside it.
+  - name: conductor.config.UpgradeBinary
+    kind: struct
+    fields:
+      - {name: check, type: Optional<Boolean>}
+      - {name: release, type: Optional<String>}
+
+  # What `conductor upgrade` found or did (story:conductor-upgrade): `UpgradeAvailable`, with
+  # `--check`, the release is newer than the installed version; `NoneAvailable`, with `--check`,
+  # it is not; `Upgraded`, the release's binary replaced the installed one; `AlreadyCurrent`, the
+  # installed version is the release's, and no file changed.
+  - name: conductor.config.UpgradeOutcome
+    kind: enum
+    variants: [UpgradeAvailable, NoneAvailable, Upgraded, AlreadyCurrent]
+
+  # What `conductor upgrade` reports (story:conductor-upgrade): the installed version, the
+  # release's version, what it found or did, and the binary's file.
+  - name: conductor.config.UpgradeReport
+    kind: struct
+    fields:
+      - {name: installed, type: String}
+      - {name: release, type: String}
+      - {name: outcome, type: conductor.config.UpgradeOutcome}
+      - {name: binary, type: String}
+
+  # Why `conductor upgrade` refused (story:conductor-upgrade); a refusal changes no file.
+  # `ReleaseUnread`, the release, its archive or its `SHA256SUMS` could not be downloaded or read,
+  # or `--release` is no `x.y.z`; `NoArchiveForTarget`, the release has no archive for the target
+  # the binary was built for; `ChecksumMismatch`, the archive's sum is not its `SHA256SUMS` line;
+  # `NewBinaryDoesNotRun`, the unpacked binary's `--version` failed; `BinaryNotWritable`, the
+  # binary's directory does not take the new file.
+  - name: conductor.config.UpgradeRefusal
+    kind: enum
+    variants:
+      - ReleaseUnread
+      - NoArchiveForTarget
+      - ChecksumMismatch
+      - NewBinaryDoesNotRun
+      - BinaryNotWritable
+
+  # A refusal of `conductor upgrade`: the release it was asked to install, the target, why, and
+  # what it found.
+  - name: conductor.config.UpgradeRefused
+    kind: struct
+    fields:
+      - {name: release, type: String}
+      - {name: target, type: String}
+      - {name: refusal, type: conductor.config.UpgradeRefusal}
+      - {name: detail, type: String}

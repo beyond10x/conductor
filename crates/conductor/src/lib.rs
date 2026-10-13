@@ -27,6 +27,7 @@ pub mod message;
 pub mod repository;
 pub mod resource;
 pub mod session;
+pub mod setup;
 pub mod shipped;
 pub mod snapshot;
 pub mod spawn;
@@ -34,6 +35,7 @@ pub mod state;
 pub mod status;
 pub mod store;
 pub mod trust;
+pub mod upgrade;
 pub mod usage;
 pub mod watch;
 

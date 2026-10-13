@@ -1,9 +1,9 @@
 ---
 title: Read the dashboard
 sidebar_position: 4
-description: Serve the read-only dashboard on 127.0.0.1, read each of its sections, and read the same data as JSON.
-lede: The dashboard is one read-only page of what every session works on, rebuilt from its sources on every request and written to nothing.
-source: crates/conductor/src/dashboard.rs, crates/conductor/src/dashboard/; crates/conductor/tests/dashboard.rs; Taskfile.yml, dashboard; conductor dashboard serve --help
+description: Serve the read-only dashboard on 127.0.0.1, read each of its sections, read the same data as JSON, and rebuild the app.
+lede: The dashboard is a read-only app of what every session works on, embedded in the conductor binary; the data it shows is rebuilt from its sources on every request and written to nothing.
+source: crates/conductor/src/dashboard.rs, crates/conductor/src/dashboard/; crates/conductor/dashboard/; crates/conductor/tests/dashboard.rs; Taskfile.yml, dashboard, ui, check; conductor dashboard serve --help
 ---
 
 ## 1. Serve it
@@ -30,9 +30,11 @@ $ conductor dashboard serve --port 7399
 listening on http://127.0.0.1:7399
 ```
 
-It listens on `127.0.0.1` only and answers two requests: `GET /`, an HTML page that reloads itself
-every 20 seconds, and `GET /data.json`, the same data as JSON. Any other path answers 404, and a
-request naming another host answers 403, so a page served from elsewhere cannot read the data:
+It listens on `127.0.0.1` only and answers `GET` alone. `GET /` is the dashboard app, a small Vue
+app built into the binary: its `index.html` loads one script and one stylesheet from `/assets/`,
+and the app reads `GET /data.json` when it opens and again every 20 seconds. `/data.json` is all
+the data the app shows, as JSON. Any other path answers 404, any other method 405, and a request
+naming another host answers 403, so a page served from elsewhere cannot read the data:
 
 ```console
 $ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:7399/other
@@ -41,11 +43,16 @@ $ curl -s -o /dev/null -w "%{http_code}\n" -H "Host: example.org" http://127.0.0
 403
 ```
 
+Every answer carries the policy
+`Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'`:
+the app runs only the script this server sends, and requests nothing from anywhere else. It needs
+no network beyond `127.0.0.1`.
+
 ## 2. What it reads
 
 With a config file, the dashboard reads the instance's `records` (unless `--root` names another
 directory), the watch's files under its `state`, and the sessions under its checkouts root. It
-names what it read at the foot of the page and in `reading`:
+names what it read at the foot of the app and in `reading`:
 
 ```console
 $ curl -s http://127.0.0.1:7399/data.json | jq -c .reading
@@ -62,9 +69,11 @@ the session's decision log `decisions/2026-10.jsonl` in its records:
 
 ## 3. The sections
 
+The app shows these sections, each from its part of `/data.json`, in this order:
+
 | section | shows | from |
 |---|---|---|
-| header | when it was read, free disk on `/`, controllers running, build slot | `df`, the session list |
+| summary | when it was read, free disk on `/`, controllers running, build slot | `df`, the session list |
 | Sessions under the checkouts root | each session's name, kind, state, age, working directory, and its current dispatch: goal, brief, last event; exited sessions below the live ones | `claude agents --json`, `dispatches/*.jsonl` |
 | Usage limit and context | usage limits found now and earlier today, and the sessions the watch reported above `thresholds.context_handover` tokens of context (default 300k), which the page names in each line | the watch's files |
 | Red CI on main | each workflow whose newest `main` run failed | the watch's CI state |
@@ -76,7 +85,8 @@ the session's decision log `decisions/2026-10.jsonl` in its records:
 
 A controller counts as running when a live session named after its repository runs in that
 repository's checkout. The two background measurements show the last complete result with its
-age; until the first one finishes the page says so.
+age; until the first one finishes the app says so. The header names when the data was read, or
+that `/data.json` could not be read, and switches between a dark and a light theme.
 
 The header and the operator's queue as JSON:
 
@@ -88,7 +98,7 @@ $ curl -s http://127.0.0.1:7399/data.json | jq -c '.decisions[]'
 {"choice":"A","class":"C","id":"DEC-20261008-01","reason":"gate green, change inside the approved design"}
 ```
 
-`red_ci` is `null` because no watch has run yet; the page says "no watch state". The build slot is
+`red_ci` is `null` because no watch has run yet; the app says "no watch state". The build slot is
 not recorded by any command yet.
 
 ## 4. What it does not do
@@ -96,3 +106,20 @@ not recorded by any command yet.
 The dashboard writes nothing and changes nothing: no button cleans up a tree or answers a
 decision. Cleanup goes through each tree's owner; a decision through `conductor decision`. It
 writes every path under the home directory as `~`.
+
+## 5. Change the app
+
+The app's source is `crates/conductor/dashboard/`: Vue 3, Vite and TypeScript, on the Node
+version its `.nvmrc` names, with the packages its `package-lock.json` locks. Its build,
+`crates/conductor/dashboard/dist/`, is committed, and the binary embeds that directory when it is
+compiled, so building or installing conductor needs no Node. After a change to the app, rebuild
+it and commit `dist/` with the change:
+
+```console
+task ui        # npm ci, then the type check and the build into crates/conductor/dashboard/dist/
+```
+
+`npm test` in `crates/conductor/dashboard` runs its Vitest suite: each section rendered from a
+fixture in the shape of `/data.json`, `src/fixtures/data.json`, whose keys a test of the binary
+holds to the keys the server sends. `task check` runs `npm ci`, that suite and `task ui`, and fails
+when the rebuilt `dist/` differs from the committed one.
