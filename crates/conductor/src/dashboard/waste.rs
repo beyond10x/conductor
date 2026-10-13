@@ -355,7 +355,7 @@ pub(crate) fn archive_strip(sources: &Sources) -> Row {
 
 /// The checkout `worktree prune-archives --repo` is given: the first git checkout directly
 /// under the checkouts root `root`, in name order; none when there is none.
-fn profile_checkout(root: &Path) -> Option<PathBuf> {
+pub(crate) fn profile_checkout(root: &Path) -> Option<PathBuf> {
     checkouts(root)
         .into_iter()
         .next()

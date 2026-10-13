@@ -116,8 +116,9 @@ pub struct Sources {
 impl Sources {
     /// The sources without a config file: `claude agents --json`, the repository `root`, the
     /// watch's directory ([`watch_dir`]), the built-in instance's checkouts root and context
-    /// hand-over threshold ([`config::built_in`]) and `/`; the `worktree` dry-runs of `root`'s
-    /// workspace and `/var/tmp`, measured every 10 minutes.
+    /// hand-over threshold ([`config::built_in`]) and `/`; the `worktree` dry-runs, with `--repo`
+    /// the first git checkout under the checkouts root, else `root`, and `/var/tmp`, measured
+    /// every 10 minutes.
     #[must_use]
     pub fn new(home: PathBuf, root: PathBuf) -> Self {
         let watch = watch_dir(&home, &root);
@@ -180,11 +181,16 @@ impl Sources {
         context_handover: u64,
     ) -> Self {
         let [checkouts, trees] = checkouts;
+        // `worktree` resolves its profile from `--repo` and refuses a directory no profile
+        // contains, as the records directory is: the dry-runs name the checkout
+        // `prune-archives` is given (`story:dashboard-worktree-repo`), or `root` when the
+        // checkouts root holds no git checkout.
+        let repo = waste::profile_checkout(&checkouts).unwrap_or_else(|| root.clone());
         let worktree = |verb: &str| {
             let mut command: Vec<OsString> = ["worktree", verb, "--dry-run", "--json", "--repo"]
                 .map(OsString::from)
                 .to_vec();
-            command.push(root.clone().into_os_string());
+            command.push(repo.clone().into_os_string());
             command
         };
         Self {

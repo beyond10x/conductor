@@ -678,6 +678,172 @@ fn the_sessions_shown_are_those_under_the_checkouts_root() {
     );
 }
 
+/// `story:dashboard-worktree-repo`: the disk measurement's `worktree sweep --dry-run` and
+/// `worktree gc --dry-run` name as `--repo` the first git checkout under the checkouts root, the
+/// one `worktree prune-archives` is given (`story:gc-archive-profile`), never the records
+/// directory, which no `worktree` profile contains.
+///
+/// The built binary serves an instance a config file names, its records apart from its checkouts
+/// root; a fake `worktree` first on `PATH` appends `<verb><TAB><--repo>` of each call to
+/// `repos.log`. Under the checkouts root `aaa` sorts first but is no git checkout, so `alpha` is
+/// the one named.
+#[test]
+fn the_worktree_dry_runs_name_a_checkout_under_the_checkouts_root_not_the_records() {
+    let case = Case::new("worktree-repo");
+    let home = case.home.clone();
+    let dir = home.parent().expect("the case's directory").to_path_buf();
+    let checkouts = home.join("checkouts");
+    let records = home.join("records");
+    fs::create_dir_all(checkouts.join("aaa")).expect("create a directory that is no checkout");
+    for name in ["alpha", "beta"] {
+        write(
+            &checkouts.join(name).join(".git/HEAD"),
+            "ref: refs/heads/main\n",
+        );
+    }
+    fs::create_dir_all(records.join("dispatches")).expect("create dispatches/");
+    fs::create_dir_all(records.join("decisions")).expect("create decisions/");
+    let config = dir.join("conductor.yaml");
+    write(
+        &config,
+        &format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: acme\n\
+             \x20   sources: [{{github: acme}}]\n\
+             \x20   checkouts: {{root: {checkouts:?}, trees: {trees:?}}}\n\
+             \x20   records: {records:?}\n\
+             \x20   state: {state:?}\n\
+             \x20   cache: {cache:?}\n",
+            trees = home.join("trees"),
+            state = home.join("state"),
+            cache = home.join("cache"),
+        ),
+    );
+
+    // The library builds the two calls with the checkout; with no git checkout under the root,
+    // with the records directory, as before.
+    let parsed = conductor_cli::config::parse(
+        &fs::read_to_string(&config).expect("read the config"),
+        &home,
+    )
+    .expect("the config converts");
+    let repo_of = |command: &[OsString]| {
+        command
+            .iter()
+            .position(|arg| arg == "--repo")
+            .and_then(|at| command.get(at + 1))
+            .map(PathBuf::from)
+    };
+    let sources = Sources::of(home.clone(), None, &parsed.instances[0]);
+    assert_eq!(repo_of(&sources.sweep), Some(checkouts.join("alpha")));
+    assert_eq!(repo_of(&sources.gc), Some(checkouts.join("alpha")));
+    let bare = Sources::new(home.clone(), records.clone());
+    assert_eq!(
+        repo_of(&bare.sweep),
+        Some(records.clone()),
+        "no checkout under the built-in checkouts root of the case's home"
+    );
+    assert_eq!(repo_of(&bare.gc), Some(records.clone()));
+
+    // The binary's measurement runs both, and `worktree` sees the checkout in each.
+    let bin = dir.join("bin");
+    let log = dir.join("repos.log");
+    let program = |name: &str, script: &str| {
+        let path = bin.join(name);
+        write(&path, script);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+            .expect("make the fake executable");
+    };
+    program("claude", "#!/bin/sh\nprintf '[]\\n'\n");
+    program(
+        "worktree",
+        &format!(
+            "#!/bin/sh\n\
+             verb=$1; repo=; prev=\n\
+             for arg; do\n\
+             \x20 if [ \"$prev\" = --repo ]; then repo=$arg; fi\n\
+             \x20 prev=$arg\n\
+             done\n\
+             printf '%s\\t%s\\n' \"$verb\" \"$repo\" >> '{log}'\n\
+             case \"$verb\" in\n\
+             sweep) printf '{{\"version\":4,\"ok\":true,\"items\":[]}}\\n' ;;\n\
+             gc) printf '{{\"version\":4,\"ok\":true,\"assessments\":[]}}\\n' ;;\n\
+             *) printf '{{\"version\":4,\"ok\":true}}\\n' ;;\n\
+             esac\n",
+            log = log.display(),
+        ),
+    );
+    let child = common::conductor(&home)
+        .args(["dashboard", "serve", "--port", "0"])
+        .env(conductor_cli::config::CONFIG_VARIABLE, &config)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .current_dir(&records)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start conductor dashboard serve");
+    let mut server = Server(child);
+    let stdout = server
+        .0
+        .stdout
+        .take()
+        .expect("the server's standard output");
+    // Read on a thread of its own, so a server that never prints fails the case instead of
+    // hanging it; `server` kills and reaps the child on every way out.
+    let (lines, line) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut first = String::new();
+        let _ = BufReader::new(stdout).read_line(&mut first);
+        let _ = lines.send(first);
+    });
+    let first = line
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the server prints a first line within 30 s");
+    let port: u16 = first
+        .trim_end()
+        .strip_prefix("listening on http://127.0.0.1:")
+        .and_then(|port| port.parse().ok())
+        .unwrap_or_else(|| panic!("the first line is {first:?}"));
+    assert_eq!(request(port, "GET", "/data.json", None).status, 200);
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let calls = loop {
+        let logged = fs::read_to_string(&log).unwrap_or_default();
+        let mut calls: Vec<(String, PathBuf)> = logged
+            .lines()
+            .filter_map(|line| line.split_once('\t'))
+            .filter(|(verb, _)| ["gc", "sweep"].contains(verb))
+            .map(|(verb, repo)| (verb.to_owned(), PathBuf::from(repo)))
+            .collect();
+        calls.sort();
+        calls.dedup();
+        if calls.iter().any(|(verb, _)| verb == "gc")
+            && calls.iter().any(|(verb, _)| verb == "sweep")
+        {
+            break calls;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "worktree was not called for both dry runs within 60 s; {} holds:\n{logged}",
+            log.display()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    drop(server);
+    let alpha = checkouts.join("alpha");
+    assert_eq!(
+        calls,
+        [
+            ("gc".to_owned(), alpha.clone()),
+            ("sweep".to_owned(), alpha)
+        ],
+        "each dry run names the checkout, not the records directory {}",
+        records.display()
+    );
+}
+
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 
