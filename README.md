@@ -56,9 +56,9 @@ The full model, with what is enforced and what is only instructed:
 | `gh`, logged in | | pull requests, CI runs, releases, repository lists of a GitHub source |
 | `task` (go-task) | | the tasks in [`Taskfile.yml`](Taskfile.yml) |
 | `jq` | | the tasks in `Taskfile.yml` |
-| `aep` | 0.69 | the planning stores: blockers per repository |
-| `ess` | 0.56 | the specification gate of `task check` |
-| `worktree` | 0.13 | managed worktrees for controllers and their workers |
+| `aep` | 0.71 | the planning stores: blockers per repository |
+| `ess` | 0.59 | the specification gate of `task check` |
+| `worktree` | 0.17 | managed worktrees for controllers and their workers |
 | `b10x-gates` | | the bot route for commits and pushes; the secret scan of `task check` |
 | `notify-send` (optional) | | the watch's desktop notification on a usage limit |
 
