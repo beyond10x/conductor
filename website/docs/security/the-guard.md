@@ -69,7 +69,7 @@ The target path is resolved first, `~` and links included. Then:
 
 | a controller may write | conductor may write |
 |---|---|
-| inside its repository's checkout and its managed worktrees | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `docs/analysis/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md` |
+| inside its repository's checkout and its managed worktrees | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `docs/analysis/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`, `REPORT.md` |
 | its scratch: under `$TMPDIR`, or under `~/.cache/<repo>-*/` (`<repo>` its repository, `/` written `-`) | its scratch: under `$TMPDIR` |
 
 Both are denied, wherever the file is:
@@ -91,6 +91,10 @@ A controller is denied, in addition:
 Scratch is never a repository's checkout or managed worktree, the records, the config or a
 protected file, wherever `$TMPDIR` points. A `$TMPDIR` that is the home directory, or holds it, is
 no scratch at all.
+
+A controller's denial of a file outside its checkout, or in the records, names where it may write
+instead: `scratch is under $TMPDIR or ~/.cache/<repo>-*/`. Conductor's names its records and
+`$TMPDIR`.
 
 ## SendMessage
 
@@ -123,14 +127,15 @@ Denied in every guarded session:
   (`glab api graphql` reads only as any other endpoint does); `glab auth status`; any call with
   `--help`; `--version` with no group. No verb reads after any other group: a `glab` group not
   named here makes only writes.
-- a command that names a `.claude/` settings file or a role's settings file and holds a write
-  form;
-- a command that names a role's profile file and holds a write form.
+- a command that writes a `.claude/` settings file or a role's settings file
+  ([write targets](#write-targets));
+- a command that writes a role's profile file.
 
 Denied in a controller's session, in addition:
 
 - a `cd`, `pushd`, or `git -C`, `--git-dir`, `--work-tree`, `GIT_DIR=` or `GIT_WORK_TREE=` that
-  reaches another repository's checkout or managed worktrees, or conductor's records;
+  reaches another repository's checkout or managed worktrees, or conductor's records. A `cd`
+  denial adds "read it by absolute path, without cd": reading there stays allowed;
 - a git command that writes, decided on its target as a file write is: the directory `-C` leaves
   it in (repeated `-C` each taken from the one before; the cwd without one), and each
   `--git-dir`, `--work-tree`, `GIT_DIR` and `GIT_WORK_TREE` (also from an earlier `export`). A
@@ -143,7 +148,7 @@ Denied in a controller's session, in addition:
   decided;
 - a command that names conductor's config (`$CONDUCTOR_CONFIG`, the config file, the default
   file, its directory, the `state` directory) and holds a write form;
-- a command that names conductor's records, or a path under them, and holds a write form;
+- a command that writes conductor's records, or a path under them;
 - a `conductor` command that is not a read: `conductor trust`, `conductor init`, and every leaf
   of the command groups except the views, `decision show`, `config show`, `config validate` and
   the hook's own `guard record-guard-decision`. `conductor doctor` reads, and is allowed.
@@ -152,9 +157,10 @@ A **write form** is a redirection to a file outside quotes (`2>&1`, `>&2` and `>
 none), one of `sed -i`, `sed --in-place`, `yq -i`, `yq --inplace`, `perl -i`, `perl -pi` or
 ` of=` anywhere, or one of `tee`, `cp`, `mv`, `rm`, `ln`, `install`, `truncate`, `touch`,
 `rsync`, `patch` as a word. A path is "named" by a substring test on its spellings (absolute,
-`~/…`, `$HOME/…`, `${HOME}/…`, quoted `$HOME`), not by a parse. So a command that names a
-protected path while it writes another file is denied, and a command that writes a protected
-file by a relative path, a variable or after a `cd` is not caught.
+`~/…`, `$HOME/…`, `${HOME}/…`, quoted `$HOME`), not by a parse. The config rule decides on the
+name and the write form alone, so a command that names the config while it writes another file
+is denied. A command that writes a protected file by a relative path or after a `cd` is not
+caught.
 
 A `gh` or `glab` call hidden inside an interpreter string (`python -c "…"`, `node -e "…"`) is
 not caught by the guard's parsing, which follows `sh -c` scripts but not another language's; only
@@ -168,20 +174,32 @@ A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write, and a `glab variab
 needs the operator's hands, whoever authorized it. The denial says so and hands the operator the exact
 command to run, prefixed with `!`, so it can be passed on as is.
 
-### The read-flag exemption
+### Write targets
 
-Starting or resuming a session names its settings and profile files:
-`claude … --settings <file>` or `--append-system-prompt-file <file>`. Claude Code only reads
-those. So a protected file named **only** as the value of `--settings`,
-`--append-system-prompt-file` or `--system-prompt-file` does not count as written, unless a write
-form targets it: a redirection to it, or a writing program (`tee`, `cp`, `sed`, `dd` and the
-others above) with it as a word.
+A Bash command is decided on its write targets by the records, settings and profile rules. A
+command that names the protected path and holds a write form is denied only when one of its
+commands:
 
-The exemption does not apply when the shell could reach that value without naming it again: a
-parameter other than `$HOME` (`$f`, `$1`, `${…}`), a backquote, a here-document or here-string, or
-one of `sh`, `bash`, `zsh`, `python`, `node`, `perl`, `awk`, `xargs`, `eval`, `source`, `exec`,
-`set`, `for`, `while`, `read`, `find`, `parallel` and the like in the command. Such a command is
-decided as if the exemption did not exist.
+- redirects output to the path (`> <path>`, `>> <path>`, `2> <path>`);
+- runs a writing program with the path as an operand: `tee`, `cp`, `mv`, `rm`, `ln`, `install`,
+  `truncate`, `touch`, `rsync`, `patch`, `dd`, or `sed` or `yq` with an in-place flag. Every
+  operand counts, the source of `cp` or `mv` too;
+- or writes to a target the guard cannot read: a variable other than `$HOME` and `$TMPDIR`
+  (`"$OUT"`, `"$_"`, `$1`), a substitution, a backquote, `{}` after `find -exec` or `xargs`, or
+  `$HOME`, `$TMPDIR` or `~` when the command sets that variable itself. Such a command is decided
+  on the name and the write form, as before;
+- or runs a shell or an interpreter that can reach the path without naming it again: `sh`,
+  `bash`, `zsh`, `python`, `python3`, `node`, `ruby`, `perl`, `xargs`, `parallel`, `eval`,
+  `source`.
+
+A path that appears only as a read operand, inside a quoted program or string, or in a
+here-document's body is not written. So a controller may copy part of the records' `rules.md`
+into its scratch (`awk '/^## Controller/,/^## Worker/' <records>/rules.md >
+~/.cache/<repo>-x/brief.md`, `sed -n '10,40p' <records>/rules.md > $TMPDIR/x`), conductor may
+start a session with `claude … --settings <file> --append-system-prompt-file <file>`, and
+conductor may append a charter section whose body quotes a profile's path (`cat >>
+charters/x.md <<'EOF'`). `sed -i … <records>/rules.md` and `… > <records>/rules.md` stay denied.
+A write that `awk` or `sed` makes from inside its own quoted program is not read.
 
 ## One conductor: the lease
 

@@ -38,6 +38,7 @@ const sidebars: SidebarsConfig = {
       label: 'Guides',
       collapsed: false,
       items: [
+        'guides/first-task-existing-repo',
         'guides/configure-an-instance',
         'guides/gitlab',
         'guides/initialise-the-records',

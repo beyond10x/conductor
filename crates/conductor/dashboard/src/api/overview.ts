@@ -5,6 +5,8 @@
 //   the board's deviations are computed by the server, the one place `STATUS.md`'s are, and are
 //   never recomputed here;
 // - `/api/events?since=<rfc3339>`: `{rows}`, the day's events;
+// - `/api/reviews`: `{snapshot, rows}`, the pull requests that wait for review, oldest first, as
+//   `STATUS.md`'s "Waiting for review" lists them (story:review-limit);
 // - `/data.json`: crates/conductor/src/dashboard.rs.
 // The fixtures src/views/__tests__/fixtures/overview-*.json carry these keys, and
 // crates/conductor/tests/dashboard_overview.rs holds them to the ones the server answers.
@@ -91,6 +93,15 @@ export interface ReleaseRow {
   url: string;
 }
 
+/** One pull request that waits for a person's review: open, not draft, no failing check. */
+export interface ReviewRow {
+  repository: string;
+  number: number;
+  title: string;
+  opened_at: string;
+  url: string | null;
+}
+
 export type EventKind = 'dispatch' | 'report' | 'decision' | 'release' | 'merge';
 
 /** One event of the day. */
@@ -110,6 +121,7 @@ export interface OverviewData {
   pullRequests: FromSnapshot<PullRequestRow>;
   workflowRuns: FromSnapshot<WorkflowRunRow>;
   releases: FromSnapshot<ReleaseRow>;
+  reviews: FromSnapshot<ReviewRow>;
   events: EventRow[];
   /** The `since` the events were asked with: 00:00 UTC of the day. */
   since: string;
@@ -149,7 +161,7 @@ async function read<T>(fetcher: Fetch, path: string): Promise<T | string> {
 export async function loadOverview(now: Date, fetcher: Fetch = fetch): Promise<OverviewData> {
   const since = startOfDayUtc(now);
   const none = { snapshot: null, rows: [] };
-  const [data, board, repositories, pullRequests, workflowRuns, releases, events] =
+  const [data, board, repositories, pullRequests, workflowRuns, releases, events, reviews] =
     await Promise.all([
       read<DashboardData>(fetcher, '/data.json'),
       read<FromSnapshot<BoardRow>>(fetcher, '/api/board'),
@@ -158,6 +170,7 @@ export async function loadOverview(now: Date, fetcher: Fetch = fetch): Promise<O
       read<FromSnapshot<WorkflowRunRow>>(fetcher, '/api/workflow-runs'),
       read<FromSnapshot<ReleaseRow>>(fetcher, '/api/releases'),
       read<{ rows: EventRow[] }>(fetcher, `/api/events?since=${encodeURIComponent(since)}`),
+      read<FromSnapshot<ReviewRow>>(fetcher, '/api/reviews'),
     ]);
   const errors: string[] = [];
   function part<T>(answer: T | string, empty: T): T {
@@ -174,6 +187,7 @@ export async function loadOverview(now: Date, fetcher: Fetch = fetch): Promise<O
     pullRequests: part(pullRequests, none),
     workflowRuns: part(workflowRuns, none),
     releases: part(releases, none),
+    reviews: part(reviews, none),
     events: part(events, { rows: [] }).rows,
     since,
     errors,
@@ -183,6 +197,32 @@ export async function loadOverview(now: Date, fetcher: Fetch = fetch): Promise<O
 // ---------------------------------------------------------------------------------------------
 // Selections
 // ---------------------------------------------------------------------------------------------
+
+/** The pull requests that wait for review, oldest first. */
+export function waitingForReview(view: OverviewData): ReviewRow[] {
+  return [...view.reviews.rows].sort(
+    (left, right) => Date.parse(left.opened_at) - Date.parse(right.opened_at),
+  );
+}
+
+/**
+ * How long a pull request opened at `openedAt` had been open at `at`, in its largest whole unit:
+ * `2d`, `18h`, `40m`; `openedAt` as written when either does not read.
+ */
+export function age(openedAt: string, at: string | null): string {
+  const open = at === null ? Number.NaN : Date.parse(at) - Date.parse(openedAt);
+  if (Number.isNaN(open)) {
+    return openedAt;
+  }
+  const minutes = Math.max(0, Math.floor(open / 60_000));
+  if (minutes >= 24 * 60) {
+    return `${Math.floor(minutes / (24 * 60))}d`;
+  }
+  if (minutes >= 60) {
+    return `${Math.floor(minutes / 60)}h`;
+  }
+  return `${minutes}m`;
+}
 
 /** The repositories of the board whose `main` is red, in the board's order. */
 export function redMain(view: OverviewData): string[] {

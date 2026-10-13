@@ -221,8 +221,8 @@ A `[RESOURCE]` request is granted or refused against the instance's thresholds
 | a controller's SendMessage only to `conductor` or to a sub-agent it started | the guard; a sub-agent by the shape of its id, not by who started it |
 | no `gh` or `glab` writes; writes to the forge go through the repository's own route; a forge write of a credential is class H, handed to the operator | the guard |
 | no `cd`, `pushd` or `git -C` into another repository or into conductor's records | the guard (a heuristic) |
-| no write to conductor's records or conductor's config | the guard: file tools; Bash a write form that names them |
-| no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`), a role's `settings` file or a role's `profile` file, by a file tool or a Bash write form that names it | the guard |
+| no write to conductor's records or conductor's config | the guard: file tools; Bash a write target in the records, or a write form in a command that names the config |
+| no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`), a role's `settings` file or a role's `profile` file, by a file tool or a Bash write target | the guard |
 | no `conductor` command that writes, only its views | the guard |
 | conductor's Edit, Write, NotebookEdit only to its records, or in its scratch | the guard |
 | a build over `thresholds.build_size` while free disk is under `thresholds.build_slot` asks for a slot | the profile and `[RESOURCE]` |
@@ -254,7 +254,7 @@ It reads the hook payload on standard input and decides by the payload's `cwd`:
   source of the instance excludes that repository;
 - a cwd in conductor's records (the instance's `records` when a config file names it) runs under
   conductor's rules, which allow edits to the records (`decisions/`, `dispatches/`, `charters/`,
-  `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`) and to scratch, and deny `gh` and
+  `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`, `REPORT.md`) and to scratch, and deny `gh` and
   `glab` writes;
 - a cwd in no repository is denied every tool that has a rule.
 
@@ -271,11 +271,18 @@ It denies a `cd`, `pushd` or `git -C` into another checkout or the records, a `g
 `glab` call that is not a read (`mr view|list|diff`, `issue view|list`, `release
 view|list|download`, `repo view|list`, `ci view|list|status|trace|get`, `api` with GET and no
 request fields, `auth status`, `--help`, `--version`), held exactly as a `gh` write, a `conductor`
-write, and a command that names a settings file, a role's profile file, conductor's
-config or (a controller's) conductor's records and holds a write form anywhere in it. A write form
-is a redirection to a file outside quotes (`2>&1`, `>&2`, `>/dev/null` and a `>` inside a
-quoted program such as `awk 'NR>=490'` are none), or a write command or flag (`tee`, `cp`,
-`mv`, `rm`, `sed -i` and the like). Any other Bash write passes: a controller can write,
+write, a command that writes a settings file, a role's profile file or (a controller's)
+conductor's records, and a command that names conductor's config and holds a write form anywhere
+in it. A write form is a redirection to a file outside quotes (`2>&1`, `>&2`, `>/dev/null` and a
+`>` inside a quoted program such as `awk 'NR>=490'` are none), or a write command or flag (`tee`,
+`cp`, `mv`, `rm`, `sed -i` and the like). A Bash command is decided on its write targets: for the
+records, the settings and the profile files the guard reads the targets of the command's
+redirections and the operands of its writing programs (`tee`, `cp`, `mv`, `install`, `sed -i`,
+`perl -i` and the like), so a path that appears only as a read operand or inside a quoted or
+here-document body is not written, and a controller may copy part of the records' `rules.md`
+into its scratch. A target held in a variable or a substitution, or a shell or interpreter on the
+line, is decided on the name and the write form, as before. A denied write names the session's
+scratch, and a denied `cd` says to read by absolute path instead. Any other Bash write passes: a controller can write,
 overwrite or delete any file its user can, other checkouts and the `conductor` binary included,
 and conductor's records or config through a path the command does not spell out. Each
 snapshot reports dirty files in every checkout, which turns such a write into a finding. The guard
@@ -357,8 +364,22 @@ is. `conductor store migrate` copies an older eventlog-file store, or a `tree/` 
 observations, into this layout and keeps the old one beside it.
 
 The session also keeps human-readable logs in its records directory: `decisions/YYYY-MM.jsonl`,
-`dispatches/YYYY-MM.jsonl`, `charters/<repo>.md` and `docs/handoff/`. The CLI does not write them
-yet.
+`dispatches/YYYY-MM.jsonl`, `charters/<repo>.md` and `docs/handoff/`. The CLI writes the two
+logs: once the store has kept a record, the command that recorded it appends exactly one line, a
+JSON object with `at`, `event`, `repo` and the fields its event declares
+(`conductor.dispatch.DispatchLogLine`, `conductor.decision.DecisionLogLine`), to the file of the
+line's month:
+
+| log | commands, and the `event` each appends |
+|---|---|
+| `dispatches/` | `dispatch send-dispatch` and `conductor spawn` (`sent`, spawn's with the session id), `dispatch report-started`, `report-blocked`, `report-unblocked`, `report-done`, `report-failed` (`started`, `blocked`, `unblocked`, `done`, `failed`), `dispatch cancel-dispatch` (`cancelled`), `message receive-message` (`message-received`), `resource grant-resource`, `refuse-resource` (`resource-granted`, `resource-refused`), `controller revise-charter` (`charter-revised`) |
+| `decisions/` | `decision record-conductor-decision`, `record-operator-decision` (`decided`), `raise-decision-request` (`requested`), `answer-request`, `answer-escalated-request` (`answered`), `escalate-request` (`escalated`), `withdraw-request` (`withdrawn`), `reverse-conductor-decision`, `reverse-operator-decision` (`reversed`) |
+
+A line for an event one of these commands records is never written by hand.
+`conductor records check` reads both logs and the store's decisions and exits 1 naming each
+decision id a dispatch line cites that nothing holds, each line whose keys its log does not
+declare, and each decision line in the dispatch log. `charters/` and `docs/handoff/` are
+written by the session.
 
 ### Repository activity
 
@@ -448,7 +469,7 @@ owns conductor's development, watches how conductor behaves, and rebuilds and re
 
 | who | writes |
 |---|---|
-| conductor | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
+| conductor | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`, `REPORT.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
 | conductor-dev | `crates/`, `spec/`, `.engineering/`, `docs/`, `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; the instance's `rules.md` |
 
 Conductor sends its faults and requests to conductor-dev as `[NEED conductor <id>] conductor-dev

@@ -17,7 +17,8 @@
 //! from this server and nothing else.
 //!
 //! The overview's endpoints (`story:dashboard-overview`, [`overview`]): `/api/board`,
-//! `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs` and `/api/releases` answer
+//! `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs`, `/api/releases` and
+//! `/api/reviews` (what waits for review, `story:review-limit`) answer
 //! the newest complete snapshot of the store under the instance's state directory, opened only
 //! when it is there ([`serve_over`] names another); `/api/events?since=<rfc3339>` the events since
 //! then, 00:00 UTC of the day without `since`.

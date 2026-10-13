@@ -59,7 +59,8 @@ types:
   # the `controller` role's in `conductor config show`; the charter is the text of
   # `<records>/charters/<repository>.md`, one argument. It records `StartController` before it
   # launches, and `StopController` when the launch fails. It prints what `claude --bg` printed: the
-  # background session's id.
+  # background session's id. A launch that succeeds appends one `sent` line to the records'
+  # dispatch log (`DispatchLogLine`), with the controller's id and that session id.
   - name: conductor.dispatch.SpawnController
     kind: struct
     fields:
@@ -102,6 +103,97 @@ types:
     fields:
       - {name: repository, type: String}
       - {name: refusal, type: conductor.dispatch.SpawnRefusal}
+      - {name: detail, type: String}
+
+  # What a line of the records' dispatch log says happened (story:records-from-commands). A command
+  # that records one of these appends exactly one line to `<records>/dispatches/YYYY-MM.jsonl`, the
+  # month of the line's `at` in UTC, once the store has kept the record; nobody writes such a line
+  # by hand. The line's `event` is the variant in lower case, words joined by `-`: `sent` (`conductor
+  # spawn` and `SendDispatch`), `started`, `blocked`, `unblocked`, `done`, `failed` (the `Report*`
+  # commands), `cancelled` (`CancelDispatch`), `message-received` (`ReceiveMessage`),
+  # `resource-granted`, `resource-refused` (`GrantResource`, `RefuseResource`) and
+  # `charter-revised` (`ReviseCharter`).
+  - name: conductor.dispatch.DispatchLogEvent
+    kind: enum
+    variants:
+      - Sent
+      - Started
+      - Blocked
+      - Unblocked
+      - Done
+      - Failed
+      - Cancelled
+      - MessageReceived
+      - ResourceGranted
+      - ResourceRefused
+      - CharterRevised
+
+  # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
+  # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
+  # `repository`) and the fields its event declares, and no key that is absent. `id` is the id of
+  # the record the event moved: the dispatch, the message or the resource request. The fields of
+  # each event:
+  # - `sent` by `SendDispatch`: `id`, `to` (the repository's session name), `goal`, `brief`,
+  #   `priority`, and `waits_on` when given;
+  # - `sent` by `conductor spawn`: `controller_id`, `to`, `session_id` (what `claude --bg`
+  #   printed) and `charter_revision`;
+  # - `started`, `unblocked`: `id`; `blocked`, `failed`, `cancelled`: `id`, `reason`; `done`:
+  #   `id`, `evidence`;
+  # - `message-received`: `id`, `from`, `to`, `kind`, `first_line`; `repo` is the repository the
+  #   first line names, else the sender;
+  # - `resource-granted`: `id`, `resource`, `amount`; `resource-refused`: those and `reason`;
+  # - `charter-revised`: `controller_id`, `to`, `charter_revision`, the revision it moved to.
+  - name: conductor.dispatch.DispatchLogLine
+    kind: struct
+    fields:
+      - {name: at, type: Timestamp}
+      - {name: event, type: conductor.dispatch.DispatchLogEvent}
+      - {name: repo, type: String}
+      - {name: id, type: Optional<String>}
+      - {name: to, type: Optional<String>}
+      - {name: goal, type: Optional<String>}
+      - {name: brief, type: Optional<String>}
+      - {name: priority, type: Optional<Integer>}
+      - {name: waits_on, type: Optional<String>}
+      - {name: reason, type: Optional<String>}
+      - {name: evidence, type: Optional<String>}
+      - {name: controller_id, type: Optional<String>}
+      - {name: session_id, type: Optional<String>}
+      - {name: charter_revision, type: Optional<Integer>}
+      - {name: from, type: Optional<String>}
+      - {name: kind, type: Optional<String>}
+      - {name: first_line, type: Optional<String>}
+      - {name: resource, type: Optional<String>}
+      - {name: amount, type: Optional<Integer>}
+
+  # The input of `conductor records check` (story:records-from-commands), a view over the records'
+  # two logs and the store: it reads `<records>/dispatches/*.jsonl` and
+  # `<records>/decisions/*.jsonl` of the instance and the store's decisions, opens only an existing
+  # store, and writes nothing. `format` is text or json, read by the handler.
+  - name: conductor.dispatch.CheckRecords
+    kind: struct
+    fields:
+      - {name: format, type: Optional<String>}
+
+  # What `records check` finds on one line: `UnknownDecision`, a line of `dispatches/` cites a
+  # decision id (`DEC-…`) that no line of `decisions/` and no decision of the store holds;
+  # `UnknownKeySet`, a line of either log that is no JSON object, misses `at`, `event` or `repo`,
+  # or holds a key its log's line (`DispatchLogLine`, `conductor.decision.DecisionLogLine`) does
+  # not declare; `DecisionInDispatchLog`, a line of `dispatches/` whose `event` is a decision
+  # log's event, or that has no `event` and whose `id` is a decision id. A line reported as
+  # `DecisionInDispatchLog` is reported for nothing else.
+  - name: conductor.dispatch.RecordsFindingKind
+    kind: enum
+    variants: [UnknownDecision, UnknownKeySet, DecisionInDispatchLog]
+
+  # One finding of `records check`: the file under the records directory, its 1-based line, what
+  # was found and the detail that names it. Any finding exits 1.
+  - name: conductor.dispatch.RecordsFinding
+    kind: struct
+    fields:
+      - {name: file, type: String}
+      - {name: line, type: Integer}
+      - {name: finding, type: conductor.dispatch.RecordsFindingKind}
       - {name: detail, type: String}
 
 entities:
@@ -582,6 +674,8 @@ commands:
             controller_id: input.controller_id
         summary: The controller is already stopped.
 
+  # Records line (`DispatchLogLine`): `charter-revised`, with `controller_id`, `to` and the new
+  # `charter_revision`.
   - name: conductor.dispatch.ReviseCharter
     naming:
       wire: revise-charter
@@ -627,6 +721,8 @@ commands:
             controller_id: input.controller_id
         summary: A stopped controller takes no charter.
 
+  # Records line (`DispatchLogLine`): `sent`, with `id`, `to`, `goal`, `brief`, `priority`, and
+  # `waits_on` when given.
   - name: conductor.dispatch.SendDispatch
     naming:
       wire: send-dispatch
@@ -706,6 +802,7 @@ commands:
             dispatch_id: input.dispatch_id
         summary: A dispatch already has this id; the held dispatch is unchanged.
 
+  # Records line (`DispatchLogLine`): `started`, with `id`.
   - name: conductor.dispatch.ReportStarted
     naming:
       wire: report-started
@@ -737,6 +834,7 @@ commands:
             dispatch_id: input.dispatch_id
         summary: Only a sent dispatch starts.
 
+  # Records line (`DispatchLogLine`): `blocked`, with `id` and `reason`.
   - name: conductor.dispatch.ReportBlocked
     naming:
       wire: report-blocked
@@ -771,6 +869,7 @@ commands:
             dispatch_id: input.dispatch_id
         summary: Only a started dispatch blocks.
 
+  # Records line (`DispatchLogLine`): `unblocked`, with `id`.
   - name: conductor.dispatch.ReportUnblocked
     naming:
       wire: report-unblocked
@@ -802,6 +901,7 @@ commands:
             dispatch_id: input.dispatch_id
         summary: Only a blocked dispatch is unblocked.
 
+  # Records line (`DispatchLogLine`): `done`, with `id` and `evidence`.
   - name: conductor.dispatch.ReportDone
     naming:
       wire: report-done
@@ -836,6 +936,7 @@ commands:
             dispatch_id: input.dispatch_id
         summary: Only a started dispatch is done.
 
+  # Records line (`DispatchLogLine`): `failed`, with `id` and `reason`.
   - name: conductor.dispatch.ReportFailed
     naming:
       wire: report-failed
@@ -870,6 +971,7 @@ commands:
             dispatch_id: input.dispatch_id
         summary: Only a started or blocked dispatch fails.
 
+  # Records line (`DispatchLogLine`): `cancelled`, with `id` and `reason`.
   - name: conductor.dispatch.CancelDispatch
     naming:
       wire: cancel-dispatch
@@ -904,6 +1006,8 @@ commands:
             dispatch_id: input.dispatch_id
         summary: The dispatch already ended.
 
+  # Records line (`DispatchLogLine`): `message-received`, with `id`, `from`, `to`, `kind` and
+  # `first_line`, whether the message is received or rejected at receipt.
   - name: conductor.dispatch.ReceiveMessage
     naming:
       wire: receive-message
@@ -1211,6 +1315,7 @@ commands:
             resource_request_id: input.resource_request_id
         summary: Only a granted request is released.
 
+  # Records line (`DispatchLogLine`): `resource-granted`, with `id`, `resource` and `amount`.
   - name: conductor.dispatch.GrantResource
     naming:
       wire: grant-resource
@@ -1259,6 +1364,8 @@ commands:
             resource_request_id: input.resource_request_id
         summary: The request was already answered.
 
+  # Records line (`DispatchLogLine`): `resource-refused`, with `id`, `resource`, `amount` and
+  # `reason`.
   - name: conductor.dispatch.RefuseResource
     naming:
       wire: refuse-resource

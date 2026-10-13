@@ -103,6 +103,11 @@ callables:
       untrusted-checkout: conductor.dispatch.SpawnRefused
       no-charter: conductor.dispatch.SpawnRefused
       launch-failed: conductor.dispatch.SpawnRefused
+  records-check:
+    target: {kind: local, owner: conductor-cli, action: records_check}
+    input: conductor.dispatch.CheckRecords
+    result: List<conductor.dispatch.RecordsFinding>
+    errors: {}
   upgrade:
     target: {kind: local, owner: conductor-cli, action: upgrade}
     input: conductor.config.UpgradeBinary
@@ -232,6 +237,12 @@ commands:
     arguments:
       - field: repository
         source: {kind: option, long: repository}
+  - path: [records, check]
+    callable: records-check
+    about: Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log
+    arguments:
+      - field: format
+        source: {kind: option, long: format}
   - path: [upgrade]
     callable: upgrade
     about: Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release

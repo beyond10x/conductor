@@ -19,6 +19,11 @@
 //! line, or nothing is written. A line whose tag names
 //! no kind (`hello`) is received as kind `Unknown`, which never parses, unless `--kind` names one.
 //!
+//! Once the store kept it, received or rejected at receipt, `receive-message` appends one
+//! `message-received` line to the records' dispatch log ([`crate::records`]): the message's id,
+//! sender, recipient, kind and first line, and as `repo` the repository the first line names
+//! ([`named_repository`]), else the sender.
+//!
 //! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
 //! lists every row it can read, in the order the messages were first stored, and answers through
 //! [`crate::store::show`].
@@ -35,9 +40,9 @@ use conductor_model::dispatch::obligations::{
     RouteNeedBehavior,
 };
 use conductor_model::dispatch::{
-    DispatchId, GuardDecisionId, HandleMessage, HandleMessageOutcome, MessageId, MessageKind,
-    MessageSnapshot, MessageState, ReceiveMessage, ReceiveMessageOutcome, RejectMessage,
-    RejectMessageOutcome, ResourceRequestId, RouteNeed, RouteNeedOutcome, Transport,
+    DispatchId, DispatchLogEvent, GuardDecisionId, HandleMessage, HandleMessageOutcome, MessageId,
+    MessageKind, MessageSnapshot, MessageState, ReceiveMessage, ReceiveMessageOutcome,
+    RejectMessage, RejectMessageOutcome, ResourceRequestId, RouteNeed, RouteNeedOutcome, Transport,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::{BoardId, ObservationId, SnapshotId};
@@ -48,6 +53,7 @@ use crate::cli::{
     HandleMessageArgs, JsonInput, ReceiveMessageArgs, RejectMessageArgs, RouteNeedArgs, ViewArgs,
 };
 use crate::not_implemented;
+use crate::records;
 use crate::store::Store;
 
 /// What `receive-message` prints for the sender of a first line that does not parse: the § 6
@@ -195,6 +201,23 @@ pub fn read(line: &str) -> Reading {
     }
 }
 
+/// The repository a § 6 first line names in its brackets, after its tag: `[DISPATCH <repo> …`,
+/// `[REPORT <repo> …`, `[DECISION-REQUEST <repo> …`, `[NEED <repo> …` and `[RESOURCE <repo>]`.
+/// None for another tag, or a line that names none.
+#[must_use]
+pub fn named_repository(line: &str) -> Option<String> {
+    const NAMING: [&str; 5] = ["DISPATCH", "REPORT", "DECISION-REQUEST", "NEED", "RESOURCE"];
+    let opened = line.trim().strip_prefix('[')?;
+    let inside = opened.split(']').next().unwrap_or_default();
+    let mut words = inside.split_whitespace();
+    let tag = words.next()?;
+    if NAMING.contains(&tag) {
+        words.next().map(str::to_owned)
+    } else {
+        None
+    }
+}
+
 /// `conductor message receive-message`: the command `conductor.dispatch.ReceiveMessage`. Prints
 /// the message's id when its first line parses; otherwise prints [`FORMAT`] and exits 1, with the
 /// message recorded `Rejected`.
@@ -245,6 +268,12 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
             }
         );
     }
+    let repo = named_repository(&first_line).unwrap_or_else(|| sender.clone());
+    let mut line = records::dispatch_line(DispatchLogEvent::MessageReceived, &repo)?;
+    line.from = Some(sender.clone());
+    line.to = Some(recipient.clone());
+    line.kind = Some(kind_name(kind).to_owned());
+    line.first_line = Some(first_line.clone());
     let input = ReceiveMessage {
         sender,
         recipient,
@@ -262,6 +291,11 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
         .receive_message(input)
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
+    let (ReceiveMessageOutcome::Received { message_received }
+    | ReceiveMessageOutcome::Unparsed { message_received }) = &outcome;
+    line.id = Some(message_received.message_id.0.0.clone());
+    records::append_dispatch(&line)
+        .with_context(|| format!("{COMMAND}: message {}", message_received.message_id.0.0))?;
     match outcome {
         ReceiveMessageOutcome::Received { message_received } => {
             print(COMMAND, &format!("{}\n", message_received.message_id.0.0))

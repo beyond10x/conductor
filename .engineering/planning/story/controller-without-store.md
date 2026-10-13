@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:controller-without-store
 kind: story
-status: draft
+status: active
 title: A controller delivers in a repository with no planning store
 relations:
 - decomposes: epic:onboarding-from-url
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-13T16:33:57Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 
@@ -21,7 +24,7 @@ repositories conductor will be used in have no store.
   branch, the same full gate and one pull request, with the dispatch's brief as the plan, written
   into the pull request's description;
 - it does not create a store on its own; it offers it once in its `started` report
-  (`[REPORT <repo> <dispatch>] started; no planning store: aep plan init would add one`) and goes
+  (`[REPORT <repo> <dispatch>] started; no planning store: /aep:init would add one`) and goes
   on;
 - everything else (gates, reports, boundaries) is unchanged.
 

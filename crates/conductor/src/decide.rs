@@ -28,8 +28,13 @@
 //! A view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
 //! lists every row it can read, in the order the rows were first stored, and answers through
 //! [`crate::store::show`]: a record it cannot read is named on standard error and exits 1, after
-//! the other rows. `decision show` renders one row of the `decisions` view the same way. No
-//! handler writes `decisions/*.jsonl`; the two record commands read only the ids in it.
+//! the other rows. `decision show` renders one row of the `decisions` view the same way.
+//!
+//! **Records.** Once the store kept it, every command of this group that records an outcome
+//! appends one line to the records' decision log, `decisions/YYYY-MM.jsonl` ([`crate::records`]):
+//! `decided` by the two record commands, `requested`, `answered` (both answer commands),
+//! `escalated`, `withdrawn`, and `reversed` (both reverse commands), each with the id of the record
+//! it moved and its repository as `repo`. A refusal appends nothing.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -45,12 +50,12 @@ use conductor_model::decision::obligations::{
 };
 use conductor_model::decision::{
     AnswerEscalatedRequest, AnswerEscalatedRequestOutcome, AnswerRequest, AnswerRequestOutcome,
-    Decider, DecisionClass, DecisionId, DecisionRequestSnapshot, DecisionRequestState,
-    DecisionSnapshot, DecisionState, EscalateRequest, EscalateRequestOutcome, RaiseDecisionRequest,
-    RaiseDecisionRequestOutcome, RecordConductorDecision, RecordConductorDecisionOutcome,
-    RecordOperatorDecision, RecordOperatorDecisionOutcome, RequestId, ReverseConductorDecision,
-    ReverseConductorDecisionOutcome, ReverseOperatorDecision, ReverseOperatorDecisionOutcome,
-    ShowDecision, WithdrawRequest, WithdrawRequestOutcome,
+    Decider, DecisionClass, DecisionId, DecisionLogEvent, DecisionLogLine, DecisionRequestSnapshot,
+    DecisionRequestState, DecisionSnapshot, DecisionState, EscalateRequest, EscalateRequestOutcome,
+    RaiseDecisionRequest, RaiseDecisionRequestOutcome, RecordConductorDecision,
+    RecordConductorDecisionOutcome, RecordOperatorDecision, RecordOperatorDecisionOutcome,
+    RequestId, ReverseConductorDecision, ReverseConductorDecisionOutcome, ReverseOperatorDecision,
+    ReverseOperatorDecisionOutcome, ShowDecision, WithdrawRequest, WithdrawRequestOutcome,
 };
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::Timestamp;
@@ -65,6 +70,7 @@ use crate::cli::{
     WithdrawRequestArgs,
 };
 use crate::not_implemented;
+use crate::records;
 use crate::store::{Store, StoreError};
 
 /// How many ids a record or a send allocates at most, one per attempt. An attempt is lost only to
@@ -149,6 +155,15 @@ pub fn raise_decision_request(
         blocker: args.blocker,
     };
     let request = input.request_id.clone();
+    let mut line = records::decision_line(
+        DecisionLogEvent::Requested,
+        Some(&input.repository.0),
+        &request.0,
+    )?;
+    line.question = Some(input.question.clone());
+    line.options = Some(input.options.clone());
+    line.recommendation = Some(input.recommendation.clone());
+    line.blocker.clone_from(&input.blocker);
     let mut generated = record(COMMAND, state)?;
     // The behaviour reads the id before it writes, so the write expects no stream, and a request
     // another process raises in between is refused by the store rather than replaced.
@@ -166,7 +181,11 @@ pub fn raise_decision_request(
         }
     }
     match outcome {
-        RaiseDecisionRequestOutcome::Raised { .. } => Ok(ExitCode::SUCCESS),
+        RaiseDecisionRequestOutcome::Raised { .. } => {
+            records::append_decision(&line)
+                .with_context(|| format!("{COMMAND}: request {:?}", request.0))?;
+            Ok(ExitCode::SUCCESS)
+        }
         RaiseDecisionRequestOutcome::AlreadyRaised { error } => {
             request_held(COMMAND, &error.request_id)
         }
@@ -233,24 +252,31 @@ pub fn record_conductor_decision(
             ),
         );
     }
-    record_decision(COMMAND, state, &fields, |generated, decision_id| {
-        let outcome = generated
-            .record_conductor_decision(input(decision_id))
-            .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
-        Ok(match outcome {
-            RecordConductorDecisionOutcome::Recorded { .. } => Answer::Recorded,
-            RecordConductorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
-            RecordConductorDecisionOutcome::Reserved { error } => Answer::Refused(Refusal {
-                error: "ReservedForOperator",
-                detail: format!(
-                    "decision {:?} is class {}, which only the operator decides (design § 5); \
-                     nothing was recorded",
-                    error.decision_id.0,
-                    class_name(fields.decision_class)
-                ),
-            }),
-        })
-    })
+    record_decision(
+        COMMAND,
+        state,
+        &fields,
+        Decider::Conductor,
+        None,
+        |generated, decision_id| {
+            let outcome = generated
+                .record_conductor_decision(input(decision_id))
+                .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+            Ok(match outcome {
+                RecordConductorDecisionOutcome::Recorded { .. } => Answer::Recorded,
+                RecordConductorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
+                RecordConductorDecisionOutcome::Reserved { error } => Answer::Refused(Refusal {
+                    error: "ReservedForOperator",
+                    detail: format!(
+                        "decision {:?} is class {}, which only the operator decides \
+                         (design § 5); nothing was recorded",
+                        error.decision_id.0,
+                        class_name(fields.decision_class)
+                    ),
+                }),
+            })
+        },
+    )
 }
 
 /// `conductor decision record-operator-decision`: the command
@@ -291,27 +317,34 @@ pub fn record_operator_decision(
     )?;
     let recorded_by = not_blank(COMMAND, "--recorded-by", args.recorded_by)?;
     let operator_words = not_blank(COMMAND, "--operator-words", args.operator_words)?;
-    record_decision(COMMAND, state, &fields, |generated, decision_id| {
-        let outcome = generated
-            .record_operator_decision(RecordOperatorDecision {
-                decision_id,
-                decision_class: fields.decision_class,
-                question: fields.question.clone(),
-                options: fields.options.clone(),
-                choice: fields.choice.clone(),
-                reason: fields.reason.clone(),
-                evidence: fields.evidence.clone(),
-                decided_at: fields.decided_at.clone(),
-                recorded_by: recorded_by.clone(),
-                operator_words: operator_words.clone(),
-                repository: fields.repository.clone(),
+    record_decision(
+        COMMAND,
+        state,
+        &fields,
+        Decider::Operator,
+        Some((recorded_by.as_str(), operator_words.as_str())),
+        |generated, decision_id| {
+            let outcome = generated
+                .record_operator_decision(RecordOperatorDecision {
+                    decision_id,
+                    decision_class: fields.decision_class,
+                    question: fields.question.clone(),
+                    options: fields.options.clone(),
+                    choice: fields.choice.clone(),
+                    reason: fields.reason.clone(),
+                    evidence: fields.evidence.clone(),
+                    decided_at: fields.decided_at.clone(),
+                    recorded_by: recorded_by.clone(),
+                    operator_words: operator_words.clone(),
+                    repository: fields.repository.clone(),
+                })
+                .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+            Ok(match outcome {
+                RecordOperatorDecisionOutcome::Recorded { .. } => Answer::Recorded,
+                RecordOperatorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
             })
-            .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
-        Ok(match outcome {
-            RecordOperatorDecisionOutcome::Recorded { .. } => Answer::Recorded,
-            RecordOperatorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
-        })
-    })
+        },
+    )
 }
 
 /// `conductor decision answer-request`: the command `conductor.decision.AnswerRequest`.
@@ -335,7 +368,13 @@ pub fn answer_request(state: Option<&Path>, args: AnswerRequestArgs) -> Result<E
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
     match outcome {
-        AnswerRequestOutcome::Answered { .. } => Ok(ExitCode::SUCCESS),
+        AnswerRequestOutcome::Answered { request_answered } => request_logged(
+            COMMAND,
+            &generated.ports,
+            &request_answered.request_id,
+            DecisionLogEvent::Answered,
+            |line| line.decision_id = Some(request_answered.decision_id.clone()),
+        ),
         AnswerRequestOutcome::NoSuchDecision { error } => refused(
             COMMAND,
             "DecisionNotFound",
@@ -387,7 +426,13 @@ pub fn answer_escalated_request(
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
     match outcome {
-        AnswerEscalatedRequestOutcome::Answered { .. } => Ok(ExitCode::SUCCESS),
+        AnswerEscalatedRequestOutcome::Answered { request_answered } => request_logged(
+            COMMAND,
+            &generated.ports,
+            &request_answered.request_id,
+            DecisionLogEvent::Answered,
+            |line| line.decision_id = Some(request_answered.decision_id.clone()),
+        ),
         AnswerEscalatedRequestOutcome::NoSuchDecision { error } => refused(
             COMMAND,
             "DecisionNotFound",
@@ -427,10 +472,11 @@ pub fn escalate_request(state: Option<&Path>, args: EscalateRequestArgs) -> Resu
         "--escalation-class",
         flag(COMMAND, "--escalation-class", args.escalation_class)?,
     )?;
+    let reason = flag(COMMAND, "--reason", args.reason)?;
     let input = EscalateRequest {
         request_id,
         escalation_class,
-        reason: flag(COMMAND, "--reason", args.reason)?,
+        reason: reason.clone(),
     };
     let mut generated = record(COMMAND, state)?;
     let outcome = generated
@@ -438,7 +484,16 @@ pub fn escalate_request(state: Option<&Path>, args: EscalateRequestArgs) -> Resu
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
     match outcome {
-        EscalateRequestOutcome::Escalated { .. } => Ok(ExitCode::SUCCESS),
+        EscalateRequestOutcome::Escalated { request_escalated } => request_logged(
+            COMMAND,
+            &generated.ports,
+            &request_escalated.request_id,
+            DecisionLogEvent::Escalated,
+            |line| {
+                line.escalation_class = Some(escalation_class);
+                line.reason = Some(reason);
+            },
+        ),
         EscalateRequestOutcome::ClassC { error } => refused(
             COMMAND,
             "NotEscalatable",
@@ -481,7 +536,13 @@ pub fn withdraw_request(state: Option<&Path>, args: WithdrawRequestArgs) -> Resu
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
     match outcome {
-        WithdrawRequestOutcome::Withdrawn { .. } => Ok(ExitCode::SUCCESS),
+        WithdrawRequestOutcome::Withdrawn { request_withdrawn } => request_logged(
+            COMMAND,
+            &generated.ports,
+            &request_withdrawn.request_id,
+            DecisionLogEvent::Withdrawn,
+            |line| line.reason = Some(request_withdrawn.reason.clone()),
+        ),
         WithdrawRequestOutcome::NoSuchRequest { error } => {
             refused(COMMAND, "RequestNotFound", &no_request(&error.request_id))
         }
@@ -523,7 +584,18 @@ pub fn reverse_conductor_decision(
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
     match outcome {
-        ReverseConductorDecisionOutcome::Reversed { .. } => Ok(ExitCode::SUCCESS),
+        ReverseConductorDecisionOutcome::Reversed {
+            decision_reversed_event,
+        } => decision_logged(
+            COMMAND,
+            &generated.ports,
+            &decision_reversed_event.decision_id,
+            DecisionLogEvent::Reversed,
+            |line| {
+                line.decided_by = Some(Decider::Conductor);
+                line.reason = Some(decision_reversed_event.reason.clone());
+            },
+        ),
         ReverseConductorDecisionOutcome::OperatorDecided { error } => refused(
             COMMAND,
             "ReversalReservedForOperator",
@@ -573,7 +645,18 @@ pub fn reverse_operator_decision(
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
     match outcome {
-        ReverseOperatorDecisionOutcome::Reversed { .. } => Ok(ExitCode::SUCCESS),
+        ReverseOperatorDecisionOutcome::Reversed {
+            decision_reversed_event,
+        } => decision_logged(
+            COMMAND,
+            &generated.ports,
+            &decision_reversed_event.decision_id,
+            DecisionLogEvent::Reversed,
+            |line| {
+                line.decided_by = Some(Decider::Operator);
+                line.reason = Some(decision_reversed_event.reason.clone());
+            },
+        ),
         ReverseOperatorDecisionOutcome::NoSuchDecision { error } => refused(
             COMMAND,
             "DecisionNotFound",
@@ -830,6 +913,55 @@ fn record(command: &str, state: Option<&Path>) -> Result<Generated<Ports>> {
     }))
 }
 
+/// Appends the records line of a request `event` the store has kept: `id` the request, `repo` its
+/// repository as the store holds it, and what `fill` adds.
+fn request_logged(
+    command: &str,
+    ports: &Ports,
+    request: &RequestId,
+    event: DecisionLogEvent,
+    fill: impl FnOnce(&mut DecisionLogLine),
+) -> Result<ExitCode> {
+    let held = DecisionRequestStorage::get(ports, request);
+    kept(command, &ports.store)?;
+    let held = held.ok_or_else(|| {
+        anyhow!(
+            "{command}: request {:?} moved, yet reads back as absent",
+            request.0
+        )
+    })?;
+    let mut line = records::decision_line(event, Some(&held.data.repository.0), &request.0)?;
+    fill(&mut line);
+    records::append_decision(&line)
+        .with_context(|| format!("{command}: request {:?}", request.0))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Appends the records line of a decision `event` the store has kept: `id` the decision, `repo`
+/// the repository it is about as the store holds it, and what `fill` adds.
+fn decision_logged(
+    command: &str,
+    ports: &Ports,
+    decision: &DecisionId,
+    event: DecisionLogEvent,
+    fill: impl FnOnce(&mut DecisionLogLine),
+) -> Result<ExitCode> {
+    let held = DecisionStorage::get(ports, decision);
+    kept(command, &ports.store)?;
+    let held = held.ok_or_else(|| {
+        anyhow!(
+            "{command}: decision {} moved, yet reads back as absent",
+            decision.0
+        )
+    })?;
+    let repository = held.data.repository.map(|repository| repository.0);
+    let mut line = records::decision_line(event, repository.as_deref(), &decision.0)?;
+    fill(&mut line);
+    records::append_decision(&line)
+        .with_context(|| format!("{command}: decision {}", decision.0))?;
+    Ok(ExitCode::SUCCESS)
+}
+
 /// Opens the existing store a view reads, creating nothing.
 fn existing(view: &str, state: Option<&Path>) -> Result<Generated<Ports>> {
     Ok(Generated::new(Ports {
@@ -973,6 +1105,8 @@ fn record_decision(
     command: &str,
     state: Option<&Path>,
     fields: &Fields,
+    decider: Decider,
+    operator: Option<(&str, &str)>,
     mut run: impl FnMut(&mut Generated<Ports>, DecisionId) -> Result<Answer>,
 ) -> Result<ExitCode> {
     let date = utc_day(&fields.decided_at.0)
@@ -1006,7 +1140,30 @@ fn record_decision(
             }
         };
         match answer {
-            Answer::Recorded => return print_line(command, &decision_id.0),
+            Answer::Recorded => {
+                let mut line = records::decision_line(
+                    DecisionLogEvent::Decided,
+                    fields
+                        .repository
+                        .as_ref()
+                        .map(|repository| repository.0.as_str()),
+                    &decision_id.0,
+                )?;
+                line.class = Some(fields.decision_class);
+                line.decided_by = Some(decider);
+                line.question = Some(fields.question.clone());
+                line.options = Some(fields.options.clone());
+                line.choice = Some(fields.choice.clone());
+                line.reason = Some(fields.reason.clone());
+                line.evidence = Some(fields.evidence.clone());
+                if let Some((recorded_by, operator_words)) = operator {
+                    line.recorded_by = Some(recorded_by.to_owned());
+                    line.operator_words = Some(operator_words.to_owned());
+                }
+                records::append_decision(&line)
+                    .with_context(|| format!("{command}: decision {}", decision_id.0))?;
+                return print_line(command, &decision_id.0);
+            }
             Answer::Refused(Refusal { error, detail }) => return refused(command, error, &detail),
             Answer::Held if fields.decision_id.is_some() => {
                 return already_held(command, &decision_id);
@@ -1273,7 +1430,7 @@ fn request_state_name(state: DecisionRequestState) -> &'static str {
 
 /// The class's name as the specification spells it. Exhaustive, so a class the specification adds
 /// fails to compile here rather than rendering under a guessed name.
-fn class_name(class: DecisionClass) -> &'static str {
+pub(crate) const fn class_name(class: DecisionClass) -> &'static str {
     match class {
         DecisionClass::C => "C",
         DecisionClass::O => "O",
@@ -1283,7 +1440,7 @@ fn class_name(class: DecisionClass) -> &'static str {
 
 /// The decider's name as the specification spells it. Exhaustive, so a decider the specification
 /// adds fails to compile here rather than rendering under a guessed name.
-fn decider_name(decider: Decider) -> &'static str {
+pub(crate) const fn decider_name(decider: Decider) -> &'static str {
     match decider {
         Decider::Conductor => "Conductor",
         Decider::Operator => "Operator",

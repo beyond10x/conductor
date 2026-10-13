@@ -889,3 +889,122 @@ fn doctor_prints_the_setup_line_with_the_pin_for_aep_ess_and_worktree() {
         shown(&output)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:worktree-activation: whether each instance's checkouts root is in an activated workspace.
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// The file the fake `worktree` appends each call's arguments to, one call a line.
+    fn worktree_calls(&self) -> PathBuf {
+        self.dir.join("worktree-calls.log")
+    }
+
+    /// A fake `worktree` 0.18.1 on the case's `PATH`: `--version` prints the version line of
+    /// [`PROGRAMS`]; `inspect` refuses as the real one does, on standard error, with
+    /// `workspace-not-activated` when the workspace is not `activated` and otherwise with
+    /// `invalid-worktree-id`, the refusal of an id no tree can have, which comes after the
+    /// activation check. Every call but `--version` is recorded; any but `inspect` exits 1.
+    fn worktree(&self, activated: bool) {
+        let code = if activated {
+            "invalid-worktree-id"
+        } else {
+            "workspace-not-activated"
+        };
+        let file = self.bin().join("worktree");
+        fs::write(
+            &file,
+            format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = --version ]; then printf '%s\\n' 'worktree-cli 99.1.0'; exit 0; fi\n\
+                 printf '%s\\n' \"$*\" >> '{calls}'\n\
+                 if [ \"$1\" = inspect ]; then\n\
+                 printf '%s\\n' '{{\"code\":\"{code}\",\"message\":\"{code}: refused\",\"ok\":false,\"version\":4}}' >&2\n\
+                 exit 1\n\
+                 fi\n\
+                 exit 1\n",
+                calls = self.worktree_calls().display(),
+            ),
+        )
+        .expect("write worktree");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
+
+    /// The checkouts root of [`Case::config`]'s instance, holding one git checkout `alpha`.
+    fn checkouts(&self) -> PathBuf {
+        let root = self.dir.join("checkouts");
+        fs::create_dir_all(root.join("alpha/.git")).expect("create a checkout");
+        root
+    }
+}
+
+/// A checkouts root `worktree` finds in no activated workspace: doctor prints it `not activated`,
+/// under it the command that activates it, and is `not ready`; it never runs that command.
+#[test]
+fn doctor_names_a_checkouts_root_not_in_an_activated_worktree_workspace() {
+    let case = Case::new("worktree-not-activated");
+    case.programs_but(&[]);
+    case.worktree(false);
+    let root = case.checkouts();
+    let config = case.config("[{github: example-org}]");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    let row = format!("worktree workspace: {} not activated", root.display());
+    let activate = format!(
+        "  activate: worktree activate --profile <profile> --workspace {}",
+        root.display()
+    );
+    assert_eq!(
+        under(&lines, &row),
+        Some(activate.as_str()),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        last(&output),
+        format!(
+            "not ready: worktree workspace (not activated: {})",
+            root.display()
+        ),
+        "{}",
+        shown(&output)
+    );
+    let calls = fs::read_to_string(case.worktree_calls()).unwrap_or_default();
+    let asked = format!("--repo {}", root.join("alpha").display());
+    assert!(
+        calls
+            .lines()
+            .any(|call| call.starts_with("inspect ") && call.contains(&asked)),
+        "doctor asks worktree about a checkout under the root:\n{calls}"
+    );
+    assert!(
+        !calls.lines().any(|call| call.starts_with("activate")),
+        "doctor never activates:\n{calls}"
+    );
+}
+
+/// A checkouts root in an activated workspace: doctor prints it `activated`, no activation
+/// command, and `ready`.
+#[test]
+fn doctor_names_a_checkouts_root_in_an_activated_worktree_workspace_ready() {
+    let case = Case::new("worktree-activated");
+    case.programs_but(&[]);
+    case.worktree(true);
+    let root = case.checkouts();
+    let config = case.config("[{github: example-org}]");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        lines.contains(&format!("worktree workspace: {} activated", root.display())),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        !lines.iter().any(|line| line.starts_with("  activate: ")),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+}

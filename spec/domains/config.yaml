@@ -254,16 +254,20 @@ types:
       - {name: served_by, type: Optional<conductor.config.InstanceName>}
       - {name: session_name, type: Optional<conductor.config.SessionName>}
 
-  # How many controllers of the instance work at once, at most, and how many sub-agents one
-  # controller runs at once, at most. Absent, they are 5 and 4.
+  # How many controllers of the instance work at once, at most, how many sub-agents one
+  # controller runs at once, at most, and how many pull requests of one repository may wait for
+  # review before conductor sends that repository no new dispatch (story:review-limit), `0`
+  # meaning no limit. Absent, they are 5, 4 and 3.
   - name: conductor.config.Controllers
     kind: struct
     fields:
       - {name: max_working, type: Integer}
       - {name: max_subagents, type: Integer}
+      - {name: max_open_reviews, type: Integer}
     invariants:
       - max_working >= 1
       - max_subagents >= 1
+      - max_open_reviews >= 0
 
   # The activity of the repositories whose name `match` names. The file writes an activity in
   # lower case: `active` or `inactive`.

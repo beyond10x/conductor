@@ -315,3 +315,136 @@ fn every_profile_says_check_for_ess_specifications_and_get_them_green_first() {
         );
     }
 }
+
+/// A page of the documentation site on single spaces, read from `website/docs/<relative>`.
+fn site_page(relative: &str) -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../website/docs")
+        .join(relative);
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `story:records-from-commands`: once a command records an event, conductor writes no line for
+/// it by hand, and the profile names the commands that write the records' logs.
+#[test]
+fn conductor_writes_no_hand_written_line_for_an_event_a_command_records() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains("Once a command records an event, no hand-written line for it"),
+        "conductor.md: no hand-written line for an event a command records"
+    );
+    for command in [
+        "`dispatch send-dispatch`",
+        "`report-*`",
+        "`cancel-dispatch`",
+        "`message receive-message`",
+        "`resource grant-resource`",
+        "`refuse-resource`",
+        "`controller revise-charter`",
+        "`decision record-conductor-decision`",
+        "`raise-decision-request`",
+        "`answer-request`",
+        "`reverse-conductor-decision`",
+    ] {
+        assert!(
+            text.contains(command),
+            "conductor.md: names {command} among the commands that write the records' logs"
+        );
+    }
+    assert!(
+        !text.contains("Log each dispatch to `dispatches/YYYY-MM.jsonl`."),
+        "conductor.md: the hand-logging instruction is gone"
+    );
+}
+
+/// `story:review-limit`: conductor sends no new dispatch to a repository the board marks review
+/// full, and reports it in the cycle instead.
+#[test]
+fn conductor_holds_dispatch_to_a_repository_whose_review_queue_is_full() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "Send no new dispatch to a repository the board marks review full; report it in the \
+             cycle instead."
+        ),
+        "conductor.md: a full review queue holds dispatch"
+    );
+    assert!(
+        text.contains("`controllers.max_open_reviews`"),
+        "conductor.md: names the limit's config key"
+    );
+}
+
+/// `story:merge-human`: a charter's `merge: human` makes the controller open the pull request and
+/// never merge it; conductor's charter section names the line and answers a request to merge.
+#[test]
+fn a_charter_s_merge_human_leaves_the_merge_to_a_person() {
+    let controller = profile("repo-controller.md");
+    for phrase in [
+        "`merge: human`",
+        "never merges",
+        "never enables auto-merge",
+        "`[REPORT <repo> <dispatch>] review <url>`",
+        "the dispatch stays open until",
+    ] {
+        assert!(
+            controller.contains(phrase),
+            "repo-controller.md: the merge: human rule holds {phrase:?}"
+        );
+    }
+    let conductor = profile("conductor.md");
+    for phrase in [
+        "`merge: human`",
+        "`merge: controller`",
+        "\"a person merges here\"",
+    ] {
+        assert!(
+            conductor.contains(phrase),
+            "conductor.md: the charter section holds {phrase:?}"
+        );
+    }
+    assert!(
+        site_page("guides/start-conductor.md").contains("`merge: human`"),
+        "website/docs/guides/start-conductor.md: names `merge: human`"
+    );
+}
+
+/// `story:worktree-activation`: a controller whose `worktree create` is refused for a workspace
+/// that is not activated asks conductor and, until answered, works in a plain git worktree.
+#[test]
+fn a_controller_falls_back_to_a_plain_worktree_until_the_workspace_is_activated() {
+    let text = profile("repo-controller.md");
+    assert!(
+        text.contains(
+            "When `worktree create` refuses with `workspace-not-activated`, report `[NEED \
+             conductor] worktree workspace not activated: <root>` and, until it is answered, work \
+             in a plain `git worktree add <trees>/<repo>/<name>` tree, which you remove when done."
+        ),
+        "repo-controller.md: the worktree-activation fallback"
+    );
+}
+
+/// `story:controller-without-store`: a controller delivers in a repository with no planning
+/// store, offers one once in its `started` report and creates none itself.
+#[test]
+fn a_controller_delivers_in_a_repository_with_no_planning_store() {
+    let text = profile("repo-controller.md");
+    for phrase in [
+        "no planning store",
+        "does not create",
+        "`[REPORT <repo> <dispatch-id>] started; no planning store: /aep:init would add one`",
+        "the dispatch's brief is the plan, written into the pull request's description",
+    ] {
+        assert!(
+            text.contains(phrase),
+            "repo-controller.md: the no-store path holds {phrase:?}"
+        );
+    }
+    assert!(
+        site_page("concepts/roles.md")
+            .contains("A repository needs no planning store to be dispatched to"),
+        "website/docs/concepts/roles.md: a repository needs no planning store"
+    );
+}

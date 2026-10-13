@@ -36,6 +36,50 @@ types:
       - {name: decision_id, type: String}
       - {name: format, type: Optional<String>}
 
+  # What a line of the records' decision log says happened (story:records-from-commands). Every
+  # command of this domain that records an outcome appends exactly one line to
+  # `<records>/decisions/YYYY-MM.jsonl`, the month of the line's `at` in UTC, once the store has
+  # kept the record; nobody writes such a line by hand. The line's `event` is the variant in lower
+  # case: `decided` (`RecordConductorDecision`, `RecordOperatorDecision`), `requested`
+  # (`RaiseDecisionRequest`), `answered` (`AnswerRequest`, `AnswerEscalatedRequest`), `escalated`
+  # (`EscalateRequest`), `withdrawn` (`WithdrawRequest`) and `reversed`
+  # (`ReverseConductorDecision`, `ReverseOperatorDecision`).
+  - name: conductor.decision.DecisionLogEvent
+    kind: enum
+    variants: [Decided, Requested, Answered, Escalated, Withdrawn, Reversed]
+
+  # One line of `<records>/decisions/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
+  # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
+  # `repository`, and its value is null for a decision about none) and the fields its event
+  # declares; no key but `repo` is written when absent. `id` is the id of the record the event moved: the
+  # decision, or the request. The fields of each event:
+  # - `decided`: `id`, `class`, `decided_by`, `question`, `options`, `choice`, `reason`,
+  #   `evidence`, and for the operator's `recorded_by` and `operator_words`;
+  # - `requested`: `id`, `question`, `options`, `recommendation`, and `blocker` when given;
+  # - `answered`: `id`, `decision_id`;
+  # - `escalated`: `id`, `escalation_class`, `reason`; `withdrawn`: `id`, `reason`;
+  # - `reversed`: `id`, `decided_by` (who reversed it), `reason`.
+  - name: conductor.decision.DecisionLogLine
+    kind: struct
+    fields:
+      - {name: at, type: Timestamp}
+      - {name: event, type: conductor.decision.DecisionLogEvent}
+      - {name: repo, type: Optional<String>}
+      - {name: id, type: String}
+      - {name: class, type: Optional<conductor.decision.DecisionClass>}
+      - {name: decided_by, type: Optional<conductor.decision.Decider>}
+      - {name: question, type: Optional<String>}
+      - {name: options, type: Optional<String>}
+      - {name: choice, type: Optional<String>}
+      - {name: reason, type: Optional<String>}
+      - {name: evidence, type: Optional<String>}
+      - {name: recorded_by, type: Optional<String>}
+      - {name: operator_words, type: Optional<String>}
+      - {name: recommendation, type: Optional<String>}
+      - {name: blocker, type: Optional<String>}
+      - {name: decision_id, type: Optional<conductor.decision.DecisionId>}
+      - {name: escalation_class, type: Optional<conductor.decision.DecisionClass>}
+
 entities:
   - name: conductor.decision.DecisionRequest
     identity:
@@ -219,6 +263,8 @@ errors:
         type: conductor.decision.RequestId
 
 commands:
+  # Records line (`DecisionLogLine`): `requested`, with `id`, `question`, `options`,
+  # `recommendation`, and `blocker` when given.
   - name: conductor.decision.RaiseDecisionRequest
     naming:
       wire: raise-decision-request
@@ -266,6 +312,8 @@ commands:
 
   # Who decided is bound to the command and its actor's grant, never taken from the input
   # (hardening 2026-10-06: an input `decided_by` let any caller claim to be the operator).
+  # Records line (`DecisionLogLine`): `decided`, with `id`, `class`, `decided_by`, `question`,
+  # `options`, `choice`, `reason` and `evidence`.
   - name: conductor.decision.RecordConductorDecision
     naming:
       wire: record-conductor-decision
@@ -328,6 +376,8 @@ commands:
             decision_id: input.decision_id
         summary: A decision already has this id; the held decision is unchanged.
 
+  # Records line (`DecisionLogLine`): `decided`, with the fields of `RecordConductorDecision`'s
+  # and `recorded_by` and `operator_words`.
   - name: conductor.decision.RecordOperatorDecision
     naming:
       wire: record-operator-decision
@@ -392,6 +442,7 @@ commands:
             decision_id: input.decision_id
         summary: A decision already has this id; the held decision is unchanged.
 
+  # Records line (`DecisionLogLine`): `answered`, with `id` and `decision_id`.
   - name: conductor.decision.AnswerRequest
     naming:
       wire: answer-request
@@ -440,6 +491,7 @@ commands:
 
   # An escalated request waits for the operator (design § 5): he decides class O and acts on
   # class H, and only his answer takes it off the queue and the hands to-do.
+  # Records line (`DecisionLogLine`): `answered`, with `id` and `decision_id`.
   - name: conductor.decision.AnswerEscalatedRequest
     naming:
       wire: answer-escalated-request
@@ -484,6 +536,7 @@ commands:
             request_id: input.request_id
         summary: Only an escalated request is answered here.
 
+  # Records line (`DecisionLogLine`): `escalated`, with `id`, `escalation_class` and `reason`.
   - name: conductor.decision.EscalateRequest
     naming:
       wire: escalate-request
@@ -531,6 +584,7 @@ commands:
             request_id: input.request_id
         summary: Only an open request is escalated.
 
+  # Records line (`DecisionLogLine`): `withdrawn`, with `id` and `reason`.
   - name: conductor.decision.WithdrawRequest
     naming:
       wire: withdraw-request
@@ -567,6 +621,8 @@ commands:
 
   # Who reverses is bound to the command, as for recording and answering: conductor reverses only
   # its own decisions, and a decision the operator recorded is his to reverse (design § 5).
+  # Records line (`DecisionLogLine`), for this command and `ReverseOperatorDecision`: `reversed`,
+  # with `id`, `decided_by` (who reversed it) and `reason`.
   - name: conductor.decision.ReverseConductorDecision
     naming:
       wire: reverse-conductor-decision

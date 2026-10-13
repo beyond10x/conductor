@@ -37,7 +37,8 @@ use conductor_cli::store;
 use conductor_cli::watch::{Options, Settings, Sources, Watch};
 use conductor_model::config::{Gibibytes, Tokens};
 use conductor_model::observation::{
-    CommitSha, RecordRepository, RepositoryName, SnapshotId, SnapshotState, Visibility,
+    CommitSha, Mergeability, RecordPullRequest, RecordRepository, RepositoryName, SnapshotId,
+    SnapshotState, StartSnapshot, Visibility,
 };
 use conductor_model::primitives::{Timestamp, Uuid};
 use serde_json::{Value, json};
@@ -1023,6 +1024,7 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
             gate_resume: 17,
             silent_session: Duration::from_secs(30 * 60),
             conductor: Some("conductor".to_owned()),
+            max_open_reviews: 3,
         },
         "a watch without settings runs on the built-in instance's"
     );
@@ -1033,7 +1035,8 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
 fn the_settings_are_the_instances_name_and_thresholds() {
     let instance = acme(
         "\x20   thresholds: {context_handover: 150k, disk_low: 40G, disk_clear: 45G, \
-         disk_admit: 30G, gate_stop: 10G, gate_resume: 12G, silent_session: 2h}\n",
+         disk_admit: 30G, gate_stop: 10G, gate_resume: 12G, silent_session: 2h}\n\
+         \x20   controllers: {max_open_reviews: 2}\n",
     );
     assert_eq!(
         Settings::of(&instance),
@@ -1047,6 +1050,7 @@ fn the_settings_are_the_instances_name_and_thresholds() {
             gate_resume: 12,
             silent_session: Duration::from_secs(2 * 3600),
             conductor: Some("conductor".to_owned()),
+            max_open_reviews: 2,
         }
     );
     assert_eq!(
@@ -1666,6 +1670,105 @@ fn without_a_complete_snapshot_no_main_ci_is_read_and_that_is_said_once() {
     );
     assert_eq!(passed(&mut watch, true), (Vec::new(), String::new()));
     assert_eq!(sorted_lines(&calls), ["fixture-org/alpha"]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Review (story:review-limit)
+// ---------------------------------------------------------------------------------------------
+
+/// Takes a complete snapshot started at `started_at` into the store under `state`, in which the
+/// Active `alpha` holds `waiting` pull requests that wait for review, and one draft and one with a
+/// failing check that do not.
+fn take_reviews(state: &Path, started_at: &str, waiting: i64) {
+    let collector = Collector::new("reviews", move |recorder| {
+        let snapshot = recorder.snapshot().clone();
+        recorder.repository(RecordRepository {
+            snapshot_id: snapshot.clone(),
+            ..observation("alpha", 3, false)
+        })?;
+        for (number, draft, failing_checks) in (1..=waiting)
+            .map(|number| (number, false, 0))
+            .chain([(waiting + 1, true, 0), (waiting + 2, false, 1)])
+        {
+            recorder.pull_request(RecordPullRequest {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName("alpha".to_owned()),
+                number,
+                title: format!("Change {number}"),
+                draft,
+                mergeability: Mergeability::Mergeable,
+                failing_checks,
+                opened_at: Timestamp(format!("2026-10-0{}T09:00:00Z", 1 + number % 6)),
+                updated_at: Timestamp("2026-10-07T09:00:00Z".to_owned()),
+                url: None,
+            })?;
+        }
+        Ok(())
+    });
+    let store = store::open(state).expect("open the case's store");
+    let start = StartSnapshot {
+        started_at: Timestamp(started_at.to_owned()),
+        disk_free_bytes: 1_000_000,
+        budget: None,
+    };
+    let taken = snapshot::take_from(store, start, &[collector]).expect("the snapshot ends");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+}
+
+/// A CI pass reads the newest complete snapshot: `alpha` reaching its limit of 2 prints
+/// `review full: alpha 2/2` once; the next snapshot, at 1/2, prints `review open: alpha` once.
+#[test]
+fn a_repository_reaching_its_review_limit_is_reported_once_and_once_more_under_it() {
+    let case = Case::new("review-limit");
+    case.sessions(&[]);
+    let state = case.dir.join("state");
+    let calls = case.dir.join("calls.txt");
+    let mut watch =
+        Watch::new(recording_runs(&case, &state, &calls), case.state()).with_settings(Settings {
+            max_open_reviews: 2,
+            ..Settings::default()
+        });
+
+    take_reviews(&state, "2026-10-07T10:00:00Z", 1);
+    assert_eq!(passed(&mut watch, true), (Vec::new(), String::new()));
+
+    take_reviews(&state, "2026-10-07T11:00:00Z", 2);
+    assert_eq!(
+        passed(&mut watch, true),
+        (vec!["review full: alpha 2/2".to_owned()], String::new())
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "once");
+
+    take_reviews(&state, "2026-10-07T11:30:00Z", 3);
+    assert_eq!(
+        passed(&mut watch, true).0,
+        NOTHING,
+        "still full: no new line"
+    );
+
+    take_reviews(&state, "2026-10-07T12:00:00Z", 1);
+    assert_eq!(
+        passed(&mut watch, true).0,
+        ["review open: alpha"],
+        "under the limit again"
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "once");
+}
+
+/// With `max_open_reviews: 0` there is no limit, and no review line however many wait.
+#[test]
+fn without_a_review_limit_no_review_line_is_printed() {
+    let case = Case::new("review-no-limit");
+    case.sessions(&[]);
+    let state = case.dir.join("state");
+    let calls = case.dir.join("calls.txt");
+    let mut watch =
+        Watch::new(recording_runs(&case, &state, &calls), case.state()).with_settings(Settings {
+            max_open_reviews: 0,
+            ..Settings::default()
+        });
+    take_reviews(&state, "2026-10-07T10:00:00Z", 5);
+    assert_eq!(passed(&mut watch, true), (Vec::new(), String::new()));
 }
 
 // ---------------------------------------------------------------------------------------------

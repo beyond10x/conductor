@@ -51,9 +51,9 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 
 | who | writes |
 |---|---|
-| conductor | its records, in the instance's records directory: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
+| conductor | its records, in the instance's records directory: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`, `REPORT.md`; `.engineering/workspace.yaml`, through `conductor config workspace` |
 | conductor-dev | in this repository: `crates/`, `spec/`, `.engineering/`, `docs/` (`docs/analysis/` included), `website/` (the hand-written pages), `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`; and the instance's `rules.md` |
-| the `conductor` CLI | the store under the state directory |
+| the `conductor` CLI | the store under the state directory; and, from the commands that record an event (dispatch, report, message, resource answer, charter revision, decision, request), one line each in the records' `dispatches/` or `decisions/` log |
 
 Each session commits only the files it writes, with a pathspec.
 

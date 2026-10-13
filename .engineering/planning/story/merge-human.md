@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:merge-human
 kind: story
-status: draft
+status: active
 title: 'A charter''s merge: human makes the controller open the pull request and never merge'
 relations:
 - decomposes: epic:review-first
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-13T16:33:57Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 

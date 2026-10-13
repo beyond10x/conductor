@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:records-from-commands
 kind: story
-status: draft
+status: active
 title: The commands that record an event write the records' decision and dispatch logs
 relations:
 - decomposes: epic:loop-without-handwork
@@ -43,7 +43,10 @@ scope:
   path: spec/domains/dispatch.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 

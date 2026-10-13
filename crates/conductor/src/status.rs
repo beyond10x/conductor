@@ -8,15 +8,20 @@
 //! order:
 //!
 //! 1. the header: the command, the snapshot's id and its start time;
-//! 2. **Deviations**, one row per repository that is not archived with at least one: a red `main`
+//! 2. **Waiting for review** (`story:review-limit`): one line per pull request that waits for a
+//!    person's review ([`waiting_for_review`]: open, not draft, no failing check), oldest first,
+//!    `<repo> #<n> <title> — <age>` at the snapshot's start; then, per repository with at least
+//!    `controllers.max_open_reviews` of them (`0` is no limit), `<repo>: <k> wait for review
+//!    (limit <n>): no new dispatch`, the line conductor holds that repository's dispatch on;
+//! 3. **Deviations**, one row per repository that is not archived with at least one: a red `main`
 //!    workflow, a pull request with a failing check, one open more than 14 days, unreleased
 //!    commits, no checkout, a specification missing or refused;
-//! 3. **Overview**, one row per repository that is not archived, in name order;
-//! 4. **Specifications**, one row per repository with its specification's presence and
+//! 4. **Overview**, one row per repository that is not archived, in name order;
+//! 5. **Specifications**, one row per repository with its specification's presence and
 //!    validation;
-//! 5. **Open blockers**, by repository and kind;
-//! 6. **Sessions**;
-//! 7. **Delta** against the previous snapshot: each repository whose deviations changed, with
+//! 6. **Open blockers**, by repository and kind;
+//! 7. **Sessions**;
+//! 8. **Delta** against the previous snapshot: each repository whose deviations changed, with
 //!    those added and removed and the change in five counts (open pull requests, those with a
 //!    failing check, workflows that are not green, open blockers, specifications present);
 //!    `no change` when none did.
@@ -131,7 +136,11 @@ pub fn publish_board(state: Option<&Path>, args: PublishBoardArgs) -> Result<Exi
     store
         .check()
         .with_context(|| format!("{COMMAND}: read the snapshot's observations"))?;
-    let (board, deviation_rows) = render(&now, before.as_ref(), &running);
+    let limit = crate::config::active()
+        .instance
+        .controllers
+        .max_open_reviews;
+    let (board, deviation_rows) = render(&now, before.as_ref(), &running, limit);
 
     write_board(&path, &board)?;
     let input = PublishBoard {
@@ -443,14 +452,115 @@ fn count(items: usize) -> i64 {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Waiting for review (story:review-limit)
+// ---------------------------------------------------------------------------------------------
+
+/// The pull requests of `pulls` that wait for a person's review: open (a snapshot observes only
+/// open ones), not draft, with no failing check; oldest first, then by repository and number.
+pub(crate) fn waiting_for_review(
+    pulls: &[PullRequestObservationData],
+) -> Vec<PullRequestObservationData> {
+    let mut waiting: Vec<PullRequestObservationData> = pulls
+        .iter()
+        .filter(|pull| !pull.draft && pull.failing_checks == 0)
+        .cloned()
+        .collect();
+    waiting.sort_by(|left, right| {
+        order(&left.opened_at.0, &right.opened_at.0).then_with(|| {
+            (&left.repository.0, left.number).cmp(&(&right.repository.0, right.number))
+        })
+    });
+    waiting
+}
+
+/// The pull requests of the snapshot `held` in `store` that wait for review, oldest first
+/// ([`waiting_for_review`]): the dashboard's `/api/reviews` and the watch's count read these, so
+/// they never disagree with the board.
+pub(crate) fn waiting_in(
+    store: &Store,
+    held: &SnapshotSnapshot,
+) -> Vec<PullRequestObservationData> {
+    let id = &held.data.snapshot_id;
+    let pulls: Vec<PullRequestObservationData> = PullRequestObservationStorage::list(store)
+        .into_iter()
+        .map(|held| held.data)
+        .filter(|data| data.snapshot_id == *id)
+        .collect();
+    waiting_for_review(&pulls)
+}
+
+/// How many of `waiting` each repository holds, by name, for each repository at or over
+/// `limit`; none when `limit` is `0`, no limit.
+pub(crate) fn review_full(
+    waiting: &[PullRequestObservationData],
+    limit: i64,
+) -> BTreeMap<String, i64> {
+    if limit <= 0 {
+        return BTreeMap::new();
+    }
+    let mut counts: BTreeMap<String, i64> = BTreeMap::new();
+    for pull in waiting {
+        *counts.entry(pull.repository.0.clone()).or_default() += 1;
+    }
+    counts.retain(|_, waiting| *waiting >= limit);
+    counts
+}
+
+/// The **Waiting for review** section of `now` under the limit `limit`: one line per pull request
+/// that waits, oldest first, then one per repository at or over the limit; `None.` when none
+/// waits.
+fn reviews(now: &Observed, limit: i64) -> String {
+    let waiting = waiting_for_review(&now.pull_requests);
+    if waiting.is_empty() {
+        return "None.\n\n".to_owned();
+    }
+    let started = instant(&now.started_at);
+    let mut out = String::new();
+    for pull in &waiting {
+        out.push_str(&format!(
+            "- {} #{} {} — {}\n",
+            pull.repository.0,
+            pull.number,
+            pull.title.replace(['\n', '\r'], " "),
+            age(&pull.opened_at.0, started)
+        ));
+    }
+    for (repository, held) in review_full(&waiting, limit) {
+        out.push_str(&format!(
+            "- {repository}: {held} wait for review (limit {limit}): no new dispatch\n"
+        ));
+    }
+    out.push('\n');
+    out
+}
+
+/// How long a pull request opened at `opened_at` had been open when the snapshot started, in its
+/// largest whole unit: `7d`, `5h`, `40m`; the time as written when either does not read.
+fn age(opened_at: &str, started: Option<OffsetDateTime>) -> String {
+    let (Some(started), Some(opened)) = (started, instant(opened_at)) else {
+        return opened_at.to_owned();
+    };
+    let open = started - opened;
+    if open.whole_days() >= 1 {
+        format!("{}d", open.whole_days())
+    } else if open.whole_hours() >= 1 {
+        format!("{}h", open.whole_hours())
+    } else {
+        format!("{}m", open.whole_minutes().max(0))
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // The board
 // ---------------------------------------------------------------------------------------------
 
-/// The board of `now`, compared with `before`, and the number of its deviation rows.
+/// The board of `now`, compared with `before`, its review limit `max_open_reviews`, and the
+/// number of its deviation rows.
 fn render(
     now: &Observed,
     before: Option<&Observed>,
     running: &BTreeMap<String, String>,
+    max_open_reviews: i64,
 ) -> (String, i64) {
     let current = figures(now);
     let mut board = String::new();
@@ -460,6 +570,9 @@ fn render(
         "Written by `conductor {COMMAND}` from snapshot {}, started {}.\n\n",
         now.snapshot_id.0.0, now.started_at
     ));
+
+    board.push_str("## Waiting for review\n\n");
+    board.push_str(&reviews(now, max_open_reviews));
 
     board.push_str("## Deviations\n\n");
     let deviations: Vec<Vec<String>> = current

@@ -1,0 +1,36 @@
+{
+  "repositories": [
+    {
+      "repository": "alpha",
+      "archived": false,
+      "local_checkout": true,
+      "open_issues": 0,
+      "latest_release": null,
+      "latest_release_at": null,
+      "unreleased_commits": null
+    }
+  ],
+  "pull_requests": [
+    {
+      "repository": "alpha",
+      "number": 5,
+      "title": "Read the catalog",
+      "failing_checks": 0,
+      "opened_at": "2026-10-05T10:00:00Z"
+    },
+    {
+      "repository": "alpha",
+      "number": 6,
+      "title": "Name the exporter",
+      "failing_checks": 0,
+      "opened_at": "2026-10-06T10:00:00Z"
+    },
+    {
+      "repository": "alpha",
+      "number": 7,
+      "title": "Tidy the docs",
+      "failing_checks": 0,
+      "opened_at": "2026-10-07T10:00:00Z"
+    }
+  ]
+}

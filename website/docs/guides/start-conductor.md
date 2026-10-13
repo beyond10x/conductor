@@ -152,6 +152,15 @@ controller role's, such as this checkout's `.claude/controller-settings.json`, w
 guard. Conductor records each controller with `conductor controller start-controller`, which
 refuses a second running controller for the same repository.
 
+**Who merges.** A charter merges by default with `merge: controller`: the controller merges its
+pull request once its full gate is green. Write the line `merge: human` in a repository's charter
+(`<records>/charters/<repo>.md`) when a person must merge there: the controller still runs its
+gate and opens one pull request, but never merges it and never enables auto-merge; it reports
+`[REPORT <repo> <dispatch>] review <url>`, and the dispatch stays open until a snapshot shows the
+pull request merged. Conductor answers a controller's request to merge in such a repository with
+"a person merges here". The guard does not enforce the line yet: it is an instruction in both
+profiles.
+
 :::caution[Planned]
 
 `conductor controller start-controller` records the controller only; the conductor session starts

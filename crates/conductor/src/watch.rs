@@ -23,6 +23,7 @@
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
+//! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
@@ -83,6 +84,7 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
+//! `review.full` (the repositories last reported full, one per line),
 //! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
 //! `disk-admit`, `gate-stop`, `disk.free` (the bytes free the last pass read), and, in the
 //! formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen` (`YYYY-MM-DD <text>`),
@@ -175,6 +177,7 @@ const GATE_STOP: &str = "gate-stop";
 const DISK_FREE: &str = "disk.free";
 const CONDUCTORS_REPORTED: &str = "conductors.reported";
 const SILENT_REPORTED: &str = "silent.reported";
+const REVIEW_FULL: &str = "review.full";
 
 /// The states of the session list in which a live controller is expected to write to its
 /// transcripts.
@@ -320,6 +323,9 @@ pub struct Settings {
     /// `conductor` without a prefix), two live sessions of which are reported; `None` for an
     /// instance without a conductor role.
     pub conductor: Option<String>,
+    /// How many pull requests of one repository may wait for review before it is reported full:
+    /// `controllers.max_open_reviews`; `0` is no limit (`story:review-limit`).
+    pub max_open_reviews: u64,
 }
 
 impl Settings {
@@ -350,6 +356,7 @@ impl Settings {
                         .unwrap_or_else(|| config::session_name(instance, CONDUCTOR))
                         .0
                 }),
+            max_open_reviews: count(instance.controllers.max_open_reviews),
         }
     }
 }
@@ -612,6 +619,7 @@ impl Watch {
         }
         if ci {
             self.ci(&mut lines, notes)?;
+            self.reviews(&mut lines)?;
         }
         self.disk(&mut lines, notes)?;
         Ok(lines)
@@ -1214,6 +1222,63 @@ impl Watch {
             .filter(|row| row.activity == Activity::Active)
             .map(|row| row.repository.0)
             .collect())
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Review
+    // -----------------------------------------------------------------------------------------
+
+    /// Each repository whose pull requests waiting for review (as the board counts them,
+    /// [`crate::status::waiting_in`]) in the store's newest complete snapshot reached
+    /// [`Settings::max_open_reviews`], once, `review full: <repo> <k>/<n>`; and each one so
+    /// reported that fell under it, once, `review open: <repo>` (`story:review-limit`). The
+    /// repositories reported full are kept in `review.full`. Without a limit (`0`) nothing is
+    /// reported and that file is emptied; without a store or a complete snapshot, which the CI
+    /// probe names, nothing is read or changed.
+    fn reviews(&self, lines: &mut Vec<String>) -> Result<()> {
+        let Some(state) = &self.sources.store else {
+            return Ok(());
+        };
+        let file = self.state(REVIEW_FULL);
+        let kept: BTreeSet<String> = read_optional(&file)?
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_owned)
+            .collect();
+        let limit = self.settings.max_open_reviews;
+        if limit == 0 {
+            if !kept.is_empty() {
+                replace(&file, "")?;
+            }
+            return Ok(());
+        }
+        let Ok(store) = state::open_existing(Some(state)) else {
+            return Ok(());
+        };
+        let snapshots = SnapshotStorage::list(&store);
+        let Some(held) = crate::status::newest_complete(&snapshots, None) else {
+            return Ok(());
+        };
+        let full = crate::status::review_full(
+            &crate::status::waiting_in(&store, held),
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        );
+        for (repository, waiting) in &full {
+            if !kept.contains(repository) {
+                lines.push(format!("review full: {repository} {waiting}/{limit}"));
+            }
+        }
+        for repository in &kept {
+            if !full.contains_key(repository) {
+                lines.push(format!("review open: {repository}"));
+            }
+        }
+        if full.keys().ne(kept.iter()) {
+            let text: String = full.keys().map(|name| format!("{name}\n")).collect();
+            replace(&file, &text)?;
+        }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------------------------

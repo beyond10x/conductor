@@ -1,13 +1,16 @@
 //! What the overview reads (`story:dashboard-overview`): the newest complete snapshot's board,
 //! repositories, open pull and merge requests, `main` workflow runs and releases
 //! (`/api/board`, `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs`,
-//! `/api/releases`), and the day's events (`/api/events?since=<rfc3339>`).
+//! `/api/releases`), the pull requests that wait for review (`/api/reviews`,
+//! `story:review-limit`), and the day's events (`/api/events?since=<rfc3339>`).
 //!
 //! Each snapshot endpoint answers `{snapshot: {id, started_at}, rows: [...]}` from the complete
 //! snapshot that started last, so a newer one still collecting, or one that failed, is never read;
 //! with no store, or no complete snapshot in it, `{snapshot: null, rows: []}`. `/api/board`'s rows
 //! are [`crate::status::repository_figures`], the one place `publish-board`'s deviations are
-//! worked out too: the app does not recompute them.
+//! worked out too: the app does not recompute them. `/api/reviews`' rows are
+//! [`crate::status::waiting_in`], oldest first, each `{repository, number, title, opened_at, url}`:
+//! the pull requests `STATUS.md`'s **Waiting for review** lists.
 //!
 //! `/api/events` answers `{rows: [...]}`, one row per event at or after `since`, newest first, each
 //! `{at, repository, kind, text, link}` (`repository` and `link` null where there is none), of
@@ -40,12 +43,13 @@ use crate::snapshot::{mergeability_name, run_conclusion_name, visibility_name};
 use crate::store::Store;
 
 /// The endpoints that answer rows of the newest complete snapshot, by path.
-pub const SNAPSHOT_PATHS: [&str; 5] = [
+pub const SNAPSHOT_PATHS: [&str; 6] = [
     "/api/board",
     "/api/repositories",
     "/api/pull-requests",
     "/api/workflow-runs",
     "/api/releases",
+    "/api/reviews",
 ];
 
 /// The path of the day's events.
@@ -91,6 +95,7 @@ pub fn snapshot_endpoint(path: &str, store: Option<&Store>) -> Option<Value> {
         "/api/pull-requests" => pull_requests(store),
         "/api/workflow-runs" => workflow_runs(store),
         "/api/releases" => releases(store),
+        "/api/reviews" => reviews(store),
         _ => return None,
     })
 }
@@ -111,6 +116,26 @@ pub fn board(store: Option<&Store>) -> Value {
                     "non_green_workflows": figures.non_green_workflows,
                     "open_blockers": figures.open_blockers,
                     "specifications_present": figures.specifications_present,
+                })
+            })
+            .collect()
+    })
+}
+
+/// `/api/reviews`: one row per pull request that waits for review, oldest first, as the board
+/// lists them (`story:review-limit`).
+#[must_use]
+pub fn reviews(store: Option<&Store>) -> Value {
+    answer(store, |store, held| {
+        crate::status::waiting_in(store, held)
+            .into_iter()
+            .map(|data| {
+                json!({
+                    "repository": data.repository.0,
+                    "number": data.number,
+                    "title": data.title,
+                    "opened_at": data.opened_at.0,
+                    "url": data.url,
                 })
             })
             .collect()

@@ -113,6 +113,14 @@ conductor snapshot snapshots --format json | jq -r '.[] | select(.state == "Fail
 A member whose checkout is absent is not a failure: the collector skips it and names it on one line
 of standard error, `member <name>: checkout absent, skipped`.
 
+## On macOS
+
+| message | cause | fix |
+|---|---|---|
+| `ess generate synthesize` refuses files that carry `com.apple.provenance` | macOS marks files written by a process Claude Code started with the extended attribute `com.apple.provenance`, so files a session wrote carry it, and `ess` refuses them | run that generation from a plain terminal, not from a Claude Code session or a command it started; the fix belongs to `ess` |
+
+`xattr -l <file>` lists a file's extended attributes, `com.apple.provenance` among them.
+
 ## Reading guard denials
 
 The guard records every denial, and only denials:

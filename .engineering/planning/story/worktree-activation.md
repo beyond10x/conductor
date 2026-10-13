@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:worktree-activation
 kind: story
-status: draft
+status: active
 title: Doctor and setup check the worktree workspace activation; controllers have a fallback
 relations:
 - decomposes: epic:onboarding-from-url
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-13T16:33:57Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

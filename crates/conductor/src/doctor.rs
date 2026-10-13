@@ -19,6 +19,12 @@
 //! package of the package manager found on the `PATH` it searches ([`manager`]) for the system
 //! `uname -s` names, else the program's own install page ([`install_command`]).
 //!
+//! After the logins, for each instance's checkouts root, whether it is inside an activated
+//! `worktree` workspace, as `worktree workspace: <root> activated` or `… not activated`, the
+//! latter with `  activate: ` and the command that activates it ([`activate_command`]), which
+//! doctor never runs; a root not activated makes the run not ready
+//! (`story:worktree-activation`, [`activation_of`]).
+//!
 //! [`check`] computes every row, [`Doctor::failures`] what is not ready and [`verdict_of`] the
 //! last line, so `conductor setup` prints the same rows and adds its own failures to the same
 //! verdict (`story:setup-command`).
@@ -667,9 +673,110 @@ fn lines(row: &Prerequisite, its: &str) -> Vec<String> {
     lines
 }
 
-/// The forge CLIs a config needs, and the hosts of its file's sources with the CLI of each
-/// ([`read_config`]).
-type Forges = (Vec<&'static str>, Vec<(&'static str, String)>);
+/// Whether a checkouts root is inside an activated `worktree` workspace
+/// (`story:worktree-activation`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Activation {
+    /// `worktree` resolves a workspace profile for it.
+    Activated,
+    /// `worktree` refuses it as `workspace-not-activated`.
+    NotActivated,
+    /// Not asked or not answered, and why: no checkout under the root, or `worktree` answered
+    /// something else.
+    Unchecked(String),
+}
+
+/// One instance's checkouts root and whether it is in an activated `worktree` workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Workspace {
+    /// The checkouts root, as the config file gives it.
+    pub root: PathBuf,
+    /// What `worktree` answered for it.
+    pub activation: Activation,
+}
+
+/// The refusal `worktree` 0.18 answers, on standard error, for a repository no activated
+/// workspace profile contains.
+pub const NOT_ACTIVATED: &str = "workspace-not-activated";
+
+/// The id doctor asks `worktree inspect` for: one with a dot, which no tree can have, so
+/// `worktree` refuses it (`invalid-worktree-id`) after it has resolved the workspace and before
+/// it inspects any tree.
+const PROBE_ID: &str = "conductor.activation-probe";
+
+/// How long `worktree inspect` may take to refuse.
+const ACTIVATION_BOUND: Duration = Duration::from_secs(10);
+
+/// The command that activates `root` as a `worktree` workspace: doctor prints it, `conductor
+/// setup --apply` prints it as a `to run:` line, and neither runs it, since it writes the user's
+/// own `worktree` config. `<profile>` is the user's profile template.
+#[must_use]
+pub fn activate_command(root: &Path) -> String {
+    format!(
+        "worktree activate --profile <profile> --workspace {}",
+        root.display()
+    )
+}
+
+/// What `worktree inspect --json` printed, on standard error then standard output, says of
+/// activation: `workspace-not-activated` is [`Activation::NotActivated`]; `ok: true`, or a
+/// refusal of the id (`invalid-worktree-id`, `unknown-worktree-id`), which comes only after the
+/// workspace resolved, is [`Activation::Activated`]; anything else is unchecked, naming the code.
+#[must_use]
+pub fn activation_of(stderr: &[u8], stdout: &[u8]) -> Activation {
+    let answer = [stderr, stdout]
+        .into_iter()
+        .find_map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok());
+    let Some(answer) = answer else {
+        return Activation::Unchecked("worktree printed no JSON answer".to_owned());
+    };
+    match answer.get("code").and_then(serde_json::Value::as_str) {
+        Some(NOT_ACTIVATED) => Activation::NotActivated,
+        Some("invalid-worktree-id" | "unknown-worktree-id") => Activation::Activated,
+        Some(code) => Activation::Unchecked(format!("worktree answered {code}")),
+        None if answer.get("ok") == Some(&serde_json::Value::Bool(true)) => Activation::Activated,
+        None => Activation::Unchecked("worktree printed no answer code".to_owned()),
+    }
+}
+
+/// Whether `root` is in an activated `worktree` workspace, asked of the `worktree` at `program`
+/// (`story:worktree-activation`). `worktree doctor` and `worktree status` take no path, and every
+/// command that does takes a git repository, so doctor asks `worktree inspect --json --repo
+/// <checkout> --id` with [`PROBE_ID`] for the first git checkout under `root`
+/// ([`crate::dashboard::waste::profile_checkout`]), or `root` itself when it is one. Read-only.
+fn activation(program: &Path, root: &Path) -> Activation {
+    let checkout = crate::dashboard::waste::profile_checkout(root)
+        .or_else(|| root.join(".git").exists().then(|| root.to_path_buf()));
+    let Some(checkout) = checkout else {
+        return Activation::Unchecked("no git checkout in it".to_owned());
+    };
+    let answered = collect::run(
+        Command::new(program)
+            .args(["inspect", "--json", "--repo"])
+            .arg(&checkout)
+            .args(["--id", PROBE_ID]),
+        ACTIVATION_BOUND,
+    );
+    match answered {
+        Ok(output) => activation_of(&output.stderr, &output.stdout),
+        Err(error) => Activation::Unchecked(format!("{error:#}")),
+    }
+}
+
+/// The line `conductor doctor` prints for `workspace`.
+#[must_use]
+pub fn workspace_line(workspace: &Workspace) -> String {
+    let root = workspace.root.display();
+    match &workspace.activation {
+        Activation::Activated => format!("worktree workspace: {root} activated"),
+        Activation::NotActivated => format!("worktree workspace: {root} not activated"),
+        Activation::Unchecked(why) => format!("worktree workspace: {root} not checked: {why}"),
+    }
+}
+
+/// The forge CLIs a config needs, the hosts of its file's sources with the CLI of each, and the
+/// checkouts root of each instance of the file, each once ([`read_config`]).
+type Forges = (Vec<&'static str>, Vec<(&'static str, String)>, Vec<PathBuf>);
 
 /// What doctor reads of the config `flag` (the global `--config`) and the environment name: the
 /// forge CLIs of [`FORGES`] that any of its instances starts ([`forges`]), in [`FORGES`]' order,
@@ -690,7 +797,7 @@ fn read_config(
     match loaded {
         // Without a config file no source is named, so no forge CLI is needed: the built-in
         // instance's placeholder GitHub source is no source of the user's.
-        Ok(loaded) if !loaded.read => Ok((Vec::new(), Vec::new())),
+        Ok(loaded) if !loaded.read => Ok((Vec::new(), Vec::new(), Vec::new())),
         Ok(loaded) => Ok((
             FORGES
                 .into_iter()
@@ -703,6 +810,17 @@ fn read_config(
                 })
                 .collect(),
             forge_hosts(&loaded.config),
+            loaded
+                .config
+                .instances
+                .iter()
+                .map(|instance| PathBuf::from(&instance.checkouts.root))
+                .fold(Vec::new(), |mut roots, root| {
+                    if !roots.contains(&root) {
+                        roots.push(root);
+                    }
+                    roots
+                }),
         )),
         Err(error) => Err(format!("{error:#}")
             .split(['\n', '\r'])
@@ -733,6 +851,9 @@ pub struct Doctor {
     pub rows: Vec<Prerequisite>,
     /// One login per host of the config file's sources whose CLI is present.
     pub logins: Vec<ForgeLogin>,
+    /// One per checkouts root of the config file's instances, when `worktree` is there
+    /// (`story:worktree-activation`).
+    pub workspaces: Vec<Workspace>,
     /// The `b10x.toml` read, if any.
     pub pin_file: Option<PathBuf>,
     /// The pins of that file, which win over the build's.
@@ -782,6 +903,12 @@ impl Doctor {
             }
         }
         out.extend(self.logins.iter().map(login_line));
+        for workspace in &self.workspaces {
+            out.push(workspace_line(workspace));
+            if workspace.activation == Activation::NotActivated {
+                out.push(format!("  activate: {}", activate_command(&workspace.root)));
+            }
+        }
         match &self.pin_file {
             Some(file) => out.push(format!("pins: {}", file.display())),
             None => out.push("pins: none".to_owned()),
@@ -808,10 +935,35 @@ impl Doctor {
         .flatten()
     }
 
-    /// What is not ready, in the verdict's order ([`failures`]).
+    /// What is not ready, in the verdict's order ([`failures`]), then each checkouts root not in
+    /// an activated `worktree` workspace, as `worktree workspace (not activated: <root>)`
+    /// (`story:worktree-activation`).
     #[must_use]
     pub fn failures(&self) -> Vec<String> {
-        failures(&self.rows, &self.logins, self.config_unreadable())
+        let mut failures = failures(&self.rows, &self.logins, self.config_unreadable());
+        failures.extend(
+            self.workspaces
+                .iter()
+                .filter(|workspace| workspace.activation == Activation::NotActivated)
+                .map(|workspace| {
+                    format!(
+                        "worktree workspace (not activated: {})",
+                        workspace.root.display()
+                    )
+                }),
+        );
+        failures
+    }
+
+    /// The command that activates each checkouts root not in an activated `worktree` workspace
+    /// ([`activate_command`]), in the config file's order.
+    #[must_use]
+    pub fn activations(&self) -> Vec<String> {
+        self.workspaces
+            .iter()
+            .filter(|workspace| workspace.activation == Activation::NotActivated)
+            .map(|workspace| activate_command(&workspace.root))
+            .collect()
     }
 
     /// The report the specification declares, `conductor.config.DoctorReport`.
@@ -884,9 +1036,9 @@ pub fn check_in(
     // The build's own pins stay the minimum for each program the file does not pin
     // (story:doctor-minimum-versions).
     let pins = merge_pins(&project, &build_pins());
-    let (needed, hosts, config_problems) = match read_config(flag, environment) {
-        Ok((needed, hosts)) => (needed, hosts, Vec::new()),
-        Err(why) => (FORGES.to_vec(), Vec::new(), why),
+    let (needed, hosts, roots, config_problems) = match read_config(flag, environment) {
+        Ok((needed, hosts, roots)) => (needed, hosts, roots, Vec::new()),
+        Err(why) => (FORGES.to_vec(), Vec::new(), Vec::new(), why),
     };
     let rows = examine(&pins, &needed, search);
     // A login is read only for a CLI that is there (story:doctor-identity).
@@ -905,6 +1057,17 @@ pub fn check_in(
                 .map(|path| login(program, &path, host))
         })
         .collect();
+    // Activation is asked only of a `worktree` that is there (story:worktree-activation).
+    let workspaces = match search.and_then(|search| find_in("worktree", search)) {
+        Some(program) => roots
+            .into_iter()
+            .map(|root| Workspace {
+                activation: activation(&program, &root),
+                root,
+            })
+            .collect(),
+        None => Vec::new(),
+    };
     let machine = machine();
     let manager = manager(&machine.system, search);
     Ok(Doctor {
@@ -912,6 +1075,7 @@ pub fn check_in(
         config_problems,
         rows,
         logins,
+        workspaces,
         pin_file,
         project,
         manager,
@@ -1139,6 +1303,40 @@ mod tests {
                 false
             )),
             "not ready: aep (pin unread), glab (not logged in to gitlab.example.com)"
+        );
+    }
+
+    #[test]
+    fn activation_is_read_from_worktree_s_json_answer() {
+        let refusal = |code: &str| {
+            format!("{{\"code\":\"{code}\",\"message\":\"{code}: x\",\"ok\":false,\"version\":4}}")
+        };
+        assert_eq!(
+            activation_of(refusal(NOT_ACTIVATED).as_bytes(), b""),
+            Activation::NotActivated
+        );
+        for code in ["invalid-worktree-id", "unknown-worktree-id"] {
+            assert_eq!(
+                activation_of(refusal(code).as_bytes(), b""),
+                Activation::Activated,
+                "{code}"
+            );
+        }
+        assert_eq!(
+            activation_of(b"", b"{\"version\":4,\"ok\":true}"),
+            Activation::Activated
+        );
+        assert_eq!(
+            activation_of(refusal("git-command-failed").as_bytes(), b""),
+            Activation::Unchecked("worktree answered git-command-failed".to_owned())
+        );
+        assert!(matches!(
+            activation_of(b"worktree-cli 0.18.1", b""),
+            Activation::Unchecked(_)
+        ));
+        assert_eq!(
+            activate_command(Path::new("/srv/example-org")),
+            "worktree activate --profile <profile> --workspace /srv/example-org"
         );
     }
 

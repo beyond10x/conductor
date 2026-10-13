@@ -18,6 +18,10 @@
 //! written. When another writer takes an allocated id first, the command allocates again, while
 //! the date's highest number moves and at most [`ATTEMPTS`] times in all.
 //!
+//! Once the store kept it, `send-dispatch`, each `report-*` and `cancel-dispatch` append one line
+//! to the records' dispatch log ([`crate::records`]): `sent`, `started`, `blocked`, `unblocked`,
+//! `done`, `failed`, `cancelled`, with the dispatch's id and its repository as `repo`.
+//!
 //! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
 //! lists every row it can read, in the order the dispatches were first stored, and answers through
 //! [`crate::store::show`].
@@ -34,10 +38,10 @@ use conductor_model::dispatch::obligations::{
     ReportFailedBehavior, ReportStartedBehavior, ReportUnblockedBehavior, SendDispatchBehavior,
 };
 use conductor_model::dispatch::{
-    CancelDispatch, CancelDispatchOutcome, DispatchId, DispatchState, ReportBlocked,
-    ReportBlockedOutcome, ReportDone, ReportDoneOutcome, ReportFailed, ReportFailedOutcome,
-    ReportStarted, ReportStartedOutcome, ReportUnblocked, ReportUnblockedOutcome, SendDispatch,
-    SendDispatchOutcome,
+    CancelDispatch, CancelDispatchOutcome, DispatchId, DispatchLogEvent, DispatchLogLine,
+    DispatchState, ReportBlocked, ReportBlockedOutcome, ReportDone, ReportDoneOutcome,
+    ReportFailed, ReportFailedOutcome, ReportStarted, ReportStartedOutcome, ReportUnblocked,
+    ReportUnblockedOutcome, SendDispatch, SendDispatchOutcome,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::RepositoryName;
@@ -50,6 +54,7 @@ use crate::cli::{
 };
 use crate::decide::{ATTEMPTS, highest, in_allocator_form, next_id, utc_day};
 use crate::not_implemented;
+use crate::records;
 use crate::store::{Store, StoreError};
 
 /// The prefix `conductor.dispatch.DispatchId` declares (`spec/domains/dispatch.yaml`).
@@ -137,6 +142,18 @@ pub fn send_dispatch(state: Option<&Path>, args: SendDispatchArgs) -> Result<Exi
         }
         return match outcome {
             SendDispatchOutcome::Sent { dispatch_sent } => {
+                let mut line = records::dispatch_line(DispatchLogEvent::Sent, &repository.0)?;
+                line.id = Some(dispatch_sent.dispatch_id.0.clone());
+                line.to = Some(
+                    crate::config::session_name(&crate::config::active().instance, &repository.0).0,
+                );
+                line.goal = Some(goal_id.0.clone());
+                line.brief = Some(brief.clone());
+                line.priority = Some(priority);
+                line.waits_on = waits_on.as_ref().map(|waits_on| waits_on.0.clone());
+                records::append_dispatch(&line).with_context(|| {
+                    format!("{COMMAND}: dispatch {}", dispatch_sent.dispatch_id.0)
+                })?;
                 print_line(COMMAND, &dispatch_sent.dispatch_id.0)
             }
             SendDispatchOutcome::AlreadySent { error } => exists(COMMAND, &error.dispatch_id),
@@ -194,8 +211,15 @@ pub fn report_started(state: Option<&Path>, args: ReportStartedArgs) -> Result<E
     let input = ReportStarted {
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
     };
-    match run(state, COMMAND, |generated| generated.report_started(input))? {
-        ReportStartedOutcome::Started { .. } => Ok(ExitCode::SUCCESS),
+    let (outcome, store) = run(state, COMMAND, |generated| generated.report_started(input))?;
+    match outcome {
+        ReportStartedOutcome::Started { dispatch_started } => logged(
+            COMMAND,
+            &store,
+            &dispatch_started.dispatch_id,
+            DispatchLogEvent::Started,
+            |_| {},
+        ),
         ReportStartedOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
         ReportStartedOutcome::WrongState { error } => {
             wrong_state(COMMAND, &error.dispatch_id, "only a sent dispatch starts")
@@ -217,8 +241,15 @@ pub fn report_blocked(state: Option<&Path>, args: ReportBlockedArgs) -> Result<E
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
-    match run(state, COMMAND, |generated| generated.report_blocked(input))? {
-        ReportBlockedOutcome::Blocked { .. } => Ok(ExitCode::SUCCESS),
+    let (outcome, store) = run(state, COMMAND, |generated| generated.report_blocked(input))?;
+    match outcome {
+        ReportBlockedOutcome::Blocked { dispatch_blocked } => logged(
+            COMMAND,
+            &store,
+            &dispatch_blocked.dispatch_id,
+            DispatchLogEvent::Blocked,
+            |line| line.reason = Some(dispatch_blocked.reason.clone()),
+        ),
         ReportBlockedOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
         ReportBlockedOutcome::WrongState { error } => wrong_state(
             COMMAND,
@@ -241,10 +272,17 @@ pub fn report_unblocked(state: Option<&Path>, args: ReportUnblockedArgs) -> Resu
     let input = ReportUnblocked {
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
     };
-    match run(state, COMMAND, |generated| {
+    let (outcome, store) = run(state, COMMAND, |generated| {
         generated.report_unblocked(input)
-    })? {
-        ReportUnblockedOutcome::Unblocked { .. } => Ok(ExitCode::SUCCESS),
+    })?;
+    match outcome {
+        ReportUnblockedOutcome::Unblocked { dispatch_unblocked } => logged(
+            COMMAND,
+            &store,
+            &dispatch_unblocked.dispatch_id,
+            DispatchLogEvent::Unblocked,
+            |_| {},
+        ),
         ReportUnblockedOutcome::NoSuchDispatch { error } => {
             no_dispatch(COMMAND, &error.dispatch_id)
         }
@@ -270,8 +308,15 @@ pub fn report_done(state: Option<&Path>, args: ReportDoneArgs) -> Result<ExitCod
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         evidence: flag(COMMAND, "--evidence", args.evidence)?,
     };
-    match run(state, COMMAND, |generated| generated.report_done(input))? {
-        ReportDoneOutcome::Done { .. } => Ok(ExitCode::SUCCESS),
+    let (outcome, store) = run(state, COMMAND, |generated| generated.report_done(input))?;
+    match outcome {
+        ReportDoneOutcome::Done { dispatch_done } => logged(
+            COMMAND,
+            &store,
+            &dispatch_done.dispatch_id,
+            DispatchLogEvent::Done,
+            |line| line.evidence = Some(dispatch_done.evidence.clone()),
+        ),
         ReportDoneOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
         ReportDoneOutcome::WrongState { error } => wrong_state(
             COMMAND,
@@ -295,8 +340,15 @@ pub fn report_failed(state: Option<&Path>, args: ReportFailedArgs) -> Result<Exi
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
-    match run(state, COMMAND, |generated| generated.report_failed(input))? {
-        ReportFailedOutcome::Failed { .. } => Ok(ExitCode::SUCCESS),
+    let (outcome, store) = run(state, COMMAND, |generated| generated.report_failed(input))?;
+    match outcome {
+        ReportFailedOutcome::Failed { dispatch_failed } => logged(
+            COMMAND,
+            &store,
+            &dispatch_failed.dispatch_id,
+            DispatchLogEvent::Failed,
+            |line| line.reason = Some(dispatch_failed.reason.clone()),
+        ),
         ReportFailedOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
         ReportFailedOutcome::WrongState { error } => wrong_state(
             COMMAND,
@@ -320,8 +372,15 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
-    match run(state, COMMAND, |generated| generated.cancel_dispatch(input))? {
-        CancelDispatchOutcome::Cancelled { .. } => Ok(ExitCode::SUCCESS),
+    let (outcome, store) = run(state, COMMAND, |generated| generated.cancel_dispatch(input))?;
+    match outcome {
+        CancelDispatchOutcome::Cancelled { dispatch_cancelled } => logged(
+            COMMAND,
+            &store,
+            &dispatch_cancelled.dispatch_id,
+            DispatchLogEvent::Cancelled,
+            |line| line.reason = Some(dispatch_cancelled.reason.clone()),
+        ),
         CancelDispatchOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
         CancelDispatchOutcome::WrongState { error } => {
             wrong_state(COMMAND, &error.dispatch_id, "the dispatch already ended")
@@ -418,11 +477,36 @@ fn run<O>(
     state: Option<&Path>,
     command: &str,
     behaviour: impl FnOnce(&mut Generated<Store>) -> Result<O, UnmetObligation>,
-) -> Result<O> {
+) -> Result<(O, Store)> {
     let mut generated = Generated::new(crate::state::open(state)?);
     let outcome = behaviour(&mut generated).map_err(|unmet| anyhow!("{command}: {unmet}"))?;
     kept(command, &generated.ports)?;
-    Ok(outcome)
+    Ok((outcome, generated.ports))
+}
+
+/// Appends the records line of a dispatch `event` the store has kept: `id` the dispatch, `repo`
+/// its repository as the store holds it, and what `fill` adds.
+fn logged(
+    command: &str,
+    store: &Store,
+    dispatch: &DispatchId,
+    event: DispatchLogEvent,
+    fill: impl FnOnce(&mut DispatchLogLine),
+) -> Result<ExitCode> {
+    let held = DispatchStorage::get(store, dispatch);
+    kept(command, store)?;
+    let repository = held.map(|held| held.data.repository.0).ok_or_else(|| {
+        anyhow!(
+            "{command}: dispatch {} moved, yet reads back as absent",
+            dispatch.0
+        )
+    })?;
+    let mut line = records::dispatch_line(event, &repository)?;
+    line.id = Some(dispatch.0.clone());
+    fill(&mut line);
+    records::append_dispatch(&line)
+        .with_context(|| format!("{command}: dispatch {}", dispatch.0))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Refuses `--input-json`, which no handler reads yet, as `what` not implemented.

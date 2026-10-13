@@ -39,6 +39,10 @@
 //! said; it is recorded `StopController` only when the session list, read again, shows no live
 //! session of the name. A live one, or a list that cannot be read, leaves the controller `Running`,
 //! and the refusal names the session or says so. It prints what `claude --bg` printed: the background session's id.
+//!
+//! A launch that succeeds appends one `sent` line to the records' dispatch log
+//! ([`crate::records`]): the repository as `repo`, the controller's id, the session name as `to`,
+//! that session id and the charter revision 1.
 
 use std::fs::{self, File};
 use std::io::{self, Write as _};
@@ -52,8 +56,8 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{CommandWord, Harness as RoleHarness, Instance, Role};
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
-    ControllerAlreadyRunning, SpawnController, SpawnRefusal, SpawnRefused, StartController,
-    StartControllerOutcome, StopController, StopControllerOutcome,
+    ControllerAlreadyRunning, DispatchLogEvent, SpawnController, SpawnRefusal, SpawnRefused,
+    StartController, StartControllerOutcome, StopController, StopControllerOutcome,
 };
 use conductor_model::observation::{Harness, RepositoryName};
 use serde_json::Value;
@@ -199,6 +203,17 @@ pub fn spawn(
                 .lock()
                 .write_all(&output.stdout)
                 .context("write the session id to standard output")?;
+            let mut line = crate::records::dispatch_line(DispatchLogEvent::Sent, &repository)?;
+            line.controller_id = Some(controller_id.0.0.clone());
+            line.to = Some(session_name.0.clone());
+            line.session_id = Some(String::from_utf8_lossy(&output.stdout).trim().to_owned());
+            line.charter_revision = Some(1);
+            crate::records::append_dispatch(&line).with_context(|| {
+                format!(
+                    "{COMMAND}: the session started and controller {} is recorded",
+                    controller_id.0.0
+                )
+            })?;
             return Ok(ExitCode::SUCCESS);
         }
         Ok(output) => exited(&output),

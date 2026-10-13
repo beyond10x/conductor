@@ -778,6 +778,109 @@ fn an_open_request_is_an_event_when_it_was_raised() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// What waits for review (story:review-limit)
+// ---------------------------------------------------------------------------------------------
+
+/// A snapshot of `alpha` and `beta` with five open pull requests: of `alpha`, a draft, one with a
+/// failing check, and two that wait for review, the younger first; of `beta`, one that waits,
+/// opened between them.
+fn reviews_fixture() -> Collector {
+    Collector::new("reviews", |record: &mut Recorder<'_>| {
+        let snapshot = record.snapshot().clone();
+        for repository in ["alpha", "beta"] {
+            record.repository(RecordRepository {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(repository.to_owned()),
+                visibility: Visibility::Public,
+                archived: false,
+                local_checkout: true,
+                main_head: CommitSha(format!("head-of-{repository}")),
+                main_committed_at: Timestamp("2026-10-12T12:00:00Z".to_owned()),
+                main_commits_7d: 0,
+                real_commits_7d: 0,
+                behind_main: 0,
+                dirty_files: 0,
+                worktrees: 0,
+                open_issues: 0,
+                oldest_open_issue_at: None,
+                latest_release: None,
+                latest_release_at: None,
+                unreleased_commits: None,
+                planning_store_version: None,
+                in_catalog: None,
+            })?;
+        }
+        for (repository, number, draft, failing_checks, opened_at) in [
+            ("alpha", 1, true, 0, "2026-10-01T09:00:00Z"),
+            ("alpha", 2, false, 1, "2026-10-02T09:00:00Z"),
+            ("alpha", 4, false, 0, "2026-10-11T09:00:00Z"),
+            ("alpha", 3, false, 0, "2026-10-05T09:00:00Z"),
+            ("beta", 8, false, 0, "2026-10-08T09:00:00Z"),
+        ] {
+            record.pull_request(RecordPullRequest {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(repository.to_owned()),
+                number,
+                title: format!("Change {number}"),
+                draft,
+                mergeability: Mergeability::Mergeable,
+                failing_checks,
+                opened_at: Timestamp(opened_at.to_owned()),
+                updated_at: Timestamp(opened_at.to_owned()),
+                url: Some(format!(
+                    "https://github.com/example-org/{repository}/pull/{number}"
+                )),
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// `/api/reviews` answers the pull requests that wait for review, oldest first, with their
+/// links; no snapshot and no rows without a store; 405 to a POST.
+#[test]
+fn the_reviews_endpoint_answers_what_waits_for_review_oldest_first() {
+    let case = Case::new("reviews");
+    let port = case.start();
+    assert_eq!(
+        get(port, "/api/reviews"),
+        json!({"snapshot": null, "rows": []})
+    );
+
+    let (id, state) = case.take(EARLIER, reviews_fixture());
+    assert_eq!(state, SnapshotState::Complete);
+    let reviews = get(port, "/api/reviews");
+    assert_eq!(
+        reviews["snapshot"],
+        json!({"id": id, "started_at": EARLIER})
+    );
+    let pull = |repository: &str, number: i64, opened_at: &str| {
+        json!({
+            "repository": repository, "number": number, "title": format!("Change {number}"),
+            "opened_at": opened_at,
+            "url": format!("https://github.com/example-org/{repository}/pull/{number}"),
+        })
+    };
+    assert_eq!(
+        rows(&reviews),
+        &vec![
+            pull("alpha", 3, "2026-10-05T09:00:00Z"),
+            pull("beta", 8, "2026-10-08T09:00:00Z"),
+            pull("alpha", 4, "2026-10-11T09:00:00Z"),
+        ],
+        "{reviews:#}"
+    );
+    let (status, body) = request(port, "POST", "/api/reviews");
+    assert_eq!(status, 405, "{body}");
+
+    // The app's fixture has the keys the endpoint answers.
+    let fixture = app_fixture("overview-reviews.json");
+    assert_eq!(keys(&fixture), keys(&reviews), "the answer's keys");
+    assert_eq!(keys(&fixture["snapshot"]), keys(&reviews["snapshot"]));
+    assert_eq!(row_keys(&fixture), row_keys(&reviews), "the rows' keys");
+}
+
+// ---------------------------------------------------------------------------------------------
 // The app's fixtures
 // ---------------------------------------------------------------------------------------------
 

@@ -24,6 +24,7 @@ pub mod goal;
 pub mod guard;
 pub mod init;
 pub mod message;
+pub mod records;
 pub mod repository;
 pub mod resource;
 pub mod session;

@@ -30,8 +30,8 @@
 //! callable, with exactly the option flags the binding maps its input fields to: `dashboard
 //! serve` (`story:live-dashboard`), `decision show`, `watch run` (`story:watch-command`),
 //! `repository shipped` (`story:release-digest`), `repository activity`
-//! (`story:repository-marks`), `resource usage` (`story:token-spend`) and `store migrate`
-//! (`story:store-on-eventlog-tree`).
+//! (`story:repository-marks`), `resource usage` (`story:token-spend`), `store migrate`
+//! (`story:store-on-eventlog-tree`) and `records check` (`story:records-from-commands`).
 //!
 //! `config validate` and `config show` (`story:config-file`) are such commands too, and the only
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
@@ -267,6 +267,9 @@ impl Cli {
             Group::Doctor => crate::doctor::doctor_with(self.config.as_deref()),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
+            Group::Records(command) => match command {
+                RecordsCommand::Check(args) => crate::records::records_check(state, &args),
+            },
             Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
             Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
@@ -344,6 +347,11 @@ pub enum Group {
     /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
     #[command(name = "init")]
     Init(InitArgs),
+
+    // No help, as for `dashboard`: the binding declares the group only through `records check`
+    // (`story:records-from-commands`).
+    #[command(subcommand)]
+    Records(RecordsCommand),
 
     /// Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
     #[command(name = "setup")]
@@ -500,6 +508,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Removes the build caches, trees and targets the disk panel marks reclaimable.
     (&["gc"], Access::Writes),
     (&["init"], Access::Writes),
+    // Reads conductor's records logs and the store's decisions (story:records-from-commands).
+    (&["records", "check"], Access::ConductorReads),
     // With --apply, writes the config file, the records and ~/.claude.json (story:setup-command).
     (&["setup"], Access::Writes),
     // Starts a controller's session and records the controller in the store.
@@ -951,6 +961,25 @@ pub struct WatchRunArgs {
     /// one. `--follow` alone is `--follow true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub follow: Option<bool>,
+}
+
+// `conductor records`: the command the binding declares over the `local` callable
+// `records-check` (`story:records-from-commands`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum RecordsCommand {
+    /// Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log
+    #[command(name = "check")]
+    Check(RecordsCheckArgs),
+}
+
+/// The input of the binding's `records-check` callable, `conductor.dispatch.CheckRecords`. The
+/// format is text the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct RecordsCheckArgs {
+    /// How the findings are printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
 }
 
 // `conductor store`: the command the binding declares over the `local` callable `store-migrate`

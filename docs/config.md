@@ -44,7 +44,8 @@ instance the session runs.
 - A size is a whole number of GiB with `G`: `15G`.
 - A token count is a whole number, or thousands with `k`: `300k`.
 - A time of day is `HH:MM`, UTC.
-- A count (`controllers.*`, `retention.snapshots`, a `tasks_max`) is a whole number of 1 or more.
+- A count (`controllers.*`, `retention.snapshots`, a `tasks_max`) is a whole number of 1 or more,
+  except `controllers.max_open_reviews`, which is 0 or more (0: no limit).
 - No value may look like a token (a word starting `ghp_`, `github_pat_`, `glpat-` or
   `xox<letter>-`). Such a value is refused by its path and never printed.
 
@@ -96,6 +97,7 @@ accepted, defaulted and shown by `config show`.
 | `conductor.session_name` | string | derived | controller profile, guard | the session name of the conductor that serves the instance: its own `<session_prefix>-conductor` (or `conductor`), or the serving instance's; none when no conductor serves it. Derived, never chosen |
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
 | `controllers.max_subagents` | integer ≥ 1 | `4` | controller profile | most sub-agents one controller runs at once |
+| `controllers.max_open_reviews` | integer ≥ 0 | `3` | conductor profile, board, watch, dashboard | pull requests of one repository waiting for a person's review before conductor sends it no new dispatch; `0` is no limit |
 | `repositories` | list of rule | `[]` | nothing yet | activity overrides by repository name |
 | `repositories[].match` | string | required | | the repository name the rule applies to |
 | `repositories[].activity` | `active` \| `inactive` | required | | the activity the rule sets |

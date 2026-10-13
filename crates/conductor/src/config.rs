@@ -188,6 +188,10 @@ const MAX_WORKING: i64 = 5;
 /// The most sub-agents one controller runs at once, when the file does not say.
 const MAX_SUBAGENTS: i64 = 4;
 
+/// The most pull requests of one repository that wait for review before conductor sends that
+/// repository no new dispatch, when the file does not say (`story:review-limit`); `0` is no limit.
+pub const MAX_OPEN_REVIEWS: i64 = 3;
+
 /// The complete snapshots whose observations are kept, when the file does not say: a day at the
 /// 2-hour cadence (`story:observation-retention`).
 pub const RETENTION_SNAPSHOTS: i64 = 12;
@@ -255,7 +259,7 @@ const ROLE_KEYS: [&str; 11] = [
 ];
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
-const CONTROLLER_KEYS: [&str; 2] = ["max_working", "max_subagents"];
+const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
 const THRESHOLD_KEYS: [&str; 11] = [
@@ -850,6 +854,7 @@ fn default_controllers() -> Controllers {
     Controllers {
         max_working: MAX_WORKING,
         max_subagents: MAX_SUBAGENTS,
+        max_open_reviews: MAX_OPEN_REVIEWS,
     }
 }
 
@@ -2146,32 +2151,46 @@ impl Reader<'_> {
         }
     }
 
-    /// `conductor.config.Controllers`, its invariants `max_working >= 1` and
-    /// `max_subagents >= 1` held.
+    /// `conductor.config.Controllers`, its invariants `max_working >= 1`,
+    /// `max_subagents >= 1` and `max_open_reviews >= 0` held.
     fn controllers(&mut self, value: &Value, path: &str) -> Option<Controllers> {
         let map = self.mapping(value, path, &CONTROLLER_KEYS)?;
         let defaults = default_controllers();
-        let count = |reader: &mut Self, key: &str, what: &str, default: i64| {
+        let count = |reader: &mut Self, key: &str, what: &str, least: i64, default: i64| {
             let Some(value) = Self::get(map, key) else {
                 return Some(default);
             };
-            let count = value.as_i64().filter(|count| *count >= 1);
+            let count = value.as_i64().filter(|count| *count >= least);
             if count.is_none() {
                 reader.problem(
                     &join(path, key),
                     format!(
-                        "{} is not a number of {what}: write a whole number of 1 or more",
+                        "{} is not a number of {what}: write a whole number of {least} or more",
                         echo(value)
                     ),
                 );
             }
             count
         };
-        let max_working = count(self, "max_working", "controllers", defaults.max_working);
-        let max_subagents = count(self, "max_subagents", "sub-agents", defaults.max_subagents);
+        let max_working = count(self, "max_working", "controllers", 1, defaults.max_working);
+        let max_subagents = count(
+            self,
+            "max_subagents",
+            "sub-agents",
+            1,
+            defaults.max_subagents,
+        );
+        let max_open_reviews = count(
+            self,
+            "max_open_reviews",
+            "pull requests waiting for review (0 is no limit)",
+            0,
+            defaults.max_open_reviews,
+        );
         Some(Controllers {
             max_working: max_working?,
             max_subagents: max_subagents?,
+            max_open_reviews: max_open_reviews?,
         })
     }
 
@@ -2615,6 +2634,12 @@ pub fn document(instance: &Instance) -> Yaml {
                 (
                     "max_subagents",
                     Yaml::Number(serde_yaml::Number::from(instance.controllers.max_subagents)),
+                ),
+                (
+                    "max_open_reviews",
+                    Yaml::Number(serde_yaml::Number::from(
+                        instance.controllers.max_open_reviews,
+                    )),
                 ),
             ]),
         ),

@@ -1,0 +1,22 @@
+{
+  "snapshot": {
+    "id": "7a1d0c3e-2222-4222-8222-222222222222",
+    "started_at": "2026-10-13T09:00:00Z"
+  },
+  "rows": [
+    {
+      "repository": "beta",
+      "number": 3,
+      "title": "Read the beta feed",
+      "opened_at": "2026-10-11T09:00:00Z",
+      "url": null
+    },
+    {
+      "repository": "alpha",
+      "number": 9,
+      "title": "Name the tiles",
+      "opened_at": "2026-10-12T15:00:00Z",
+      "url": "https://forge.example.org/example-org/alpha/pull/9"
+    }
+  ]
+}

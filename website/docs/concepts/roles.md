@@ -19,6 +19,16 @@ source: docs/design/conductor.md sections 2, 3, 11 and 12; .agents/conductor.md,
 Each role runs on the harness and model the instance's `roles` name, and starts with the profile
 and settings file the role names ([instances and config](./instances-and-config.md)).
 
+**A repository needs no planning store to be dispatched to.** In a repository without an AEP
+planning store (no `.engineering/project.yaml`), the controller delivers its dispatch the same way,
+with the same gates and one pull request, and the dispatch's brief, written into the pull
+request's description, stands for the plan. It does not create a store itself: its `started`
+report offers one once.
+
+**Who merges.** A charter's `merge:` line decides it: `merge: controller`, the default, lets the
+controller merge once its full gate is green; with `merge: human` it opens the pull request,
+reports it for review and never merges it.
+
 **Session names.** A session's name is derived from the instance's `session_prefix`, never chosen:
 `<session_prefix>-conductor`, `<session_prefix>-conductor-dev` and `<session_prefix>-<repo>` for a
 controller. An instance without a prefix keeps the bare names `conductor`, `conductor-dev` and

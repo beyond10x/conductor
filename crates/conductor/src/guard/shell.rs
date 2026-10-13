@@ -57,6 +57,23 @@ pub(super) fn written(script: &str) -> Vec<String> {
         .collect()
 }
 
+/// The simple commands of `script` ([`commands`]), each as its words and the files its own
+/// redirections write ([`written`]: descriptor duplications and [`NOT_FILES`] left out).
+pub(super) fn simple_commands(script: &str) -> Vec<(Vec<String>, Vec<String>)> {
+    let mut out = Vec::new();
+    collect(script, DEPTH, &mut out);
+    out.into_iter()
+        .map(|simple| {
+            let writes = simple
+                .writes
+                .into_iter()
+                .filter(|target| !NOT_FILES.contains(&target.as_str()))
+                .collect();
+            (simple.words, writes)
+        })
+        .collect()
+}
+
 /// The last path component of `word`: the program a command word names.
 pub(super) fn program(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
@@ -467,7 +484,36 @@ impl Lexer {
 
 #[cfg(test)]
 mod tests {
-    use super::{commands, program, written};
+    use super::{commands, program, simple_commands, written};
+
+    /// `story:guard-write-targets`: each simple command carries the files its own redirections
+    /// write, so that a read operand of one command is not taken for the target of another.
+    #[test]
+    fn each_simple_command_carries_its_own_write_targets() {
+        let simple = simple_commands(
+            "awk 'NR>=4' rules.md > brief.md 2>&1; cat >> charter.md <<'EOF'\nprofile.md\nEOF\nls",
+        );
+        let shown: Vec<(Vec<&str>, Vec<&str>)> = simple
+            .iter()
+            .map(|(words, writes)| {
+                (
+                    words.iter().map(String::as_str).collect(),
+                    writes.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    vec!["awk", "NR>=4", "rules.md", "brief.md"],
+                    vec!["brief.md"]
+                ),
+                (vec!["cat", "charter.md"], vec!["charter.md"]),
+                (vec!["ls"], vec![]),
+            ]
+        );
+    }
 
     /// `story:guard-glab-writes`: `glab` is named as `gh` is, by its last path component, and a
     /// `glab` call inside a substitution or a shell script is a command of its own.

@@ -22,9 +22,9 @@ use conductor_model::dispatch::obligations::{
 use conductor_model::dispatch::{
     AnyController, Controller, ControllerAlreadyRunning, ControllerData, ControllerId,
     ControllerNotFound, ControllerSnapshot, ControllerStarted, ControllerState,
-    ControllerStateConflict, PauseController, PauseControllerOutcome, ResumeController,
-    ResumeControllerOutcome, ReviseCharter, ReviseCharterOutcome, StartController,
-    StartControllerOutcome, StopController, StopControllerOutcome,
+    ControllerStateConflict, DispatchLogEvent, PauseController, PauseControllerOutcome,
+    ResumeController, ResumeControllerOutcome, ReviseCharter, ReviseCharterOutcome,
+    StartController, StartControllerOutcome, StopController, StopControllerOutcome,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::{Harness, RepositoryName};
@@ -185,7 +185,9 @@ pub fn stop_controller(state: Option<&Path>, args: StopControllerArgs) -> Result
 }
 
 /// `conductor controller revise-charter`: the command `conductor.dispatch.ReviseCharter`. Raises
-/// the controller's `charter_revision` by one, running or paused.
+/// the controller's `charter_revision` by one, running or paused, and once the store kept it
+/// appends one `charter-revised` line to the records' dispatch log ([`crate::records`]) with the
+/// controller's id, session name and new revision.
 ///
 /// # Errors
 ///
@@ -201,7 +203,27 @@ pub fn revise_charter(state: Option<&Path>, args: ReviseCharterArgs) -> Result<E
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the revision")?;
     match outcome {
-        ReviseCharterOutcome::Revised { .. } | ReviseCharterOutcome::PausedRevised { .. } => {
+        ReviseCharterOutcome::Revised { charter_revised }
+        | ReviseCharterOutcome::PausedRevised { charter_revised } => {
+            let store = &generated.ports.store;
+            let held = ControllerStorage::get(store, &charter_revised.controller_id);
+            store.check().context("read the revision back")?;
+            let held = held.ok_or_else(|| {
+                anyhow!(
+                    "{WHAT}: controller {} was revised, yet reads back as absent",
+                    charter_revised.controller_id.0.0
+                )
+            })?;
+            let mut line = crate::records::dispatch_line(
+                DispatchLogEvent::CharterRevised,
+                &held.data.repository.0,
+            )?;
+            line.controller_id = Some(charter_revised.controller_id.0.0.clone());
+            line.to = Some(held.data.session_name.0.clone());
+            line.charter_revision = Some(held.data.charter_revision);
+            crate::records::append_dispatch(&line).with_context(|| {
+                format!("{WHAT}: controller {}", charter_revised.controller_id.0.0)
+            })?;
             Ok(ExitCode::SUCCESS)
         }
         ReviseCharterOutcome::NoSuchController { error } => not_found(WHAT, &error),

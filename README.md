@@ -7,7 +7,8 @@ the exact fix, and what only the person can do.
 Conductor coordinates Claude Code sessions across the repositories of one organization: one
 session tracks every repository and starts one controller session per repository.
 
-Documentation: [beyond10x.github.io/conductor](https://beyond10x.github.io/conductor/).
+Documentation: [beyond10x.github.io/conductor](https://beyond10x.github.io/conductor/). To try it
+on a repository you have: [one task in an existing repository](https://beyond10x.github.io/conductor/docs/guides/first-task-existing-repo).
 
 ## What it is
 
@@ -39,7 +40,9 @@ accept agents that run unattended under your account (see the next section).
   read, and any tool it has no rule for, MCP tools included. A missing binary blocks the call.
 - **Bash is not confined.** The Bash rules are a heuristic: they deny a few forms (a `cd` into
   another checkout, a `gh` or `glab` write, a write naming a settings or config path), not where a
-  command writes. `git push` and `curl` to a forge API are not checked. The guard catches mistakes; it is
+  command writes. A Bash command is decided on its write targets: a read of a protected file
+  redirected into scratch passes, a redirection or `sed -i` into it does not. `git push` and
+  `curl` to a forge API are not checked. The guard catches mistakes; it is
   no defence against a hostile prompt in an issue or pull request a controller reads.
 - **Not every session is guarded.** conductor-dev runs without the guard by default, a session
   started by hand without the instance's settings is not guarded, and `task trust` lets each

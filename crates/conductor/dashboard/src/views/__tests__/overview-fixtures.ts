@@ -10,6 +10,7 @@ import type {
   PullRequestRow,
   ReleaseRow,
   RepositoryRow,
+  ReviewRow,
   WorkflowRunRow,
 } from '../../api/overview';
 import data from '../../fixtures/data.json';
@@ -19,6 +20,7 @@ import pullRequests from './fixtures/overview-pull-requests.json';
 import workflowRuns from './fixtures/overview-workflow-runs.json';
 import releases from './fixtures/overview-releases.json';
 import events from './fixtures/overview-events.json';
+import reviews from './fixtures/overview-reviews.json';
 
 /** The instant every overview test runs at: 09:30 UTC of the fixtures' day. */
 export const NOW = new Date('2026-10-13T09:30:00Z');
@@ -36,6 +38,7 @@ export function answers(): Record<string, unknown> {
     '/api/workflow-runs': structuredClone(workflowRuns),
     '/api/releases': structuredClone(releases),
     '/api/events': structuredClone(events),
+    '/api/reviews': structuredClone(reviews),
   };
 }
 
@@ -49,6 +52,7 @@ export function overview(): OverviewData {
     pullRequests: all['/api/pull-requests'] as FromSnapshot<PullRequestRow>,
     workflowRuns: all['/api/workflow-runs'] as FromSnapshot<WorkflowRunRow>,
     releases: all['/api/releases'] as FromSnapshot<ReleaseRow>,
+    reviews: all['/api/reviews'] as FromSnapshot<ReviewRow>,
     events: (all['/api/events'] as { rows: EventRow[] }).rows,
     since: SINCE,
     errors: [],

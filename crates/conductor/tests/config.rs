@@ -470,7 +470,7 @@ fn show_without_a_file_prints_todays_constants() {
     // at most 4 sub-agents at once.
     assert_eq!(
         instance["controllers"],
-        serde_json::json!({"max_working": 5, "max_subagents": 4}),
+        serde_json::json!({"max_working": 5, "max_subagents": 4, "max_open_reviews": 3}),
         "{shown:#}"
     );
     // No instance names its operator unless the file does.
@@ -642,7 +642,7 @@ fn the_session_profile_keys_validate_and_show_as_written() {
     );
     assert_eq!(
         one["controllers"],
-        serde_json::json!({"max_working": 3, "max_subagents": 2}),
+        serde_json::json!({"max_working": 3, "max_subagents": 2, "max_open_reviews": 3}),
         "{shown:#}"
     );
     let thresholds = &one["thresholds"];
@@ -790,6 +790,46 @@ fn the_session_profile_keys_are_refused_by_their_path() {
         let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
         let problems = refused(&case, &file);
         assert!(problems.contains(path), "{name}: {problems}");
+    }
+}
+
+/// `story:review-limit`: `controllers.max_open_reviews` is 3 without the key, takes `0` (no
+/// limit) and any larger whole number as written, and refuses a negative one or text by its YAML
+/// path.
+#[test]
+fn max_open_reviews_defaults_to_3_takes_0_and_refuses_a_negative_by_its_path() {
+    let case = Case::new("max-open-reviews");
+    for (name, extra, shown_as) in [
+        ("absent", "", 3),
+        ("empty", "\x20   controllers: {}\n", 3),
+        ("zero", "\x20   controllers: {max_open_reviews: 0}\n", 0),
+        ("two", "\x20   controllers: {max_open_reviews: 2}\n", 2),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&validated)
+        );
+        let shown = case.show(&file, &[]);
+        assert_eq!(
+            instance(&shown)["controllers"]["max_open_reviews"],
+            shown_as,
+            "{name}: {shown:#}"
+        );
+    }
+    for (name, extra) in [
+        ("negative", "\x20   controllers: {max_open_reviews: -1}\n"),
+        ("text", "\x20   controllers: {max_open_reviews: three}\n"),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains("instances[0].controllers.max_open_reviews: "),
+            "{name}: {problems}"
+        );
     }
 }
 

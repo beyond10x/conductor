@@ -132,6 +132,8 @@ to fill in, and each step says where they come from. `<target>` is the build of 
       aep, ess or worktree too old to step 4. Install any other missing program (git, claude,
       jq, task) with the system's package manager, then check again.
     - Hands: what the step it goes back to needs.
+    - Next: once doctor is ready, [one task in an existing repository](https://beyond10x.github.io/conductor/docs/guides/first-task-existing-repo)
+      takes the person from here to a first merged pull request.
 
 ## When it is done
 

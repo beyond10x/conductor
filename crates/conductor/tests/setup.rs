@@ -472,3 +472,66 @@ fn setup_apply_fixes_what_is_safe_and_prints_what_is_not() {
         assert!(!calls.contains(never), "--apply ran `{never}`:\n{calls}");
     }
 }
+
+/// `story:worktree-activation`: a fake `worktree` that finds the instance's checkouts root in no
+/// activated workspace, refusing `inspect` as `worktree` 0.18.1 does. `--apply` prints the
+/// command that activates it as a `to run:` line and never runs it: it writes the user's own
+/// worktree config.
+#[test]
+fn setup_apply_prints_the_worktree_activation_and_does_not_run_it() {
+    let case = Case::new("worktree-activation");
+    let file = case.bin().join("worktree");
+    fs::write(
+        &file,
+        format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = --version ]; then printf '%s\\n' 'worktree-cli 99.1.0'; exit 0; fi\n\
+             printf '%s %s\\n' worktree \"$*\" >> '{calls}'\n\
+             if [ \"$1\" = inspect ]; then\n\
+             printf '%s\\n' '{{\"code\":\"workspace-not-activated\",\"message\":\"workspace-not-activated: refused\",\"ok\":false,\"version\":4}}' >&2\n\
+             exit 1\n\
+             fi\n\
+             exit 0\n",
+            calls = case.calls().display(),
+        ),
+    )
+    .expect("write worktree");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    case.claude_json();
+    let repository = case.repository(
+        "zeta",
+        Some("https://github.com/example-org/zeta.git"),
+        Some(CURRENT_STORE),
+    );
+    let root = case.home().join("src");
+    let output = case.setup(&repository, &["--apply"]);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    holds(
+        &output,
+        &[
+            format!("worktree workspace: {} not activated", root.display()),
+            format!(
+                "to run: worktree activate --profile <profile> --workspace {}",
+                root.display()
+            ),
+        ],
+    );
+    assert_eq!(
+        last(&output),
+        format!(
+            "not ready: worktree workspace (not activated: {})",
+            root.display()
+        ),
+        "{}",
+        shown(&output)
+    );
+    let calls = fs::read_to_string(case.calls()).unwrap_or_default();
+    assert!(
+        calls.contains("worktree inspect"),
+        "setup asked worktree:\n{calls}"
+    );
+    assert!(
+        !calls.contains("worktree activate"),
+        "--apply ran the activation:\n{calls}"
+    );
+}

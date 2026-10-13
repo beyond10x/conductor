@@ -331,6 +331,64 @@ fn spawn_starts_the_controller_start_form_in_the_checkout_and_records_it_running
     assert_eq!(row["charter_revision"], 1, "{row}");
 }
 
+/// The records lines of `log` (`dispatches` or `decisions`) under the case's records directory,
+/// every `*.jsonl` file in name order.
+fn log_lines(case: &Case, log: &str) -> Vec<Value> {
+    let Ok(entries) = fs::read_dir(case.records().join(log)) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .map(|entry| entry.expect("a directory entry").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .flat_map(|file| {
+            fs::read_to_string(file)
+                .expect("read a log file")
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("a log line is JSON"))
+                .collect::<Vec<Value>>()
+        })
+        .collect()
+}
+
+/// `story:records-from-commands`: `spawn` records the dispatch it starts, one `sent` line in the
+/// records' dispatch log with the session id `claude --bg` printed, as well as the controller in
+/// the store; a refused spawn appends nothing.
+#[test]
+fn spawn_records_the_dispatch_it_starts_with_the_session_id_and_the_controller() {
+    let case = Case::new("records-sent");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+
+    let rows = case.controllers();
+    assert_eq!(rows.len(), 1, "one controller: {rows:#?}");
+    let controller = &rows[0]["controller_id"];
+
+    let lines = log_lines(&case, "dispatches");
+    assert_eq!(lines.len(), 1, "one dispatch line: {lines:#?}");
+    let line = &lines[0];
+    assert_eq!(line["event"], "sent", "{line}");
+    assert_eq!(line["repo"], "alpha", "{line}");
+    assert_eq!(line["session_id"], SESSION_ID, "{line}");
+    assert_eq!(&line["controller_id"], controller, "{line}");
+    assert_eq!(line["to"], "ex-alpha", "{line}");
+    assert!(line.get("repository").is_none(), "the key is repo: {line}");
+
+    let again = case.spawn();
+    assert_eq!(again.status.code(), Some(1), "{}", describe(&again));
+    assert_eq!(
+        log_lines(&case, "dispatches").len(),
+        1,
+        "a refused spawn appends nothing"
+    );
+}
+
 #[test]
 fn spawn_refuses_while_a_session_of_that_name_runs_launching_and_recording_nothing() {
     let case = Case::new("session-running");

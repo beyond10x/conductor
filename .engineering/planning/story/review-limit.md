@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:review-limit
 kind: story
-status: draft
+status: active
 title: The board, watch and dashboard show what waits for review, and a full queue holds dispatch
 relations:
 - decomposes: epic:review-first
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T16:33:56Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-13T16:33:57Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

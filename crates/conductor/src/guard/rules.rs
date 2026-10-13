@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -32,13 +32,17 @@
 //! and denied otherwise (`story:guard-all-tools`).
 //!
 //! The Bash row is a heuristic over the command line (design § 7: it catches the common forms,
-//! not all). Its accepted limits are pinned by `tests/adv_guard.rs`. The write-form tests name a
-//! path by a substring test, not a parse, and hold a write form anywhere in the command: a
-//! redirection read by the shell's grammar (outside quotes, to a file: `2>&1`, `>&2` and
-//! `>/dev/null` are none), or a write command or flag as a word or substring. So `cd .claude && … >
-//! settings.json` and `cd <config-dir> && cp x conductor.yaml` are not caught, nor is a config
-//! file written by a relative path from the cwd, and a command that names a protected path while
-//! it writes another file is denied.
+//! not all). Its accepted limits are pinned by `tests/adv_guard.rs`. A Bash command is decided on
+//! its write targets for the records, the settings and the profile rows ([`writes_named`]): the
+//! targets of its redirections and the operands of its writing programs, a path named only as a
+//! read operand, in a quoted program or in a here-document's body being no write; a target the
+//! guard cannot read (a variable, a substitution) or a shell or interpreter on the line falls back
+//! to the name and the write form. The config row still names a path by a substring test and holds
+//! a write form anywhere in the command: a redirection read by the shell's grammar (outside
+//! quotes, to a file: `2>&1`, `>&2` and `>/dev/null` are none), or a write command or flag as a
+//! word or substring, so a command that names the config while it writes another file is denied.
+//! `cd .claude && … > settings.json` and `cd <config-dir> && cp x conductor.yaml` are not caught,
+//! nor is a protected file written by a relative path from the cwd.
 //!
 //! A path belongs to a repository when it is under the repository's checkout, `<root>/<repo>/` or
 //! `<root>/<group>/<repo>/` (the directory holding `.git` at depth 1 or 2,
@@ -108,7 +112,7 @@ const RECORD_DIRS: [&str; 5] = [
 ];
 
 /// Conductor's records: files, under its records.
-const RECORD_FILES: [&str; 3] = ["goals.jsonl", "STATUS.md", "NORTHSTAR.md"];
+const RECORD_FILES: [&str; 4] = ["goals.jsonl", "STATUS.md", "NORTHSTAR.md", "REPORT.md"];
 
 /// Where the rule table looks, from the instance the process runs: the home directory `~` names,
 /// the directory holding the repositories' checkouts, the one holding their managed worktrees,
@@ -483,14 +487,15 @@ impl Places {
             })
     }
 
-    /// Whether the Bash `command` writes conductor's records: it names `<records>` or a path under
-    /// it ([`names_path`]) by any of its [`Places::spellings`], and holds a write form
-    /// ([`holds_write_form`]).
+    /// Whether the Bash `command` writes conductor's records ([`writes_named`]): a write target
+    /// names `<records>` or a path under it ([`names_path`]) by any of its [`Places::spellings`].
     fn writes_records(&self, command: &str) -> bool {
-        self.spellings(&self.records_dir())
-            .iter()
-            .any(|spelling| names_path(command, spelling, true))
-            && holds_write_form(command)
+        let spellings = self.spellings(&self.records_dir());
+        writes_named(command, |text| {
+            spellings
+                .iter()
+                .any(|spelling| names_path(text, spelling, true))
+        })
     }
 
     /// The ways a command line writes the absolute `path`: as written or where it lands, as an
@@ -524,23 +529,23 @@ impl Places {
             .any(|settings| path == lexical(settings) || path == real(settings))
     }
 
-    /// Whether the Bash `command` writes a settings file that wires the guard: it names a
-    /// `.claude/` settings file ([`names_claude_settings`]) or, by any of its [`Places::spellings`],
-    /// the `settings` file of a role of the instance, and holds a write form
-    /// ([`holds_write_form`]). A plain substring test, not a parse: `cd .claude && … >
-    /// settings.json` is not caught, nor is a role's file written by a path relative to the cwd.
-    /// A file named only as the value of a read flag ([`READ_FLAGS`]) counts only when a write
-    /// form targets it ([`writes_named_read_flag_value`]).
+    /// Whether the Bash `command` writes a settings file that wires the guard ([`writes_named`]):
+    /// a write target names a `.claude/` settings file ([`names_claude_settings`]) or, by any of
+    /// its [`Places::spellings`], the `settings` file of a role of the instance. A substring test
+    /// on each target, not a resolution: `cd .claude && … > settings.json` is not caught, nor is a
+    /// role's file written by a path relative to the cwd.
     fn writes_settings(&self, command: &str) -> bool {
-        let names = |text: &str| {
+        let spellings: Vec<String> = self
+            .settings
+            .iter()
+            .flat_map(|settings| self.spellings(settings))
+            .collect();
+        writes_named(command, |text| {
             names_claude_settings(text)
-                || self.settings.iter().any(|settings| {
-                    self.spellings(settings)
-                        .iter()
-                        .any(|spelling| text.contains(spelling.as_str()))
-                })
-        };
-        names(command) && holds_write_form(command) && writes_named_read_flag_value(command, names)
+                || spellings
+                    .iter()
+                    .any(|spelling| text.contains(spelling.as_str()))
+        })
     }
 
     /// Whether the Bash `command` names the guard's copy of the conductor lease or the state
@@ -569,20 +574,21 @@ impl Places {
             .any(|profile| path == lexical(profile) || path == real(profile))
     }
 
-    /// Whether the Bash `command` writes the `profile` file of a role of the instance: it names one
-    /// by any of its [`Places::spellings`] and holds a write form ([`holds_write_form`]). A plain
-    /// substring test, as [`Places::writes_settings`] is: a profile written by a path relative to
-    /// the cwd is not caught. A profile named only as the value of a read flag ([`READ_FLAGS`])
-    /// counts only when a write form targets it ([`writes_named_read_flag_value`]).
+    /// Whether the Bash `command` writes the `profile` file of a role of the instance
+    /// ([`writes_named`]): a write target names one by any of its [`Places::spellings`]. A
+    /// substring test on each target, as [`Places::writes_settings`] is: a profile written by a
+    /// path relative to the cwd is not caught.
     fn writes_profile(&self, command: &str) -> bool {
-        let names = |text: &str| {
-            self.profiles.iter().any(|profile| {
-                self.spellings(profile)
-                    .iter()
-                    .any(|spelling| text.contains(spelling.as_str()))
-            })
-        };
-        names(command) && holds_write_form(command) && writes_named_read_flag_value(command, names)
+        let spellings: Vec<String> = self
+            .profiles
+            .iter()
+            .flat_map(|profile| self.spellings(profile))
+            .collect();
+        writes_named(command, |text| {
+            spellings
+                .iter()
+                .any(|spelling| text.contains(spelling.as_str()))
+        })
     }
 
     /// Conductor's config, for a denial to name: the config file, the default config file,
@@ -858,6 +864,15 @@ impl Session<'_> {
             && steps.next().is_some()
     }
 
+    /// Where a denied write may go instead, for a denial to name (`story:guard-write-targets`):
+    /// a controller's scratch, under `$TMPDIR` or `~/.cache/<repo>-*/`.
+    fn scratch_named(&self) -> String {
+        format!(
+            "scratch is under $TMPDIR or ~/.cache/{}-*/",
+            self.repository.replace('/', "-")
+        )
+    }
+
     /// Edit, Write and NotebookEdit: the verdict on writing `target`.
     pub(super) fn file(&self, tool: &str, target: &str) -> (Verdict, String) {
         let written = self.file_target(target);
@@ -933,8 +948,9 @@ impl Session<'_> {
                         Verdict::Deny,
                         format!(
                             "{tool} target {target}{resolves} is in conductor's records {}/: a \
-                             controller does not write them",
-                            places.shown(&places.records_dir())
+                             controller does not write them; {}",
+                            places.shown(&places.records_dir()),
+                            self.scratch_named()
                         ),
                     )
                 } else if inside {
@@ -949,8 +965,9 @@ impl Session<'_> {
                         Verdict::Deny,
                         format!(
                             "{tool} target {target}{resolves} is outside the repository's checkout \
-                             {checkout}/ and its managed worktrees {}/",
-                            places.shown(&places.trees.join(&self.repository))
+                             {checkout}/ and its managed worktrees {}/; {}",
+                            places.shown(&places.trees.join(&self.repository)),
+                            self.scratch_named()
                         ),
                     )
                 }
@@ -1310,17 +1327,18 @@ impl Session<'_> {
         if self.places.writes_settings(command) {
             return (
                 Verdict::Deny,
-                "the command names a .claude/ settings file or a role's settings file and holds a \
-                 write form: no session writes Claude Code's project settings or the settings \
-                 that wire the guard, which can switch it off"
+                "the command writes a .claude/ settings file or a role's settings file (a write \
+                 target names it, or one the guard cannot read): no session writes Claude Code's \
+                 project settings or the settings that wire the guard, which can switch it off"
                     .to_owned(),
             );
         }
         if self.places.writes_profile(command) {
             return (
                 Verdict::Deny,
-                "the command names a role's profile file and holds a write form: no session \
-                 writes the system prompt a role's sessions start with"
+                "the command writes a role's profile file (a write target names it, or one the \
+                 guard cannot read): no session writes the system prompt a role's sessions start \
+                 with"
                     .to_owned(),
             );
         }
@@ -1379,7 +1397,12 @@ impl Session<'_> {
                 if let Some(target) = target {
                     if let Some(place) = self.elsewhere(&target) {
                         let shown = argument.map_or(name.to_owned(), |arg| format!("{name} {arg}"));
-                        return (Verdict::Deny, format!("`{shown}` reaches {place}"));
+                        return (
+                            Verdict::Deny,
+                            format!(
+                                "`{shown}` reaches {place}: read it by absolute path, without cd"
+                            ),
+                        );
                     }
                     here = target;
                 }
@@ -1399,9 +1422,10 @@ impl Session<'_> {
             return (
                 Verdict::Deny,
                 format!(
-                    "the command names conductor's records {}/ and holds a write form: a \
-                     controller does not write them",
-                    self.places.shown(&self.places.records_dir())
+                    "the command writes in conductor's records {}/ (a write target names them, \
+                     or one the guard cannot read): a controller does not write them; {}",
+                    self.places.shown(&self.places.records_dir()),
+                    self.scratch_named()
                 ),
             );
         }
@@ -1902,128 +1926,103 @@ fn names_claude_settings(command: &str) -> bool {
     })
 }
 
-/// The flags whose value Claude Code only reads: a settings file and a system prompt file.
-const READ_FLAGS: [&str; 3] = [
-    "--settings",
-    "--append-system-prompt-file",
-    "--system-prompt-file",
+/// The editors that write their file operands only with an in-place flag ([`in_place`]).
+const IN_PLACE_EDITORS: [&str; 2] = ["sed", "yq"];
+
+/// The programs that run a script of their own, which can write a file the command names without
+/// naming it again (`sh -c 'cp x "$2"' sh <file>`, `python3 -c '…' <file>`, `xargs cp x`): the
+/// shells, the interpreters, and the programs that run another with words read at run time. `awk`
+/// is none: its file operands are read, and a write from inside its quoted program is not read.
+const SCRIPT_RUNNERS: [&str; 16] = [
+    "sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "node", "ruby", "perl",
+    "xargs", "parallel", "eval", "source", ".",
 ];
 
-/// The programs that write a file named among their arguments: [`WRITE_WORDS`], and the editors
-/// of [`WRITE_SUBSTRINGS`] whatever their flags.
-const WRITE_PROGRAMS: [&str; 4] = ["sed", "yq", "perl", "dd"];
+/// The variables a word may start with and still land where the guard reads it, as long as the
+/// command does not set them ([`fixed`]): `$HOME` (and `~`) the home directory, `$TMPDIR` the
+/// session's scratch.
+const KNOWN_VARIABLES: [&str; 2] = ["HOME", "TMPDIR"];
 
-/// Whether `command`, which `names` a guarded file and holds a write form, writes it, as far as a
-/// read flag decides: true when `names` still holds with the value of every [`READ_FLAGS`] flag
-/// blanked out ([`blank_read_flag_values`]), or when no such flag is there; otherwise, with the
-/// file named only as such a value, true when a write form targets it: a redirection whose target
-/// `names` holds for ([`shell::written`]), or a simple command of a writing program
-/// ([`WRITE_WORDS`], [`WRITE_PROGRAMS`]) with a word `names` holds for. Cheap for a command with no
-/// read flag: one substring test per flag.
-fn writes_named_read_flag_value(command: &str, names: impl Fn(&str) -> bool) -> bool {
-    let Some(outside) = blank_read_flag_values(command) else {
-        return true;
-    };
-    if names(&outside) || reaches_words_indirectly(command) {
-        return true;
+/// Whether the Bash `command` writes a file `names` holds for (`story:guard-write-targets`): it
+/// names one and holds a write form ([`holds_write_form`]), and one of its simple commands
+/// ([`shell::simple_commands`])
+/// - redirects output to a target `names` holds for, or to one the guard cannot read
+///   ([`unread`]);
+/// - runs a writing program, one of [`WRITE_WORDS`], `dd`, or one of [`IN_PLACE_EDITORS`] with an
+///   in-place flag, with an operand `names` holds for or one the guard cannot read: every operand
+///   counts, the source of `cp` or `mv` too;
+/// - or runs one of [`SCRIPT_RUNNERS`], whose script can reach any word of the command.
+///
+/// So a path that appears only as a read operand (`awk … <path> > brief.md`), inside a quoted
+/// program or string, or in a here-document's body is not written; a target held in a variable is
+/// decided as before, by the name and the write form alone.
+fn writes_named(command: &str, names: impl Fn(&str) -> bool) -> bool {
+    if !names(command) || !holds_write_form(command) {
+        return false;
     }
-    shell::written(command).iter().any(|target| names(target))
-        || shell::commands(command).iter().any(|words| {
-            let words = command_words(words);
-            words.first().is_some_and(|first| {
-                let program = shell::program(first);
-                WRITE_WORDS.contains(&program) || WRITE_PROGRAMS.contains(&program)
-            }) && words.iter().any(|word| names(word))
+    let known: Vec<&str> = KNOWN_VARIABLES
+        .into_iter()
+        .filter(|variable| fixed(command, variable))
+        .collect();
+    let written = |word: &str| names(word) || unread(word, &known);
+    shell::simple_commands(command)
+        .iter()
+        .any(|(words, writes)| {
+            writes.iter().any(|target| written(target)) || {
+                let name = words.len() - command_words(words).len();
+                (name..words.len()).any(|at| {
+                    if !is_program_word(words, name, at) {
+                        return false;
+                    }
+                    let program = shell::program(&words[at]);
+                    let operands = &words[at + 1..];
+                    SCRIPT_RUNNERS.contains(&program)
+                        || ((WRITE_WORDS.contains(&program)
+                            || program == "dd"
+                            || (IN_PLACE_EDITORS.contains(&program)
+                                && operands.iter().any(|word| in_place(word))))
+                            && operands.iter().any(|word| written(word)))
+                })
+            }
         })
 }
 
-/// The programs and shell words that can reach a flag's value without naming it again: a shell or
-/// an interpreter given a script, a loop or `set` over the words, `xargs`, `eval`, `read`, `find`.
-const INDIRECT_WORDS: [&str; 22] = [
-    "sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "node", "ruby", "awk", "perl",
-    "xargs", "eval", "source", "exec", "set", "for", "while", "read", "find", "parallel",
-];
-
-/// Whether the shell could reach a word of `command` without naming it again, so that a value
-/// named only once, after a read flag, can still be written: a parameter (`$_`, `$1`, `$f`,
-/// `${…}`) other than `$HOME`, a backquote, a here-document or here-string (`<<`), or one of
-/// [`INDIRECT_WORDS`]. A command substitution `$(` is not one by itself; its words are the
-/// command's own. Found by the wave 04 review of `story:guard-read-flag-paths`.
-fn reaches_words_indirectly(command: &str) -> bool {
-    let parameter = command.match_indices('$').any(|(at, _)| {
-        let rest = &command[at + 1..];
-        !(rest.starts_with('(')
-            || rest.strip_prefix("HOME").is_some_and(|after| {
-                !after
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
-            }))
-    });
-    parameter
-        || command.contains('`')
-        || command.contains("<<")
-        || INDIRECT_WORDS
-            .iter()
-            .any(|word| contains_word(command, word))
+/// Whether the command-line flag `word` edits in place: `--in-place`, `--inplace`, or a short
+/// flag cluster holding `i` (`-i`, `-i.bak`, `-ni`).
+fn in_place(word: &str) -> bool {
+    word.starts_with("--in-place")
+        || word.starts_with("--inplace")
+        || (word.starts_with('-') && !word.starts_with("--") && word[1..].contains('i'))
 }
 
-/// `command` with the value of each [`READ_FLAGS`] flag replaced by blanks, or `None` when it holds
-/// none. A flag counts as a word: at the start or after a blank, followed by `=` or by blanks and
-/// the value. The value runs to the next blank, quote or shell operator; a value quoted whole runs
-/// to its closing quote, unless it is unclosed or a `"…"` holds `$(` or a backquote, which a shell
-/// expands into a command of its own: that value is kept, and still names what it names.
-fn blank_read_flag_values(command: &str) -> Option<String> {
-    if !READ_FLAGS.iter().any(|flag| command.contains(flag)) {
-        return None;
+/// Whether `command` leaves the variable `variable` as the session's environment has it: every
+/// mention of the name is an expansion (`$NAME`, `${NAME}`), none an assignment, an `export` or a
+/// loop variable.
+fn fixed(command: &str, variable: &str) -> bool {
+    command.match_indices(variable).all(|(at, _)| {
+        let before = &command[..at];
+        before.ends_with('$') || before.ends_with("${")
+    })
+}
+
+/// Whether the guard cannot read where the shell word `word` lands: it is empty (an output
+/// operator with no word after it), `{}` (a file `find` or `xargs` supplies), starts with `~` while
+/// the command sets `HOME`, or holds a parameter, a substitution or a backquote other than a
+/// leading `$HOME`, `${HOME}`, `$TMPDIR` or `${TMPDIR}` of the `known` variables.
+fn unread(word: &str, known: &[&str]) -> bool {
+    if word.is_empty() || word == "{}" || (word.starts_with('~') && !known.contains(&"HOME")) {
+        return true;
     }
-    let bytes = command.as_bytes();
-    let mut blanks: Vec<(usize, usize)> = Vec::new();
-    for flag in READ_FLAGS {
-        for (at, _) in command.match_indices(flag) {
-            if at > 0 && !bytes[at - 1].is_ascii_whitespace() {
-                continue;
-            }
-            let mut start = at + flag.len();
-            match bytes.get(start) {
-                Some(b'=') => start += 1,
-                Some(c) if c.is_ascii_whitespace() => {
-                    while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
-                        start += 1;
-                    }
-                }
-                _ => continue,
-            }
-            let rest = &command[start..];
-            let end = match rest.as_bytes().first() {
-                Some(&quote @ (b'"' | b'\'')) => match rest[1..].find(char::from(quote)) {
-                    Some(close) => {
-                        let inner = &rest[1..=close];
-                        if quote == b'"' && (inner.contains("$(") || inner.contains('`')) {
-                            continue;
-                        }
-                        close + 2
-                    }
-                    None => continue,
-                },
-                _ => rest
-                    .find(|c: char| {
-                        c.is_whitespace()
-                            || matches!(
-                                c,
-                                '"' | '\'' | '`' | ';' | '|' | '&' | '<' | '>' | '(' | ')'
-                            )
-                    })
-                    .unwrap_or(rest.len()),
-            };
-            blanks.push((start, start + end));
-        }
-    }
-    let mut out = command.as_bytes().to_vec();
-    for (start, end) in blanks {
-        out[start..end].fill(b' ');
-    }
-    Some(String::from_utf8(out).unwrap_or_else(|_| command.to_owned()))
+    let rest = known
+        .iter()
+        .flat_map(|variable| [format!("${variable}"), format!("${{{variable}}}")])
+        .find_map(|prefix| {
+            word.strip_prefix(prefix.as_str())
+                .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| word.to_owned());
+    rest.contains(['$', '`'])
 }
 
 /// Whether the Bash `command` is one the guard treats as a write (`story:lease-guard`): it holds

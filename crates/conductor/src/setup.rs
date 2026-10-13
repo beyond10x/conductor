@@ -19,8 +19,8 @@
 //! `--apply` writes a config file with one instance naming the repository when there is no config
 //! file (with one, it prints the instance to add and changes nothing), then runs `conductor init`
 //! and `conductor trust` for the instance naming the repository when its records or its trust are
-//! missing. It never logs a CLI in, installs a program or migrates a store: it prints each as a
-//! `to install: ` or `to run: ` line. Everything it checks is read again after it applied.
+//! missing. It never logs a CLI in, installs a program, activates a `worktree` workspace or
+//! migrates a store: it prints each as a `to install: ` or `to run: ` line. Everything it checks is read again after it applied.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -401,7 +401,9 @@ fn failure(check: &RepositoryCheck) -> Option<String> {
 /// What `--apply` leaves to a person, as the command to run: `to install: <program>: <command>`
 /// for each program missing or older than its pin, the command doctor prints under its row
 /// ([`Doctor::install`], `story:install-hints`), `to run: <cli> auth login --hostname <host>` for
-/// each forge CLI not logged in, and the store's migration.
+/// each forge CLI not logged in, `to run: worktree activate …` for each checkouts root not in an
+/// activated `worktree` workspace ([`Doctor::activations`], `story:worktree-activation`), and the
+/// store's migration.
 fn left_to_a_person(doctor: &Doctor, checks: &[RepositoryCheck]) -> Vec<String> {
     let installs = doctor
         .rows
@@ -426,11 +428,21 @@ fn left_to_a_person(doctor: &Doctor, checks: &[RepositoryCheck]) -> Vec<String> 
                 login.program, login.host
             )
         });
+    // Activating a worktree workspace writes the user's own worktree config, so it is only
+    // printed (story:worktree-activation).
+    let activations = doctor
+        .activations()
+        .into_iter()
+        .map(|command| format!("to run: {command}"));
     let migrate = checks
         .iter()
         .filter(|check| check.check == "store" && !check.ready)
         .map(|_| format!("to run: {MIGRATE}"));
-    installs.chain(logins).chain(migrate).collect()
+    installs
+        .chain(logins)
+        .chain(activations)
+        .chain(migrate)
+        .collect()
 }
 
 /// `--apply`: writes the config file naming `repository` when there is none, then runs

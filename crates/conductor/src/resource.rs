@@ -10,6 +10,10 @@
 //! before any store is opened. `--input-json` is not read yet, and answers
 //! [`NotImplemented`](crate::NotImplemented).
 //!
+//! Once the store kept it, `grant-resource` and `refuse-resource` append one line to the records'
+//! dispatch log ([`crate::records`]): `resource-granted` or `resource-refused`, with the request's
+//! id, repository, resource and amount, and the refusal's reason.
+//!
 //! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing.
 
 use std::io::Write as _;
@@ -24,10 +28,10 @@ use conductor_model::dispatch::obligations::{
     RequestResourceBehavior, ResourceRequestsQuery,
 };
 use conductor_model::dispatch::{
-    GrantResource, GrantResourceOutcome, GuardDecisionId, MessageId, RefuseResource,
-    RefuseResourceOutcome, ReleaseResource, ReleaseResourceOutcome, RequestResource,
-    RequestResourceOutcome, ResourceKind, ResourceRequestId, ResourceRequestSnapshot,
-    ResourceRequestState,
+    DispatchLogEvent, GrantResource, GrantResourceOutcome, GuardDecisionId, MessageId,
+    RefuseResource, RefuseResourceOutcome, ReleaseResource, ReleaseResourceOutcome,
+    RequestResource, RequestResourceOutcome, ResourceKind, ResourceRequestId,
+    ResourceRequestSnapshot, ResourceRequestState,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::{BoardId, ObservationId, RepositoryName, SnapshotId};
@@ -39,6 +43,7 @@ use crate::cli::{
     ViewArgs,
 };
 use crate::not_implemented;
+use crate::records;
 use crate::store::Store;
 
 /// Every resource kind, for reading one by its name.
@@ -111,7 +116,13 @@ pub fn grant_resource(state: Option<&Path>, args: GrantResourceArgs) -> Result<E
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports)?;
     match outcome {
-        GrantResourceOutcome::Granted { .. } => Ok(ExitCode::SUCCESS),
+        GrantResourceOutcome::Granted { resource_granted } => logged(
+            COMMAND,
+            &generated.ports,
+            &resource_granted.resource_request_id,
+            DispatchLogEvent::ResourceGranted,
+            None,
+        ),
         GrantResourceOutcome::BelowDiskFloor { error } => refused(
             COMMAND,
             "DiskBelowFloor",
@@ -154,7 +165,13 @@ pub fn refuse_resource(state: Option<&Path>, args: RefuseResourceArgs) -> Result
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports)?;
     match outcome {
-        RefuseResourceOutcome::Refused { .. } => Ok(ExitCode::SUCCESS),
+        RefuseResourceOutcome::Refused { resource_refused } => logged(
+            COMMAND,
+            &generated.ports,
+            &resource_refused.resource_request_id,
+            DispatchLogEvent::ResourceRefused,
+            Some(resource_refused.reason.clone()),
+        ),
         RefuseResourceOutcome::NoSuchRequest { error } => refused(
             COMMAND,
             "ResourceRequestNotFound",
@@ -334,6 +351,33 @@ impl TryContext for Ports {
     ) -> Result<SnapshotId, UnmetObligation> {
         Err(unmet_context("conductor.observation.SnapshotId"))
     }
+}
+
+/// Appends the records line of a resource request's answer the store has kept: `id` the request,
+/// `repo`, `resource` and `amount` as the store holds them, and the refusal's `reason`.
+fn logged(
+    command: &str,
+    store: &Store,
+    request: &ResourceRequestId,
+    event: DispatchLogEvent,
+    reason: Option<String>,
+) -> Result<ExitCode> {
+    let held = ResourceRequestStorage::get(store, request);
+    kept(command, store)?;
+    let held = held.ok_or_else(|| {
+        anyhow!(
+            "{command}: resource request {} moved, yet reads back as absent",
+            request.0.0
+        )
+    })?;
+    let mut line = records::dispatch_line(event, &held.data.repository.0)?;
+    line.id = Some(request.0.0.clone());
+    line.resource = Some(kind_name(held.data.resource).to_owned());
+    line.amount = Some(held.data.amount);
+    line.reason = reason;
+    records::append_dispatch(&line)
+        .with_context(|| format!("{command}: resource request {}", request.0.0))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Refuses `--input-json`, which no handler reads yet, as `what` not implemented.

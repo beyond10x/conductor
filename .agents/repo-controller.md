@@ -9,7 +9,8 @@ standing decisions, current dispatch, and the paths of this profile and of `rule
    instance's `rules.md` in the records directory: follow its controller section and every
    section it marks for all sessions or for controllers. A value
    written `section.key` below is that field of `conductor config show --format json`.
-2. Run `git status -sb`, `git worktree list`, `aep plan artifact list --status active`. Report
+2. Run `git status -sb`, `git worktree list`, and `aep plan artifact list --status active` where
+   there is a planning store (none: see "A repository with no planning store"). Report
    `[REPORT <repo> <dispatch-id>] started <one line on state>`.
 
 ## Spec first
@@ -36,6 +37,11 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 - **Deliver** in waves (`aep:implementing`, wave mode) in managed worktrees: one implementor per
   unit, an adversary on risky changes, the pre-push gates `rules.md` names on the exact commit.
   A red CI: read the failing log, fix every cause; never push while that PR's run is in progress.
+- **A charter with `merge: human`** (the default is `merge: controller`) leaves the merge to a
+  person: run the full gate as always and open one pull request; the controller never merges it
+  and never enables auto-merge. Report `[REPORT <repo> <dispatch>] review <url>`; the dispatch
+  stays open until a snapshot shows the pull request merged. Ask conductor to merge, and the
+  answer is "a person merges here".
 - **A wave is done when integrated and clean**: merged and pushed, every tree finished
   (`worktree finish --discard-cache --archive`) and gc-ed on reviewed ids, merged branches
   `git branch -d`; the report gives the tree count before and after.
@@ -47,6 +53,15 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
   tree itself.
 - **Release** through the repository's process when told; verify tag, checks, release, assets.
 - **Workers** (`aep:*`, `ess:*`) report to you; `controllers.max_subagents` at most at once.
+
+## A repository with no planning store
+
+A repository with no `.engineering/project.yaml` has no planning store, and you deliver without
+one: the dispatch's brief is the plan, written into the pull request's description; one branch
+per unit, one integration branch, the same full gate and one pull request. The controller does not
+create a store on its own: it offers one once, in its `started` report,
+`[REPORT <repo> <dispatch-id>] started; no planning store: /aep:init would add one`, and goes
+on. Gates, reports and boundaries are unchanged.
 
 ## Talking
 
@@ -83,6 +98,9 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 
 - Edit only in the repository and its managed trees under the instance's trees root. Another
   repository's problem is a `[NEED …]`; never `cd` or `git -C` into it.
+- When `worktree create` refuses with `workspace-not-activated`, report `[NEED conductor] worktree
+  workspace not activated: <root>` and, until it is answered, work in a plain
+  `git worktree add <trees>/<repo>/<name>` tree, which you remove when done.
 - Forge writes only through the workspace `AGENTS.md`'s bot route; `gh` and `glab` are read-only.
   No force-push; never discard work or delete build directories you did not create.
 - No full gate until every unit of the release is merged into the wave's integration branch;
@@ -102,7 +120,7 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 - While a gate expected to run over an hour runs, propose your next wave units to conductor and
   work on them in a separate tree, within the build-slot budget, instead of waiting for it. Their
   tests stay package-scoped: the full-workspace gate is still one at a time.
-- Merge pull requests one at a time, each after the last landed.
+- Under `merge: controller`, merge pull requests one at a time, each after the last landed.
 - Scratch: under `mktemp -d` (in `$TMPDIR`) or `~/.cache/<repo>-<purpose>/`; the Write and Edit
   tools may write there and nowhere else outside your repository. Waits over 60 s run
   in the background, no polling. Delete with `worktree finish` or one `rm -rf -- <paths>`, never

@@ -3106,6 +3106,9 @@ fn the_config_rule_covers_the_config_file_and_the_state_directory_only() {
             "cat ~/.b10x/conductor/fixture/state-old/x > notes.txt".to_owned(),
             "cat ~/.b10x/conductor/fixture/records-old/x > notes.txt".to_owned(),
             format!("ls {} 2>&1", state.display()),
+            // A read of the records redirected elsewhere writes no record
+            // (story:guard-write-targets reverses this case's earlier denial).
+            format!("cat {}/rules.md > notes.txt", records.display()),
         ] {
             let decision = at("bash", &cwd, "command", &command);
             assert_verdict(&decision, Verdict::Allow, "");
@@ -3127,7 +3130,6 @@ fn the_config_rule_covers_the_config_file_and_the_state_directory_only() {
         for command in [
             format!("cp x {}/decisions/2026-10.jsonl", records.display()),
             "echo x >> ~/.b10x/conductor/fixture/records/STATUS.md".to_owned(),
-            format!("cat {}/rules.md > notes.txt", records.display()),
         ] {
             let decision = at("bash", &cwd, "command", &command);
             assert_verdict(&decision, Verdict::Deny, "a controller does not write them");
@@ -4013,8 +4015,8 @@ fn places_with_role_files(home: &Path, controller: &str, profile: &str) -> Place
 /// starts `claude --bg` with the controller's profile and settings as flag values, is not denied
 /// by the settings or the profile rule: conductor runs it, and a controller running the same shape
 /// is denied only for writing the records. The same command with a write form aimed at either file
-/// is denied, and so is a command that names either file outside such a flag and holds any write
-/// form.
+/// is denied; a command that only reads either file, outside such a flag too, is not
+/// (`story:guard-write-targets`).
 #[test]
 fn a_role_s_settings_or_profile_file_as_a_read_flag_value_is_no_write_to_it() {
     let home = home("guard-read-flag-paths");
@@ -4089,16 +4091,206 @@ fn a_role_s_settings_or_profile_file_as_a_read_flag_value_is_no_write_to_it() {
                 format!("claude --settings \"$(tee {settings} < x)\""),
                 "settings file",
             ),
-            (format!("cat {profile} >> {charter}"), "profile file"),
-            (format!("cat {settings} > notes.txt"), "settings file"),
-            (
-                format!("echo x >> {charter}; claude --settings {settings} {settings}"),
-                "settings file",
-            ),
         ] {
             let decision = decide_in_places(&places, &home, "bash", cwd, "command", &command);
             assert_verdict(&decision, Verdict::Deny, rule);
         }
+    }
+    // story:guard-write-targets reverses three earlier denials: each file is only read here (a
+    // read operand of `cat` or of `claude`), so conductor runs the command, and a controller is
+    // denied it only for the charter it writes in the records.
+    let read = [
+        format!("cat {profile} >> {charter}"),
+        format!("echo x >> {charter}; claude --settings {settings} {settings}"),
+    ];
+    for command in &read {
+        let decision = decide_in_places(&places, &home, "bash", &records, "command", command);
+        assert_verdict(&decision, Verdict::Allow, "");
+        let decision = decide_in_places(&places, &home, "bash", &controller, "command", command);
+        assert_verdict(&decision, Verdict::Deny, "a controller does not write them");
+    }
+    let command = format!("cat {settings} > notes.txt");
+    for cwd in [&records, &controller] {
+        let decision = decide_in_places(&places, &home, "bash", cwd, "command", &command);
+        assert_verdict(&decision, Verdict::Allow, "");
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// `story:guard-write-targets`: the records, settings and profile rules decide a Bash command on
+// its write targets (the targets of its redirections, the operands of its writing programs), never
+// on a path that appears only as a read operand or inside a quoted or here-document body; and a
+// denial names the alternative.
+// -------------------------------------------------------------------------------------------------
+
+/// A controller copies parts of the records' `rules.md` into a brief in its scratch: the records
+/// are only read. Writing them, by a redirection or a writing program, is denied; a target held in
+/// a variable keeps today's verdict, a denial when the command names the records and holds a write
+/// form.
+#[test]
+fn a_controller_s_bash_is_decided_on_its_write_targets_in_the_records() {
+    let home = home("write-targets-records");
+    let (root, records) = case_dirs(&home);
+    let places = places_with_profiles(
+        &home,
+        [
+            "~/.config/fixture-roles/controller.md",
+            "~/.config/fixture-roles/dev.md",
+            "~/.config/fixture-roles/conductor.md",
+        ],
+    );
+    let controller = root.join("probe");
+    let rules = format!("{}/rules.md", records.display());
+    let at =
+        |command: &str| decide_in_places(&places, &home, "bash", &controller, "command", command);
+    for command in [
+        format!("awk '/^## Controller/,/^## Worker/' {rules} > ~/.cache/probe-x/brief.md"),
+        format!("awk 'NR>=4 && NR<=40' {rules} > ~/.cache/probe-x/brief.md"),
+        format!("sed -n '10,40p' {rules} > $TMPDIR/x"),
+        format!("sed -n '10,40p' {rules} >> \"${{TMPDIR}}/brief.md\""),
+        format!("grep -n Controller {rules} | tee $TMPDIR/x"),
+        format!("cat {rules} > brief.md 2>&1"),
+        "cat x > \"$OUT\"".to_owned(),
+    ] {
+        assert_verdict(&at(&command), Verdict::Allow, "");
+    }
+    for command in [
+        format!("echo x > {rules}"),
+        format!("awk 1 x >> {rules}"),
+        format!("sed -i 's/a/b/' {rules}"),
+        format!("sed -ni 's/a/b/p' {rules}"),
+        format!("perl -pi -e 's/a/b/' {rules}"),
+        format!("cat x | tee {rules}"),
+        format!("cp x {rules}"),
+        format!("mv x {rules}"),
+        format!("install -m 644 x {rules}"),
+        format!("bash -c 'echo x > {rules}'"),
+        // A target held in a variable or a substitution keeps today's verdict.
+        format!("cat {rules} > \"$OUT\""),
+        format!("cat {rules} > \"$(mktemp)\""),
+        format!("out={rules}; cp x \"$out\""),
+        format!("TMPDIR={}; cat x > $TMPDIR/rules.md", records.display()),
+    ] {
+        let decision = at(&command);
+        assert_verdict(&decision, Verdict::Deny, "a controller does not write them");
+        assert_verdict(&decision, Verdict::Deny, "scratch is under $TMPDIR");
+    }
+}
+
+/// Conductor appends a charter section whose body quotes the controller profile's path, as the
+/// Edit tool writes the same text unchecked: the profile is not a write target. A target that is
+/// the profile, or one held in a variable, is still denied.
+#[test]
+fn conductor_appends_a_charter_whose_body_names_a_role_s_profile() {
+    let home = home("write-targets-charter");
+    let (root, records) = case_dirs(&home);
+    let profile = "~/.config/fixture-roles/controller.md";
+    let places = places_with_profiles(
+        &home,
+        [
+            profile,
+            "~/.config/fixture-roles/dev.md",
+            "~/.config/fixture-roles/conductor.md",
+        ],
+    );
+    let body = format!(
+        "## Start\nclaude --bg --append-system-prompt-file {profile} --model opus\n\
+         Read {profile} first; cp and mv only in your tree.\n"
+    );
+    let at = |cwd: &Path, command: &str| {
+        decide_in_places(&places, &home, "bash", cwd, "command", command)
+    };
+    for command in [
+        format!("cat >> charters/x.md <<'EOF'\n{body}EOF"),
+        format!(
+            "cat >> {}/charters/x.md <<EOF\n{body}EOF\ngit add charters/x.md",
+            records.display()
+        ),
+    ] {
+        let decision = at(&records, &command);
+        assert_eq!(decision.repository, "conductor", "{decision:#?}");
+        assert_verdict(&decision, Verdict::Allow, "");
+    }
+    for command in [
+        format!("cat > {profile} <<'EOF'\n{body}EOF"),
+        format!("cat >> \"$P\" <<'EOF'\n{body}EOF"),
+    ] {
+        for cwd in [&records, &root.join("probe")] {
+            assert_verdict(&at(cwd, &command), Verdict::Deny, "profile file");
+        }
+    }
+}
+
+/// A controller's Write or Edit denial names its scratch, `$TMPDIR` and `~/.cache/<repo>-*/`, and
+/// a `cd` into another checkout or the records says to read by absolute path instead.
+#[test]
+fn a_denial_names_the_allowed_alternative() {
+    let home = home("write-targets-alternatives");
+    for (name, field) in FILE_TOOLS {
+        for target in [
+            "~/example-org/x",
+            "~/.cache/x",
+            "~/example-org/conductor/STATUS.md",
+        ] {
+            let decision = decide(name, &home, PROBE, &[(field, target)]);
+            assert_verdict(&decision, Verdict::Deny, "scratch is under $TMPDIR");
+            assert_verdict(&decision, Verdict::Deny, "~/.cache/.guard-probe-w04-*/");
+        }
+    }
+    for command in [
+        "cd ../conductor",
+        "cd ~/example-org/delta && ls",
+        "pushd ../conductor",
+        "(cd ~/.local/state/worktree/trees/example-org/conductor/t && ls)",
+    ] {
+        let decision = bash(&home, PROBE, command);
+        assert_verdict(&decision, Verdict::Deny, "reaches");
+        assert_verdict(
+            &decision,
+            Verdict::Deny,
+            "read it by absolute path, without cd",
+        );
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// `story:report-md-in-records`: conductor writes `<records>/REPORT.md`, as it writes `STATUS.md`
+// and `NORTHSTAR.md`; nothing else at the root of the records is added, and a controller writes
+// none of them.
+// -------------------------------------------------------------------------------------------------
+
+#[test]
+fn conductor_writes_report_md_at_the_records_root_and_a_controller_does_not() {
+    let without = built_in_layout(&home("report-md-without-file"));
+    let with = file_layout(&home("report-md-with-file"));
+    for layout in [&without, &with] {
+        let report = layout.fill("{records}/REPORT.md");
+        let other = layout.fill("{records}/OTHER.md");
+        let controller = layout.root.join("probe");
+        for name in ["write", "edit"] {
+            let decision =
+                layout.decide(name, &layout.conductor, "file_path", &report, &unlisted());
+            assert_verdict(&decision, Verdict::Allow, "one of conductor's records");
+            let decision = layout.decide(name, &layout.conductor, "file_path", &other, &unlisted());
+            assert_verdict(
+                &decision,
+                Verdict::Deny,
+                "conductor writes only its records",
+            );
+            assert_verdict(&decision, Verdict::Deny, "REPORT.md");
+            let decision = layout.decide(name, &controller, "file_path", &report, &unlisted());
+            assert_eq!(
+                decision.verdict,
+                Verdict::Deny,
+                "{}: {decision:#?}",
+                layout.name
+            );
+        }
+        let command = format!("echo x > {report}");
+        let decision = layout.decide("bash", &layout.conductor, "command", &command, &unlisted());
+        assert_verdict(&decision, Verdict::Allow, "");
+        let decision = layout.decide("bash", &controller, "command", &command, &unlisted());
+        assert_verdict(&decision, Verdict::Deny, "a controller does not write them");
     }
 }
 

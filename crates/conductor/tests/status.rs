@@ -9,7 +9,10 @@
 //!
 //! The fixtures: `base.json` holds `alpha` (a checkout, one open pull request with no failing
 //! check, a green `main`), `beta` (no checkout) and the archived `gamma`; `red.json` is `base.json`
-//! with that pull request's check turned red, and nothing else changed.
+//! with that pull request's check turned red, and nothing else changed. `reviews.json` holds four
+//! open pull requests of `alpha` (a draft, one with a failing check, and two waiting for review,
+//! opened on different days) and one of `beta` waiting; `reviews-three.json` three of `alpha`
+//! waiting (`story:review-limit`).
 
 mod active;
 mod common;
@@ -32,8 +35,9 @@ use conductor_model::primitives::Timestamp;
 use serde_json::Value;
 
 /// The board's section headings, in the order the story gives them.
-const SECTIONS: [&str; 7] = [
+const SECTIONS: [&str; 8] = [
     "# Status",
+    "## Waiting for review",
     "## Deviations",
     "## Overview",
     "## Specifications",
@@ -174,12 +178,12 @@ fn from_fixture(name: &str) -> Collector {
                 repository: RepositoryName(text(item, "repository")),
                 number: number(item, "number"),
                 title: text(item, "title"),
-                draft: false,
+                draft: item["draft"].as_bool().unwrap_or(false),
                 mergeability: Mergeability::Mergeable,
                 failing_checks: number(item, "failing_checks"),
                 opened_at: Timestamp(text(item, "opened_at")),
                 updated_at: Timestamp(text(item, "opened_at")),
-                url: None,
+                url: optional_text(item, "url"),
             })?;
         }
         for item in items(&fixture, "workflow_runs") {
@@ -384,11 +388,11 @@ fn column(header: &[String], name: &str) -> usize {
         .unwrap_or_else(|| panic!("no column {name:?} in {header:?}"))
 }
 
-/// Acceptance 1: over a complete snapshot, `publish-board` writes a file whose seven section
+/// Acceptance 1: over a complete snapshot, `publish-board` writes a file whose section
 /// headings appear in the story's order, and whose header names the command, the snapshot id and
 /// its start time; `snapshot boards` lists the board it recorded.
 #[test]
-fn the_board_has_its_seven_sections_in_order_and_names_its_snapshot() {
+fn the_board_has_its_sections_in_order_and_names_its_snapshot() {
     let root = case_dir("sections");
     let snapshot = complete(&root, EARLIER, "base");
 
@@ -543,6 +547,11 @@ fn a_repository_without_a_checkout_reads_no_checkout() {
 /// Writes a config file of one instance whose records are `root`'s `records/`, and answers its
 /// path.
 fn records_config(root: &Path) -> PathBuf {
+    records_config_with(root, "")
+}
+
+/// [`records_config`], with `extra` lines appended to the instance.
+fn records_config_with(root: &Path, extra: &str) -> PathBuf {
     let records = root.join("records");
     fs::create_dir_all(&records).expect("create the records directory");
     let home = root.join("home");
@@ -557,7 +566,8 @@ fn records_config(root: &Path) -> PathBuf {
              \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
              \x20   records: {records:?}\n\
              \x20   state: {state:?}\n\
-             \x20   cache: {cache:?}\n",
+             \x20   cache: {cache:?}\n\
+             {extra}",
             root = home.join("example-org"),
             trees = home.join("trees"),
             records = records,
@@ -567,6 +577,106 @@ fn records_config(root: &Path) -> PathBuf {
     )
     .expect("write the config file");
     file
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:review-limit
+// ---------------------------------------------------------------------------------------------
+
+/// The board of the snapshot `snapshot` under `root`, published with the config file `config`.
+fn publish_under(root: &Path, config: Option<&Path>, snapshot: &str) -> String {
+    let board = root.join("out/STATUS.md");
+    let output = conductor_with(
+        root,
+        config,
+        &[
+            "snapshot",
+            "publish-board",
+            "--snapshot-id",
+            snapshot,
+            "--path",
+            path(&board),
+        ],
+    );
+    assert!(output.status.success(), "{}", describe(&output));
+    fs::read_to_string(&board)
+        .unwrap_or_else(|error| panic!("read {}: {error}; {}", board.display(), describe(&output)))
+}
+
+/// The lines of `board`'s **Waiting for review** section that are not blank.
+fn waiting(board: &str) -> Vec<String> {
+    section(board, "## Waiting for review")
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Of four open pull requests of `alpha`, the draft and the one with a failing check do not wait
+/// for review; the two that do are listed oldest first, `beta`'s younger one after them, each
+/// `<repo> #<n> <title> — <age>`. With the limit 2 `alpha` is at it and its limit line
+/// follows; with the limit 3 there is none, and `beta`, one under either, never has one.
+#[test]
+fn the_board_opens_with_what_waits_for_review_oldest_first_and_the_repositories_at_the_limit() {
+    let root = case_dir("reviews");
+    let snapshot = complete(&root, LATER, "reviews");
+
+    let config = records_config_with(&root, "\x20   controllers: {max_open_reviews: 2}\n");
+    let board = publish_under(&root, Some(&config), &snapshot);
+    assert_eq!(headings(&board), SECTIONS, "{board}");
+    assert_eq!(
+        waiting(&board),
+        [
+            "- alpha #4 Read the catalog — 7d",
+            "- alpha #3 Name the exporter — 3d",
+            "- beta #9 Tidy the docs — 5h",
+            "- alpha: 2 wait for review (limit 2): no new dispatch",
+        ],
+        "{board}"
+    );
+
+    let config = records_config_with(&root, "\x20   controllers: {max_open_reviews: 3}\n");
+    let board = publish_under(&root, Some(&config), &snapshot);
+    let lines = waiting(&board);
+    assert_eq!(lines.len(), 3, "{board}");
+    assert!(
+        !lines.iter().any(|line| line.contains("no new dispatch")),
+        "{board}"
+    );
+}
+
+/// Without `max_open_reviews` the limit is 3, so three waiting pull requests of `alpha` print the
+/// limit line; with `max_open_reviews: 0` there is no limit and no limit line.
+#[test]
+fn the_limit_is_3_without_the_key_and_none_at_0() {
+    let root = case_dir("reviews-default");
+    let snapshot = complete(&root, LATER, "reviews-three");
+
+    let board = publish_under(&root, None, &snapshot);
+    let lines = waiting(&board);
+    assert_eq!(lines.len(), 4, "{board}");
+    assert_eq!(
+        lines[3], "- alpha: 3 wait for review (limit 3): no new dispatch",
+        "{board}"
+    );
+
+    let config = records_config_with(&root, "\x20   controllers: {max_open_reviews: 0}\n");
+    let board = publish_under(&root, Some(&config), &snapshot);
+    let lines = waiting(&board);
+    assert_eq!(lines.len(), 3, "{board}");
+    assert!(
+        !lines.iter().any(|line| line.contains("no new dispatch")),
+        "{board}"
+    );
+}
+
+/// No pull request waits: the section says so.
+#[test]
+fn a_board_with_nothing_waiting_for_review_says_none() {
+    let root = case_dir("reviews-none");
+    let snapshot = complete(&root, EARLIER, "red");
+    let board = publish_under(&root, None, &snapshot);
+    assert_eq!(waiting(&board), ["None."], "{board}");
 }
 
 /// Without `--snapshot-id` the board is the newest complete snapshot's, a failed one after it

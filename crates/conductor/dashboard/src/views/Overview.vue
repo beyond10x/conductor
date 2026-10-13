@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// The overview (`#/`, story:dashboard-overview): the summary strip, what needs the operator, the
-// repositories with their state chips, today's events, and disk and spend collapsed. It reads
-// every endpoint at once on mount and every 20 s (src/api/overview.ts).
+// The overview (`#/`, story:dashboard-overview): what waits for review (story:review-limit), the
+// summary strip, what needs the operator, the repositories with their state chips, today's
+// events, and disk and spend collapsed. It reads every endpoint at once on mount and every 20 s
+// (src/api/overview.ts).
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   loadOverview,
@@ -9,8 +10,10 @@ import {
   needsYou,
   repositoryRows,
   summary,
+  waitingForReview,
   type OverviewData,
 } from '../api/overview';
+import WaitingForReview from './overview/WaitingForReview.vue';
 import SummaryTiles from './overview/SummaryTiles.vue';
 import NeedsYou from './overview/NeedsYou.vue';
 import RepositoryTable from './overview/RepositoryTable.vue';
@@ -37,6 +40,7 @@ function storage(): Storage | null {
   }
 }
 
+const reviews = computed(() => (view.value === null ? [] : waitingForReview(view.value)));
 const tiles = computed(() => (view.value === null ? [] : summary(view.value)));
 const cards = computed(() => (view.value === null ? [] : needsYou(view.value)));
 const rows = computed(() => (view.value === null ? [] : repositoryRows(view.value)));
@@ -66,6 +70,7 @@ onBeforeUnmount(() => {
         <template v-else>no complete snapshot yet</template>
         · today since {{ view.since }}
       </p>
+      <WaitingForReview :rows="reviews" :at="view.reviews.snapshot?.started_at ?? null" />
       <SummaryTiles :tiles="tiles" />
       <NeedsYou :cards="cards" />
       <RepositoryTable :rows="rows" :mine="mine" />

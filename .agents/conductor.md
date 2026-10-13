@@ -61,7 +61,20 @@ this session and expire after 7 days, so a restart loses them.
      decisions, current dispatch, and the paths of `.agents/repo-controller.md` and `rules.md`.
      The charter approves the repository's waves up front: a controller proposes a wave on its
      wave page and runs it without waiting for an answer (the operator, 2026-10-12).
-   - Log each dispatch to `dispatches/YYYY-MM.jsonl`.
+   - A charter's `merge:` line says who merges its pull requests: `merge: controller`, the
+     default, lets the controller merge once its full gate is green; with `merge: human` the
+     controller opens the pull request, reports `review <url>` and never merges it. Answer a
+     controller's request to merge in such a repository with "a person merges here".
+   - The commands that record an event append its line to `dispatches/YYYY-MM.jsonl` or
+     `decisions/YYYY-MM.jsonl` themselves: `dispatch send-dispatch`, `report-*` and
+     `cancel-dispatch`, `message receive-message`, `resource grant-resource` and
+     `refuse-resource`, `controller revise-charter`, and `decision record-conductor-decision`,
+     `raise-decision-request`, `answer-request` and `reverse-conductor-decision`. Once a command
+     records an event, no hand-written line for it: run the command; write a line by hand only for
+     an event no command records. Run `conductor records check` before you commit the logs.
+   - Send no new dispatch to a repository the board marks review full; report it in the cycle
+     instead. `STATUS.md` marks it `<repo>: <k> wait for review (limit <n>): no new dispatch`
+     once `controllers.max_open_reviews` pull requests wait for a person's review.
    - A charter for a repository whose gate runs over an hour says: after a failure, rerun only
      the failed steps and the steps that depend on them; keep one full run for the release commit.
    - While a controller's gate is expected to run over an hour, dispatch the repository's next
