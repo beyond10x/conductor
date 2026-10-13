@@ -358,14 +358,18 @@ fn table(section: &str) -> Vec<Vec<String>> {
     section
         .lines()
         .filter(|line| line.starts_with('|'))
-        .filter(|line| !line.starts_with("|---"))
         .map(|line| {
             line.trim()
                 .trim_start_matches('|')
                 .trim_end_matches('|')
                 .split('|')
                 .map(|cell| cell.trim().to_owned())
-                .collect()
+                .collect::<Vec<String>>()
+        })
+        .filter(|cells| {
+            !cells
+                .iter()
+                .all(|cell| !cell.is_empty() && cell.chars().all(|c| c == '-'))
         })
         .collect()
 }
