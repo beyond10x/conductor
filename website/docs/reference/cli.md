@@ -1297,6 +1297,7 @@ Usage: conductor guard record-guard-decision [OPTIONS]
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 | `--from-pre-tool-use` | no | `false` | Read a Claude Code PreToolUse payload from standard input and compute the verdict |
+| `--pid <PID>` | no | none | The calling session's process, which the PreToolUse payload does not name (the hook shell's parent, `--pid "$PPID"`); the conductor lease denies a write from another process |
 
 ## `conductor guard guard-decisions`
 

@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "conductor guard record-guard-decision --from-pre-tool-use || exit 2"
+            "command": "conductor guard record-guard-decision --from-pre-tool-use --pid \"$PPID\" || exit 2"
           }
         ]
       }

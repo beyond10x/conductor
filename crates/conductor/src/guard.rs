@@ -38,9 +38,10 @@
 //! A write that conductor's rule allows (Edit, Write or NotebookEdit; SendMessage; a Bash or
 //! Monitor command the guard treats as a write, or one that names the lease's file or its state
 //! directory) is decided again by the instance's conductor lease (`story:lease-guard`,
-//! [`leased`]). While the lease names another session than the payload's
-//! `session_id` and the holder's process lives, the write is denied as a second conductor's,
-//! naming the holder's session id and pid. The lease is read from one small file under the state
+//! [`leased`]). While the holder's process lives and the lease names another session than the
+//! payload's `session_id`, or the calling process that `--pid` names is not the holder's
+//! (`story:lease-by-process`), the write is denied as a second conductor's, naming the holder's
+//! session id and pid. The lease is read from one small file under the state
 //! directory, the guard's copy that `session claim` writes beside the store
 //! (`crate::session::LeaseFile`), never from the store. No file, one that does not read, or a dead
 //! holder leaves the verdict as the rule table gave it. Reads, and every call of a controller,
@@ -412,11 +413,13 @@ pub fn record_guard_decision(
     if !args.from_pre_tool_use {
         return not_implemented("guard record-guard-decision");
     }
-    Ok(hook(state))
+    Ok(hook(state, args.pid))
 }
 
-/// The hook: decide; for a denial, record it within the deadline; answer.
-fn hook(state: Option<&Path>) -> ExitCode {
+/// The hook: decide; for a denial, record it within the deadline; answer. `pid` is the calling
+/// session's process when the settings pass it (`--pid`), which the lease check compares with the
+/// holder's ([`leased`]).
+fn hook(state: Option<&Path>, pid: Option<i64>) -> ExitCode {
     panic::set_hook(Box::new(|info| {
         eprintln!("conductor guard: {}", one_line(&info.to_string()));
     }));
@@ -447,7 +450,7 @@ fn hook(state: Option<&Path>) -> ExitCode {
                     || (conductor_command
                         && places.names_lease(&decision.target, recorded_in(state).as_deref()))
                 {
-                    leased(state, decision)
+                    leased(state, decision, pid)
                 } else {
                     decision
                 }
@@ -500,30 +503,45 @@ fn recorded_in(state: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// `decision`, a conductor-role write the rule table allows, decided again by the conductor lease
-/// of the instance this process runs (`story:lease-guard`): denied when the lease names another
-/// session than the payload's and the holder's process lives ([`crate::session::lives`]), naming
-/// the holder's session id and pid; otherwise `decision` as it is.
+/// of the instance this process runs (`story:lease-guard`): denied when the holder's process lives
+/// ([`crate::session::lives`]) and the lease names another session than the payload's, or the
+/// caller's process `pid` is given and is not the holder's (`story:lease-by-process`), naming the
+/// holder's session id and pid; otherwise `decision` as it is.
+///
+/// `pid` is the calling session's process, the hook shell's parent that conductor's settings pass
+/// as `--pid "$PPID"`, as the SessionStart claim does. Claude Code runs every hook of a session
+/// from that one process, its sub-agents' and its Monitor calls' included, so they all pass the
+/// holder's pid; a second process that resumes the holder's session id passes its own. Without
+/// `pid` (the controller settings, an older settings file) the session id alone decides.
 ///
 /// The lease is read from the guard's copy of it, [`crate::session::LEASE_FILE`] under the state
 /// directory ([`recorded_in`]), which `session claim` writes once the store kept the claim; the
 /// store is not opened. No state directory, no such regular file, one that does not read, or one
 /// naming another instance leaves `decision` as it is: the SessionStart claim
 /// (`crate::session::claim`) is where a session takes the lease.
-fn leased(state: Option<&Path>, decision: Decision) -> Decision {
+fn leased(state: Option<&Path>, decision: Decision, pid: Option<i64>) -> Decision {
     let Some(holder) = recorded_in(state).and_then(|dir| crate::session::LeaseFile::read(&dir))
     else {
         return decision;
     };
+    let same_session = holder.session_id == decision.session_ref;
+    let other_process = pid.filter(|pid| *pid != holder.pid);
     if holder.instance != crate::config::active().instance.name.0
-        || holder.session_id == decision.session_ref
+        || (same_session && other_process.is_none())
         || !crate::session::lives(holder.pid)
     {
         return decision;
     }
+    let caller = match other_process {
+        Some(pid) if same_session => {
+            format!("this process (pid {pid}), which carries the holder's session id,")
+        }
+        _ => "this session".to_owned(),
+    };
     let reason = format!(
         "{} is denied: session {} (pid {}) holds the conductor lease of instance {} and its \
-         process lives: this session is a second conductor of the instance and must stop; it \
-         may read, and writes nothing",
+         process lives: {caller} is a second conductor of the instance and must stop; it may \
+         read, and writes nothing",
         decision.tool, holder.session_id, holder.pid, holder.instance
     );
     Decision {

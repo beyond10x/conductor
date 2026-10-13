@@ -28,10 +28,16 @@ use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-/// The hook command both settings files wire, as the coordinator decided it (DEC 3 of the brief).
-/// Correction 2 appends `|| exit 2`: any failure to run the guard (`conductor` not on `PATH` is
-/// 127) is a denial, since Claude Code lets a call proceed on any status but 2.
+/// The hook command the controller settings wire, as the coordinator decided it (DEC 3 of the
+/// brief). Correction 2 appends `|| exit 2`: any failure to run the guard (`conductor` not on
+/// `PATH` is 127) is a denial, since Claude Code lets a call proceed on any status but 2.
 const GUARD_COMMAND: &str = "conductor guard record-guard-decision --from-pre-tool-use || exit 2";
+
+/// The hook command conductor's settings wire: the guard command that also passes the calling
+/// session's process, the hook shell's parent, as the SessionStart claim does, so the lease check
+/// tells the holder from another process carrying its session id (`story:lease-by-process`).
+const CONDUCTOR_GUARD_COMMAND: &str =
+    "conductor guard record-guard-decision --from-pre-tool-use --pid \"$PPID\" || exit 2";
 
 /// The suffix that turns every failure of the wired command into a denial.
 const OR_DENY: &str = " || exit 2";
@@ -102,6 +108,18 @@ fn hook(case: &Path, state: &Path, stdin: &[u8]) -> Output {
 
 /// Runs the hook as [`hook`] does, with `CONDUCTOR_CONFIG` naming `config` when one is given.
 fn hook_with(case: &Path, state: &Path, config: Option<&Path>, stdin: &[u8]) -> Output {
+    hook_from(case, state, config, None, stdin)
+}
+
+/// Runs the hook as [`hook_with`] does, passing `--pid` with `pid` when one is given, as
+/// conductor's settings pass the hook shell's parent (`story:lease-by-process`).
+fn hook_from(
+    case: &Path,
+    state: &Path,
+    config: Option<&Path>,
+    pid: Option<u32>,
+    stdin: &[u8],
+) -> Output {
     let mut command = common::conductor(case.join("home"));
     command
         .args(["--state-dir"])
@@ -111,6 +129,9 @@ fn hook_with(case: &Path, state: &Path, config: Option<&Path>, stdin: &[u8]) -> 
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(pid) = pid {
+        command.arg("--pid").arg(pid.to_string());
+    }
     if let Some(config) = config {
         command.env(CONFIG_VARIABLE, config);
     }
@@ -1290,10 +1311,10 @@ fn settings(name: &str) -> Value {
         .expect("the settings file is JSON")
 }
 
-/// The matchers of `settings`' PreToolUse hooks, sorted, after asserting each runs the guard
-/// command and nothing else, and that the hook events wired are exactly `events`.
+/// The matchers of `settings`' PreToolUse hooks, sorted, after asserting each runs `command` and
+/// nothing else, and that the hook events wired are exactly `events`.
 #[track_caller]
-fn guarded_matchers(settings: &Value, events: &[&str]) -> Vec<String> {
+fn guarded_matchers(settings: &Value, command: &str, events: &[&str]) -> Vec<String> {
     let hooks = settings["hooks"].as_object().expect("a hooks object");
     assert_eq!(
         hooks.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -1308,7 +1329,7 @@ fn guarded_matchers(settings: &Value, events: &[&str]) -> Vec<String> {
             let commands = entry["hooks"].as_array().expect("a hooks list");
             assert_eq!(commands.len(), 1, "{entry:#}");
             assert_eq!(commands[0]["type"], "command", "{entry:#}");
-            assert_eq!(commands[0]["command"], GUARD_COMMAND, "{entry:#}");
+            assert_eq!(commands[0]["command"], command, "{entry:#}");
             entry["matcher"].as_str().expect("a matcher").to_owned()
         })
         .collect();
@@ -1319,7 +1340,10 @@ fn guarded_matchers(settings: &Value, events: &[&str]) -> Vec<String> {
 #[test]
 fn the_controller_settings_wire_the_guard_on_every_tool() {
     let controller = settings("controller-settings.json");
-    assert_eq!(guarded_matchers(&controller, &["PreToolUse"]), MATCHERS);
+    assert_eq!(
+        guarded_matchers(&controller, GUARD_COMMAND, &["PreToolUse"]),
+        MATCHERS
+    );
     assert_eq!(
         controller["disableAllHooks"],
         Value::Bool(false),
@@ -1333,7 +1357,11 @@ fn conductor_settings_wire_the_guard_and_keep_background_isolation_off() {
     // Conductor's settings also claim the instance's conductor lease when a session starts
     // (`story:single-conductor-lease`, `tests/session.rs`).
     assert_eq!(
-        guarded_matchers(&conductor, &["PreToolUse", "SessionStart"]),
+        guarded_matchers(
+            &conductor,
+            CONDUCTOR_GUARD_COMMAND,
+            &["PreToolUse", "SessionStart"]
+        ),
         MATCHERS
     );
     assert_eq!(conductor["worktree"]["bgIsolation"], "none");
@@ -1385,26 +1413,36 @@ fn the_wired_command_denies_when_it_cannot_run_the_guard() {
     }
 }
 
+/// Both wired commands parse as the guard hook. The shell expands conductor's `"$PPID"` to the
+/// hook shell's parent, a pid, which the guard reads as the calling session's process; the
+/// controller's command passes none.
 #[test]
 fn the_wired_command_parses_as_the_guard_hook() {
-    let guard = GUARD_COMMAND
-        .strip_suffix(OR_DENY)
-        .expect("the wired command ends in `|| exit 2`");
-    let argv: Vec<String> = guard
-        .split(' ')
-        .map(|word| word.trim_matches('"').to_owned())
-        .collect();
-    let cli = Cli::try_parse_from(&argv).expect("the wired command parses");
-    assert_eq!(
-        cli.state_dir, None,
-        "the state directory is the instance's, not a path in the settings"
-    );
-    let debug = format!("{:?}", cli.group);
-    assert!(
-        debug.starts_with("Guard(RecordGuardDecision(")
-            && debug.contains("from_pre_tool_use: true"),
-        "{debug}"
-    );
+    for (wired, pid) in [
+        (GUARD_COMMAND, "pid: None"),
+        (CONDUCTOR_GUARD_COMMAND, "pid: Some(4242)"),
+    ] {
+        let guard = wired
+            .strip_suffix(OR_DENY)
+            .expect("the wired command ends in `|| exit 2`")
+            .replace("\"$PPID\"", "4242");
+        let argv: Vec<String> = guard
+            .split(' ')
+            .map(|word| word.trim_matches('"').to_owned())
+            .collect();
+        let cli = Cli::try_parse_from(&argv).expect("the wired command parses");
+        assert_eq!(
+            cli.state_dir, None,
+            "the state directory is the instance's, not a path in the settings"
+        );
+        let debug = format!("{:?}", cli.group);
+        assert!(
+            debug.starts_with("Guard(RecordGuardDecision(")
+                && debug.contains("from_pre_tool_use: true")
+                && debug.contains(pid),
+            "{wired}: {debug}"
+        );
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -1988,8 +2026,8 @@ fn a_second_conductor_is_denied_a_bash_command_that_disables_the_lease_file() {
 
 /// A Claude Code session standing in a process of its own: a shell that runs the SessionStart
 /// claim and then one PreToolUse guard call, each under `sh -c` as Claude Code runs a hook, and
-/// then becomes `sleep`, keeping its pid. The claim reads its pid from the inner shell's `$PPID`,
-/// as the shipped settings do.
+/// then becomes `sleep`, keeping its pid. The claim and the guard each read its pid from the inner
+/// shell's `$PPID`, as the shipped settings do.
 struct SessionProcess {
     process: Child,
     claim_status: Option<i32>,
@@ -2019,7 +2057,7 @@ impl SessionProcess {
         fs::write(dir.join("call.json"), tool_call).expect("write the tool call payload");
         let home = case.join("home");
         let binary = common::conductor(&home).get_program().to_owned();
-        let script = r#"sh -c '"$0" --state-dir "$1" session claim --from-session-start --pid "$PPID"' "$1" "$2" <"$3/start.json" >"$3/claim.out" 2>&1; echo $? >"$3/claim.status"; sh -c '"$0" --state-dir "$1" guard record-guard-decision --from-pre-tool-use' "$1" "$2" <"$3/call.json" >/dev/null 2>"$3/guard.err"; echo $? >"$3/guard.next" && mv "$3/guard.next" "$3/guard.status"; exec sleep 600"#;
+        let script = r#"sh -c '"$0" --state-dir "$1" session claim --from-session-start --pid "$PPID"' "$1" "$2" <"$3/start.json" >"$3/claim.out" 2>&1; echo $? >"$3/claim.status"; sh -c '"$0" --state-dir "$1" guard record-guard-decision --from-pre-tool-use --pid "$PPID"' "$1" "$2" <"$3/call.json" >/dev/null 2>"$3/guard.err"; echo $? >"$3/guard.next" && mv "$3/guard.next" "$3/guard.status"; exec sleep 600"#;
         let mut process = Command::new("/bin/sh")
             .args(["-c", script, name])
             .arg(&binary)
@@ -2067,13 +2105,12 @@ impl Drop for SessionProcess {
     }
 }
 
-/// Review finding: the guard knows the holder by the payload's `session_id` alone. A second live
-/// process that carries the holder's session id (`claude --resume <id>` by hand, which keeps the
-/// id, while the holder's process still runs) has its SessionStart claim refused, since its pid is
-/// not the holder's, and is then allowed every write, so two conductors write. The holder's own
-/// write stays allowed.
+/// Review finding (`story:lease-by-process`): the guard knew the holder by the payload's
+/// `session_id` alone. A second live process that carries the holder's session id (`claude
+/// --resume <id>` by hand, which keeps the id, while the holder's process still runs) has its
+/// SessionStart claim refused, since its pid is not the holder's, and is denied its writes, since
+/// the guard learns the calling process from `--pid "$PPID"`. The holder's own write stays allowed.
 #[test]
-#[ignore = "story:lease-by-process: the guard identifies the holder by session id only"]
 fn a_second_process_resuming_the_holder_s_session_is_denied_its_writes() {
     let case = case_dir("lease-guard-same-id");
     let state = case.join("state");
@@ -2115,4 +2152,78 @@ fn a_second_process_resuming_the_holder_s_session_is_denied_its_writes() {
         resumed.pid(),
         resumed.guard_stderr
     );
+}
+
+/// `story:lease-by-process`: with `--pid` the guard knows the calling session's process. A call of
+/// the holder's session id from the holder's process (the holder, its sub-agents and its Monitor
+/// commands, whose hooks the same Claude Code process runs) is allowed; the same call from
+/// another live process is denied, naming the holder; another session id is denied from the
+/// holder's process as well. Without `--pid` (the controller settings, an older settings file) the
+/// holder's session id is allowed as before.
+#[test]
+fn the_guard_tells_the_holder_s_process_from_another_carrying_its_session_id() {
+    let case = case_dir("lease-guard-process");
+    let state = case.join("state");
+    let config = config_file(&case, "conductor.yaml", "");
+    let records = case.join("records");
+    fs::create_dir_all(&records).expect("create the records directory");
+    let record = records
+        .join("decisions/2026-10.jsonl")
+        .display()
+        .to_string();
+    let write = payload_at("write", &case, &records, &[("file_path", &record)]);
+    let lease = state.join(LEASE_FILE).display().to_string();
+    let monitor = tool_at(
+        &case,
+        &records,
+        "Monitor",
+        serde_json::json!({ "command": format!("tail -f {lease}"), "description": "x" }),
+    );
+
+    let holder = HolderProcess::start();
+    let pid = holder.pid();
+    write_lease_file(&state, HOLDER, pid);
+    let another = std::process::id();
+    let holder_named = format!("session {HOLDER} (pid {pid})");
+
+    for (payload, what) in [
+        (&write, "a records write"),
+        (&monitor, "a Monitor naming the lease"),
+    ] {
+        let stdin = from_session(payload, HOLDER);
+        let output = hook_from(&case, &state, Some(&config), Some(pid), &stdin);
+        assert_answer(&output, 0, "", &format!("{what} from the holder's process"));
+        let output = hook_from(&case, &state, Some(&config), None, &stdin);
+        assert_answer(
+            &output,
+            0,
+            "",
+            &format!("{what} of the holder without --pid"),
+        );
+        let output = hook_from(&case, &state, Some(&config), Some(another), &stdin);
+        assert_answer(
+            &output,
+            2,
+            SECOND_CONDUCTOR,
+            &format!("{what} of the holder's session id from another process"),
+        );
+        assert!(
+            stderr(&output).contains(&holder_named),
+            "{what}: {}",
+            stderr(&output)
+        );
+        let output = hook_from(
+            &case,
+            &state,
+            Some(&config),
+            Some(pid),
+            &from_session(payload, SECOND),
+        );
+        assert_answer(
+            &output,
+            2,
+            SECOND_CONDUCTOR,
+            &format!("{what} of another session id from the holder's process"),
+        );
+    }
 }

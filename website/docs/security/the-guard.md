@@ -14,6 +14,13 @@ controller, on the matcher `*`:
 conductor guard record-guard-decision --from-pre-tool-use || exit 2
 ```
 
+Conductor's file also passes the session's process, as its SessionStart claim does, so the lease
+check can tell the holder's process from another ([the lease](#one-conductor-the-lease)):
+
+```console
+conductor guard record-guard-decision --from-pre-tool-use --pid "$PPID" || exit 2
+```
+
 Every tool call of a session started with one of these files, and of that session's sub-agents,
 runs this command before the tool does.
 
@@ -169,12 +176,21 @@ guard reads the lease of the instance it runs before it answers. A write here is
   `python3 -c`). Such a command could remove the lease file or make it unreadable, and with no
   readable file the guard would let every write through.
 
-If the lease names another session than the payload's `session_id`, and the holder's process
-still lives, the write is denied with this reason:
+The guard knows the calling session by the payload's `session_id` and, when the settings pass
+it, by its process: conductor's settings pass `--pid "$PPID"`, the hook shell's parent. Claude
+Code runs every hook of a session from the session's own process, so the session's own calls,
+its sub-agents' and its Monitor commands all pass the pid the lease records. A second process
+that resumes the holder's session id (`claude --resume <id>` by hand) passes its own.
+
+While the holder's process lives, a write is denied if the lease names another session than the
+payload's `session_id`, or if `--pid` names another process than the lease's. The reason:
 
 ```text
 <tool> is denied: session <id> (pid <pid>) holds the conductor lease of instance <name> and its process lives: this session is a second conductor of the instance and must stop; it may read, and writes nothing
 ```
+
+When the session id is the holder's and only the process differs, `this session` reads
+`this process (pid <pid>), which carries the holder's session id,`.
 
 The denial is recorded like any other. Reads stay allowed, so the second session
 can still read `conductor session leases`.
@@ -188,7 +204,7 @@ file. A refused claim leaves the file as it is. The store stays the record:
 
 The verdict stays as the rule table gave it in these cases:
 
-- the lease names this session;
+- the lease names this session, and `--pid` is not given or names the lease's process;
 - the holder's process is gone, so the next SessionStart claim takes the lease;
 - there is no state directory: without `--state-dir` and without a config file the guard reads no
   lease, so the lease is not enforced;
@@ -201,15 +217,14 @@ A controller's calls and every read never read the file.
 
 What the lease check does not cover:
 
-- **The holder is known by session id only.** A second process that resumes the holder's own
-  session id (`claude --resume <id>` by hand while the holder runs) has its claim refused, but the
-  guard allows its writes, since the payload names the holder's session. The watch's
-  `conductors:` line reports two live sessions under the conductor's name. Planned: tell the
-  holder apart by its process.
+- **Without `--pid` the holder is known by session id only.** The process check needs the
+  settings to pass `--pid "$PPID"`, as the shipped conductor settings do. A settings file without
+  it (one copied before this check, or a role's own `settings`) leaves a second process that
+  resumes the holder's session id free to write while the holder runs.
 - **The pid comes from `$PPID`.** The claim records the hook shell's parent as the session's
-  process. If Claude Code ran hooks under one more process layer, the recorded pid would end as
-  soon as the hook did. The lease would then never hold, and the check would let every write
-  through (fail open).
+  process, and the guard compares the same value. If Claude Code ran hooks under one more process
+  layer, the recorded pid would end as soon as the hook did. The lease would then never hold, and
+  the check would let every write through (fail open).
 - **A pid that names another process keeps a dead lease alive.** After the holder ends, its pid
   can be reused by an unrelated process, or name a process of another user. Either way it counts
   as alive, and every other conductor session is denied its writes (fail closed). To recover, the

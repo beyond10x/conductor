@@ -3,7 +3,7 @@ title: Known limits
 sidebar_position: 5
 description: What the guard and the rest of conductor do not protect against today, what to do about each limit, and what is planned.
 lede: The guard catches a session's mistakes. It is not a sandbox, and these are the gaps.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/tests/adv_guard.rs; Taskfile.yml; .engineering/planning/story/single-conductor-lease.md, lease-guard.md, session-writes-bwrap.md, session-limits-systemd.md
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; crates/conductor/tests/adv_guard.rs; Taskfile.yml; .engineering/planning/story/single-conductor-lease.md, lease-guard.md, lease-by-process.md, session-writes-bwrap.md, session-limits-systemd.md
 ---
 
 Each limit below says what is not covered, what to do about it now, and whether a change is
@@ -70,13 +70,15 @@ connection. A URL can carry data out.
   denies every write of a conductor session that is not the holder (file tools, SendMessage, a
   Bash write form, a `conductor` leaf that writes, or any command that names the lease file or
   the state directory), naming the holder
-  ([the lease](/docs/security/the-guard#one-conductor-the-lease)). Its reads stay allowed. A
+  ([the lease](/docs/security/the-guard#one-conductor-the-lease)). Its reads stay allowed. The
+  guard tells the holder by its session id and, when the settings pass it (`--pid "$PPID"`, as the
+  shipped conductor settings do), by its process: a second process that resumes the holder's own
+  session id (`claude --resume <id>` by hand while the holder runs) is denied its writes too. A
   session started or resumed without those settings claims nothing and is not guarded, and two
   conductors can then write the same records.
-- **The guard knows the holder by session id only.** A second process that resumes the holder's
-  own session id (`claude --resume <id>` by hand while the holder runs) has its claim refused, but
-  the guard allows its writes. The watch's `conductors:` line reports two live sessions under the
-  conductor's name.
+- **A settings file without `--pid` knows the holder by session id only.** A conductor settings
+  file whose PreToolUse hook does not pass `--pid` (one copied before this check) lets a second
+  process that resumes the holder's session id write while the holder runs.
 - **Without a config file the lease is not enforced.** With no `--state-dir` and no config file
   naming a state directory, the guard reads no lease and every write keeps the rule table's
   verdict.
@@ -87,9 +89,10 @@ connection. A URL can carry data out.
   example a lease claimed by a build older than this check. A Bash write the shell rule does not
   recognise as a write (`git commit`, a program that writes a file by its own means) is not denied
   to a second conductor either, unless it names the lease file or the state directory.
-- **The recorded pid is the hook shell's parent (`$PPID`).** If Claude Code ran hooks under one
-  more process layer, the recorded pid would end as soon as the hook did. The lease would then
-  never hold, and the check would let every write through (fail open).
+- **The recorded pid is the hook shell's parent (`$PPID`)**, and the guard compares the same
+  value. If Claude Code ran hooks under one more process layer, the recorded pid would end as
+  soon as the hook did. The lease would then never hold, and the check would let every write
+  through (fail open).
 - **A pid that names another process keeps a dead lease alive.** After the holder ends, its pid
   can be reused by an unrelated process, or name a process of another user. Either way it counts
   as alive, and every other conductor session is denied its writes (fail closed).
@@ -99,10 +102,9 @@ connection. A URL can carry data out.
   `conductor session leases` for the session that holds the lease. Never resume the running
   conductor's session id in a second process. If no conductor runs and writes are still denied as
   a second conductor's, remove `<state>/conductor.lease`; the next session that starts claims the
-  lease.
-- **Planned:** the guard tells the holder apart by its process, not only its session id
-  (`story:lease-by-process`); the watch reports two live conductor sessions, settings or not
-  (drafted).
+  lease. Make a conductor settings file kept outside this repository pass `--pid "$PPID"` in its
+  PreToolUse hook, as the shipped one does.
+- **Planned:** the watch reports two live conductor sessions, settings or not (drafted).
 
 ## No operating-system sandbox, no resource limits
 

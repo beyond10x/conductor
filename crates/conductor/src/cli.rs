@@ -15,7 +15,9 @@
 //! command, `--format` on every view, and the global `--state-dir`, named by `globals.state` of
 //! the `ess-cli/1` binding `crates/conductor/cli.yaml`, before or after any subcommand.
 //! `guard record-guard-decision` alone also takes `--from-pre-tool-use`, and `session claim` alone
-//! `--from-session-start`: each reads the payload of the Claude Code hook it is wired as.
+//! `--from-session-start`: each reads the payload of the Claude Code hook it is wired as. The
+//! guard also takes `--pid`, the calling session's process, which its payload does not name
+//! (`story:lease-by-process`).
 //!
 //! No flag is required on its own, because every input field may arrive through
 //! `--input-json -` instead: the handler decides what is missing.
@@ -2200,6 +2202,10 @@ pub struct RecordGuardDecisionArgs {
     /// Read a Claude Code PreToolUse payload from standard input and compute the verdict
     #[arg(long, conflicts_with = "input_json")]
     pub from_pre_tool_use: bool,
+    /// The calling session's process, which the PreToolUse payload does not name (the hook
+    /// shell's parent, `--pid "$PPID"`); the conductor lease denies a write from another process
+    #[arg(long, allow_negative_numbers = true)]
+    pub pid: Option<i64>,
 }
 
 /// The input of `conductor.session.ClaimLease`.

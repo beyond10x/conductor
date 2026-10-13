@@ -11,8 +11,8 @@
 //!   by qualified name);
 //! - on each command, one flag per input field (`naming.wire`, or the field name in kebab case),
 //!   accepting what the field's type holds and refusing what it does not, plus `--input-json -`;
-//! - on `conductor.dispatch.RecordGuardDecision`, also `--from-pre-tool-use`, and on
-//!   `conductor.session.ClaimLease`, also `--from-session-start`;
+//! - on `conductor.dispatch.RecordGuardDecision`, also `--from-pre-tool-use` and the integer
+//!   `--pid`, and on `conductor.session.ClaimLease`, also `--from-session-start`;
 //! - on each view, `--format text|json|jsonl|markdown`;
 //! - everywhere, the state-directory flag and the config-file flag the `ess-cli/1` binding
 //!   `crates/conductor/cli.yaml` names in `globals.state` and `globals.config`, read from
@@ -43,13 +43,15 @@ const FORMATS: [&str; 4] = ["text", "json", "jsonl", "markdown"];
 
 /// The commands that also read the payload of a Claude Code hook, each with the flag that says
 /// so: the guard's PreToolUse (`story:guard-hook`) and the lease claim's SessionStart
-/// (`story:single-conductor-lease`).
-const HOOK_FLAGS: [(&str, &str); 2] = [
+/// (`story:single-conductor-lease`); and the integer flags the hook alone reads besides, which are
+/// no input field: the guard's `--pid`, the calling session's process (`story:lease-by-process`).
+const HOOK_FLAGS: [(&str, &str, &[&str]); 2] = [
     (
         "conductor.dispatch.RecordGuardDecision",
         "from-pre-tool-use",
+        &["pid"],
     ),
-    ("conductor.session.ClaimLease", "from-session-start"),
+    ("conductor.session.ClaimLease", "from-session-start", &[]),
 ];
 
 /// What a flag accepts, read from its field's type.
@@ -88,6 +90,8 @@ enum Kind {
         fields: Vec<Field>,
         /// The flag that reads a hook's payload, on a command of [`HOOK_FLAGS`].
         hook: Option<&'static str>,
+        /// The integer flags the hook alone reads besides, on a command of [`HOOK_FLAGS`].
+        hook_fields: Vec<Field>,
     },
     View,
     /// A command the binding declares over a `local` callable outside the `cli:` block.
@@ -415,6 +419,9 @@ fn read_spec() -> Spec {
                     }
                 })
                 .collect();
+            let hook = HOOK_FLAGS
+                .iter()
+                .find(|(command, _, _)| *command == qualified);
             leaves.push(Leaf {
                 wire: text(
                     &command["naming"]["wire"],
@@ -424,10 +431,16 @@ fn read_spec() -> Spec {
                 display: command["naming"]["display"].as_str().map(str::to_owned),
                 kind: Kind::Command {
                     fields,
-                    hook: HOOK_FLAGS
+                    hook: hook.map(|(_, flag, _)| *flag),
+                    hook_fields: hook
+                        .map(|(_, _, flags)| *flags)
+                        .unwrap_or_default()
                         .iter()
-                        .find(|(command, _)| *command == qualified)
-                        .map(|(_, flag)| *flag),
+                        .map(|flag| Field {
+                            flag: (*flag).to_owned(),
+                            accepts: Accepts::Integer,
+                        })
+                        .collect(),
                 },
                 qualified,
             });
@@ -707,7 +720,11 @@ fn derive_tree_is_the_cli_block() {
             }
             let mut expected = global.clone();
             match &leaf.kind {
-                Kind::Command { fields, hook } => {
+                Kind::Command {
+                    fields,
+                    hook,
+                    hook_fields,
+                } => {
                     if !expected.insert("input-json".to_owned()) {
                         problems.push(format!(
                             "`{path}`: `--input-json` collides with the binding's `--{}`",
@@ -721,6 +738,14 @@ fn derive_tree_is_the_cli_block() {
                         if !expected.insert(field.flag.clone()) {
                             problems.push(format!(
                                 "`{path}`: input field flag `--{}` collides with another word",
+                                field.flag
+                            ));
+                        }
+                    }
+                    for field in hook_fields {
+                        if !expected.insert(field.flag.clone()) {
+                            problems.push(format!(
+                                "`{path}`: hook flag `--{}` collides with another word",
                                 field.flag
                             ));
                         }
@@ -862,13 +887,17 @@ fn every_flag_accepts_what_its_field_holds() {
             );
             expect_value_refused(&argv(&base, &[config_flag.as_str(), ""]), &mut problems);
             match &leaf.kind {
-                Kind::Command { fields, hook } => {
+                Kind::Command {
+                    fields,
+                    hook,
+                    hook_fields,
+                } => {
                     expect_accepted(&argv(&base, &["--input-json", "-"]), &mut problems);
                     if let Some(flag) = hook {
                         let flag = format!("--{flag}");
                         expect_accepted(&argv(&base, &[flag.as_str()]), &mut problems);
                     }
-                    for field in fields {
+                    for field in fields.iter().chain(hook_fields) {
                         let flag = format!("--{}", field.flag);
                         let owned = |values: &[&str]| -> Vec<String> {
                             values.iter().map(|value| (*value).to_owned()).collect()
