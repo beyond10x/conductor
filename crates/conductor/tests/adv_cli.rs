@@ -239,12 +239,15 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// `tests/decision.rs` and the `dispatch` and `message` leaves by `tests/dispatch.rs`
 /// (`story:decision-commands`), and the `session` leaves by `tests/session.rs`
 /// (`story:single-conductor-lease`). `snapshot publish-board` and `snapshot boards` are decided by
-/// `tests/status.rs` (`story:status-board`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 73] = [
+/// `tests/status.rs` (`story:status-board`); the member-failure and collector-run leaves by
+/// `tests/snapshot.rs` (`story:snapshot-member-failures`, `story:snapshot-duration`). In the order the leaves are placed.
+const IMPLEMENTED: [&str; 77] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
     "snapshot record-blocker",
+    "snapshot record-collector-run",
+    "snapshot record-member-failure",
     "snapshot record-merged-pull-request",
     "snapshot record-pull-request",
     "snapshot record-release",
@@ -255,6 +258,8 @@ const IMPLEMENTED: [&str; 73] = [
     "snapshot start-snapshot",
     "snapshot blockers",
     "snapshot boards",
+    "snapshot collector-runs",
+    "snapshot member-failures",
     "snapshot merged-pull-requests",
     "snapshot pull-requests",
     "snapshot releases",
