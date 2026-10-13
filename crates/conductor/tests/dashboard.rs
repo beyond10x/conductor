@@ -186,9 +186,13 @@ impl Case {
     }
 }
 
+/// Writes `text` to `path` through a sibling file and a rename, so a measurement reading `path`
+/// while the test rewrites it sees the old file or the new one, never a partial one.
 fn write(path: &Path, text: &str) {
     fs::create_dir_all(path.parent().expect("a parent")).expect("create a case directory");
-    fs::write(path, text).expect("write a case file");
+    let partial = path.with_extension("partial");
+    fs::write(&partial, text).expect("write a case file");
+    fs::rename(&partial, path).expect("move the case file into place");
 }
 
 /// Serves `sources` in this process on a free port of `127.0.0.1`; the server ends with the test.
