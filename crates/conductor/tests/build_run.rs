@@ -367,10 +367,10 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
         request.options
     );
     assert!(
-        request
-            .recommendation
-            .contains("rm -rf -- /example/trees/live/target"),
-        "the item names the command only a person runs: {:?}",
+        request.recommendation.contains(
+            "review and remove what is no longer needed, largest first: /example/trees/live/target"
+        ) && !request.recommendation.contains("rm -rf"),
+        "the item names what a person reviews, and no removal command to paste: {:?}",
         request.recommendation
     );
 
@@ -535,6 +535,80 @@ fn two_runs_at_once_each_reserve_and_the_second_sees_the_first() {
         .expect("the runner ends")
         .expect("the run ends");
     assert!(matches!(first, Outcome::Ran { code: 0, .. }), "{first:?}");
+    let live: Vec<_> = case
+        .grants()
+        .into_iter()
+        .filter(|row| matches!(row.state, HostGrantState::Granted | HostGrantState::Running))
+        .collect();
+    assert!(live.is_empty(), "every grant is released: {live:?}");
+}
+
+/// A running grant holds only what its run has not written yet: free disk already counts the
+/// growth it recorded, so a reservation beside it is not refused for space that is in use.
+#[test]
+fn a_running_grant_holds_its_reservation_less_what_it_wrote() {
+    let case = Case::new("running-less-written");
+    // 12G free over a 10G floor: 2G to reserve.
+    case.free(12 * GIB);
+    let state = case.state();
+    let sources = case.sources(reclaim_nothing);
+    let first = case.request(2 * GIB, "while [ ! -e stop ]; do sleep 0.05; done");
+    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &first));
+    wait_until("the first run is running", || {
+        host::rows(&case.state())
+            .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
+    });
+    let running = case
+        .grants()
+        .into_iter()
+        .find(|row| row.state == HostGrantState::Running)
+        .expect("a running grant");
+    // The first run has written 1.5G of its 2G: it holds 0.5G more.
+    host::record_peak_of(&case.state(), &running.grant_id, GIB + GIB / 2)
+        .expect("the growth is recorded");
+
+    let second = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB + GIB / 2, "true"),
+    )
+    .expect("the second run ends");
+    assert!(
+        matches!(second, Outcome::Ran { code: 0, .. }),
+        "1.5G fits beside the 0.5G the first still holds: {second:?}"
+    );
+
+    fs::write(case.work().join("stop"), "").expect("stop the first command");
+    runner
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
+}
+
+/// Runs reserving, starting and releasing at once keep every write: none fails on another's.
+#[test]
+fn runs_at_once_keep_every_ledger_write() {
+    let case = Case::new("many-at-once");
+    case.free(100 * GIB);
+    let runners: Vec<_> = (0..6)
+        .map(|_| {
+            let state = case.state();
+            let sources = case.sources(reclaim_nothing);
+            let request = case.request(GIB, "sleep 0.2");
+            thread::spawn(move || build::run(&state, &settings(), &sources, &request))
+        })
+        .collect();
+    for runner in runners {
+        let outcome = runner
+            .join()
+            .expect("the runner ends")
+            .expect("the run keeps its writes");
+        assert!(
+            matches!(outcome, Outcome::Ran { code: 0, .. }),
+            "{outcome:?}"
+        );
+    }
     let live: Vec<_> = case
         .grants()
         .into_iter()

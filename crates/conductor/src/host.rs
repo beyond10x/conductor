@@ -138,6 +138,30 @@ impl Ledger {
         })
     }
 
+    /// [`Ledger::lock`] without waiting: `None` while another holder has the lock.
+    ///
+    /// # Errors
+    ///
+    /// The directory or its lock file cannot be made, or the store does not open.
+    pub fn try_lock(state: &Path) -> Result<Option<Self>> {
+        fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
+        let path = state.join(LOCK);
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .with_context(|| format!("open the host ledger's lock {}", path.display()))?;
+        if lock.try_lock().is_err() {
+            return Ok(None);
+        }
+        let store = crate::store::open(state)?;
+        Ok(Some(Self {
+            generated: Generated::new(Ports { store }),
+            _lock: lock,
+        }))
+    }
+
     /// Releases, with `ProcessGroupGone`, every running grant whose process group is gone, and
     /// answers their ids.
     ///
@@ -165,7 +189,9 @@ impl Ledger {
         Ok(gone)
     }
 
-    /// The bytes the live grants hold, granted or running, but `except`.
+    /// The bytes the live grants still hold, but `except`: a granted grant its whole reservation;
+    /// a running one what it has not written yet, its reservation less the growth its run
+    /// recorded (`peak_bytes`), since free disk already counts what it wrote.
     ///
     /// # Errors
     ///
@@ -173,8 +199,21 @@ impl Ledger {
     pub fn reserved(&self, except: Option<&GrantId>) -> Result<u64> {
         let total = live(&HostGrantStorage::list(&self.generated.ports))
             .filter(|grant| except != Some(&grant.data.grant_id))
-            .filter_map(|grant| grant.data.bytes)
-            .map(|bytes| u64::try_from(bytes).unwrap_or(0))
+            .map(|grant| {
+                let bytes = grant
+                    .data
+                    .bytes
+                    .map_or(0, |bytes| u64::try_from(bytes).unwrap_or(0));
+                let written = if grant.state == HostGrantState::Running {
+                    grant
+                        .data
+                        .peak_bytes
+                        .map_or(0, |peak| u64::try_from(peak).unwrap_or(0))
+                } else {
+                    0
+                };
+                bytes.saturating_sub(written)
+            })
             .sum();
         kept("host ledger", &self.generated.ports.store)?;
         Ok(total)
@@ -279,9 +318,8 @@ fn reserve_answer(command: &str, outcome: ReserveDiskOutcome) -> Result<Answer> 
 /// The specification refuses it, or the store does not open or keep it.
 pub fn start_run(state: &Path, grant: &GrantId, group: i64, at: &Timestamp) -> Result<()> {
     const COMMAND: &str = "host start-run";
-    let mut generated = Generated::new(Ports {
-        store: crate::store::open(state)?,
-    });
+    let mut ledger = Ledger::lock(state)?;
+    let generated = &mut ledger.generated;
     let outcome = generated
         .start_run(StartRun {
             grant_id: grant.clone(),
@@ -320,10 +358,27 @@ fn start_answer(command: &str, outcome: StartRunOutcome) -> Result<()> {
 ///
 /// The specification refuses it, or the store does not open or keep it.
 pub fn record_peak_of(state: &Path, grant: &GrantId, peak: u64) -> Result<()> {
+    let mut ledger = Ledger::lock(state)?;
+    record_peak_in(&mut ledger, grant, peak)
+}
+
+/// [`record_peak_of`] while the run goes on: skipped, answering `false`, when another holder has
+/// the ledger's lock, so the watchdog never waits on a reclaim another run holds the lock for.
+///
+/// # Errors
+///
+/// The specification refuses it, or the store does not open or keep it.
+pub fn record_peak_now(state: &Path, grant: &GrantId, peak: u64) -> Result<bool> {
+    let Some(mut ledger) = Ledger::try_lock(state)? else {
+        return Ok(false);
+    };
+    record_peak_in(&mut ledger, grant, peak)?;
+    Ok(true)
+}
+
+fn record_peak_in(ledger: &mut Ledger, grant: &GrantId, peak: u64) -> Result<()> {
     const COMMAND: &str = "host record-peak";
-    let mut generated = Generated::new(Ports {
-        store: crate::store::open(state)?,
-    });
+    let generated = &mut ledger.generated;
     let outcome = generated
         .record_peak(RecordPeak {
             grant_id: grant.clone(),
@@ -366,10 +421,8 @@ pub fn release(
     reason: Option<ReleaseReason>,
     at: &Timestamp,
 ) -> Result<()> {
-    let mut generated = Generated::new(Ports {
-        store: crate::store::open(state)?,
-    });
-    release_in(&mut generated, grant, reason, at)
+    let mut ledger = Ledger::lock(state)?;
+    release_in(&mut ledger.generated, grant, reason, at)
 }
 
 fn release_in(
@@ -467,13 +520,13 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
     let options = if shortfall.left.is_empty() {
         format!(
             "nothing reclaimable is left on {}",
-            shortfall.disk.display()
+            home_relative(&shortfall.disk.display().to_string())
         )
     } else {
         shortfall
             .left
             .iter()
-            .map(|(path, bytes)| format!("{path} ({}G)", gib(*bytes)))
+            .map(|(path, bytes)| format!("{} ({}G)", home_relative(path), gib(*bytes)))
             .collect::<Vec<_>>()
             .join("; ")
     };
@@ -513,14 +566,15 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
     Ok(Some(request_id))
 }
 
-/// The one command only a person runs: removing what is left, largest first, until it covers the
-/// shortfall; or, with nothing left, freeing the shortfall by hand.
+/// What only a person does: review what is left, largest first, enough to cover the shortfall, and
+/// remove what is no longer needed; or, with nothing left, free the shortfall by hand. Never a
+/// removal command to paste: what is left is not known to be unneeded.
 fn person_command(shortfall: &Shortfall<'_>) -> String {
     if shortfall.left.is_empty() {
         return format!(
             "free {}G on {} by hand, then run `conductor host reclaim`",
             gib(shortfall.shortfall),
-            shortfall.disk.display()
+            home_relative(&shortfall.disk.display().to_string())
         );
     }
     let mut left: Vec<&(String, u64)> = shortfall.left.iter().collect();
@@ -532,9 +586,24 @@ fn person_command(shortfall: &Shortfall<'_>) -> String {
             break;
         }
         covered = covered.saturating_add(*bytes);
-        paths.push(path.as_str());
+        paths.push(home_relative(path));
     }
-    format!("rm -rf -- {}", paths.join(" "))
+    format!(
+        "review and remove what is no longer needed, largest first: {}; then run `conductor host \
+         reclaim`",
+        paths.join(", ")
+    )
+}
+
+/// `path` with the home directory written `~`, so no record line names a person's home.
+fn home_relative(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && home != "/" => match path.strip_prefix(&home) {
+            Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("~{rest}"),
+            _ => path.to_owned(),
+        },
+        _ => path.to_owned(),
+    }
 }
 
 /// The fall is over: a reservation fitted. The next shortfall records a new item.

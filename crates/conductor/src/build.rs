@@ -283,6 +283,8 @@ pub fn run(
     }
     host::fall_over(state)?;
     drop(ledger);
+    // Measured before the command starts, so a run's growth counts what a fast command wrote too.
+    let start = size(&measured(&request.cwd), sources.every).unwrap_or(0);
 
     let mut child = match Command::new(program)
         .args(arguments)
@@ -310,6 +312,8 @@ pub fn run(
     let watchdog = {
         let done = Arc::clone(&done);
         let watch = Watchdog {
+            grant: grant.clone(),
+            start,
             state: state.to_owned(),
             sources: sources.clone(),
             settings: settings.clone(),
@@ -330,9 +334,11 @@ pub fn run(
         (None, Some(signal)) => (u8::try_from(128 + (signal & 0x7f)).unwrap_or(1), true),
         (None, None) => (1, true),
     };
+    // The run's growth: what it wrote beyond the size it started from.
     let peak = watched
         .peak
-        .max(size(&measured(&request.cwd), sources.every).unwrap_or(0));
+        .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
+        .saturating_sub(watched.start);
     if let Err(error) = host::record_peak_of(state, &grant, peak) {
         eprintln!("conductor: build run: the peak was not recorded: {error:#}");
     }
@@ -418,6 +424,8 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
 /// What the watchdog saw of one run.
 #[derive(Debug, Default)]
 struct Watched {
+    /// The size measured when the run started.
+    start: u64,
     peak: u64,
     paused: u32,
     resumed: u32,
@@ -425,6 +433,8 @@ struct Watched {
 
 /// The disk watchdog of one run.
 struct Watchdog {
+    grant: GrantId,
+    start: u64,
     state: PathBuf,
     sources: Sources,
     settings: Settings,
@@ -435,10 +445,13 @@ struct Watchdog {
 impl Watchdog {
     /// Reads free disk and measures the run every [`Sources::every`] until `done`.
     fn run(&self, done: &AtomicBool) -> Watched {
+        let start = self.start;
         let mut watched = Watched {
-            peak: size(&self.measured, self.sources.every).unwrap_or(0),
+            start,
+            peak: start,
             ..Watched::default()
         };
+        let mut recorded = 0u64;
         let mut stopped = false;
         while !wait(done, self.sources.every) {
             match free_bytes(&self.sources) {
@@ -470,6 +483,16 @@ impl Watchdog {
             }
             if let Some(bytes) = size(&self.measured, self.sources.every) {
                 watched.peak = watched.peak.max(bytes);
+            }
+            // The growth so far, recorded as it passes each further gibibyte, so the ledger counts
+            // only what this run has not written yet.
+            let grown = watched.peak.saturating_sub(watched.start);
+            if grown >= recorded.saturating_add(GIB) {
+                match host::record_peak_now(&self.state, &self.grant, grown) {
+                    Ok(true) => recorded = grown,
+                    Ok(false) => {}
+                    Err(error) => eprintln!("conductor: build run: {error:#}"),
+                }
             }
         }
         if stopped {
