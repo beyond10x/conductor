@@ -770,8 +770,8 @@ fn count(count: usize) -> i64 {
 }
 
 /// `text` as one step of an API path or a query value: every byte but an ASCII letter, a digit,
-/// `-`, `.`, `_` and `~` percent-encoded, so a group `example-org/platform` is
-/// `example-org%2Fplatform`.
+/// `-`, `.`, `_` and `~` percent-encoded, so a group `example-group/platform` is
+/// `example-group%2Fplatform`.
 #[must_use]
 pub fn encoded(text: &str) -> String {
     use std::fmt::Write as _;
@@ -786,7 +786,7 @@ pub fn encoded(text: &str) -> String {
 }
 
 /// The path of `full` under the group `group`, compared without regard to case: `alpha` of
-/// `example-org/alpha` under `example-org`; every path is under the root, written as an empty
+/// `example-group/alpha` under `example-group`; every path is under the root, written as an empty
 /// group. `None` when `full` is not under the group, or is the group itself.
 #[must_use]
 pub fn under(group: &str, full: &str) -> Option<String> {
@@ -970,7 +970,10 @@ mod tests {
 
     #[test]
     fn a_group_path_is_encoded_as_one_step() {
-        assert_eq!(encoded("example-org/platform"), "example-org%2Fplatform");
+        assert_eq!(
+            encoded("example-group/platform"),
+            "example-group%2Fplatform"
+        );
         assert_eq!(encoded("v1.2.0"), "v1.2.0");
         assert_eq!(encoded("2026-09-30T12:00:00Z"), "2026-09-30T12%3A00%3A00Z");
     }
@@ -978,18 +981,18 @@ mod tests {
     #[test]
     fn a_project_is_named_by_its_path_under_the_group() {
         assert_eq!(
-            under("example-org", "example-org/alpha").as_deref(),
+            under("example-group", "example-group/alpha").as_deref(),
             Some("alpha")
         );
         assert_eq!(
-            under("Example-Org/", "example-org/sub/gamma").as_deref(),
+            under("Example-Group/", "example-group/sub/gamma").as_deref(),
             Some("sub/gamma")
         );
-        assert_eq!(under("example-org", "example-orgs/alpha"), None);
-        assert_eq!(under("example-org", "example-org"), None);
+        assert_eq!(under("example-group", "example-groups/alpha"), None);
+        assert_eq!(under("example-group", "example-group"), None);
         assert_eq!(
-            under("", "example-org/alpha").as_deref(),
-            Some("example-org/alpha")
+            under("", "example-group/alpha").as_deref(),
+            Some("example-group/alpha")
         );
     }
 
@@ -997,22 +1000,22 @@ mod tests {
     fn a_remote_url_gives_its_host_and_path() {
         let alpha = Some((
             "gitlab.example.com".to_owned(),
-            "example-org/alpha".to_owned(),
+            "example-group/alpha".to_owned(),
         ));
         assert_eq!(
-            remote("git@gitlab.example.com:example-org/alpha.git"),
+            remote("git@gitlab.example.com:example-group/alpha.git"),
             alpha
         );
         assert_eq!(
-            remote("https://gitlab.example.com/example-org/alpha.git"),
+            remote("https://gitlab.example.com/example-group/alpha.git"),
             alpha
         );
         assert_eq!(
-            remote("https://user@GitLab.Example.com:8443/example-org/alpha/"),
+            remote("https://user@GitLab.Example.com:8443/example-group/alpha/"),
             alpha
         );
         assert_eq!(
-            remote("ssh://git@gitlab.example.com:2222/example-org/alpha"),
+            remote("ssh://git@gitlab.example.com:2222/example-group/alpha"),
             alpha
         );
         assert_eq!(remote("/srv/git/alpha.git"), None);
@@ -1023,11 +1026,11 @@ mod tests {
     #[test]
     fn the_origin_url_is_read_from_its_section() {
         let config = "[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = git@a:x/y.git\n\
-                      [remote \"origin\"]\n\turl = git@gitlab.example.com:example-org/alpha.git\n\
+                      [remote \"origin\"]\n\turl = git@gitlab.example.com:example-group/alpha.git\n\
                       \tfetch = +refs/heads/*:refs/remotes/origin/*\n";
         assert_eq!(
             origin_url(config).as_deref(),
-            Some("git@gitlab.example.com:example-org/alpha.git")
+            Some("git@gitlab.example.com:example-group/alpha.git")
         );
         assert_eq!(origin_url("[core]\n\turl = x\n"), None);
     }
