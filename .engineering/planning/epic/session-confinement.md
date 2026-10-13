@@ -6,7 +6,7 @@ status: draft
 title: Harness sessions run in a box conductor controls
 relations:
 - implements: architecture-decision-record:external-confinement
-revision: 5
+revision: 6
 ---
 ## Outcome
 
@@ -16,6 +16,8 @@ box that conductor sets up and measures from outside (architecture-decision-reco
 metaharness):
 - CPU, memory and process limits per instance and per session;
 - writes limited to the session's own places;
+- forge credentials limited to read-only tokens the instance names, so a forge write goes only
+  through the bot route (story `session-forge-credentials`);
 - usage attributed per instance and per session;
 - a session that cannot be boxed is not started (`strict`), or started and recorded as unboxed
   (`report`), as the instance's config says.
@@ -39,6 +41,9 @@ First part, with a test instance on this host, each checked by a test or a recor
   controller's cgroup (story `session-limits-systemd`);
 - a Bash write by a controller outside its checkout, trees, build cache and scratch fails with a
   filesystem error, and one inside succeeds (story `session-writes-bwrap`);
+- a boxed controller without a token cannot authenticate to a forge, and with a read-only token
+  its `gh pr merge` fails with an authorization error (story `session-forge-credentials`; its
+  live run waits on `decision-blocker:sandbox-forge-tokens`);
 - the dashboard shows a live session's CPU time and memory (story `instance-usage-metrics`);
 - with `confinement.mode: strict` and no provider available, `session start` refuses and no session
   runs (story `session-envelope-seam`);

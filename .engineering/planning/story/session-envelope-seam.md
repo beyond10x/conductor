@@ -10,79 +10,121 @@ relations:
 - depends_on: story:session-box-spike
 - depends_on: story:spawn
 - depends_on: story:instance-session-names
+- depends_on: story:doctor-minimum-versions
+- depends_on: story:profiles-forge-neutral
+- depends_on: story:version-flag
+- depends_on: story:sandbox-spec
+- depends_on: story:gitlab-guide
 scope:
 - confidence: cited
   path: .agents/conductor.md
 - confidence: cited
   path: Taskfile.yml
 - confidence: cited
-  path: crates/conductor/cli.yaml
+  path: crates/conductor/src/cli.rs
+- confidence: cited
+  path: crates/conductor/src/collect/sessions.rs
 - confidence: cited
   path: crates/conductor/src/confine/mod.rs
+- confidence: cited
+  path: crates/conductor/src/confine/places.rs
 - confidence: cited
   path: crates/conductor/src/doctor.rs
 - confidence: cited
   path: crates/conductor/src/lib.rs
 - confidence: cited
+  path: crates/conductor/src/session.rs
+- confidence: cited
   path: crates/conductor/src/spawn.rs
 - confidence: cited
   path: crates/conductor/tests/confine.rs
 - confidence: cited
+  path: crates/conductor/tests/docs_forge.rs
+- confidence: cited
   path: crates/conductor/tests/doctor.rs
 - confidence: cited
+  path: crates/conductor/tests/profiles.rs
+- confidence: cited
+  path: crates/conductor/tests/spawn.rs
+- confidence: cited
   path: crates/conductor/tests/taskfile.rs
-revision: 5
+- confidence: cited
+  path: crates/conductor/tests/watch.rs
+- confidence: cited
+  path: docs/config.md
+- confidence: cited
+  path: website/docs/guides/start-conductor.md
+- confidence: cited
+  path: website/docs/security/confinement.md
+revision: 27
 ---
 ## Why
 
-The ADR's provider seam (architecture-decision-record:external-confinement; metaharness `crates/metaharness/src/process.rs:99-193`): a request,
-a provider that starts the harness in it, a measurement at the boundary, and a refusal when they do
-not match.
+Sessions start in three places with no common path: `conductor spawn` launches a controller with
+`claude --bg` itself (`crates/conductor/src/spawn.rs:170-192`), and `Taskfile.yml`
+`conductor:start`, `conductor:restart` and `dev:start` call `claude --bg` and `claude stop`
+directly. Nothing applies or measures the config's `confinement`: the sessions collector records
+every `envelope_*` field absent (`collect/sessions.rs:327-335`). The operator, 2026-10-13: "we
+need to prioritise the sandbox".
 
 ## Acceptance
 
-- A `confine` module with a `Provider` trait: from a role's request it builds the start command and
-  reads back a measurement; a `none` provider builds the plain command and measures nothing.
-- Spec first, in `crates/conductor/cli.yaml`: `session start --role <role>` starts conductor's or
-  conductor-dev's session through the instance's provider.
-- Tests through `session start` with a fake provider (`crates/conductor/tests/confine.rs`), one per
-  case:
-  - `strict`, provider unavailable: exit non-zero, the reason printed, no session started;
-  - `strict`, measurement short of the request (a limit or a writable path missing): the session is
-    stopped, exit non-zero;
-  - `report`, provider unavailable: the session starts and `unboxed` with the reason is recorded;
-  - a full measurement is written to the instance's state, and `conductor snapshot sessions` shows
-    it.
-- `controller start-controller` (`story:spawn`) starts a controller through the same function: a
-  test with the fake provider sees one call per start, with the controller role's request.
-- `conductor doctor` lists each provider with `available` or the reason it is not; each provider
-  supplies its own probe. Test with two fake providers, one of each (`crates/conductor/tests/doctor.rs`).
-- `Taskfile.yml` `conductor:start` and `dev:start`, and the controller start and resume commands in
-  `.agents/conductor.md`, call these commands instead of `claude --bg`. A test reads them
-  (`crates/conductor/tests/taskfile.rs`). The `.agents/conductor.md` diff is merged only after an
-  `approval-record` from the operator `decides` this story.
+- A `confine` module (`crates/conductor/src/confine/mod.rs`) with a `Provider` trait whose methods
+  are the whole session surface: `available` (probe), `start` (from a request of absolute paths and
+  limits, returns the started session's identity), `prompt` (delivers the first prompt or charter),
+  `stop`, `resume` and `measure`. The `none` provider implements them with today's commands
+  (`claude --bg`, `claude stop`, `claude --resume`) and measures nothing; `conductor spawn` and
+  `session start` use only this trait.
+- A place resolver (`crates/conductor/src/confine/places.rs`) turns each of a role's `writable`
+  place words (`checkout`, `trees`, `build-cache`, `scratch`, `harness-state`, `records`) into
+  existing absolute paths before the request reaches a provider; a test in
+  `crates/conductor/tests/confine.rs` reads the paths of each word for a controller and for
+  conductor.
+- `session start --role` with a fake provider, one test per declared refusal
+  (`crates/conductor/tests/confine.rs`): `strict` and provider unavailable exits non-zero naming
+  the reason and starts nothing; `strict` and a measurement short of the request stops the session
+  and exits non-zero; an unknown role, a session already running under the role's name, and a launch
+  that fails each exit non-zero with their error; under `report` with the provider unavailable the
+  session starts and its measurement says unboxed with the reason.
+- The measurement of a started session is written to `<state>/sessions/<name>.envelope.json`, and
+  the sessions collector fills that session's `envelope_*` fields from it; a test runs `session
+  start` with the fake provider, then a snapshot, and reads them in `conductor snapshot sessions`.
+- `conductor spawn` starts a controller through the trait: a test in
+  `crates/conductor/tests/spawn.rs` with the fake provider sees one `start` and one `prompt` per
+  spawn, with the controller role's request, and the `none` provider keeps today's argv.
+- `conductor doctor` prints one provider row per provider after the program rows and before the
+  verdict line, which stays last; a test with two fake providers, one available and one not, in
+  `crates/conductor/tests/doctor.rs`.
+- `Taskfile.yml` `conductor:start`, `conductor:restart` and `dev:start` call `conductor session
+  start --role …` (and the restart stops through the provider) instead of `claude --bg`/`claude
+  stop`; a test in `crates/conductor/tests/taskfile.rs` reads the three tasks.
+- `.agents/conductor.md` no longer contains `claude --bg` and names `conductor spawn` and `conductor
+  session start` as the only start forms; a test in `crates/conductor/tests/profiles.rs` holds both.
+  The diff merges under `approval-record:sandbox-priority`.
+- The hand-written pages `website/docs/security/confinement.md`, `website/docs/guides/start-conductor.md`
+  and the `confinement.mode`/`provider` rows of `docs/config.md` describe the start path; the
+  phrase "nothing starts a session in a box yet" is gone (a test in
+  `crates/conductor/tests/docs_forge.rs` reads it).
+
+## Notes
+
+- Decided: the measurement is a file per session in the instance's state; controllers start only
+  through `conductor spawn`.
+- After `story:sandbox-spec` (every type and refusal above is declared there) and
+  `story:gitlab-guide` (wave 17's last story: `doctor.rs`, `tests/doctor.rs`,
+  `tests/watch.rs`, `.agents/conductor.md`, `tests/profiles.rs` and `tests/docs_forge.rs` are
+  shared with wave 17).
+- `story:session-limits-systemd`, `story:session-writes-bwrap` and
+  `story:session-forge-credentials` implement this trait in `confine/`, after it.
 
 ## Scope
 
-`crates/conductor/cli.yaml`, `crates/conductor/src/confine/mod.rs` (new),
-`crates/conductor/src/spawn.rs`, `crates/conductor/src/doctor.rs`, `crates/conductor/src/lib.rs`,
-`Taskfile.yml`, `.agents/conductor.md`, `crates/conductor/tests/confine.rs` (new),
-`crates/conductor/tests/doctor.rs`, `crates/conductor/tests/taskfile.rs`. After
-`session-envelope-model` (its data), `session-box-spike` (how a session is kept in a box),
-`story:spawn` (`spawn.rs`), and `instance-session-names` (the same start lines).
-
-## Learned from the spike (docs/analysis/session-box-spike.md)
-
-Way (a) won: conductor starts `claude` in the foreground under `script`, inside a `systemd-run
---user` unit it names. That changes the session's lifecycle, and this story owns all of it:
-- A boxed session is `kind: "interactive"` in `claude agents --json`, with no short id; `claude
-  stop`, `rm`, `attach`, `logs` and `respawn` do not apply. Stop is `systemctl --user stop <unit>`;
-  resume is a new unit running `claude --resume <session id>`.
-- The positional prompt is not submitted: the first prompt goes through the unit's FIFO (or a
-  SendMessage), as the spike did.
-- The unit has the user manager's environment, not the login shell's: `SHELL` and `PATH` are set
-  explicitly (`-E SHELL=/bin/bash -E PATH=…`), and the TUI stream goes to a typescript, not the
-  journal (`-p StandardOutput=null`).
-- `task conductor:restart`, `task sessions` and the profile's respawn and resume lines move to these
-  forms for a boxed session; a session started with `mode: report` and no provider keeps today's
-  `claude --bg` forms. Tests read both.
+`crates/conductor/src/confine/mod.rs` (new), `crates/conductor/src/confine/places.rs` (new),
+`crates/conductor/src/lib.rs`, `crates/conductor/src/cli.rs`, `crates/conductor/src/session.rs`,
+`crates/conductor/src/spawn.rs`, `crates/conductor/src/doctor.rs`,
+`crates/conductor/src/collect/sessions.rs`, `Taskfile.yml`, `.agents/conductor.md`,
+`website/docs/security/confinement.md`, `website/docs/guides/start-conductor.md`, `docs/config.md`,
+`crates/conductor/tests/confine.rs` (new), `crates/conductor/tests/spawn.rs`,
+`crates/conductor/tests/doctor.rs`, `crates/conductor/tests/taskfile.rs`,
+`crates/conductor/tests/watch.rs`, `crates/conductor/tests/profiles.rs`,
+`crates/conductor/tests/docs_forge.rs`.
