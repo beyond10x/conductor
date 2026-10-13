@@ -1,0 +1,587 @@
+//! `story:status-board`: `conductor snapshot publish-board` writes the board, `STATUS.md`, from
+//! one complete snapshot and records `PublishBoard`; `snapshot boards` lists what it recorded.
+//!
+//! Each case keeps its store under `state/` in its own directory in this test target's temporary
+//! directory. It takes snapshots through the library ([`snapshot::take_from`], at a start time the
+//! case gives) with one fake collector that records a fixture of `tests/fixtures/status/`, and
+//! publishes them through the built binary, run from the case's empty `work/` with `--state-dir`
+//! naming that `state/` and `HOME` naming the case's `home/`.
+//!
+//! The fixtures: `base.json` holds `alpha` (a checkout, one open pull request with no failing
+//! check, a green `main`), `beta` (no checkout) and the archived `gamma`; `red.json` is `base.json`
+//! with that pull request's check turned red, and nothing else changed.
+
+mod active;
+mod common;
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Output, Stdio};
+
+use anyhow::bail;
+use conductor_cli::collect::Collector;
+use conductor_cli::snapshot::{self, Recorder, Taken};
+use conductor_cli::store;
+use conductor_model::observation::{
+    CommitSha, Harness, Mergeability, RecordBlocker, RecordPullRequest, RecordRepository,
+    RecordSession, RecordSpecification, RecordWorkflowRun, RepositoryName, RunConclusion,
+    SessionState, SnapshotState, SpecificationPresence, StartSnapshot, ValidationResult,
+    Visibility,
+};
+use conductor_model::primitives::Timestamp;
+use serde_json::Value;
+
+/// The board's section headings, in the order the story gives them.
+const SECTIONS: [&str; 7] = [
+    "# Status",
+    "## Deviations",
+    "## Overview",
+    "## Specifications",
+    "## Open blockers",
+    "## Sessions",
+    "## Delta",
+];
+
+/// When the first snapshot of a case starts.
+const EARLIER: &str = "2026-10-12T08:00:00Z";
+
+/// When the second snapshot of a case starts.
+const LATER: &str = "2026-10-12T10:00:00Z";
+
+/// A fresh directory for one case: its `state/` is the case's store, its `home/` the binary's
+/// home, and its empty `work/` the working directory of every run of the binary.
+fn case_dir(case: &str) -> PathBuf {
+    active::isolate();
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("status")
+        .join(case);
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("clear the case's directory");
+    }
+    for sub in ["work", "home"] {
+        fs::create_dir_all(dir.join(sub)).expect("create the case's directories");
+    }
+    dir
+}
+
+/// The fixture `name` of `tests/fixtures/status/`.
+fn fixture(name: &str) -> Value {
+    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/status")
+        .join(format!("{name}.json"));
+    let text = fs::read_to_string(&file)
+        .unwrap_or_else(|error| panic!("read {}: {error}", file.display()));
+    serde_json::from_str(&text).expect("the fixture is JSON")
+}
+
+fn items<'a>(fixture: &'a Value, key: &str) -> &'a [Value] {
+    fixture[key]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+fn text(item: &Value, key: &str) -> String {
+    item[key]
+        .as_str()
+        .unwrap_or_else(|| panic!("the fixture item {item} has no text {key:?}"))
+        .to_owned()
+}
+
+fn optional_text(item: &Value, key: &str) -> Option<String> {
+    item[key].as_str().map(str::to_owned)
+}
+
+fn number(item: &Value, key: &str) -> i64 {
+    item[key]
+        .as_i64()
+        .unwrap_or_else(|| panic!("the fixture item {item} has no number {key:?}"))
+}
+
+fn flag(item: &Value, key: &str) -> bool {
+    item[key]
+        .as_bool()
+        .unwrap_or_else(|| panic!("the fixture item {item} has no boolean {key:?}"))
+}
+
+fn conclusion(name: &str) -> RunConclusion {
+    match name {
+        "Success" => RunConclusion::Success,
+        "Failure" => RunConclusion::Failure,
+        "Pending" => RunConclusion::Pending,
+        other => panic!("the fixtures spell no conclusion {other:?}"),
+    }
+}
+
+fn presence(name: &str) -> SpecificationPresence {
+    match name {
+        "Present" => SpecificationPresence::Present,
+        "OptedOut" => SpecificationPresence::OptedOut,
+        "Missing" => SpecificationPresence::Missing,
+        other => panic!("the fixtures spell no presence {other:?}"),
+    }
+}
+
+fn validation(name: &str) -> ValidationResult {
+    match name {
+        "Valid" => ValidationResult::Valid,
+        "Refused" => ValidationResult::Refused,
+        "NotRun" => ValidationResult::NotRun,
+        other => panic!("the fixtures spell no validation {other:?}"),
+    }
+}
+
+fn activity(name: &str) -> SessionState {
+    match name {
+        "Busy" => SessionState::Busy,
+        "Idle" => SessionState::Idle,
+        other => panic!("the fixtures spell no activity {other:?}"),
+    }
+}
+
+/// A fake collector that records everything the fixture `name` holds.
+fn from_fixture(name: &str) -> Collector {
+    let fixture = fixture(name);
+    Collector::new("fixture", move |record: &mut Recorder<'_>| {
+        let snapshot = record.snapshot().clone();
+        for item in items(&fixture, "repositories") {
+            let repository = text(item, "repository");
+            record.repository(RecordRepository {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(repository.clone()),
+                visibility: Visibility::Public,
+                archived: flag(item, "archived"),
+                local_checkout: flag(item, "local_checkout"),
+                main_head: CommitSha(format!("head-of-{repository}")),
+                main_committed_at: Timestamp("2026-10-11T12:00:00Z".to_owned()),
+                main_commits_7d: 0,
+                real_commits_7d: 0,
+                behind_main: 0,
+                dirty_files: 0,
+                worktrees: 0,
+                open_issues: number(item, "open_issues"),
+                oldest_open_issue_at: None,
+                latest_release: optional_text(item, "latest_release"),
+                latest_release_at: optional_text(item, "latest_release_at").map(Timestamp),
+                unreleased_commits: item["unreleased_commits"].as_i64(),
+                planning_store_version: None,
+                in_catalog: None,
+            })?;
+        }
+        for item in items(&fixture, "pull_requests") {
+            record.pull_request(RecordPullRequest {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(text(item, "repository")),
+                number: number(item, "number"),
+                title: text(item, "title"),
+                draft: false,
+                mergeability: Mergeability::Mergeable,
+                failing_checks: number(item, "failing_checks"),
+                opened_at: Timestamp(text(item, "opened_at")),
+                updated_at: Timestamp(text(item, "opened_at")),
+            })?;
+        }
+        for item in items(&fixture, "workflow_runs") {
+            record.workflow_run(RecordWorkflowRun {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(text(item, "repository")),
+                workflow: text(item, "workflow"),
+                conclusion: conclusion(&text(item, "conclusion")),
+                run_at: Timestamp("2026-10-11T12:30:00Z".to_owned()),
+            })?;
+        }
+        for item in items(&fixture, "specifications") {
+            record.specification(RecordSpecification {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(text(item, "repository")),
+                presence: presence(&text(item, "presence")),
+                path: None,
+                format: None,
+                required_ess: None,
+                validation: validation(&text(item, "validation")),
+                validation_refusals: 0,
+                scenarios: None,
+                synthesis_refusals: None,
+                conformance_status: None,
+            })?;
+        }
+        for item in items(&fixture, "blockers") {
+            record.blocker(RecordBlocker {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(text(item, "repository")),
+                reference: text(item, "reference"),
+                blocker_kind: text(item, "blocker_kind"),
+                title: text(item, "title"),
+            })?;
+        }
+        for item in items(&fixture, "sessions") {
+            record.session(RecordSession {
+                snapshot_id: snapshot.clone(),
+                harness: Harness::Claude,
+                session_ref: text(item, "session_ref"),
+                name: optional_text(item, "name"),
+                cwd: "~/example-org/alpha".to_owned(),
+                repository: optional_text(item, "repository").map(RepositoryName),
+                role: None,
+                activity: activity(&text(item, "activity")),
+                envelope_provider: None,
+                envelope_cgroup: None,
+                envelope_memory_max: None,
+                envelope_cpu_weight: None,
+                envelope_tasks_max: None,
+                envelope_writable: None,
+                envelope_unboxed: None,
+            })?;
+        }
+        Ok(())
+    })
+}
+
+/// A fake collector whose source does not answer.
+fn fails() -> Collector {
+    Collector::new("fails", |_: &mut Recorder<'_>| {
+        bail!("the source did not answer")
+    })
+}
+
+/// Takes one snapshot into the store under `root`, started at `started_at`, through `collectors`.
+fn take(root: &Path, started_at: &str, collectors: &[Collector]) -> Taken {
+    let store = store::open(&root.join("state")).expect("open the store");
+    let start = StartSnapshot {
+        started_at: Timestamp(started_at.to_owned()),
+        disk_free_bytes: 1_000_000,
+    };
+    snapshot::take_from(store, start, collectors).expect("the driver ends the snapshot")
+}
+
+/// Takes one complete snapshot of the fixture `name`, started at `started_at`; its id.
+fn complete(root: &Path, started_at: &str, name: &str) -> String {
+    let taken = take(root, started_at, &[from_fixture(name)]);
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    taken.snapshot_id.0.0
+}
+
+/// Runs the binary from `root`'s `work/` with `HOME` naming `root`'s `home/` and `--state-dir`
+/// naming `root`'s `state/`, and asserts it left `work/` empty.
+fn conductor(root: &Path, args: &[&str]) -> Output {
+    conductor_with(root, None, args)
+}
+
+/// [`conductor`], with `CONDUCTOR_CONFIG` naming `config` when it is given.
+fn conductor_with(root: &Path, config: Option<&Path>, args: &[&str]) -> Output {
+    let work = root.join("work");
+    let mut command = common::conductor(root.join("home"));
+    command
+        .current_dir(&work)
+        .arg("--state-dir")
+        .arg(root.join("state"))
+        .args(args)
+        .stdin(Stdio::null());
+    if let Some(config) = config {
+        command.env("CONDUCTOR_CONFIG", config);
+    }
+    let output = command.output().expect("the conductor binary runs");
+    assert_eq!(
+        fs::read_dir(&work).expect("read work/").count(),
+        0,
+        "`{}` planted something in the working directory: {}",
+        args.join(" "),
+        describe(&output)
+    );
+    output
+}
+
+fn describe(output: &Output) -> String {
+    format!(
+        "exit {:?}, stdout {:?}, stderr {:?}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+fn path(file: &Path) -> &str {
+    file.to_str().expect("the case's path is UTF-8")
+}
+
+/// Publishes the snapshot `snapshot` to `root`'s `out/STATUS.md`, asserts it succeeded, and
+/// answers the board's text.
+fn publish(root: &Path, snapshot: &str) -> String {
+    let board = root.join("out/STATUS.md");
+    let output = conductor(
+        root,
+        &[
+            "snapshot",
+            "publish-board",
+            "--snapshot-id",
+            snapshot,
+            "--path",
+            path(&board),
+        ],
+    );
+    assert!(output.status.success(), "{}", describe(&output));
+    fs::read_to_string(&board)
+        .unwrap_or_else(|error| panic!("read {}: {error}; {}", board.display(), describe(&output)))
+}
+
+/// The rows of `conductor snapshot boards --format json` over `root`'s store.
+fn boards(root: &Path) -> Vec<Value> {
+    let output = conductor(root, &["snapshot", "boards", "--format", "json"]);
+    assert!(output.status.success(), "{}", describe(&output));
+    match serde_json::from_slice(&output.stdout) {
+        Ok(Value::Array(rows)) => rows,
+        other => panic!("`snapshot boards` printed {other:?}: {}", describe(&output)),
+    }
+}
+
+/// The lines of `board` that are headings.
+fn headings(board: &str) -> Vec<&str> {
+    board.lines().filter(|line| line.starts_with('#')).collect()
+}
+
+/// The lines under `heading` up to the next heading.
+fn section(board: &str, heading: &str) -> String {
+    let mut lines = board.lines().skip_while(|line| *line != heading);
+    assert!(
+        lines.next().is_some(),
+        "the board has no heading {heading:?}:\n{board}"
+    );
+    lines
+        .take_while(|line| !line.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The rows of the Markdown table in `section`, its header first, each cell trimmed; none when
+/// the section holds no table.
+fn table(section: &str) -> Vec<Vec<String>> {
+    section
+        .lines()
+        .filter(|line| line.starts_with('|'))
+        .filter(|line| !line.starts_with("|---"))
+        .map(|line| {
+            line.trim()
+                .trim_start_matches('|')
+                .trim_end_matches('|')
+                .split('|')
+                .map(|cell| cell.trim().to_owned())
+                .collect()
+        })
+        .collect()
+}
+
+/// The column named `name` of a table's `header`.
+fn column(header: &[String], name: &str) -> usize {
+    header
+        .iter()
+        .position(|cell| cell == name)
+        .unwrap_or_else(|| panic!("no column {name:?} in {header:?}"))
+}
+
+/// Acceptance 1: over a complete snapshot, `publish-board` writes a file whose seven section
+/// headings appear in the story's order, and whose header names the command, the snapshot id and
+/// its start time; `snapshot boards` lists the board it recorded.
+#[test]
+fn the_board_has_its_seven_sections_in_order_and_names_its_snapshot() {
+    let root = case_dir("sections");
+    let snapshot = complete(&root, EARLIER, "base");
+
+    let board = publish(&root, &snapshot);
+    assert_eq!(headings(&board), SECTIONS, "{board}");
+    let header = section(&board, "# Status");
+    for named in ["snapshot publish-board", snapshot.as_str(), EARLIER] {
+        assert!(
+            header.contains(named),
+            "the header names no {named:?}:\n{board}"
+        );
+    }
+
+    let rows = boards(&root);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["snapshot_id"], Value::from(snapshot.as_str()));
+    assert_eq!(rows[0]["previous_snapshot_id"], Value::Null, "{rows:?}");
+    assert_eq!(rows[0]["deviation_rows"], Value::from(1), "{rows:?}");
+    assert_eq!(
+        rows[0]["path"],
+        Value::from(path(&root.join("out/STATUS.md"))),
+        "{rows:?}"
+    );
+}
+
+/// Acceptance 2: a failed snapshot is refused with `SnapshotNotComplete`, and no file is written
+/// and no board recorded.
+#[test]
+fn a_failed_snapshot_is_refused_and_no_file_is_written() {
+    let root = case_dir("failed");
+    let taken = take(&root, EARLIER, &[from_fixture("base"), fails()]);
+    assert_eq!(taken.state, SnapshotState::Failed, "{taken:?}");
+    let board = root.join("out/STATUS.md");
+
+    let output = conductor(
+        &root,
+        &[
+            "snapshot",
+            "publish-board",
+            "--snapshot-id",
+            taken.snapshot_id.0.0.as_str(),
+            "--path",
+            path(&board),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("SnapshotNotComplete"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(stderr.lines().count(), 1, "{}", describe(&output));
+    assert!(
+        !board.exists(),
+        "a refused publish wrote {}",
+        board.display()
+    );
+    assert!(
+        !root.join("out").exists(),
+        "a refused publish created the board's directory"
+    );
+    assert_eq!(boards(&root), Vec::<Value>::new());
+}
+
+/// Acceptance 3, first half: two snapshots that differ only in one pull request's check turning
+/// red; the delta against the earlier lists exactly that repository, with `+failing PR` and the
+/// failing-PR count `+1`, and every other count unchanged.
+#[test]
+fn one_check_turning_red_is_the_whole_delta() {
+    let root = case_dir("red");
+    let earlier = complete(&root, EARLIER, "base");
+    let later = complete(&root, LATER, "red");
+
+    let board = publish(&root, &later);
+    let delta = section(&board, "## Delta");
+    assert!(
+        delta.contains(&earlier),
+        "the delta names no earlier snapshot:\n{board}"
+    );
+    let rows = table(&delta);
+    let (header, body) = rows
+        .split_first()
+        .unwrap_or_else(|| panic!("the delta holds no table:\n{board}"));
+    assert_eq!(body.len(), 1, "{board}");
+    let row = &body[0];
+    assert_eq!(row[column(header, "repository")], "alpha", "{board}");
+    assert_eq!(row[column(header, "added")], "+failing PR", "{board}");
+    assert_eq!(row[column(header, "removed")], "", "{board}");
+    assert_eq!(row[column(header, "failing PRs")], "+1", "{board}");
+    for unchanged in [
+        "open PRs",
+        "non-green workflows",
+        "open blockers",
+        "specifications present",
+    ] {
+        assert_eq!(row[column(header, unchanged)], "0", "{unchanged}: {board}");
+    }
+
+    let rows = boards(&root);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        rows[0]["previous_snapshot_id"],
+        Value::from(earlier.as_str())
+    );
+    assert_eq!(rows[0]["deviation_rows"], Value::from(2), "{rows:?}");
+}
+
+/// Acceptance 3, second half: two identical snapshots; the delta reads `no change`.
+#[test]
+fn identical_snapshots_read_no_change() {
+    let root = case_dir("identical");
+    complete(&root, EARLIER, "base");
+    let later = complete(&root, LATER, "base");
+
+    let board = publish(&root, &later);
+    let delta = section(&board, "## Delta");
+    assert!(delta.contains("no change"), "{board}");
+    assert!(table(&delta).is_empty(), "{board}");
+}
+
+/// Acceptance 4: a repository with `local_checkout` false reads `no checkout` in its deviation
+/// row; a repository with no deviation has no row, and an archived one none either.
+#[test]
+fn a_repository_without_a_checkout_reads_no_checkout() {
+    let root = case_dir("no-checkout");
+    let snapshot = complete(&root, EARLIER, "base");
+
+    let board = publish(&root, &snapshot);
+    let rows = table(&section(&board, "## Deviations"));
+    let (header, body) = rows
+        .split_first()
+        .unwrap_or_else(|| panic!("the deviations hold no table:\n{board}"));
+    let repository = column(header, "repository");
+    let names: Vec<&str> = body.iter().map(|row| row[repository].as_str()).collect();
+    assert_eq!(names, ["beta"], "{board}");
+    assert!(
+        body[0][column(header, "deviations")]
+            .split(", ")
+            .any(|deviation| deviation == "no checkout"),
+        "{board}"
+    );
+
+    // The overview lists every repository that is not archived, in name order.
+    let rows = table(&section(&board, "## Overview"));
+    let (header, body) = rows.split_first().expect("an overview table");
+    let repository = column(header, "repository");
+    let names: Vec<&str> = body.iter().map(|row| row[repository].as_str()).collect();
+    assert_eq!(names, ["alpha", "beta"], "{board}");
+}
+
+/// Writes a config file of one instance whose records are `root`'s `records/`, and answers its
+/// path.
+fn records_config(root: &Path) -> PathBuf {
+    let records = root.join("records");
+    fs::create_dir_all(&records).expect("create the records directory");
+    let home = root.join("home");
+    let file = root.join("conductor.yaml");
+    fs::write(
+        &file,
+        format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: example-org\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: {root:?}, trees: {trees:?}}}\n\
+             \x20   records: {records:?}\n\
+             \x20   state: {state:?}\n\
+             \x20   cache: {cache:?}\n",
+            root = home.join("example-org"),
+            trees = home.join("trees"),
+            records = records,
+            state = root.join("state"),
+            cache = root.join("cache"),
+        ),
+    )
+    .expect("write the config file");
+    file
+}
+
+/// Without `--snapshot-id` the board is the newest complete snapshot's, a failed one after it
+/// left out; without `--path` it is `STATUS.md` in the instance's records directory.
+#[test]
+fn without_flags_the_newest_complete_snapshot_goes_to_the_records_status_file() {
+    let root = case_dir("defaults");
+    let snapshot = complete(&root, EARLIER, "base");
+    let failed = take(&root, LATER, &[fails()]);
+    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
+    let config = records_config(&root);
+    let records = root.join("records");
+
+    let output = conductor_with(&root, Some(&config), &["snapshot", "publish-board"]);
+    assert!(output.status.success(), "{}", describe(&output));
+    let file = records.join("STATUS.md");
+    let board = fs::read_to_string(&file)
+        .unwrap_or_else(|error| panic!("read {}: {error}; {}", file.display(), describe(&output)));
+    assert!(section(&board, "# Status").contains(&snapshot), "{board}");
+    assert!(
+        !board.contains(&failed.snapshot_id.0.0),
+        "the board names the failed snapshot:\n{board}"
+    );
+}

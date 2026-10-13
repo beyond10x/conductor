@@ -152,12 +152,18 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 
 A release is a tag `v<version>` on `main` and a GitHub Release of the same name; the binary is
 installed from the tag (`cargo install --git https://github.com/beyond10x/conductor --tag
-v<version> --locked conductor-cli`). Conductor-dev cuts one after a wave merges, about once a day,
-without asking: several waves may go into one release.
+v<version> --locked conductor-cli`) or downloaded pre-built from the Release. Pushing the tag runs
+`.github/workflows/release.yml`, which builds `conductor` for `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin` and attaches
+`conductor-<version>-<target>.tar.gz` for each and one `SHA256SUMS` to the Release, in the naming
+and layout of the `ess` and `aep` releases. Conductor-dev cuts one after a wave merges, about once
+a day, without asking: several waves may go into one release.
 
 1. On a branch from `main`, set `version` in the root `Cargo.toml` (semver; `0.x`: a minor bump for
    a new command, config key or record, a patch bump otherwise), refresh `Cargo.lock`
-   (`cargo update -p conductor-cli --offline`), and point the README's install line at the new tag.
+   (`cargo update -p conductor-cli --offline`), and point the install lines of the README and
+   `website/docs/getting-started.md` (`cargo install --tag` and the archive download) at the new
+   version.
 2. The `task check` job (`.github/workflows/check.yml`) and the Gates job green on that exact
    commit; CI runs them in a fresh checkout by construction, on the pull request of step 3. Read
    each job's own conclusion.
@@ -167,10 +173,16 @@ without asking: several waves may go into one release.
 4. `b10x-gates bot -- tag -a v<version> -m <title> <commit>` and `b10x-gates bot -- push origin
    v<version>`; then the GitHub Release through `b10x-gates api` (`POST
    /repos/beyond10x/conductor/releases`, `tag_name`, `name`, `body`: the stories implemented since
-   the last tag, one line each).
-5. Verify: the tag points at `main`'s commit, the tag's checks are green, the Release exists, and
-   `cargo install` from the tag with `--root <scratch dir>` succeeds and `cargo install --list --root
-   <scratch dir>` names `conductor-cli v<version>`.
+   the last tag, one line each). The tag push has started the Release workflow; it attaches the
+   archives to this Release when its builds finish. Should it finish first, it creates the Release
+   with the tag's message as its notes, and the `body` goes on with `PATCH
+   /repos/beyond10x/conductor/releases/<id>` instead. A failed run is re-run, or the archives of an
+   existing tag backfilled, with `workflow_dispatch` and `tag: v<version>`.
+5. Verify: the tag points at `main`'s commit, the tag's checks are green, the Release workflow's
+   run on the tag is green, the Release exists and lists five assets (the four archives and
+   `SHA256SUMS`), an archive downloaded from it passes `sha256sum --check` against `SHA256SUMS` and
+   its `conductor --help` exits 0, and `cargo install` from the tag with `--root <scratch dir>`
+   succeeds and `cargo install --list --root <scratch dir>` names `conductor-cli v<version>`.
 
 ## Sessions
 

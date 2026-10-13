@@ -51,7 +51,7 @@ The full model, with what is enforced and what is only instructed:
 | program | pin | used for |
 |---|---|---|
 | Claude Code (`claude`) | | the sessions; `claude agents --json` for the sessions collector and the tasks |
-| Rust toolchain and `cargo` | edition 2024 | building and installing the CLI |
+| Rust toolchain and `cargo` | edition 2024 | building and installing the CLI from source |
 | `git` | | the repositories collector, worktree listing |
 | `gh`, logged in | | pull requests, CI runs, releases, repository lists of a GitHub source |
 | `task` (go-task) | | the tasks in [`Taskfile.yml`](Taskfile.yml) |
@@ -72,7 +72,22 @@ cargo install --git https://github.com/beyond10x/conductor --tag v0.5.0 --locked
 conductor doctor
 ```
 
-From a checkout, `task install` does the same. `conductor doctor` lists each program conductor
+From a checkout, `task install` does the same. Without a Rust toolchain, take the pre-built binary
+from the release instead: each GitHub Release from the first one after `v0.5.0` carries
+`conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+`x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
+
+```console
+version=0.6.0 target=x86_64-unknown-linux-gnu
+archive="conductor-$version-$target.tar.gz"
+gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
+grep " $archive\$" SHA256SUMS | sha256sum --check --strict
+tar -xzf "$archive"
+install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
+conductor doctor
+```
+
+On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `conductor doctor` lists each program conductor
 starts with its version, and exits 1 when one is missing or older than its pin.
 
 ## Quickstart (no sessions)

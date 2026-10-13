@@ -76,6 +76,7 @@ use tokio::runtime::{Builder, Handle, Runtime};
 
 // The storage ports of the later stories, one child module each, so that units running at once
 // never edit this file. A child module reaches the private helpers below (`read`, `write`, `fail`).
+mod board;
 mod controller;
 mod decision;
 mod dispatch;

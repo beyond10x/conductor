@@ -2560,3 +2560,77 @@ fn agents_link_says_it_serves_a_session_with_the_users_own_settings() {
     );
     assert!(desc.contains("--setting-sources project,local"), "{desc}");
 }
+
+/// `story:status-board`: `task status` runs the snapshot collectors (`conductor snapshot
+/// start-snapshot`) and then `conductor snapshot publish-board`.
+#[test]
+fn status_runs_the_collectors_and_then_publishes_the_board() {
+    let taskfile = taskfile();
+    let task = &taskfile["tasks"]["status"];
+    assert!(!task.is_null(), "Taskfile.yml has no task status");
+    let commands = shell_commands(task).join("\n");
+    let collect = commands
+        .find("conductor snapshot start-snapshot")
+        .unwrap_or_else(|| panic!("status runs no collectors: {commands}"));
+    let publish = commands
+        .find("conductor snapshot publish-board")
+        .unwrap_or_else(|| panic!("status publishes no board: {commands}"));
+    assert!(
+        collect < publish,
+        "status publishes before it collects: {commands}"
+    );
+}
+
+/// `task status`, run with a `conductor` that logs its arguments: it publishes the snapshot the
+/// collectors took, by its id, and publishes nothing when that snapshot failed.
+#[test]
+fn status_publishes_the_snapshot_it_took_and_nothing_when_it_failed() {
+    let Some(case) = Case::new("status-board") else {
+        return;
+    };
+    let log = case.dir.join("claude/status-log");
+    let fail = case.dir.join("claude/fail");
+    let conductor = case.dir.join("bin/conductor");
+    fs::remove_file(&conductor).expect("remove the linked conductor");
+    fs::write(
+        &conductor,
+        format!(
+            "#!/bin/sh\n\
+             printf '%s\\n' \"$*\" >> '{log}'\n\
+             if [ \"$2\" = start-snapshot ]; then\n\
+             \x20 echo snap-0001\n\
+             \x20 if [ -e '{fail}' ]; then exit 1; fi\n\
+             fi\n\
+             exit 0\n",
+            log = log.display(),
+            fail = fail.display(),
+        ),
+    )
+    .expect("write a fake conductor");
+    fs::set_permissions(&conductor, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    let calls = || -> Vec<String> {
+        fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    };
+
+    let output = case.task("status", None);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(
+        calls(),
+        [
+            "snapshot start-snapshot",
+            "snapshot publish-board --snapshot-id snap-0001"
+        ],
+        "{}",
+        shown(&output)
+    );
+
+    fs::remove_file(&log).expect("clear the log");
+    fs::write(&fail, "").expect("make the snapshot fail");
+    let output = case.task("status", None);
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(calls(), ["snapshot start-snapshot"], "{}", shown(&output));
+}

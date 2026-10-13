@@ -287,6 +287,11 @@ tasks:
         fi
         rm -f "$pidfile"
 
+  status:
+    desc: Take a snapshot of every repository the active instance tracks (conductor snapshot start-snapshot runs the collectors) and publish it as the board, STATUS.md in the instance's records directory (conductor snapshot publish-board); publishes nothing when the snapshot fails
+    cmds:
+      - id=$(conductor snapshot start-snapshot) && conductor snapshot publish-board --snapshot-id "$id"
+
   install:
     desc: Install the conductor binary from this checkout; conductor-dev runs it after a wave merges and check is green
     cmds:

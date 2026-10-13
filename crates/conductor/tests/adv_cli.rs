@@ -238,10 +238,12 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// `guard guard-decisions` by `tests/guard_hook.rs` (`story:guard-hook`), the `decision` leaves by
 /// `tests/decision.rs` and the `dispatch` and `message` leaves by `tests/dispatch.rs`
 /// (`story:decision-commands`), and the `session` leaves by `tests/session.rs`
-/// (`story:single-conductor-lease`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 71] = [
+/// (`story:single-conductor-lease`). `snapshot publish-board` and `snapshot boards` are decided by
+/// `tests/status.rs` (`story:status-board`). In the order the leaves are placed.
+const IMPLEMENTED: [&str; 73] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
+    "snapshot publish-board",
     "snapshot record-blocker",
     "snapshot record-merged-pull-request",
     "snapshot record-pull-request",
@@ -252,6 +254,7 @@ const IMPLEMENTED: [&str; 71] = [
     "snapshot record-workflow-run",
     "snapshot start-snapshot",
     "snapshot blockers",
+    "snapshot boards",
     "snapshot merged-pull-requests",
     "snapshot pull-requests",
     "snapshot releases",

@@ -13,7 +13,7 @@ ids, times and sizes differ on your machine.
 
 ## Install
 
-You need a Rust toolchain (edition 2024) with `cargo`, and `git`. Taking a snapshot also runs `aep`
+You need `git`, and a Rust toolchain (edition 2024) with `cargo` to build from source. Taking a snapshot also runs `aep`
 and `claude` (Claude Code), `gh` for a `github` source and `ess` for repositories with a
 specification; the [README](https://github.com/beyond10x/conductor#requirements) lists every tool.
 
@@ -24,7 +24,24 @@ cargo install --git https://github.com/beyond10x/conductor --tag v0.5.0 --locked
 ```
 
 or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.
-Either installs one binary, `conductor`; `conductor --help` lists its commands.
+
+Without a Rust toolchain, download the pre-built binary instead. Each GitHub Release from the first
+one after `v0.5.0` carries `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one
+`SHA256SUMS`. Verify the archive against it before you unpack it:
+
+```console
+version=0.6.0 target=x86_64-unknown-linux-gnu
+archive="conductor-$version-$target.tar.gz"
+gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
+grep " $archive\$" SHA256SUMS | sha256sum --check --strict
+tar -xzf "$archive"
+install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
+```
+
+On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`.
+
+Each way installs one binary, `conductor`; `conductor --help` lists its commands.
 
 ## Check the programs
 

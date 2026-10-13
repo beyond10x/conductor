@@ -118,7 +118,7 @@ impl Cli {
                 SnapshotCommand::RecordSpecification(args) => {
                     snapshot::record_specification(state, args)
                 }
-                SnapshotCommand::PublishBoard(args) => status::publish_board(args),
+                SnapshotCommand::PublishBoard(args) => status::publish_board(state, args),
                 SnapshotCommand::CompleteSnapshot(args) => snapshot::complete_snapshot(state, args),
                 SnapshotCommand::FailSnapshot(args) => snapshot::fail_snapshot(state, args),
                 SnapshotCommand::Snapshots(view) => snapshot::snapshots(state, view),
@@ -132,7 +132,7 @@ impl Cli {
                 SnapshotCommand::Sessions(view) => snapshot::sessions(state, view),
                 SnapshotCommand::Blockers(view) => snapshot::blockers(state, view),
                 SnapshotCommand::Specifications(view) => snapshot::specifications(state, view),
-                SnapshotCommand::Boards(view) => status::boards(view),
+                SnapshotCommand::Boards(view) => status::boards(state, view),
             },
             Group::Goal(command) => match command {
                 GoalCommand::ProposeGoal(args) => goal::propose_goal(state, args),
