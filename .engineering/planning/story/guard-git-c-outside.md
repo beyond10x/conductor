@@ -2,12 +2,13 @@
 format: aep.planning-md/3
 id: story:guard-git-c-outside
 kind: story
-status: active
+status: implemented
 title: The guard decides git -C and GIT_DIR writes on their target
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:36Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T15:40:45Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

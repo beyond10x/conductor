@@ -27,4 +27,7 @@ Also: the `worktree` pin moves to 0.18.1 (the dependency upgrade of 2026-10-13).
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `c9cb767c4`
+(https://github.com/beyond10x/conductor/actions/runs/38423065030); six stories moved to
+`implemented` on that record. The first CI run failed only on example ids in two new pages, which
+are now placeholders. Released as v0.8.2.

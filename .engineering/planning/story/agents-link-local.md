@@ -2,12 +2,13 @@
 format: aep.planning-md/3
 id: story:agents-link-local
 kind: story
-status: active
+status: implemented
 title: agents:link links into the checkout, not ~/.claude/agents
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T15:22:38Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T15:40:46Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
