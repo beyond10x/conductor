@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T10:57:22Z",
+  "actor": "human:timo",
+  "artifact": "story:snapshot-duration",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1",
+    "reference": "onboarding-acceptance-r1#5",
+    "review": "review-result:onboarding-acceptance-r1",
+    "outcome": "fixed"
+  }
+}

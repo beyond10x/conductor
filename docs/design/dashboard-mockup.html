@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conductor — overview</title>
+<style>
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1216; --header: #12161b; --surface: #151a20; --chip-active: #1d2630;
+  --border: #232a33; --row-border: #1e252e; --input-border: #2b3440; --chip-active-border: #3b4a5c;
+  --text: #e6e9ee; --soft: #c8cfd8; --dim: #aab3bf; --muted: #8a94a3; --faint: #6f7a88;
+  --link: #7cc4ff; --link-hover: #b3dcff; --blue: #7cc4ff; --blue-bg: #14283a;
+  --green: #4cc38a; --green-fg: #6ee7b0; --green-bg: #15342a;
+  --amber: #f0b56a; --amber-strong: #f0a35a; --amber-bg: #3a2c15; --warn-surface: #1b1a16; --warn-border: #5a4423;
+  --red: #ff8b9a; --red-bg: #45202a; --danger-surface: #1d1517; --danger-border: #6a2d35;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f7f9; --header: #ffffff; --surface: #ffffff; --chip-active: #e6edf5;
+  --border: #dde1e6; --row-border: #e8ebef; --input-border: #c9cfd6; --chip-active-border: #9fb3c8;
+  --text: #1a1f26; --soft: #2f3742; --dim: #4a5562; --muted: #5b6573; --faint: #7a8492;
+  --link: #0b62b0; --link-hover: #084a86; --blue: #1f6fbf; --blue-bg: #dcecfa;
+  --green: #1f8a57; --green-fg: #17734a; --green-bg: #ddf3e8;
+  --amber: #a8620f; --amber-strong: #b8690c; --amber-bg: #fbeccf; --warn-surface: #fff8ec; --warn-border: #e8c98f;
+  --red: #c42b40; --red-bg: #fbe1e5; --danger-surface: #fff3f4; --danger-border: #eeb2ba;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 14px; }
+a { color: var(--link); text-decoration: none; }
+a:hover { color: var(--link-hover); text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.mono, code { font-family: ui-monospace, monospace; }
+.sr-only { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.muted { color: var(--muted); } .dim { color: var(--dim); } .soft { color: var(--soft); } .faint { color: var(--faint); }
+.small { font-size: 12px; } .s13 { font-size: 13px; }
+.c-green { color: var(--green); } .c-green-fg { color: var(--green-fg); } .c-amber { color: var(--amber); }
+.c-amber-strong { color: var(--amber-strong); } .c-red { color: var(--red); } .c-blue { color: var(--blue); } .c-text { color: var(--text); }
+
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 14px 28px;
+  border-bottom: 1px solid var(--border); background: var(--header); }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-name { font-weight: 600; font-size: 16px; }
+nav.views { display: flex; gap: 4px; margin-left: 12px; flex-wrap: wrap; }
+nav.views a { padding: 6px 12px; border-radius: 6px; color: var(--dim); }
+nav.views a[aria-current="page"] { background: var(--chip-active); color: var(--text); }
+nav.views a[aria-disabled="true"] { cursor: default; }
+.head-right { margin-left: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+input.search { width: 240px; max-width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--input-border);
+  background: var(--bg); color: var(--text); font: inherit; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.dot8 { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+button.theme { padding: 5px 10px; border-radius: 6px; border: 1px solid var(--input-border); background: transparent;
+  color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; }
+button.theme:hover { color: var(--text); background: var(--chip-active); }
+
+main { max-width: 1360px; margin: 0 auto; padding: 24px 28px 48px; display: flex; flex-direction: column; gap: 24px; }
+h1.page, h2 { margin: 0; font-size: 15px; font-weight: 600; }
+h1.page { font-size: 18px; }
+section.col { display: flex; flex-direction: column; gap: 10px; }
+.card { padding: 14px 16px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.card.warn { background: var(--warn-surface); border-color: var(--warn-border); }
+.card.danger { background: var(--danger-surface); border-color: var(--danger-border); }
+.card.stack { display: flex; flex-direction: column; gap: 8px; }
+.card.stack10 { display: flex; flex-direction: column; gap: 10px; }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 99px; }
+.pill12 { font-size: 12px; padding: 2px 8px; border-radius: 99px; }
+.pill-amber { background: var(--amber-bg); color: var(--amber); }
+.pill-red { background: var(--red-bg); color: var(--red); }
+.pill-green { background: var(--green-bg); color: var(--green-fg); }
+.pill-idle { background: var(--border); color: var(--dim); }
+.pill-blue { background: var(--blue-bg); color: var(--blue); }
+.cmd { font-size: 12px; color: var(--dim); background: var(--header); padding: 6px 8px; border-radius: 6px; display: block; overflow-x: auto; }
+.row { display: flex; justify-content: space-between; gap: 12px; }
+.bar { height: 8px; border-radius: 99px; background: var(--border); overflow: hidden; }
+.bar > div { height: 100%; }
+.bar.thin { height: 6px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.tile .val { font-size: 26px; font-weight: 600; margin-top: 4px; }
+.tile .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.needs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 12px; }
+
+.filter-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips button { padding: 4px 10px; border-radius: 99px; border: 1px solid var(--input-border); background: transparent;
+  color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.chips button[aria-pressed="true"] { background: var(--chip-active); border-color: var(--chip-active-border); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; min-width: 980px; }
+thead tr { text-align: left; font-size: 12px; color: var(--muted); background: var(--header); }
+th { padding: 10px 14px; font-weight: 500; }
+td { padding: 12px 14px; vertical-align: top; }
+tbody tr { border-top: 1px solid var(--row-border); }
+td.work { color: var(--soft); max-width: 300px; }
+.forge { font-size: 11px; color: var(--faint); }
+.empty { padding: 16px 14px; color: var(--muted); }
+
+.split { display: flex; flex-wrap: wrap; gap: 24px; }
+.split > .main-col { flex: 999 1 560px; min-width: 0; }
+.split > .side-col { flex: 1 1 340px; min-width: 0; }
+ol.timeline { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--border); }
+ol.timeline li { position: relative; padding: 6px 0 12px 18px; }
+ol.timeline .tdot { position: absolute; left: -6px; top: 10px; width: 10px; height: 10px; border-radius: 50%; }
+.blocker { font-size: 12px; color: var(--dim); background: var(--header); padding: 8px; border-radius: 6px; }
+summary { cursor: pointer; color: var(--dim); }
+
+header.repo .title { font-weight: 600; font-size: 18px; margin: 0; }
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px; }
+.status .card { padding: 16px; }
+.status .big { font-size: 18px; font-weight: 600; margin-top: 4px; }
+.status .mid { font-size: 16px; font-weight: 600; margin-top: 4px; }
+.status .note { font-size: 13px; color: var(--soft); margin-top: 4px; }
+.mrs { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.mr { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--row-border); }
+.mr:first-child { border-top: 0; }
+.mr .id { font-size: 12px; color: var(--muted); width: 48px; }
+.mr a { flex: 1 1 260px; min-width: 0; }
+.mr .age { font-size: 12px; color: var(--muted); width: 90px; text-align: right; }
+.plan { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.plan .card { padding: 14px; }
+.plan ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lbl { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.mt12 { margin-top: 12px; }
+
+@media (max-width: 640px) {
+  header.top, main { padding-left: 16px; padding-right: 16px; }
+  nav.views { margin-left: 0; }
+  .head-right { margin-left: 0; width: 100%; }
+  input.search { flex: 1 1 auto; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- data (from Main.dc.html / Repo.dc.html) ---------- */
+  var CHIP = { busy: 'pill-green', idle: 'pill-idle', silent: 'pill-amber', stopped: 'pill-red' };
+  var REPOS = [
+    { name: 'payments-api', forge: 'gitlab.example.com', state: 'busy', wait: 'the operator (licence)', work: 'Wave 7: refund idempotency — unit 2 of 4', prs: '3 open · 0 failing', ci: 'green', release: 'v2.14.0 · +6', last: '4 min ago', mine: true },
+    { name: 'web-app', forge: 'gitlab.example.com', state: 'busy', wait: 'CI (pipeline #4812)', work: 'Fix e2e flake in checkout flow', prs: '2 open · 1 failing', ci: 'red since 12 min', release: 'v5.2.1 · +14', last: '1 min ago', mine: true },
+    { name: 'billing-worker', forge: 'gitlab.example.com', state: 'silent', wait: 'nothing — silent 47 min', work: 'Migrate planning store to aep.project/5', prs: '1 open · 0 failing', ci: 'green', release: 'v0.9.3 · +2', last: '47 min ago', mine: false },
+    { name: 'mobile-sdk', forge: 'github.com', state: 'idle', wait: '—', work: 'No dispatch', prs: '0 open', ci: 'green', release: 'v1.4.0 · +0', last: '2 d ago', mine: false },
+    { name: 'data-pipeline', forge: 'gitlab.example.com', state: 'busy', wait: 'build slot (8 GiB)', work: 'Gate: full test suite, step 31 of 52', prs: '1 open · 0 failing', ci: 'running', release: 'v3.0.0 · +21', last: '9 min ago', mine: false },
+    { name: 'infra-config', forge: 'gitlab.example.com', state: 'stopped', wait: 'usage limit · resumes 14:00', work: 'Rotate staging certificates', prs: '0 open', ci: 'green', release: '—', last: '1 h ago', mine: false }
+  ];
+  var FILTERS = [['all', 'All 6'], ['mine', 'Mine'], ['waiting', 'Waiting'], ['red', 'Red CI']];
+  var TILES = [
+    { label: 'needs you', value: '3', sub: '2 decisions · 1 hands', color: 'c-amber', card: 'warn-border' },
+    { label: 'red CI on main', value: '1', sub: 'web-app', color: 'c-red', card: 'danger-border' },
+    { label: 'controllers', value: '5 / 6', sub: '4 busy · 1 silent', color: 'c-text' },
+    { label: 'open MRs / PRs', value: '7', sub: '1 failing', color: 'c-text' },
+    { label: 'shipped today', value: '4', sub: '2 releases · 9 merges', color: 'c-green' },
+    { label: 'context', value: '1', sub: 'session over 300k', color: 'c-amber' },
+    { label: 'free disk', value: '34 GiB', sub: 'floor 20 GiB', color: 'c-text' },
+    { label: 'spend today', value: '$41', sub: '6.2M tokens', color: 'c-text' }
+  ];
+  var EVENTS = [
+    { time: '11:18Z', repo: 'web-app', text: 'Pipeline #4812 failed on main (e2e).', dot: '--red' },
+    { time: '11:02Z', repo: 'payments-api', text: 'Asked the operator: may we vendor the licence-less OpenAPI document?', dot: '--amber' },
+    { time: '10:44Z', repo: 'conductor', text: 'Released v0.7.0 — GitLab through glab, doctor verdict.', dot: '--green' },
+    { time: '10:21Z', repo: 'data-pipeline', text: 'Gate resumed at step 31 after a test-harness fix (no full rerun).', dot: '--blue' },
+    { time: '09:57Z', repo: 'payments-api', text: 'Merged !218 — refund ledger idempotency key.', dot: '--green' },
+    { time: '09:30Z', repo: 'infra-config', text: 'Stopped at the usage limit; resumes 14:00.', dot: '--dim' }
+  ];
+  var MR_CI = { passed: 'pill-green', running: 'pill-blue', failed: 'pill-red' };
+  var MRS = [
+    { id: '!221', title: 'Refund retry window: back off on 409', ci: 'running', age: '18 min' },
+    { id: '!219', title: 'Webhook dedup table migration', ci: 'passed', age: '2 h' },
+    { id: '!214', title: 'Docs: refund states', ci: 'passed', age: '1 d' }
+  ];
+  var REPO_EVENTS = [
+    { time: '11:02Z', text: 'Asked the operator about the licence-less OpenAPI document.', dot: '--amber' },
+    { time: '10:40Z', text: 'Opened !221 — refund retry window.', dot: '--blue' },
+    { time: '09:57Z', text: 'Merged !218 — refund ledger idempotency key.', dot: '--green' },
+    { time: '08:12Z', text: 'Wave 7 started: 4 stories, approved up front.', dot: '--dim' }
+  ];
+
+  /* ---------- state ---------- */
+  var state = { filter: 'all', query: '' };
+  var app = document.getElementById('app');
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function repoHref(name) { return '#/repo/' + encodeURIComponent(name); }
+
+  /* ---------- theme ---------- */
+  function storedTheme() { try { return localStorage.getItem('conductor-mockup-theme'); } catch (e) { return null; } }
+  function currentTheme() { return document.documentElement.getAttribute('data-theme') || 'dark'; }
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('conductor-mockup-theme', t); } catch (e) { /* ignore */ }
+    var b = document.getElementById('theme-toggle');
+    if (b) { b.textContent = t === 'dark' ? 'Light' : 'Dark'; b.setAttribute('aria-label', 'Switch to ' + (t === 'dark' ? 'light' : 'dark') + ' theme'); }
+  }
+  setTheme(storedTheme() === 'light' ? 'light' : 'dark');
+  function themeButton() {
+    var t = currentTheme();
+    return '<button type="button" id="theme-toggle" class="theme" aria-label="Switch to ' + (t === 'dark' ? 'light' : 'dark') +
+      ' theme">' + (t === 'dark' ? 'Light' : 'Dark') + '</button>';
+  }
+
+  /* ---------- shared bits ---------- */
+  function timeline(events, withRepo) {
+    return '<ol class="timeline">' + events.map(function (e) {
+      return '<li><span class="tdot" aria-hidden="true" style="background: var(' + e.dot + ')"></span>' +
+        '<div class="small muted mono">' + esc(e.time) + (withRepo ? ' · ' + esc(e.repo) : '') + '</div>' +
+        '<div>' + esc(e.text) + '</div></li>';
+    }).join('') + '</ol>';
+  }
+
+  /* ---------- overview ---------- */
+  function filteredRows() {
+    var f = state.filter, q = state.query.trim().toLowerCase();
+    return REPOS.filter(function (r) {
+      var ok = f === 'all' || (f === 'mine' && r.mine) || (f === 'waiting' && r.wait !== '—') || (f === 'red' && r.ci.indexOf('red') === 0);
+      return ok && (!q || (r.name + ' ' + r.work + ' ' + r.forge).toLowerCase().indexOf(q) !== -1);
+    });
+  }
+  function rowsHtml() {
+    var rows = filteredRows();
+    if (!rows.length) return '<tr><td colspan="8" class="empty">No repositories match this filter.</td></tr>';
+    return rows.map(function (r) {
+      var waitCls = r.wait === '—' ? 'faint' : (r.wait.indexOf('nothing') === 0 ? 'c-amber' : 'c-text');
+      var ciCls = r.ci.indexOf('red') === 0 ? 'c-red' : (r.ci === 'running' ? 'c-blue' : 'c-green');
+      var lastCls = r.state === 'silent' ? 'c-amber' : 'muted';
+      return '<tr>' +
+        '<td><a href="' + repoHref(r.name) + '" style="font-weight:500">' + esc(r.name) + '</a><div class="forge mono">' + esc(r.forge) + '</div></td>' +
+        '<td><span class="pill12 ' + CHIP[r.state] + '">' + esc(r.state) + '</span></td>' +
+        '<td class="' + waitCls + '">' + esc(r.wait) + '</td>' +
+        '<td class="work">' + esc(r.work) + '</td>' +
+        '<td class="mono small">' + esc(r.prs) + '</td>' +
+        '<td><span class="small ' + ciCls + '">' + esc(r.ci) + '</span></td>' +
+        '<td class="mono small dim">' + esc(r.release) + '</td>' +
+        '<td class="small ' + lastCls + '">' + esc(r.last) + '</td></tr>';
+    }).join('');
+  }
+  function chipsHtml() {
+    return FILTERS.map(function (f) {
+      return '<button type="button" data-filter="' + f[0] + '" aria-pressed="' + (state.filter === f[0]) + '">' + esc(f[1]) + '</button>';
+    }).join('');
+  }
+
+  function overview() {
+    var tiles = TILES.map(function (t) {
+      var border = t.card ? ' style="border-color: var(--' + t.card + ')"' : '';
+      return '<div class="card tile"' + border + '><div class="small muted">' + esc(t.label) + '</div>' +
+        '<div class="val ' + t.color + '">' + esc(t.value) + '</div><div class="sub">' + esc(t.sub) + '</div></div>';
+    }).join('');
+
+    return '' +
+    '<header class="top">' +
+      '<div class="brand">' +
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--link)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 18c3-8 13-8 16 0"/><path d="M8 18c2-4 6-4 8 0"/><circle cx="12" cy="18" r="1.5"/></svg>' +
+        '<span class="brand-name">conductor</span>' +
+        '<span class="mono small muted">example-org · v0.7.0</span>' +
+      '</div>' +
+      '<nav class="views" aria-label="Views">' +
+        '<a href="#/" aria-current="page">Overview</a>' +
+        '<a href="' + repoHref('payments-api') + '">Repositories</a>' +
+        '<a aria-disabled="true" title="Not part of this mockup">Decisions</a>' +
+        '<a aria-disabled="true" title="Not part of this mockup">Health</a>' +
+        '<a aria-disabled="true" title="Not part of this mockup">Disk &amp; spend</a>' +
+      '</nav>' +
+      '<div class="head-right">' +
+        '<label for="search" class="sr-only">Search</label>' +
+        '<input id="search" class="search" type="search" placeholder="Search repos, PRs, sessions…" value="' + esc(state.query) + '">' +
+        '<span class="live"><span class="dot8" aria-hidden="true"></span>live · snapshot 6 min old</span>' +
+        themeButton() +
+      '</div>' +
+    '</header>' +
+    '<main id="main" tabindex="-1">' +
+      '<h1 class="sr-only">Overview</h1>' +
+      '<section aria-label="Summary" class="tiles">' + tiles + '</section>' +
+
+      '<section aria-labelledby="needs" class="col">' +
+        '<h2 id="needs">Needs you <span class="c-amber-strong">· 3</span></h2>' +
+        '<div class="needs">' +
+          '<div class="card warn stack">' +
+            '<div class="row" style="justify-content:flex-start;gap:8px;align-items:center"><span class="pill pill-amber">operator · class O</span><span class="small muted">open 3d · default at 14:00Z: A</span></div>' +
+            '<div>May <b>payments-api</b> vendor a third-party OpenAPI document with no declared licence?</div>' +
+            '<code class="cmd">conductor decision answer ESC-…-02 --choice A</code>' +
+          '</div>' +
+          '<div class="card warn stack">' +
+            '<div class="row" style="justify-content:flex-start;gap:8px;align-items:center"><span class="pill pill-amber">hands · class H</span><span class="small muted">open 5h</span></div>' +
+            '<div>Create a read-only GitLab token for boxed sessions (<code>read_api</code> on the group).</div>' +
+            '<code class="cmd">glab auth login --hostname gitlab.example.com</code>' +
+          '</div>' +
+          '<div class="card danger stack">' +
+            '<div class="row" style="justify-content:flex-start;gap:8px;align-items:center"><span class="pill pill-red">red CI · main</span><span class="small muted">since 12 min</span></div>' +
+            '<div><b>web-app</b> pipeline #4812 failed on <code>main</code> — e2e stage.</div>' +
+            '<a href="#" data-placeholder>Open pipeline →</a>' +
+          '</div>' +
+        '</div>' +
+      '</section>' +
+
+      '<section aria-labelledby="repos" class="col">' +
+        '<div class="filter-head">' +
+          '<h2 id="repos">Repositories</h2>' +
+          '<div role="group" aria-label="Filter" class="chips" id="chips">' + chipsHtml() + '</div>' +
+        '</div>' +
+        '<div class="table-wrap">' +
+          '<table aria-labelledby="repos"><thead><tr>' +
+            '<th scope="col">repository</th><th scope="col">controller</th><th scope="col">waiting on</th><th scope="col">working on</th>' +
+            '<th scope="col">MRs / PRs</th><th scope="col">main</th><th scope="col">release</th><th scope="col">last report</th>' +
+          '</tr></thead><tbody id="repo-rows" aria-live="polite">' + rowsHtml() + '</tbody></table>' +
+        '</div>' +
+      '</section>' +
+
+      '<div class="split">' +
+        '<section aria-labelledby="today" class="col main-col"><h2 id="today">Today</h2>' + timeline(EVENTS, true) + '</section>' +
+        '<section aria-labelledby="health" class="col side-col"><h2 id="health">Health</h2>' +
+          '<div class="card stack10">' +
+            '<div class="row"><span>doctor</span><span class="c-green">ready</span></div>' +
+            '<div class="row"><span>last snapshot</span><span class="c-amber">complete · 1 member failed</span></div>' +
+            '<div class="blocker">blockers · <b>billing-worker</b>: <code>git fetch</code> needs a login — load the SSH key or cache HTTPS credentials</div>' +
+            '<div class="row"><span>collector times</span><span class="mono small dim">repos 41s · ci 18s · blockers 2m03s</span></div>' +
+            '<div>' +
+              '<div class="row small muted"><span id="disk-label">free on /</span><span>33.6 of 847 GiB</span></div>' +
+              '<div class="bar" style="margin-top:6px" role="meter" aria-labelledby="disk-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="96" aria-valuetext="96% used, 33.6 of 847 GiB free"><div style="width:96%;background:var(--amber-strong)"></div></div>' +
+            '</div>' +
+            '<details><summary>Disk waste · 69.7 GiB in 85 rows</summary>' +
+              '<div class="small muted" style="margin-top:8px">Largest: toolchains 12.2 GiB · worktree archives 8.3 GiB · agent scratch 5.5 GiB …</div>' +
+            '</details>' +
+          '</div>' +
+        '</section>' +
+      '</div>' +
+    '</main>';
+  }
+
+  /* ---------- repository ---------- */
+  function repoHeader(name, forgePath, chipHtml) {
+    return '<header class="top repo">' +
+      '<a href="#/" class="dim">← Overview</a>' +
+      '<h1 class="title">' + esc(name) + '</h1>' +
+      '<span class="mono small muted">' + esc(forgePath) + '</span>' + chipHtml +
+      '<span class="head-right"><span class="small muted">snapshot 6 min old · live sessions now</span>' + themeButton() + '</span>' +
+    '</header>';
+  }
+
+  function repoPage(name) {
+    if (name !== 'payments-api') {
+      var r = REPOS.filter(function (x) { return x.name === name; })[0];
+      return repoHeader(name, r ? r.forge : 'unknown repository', r ? '<span class="pill12 ' + CHIP[r.state] + '">controller ' + esc(r.state) + '</span>' : '') +
+        '<main id="main" tabindex="-1"><div class="card">' +
+        (r ? 'This mockup only details <a href="' + repoHref('payments-api') + '">payments-api</a>. ' + esc(name) + ' is working on: ' + esc(r.work) + '.'
+           : 'No repository named ' + esc(name) + '.') +
+        ' <a href="#/">Back to the overview</a>.</div></main>';
+    }
+    var mrs = MRS.map(function (m) {
+      return '<div class="mr"><span class="id mono">' + esc(m.id) + '</span>' +
+        '<a href="#" data-placeholder>' + esc(m.title) + '</a>' +
+        '<span class="pill12 ' + MR_CI[m.ci] + '">' + esc(m.ci) + '</span>' +
+        '<span class="age">' + esc(m.age) + '</span></div>';
+    }).join('');
+
+    return repoHeader('payments-api', 'gitlab.example.com/example-group/payments-api', '<span class="pill12 pill-green" style="padding:2px 10px">controller busy</span>') +
+    '<main id="main" tabindex="-1">' +
+      '<section aria-label="Status" class="status">' +
+        '<div class="card warn"><div class="small muted">waiting on</div><div class="big c-amber">the operator</div><div class="note">licence question · open 3d · default A at 14:00Z</div></div>' +
+        '<div class="card"><div class="small muted" id="wave-label">working on</div><div class="mid">Wave 7 · refund idempotency</div>' +
+          '<div class="bar thin" style="margin-top:10px" role="progressbar" aria-labelledby="wave-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="38"><div style="width:38%;background:var(--green)"></div></div>' +
+          '<div class="small muted" style="margin-top:6px">unit 2 of 4 · gate step 12 of 30</div></div>' +
+        '<div class="card"><div class="small muted">main</div><div class="big c-green">green</div><div class="note">pipeline #4790 · 22 min ago</div></div>' +
+        '<div class="card"><div class="small muted">release</div><div class="big mono">v2.14.0</div><div class="note">6 commits on main since · 4 d ago</div></div>' +
+      '</section>' +
+
+      '<div class="split">' +
+        '<div class="col main-col" style="display:flex;flex-direction:column;gap:10px">' +
+          '<section aria-labelledby="mrs" class="col"><h2 id="mrs">Merge requests</h2><div class="mrs">' + mrs + '</div></section>' +
+          '<section aria-labelledby="plan" class="col mt12"><h2 id="plan">Plan</h2>' +
+            '<div class="plan">' +
+              '<div class="card"><div class="lbl">in this wave</div><ul>' +
+                '<li><span class="c-green" aria-hidden="true">✓</span> story:refund-ledger-key <span class="sr-only">(done)</span></li>' +
+                '<li><span class="c-blue" aria-hidden="true">●</span> story:refund-retry-window <span class="sr-only">(in progress)</span></li>' +
+                '<li class="muted"><span aria-hidden="true">○</span> story:refund-webhook-dedup <span class="sr-only">(not started)</span></li>' +
+                '<li class="muted"><span aria-hidden="true">○</span> story:refund-docs <span class="sr-only">(not started)</span></li>' +
+              '</ul></div>' +
+              '<div class="card danger"><div class="lbl">blocked</div><div>story:partner-sandbox</div><div class="small c-red" style="margin-top:4px">upstream-blocker · partner API keys</div></div>' +
+              '<div class="card"><div class="lbl">specification</div><div>present · <span class="mono">ess/22</span> · valid</div><div class="small c-green" style="margin-top:4px">conformance 214 / 214 scenarios</div></div>' +
+            '</div>' +
+          '</section>' +
+        '</div>' +
+        '<div class="col side-col" style="display:flex;flex-direction:column;gap:10px">' +
+          '<section aria-labelledby="sess" class="col"><h2 id="sess">Sessions</h2>' +
+            '<div class="card stack10">' +
+              '<div class="row"><span>controller</span><span class="c-green-fg">busy · 3h 58m</span></div>' +
+              '<div class="row s13 dim"><span>workers</span><span>2 running</span></div>' +
+              '<div class="row s13 dim"><span id="ctx-label">context</span><span>182k of 300k</span></div>' +
+              '<div class="bar thin" role="meter" aria-labelledby="ctx-label" aria-valuemin="0" aria-valuemax="300" aria-valuenow="182" aria-valuetext="182k of 300k tokens"><div style="width:61%;background:var(--blue)"></div></div>' +
+              '<div class="row s13 dim"><span>box</span><span style="text-align:right">4 GiB · 200 tasks · writes: checkout, trees</span></div>' +
+              '<div class="row s13 dim"><span>spend today</span><span>$9.40</span></div>' +
+              '<a href="#" data-placeholder class="s13">Open transcript →</a>' +
+            '</div>' +
+          '</section>' +
+          '<section aria-labelledby="today-here" class="col mt12"><h2 id="today-here">Today here</h2>' + timeline(REPO_EVENTS, false) + '</section>' +
+        '</div>' +
+      '</div>' +
+    '</main>';
+  }
+
+  /* ---------- router ---------- */
+  var lastRoute = null;
+  function route() {
+    var h = location.hash || '#/';
+    var m = /^#\/repo\/([^/?#]+)/.exec(h);
+    var key = m ? 'repo:' + decodeURIComponent(m[1]) : 'overview';
+    if (m) {
+      var name = decodeURIComponent(m[1]);
+      app.innerHTML = repoPage(name);
+      document.title = 'Conductor — ' + name;
+    } else {
+      app.innerHTML = overview();
+      document.title = 'Conductor — overview';
+    }
+    if (lastRoute !== null && lastRoute !== key) {
+      window.scrollTo(0, 0);
+      var main = document.getElementById('main');
+      if (main) main.focus({ preventScroll: true });
+    }
+    lastRoute = key;
+  }
+
+  /* ---------- events (delegated) ---------- */
+  app.addEventListener('click', function (ev) {
+    var t = ev.target;
+    var chip = t.closest && t.closest('button[data-filter]');
+    if (chip) {
+      state.filter = chip.getAttribute('data-filter');
+      document.getElementById('chips').innerHTML = chipsHtml();
+      document.getElementById('repo-rows').innerHTML = rowsHtml();
+      var again = document.querySelector('button[data-filter="' + state.filter + '"]');
+      if (again) again.focus();
+      return;
+    }
+    if (t.closest && t.closest('#theme-toggle')) {
+      setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+      return;
+    }
+    if (t.closest && t.closest('a[data-placeholder]')) ev.preventDefault();
+  });
+  app.addEventListener('input', function (ev) {
+    if (ev.target.id === 'search') {
+      state.query = ev.target.value;
+      document.getElementById('repo-rows').innerHTML = rowsHtml();
+    }
+  });
+  window.addEventListener('hashchange', route);
+  route();
+})();
+</script>
+</body>
+</html>

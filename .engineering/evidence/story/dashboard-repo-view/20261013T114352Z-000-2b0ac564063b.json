@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T11:43:52Z",
+  "actor": "human:timo",
+  "artifact": "story:dashboard-repo-view",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2",
+    "reference": "v8-acceptance-r2#5",
+    "review": "review-result:v8-acceptance-r2",
+    "outcome": "fixed"
+  }
+}

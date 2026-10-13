@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T11:36:27Z",
+  "actor": "human:timo",
+  "artifact": "story:dashboard-snapshot-api",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1",
+    "reference": "v8-parallel-r1#7",
+    "review": "review-result:v8-parallel-r1",
+    "outcome": "fixed"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T10:57:22Z",
+  "actor": "human:timo",
+  "artifact": "story:setup-guide-for-agents",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1",
+    "reference": "onboarding-acceptance-r1#1",
+    "review": "review-result:onboarding-acceptance-r1",
+    "outcome": "fixed"
+  }
+}

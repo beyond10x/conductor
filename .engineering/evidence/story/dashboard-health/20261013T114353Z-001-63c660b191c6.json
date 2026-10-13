@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T11:43:53Z",
+  "actor": "human:timo",
+  "artifact": "story:dashboard-health",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2",
+    "reference": "v8-acceptance-r2#8",
+    "review": "review-result:v8-acceptance-r2",
+    "outcome": "fixed"
+  }
+}

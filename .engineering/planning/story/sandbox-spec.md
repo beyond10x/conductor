@@ -9,6 +9,10 @@ relations:
 - depends_on: story:gitlab-guide
 - depends_on: story:version-flag
 - depends_on: story:doctor-minimum-versions
+- depends_on: story:onboarding-run
+- depends_on: story:snapshot-duration
+- depends_on: story:spec-first-wording
+- depends_on: story:dashboard-health
 scope:
 - confidence: cited
   path: crates/conductor-model
@@ -32,7 +36,7 @@ scope:
   path: website/docs/reference/cli.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 15
+revision: 17
 ---
 ## Why
 
@@ -72,8 +76,11 @@ The operator, 2026-10-13: "we need to prioritise the sandbox" and "conductor is 
 
 - Every `UNMAPPED:` marker the drafting leaves is listed in the review report and settled before
   the seam is implemented.
-- After wave 17 (`story:gitlab-guide` lands last there; the model, `reference/` pages, `cli.rs`
-  and `cli_tree.rs` are shared with its stories).
+- After wave 17 (`story:gitlab-guide` lands last there) and after wave 18, released as v0.8.0
+  before any sandbox work (the operator, 2026-10-13: "make the setup released before sandbox"):
+  `story:onboarding-run` and `story:snapshot-duration` are its last stories, and the model,
+  `cli.yaml`, `cli.rs` and `reference/cli.md` are shared with them; `story:spec-first-wording`
+  shares no file, and the edge to it is the same release gate (it ships in v0.8.0).
 
 ## Scope
 

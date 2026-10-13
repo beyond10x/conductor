@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T10:57:23Z",
+  "actor": "human:timo",
+  "artifact": "story:onboarding-run",
+  "kind": "story",
+  "revision": 14,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1",
+    "reference": "onboarding-parallel-r1#4",
+    "review": "review-result:onboarding-parallel-r1",
+    "outcome": "fixed"
+  }
+}

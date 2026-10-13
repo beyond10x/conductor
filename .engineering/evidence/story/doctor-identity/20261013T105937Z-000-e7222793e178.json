@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T10:59:37Z",
+  "actor": "human:timo",
+  "artifact": "story:doctor-identity",
+  "kind": "story",
+  "revision": 8,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2",
+    "reference": "onboarding-acceptance-r2#2",
+    "review": "review-result:onboarding-acceptance-r2",
+    "outcome": "fixed"
+  }
+}

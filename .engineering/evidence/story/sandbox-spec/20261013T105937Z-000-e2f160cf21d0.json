@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T10:59:37Z",
+  "actor": "human:timo",
+  "artifact": "story:sandbox-spec",
+  "kind": "story",
+  "revision": 17,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2",
+    "reference": "onboarding-design-r2#1",
+    "review": "review-result:onboarding-design-r2",
+    "outcome": "fixed"
+  }
+}
