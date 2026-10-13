@@ -328,7 +328,7 @@ tasks:
       - test -z "$(git status --porcelain --untracked-files=all -- crates/conductor/dashboard/dist)" || { git status --short --untracked-files=all -- crates/conductor/dashboard/dist; echo "crates/conductor/dashboard/dist differs from a fresh build; run task ui and commit dist/" >&2; exit 1; }
       - cargo fmt --check
       - cargo clippy --all-targets -- -D warnings
-      - cargo test
+      - cargo test --no-fail-fast
       - task: docs-check
 
   docs-generate:

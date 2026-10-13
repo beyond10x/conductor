@@ -21,10 +21,10 @@ use conductor_cli::collect::Collector;
 use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::{config, store};
 use conductor_model::observation::{
-    CommitSha, Harness, Mergeability, RecordBlocker, RecordMergedPullRequest, RecordPullRequest,
-    RecordRelease, RecordRepository, RecordSession, RecordSpecification, RecordWorkflowRun,
-    RepositoryName, RunConclusion, SessionState, SnapshotId, SnapshotState, SpecificationPresence,
-    StartSnapshot, ValidationResult, Visibility,
+    CommitSha, Harness, Mergeability, RecordBlocker, RecordMemberFailure, RecordMergedPullRequest,
+    RecordPullRequest, RecordRelease, RecordRepository, RecordSession, RecordSpecification,
+    RecordWorkflowRun, RepositoryName, RunConclusion, SessionState, SnapshotId, SnapshotState,
+    SpecificationPresence, StartSnapshot, ValidationResult, Visibility,
 };
 use conductor_model::primitives::Timestamp;
 use eventlog_core::{
@@ -341,7 +341,7 @@ fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
     }
 }
 
-/// Records one observation of each of the eight kinds.
+/// Records one observation of each kind a collector records; the driver adds the collector run.
 fn every_kind() -> Collector {
     Collector::new("every-kind", |record: &mut Recorder<'_>| {
         let snapshot = record.snapshot().clone();
@@ -409,6 +409,12 @@ fn every_kind() -> Collector {
             tag: "v1.0.0".to_owned(),
             published_at: Timestamp("2026-09-30T00:00:00Z".to_owned()),
             url: "https://example.invalid/alpha/releases/v1.0.0".to_owned(),
+        })?;
+        record.member_failure(RecordMemberFailure {
+            snapshot_id: snapshot.clone(),
+            member: alpha.clone(),
+            collector: "every-kind".to_owned(),
+            error_line: "fatal: could not read from remote repository".to_owned(),
         })?;
         record.merged_pull_request(RecordMergedPullRequest {
             snapshot_id: snapshot,
