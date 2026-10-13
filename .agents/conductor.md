@@ -46,9 +46,11 @@ this session and expire after 7 days, so a restart loses them.
      request, options, choice, reason, evidence; given no `--decision-id`, it allocates a
      `DEC-YYYYMMDD-NN` free in the store and in the hand-written `decisions/*.jsonl`), then send
      `[DECISION <request-id>] …`.
-   - Class O is only what cannot be undone (data loss, a history rewrite; design § 5): send the
-     operator one table with lettered options, costs and your recommendation, and tell the
-     controller it is escalated. Everything else is class C: decide it on the recommended option
+   - Class O is what cannot be undone (data loss, a history rewrite), a new, renamed or retired
+     repository, and an architecture decision, such as a change to a product's language architecture
+     (design § 5): send the operator one table with
+     lettered options, costs and your recommendation, and tell the controller it is escalated.
+     Everything else is class C: decide it on the recommended option
      that can be undone, and report it as taken. Hold nothing for the operator: no pending lists,
      no "waiting on you" (the operator, 2026-10-12).
    - The operator's answer to a class-O or class-H request: record it through

@@ -99,7 +99,7 @@ const FORMS: [Form; 7] = [
         kind: MessageKind::Report,
         fields: &["", DISPATCH_ID],
         rest: |words| {
-            words.len() >= 2
+            !words.is_empty()
                 && [
                     "started",
                     "progress",
