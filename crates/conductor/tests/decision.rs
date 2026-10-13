@@ -12,9 +12,11 @@
 
 mod common;
 
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::Duration;
 
 use conductor_cli::config::CONFIG_VARIABLE;
 use serde_json::{Value, json};
@@ -1190,6 +1192,82 @@ fn six_concurrent_records_are_all_recorded() {
                 ],
         "six at once: recorded {ids:?}; refused {refused:?}"
     );
+}
+
+/// The first event file, in name order, of any stream in the tree store under `state`.
+fn an_event_file(state: &Path) -> PathBuf {
+    fn first(directory: &Path) -> Option<PathBuf> {
+        let mut entries: Vec<PathBuf> = fs::read_dir(directory)
+            .expect("list a stream directory")
+            .map(|entry| entry.expect("a directory entry").path())
+            .collect();
+        entries.sort();
+        entries.into_iter().find_map(|path| {
+            if path.is_dir() {
+                first(&path)
+            } else {
+                path.extension()
+                    .is_some_and(|ext| ext == "json")
+                    .then_some(path)
+            }
+        })
+    }
+    first(&state.join("tree/tenants/conductor/streams")).expect("the tree holds an event file")
+}
+
+/// `story:store-open-under-lock`: a record command opens the store under the tree's writer lock.
+/// While the test holds `state/tree/.lock`, the tree is as a commit in progress leaves it to a
+/// reader that lists event files and commit files in two passes: a commit file names an event the
+/// first pass did not see (here, one moved out of the tree). Opened without the lock, that reads
+/// as a corrupt store and the command is refused; opened under it, the command waits, and records
+/// once the tree is whole again and the lock is released.
+#[test]
+fn a_record_waits_for_the_stores_lock_before_it_opens_the_store() {
+    let case = Case::new("open-under-lock");
+    case.conductor_decision("C");
+    let lock = File::options()
+        .read(true)
+        .write(true)
+        .open(case.state.join("tree/.lock"))
+        .expect("open the store's writer lock");
+    lock.lock().expect("hold the writer lock");
+    let event = an_event_file(&case.state);
+    let aside = case.work.with_file_name("aside.json");
+    fs::rename(&event, &aside).expect("move an event file out of the tree");
+
+    let args = Case::record_args(
+        "record-conductor-decision",
+        "C",
+        "2026-10-12T10:00:00Z",
+        &[],
+    );
+    let mut child = case
+        .command(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the conductor binary starts");
+    thread::sleep(Duration::from_millis(500));
+    let early = child.try_wait().expect("poll the record command");
+
+    fs::rename(&aside, &event).expect("put the event file back");
+    lock.unlock().expect("release the writer lock");
+    let output = child.wait_with_output().expect("the conductor binary runs");
+    assert_eq!(
+        early,
+        None,
+        "the record did not wait for the lock: exit {:?}, stderr {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.success(),
+        "the record failed once the lock was released: exit {:?}, stderr {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "DEC-20261012-01\n");
+    assert_eq!(case.rows("decisions").len(), 2);
 }
 
 /// The cells of one Markdown table row, each read back as GitHub-flavoured Markdown reads it: a

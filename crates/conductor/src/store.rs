@@ -137,13 +137,6 @@ pub fn open(state: &Path) -> Result<Store> {
     let root = state.join(TREE_DIR);
     unmigrated(state, &root)?;
     fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
-    // Two first commands at once would both write the tree's description through one staging
-    // name; the tree's own writer lock makes the second wait and then find it written.
-    let _creating = if is_file(&root.join(TREE_MANIFEST)) {
-        None
-    } else {
-        Some(hold(&root.join(TREE_LOCK)).with_context(|| format!("create {}", root.display()))?)
-    };
     Store::at(state)
 }
 
@@ -508,10 +501,14 @@ impl Store {
     fn at(state: &Path) -> Result<Self> {
         let root = state.join(TREE_DIR);
         let runtime = Engine::start()?;
+        // Under the tree's writer lock, as in `reopened`.
+        let lock = hold(&root.join(TREE_LOCK))
+            .with_context(|| format!("hold the writer lock of {}", root.display()))?;
         let seen = mark(&root).with_context(|| format!("read {}", root.display()))?;
         let log = runtime
             .block_on(TreeEventStore::open(&root))
             .with_context(|| format!("open the store at {}", root.display()))?;
+        drop(lock);
         Ok(Self {
             runtime,
             tree: Tree {
@@ -537,40 +534,45 @@ impl Store {
                 return Ok(false);
             }
             fs::create_dir_all(&tree.root).map_err(|error| backend(&error))?;
-            // As in `open`: the first writer of a new tree holds its lock while it writes the
-            // tree's description.
-            let _creating = if is_file(&tree.root.join(TREE_MANIFEST)) {
-                None
-            } else {
-                Some(hold(&tree.root.join(TREE_LOCK)).map_err(|error| backend(&error))?)
-            };
-            let seen = mark(&tree.root).map_err(|error| backend(&error))?;
-            let log = self.reopened(tree)?;
-            *tree.log.borrow_mut() = Some(log);
-            *tree.seen.borrow_mut() = Some(seen);
-            return Ok(true);
+        } else {
+            let now = mark(&tree.root).map_err(|error| backend(&error))?;
+            if tree.seen.borrow().as_ref() == Some(&now) {
+                return Ok(true);
+            }
         }
-        let now = mark(&tree.root).map_err(|error| backend(&error))?;
-        if tree.seen.borrow().as_ref() == Some(&now) {
-            return Ok(true);
-        }
-        let log = self.reopened(tree)?;
+        let (log, seen) = self.reopened(tree)?;
         *tree.log.borrow_mut() = Some(log);
-        *tree.seen.borrow_mut() = Some(now);
+        *tree.seen.borrow_mut() = Some(seen);
         Ok(true)
     }
 
-    /// `tree` opened afresh from its files; a failure names its directory, since a handle opens
-    /// two.
-    fn reopened(&self, tree: &Tree) -> Result<TreeEventStore, EventLogError> {
-        self.runtime
-            .block_on(TreeEventStore::open(&tree.root))
+    /// `tree` opened afresh from its files, with the [`Mark`] of the files it was opened from; a
+    /// failure names its directory, since a handle opens two.
+    ///
+    /// The open holds the tree's writer lock from start to end. eventlog's open lists the tree's
+    /// event files and then its commit files, so a commit landing between the two passes would
+    /// read as a commit whose event is missing: a corrupt store. Holding the lock keeps every
+    /// writer out until the open is done, and makes the second of two first writers wait while
+    /// the first writes the tree's description, then find it written. The lock is released before
+    /// this answers: every commit takes it again itself, and a second hold of the lock file from
+    /// this process would wait on the first.
+    fn reopened(&self, tree: &Tree) -> Result<(TreeEventStore, Mark), EventLogError> {
+        let root = &tree.root;
+        let lock = hold(&root.join(TREE_LOCK)).map_err(|error| {
+            EventLogError::Backend(format!(
+                "hold the writer lock of {}: {error}",
+                root.display()
+            ))
+        })?;
+        let seen = mark(root).map_err(|error| backend(&error))?;
+        let log = self
+            .runtime
+            .block_on(TreeEventStore::open(root))
             .map_err(|error| {
-                EventLogError::Backend(format!(
-                    "open the store at {}: {error}",
-                    tree.root.display()
-                ))
-            })
+                EventLogError::Backend(format!("open the store at {}: {error}", root.display()))
+            })?;
+        drop(lock);
+        Ok((log, seen))
     }
 
     /// Whether every read and write on this handle since it was opened succeeded.
