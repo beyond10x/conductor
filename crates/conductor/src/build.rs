@@ -236,6 +236,8 @@ pub fn run(
         &command,
         &at,
     )?;
+    // Held from the request to the release, so a sweep closes this grant only once this run is gone.
+    let run_lock = host::hold_run(state, &grant)?;
     let lacking = |ledger: &Ledger| -> Result<u64> {
         let free = free_bytes(sources)?;
         Ok(shortfall(
@@ -305,6 +307,7 @@ pub fn run(
             eprintln!("conductor: build run: the operator item was not recorded: {error:#}");
             None
         });
+        host::end_run(state, &grant, run_lock);
         return Ok(Outcome::Refused {
             grant,
             bytes: request.reserve,
@@ -315,8 +318,6 @@ pub fn run(
         });
     }
     host::fall_over(state)?;
-    // Held until the grant is released, so no sweep takes the grant from this run.
-    let run_lock = host::hold_run(state, &grant)?;
     drop(ledger);
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
     let start = size(&measured(&request.cwd), sources.every).unwrap_or(0);

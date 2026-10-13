@@ -206,33 +206,53 @@ impl Ledger {
         }))
     }
 
-    /// Releases, with `ProcessGroupGone`, every running grant whose process group is gone, and
-    /// answers their ids.
+    /// Closes every grant whose `build run` is gone, and answers their ids: a request no run holds
+    /// is answered refused (its requester died while it waited); a granted grant no run holds is
+    /// released (its requester died before its command started); a running grant whose process
+    /// group is gone and no run holds is released. Each is released with `ProcessGroupGone`. A run
+    /// holds its lock from its request to its release ([`hold_run`]).
     ///
     /// # Errors
     ///
     /// The store does not read or keep a release.
     pub fn sweep(&mut self, at: &Timestamp) -> Result<Vec<GrantId>> {
         let state = self.state.clone();
-        let gone: Vec<GrantId> = HostGrantStorage::list(&self.generated.ports)
-            .into_iter()
-            .filter(|grant| {
-                grant.state == HostGrantState::Running
-                    && grant.data.process_group.is_some_and(|group| !alive(group))
-                    && !run_held(&state, &grant.data.grant_id)
-            })
-            .map(|grant| grant.data.grant_id)
-            .collect();
+        let grants = HostGrantStorage::list(&self.generated.ports);
         kept("host ledger", &self.generated.ports.store)?;
-        for grant in &gone {
+        let mut requests = Vec::new();
+        let mut gone = Vec::new();
+        for grant in grants {
+            let id = grant.data.grant_id;
+            if run_held(&state, &id) {
+                continue;
+            }
+            match grant.state {
+                HostGrantState::Requested => requests.push((id, grant.data.bytes.unwrap_or(1))),
+                HostGrantState::Granted => gone.push(id),
+                HostGrantState::Running
+                    if grant.data.process_group.is_some_and(|group| !alive(group)) =>
+                {
+                    gone.push(id);
+                }
+                _ => {}
+            }
+        }
+        let mut closed = Vec::new();
+        for (grant, bytes) in requests {
+            let shortfall = u64::try_from(bytes).unwrap_or(1).max(1);
+            self.reserve(&grant, shortfall, 0)?;
+            closed.push(grant);
+        }
+        for grant in gone {
             release_in(
                 &mut self.generated,
-                grant,
+                &grant,
                 Some(ReleaseReason::ProcessGroupGone),
                 at,
             )?;
+            closed.push(grant);
         }
-        Ok(gone)
+        Ok(closed)
     }
 
     /// The bytes the live grants still hold, but `except`: a granted grant its whole reservation;
@@ -499,7 +519,8 @@ fn release_answer(command: &str, outcome: ReleaseGrantOutcome) -> Result<()> {
             )
         }
         ReleaseGrantOutcome::WrongState { error } => bail!(
-            "{command}: HostGrantStateConflict: grant {} was released before, or refused",
+            "{command}: HostGrantStateConflict: grant {} is neither granted nor running: it is \
+             still a request, or was released or refused (see `conductor host grants`)",
             error.grant_id.0
         ),
     }

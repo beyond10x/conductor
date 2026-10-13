@@ -659,6 +659,48 @@ fn runs_at_once_keep_every_ledger_write() {
 }
 
 #[test]
+fn a_request_or_grant_whose_run_is_gone_is_closed_by_the_next_run() {
+    let case = Case::new("requester-gone");
+    let at = host::now(OffsetDateTime::now_utc());
+    let (request, granted) = {
+        let mut ledger = host::Ledger::lock(&case.state()).expect("the ledger opens");
+        let request = ledger
+            .request("example-org", None, None, GIB, "a waiter that died", &at)
+            .expect("a request is recorded");
+        let granted = ledger
+            .request(
+                "example-org",
+                None,
+                None,
+                6 * GIB,
+                "a run that died before it started",
+                &at,
+            )
+            .expect("a request is recorded");
+        ledger.reserve(&granted, 0, 0).expect("it is granted");
+        (request, granted)
+    };
+    // 12G free over a 10G floor: the dead 6G grant would leave no room for 1G.
+    case.free(12 * GIB);
+    let outcome = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, "true"),
+    )
+    .expect("the run ends");
+    assert_eq!(
+        outcome.exit_code(),
+        0,
+        "the dead grant no longer holds space: {outcome:?}"
+    );
+    let grants = case.grants();
+    let state_of = |id| grants.iter().find(|row| row.grant_id == id).unwrap().state;
+    assert_eq!(state_of(request), HostGrantState::Refused);
+    assert_eq!(state_of(granted), HostGrantState::Released);
+}
+
+#[test]
 fn a_grant_whose_run_still_holds_its_lock_is_not_swept_when_its_group_is_gone() {
     let case = Case::new("group-gone-run-held");
     // A command that has ended while its `build run` still records its peak and releases.
