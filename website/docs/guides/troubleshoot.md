@@ -24,20 +24,23 @@ shows up there as a missing role or records directory; validate it first.
 `conductor doctor` lists every program conductor starts (`git`, `gh`, `glab`, `claude`, `jq`,
 `task`, `aep`, `worktree`, `ess`), present with its version line, missing, or not needed. A forge's
 CLI is needed only for an instance with a source on that forge, `gh` for `github` and `glab` for
-`gitlab`; the other reads `not needed` whether it is installed or not. A GitLab instance needs
-`glab` logged in to its source's `host` ([GitLab](./gitlab.md)).
+`gitlab`, across every instance of the config file; the other reads `not needed` whether it is
+installed or not. A GitLab instance needs `glab` logged in to its source's `host`
+([GitLab](./gitlab.md)).
 
 Doctor then names the pins it checks against: the nearest `b10x.toml` in the working directory or
-a directory above it, or `pins: none` when there is none, in which case it checks `aep`, `ess` and
-`worktree` against the pins the binary was built with (`meets the build's pin`). Its last line is
-the verdict:
+a directory above it, or `pins: none` when there is none. `aep`, `ess` and `worktree` keep the pins
+the binary was built with (`meets the build's pin`) unless that file pins them itself. Its last
+line is the verdict:
 
 | last line | meaning |
 |---|---|
 | `ready` | every program it needs is present and meets its pin; exit 0 |
+| `not ready: config (unreadable), …` | the config file does not load; the `config:` lines above say why |
 | `not ready: <program> (missing), …` | the program is not on `PATH`; install it |
 | `not ready: <program> (too old), …` | its version is older than the pin; upgrade it |
-| `not ready: <program> (version unread), …` | it is pinned and its `--version` names no version doctor can read, or the pin is not `x.y.z` or `x.y` |
+| `not ready: <program> (version unread), …` | it is pinned and its `--version` names no version doctor can read |
+| `not ready: <program> (pin unread), …` | its pin is not `x.y.z` or `x.y`; correct the `b10x.toml` |
 
 Doctor exits 1 on any `not ready:` line, and writes nothing.
 

@@ -429,6 +429,72 @@ fn doctor_ends_with_one_ready_or_not_ready_line() {
     );
 }
 
+/// A pin that is no version, of a program whose version is read, is `(pin unread)`: the pin is
+/// what to fix, not the program.
+#[test]
+fn doctor_names_a_pin_that_is_no_version_pin_unread() {
+    let case = Case::new("pin-unread");
+    case.programs_but(&[]);
+    let repository = case.home().join("repository");
+    fs::create_dir_all(&repository).expect("create the repository");
+    fs::write(repository.join("b10x.toml"), "[pins]\naep = \"latest\"\n").expect("write b10x.toml");
+    let output = case.doctor(&repository);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    assert!(
+        stdout(&output)
+            .contains(&"aep: its pin \"latest\" is not a version: write x.y.z or x.y".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        last(&output),
+        "not ready: aep (pin unread)",
+        "{}",
+        shown(&output)
+    );
+}
+
+/// A config file that does not load makes the run not ready, every program there or not: every
+/// command but `config`, `trust`, `init` and `doctor` stops on it. No config file at all is the
+/// built-in instance, and ready.
+#[test]
+fn doctor_is_not_ready_on_a_config_file_that_does_not_load() {
+    let case = Case::new("config-unreadable");
+    case.programs_but(&[]);
+    case.program(GLAB.0, GLAB.1, 0);
+    let config = case.dir.join("conductor.yaml");
+    fs::write(&config, "version: conductor.config/0\n").expect("write the config file");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    let named: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.starts_with("config: "))
+        .collect();
+    assert!(!named.is_empty(), "{}", shown(&output));
+    assert!(
+        named.iter().all(|line| !line.contains("--instance")),
+        "doctor takes no --instance: {}",
+        shown(&output)
+    );
+    assert_eq!(
+        last(&output),
+        "not ready: config (unreadable)",
+        "{}",
+        shown(&output)
+    );
+
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        !stdout(&output)
+            .iter()
+            .any(|line| line.starts_with("config: ")),
+        "{}",
+        shown(&output)
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // story:doctor-minimum-versions: without a pin file, the build's own pins.
 // ---------------------------------------------------------------------------------------------

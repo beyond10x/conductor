@@ -1,11 +1,12 @@
 //! `conductor doctor` (`story:install-prerequisites`): each program conductor starts, present
 //! with the first line its `--version` prints, or missing; and, when the nearest `b10x.toml`
-//! pins one of them, whether it is older than that pin; without one, whether `aep`, `ess` or
-//! `worktree` is older than the pins the binary was built with ([`build_pins`],
+//! pins one of them, whether it is older than that pin; for `aep`, `ess` or `worktree` that no
+//! `b10x.toml` pins, whether it is older than the pin the binary was built with ([`build_pins`],
 //! `story:doctor-minimum-versions`). One `conductor.config.Prerequisite` row per program. A
-//! forge's CLI is needed only for an instance with a source on that forge (`story:gh-optional`):
-//! `gh` for a `github` source, `glab` for a `gitlab` source; the other is `not needed`. The last
-//! line is the verdict, `ready` or `not ready: ` and why (`story:doctor-verdict`).
+//! forge's CLI is needed only when an instance of the config file has a source on that forge
+//! (`story:gh-optional`): `gh` for a `github` source, `glab` for a `gitlab` source; the other is
+//! `not needed`. A config file that does not load makes the run not ready. The last line is the
+//! verdict, `ready` or `not ready: ` and why (`story:doctor-verdict`).
 //!
 //! [`find`] is the one check of whether a program is there: `conductor snapshot start-snapshot`
 //! runs it on the programs its collectors start ([`crate::collect::programs`]) and refuses at
@@ -44,13 +45,33 @@ pub const PIN_FILE: &str = "b10x.toml";
 const BUILD_PINS: &str = env!("CONDUCTOR_BUILD_PINS");
 
 /// [`BUILD_PINS`] as `(program, spec)` pairs, in their order: what `conductor doctor` compares
-/// with when it finds no `b10x.toml`.
+/// with for each of their programs that the `b10x.toml` it finds does not pin ([`merge_pins`]).
 #[must_use]
 pub fn build_pins() -> Vec<(String, String)> {
     BUILD_PINS
         .split(',')
         .filter_map(|pair| pair.split_once('='))
         .map(|(name, spec)| (name.to_owned(), spec.to_owned()))
+        .collect()
+}
+
+/// The pins `conductor doctor` checks: each of `project` (a `b10x.toml`'s), in its order, then
+/// each of `build` ([`build_pins`]) whose program `project` does not pin. The project's pin wins
+/// for a program both pin; the build's stays a minimum for one the project leaves out.
+#[must_use]
+pub fn merge_pins(
+    project: &[(String, String)],
+    build: &[(String, String)],
+) -> Vec<(String, String)> {
+    project
+        .iter()
+        .cloned()
+        .chain(
+            build
+                .iter()
+                .filter(|(program, _)| !project.iter().any(|(name, _)| name == program))
+                .cloned(),
+        )
         .collect()
 }
 
@@ -368,29 +389,34 @@ fn lines(row: &Prerequisite, its: &str) -> Vec<String> {
     lines
 }
 
-/// The forge CLIs the instance that `flag` (the global `--config`) and the environment select
-/// starts ([`forges`]); when that config does not load, a line saying so, and every one of
-/// [`FORGES`].
-fn needed_forges(flag: Option<&Path>) -> Vec<&'static str> {
-    match config::Environment::from_process()
-        .and_then(|environment| config::resolve(flag, &environment))
-    {
-        Ok(active) => forges(&active.instance),
-        Err(error) => {
-            let error = format!("{error:#}");
-            println!(
-                "config: {}; gh and glab are each counted as needed",
-                error
-                    .split(['\n', '\r'])
-                    .find(|line| !line.is_empty())
-                    .unwrap_or_default()
-            );
-            FORGES.to_vec()
-        }
+/// The forge CLIs of [`FORGES`] that any instance of the config `flag` (the global `--config`)
+/// and the environment name starts ([`forges`]), in [`FORGES`]' order: every instance of the
+/// file, not only the one a command would select, since the default instance's conductor serves
+/// them all; the built-in instance's when there is no config file. Why the config does not load
+/// when it does not, each line of it.
+fn needed_forges(flag: Option<&Path>) -> Result<Vec<&'static str>, Vec<String>> {
+    let loaded = config::Environment::from_process()
+        .and_then(|environment| config::load(flag, &environment));
+    match loaded {
+        Ok(loaded) => Ok(FORGES
+            .into_iter()
+            .filter(|forge| {
+                loaded
+                    .config
+                    .instances
+                    .iter()
+                    .any(|instance| forges(instance).contains(forge))
+            })
+            .collect()),
+        Err(error) => Err(format!("{error:#}")
+            .split(['\n', '\r'])
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_owned)
+            .collect()),
     }
 }
 
-/// `conductor doctor` for the instance the environment selects: [`doctor_with`] without a
+/// `conductor doctor` for the config the environment names: [`doctor_with`] without a
 /// `--config`.
 ///
 /// # Errors
@@ -400,13 +426,14 @@ pub fn doctor() -> Result<ExitCode> {
     doctor_with(None)
 }
 
-/// `conductor doctor`: one line per program of [`PROGRAMS`], `present` with its version line,
-/// `missing`, or `not needed` for a forge CLI that the instance `flag` and the environment select
-/// does not start; the `b10x.toml` it read, or `pins: none`; one line per pinned program, meeting
-/// its pin or older than it, the pins being the build's own ([`build_pins`]) without a file; and
-/// last the verdict, `ready` or `not ready: ` with each program that failed. Exits 1 when a
-/// program is missing, older than its pin, or pinned with no version read; 0 otherwise. Writes
-/// nothing.
+/// `conductor doctor`: when the config `flag` and the environment name does not load, a
+/// `config: ` line for each line of why; one line per program of [`PROGRAMS`], `present` with
+/// its version line, `missing`, or `not needed` for a forge CLI that no instance of that config
+/// starts; the `b10x.toml` it read, or `pins: none`; one line per pinned program, meeting its pin
+/// or older than it, the build's own pin ([`build_pins`]) standing for each program the file
+/// does not pin ([`merge_pins`]); and last the verdict, `ready` or `not ready: ` with what failed.
+/// Exits 1 when the config does not load, or a program is missing, older than its pin, or pinned
+/// with a pin or version that does not read; 0 otherwise. Writes nothing.
 ///
 /// # Errors
 ///
@@ -417,24 +444,37 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     let cwd = env::current_dir().context(WHAT)?;
     let home = env::var_os("HOME").map(PathBuf::from);
     let file = pin_file(&cwd, home.as_deref());
-    let pins = match &file {
+    let project = match &file {
         Some(file) => {
             let text = fs::read_to_string(file)
                 .with_context(|| format!("{WHAT}: read {}", file.display()))?;
             pins(&text, file).context(WHAT)?
         }
-        // Without a pin file, the build's own (story:doctor-minimum-versions).
-        None => build_pins(),
+        None => Vec::new(),
     };
-    let its = if file.is_some() {
-        "its pin"
-    } else {
-        "the build's pin"
+    // The build's own pins stay the minimum for each program the file does not pin
+    // (story:doctor-minimum-versions).
+    let pins = merge_pins(&project, &build_pins());
+    let its = |program: &str| {
+        if project.iter().any(|(name, _)| name == program) {
+            "its pin"
+        } else {
+            "the build's pin"
+        }
     };
-    let needed = needed_forges(flag);
+    let (needed, config_unreadable) = match needed_forges(flag) {
+        Ok(needed) => (needed, false),
+        Err(why) => {
+            for line in &why {
+                println!("config: {line}");
+            }
+            println!("config: does not load, so gh and glab are each counted as needed");
+            (FORGES.to_vec(), true)
+        }
+    };
     let rows = examine(&pins, &needed);
     for row in &rows {
-        if let Some(first) = lines(row, its).first() {
+        if let Some(first) = lines(row, its(row.program.as_str())).first() {
             println!("{first}");
         }
     }
@@ -446,11 +486,11 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
         .iter()
         .filter(|row| row.pin.is_some() && row.state != PrerequisiteState::Missing)
     {
-        for line in lines(row, its).into_iter().skip(1) {
+        for line in lines(row, its(row.program.as_str())).into_iter().skip(1) {
             println!("{line}");
         }
     }
-    let verdict = verdict(&rows);
+    let verdict = verdict(&rows, config_unreadable);
     println!("{verdict}");
     Ok(if verdict == READY {
         ExitCode::SUCCESS
@@ -462,22 +502,34 @@ pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
 /// The verdict of a run every program of which passed (`story:doctor-verdict`).
 const READY: &str = "ready";
 
-/// The last line `conductor doctor` prints (`story:doctor-verdict`): [`READY`] when every row is
-/// `Present` or `NotNeeded`; otherwise `not ready: ` and each program that failed, in
-/// [`PROGRAMS`]' order, as `<program> (missing)`, `<program> (too old)` or
-/// `<program> (version unread)`, comma-separated.
-fn verdict(rows: &[Prerequisite]) -> String {
-    let failed: Vec<String> = rows
-        .iter()
-        .filter_map(|row| {
+/// The last line `conductor doctor` prints (`story:doctor-verdict`): [`READY`] when the config
+/// loads and every row is `Present` or `NotNeeded`; otherwise `not ready: ` and what failed,
+/// comma-separated: `config (unreadable)` first when `config_unreadable`, then each program in
+/// [`PROGRAMS`]' order, as `<program> (missing)`, `<program> (too old)`,
+/// `<program> (pin unread)` (its version was read, its pin is no version) or
+/// `<program> (version unread)`.
+fn verdict(rows: &[Prerequisite], config_unreadable: bool) -> String {
+    let config = config_unreadable.then(|| "config (unreadable)".to_owned());
+    let failed: Vec<String> = config
+        .into_iter()
+        .chain(rows.iter().filter_map(|row| {
             let why = match row.state {
                 PrerequisiteState::Present | PrerequisiteState::NotNeeded => return None,
                 PrerequisiteState::Missing => "missing",
                 PrerequisiteState::OlderThanPin => "too old",
+                PrerequisiteState::VersionUnread
+                    if row.version.is_some()
+                        && row
+                            .pin
+                            .as_deref()
+                            .is_some_and(|pin| Pin::parse(pin).is_none()) =>
+                {
+                    "pin unread"
+                }
                 PrerequisiteState::VersionUnread => "version unread",
             };
             Some(format!("{} ({why})", row.program))
-        })
+        }))
         .collect();
     if failed.is_empty() {
         READY.to_owned()
@@ -535,6 +587,45 @@ mod tests {
         assert!(Pin::Line(0, 70).newer_than((0, 69, 9)));
         assert!(!Pin::Line(0, 70).newer_than((0, 70, 0)));
         assert!(!Pin::Line(0, 70).newer_than((0, 71, 0)));
+    }
+
+    #[test]
+    fn a_project_pin_wins_and_the_build_s_stays_for_what_it_leaves_out() {
+        let pair = |name: &str, spec: &str| (name.to_owned(), spec.to_owned());
+        let project = [pair("worktree", "0.1"), pair("jq", "1.8")];
+        let build = [pair("aep", "0.70"), pair("worktree", "0.13.0")];
+        assert_eq!(
+            merge_pins(&project, &build),
+            vec![
+                pair("worktree", "0.1"),
+                pair("jq", "1.8"),
+                pair("aep", "0.70")
+            ]
+        );
+        assert_eq!(merge_pins(&[], &build), build.to_vec());
+    }
+
+    #[test]
+    fn the_verdict_names_an_unreadable_config_and_a_pin_that_is_no_version() {
+        let row = |program: &str, version: Option<&str>, pin: &str| Prerequisite {
+            program: program.to_owned(),
+            state: PrerequisiteState::VersionUnread,
+            version_line: Some(String::new()),
+            version: version.map(str::to_owned),
+            pin: Some(pin.to_owned()),
+        };
+        let rows = [
+            row("aep", Some("0.70.1"), "latest"),
+            row("ess", None, "0.55"),
+            row("worktree", None, "latest"),
+        ];
+        assert_eq!(
+            verdict(&rows, true),
+            "not ready: config (unreadable), aep (pin unread), ess (version unread), \
+             worktree (version unread)"
+        );
+        assert_eq!(verdict(&[], true), "not ready: config (unreadable)");
+        assert_eq!(verdict(&[], false), READY);
     }
 
     #[test]

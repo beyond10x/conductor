@@ -1,8 +1,8 @@
 //! Carries the product repository's own pins into the binary (`story:doctor-minimum-versions`):
 //! the `aep`, `ess` and `worktree` lines of the `[pins]` table of the workspace's `b10x.toml`,
 //! as `CONDUCTOR_BUILD_PINS`, `name=spec` pairs separated by `,`. `conductor doctor` compares
-//! with them when it finds no `b10x.toml`. A build without that file, such as a packaged crate,
-//! carries none.
+//! with them for each of those programs that the `b10x.toml` it finds does not pin. A build
+//! without that file, such as a packaged crate, carries none.
 
 use std::env;
 use std::fs;
@@ -15,11 +15,11 @@ fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default());
     let file = manifest.join("../../b10x.toml");
     println!("cargo:rerun-if-changed=build.rs");
+    // Watched whether or not it is there yet, so a b10x.toml added after a build is carried by
+    // the next one.
+    println!("cargo:rerun-if-changed={}", file.display());
     let pins = match fs::read_to_string(&file) {
-        Ok(text) => {
-            println!("cargo:rerun-if-changed={}", file.display());
-            pins(&text)
-        }
+        Ok(text) => pins(&text),
         Err(_) => Vec::new(),
     };
     println!("cargo:rustc-env=CONDUCTOR_BUILD_PINS={}", pins.join(","));
