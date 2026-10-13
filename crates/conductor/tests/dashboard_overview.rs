@@ -148,6 +148,7 @@ impl Case {
         let start = StartSnapshot {
             started_at: Timestamp(started_at.to_owned()),
             disk_free_bytes: 1_000_000,
+            budget: None,
         };
         let taken =
             snapshot::take_from(store, start, &[collector]).expect("the driver ends the snapshot");
