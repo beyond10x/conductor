@@ -39,6 +39,11 @@ target for the end of the next two weeks.
 | K11 cost per unit | assistant output tokens per merged PR | transcripts (usage fields) + forge | to compute (instrument story) | set after first measurement |
 | K12 defects shipped | fix releases per feature release; issues labelled bug | forge | **0.45** patch per feature release | ≤ 0.2 |
 
+Per-task KPIs, measured per dispatch (a task) once `story:kpi-per-task` lands: **T1** tokens per
+task (in, out, cache), **T2** time per task, **T3** cost per task as a list-price equivalent, and
+**T4** LLM calls per task, which tracks the long-running goal of deterministic execution through the
+loom SDK and AEP with the fewest LLM calls.
+
 Message round trips per decision were measured too: a decision request is answered in a median of
 0.4 min, so decisions are not where time goes.
 
@@ -86,7 +91,9 @@ Message round trips per decision were measured too: a decision request is answer
 5. **Verify.** A story is `implemented` on its tests; a week later the KPI it named is read again and
    the story's body records whether it moved. One that did not move is reopened as a finding.
 
-**What the loop changes alone, and what stays with the operator.**
+**What the loop changes alone, and what stays with the operator.** Retros, the loop's and the
+users', are about conductor's process: their fixes go into conductor's own instructions and profiles,
+never into the operator's global instruction files.
 
 | alone (conductor-dev, reported as taken) | the operator's |
 |---|---|
@@ -94,6 +101,7 @@ Message round trips per decision were measured too: a decision request is answer
 | KPI instruments, thresholds of detection, draft stories | the KPI targets and the vision (§ 1–2) |
 | tool upgrades after a passing smoke test, and their rollback | a new tool, or a tool's removal |
 | withdrawing operator items the product raised by its own fault | withdrawing an item a person raised |
+| conductor's own instructions within its grant: the instance's `rules.md`, the conductor, controller and worker profiles, adapters and start prompts | the operator's global instruction files (their user-level agent instructions and settings): out of scope for the loop and for every retro |
 
 ## 6. Epic and stories
 

@@ -95,7 +95,8 @@ GitHub repository (issues labelled `retro`) and from local reports the engineer 
 It parses the YAML block, adds the numbers to the KPIs as a separate "user sessions" series, and turns
 each friction signature into a finding the same way it does for conductor's own sessions, citing the
 issue number. A signature reported by three engineers becomes a finding even if conductor's own
-sessions never hit it.
+sessions never hit it. The fixes a retro leads to go into conductor's own instructions and profiles, never into
+the operator's or an engineer's global instruction files.
 
 ## Never sent
 
