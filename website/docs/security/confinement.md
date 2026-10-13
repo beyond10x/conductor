@@ -49,7 +49,8 @@ and holds a write form ([the guard](/docs/security/the-guard#file-tools-edit-wri
 A role's `profile` is a file appended to the system prompt with `--append-system-prompt-file`.
 Without one, a session starts with `--agent <name>`. Because user settings are not loaded, that
 agent is found only in the start directory's `.claude/agents/`, never in `~/.claude/agents/`, so
-`task agents:link` serves none of these sessions. `task conductor:start` refuses when the
+`task agents:link`, which links into one named repository's `.claude/agents/`, serves none of
+these sessions. `task conductor:start` refuses when the
 conductor agent is not in the records' `.claude/agents/`. `conductor config validate` refuses a
 `controller` role that names an `agent` and no `profile`: a controller starts only from its
 profile.

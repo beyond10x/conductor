@@ -709,6 +709,148 @@ fn a_controller_does_not_cd_or_git_dash_c_into_another_repository() {
     }
 }
 
+// -------------------------------------------------------------------------------------------------
+// `story:guard-git-c-outside`: a writing git command is decided on its target directory.
+// -------------------------------------------------------------------------------------------------
+
+/// The reason a controller's git write outside its roots is denied with, after the path.
+const GIT_OUTSIDE: &str = "outside the repository's checkout";
+
+/// A controller's git write whose target, from `-C`, `--git-dir`, `--work-tree`, `GIT_DIR` or
+/// `GIT_WORK_TREE`, lands outside its checkout and managed worktrees is denied, naming the path.
+#[test]
+fn a_controller_git_write_outside_its_roots_is_denied_naming_the_path() {
+    let home = home("git-write-outside");
+    for command in [
+        "git -C /tmp/other commit -m x",
+        "GIT_DIR=/tmp/other/.git git commit -m x",
+        "git --work-tree=/tmp/other add .",
+        "git --work-tree /tmp/other add .",
+        "git --git-dir=/tmp/other/.git push",
+        "git --git-dir /tmp/other/.git reset --hard",
+        "GIT_WORK_TREE=/tmp/other git checkout main",
+        "env GIT_DIR=/tmp/other/.git git commit -m x",
+        "export GIT_DIR=/tmp/other/.git; git commit -m x",
+        "cd /tmp/other && git commit -m x",
+        "git -c core.pager=cat -C /tmp/other merge topic",
+        "git -C /tmp/other rebase main",
+        "git -C /tmp/other switch main",
+        "git -C /tmp/other branch -D topic",
+        "git -C /tmp/other branch -m a b",
+        "git -C /tmp/other branch topic",
+        "git -C /tmp/other tag v1",
+        "git -C /tmp/other tag -d v1",
+        "git -C /tmp/other stash",
+        "git -C /tmp/other stash pop",
+        "git -C /tmp/other clean -fdx",
+        "git -C /tmp/other worktree add ../x",
+        "git -C /tmp/other fetch origin main:main",
+        "git -C /tmp/other config user.name x",
+        "git -C /tmp/other remote add o u",
+        "/usr/bin/git -C /tmp/other commit -m x",
+        "bash -c 'git -C /tmp/other commit -m x'",
+    ] {
+        let decision = bash(&home, PROBE, command);
+        assert_verdict(&decision, Verdict::Deny, GIT_OUTSIDE);
+        assert_verdict(&decision, Verdict::Deny, "writes in /tmp/other");
+    }
+}
+
+/// A controller's git write in its own checkout, its managed worktrees or its scratch is allowed.
+#[test]
+fn a_controller_git_write_in_its_own_roots_is_allowed() {
+    let home = home("git-write-inside");
+    let own = format!("{}/example-org/.guard-probe-w04", home.display());
+    for command in [
+        "git commit -m x",
+        &format!("git -C {own} commit -m x"),
+        "git -C ~/example-org/.guard-probe-w04 commit -m x",
+        "git -C ~/.local/state/worktree/trees/example-org/.guard-probe-w04/t commit -m x",
+        "git -C src push",
+        &format!("GIT_DIR={own}/.git GIT_WORK_TREE={own} git commit -m x"),
+        "git --git-dir=.git --work-tree=. reset --hard",
+        "cd crates && git add .",
+    ] {
+        assert_verdict(&bash(&home, PROBE, command), Verdict::Allow, "");
+    }
+    let tmp = home.join(".cache/claude-tmp");
+    fs::create_dir_all(&tmp).expect("create the temporary directory");
+    let decision = decide_with_tmp(
+        "bash",
+        &home,
+        PROBE,
+        Some(&tmp),
+        &[("command", "git -C ~/.cache/claude-tmp/probe commit -m x")],
+    );
+    assert_verdict(&decision, Verdict::Allow, "");
+}
+
+/// A reading git command stays allowed wherever its target is.
+#[test]
+fn a_controller_reads_git_outside_its_roots() {
+    let home = home("git-read-outside");
+    for command in [
+        "git -C /tmp/other status",
+        "git -C /tmp/other log --oneline -3",
+        "git -C /tmp/other diff HEAD",
+        "git -C /tmp/other show HEAD",
+        "git -C /tmp/other rev-parse HEAD",
+        "git -C /tmp/other ls-files",
+        "git -C /tmp/other ls-tree HEAD",
+        "git -C /tmp/other cat-file -p HEAD",
+        "git -C /tmp/other config --get user.name",
+        "git -C /tmp/other remote -v",
+        "git -C /tmp/other branch",
+        "git -C /tmp/other branch -a",
+        "git -C /tmp/other branch --show-current",
+        "git -C /tmp/other tag -l",
+        "git -C /tmp/other stash list",
+        "git -C /tmp/other worktree list",
+        "git -C /tmp/other",
+        "GIT_DIR=/tmp/other/.git git log",
+        "git --work-tree=/tmp/other status",
+        "cd /tmp/other && git status",
+    ] {
+        assert_verdict(&bash(&home, PROBE, command), Verdict::Allow, "");
+    }
+}
+
+/// `-C` is taken from where the one before it left off, and a write is decided where the last
+/// one lands.
+#[test]
+fn git_dash_c_chains_relative_to_the_one_before() {
+    let home = home("git-c-chain");
+    for command in [
+        "git -C /tmp -C other commit -m x",
+        "git -C / -C tmp -C other commit -m x",
+    ] {
+        let decision = bash(&home, PROBE, command);
+        assert_verdict(&decision, Verdict::Deny, GIT_OUTSIDE);
+        assert_verdict(&decision, Verdict::Deny, "writes in /tmp/other");
+    }
+    let decision = bash(&home, PROBE, "git -C src -C ../.. commit -m x");
+    assert_verdict(&decision, Verdict::Deny, GIT_OUTSIDE);
+    assert_verdict(&decision, Verdict::Deny, "writes in ~/example-org,");
+    for command in [
+        "git -C .. -C .guard-probe-w04 commit -m x",
+        "git -C /tmp -C ~/example-org/.guard-probe-w04 commit -m x",
+        "git -C src -C .. push",
+    ] {
+        assert_verdict(&bash(&home, PROBE, command), Verdict::Allow, "");
+    }
+}
+
+/// Conductor's own git is not decided by this rule: its Bash rule is the forge and settings rows.
+#[test]
+fn conductor_git_writes_are_not_held_to_a_controller_s_roots() {
+    let home = home("git-conductor");
+    assert_verdict(
+        &bash(&home, CONDUCTOR, "git -C /tmp/other commit -m x"),
+        Verdict::Allow,
+        "",
+    );
+}
+
 /// The `gh` verbs the rule names, each denied for controllers and conductor alike.
 const GH_WRITES: [&str; 12] = [
     "gh pr create --title t --body b",

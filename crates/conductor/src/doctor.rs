@@ -14,6 +14,11 @@
 //! not ready (`story:doctor-identity`). Only the login name is printed: never a token or an
 //! e-mail address the CLI prints beside it ([`account_of`]).
 //!
+//! Under the row of each program missing or older than its pin it prints, indented two spaces,
+//! `install: ` and the command that installs it on this machine (`story:install-hints`): the
+//! package of the package manager found on the `PATH` it searches ([`manager`]) for the system
+//! `uname -s` names, else the program's own install page ([`install_command`]).
+//!
 //! [`check`] computes every row, [`Doctor::failures`] what is not ready and [`verdict_of`] the
 //! last line, so `conductor setup` prints the same rows and adds its own failures to the same
 //! verdict (`story:setup-command`).
@@ -269,6 +274,114 @@ fn find_in(program: &str, path: &OsStr) -> Option<PathBuf> {
             fs::metadata(candidate)
                 .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
         })
+}
+
+/// The ecosystem's setup page, which installs `aep`, `ess` and `worktree` at a pin
+/// (`story:install-hints`).
+pub const SETUP_URL: &str =
+    "https://github.com/beyond10x/agentplugins/releases/latest/download/SETUP.md";
+
+/// The programs [`SETUP_URL`] installs.
+const ECOSYSTEM: [&str; 3] = ["aep", "ess", "worktree"];
+
+/// A package manager doctor names an install command of (`story:install-hints`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Manager {
+    /// Homebrew, `brew`.
+    Brew,
+    /// Debian's and Ubuntu's `apt-get`.
+    AptGet,
+    /// Fedora's `dnf`.
+    Dnf,
+    /// Arch's `pacman`.
+    Pacman,
+}
+
+impl Manager {
+    /// The program the manager is on `PATH` as.
+    #[must_use]
+    pub fn program(self) -> &'static str {
+        match self {
+            Self::Brew => "brew",
+            Self::AptGet => "apt-get",
+            Self::Dnf => "dnf",
+            Self::Pacman => "pacman",
+        }
+    }
+
+    /// The command that installs a package, the package name after it.
+    #[must_use]
+    pub fn install(self) -> &'static str {
+        match self {
+            Self::Brew => "brew install",
+            Self::AptGet => "sudo apt-get install",
+            Self::Dnf => "sudo dnf install",
+            Self::Pacman => "sudo pacman -S",
+        }
+    }
+}
+
+/// The package manager of a machine whose `uname -s` is `system`, looked for on `search`, a
+/// `PATH` (none finds nothing): `brew` on macOS (`Darwin`); elsewhere the first of `apt-get`,
+/// `dnf`, `pacman` and `brew` there is.
+#[must_use]
+pub fn manager(system: &str, search: Option<&OsStr>) -> Option<Manager> {
+    let candidates: &[Manager] = if system == "Darwin" {
+        &[Manager::Brew]
+    } else {
+        &[
+            Manager::AptGet,
+            Manager::Dnf,
+            Manager::Pacman,
+            Manager::Brew,
+        ]
+    };
+    let search = search?;
+    candidates
+        .iter()
+        .copied()
+        .find(|candidate| find_in(candidate.program(), search).is_some())
+}
+
+/// The page that installs `program` without a package manager.
+fn upstream(program: &str) -> Option<&'static str> {
+    Some(match program {
+        "task" => "https://taskfile.dev/installation/",
+        "jq" => "https://github.com/jqlang/jq/releases/latest",
+        "gh" => "https://github.com/cli/cli#installation",
+        "glab" => "https://gitlab.com/gitlab-org/cli#installation",
+        "git" => "https://git-scm.com/downloads",
+        "claude" => "https://docs.anthropic.com/en/docs/claude-code/setup",
+        _ => return None,
+    })
+}
+
+/// The command that installs `program`, pinned at `pin` when one is known, with `manager`
+/// (`story:install-hints`): `aep`, `ess` and `worktree` follow [`SETUP_URL`], naming the pin; a
+/// program the manager packages is `<manager's install> <package>` (`task` is `go-task`, and only
+/// Homebrew packages `task`, `gh` and `glab`); any other is `see <its install page>`. `None` for a
+/// program doctor knows no install of.
+#[must_use]
+pub fn install_command(
+    program: &str,
+    pin: Option<&str>,
+    manager: Option<Manager>,
+) -> Option<String> {
+    if ECOSYSTEM.contains(&program) {
+        return Some(match pin {
+            Some(pin) => format!("follow {SETUP_URL} (needs {program} {pin})"),
+            None => format!("follow {SETUP_URL}"),
+        });
+    }
+    let package = match (program, manager) {
+        ("task", Some(Manager::Brew)) => Some("go-task"),
+        ("gh" | "glab", Some(Manager::Brew)) | ("jq" | "git", Some(_)) => Some(program),
+        _ => None,
+    };
+    match (package, manager) {
+        (Some(package), Some(manager)) => Some(format!("{} {package}", manager.install())),
+        _ => upstream(program).map(|page| format!("see {page}")),
+    }
 }
 
 /// The programs of `programs` that [`find`] does not find, in their order.
@@ -624,6 +737,8 @@ pub struct Doctor {
     pub pin_file: Option<PathBuf>,
     /// The pins of that file, which win over the build's.
     project: Vec<(String, String)>,
+    /// The package manager found for the machine's system ([`manager`]).
+    manager: Option<Manager>,
 }
 
 impl Doctor {
@@ -634,7 +749,8 @@ impl Doctor {
     }
 
     /// What `conductor doctor` prints but its verdict: a `config: ` line for each line of why the
-    /// config does not load, when it does not; the machine; one line per program; one per login;
+    /// config does not load, when it does not; the machine; one line per program, and under one
+    /// missing or too old `  install: ` and its command ([`Doctor::install`]); one per login;
     /// the `b10x.toml` read, or `pins: none`; and one line per pinned program, meeting its pin or
     /// older than it, the build's own pin ([`build_pins`]) standing for each program the file
     /// does not pin ([`merge_pins`]).
@@ -661,6 +777,9 @@ impl Doctor {
             if let Some(first) = lines(row, its(row.program.as_str())).first() {
                 out.push(first.clone());
             }
+            if let Some(command) = self.install(row) {
+                out.push(format!("  install: {command}"));
+            }
         }
         out.extend(self.logins.iter().map(login_line));
         match &self.pin_file {
@@ -675,6 +794,18 @@ impl Doctor {
             out.extend(lines(row, its(row.program.as_str())).into_iter().skip(1));
         }
         out
+    }
+
+    /// The command that installs `row`'s program on this machine ([`install_command`]), when it
+    /// is missing or older than its pin; `None` otherwise (`story:install-hints`).
+    #[must_use]
+    pub fn install(&self, row: &Prerequisite) -> Option<String> {
+        matches!(
+            row.state,
+            PrerequisiteState::Missing | PrerequisiteState::OlderThanPin
+        )
+        .then(|| install_command(&row.program, row.pin.as_deref(), self.manager))
+        .flatten()
     }
 
     /// What is not ready, in the verdict's order ([`failures`]).
@@ -774,13 +905,16 @@ pub fn check_in(
                 .map(|path| login(program, &path, host))
         })
         .collect();
+    let machine = machine();
+    let manager = manager(&machine.system, search);
     Ok(Doctor {
-        machine: machine(),
+        machine,
         config_problems,
         rows,
         logins,
         pin_file,
         project,
+        manager,
     })
 }
 
@@ -898,6 +1032,40 @@ mod tests {
             );
             assert!(Pin::parse(&spec).is_some(), "{program} = {spec:?}");
         }
+    }
+
+    #[test]
+    fn each_program_has_an_install_command_with_and_without_a_manager() {
+        let command = |program, manager| install_command(program, None, manager);
+        assert_eq!(
+            command("task", Some(Manager::Brew)).as_deref(),
+            Some("brew install go-task")
+        );
+        assert_eq!(
+            command("task", Some(Manager::AptGet)).as_deref(),
+            Some("see https://taskfile.dev/installation/")
+        );
+        assert_eq!(
+            command("gh", Some(Manager::Brew)).as_deref(),
+            Some("brew install gh")
+        );
+        assert_eq!(
+            command("gh", Some(Manager::Dnf)).as_deref(),
+            Some("see https://github.com/cli/cli#installation")
+        );
+        assert_eq!(
+            command("glab", Some(Manager::Pacman)).as_deref(),
+            Some("see https://gitlab.com/gitlab-org/cli#installation")
+        );
+        assert_eq!(
+            command("git", Some(Manager::Pacman)).as_deref(),
+            Some("sudo pacman -S git")
+        );
+        assert_eq!(command("aep", None), Some(format!("follow {SETUP_URL}")));
+        for program in PROGRAMS {
+            assert!(command(program, None).is_some(), "{program}");
+        }
+        assert_eq!(command("unknown-program", None), None);
     }
 
     #[test]

@@ -12,10 +12,16 @@
 //! eligible for removal and a checkout's cargo `target/`, none of them where a live session works.
 //! The panel's module documentation says what keeps every other row. Beside them it lists the
 //! build output `worktree` would strip from the instance's worktree archives
-//! ([`waste::archive_strip`], `story:gc-before-pause`), read from `worktree prune-archives
-//! --strip-build-output`'s own dry run, which writes nothing. With `--dry-run` it prints those
-//! rows with the bytes measured and removes nothing; `worktree prune-archives
-//! --strip-build-output --apply` runs only without it.
+//! (`story:gc-before-pause`), read archive by archive from `worktree prune-archives
+//! --strip-build-output`'s own dry run, which writes nothing below the archive root
+//! ([`archives`], `story:gc-archive-measure`). Each archive's size is printed as soon as it is
+//! known, as one `archive` line, and cached by its id and modification time under the state
+//! directory, so an unchanged archive is not walked again; when the bound
+//! (`CONDUCTOR_GC_ARCHIVE_BOUND` seconds, 1800 by default) is reached, the row sums the archives
+//! measured and says `partial: <n> of <m> archives`. The archive strip needs a git checkout
+//! under the checkouts root, whose `worktree` profile is read; without one it is kept, not
+//! measured. With `--dry-run` it prints those rows with the bytes measured and removes nothing;
+//! `worktree prune-archives --strip-build-output --apply` runs only without it.
 //!
 //! After the rows it prints one table of the holders it measures and never reclaims: the panel's
 //! shared rows ([`waste::shared_rows`]: shared build targets, sccache, the rustup toolchains, the
@@ -38,13 +44,16 @@
 //! read: a tree a live session works in could not be told from an idle one.
 //!
 //! It exits 0 when every row was listed or removed, and 1 when a row was refused or the command
-//! refused.
+//! refused. A partial archive row is listed, and exits 0.
+
+mod archives;
 
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use conductor_model::observation::{CollectGarbage, GarbageOutcome, GarbageRow};
@@ -63,8 +72,9 @@ const COMMAND: &str = "gc";
 ///
 /// # Errors
 ///
-/// `--format` is neither text nor json, `HOME` is not an absolute path, the working directory
-/// cannot be read, the live sessions cannot be read, or the rows cannot be printed.
+/// `--format` is neither text nor json, `CONDUCTOR_GC_ARCHIVE_BOUND` is not a whole number of
+/// seconds, `HOME` is not an absolute path, the working directory cannot be read, the live
+/// sessions cannot be read, or the rows cannot be printed.
 pub fn gc(args: &GcArgs) -> Result<ExitCode> {
     let input = CollectGarbage {
         dry_run: args.dry_run,
@@ -76,33 +86,42 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
         Some(other) => bail!("{COMMAND}: --format {other:?} is neither text nor json"),
     };
     let dry_run = input.dry_run.unwrap_or(false);
+    let bound = archives::bound().map_err(|error| anyhow!("{COMMAND}: {error:#}"))?;
     let sources = Sources::active(None).map_err(|error| anyhow!("{COMMAND}: {error:#}"))?;
     let measured = waste::repositories(&sources);
     if let Err(error) = &measured.live {
         bail!("{COMMAND}: the live sessions could not be read, so nothing is removed: {error}");
     }
-    let strip = waste::archive_strip(&sources);
-    let rows: Vec<GarbageRow> = measured
+    let state = crate::state::dir(None).map_err(|error| anyhow!("{COMMAND}: {error:#}"))?;
+    let strip = archive_strip(&sources, &state.join(archives::CACHE), bound, json)?;
+    let mut listings: Vec<(GarbageRow, Reclaim)> = measured
         .rows
         .iter()
-        .chain(std::iter::once(&strip))
         .filter_map(|row| {
-            let reclaim = row.reclaim.as_ref()?;
-            Some(if dry_run {
-                listed(row, reclaim)
-            } else {
-                remove(&sources, row, reclaim)
-            })
+            let reclaim = row.reclaim.clone()?;
+            Some((listed(row, &reclaim), reclaim))
         })
         .collect();
     // The holders gc names and does not reclaim: a strip that could not be listed or has
     // nothing to strip, then the panel's shared rows, measured once the rows above are done.
-    let shared = waste::shared_rows(&sources);
-    let holders: Vec<&Row> = std::iter::once(&strip)
-        .filter(|row| row.reclaim.is_none())
-        .chain(&shared)
+    let mut holders = Vec::new();
+    match strip.listed {
+        Ok(listing) => listings.push(listing),
+        Err(holder) => holders.push(holder),
+    }
+    let rows: Vec<GarbageRow> = listings
+        .into_iter()
+        .map(|(row, reclaim)| {
+            if dry_run {
+                row
+            } else {
+                remove(&sources, row, &reclaim)
+            }
+        })
         .collect();
-    print(&rows, &holders, dry_run, json)?;
+    let shared = waste::shared_rows(&sources);
+    holders.extend(shared.iter().map(Holder::of));
+    print(&rows, &holders, &strip.measured, dry_run, json)?;
     let mut refused = false;
     let mut err = io::stderr().lock();
     for row in rows
@@ -125,6 +144,146 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
     })
 }
 
+/// A holder gc measures and never reclaims, with why it is kept.
+struct Holder {
+    repository: Option<String>,
+    what: String,
+    path: Option<String>,
+    bytes: Option<u64>,
+    kept: String,
+}
+
+impl Holder {
+    /// The panel's row `row`, which gc keeps.
+    fn of(row: &Row) -> Self {
+        Self {
+            repository: row.repository.clone(),
+            what: row.what.to_owned(),
+            path: row.path.clone(),
+            bytes: row.bytes,
+            kept: kept_because(row),
+        }
+    }
+}
+
+/// The archive strip: its reclaimable row and how gc strips it, or the holder gc keeps; and each
+/// archive measured.
+struct ArchiveStrip {
+    listed: Result<(GarbageRow, Reclaim), Holder>,
+    measured: Vec<archives::Measured>,
+}
+
+/// The build output `worktree` would strip from the instance's archives, measured archive by
+/// archive within `bound` through the cache `cache` ([`archives::measure`]); in text, each
+/// archive's line is printed as soon as it is known. The row sums the strippable archives, and
+/// says `partial: <n> of <m> archives` when the bound or a failure left some unmeasured; with
+/// nothing to strip, or no checkout whose profile `worktree` reads, the strip is kept.
+fn archive_strip(
+    sources: &Sources,
+    cache: &Path,
+    bound: Duration,
+    json: bool,
+) -> Result<ArchiveStrip> {
+    let root = sources.home.join(".local/state/worktree/archives");
+    let holder = |bytes: Option<u64>, kept: String| Holder {
+        repository: None,
+        what: archives::WHAT.to_owned(),
+        path: Some(root.display().to_string()),
+        bytes,
+        kept,
+    };
+    let Some(checkout) = waste::profile_checkout(&sources.checkouts) else {
+        let kept = format!(
+            "not measured (failed: no git checkout under the checkouts root {} names the \
+             worktree profile)",
+            sources.checkouts.display()
+        );
+        return Ok(ArchiveStrip {
+            listed: Err(holder(None, kept)),
+            measured: Vec::new(),
+        });
+    };
+    let found = archives::list(&root, &sources.trees, &sources.checkouts);
+    let mut out = io::stdout().lock();
+    let mut unprinted = None;
+    let strip = archives::measure(&checkout, &found, cache, bound, &mut |archive| {
+        if json || unprinted.is_some() {
+            return;
+        }
+        let printed = writeln!(
+            out,
+            "archive  {} bytes  {}  {}: {}{}",
+            archive.strip_bytes,
+            archive.id,
+            archive.path.display(),
+            archive.verdict,
+            if archive.cached { " (cached)" } else { "" },
+        )
+        .and_then(|()| out.flush());
+        if let Err(error) = printed {
+            unprinted = Some(error);
+        }
+    });
+    drop(out);
+    if let Some(error) = unprinted {
+        return Err(error.into());
+    }
+    if let Some(error) = &strip.unsaved {
+        writeln!(
+            io::stderr().lock(),
+            "conductor: {COMMAND}: the archive sizes could not be cached: {error}"
+        )?;
+    }
+    let partial = strip.partial();
+    let strippable: Vec<&archives::Measured> = strip
+        .measured
+        .iter()
+        .filter(|archive| archive.verdict == "strippable")
+        .collect();
+    let listed = if strip.measured.is_empty() && strip.total > 0 {
+        Err(holder(
+            None,
+            format!("not measured ({})", partial.unwrap_or_default()),
+        ))
+    } else if strippable.is_empty() {
+        let kept = match partial {
+            Some(partial) => format!("nothing to strip ({partial})"),
+            None => "nothing to strip".to_owned(),
+        };
+        Err(holder(Some(0), kept))
+    } else {
+        let paths: Vec<PathBuf> = strippable
+            .iter()
+            .map(|archive| archive.path.clone())
+            .collect();
+        let bytes: u64 = strippable.iter().map(|archive| archive.strip_bytes).sum();
+        let row = GarbageRow {
+            repository: None,
+            what: archives::WHAT.to_owned(),
+            paths: paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
+            count: i64::try_from(paths.len()).ok(),
+            bytes: i64::try_from(bytes).ok(),
+            freed: None,
+            outcome: GarbageOutcome::Reclaimable,
+            detail: partial,
+        };
+        Ok((
+            row,
+            Reclaim::StripArchives {
+                checkout,
+                archives: paths,
+            },
+        ))
+    };
+    Ok(ArchiveStrip {
+        listed,
+        measured: strip.measured,
+    })
+}
+
 /// The reclaimable `row`, as the panel measured it, before anything is removed.
 fn listed(row: &Row, reclaim: &Reclaim) -> GarbageRow {
     GarbageRow {
@@ -143,10 +302,9 @@ fn listed(row: &Row, reclaim: &Reclaim) -> GarbageRow {
     }
 }
 
-/// Removes `row` through `reclaim`, unless a live session now works in one of its paths, and
-/// answers what became of it and the bytes it freed.
-fn remove(sources: &Sources, row: &Row, reclaim: &Reclaim) -> GarbageRow {
-    let mut out = listed(row, reclaim);
+/// Removes the listed row `out` through `reclaim`, unless a live session now works in one of its
+/// paths, and answers what became of it and the bytes it freed.
+fn remove(sources: &Sources, mut out: GarbageRow, reclaim: &Reclaim) -> GarbageRow {
     let paths = reclaim.paths();
     // A session or a process may have started where the row is since the listing, or the
     // target may have changed: every check the listing made is made again.
@@ -251,8 +409,15 @@ fn kept_because(row: &Row) -> String {
 }
 
 /// Prints `rows` and `holders` on standard output: one line each, the holders under a header of
-/// their own, and a total; or one JSON object.
-fn print(rows: &[GarbageRow], holders: &[&Row], dry_run: bool, json: bool) -> Result<()> {
+/// their own, and a total; or one JSON object, which also carries each archive measured,
+/// `archives` (in text their lines were printed as they were measured).
+fn print(
+    rows: &[GarbageRow],
+    holders: &[Holder],
+    archives: &[archives::Measured],
+    dry_run: bool,
+    json: bool,
+) -> Result<()> {
     let reclaimable: i64 = rows.iter().filter_map(|row| row.bytes).sum();
     let freed: i64 = rows.iter().filter_map(|row| row.freed).sum();
     let mut out = io::stdout().lock();
@@ -265,7 +430,7 @@ fn print(rows: &[GarbageRow], holders: &[&Row], dry_run: bool, json: bool) -> Re
                     "what": row.what,
                     "path": row.path,
                     "bytes": row.bytes,
-                    "kept": kept_because(row),
+                    "kept": row.kept,
                 })
             })
             .collect();
@@ -284,12 +449,25 @@ fn print(rows: &[GarbageRow], holders: &[&Row], dry_run: bool, json: bool) -> Re
                 })
             })
             .collect();
+        let archives: Vec<Value> = archives
+            .iter()
+            .map(|archive| {
+                json!({
+                    "id": archive.id,
+                    "path": archive.path.display().to_string(),
+                    "verdict": archive.verdict,
+                    "strip_bytes": archive.strip_bytes,
+                    "cached": archive.cached,
+                })
+            })
+            .collect();
         let report = json!({
             "dry_run": dry_run,
             "rows": rows,
             "reclaimable_bytes": reclaimable,
             "freed_bytes": (!dry_run).then_some(freed),
             "holders": holders,
+            "archives": archives,
         });
         writeln!(out, "{report}")?;
         out.flush()?;
@@ -327,7 +505,7 @@ fn print(rows: &[GarbageRow], holders: &[&Row], dry_run: bool, json: bool) -> Re
             row.repository.as_deref().unwrap_or("-"),
             row.what,
             row.path.as_deref().unwrap_or("-"),
-            kept_because(row),
+            row.kept,
         )?;
     }
     if dry_run {

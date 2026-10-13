@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`) reaches another repository's checkout or managed worktrees, or `<records>`; a `gh` or `glab` call that is not a read ([`forge_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); the command names a `.claude/` settings file or a `<settings>` and holds a write form ([`Places::writes_settings`]); the command names a `<profile>` and holds a write form ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command names `<records>` or a path under it and holds a write form ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; the command names a `.claude/` settings file or a `<settings>` and holds a write form; the command names a `<profile>` and holds a write form |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -417,6 +417,16 @@ impl Places {
             Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
             Ok(rest) => format!("~/{}", rest.display()),
             Err(_) => path.display().to_string(),
+        }
+    }
+
+    /// The landing `path` as [`Places::shown`] writes it, `~` standing for the home directory
+    /// where it lands.
+    fn shown_landing(&self, path: &Path) -> String {
+        match path.strip_prefix(real(&self.home)) {
+            Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => self.shown(path),
         }
     }
 
@@ -1349,8 +1359,13 @@ impl Session<'_> {
             return (Verdict::Allow, "no GitHub or GitLab write".to_owned());
         }
         let mut here = self.cwd.clone();
-        for words in &commands {
-            let words = command_words(words);
+        // `GIT_DIR=` and `GIT_WORK_TREE=` an `export` earlier on the line put in the environment.
+        let mut exported: Vec<String> = Vec::new();
+        for raw in &commands {
+            let words = command_words(raw);
+            if words.first().is_some_and(|name| name == "export") {
+                exported.extend(words[1..].iter().filter(|w| is_git_location(w)).cloned());
+            }
             if let Some(name) = words.first().map(String::as_str)
                 && (name == "cd" || name == "pushd")
             {
@@ -1369,12 +1384,14 @@ impl Session<'_> {
                     here = target;
                 }
             }
-            for (at, word) in words.iter().enumerate() {
-                if shell::program(word) != "git" {
+            for (at, word) in raw.iter().enumerate() {
+                if is_assignment(word) || shell::program(word) != "git" {
                     continue;
                 }
-                if let Some((shown, place)) = self.git_reach(&words[at..], &here) {
-                    return (Verdict::Deny, format!("`{shown}` reaches {place}"));
+                let mut env = exported.clone();
+                env.extend(raw[..at].iter().filter(|w| is_git_location(w)).cloned());
+                if let Some(reason) = self.git_reach(&raw[at..], &env, &here) {
+                    return (Verdict::Deny, reason);
                 }
             }
         }
@@ -1390,14 +1407,33 @@ impl Session<'_> {
         }
         (
             Verdict::Allow,
-            "no cd or git -C into another repository and no GitHub or GitLab write".to_owned(),
+            "no cd or git -C into another repository, no git write outside the repository's \
+             checkout and managed worktrees, and no GitHub or GitLab write"
+                .to_owned(),
         )
     }
 
-    /// The place ([`Session::elsewhere`]) a `git` command's global options point it at, if any:
-    /// `-C`, `--git-dir` and `--work-tree`, each taken from where the one before it left off.
-    fn git_reach(&self, words: &[String], here: &Path) -> Option<(String, String)> {
+    /// Why a `git` command, `words` from the program word on and `env` the `GIT_DIR=` and
+    /// `GIT_WORK_TREE=` assignments it runs with, is denied from `here`, if it is:
+    ///
+    /// - a global option, `-C`, `--git-dir` or `--work-tree`, each taken from where the `-C`
+    ///   before it left off, or an assignment, taken from where the last `-C` left off, reaches
+    ///   another place ([`Session::elsewhere`]);
+    /// - or its subcommand writes ([`git_reads`]) and its target lands outside the repository's
+    ///   checkout, its managed worktrees and its scratch ([`Session::is_scratch`]): the directory
+    ///   the last `-C` left it in (`here` without one), and each `--git-dir`, `--work-tree`,
+    ///   `GIT_DIR` and `GIT_WORK_TREE` (`story:guard-git-c-outside`).
+    ///
+    /// A target whose landing depends on a word the shell expands ([`Session::word_path`]) is not
+    /// decided.
+    fn git_reach(&self, words: &[String], env: &[String], here: &Path) -> Option<String> {
+        let reaches = |shown: &str, place: String| format!("`{shown}` reaches {place}");
         let mut base = here.to_path_buf();
+        // Whether `base` is where git runs: a `-C` that expands leaves it unknown.
+        let mut known = true;
+        // The `--git-dir`, `--work-tree`, `GIT_DIR` and `GIT_WORK_TREE` targets, where they land.
+        let mut targets: Vec<PathBuf> = Vec::new();
+        let mut subcommand = None;
         let mut at = 1;
         while let Some(word) = words.get(at) {
             let (flag, value, used) = match word.as_str() {
@@ -1414,22 +1450,70 @@ impl Session<'_> {
                         at += 1;
                         continue;
                     }
-                    _ => return None,
+                    _ => {
+                        subcommand = Some(at);
+                        break;
+                    }
                 },
             };
             at += used;
             let value = value?;
             let Some(target) = self.word_path(value, &base) else {
+                if flag == "-C" {
+                    known = false;
+                }
                 continue;
             };
             if let Some(place) = self.elsewhere(&target) {
-                return Some((format!("git {flag} {value}"), place));
+                return Some(reaches(&format!("git {flag} {value}"), place));
             }
             if flag == "-C" {
                 base = target;
+                known = known || is_absolute_word(value);
+            } else if known || is_absolute_word(value) {
+                targets.push(target);
             }
         }
-        None
+        for assignment in env {
+            let Some((_, value)) = assignment.split_once('=') else {
+                continue;
+            };
+            let Some(target) = self.word_path(value, &base) else {
+                continue;
+            };
+            if let Some(place) = self.elsewhere(&target) {
+                return Some(reaches(assignment.as_str(), place));
+            }
+            if known || is_absolute_word(value) {
+                targets.push(target);
+            }
+        }
+        let subcommand = subcommand?;
+        if git_reads(&words[subcommand], &words[subcommand + 1..]) {
+            return None;
+        }
+        if known {
+            targets.insert(0, base);
+        }
+        let outside = targets.into_iter().find(|target| {
+            !(target.starts_with(self.checkout())
+                || target.starts_with(self.worktrees())
+                || self.is_scratch(target))
+        })?;
+        let places = self.places;
+        let shown = env
+            .iter()
+            .chain(&words[..=subcommand])
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" ");
+        Some(format!(
+            "`{shown}` writes in {}, outside the repository's checkout {}/ and its managed \
+             worktrees {}/: a controller's git writes stay in its own repository and its scratch",
+            places.shown_landing(&outside),
+            places.shown(&places.checkouts.join(&self.repository)),
+            places.shown(&places.trees.join(&self.repository))
+        ))
     }
 
     /// A shell word naming a directory, where it lands from `here`: `~`, `$HOME` and `${HOME}`
@@ -1495,6 +1579,155 @@ fn is_assignment(word: &str) -> bool {
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
             && !name.starts_with(|c: char| c.is_ascii_digit())
     })
+}
+
+/// Whether `word` assigns `GIT_DIR` or `GIT_WORK_TREE`, which move a git command's target as
+/// `--git-dir` and `--work-tree` do.
+fn is_git_location(word: &str) -> bool {
+    word.starts_with("GIT_DIR=") || word.starts_with("GIT_WORK_TREE=")
+}
+
+/// Whether the directory word `word` lands where it does wherever it is taken from: `/`, `~` or
+/// `$HOME` first.
+fn is_absolute_word(word: &str) -> bool {
+    ["/", "~", "$HOME", "${HOME}"]
+        .iter()
+        .any(|start| word.starts_with(start))
+}
+
+/// The git subcommands that only read, whatever their arguments (`story:guard-git-c-outside`).
+const GIT_READS: &[&str] = &[
+    "status",
+    "log",
+    "diff",
+    "show",
+    "rev-parse",
+    "ls-files",
+    "ls-tree",
+    "ls-remote",
+    "cat-file",
+    "blame",
+    "annotate",
+    "describe",
+    "shortlog",
+    "grep",
+    "rev-list",
+    "show-ref",
+    "for-each-ref",
+    "name-rev",
+    "merge-base",
+    "count-objects",
+    "version",
+    "help",
+    "var",
+    "check-ignore",
+    "check-attr",
+    "check-ref-format",
+    "diff-tree",
+    "diff-files",
+    "diff-index",
+    "whatchanged",
+    "verify-commit",
+    "verify-tag",
+    "show-branch",
+    "range-diff",
+    "cherry",
+];
+
+/// The `git branch` options that make it write: delete, move, copy, force or set an upstream.
+const GIT_BRANCH_WRITES: &[&str] = &[
+    "-d",
+    "-D",
+    "--delete",
+    "-m",
+    "-M",
+    "--move",
+    "-c",
+    "-C",
+    "--copy",
+    "-f",
+    "--force",
+    "-u",
+    "--set-upstream-to",
+    "--unset-upstream",
+    "--edit-description",
+    "-t",
+    "--track",
+];
+
+/// The `git branch` options that make it list, so that a word after them is no new branch.
+const GIT_BRANCH_LISTS: &[&str] = &[
+    "-l",
+    "--list",
+    "-a",
+    "--all",
+    "-r",
+    "--remotes",
+    "--show-current",
+    "--contains",
+    "--no-contains",
+    "--merged",
+    "--no-merged",
+    "--points-at",
+];
+
+/// Whether the git subcommand `subcommand` with `arguments` only reads: one of [`GIT_READS`], or
+/// the listing and reading forms of `config`, `remote`, `branch`, `tag`, `stash`, `worktree`,
+/// `notes`, `reflog` and `submodule`. Anything else, an alias included, writes.
+fn git_reads(subcommand: &str, arguments: &[String]) -> bool {
+    fn holds(arguments: &[String], names: &[&str]) -> bool {
+        arguments
+            .iter()
+            .any(|argument| names.contains(&argument.as_str()))
+    }
+    let has = |names: &[&str]| holds(arguments, names);
+    let first = arguments
+        .iter()
+        .find(|argument| !argument.starts_with('-'))
+        .map(String::as_str);
+    match subcommand {
+        read if GIT_READS.contains(&read) => true,
+        "config" => {
+            has(&[
+                "--get",
+                "--get-all",
+                "--get-regexp",
+                "--get-urlmatch",
+                "--get-color",
+                "--get-colorbool",
+                "--list",
+                "-l",
+            ]) || matches!(first, Some("get" | "list"))
+        }
+        "remote" => matches!(first, None | Some("show" | "get-url")),
+        "branch" => {
+            !(has(GIT_BRANCH_WRITES)
+                || arguments
+                    .iter()
+                    .any(|argument| argument.starts_with("--set-upstream-to=")))
+                && (first.is_none() || has(GIT_BRANCH_LISTS))
+        }
+        "tag" => {
+            !has(&[
+                "-d",
+                "--delete",
+                "-f",
+                "--force",
+                "-a",
+                "--annotate",
+                "-s",
+                "--sign",
+                "-m",
+                "-F",
+            ]) && (first.is_none() || has(&["-l", "--list", "-v", "--verify"]))
+        }
+        "stash" => matches!(first, Some("list" | "show")),
+        "worktree" => first == Some("list"),
+        "notes" => matches!(first, None | Some("list" | "show")),
+        "reflog" => matches!(first, None | Some("show" | "exists")),
+        "submodule" => matches!(first, None | Some("status" | "summary")),
+        _ => false,
+    }
 }
 
 /// A `conductor` run a controller is denied ([`conductor_run`]).

@@ -113,6 +113,24 @@ impl Case {
         fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
     }
 
+    /// A fake `uname` found before the system's: `-s` prints `system`, every other flag a fixed
+    /// word (`story:install-hints`).
+    fn uname(&self, system: &str) {
+        let file = self.bin().join("uname");
+        fs::write(
+            &file,
+            format!(
+                "#!/bin/sh\n\
+                 case \"$1\" in\n\
+                 \x20 -s) printf '%s\\n' '{system}' ;;\n\
+                 \x20 *) printf '%s\\n' 'example' ;;\n\
+                 esac\n"
+            ),
+        )
+        .expect("write uname");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
+
     /// A forge CLI `name`: `--version` prints `version`; `auth status --hostname <host>` exits 0
     /// naming the account `example-user` when `logged_in`, and 1 otherwise; every other call is
     /// recorded and exits 0.
@@ -371,12 +389,15 @@ fn setup_names_an_old_store_and_the_migrate_command() {
 
 /// `--apply` writes the config naming the repository, runs `conductor init` and
 /// `conductor trust`, and so turns those three rows ready; it does not log `glab` in, install the
-/// missing `jq` or migrate the old store, and prints each as the command to run. A second run
-/// changes nothing and prints the same rows.
+/// missing `jq` or migrate the old store, and prints each as the command to run: for `jq` the one
+/// doctor prints under its row, here the package of the fake Linux's `apt-get`
+/// (`story:install-hints`). A second run changes nothing and prints the same rows.
 #[test]
 fn setup_apply_fixes_what_is_safe_and_prints_what_is_not() {
     let case = Case::new("apply");
     fs::remove_file(case.bin().join("jq")).expect("take jq off PATH");
+    case.uname("Linux");
+    case.fake("apt-get", "apt 2.9.0");
     case.forge("glab", "glab 1.46.0 (2024-09-01)", GITLAB_HOST, false);
     let claude_json = case.claude_json();
     let repository = case.repository(
@@ -402,7 +423,9 @@ fn setup_apply_fixes_what_is_safe_and_prints_what_is_not() {
                 format!("instance: epsilon names {shown_repository}"),
                 format!("records: present ({})", records.display()),
                 format!("trust: trusted ({shown_repository})"),
-                "to install: jq".to_owned(),
+                "jq: missing".to_owned(),
+                "  install: sudo apt-get install jq".to_owned(),
+                "to install: jq: sudo apt-get install jq".to_owned(),
                 format!("to run: glab auth login --hostname {GITLAB_HOST}"),
                 "to run: aep plan store migrate git --dry-run".to_owned(),
             ],
@@ -445,7 +468,7 @@ fn setup_apply_fixes_what_is_safe_and_prints_what_is_not() {
         "the store is not migrated"
     );
     let calls = fs::read_to_string(case.calls()).unwrap_or_default();
-    for never in ["glab auth login", "aep plan store migrate"] {
+    for never in ["glab auth login", "aep plan store migrate", "apt-get"] {
         assert!(!calls.contains(never), "--apply ran `{never}`:\n{calls}");
     }
 }

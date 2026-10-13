@@ -73,8 +73,9 @@ session starts with it through `--append-system-prompt-file`. Every session star
 The repository's `.claude/agents/` still holds one adapter per profile (`conductor.md`,
 `conductor-dev.md`, `repo-controller.md`), each the agent front matter and a pointer at its
 `.agents/` file. They serve a session started in this checkout, such as conductor-dev without a
-profile, and harness sub-agents; `task agents:link` links them into `~/.claude/agents/` for
-sessions you start by hand elsewhere, not for the sessions the tasks start.
+profile, and harness sub-agents; `task agents:link REPO=<path>` links them into that repository's
+`.claude/agents/` (hidden through its `.git/info/exclude`) for sessions you start by hand there,
+not for the sessions the tasks start, and never into `~/.claude/agents/`.
 
 ## Developing conductor
 

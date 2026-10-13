@@ -202,11 +202,24 @@ tasks:
       - conductor trust
 
   agents:link:
-    desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into ~/.claude/agents/, for an interactive session started with the user's own settings; the sessions the tasks start pass --setting-sources project,local and read no user-level agent; a link to the same file is kept, and any other file there is refused, never overwritten
+    desc: Link this checkout's .claude/agents/conductor.md, repo-controller.md and conductor-dev.md into REPO/.claude/agents/ (task agents:link REPO=<path>; REPO is required, the top of the git repository whose interactive sessions should see conductor's agents), for a session started by hand in REPO, since the sessions the tasks start pass --setting-sources project,local and start from their role's profile, not from these agents; and add each linked path, relative to REPO, to REPO's .git/info/exclude once, so git status does not show it; writes nothing to ~/.claude/agents/, and removes a symbolic link there named conductor.md, repo-controller.md or conductor-dev.md that points into this checkout (an earlier agents:link made it), leaving any other file there with a note; a link to the same file is kept, and any other file in REPO/.claude/agents/ is refused, never overwritten
+    silent: true
+    vars:
+      REPO: '{{.REPO | default ""}}'
     cmds:
       - |
-        src={{shellQuote .ROOT_DIR}}/.claude/agents
-        dst="$HOME/.claude/agents"
+        root={{shellQuote .ROOT_DIR}}
+        src="$root/.claude/agents"
+        repo={{shellQuote .REPO}}
+        if [ -z "$repo" ]; then echo "agents:link: name the repository whose sessions should see the agents: task agents:link REPO=<path>" >&2; exit 1; fi
+        if [ ! -d "$repo" ]; then echo "agents:link: REPO $repo is not a directory" >&2; exit 1; fi
+        repo=$(cd "$repo" && pwd -P)
+        top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || true)
+        if [ -z "$top" ] || [ ! "$top" -ef "$repo" ]; then echo "agents:link: REPO $repo is not the top of a git repository" >&2; exit 1; fi
+        if [ "$repo" -ef "$root" ]; then echo "agents:link: REPO $repo is this checkout, whose .claude/agents/ holds the files already" >&2; exit 1; fi
+        exclude=$(git -C "$repo" rev-parse --git-path info/exclude) || exit 1
+        case "$exclude" in /*) ;; *) exclude="$repo/$exclude" ;; esac
+        dst="$repo/.claude/agents"
         refused=0
         for name in conductor repo-controller conductor-dev; do
           from="$src/$name.md"; to="$dst/$name.md"
@@ -215,11 +228,26 @@ tasks:
           if [ -e "$to" ] || [ -L "$to" ]; then echo "agents:link: $to is there and is not a link to $from; move it away and run task agents:link again" >&2; refused=1; fi
         done
         [ "$refused" = 0 ] || exit 1
-        mkdir -p "$dst"
+        mkdir -p "$dst" "$(dirname "$exclude")" || exit 1
         for name in conductor repo-controller conductor-dev; do
-          from="$src/$name.md"; to="$dst/$name.md"
-          if [ -L "$to" ] && [ "$to" -ef "$from" ]; then echo "linked already: $to"; continue; fi
-          ln -s "$from" "$to" || exit 1; echo "linked: $to -> $from"
+          from="$src/$name.md"; to="$dst/$name.md"; path=".claude/agents/$name.md"
+          if [ -L "$to" ] && [ "$to" -ef "$from" ]; then echo "linked already: $to"; else ln -s "$from" "$to" || exit 1; echo "linked: $to -> $from"; fi
+          if [ -f "$exclude" ] && grep -qxF "$path" "$exclude"; then continue; fi
+          if [ -s "$exclude" ] && [ -n "$(tail -c 1 "$exclude")" ]; then echo >> "$exclude"; fi
+          printf '%s\n' "$path" >> "$exclude" || exit 1; echo "excluded: $path in $exclude"
+        done
+        real=$(cd "$root" && pwd -P)
+        for name in conductor repo-controller conductor-dev; do
+          old="$HOME/.claude/agents/$name.md"
+          if [ -L "$old" ]; then
+            target=$(readlink "$old")
+            case "$target" in
+              "$root"/*|"$real"/*) rm "$old" || exit 1; echo "removed: $old -> $target (agents:link no longer writes ~/.claude/agents/)" ;;
+              *) echo "note: left $old: it links to $target, not into this checkout" ;;
+            esac
+          elif [ -e "$old" ]; then
+            echo "note: left $old: it is not a link that agents:link made"
+          fi
         done
 
   dashboard:

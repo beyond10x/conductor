@@ -149,6 +149,24 @@ impl Case {
             .output()
             .expect("conductor runs")
     }
+
+    /// A fake `uname` on the case's `PATH`, found before the system's: `-s` prints `system`,
+    /// every other flag a fixed word (`story:install-hints`).
+    fn uname(&self, system: &str) {
+        let file = self.bin().join("uname");
+        fs::write(
+            &file,
+            format!(
+                "#!/bin/sh\n\
+                 case \"$1\" in\n\
+                 \x20 -s) printf '%s\\n' '{system}' ;;\n\
+                 \x20 *) printf '%s\\n' 'example' ;;\n\
+                 esac\n"
+            ),
+        )
+        .expect("write uname");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+    }
 }
 
 fn shown(output: &Output) -> String {
@@ -753,4 +771,121 @@ fn start_snapshot_refuses_at_start_naming_a_missing_program() {
         serde_json::json!([])
     };
     assert_eq!(rows, serde_json::json!([]), "no snapshot is started");
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:install-hints: under each missing or too-old program, the command that installs it here.
+// ---------------------------------------------------------------------------------------------
+
+/// The line right after `row` in `lines`, if `row` is there.
+fn under<'l>(lines: &'l [String], row: &str) -> Option<&'l str> {
+    let at = lines.iter().position(|line| line == row)?;
+    lines.get(at + 1).map(String::as_str)
+}
+
+/// On a fake macOS with `brew` on `PATH`, a missing `task` is installed with `brew install
+/// go-task` and a missing `claude` from its install page; a present program gets no install line.
+#[test]
+fn doctor_prints_brew_install_go_task_under_a_missing_task_on_macos() {
+    let case = Case::new("install-macos");
+    case.programs_but(&["task", "claude"]);
+    case.uname("Darwin");
+    case.program("brew", "Homebrew 4.6.0", 0);
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert_eq!(
+        under(&lines, "task: missing"),
+        Some("  install: brew install go-task"),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        under(&lines, "claude: missing"),
+        Some("  install: see https://docs.anthropic.com/en/docs/claude-code/setup"),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("  install: "))
+            .count(),
+        2,
+        "only the missing programs get an install line: {}",
+        shown(&output)
+    );
+}
+
+/// On a fake Linux, a missing `jq` is the distribution's package for the package manager on
+/// `PATH`, and the upstream release URL when none is known.
+#[test]
+fn doctor_prints_the_distribution_package_or_the_upstream_url_for_jq_on_linux() {
+    let case = Case::new("install-linux");
+    case.programs_but(&["jq"]);
+    case.uname("Linux");
+    for (manager, expected) in [
+        ("apt-get", "  install: sudo apt-get install jq"),
+        ("dnf", "  install: sudo dnf install jq"),
+        ("pacman", "  install: sudo pacman -S jq"),
+    ] {
+        case.program(manager, "a package manager", 0);
+        let output = case.doctor(&case.work());
+        assert_eq!(
+            under(&stdout(&output), "jq: missing"),
+            Some(expected),
+            "{manager}: {}",
+            shown(&output)
+        );
+        fs::remove_file(case.bin().join(manager)).expect("take the package manager off PATH");
+    }
+    let output = case.doctor(&case.work());
+    assert_eq!(
+        under(&stdout(&output), "jq: missing"),
+        Some("  install: see https://github.com/jqlang/jq/releases/latest"),
+        "{}",
+        shown(&output)
+    );
+}
+
+/// `aep`, `ess` and `worktree`, missing or older than their pin, name the ecosystem's setup page
+/// and the pin doctor checks them against.
+#[test]
+fn doctor_prints_the_setup_line_with_the_pin_for_aep_ess_and_worktree() {
+    let setup = conductor_cli::doctor::SETUP_URL;
+    let case = Case::new("install-setup");
+    case.programs_but(&["ess", "worktree"]);
+    case.uname("Linux");
+    case.program("apt-get", "a package manager", 0);
+    case.program("aep", "aep 0.69.1", 0);
+    let repository = case.home().join("repository");
+    fs::create_dir_all(&repository).expect("create the repository");
+    fs::write(
+        repository.join("b10x.toml"),
+        "[pins]\naep = \"0.70\"\ness = \"0.55\"\nworktree = \"0.13.0\"\n",
+    )
+    .expect("write b10x.toml");
+    let output = case.doctor(&repository);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    let expected =
+        |program: &str, pin: &str| format!("  install: follow {setup} (needs {program} {pin})");
+    assert_eq!(
+        under(&lines, "aep: present, aep 0.69.1"),
+        Some(expected("aep", "0.70").as_str()),
+        "too old: {}",
+        shown(&output)
+    );
+    assert_eq!(
+        under(&lines, "ess: missing"),
+        Some(expected("ess", "0.55").as_str()),
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(
+        under(&lines, "worktree: missing"),
+        Some(expected("worktree", "0.13.0").as_str()),
+        "{}",
+        shown(&output)
+    );
 }

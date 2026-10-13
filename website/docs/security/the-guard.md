@@ -129,8 +129,18 @@ Denied in every guarded session:
 
 Denied in a controller's session, in addition:
 
-- a `cd`, `pushd`, or `git -C`, `--git-dir` or `--work-tree` that reaches another repository's
-  checkout or managed worktrees, or conductor's records;
+- a `cd`, `pushd`, or `git -C`, `--git-dir`, `--work-tree`, `GIT_DIR=` or `GIT_WORK_TREE=` that
+  reaches another repository's checkout or managed worktrees, or conductor's records;
+- a git command that writes, decided on its target as a file write is: the directory `-C` leaves
+  it in (repeated `-C` each taken from the one before; the cwd without one), and each
+  `--git-dir`, `--work-tree`, `GIT_DIR` and `GIT_WORK_TREE` (also from an earlier `export`). A
+  target outside the repository's checkout, its managed worktrees and the session's scratch is
+  denied, and the denial names the target and the checkout and worktrees it is outside. A reading
+  subcommand stays allowed anywhere: `status`, `log`, `diff`, `show`, `rev-parse`, `ls-files`,
+  `ls-tree`, `cat-file` and the other plumbing reads, `config --get` and `--list`, `remote` with
+  no verb or `show`, `branch` and `tag` listing, `stash list`, `worktree list`. Any other
+  subcommand, an alias included, writes. A target behind a variable or a substitution is not
+  decided;
 - a command that names conductor's config (`$CONDUCTOR_CONFIG`, the config file, the default
   file, its directory, the `state` directory) and holds a write form;
 - a command that names conductor's records, or a path under them, and holds a write form;

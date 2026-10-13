@@ -15,7 +15,8 @@
 //! Each row says whether `conductor gc` removes it (`story:conductor-gc`), and how, or why it is
 //! kept; [`repositories`] is the one classification both read. Only three kinds of the panel's row
 //! are ever reclaimable, each removed by the tool that owns it, never by a deletion of conductor's
-//! own (`conductor gc` adds a fourth, [`archive_strip`], which the panel does not measure):
+//! own (`conductor gc` adds a fourth, the build output in worktree archives,
+//! [`Reclaim::StripArchives`], which the panel does not measure):
 //! - the build cache of idle managed trees: `worktree discard-cache` on each tree, which deletes
 //!   only the cache it recognises and refuses a tree with a live lease or a process in it;
 //! - the trees eligible for removal: `worktree gc --apply --id` on each, which revalidates each
@@ -65,11 +66,6 @@ const POLL: Duration = Duration::from_millis(20);
 
 const BUILD_CACHE: &str = "build cache in idle managed trees";
 const ELIGIBLE: &str = "trees eligible for removal";
-const ARCHIVE_BUILD_OUTPUT: &str = "build output in worktree archives";
-
-/// How long the listing of [`archive_strip`] may run: `worktree` reads every archive's patch
-/// through, which takes minutes where archives hold build output.
-const STRIP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// The last complete measurement, and whether the next one runs; shared by every request.
 #[derive(Debug, Clone, Default)]
@@ -283,74 +279,6 @@ fn archive_id(path: &Path) -> String {
         (None, Some(directory)) => directory,
         (_, None) => path.display().to_string(),
     }
-}
-
-/// The build output `worktree` would strip from the instance's worktree archives
-/// (`story:gc-before-pause`), listed by `worktree prune-archives --strip-build-output --scope
-/// profile --json --repo <checkout>`, its own dry run, which writes nothing: one row summing the
-/// strippable archives' `strip_bytes`, which `conductor gc` strips through
-/// [`Reclaim::StripArchives`]. The listing reads every archive's patch, so it runs under
-/// [`STRIP_TIMEOUT`] when that is longer than [`Sources::measure_timeout`]. A row that could not
-/// be listed, or with nothing to strip, is kept.
-///
-/// `--repo` names a git checkout under the checkouts root ([`profile_checkout`]), never the
-/// records directory: `worktree` resolves the profile from it, and refuses a directory no
-/// active profile contains (`story:gc-archive-profile`). Without a checkout the row is kept,
-/// not measured.
-///
-/// The disk panel does not read it: its measurement repeats every [`Sources::measure_every`],
-/// and this listing is too slow for that.
-pub(crate) fn archive_strip(sources: &Sources) -> Row {
-    let mut command: Vec<OsString> = [
-        "worktree",
-        "prune-archives",
-        "--strip-build-output",
-        "--scope",
-        "profile",
-        "--json",
-        "--repo",
-    ]
-    .map(OsString::from)
-    .to_vec();
-    let archive_root = sources.home.join(".local/state/worktree/archives");
-    let row = Row {
-        what: ARCHIVE_BUILD_OUTPUT,
-        path: Some(archive_root.display().to_string()),
-        ..Row::default()
-    };
-    let Some(checkout) = profile_checkout(&sources.checkouts) else {
-        let state = format!(
-            "failed: no git checkout under the checkouts root {} names the worktree profile",
-            sources.checkouts.display()
-        );
-        return Row { state, ..row }.kept("not measured");
-    };
-    command.push(checkout.clone().into_os_string());
-    let report = match json_of(&command, sources.measure_timeout.max(STRIP_TIMEOUT)) {
-        Ok(report) => report,
-        Err(state) => return Row { state, ..row }.kept("not measured"),
-    };
-    let mut archives = Vec::new();
-    let mut bytes: u64 = 0;
-    for item in report["archives"].as_array().into_iter().flatten() {
-        let Some(path) = item["path"].as_str() else {
-            continue;
-        };
-        if item["verdict"] == "strippable" {
-            archives.push(PathBuf::from(path));
-            bytes += item["strip_bytes"].as_u64().unwrap_or(0);
-        }
-    }
-    let row = Row {
-        count: Some(archives.len()),
-        bytes: Some(bytes),
-        state: "measured".to_owned(),
-        ..row
-    };
-    if archives.is_empty() {
-        return row.kept("nothing to strip");
-    }
-    row.reclaimed_by(Reclaim::StripArchives { checkout, archives })
 }
 
 /// The checkout `worktree prune-archives --repo` is given: the first git checkout directly

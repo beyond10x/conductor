@@ -62,9 +62,17 @@ that checkout is behind its upstream.
 
 Without a `profile`, `task conductor:start` starts the role's `agent` (default `conductor`) with
 `--agent`, and finds it only in `<records>/.claude/agents/`; it refuses when that file is not
-there. `task agents:link`, which links this checkout's adapters into `~/.claude/agents/`, serves
-none of these sessions. `conductor config validate` refuses a controller role that names an `agent`
-and no `profile`.
+there. `conductor config validate` refuses a controller role that names an `agent` and no
+`profile`.
+
+`task agents:link REPO=<path>` serves none of these sessions either. It is for an interactive
+session you start yourself in one repository: it links this checkout's three adapters
+(`conductor.md`, `repo-controller.md`, `conductor-dev.md`) into `<path>/.claude/agents/` and adds
+each linked path to that repository's `.git/info/exclude`, so `git status` does not show it. `REPO`
+is required and must be the top of a git repository. The task writes nothing to
+`~/.claude/agents/`, where every Claude Code session on the machine would see a controller agent;
+it removes a link of one of those three names there that points into this checkout, as an earlier
+version of the task made, and leaves any other file there with a note.
 
 ## 3. Trust the checkouts
 

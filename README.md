@@ -48,7 +48,9 @@ accept agents that run unattended under your account (see the next section).
   credentials and its tokens. Use branch protection and scoped tokens on the forge.
 
 The full model, with what is enforced and what is only instructed:
-[Security overview](https://beyond10x.github.io/conductor/docs/security/overview).
+[Security overview](https://beyond10x.github.io/conductor/docs/security/overview). To keep
+conductor away from the rest of a machine today, in a VM, a container or a dedicated account:
+[Run conductor isolated](https://beyond10x.github.io/conductor/docs/guides/run-isolated).
 
 ## Requirements
 
@@ -79,7 +81,7 @@ A `gitlab` source names the host its group is on, such as `host: gitlab.example.
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.8.1 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.8.2 --locked conductor-cli
 conductor doctor
 ```
 
@@ -89,7 +91,7 @@ from the release instead: each GitHub Release from `v0.6.0` on carries
 `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
 
 ```console
-version=0.8.1 target=x86_64-unknown-linux-gnu
+version=0.8.2 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -107,7 +109,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 `conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
 `tar` and `sha256sum` (or `shasum` on macOS).
 
-`conductor --version` prints the installed version, `conductor 0.8.1`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 0.8.2`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.
@@ -179,6 +181,11 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
 
 Sessions start with `--setting-sources project,local`, so your user-level settings and agents are
 not loaded; the role's settings file carries what the session needs.
+
+For an interactive session of your own in one repository, `task agents:link REPO=<path>` links
+this checkout's agents (`conductor`, `repo-controller`, `conductor-dev`) into
+`<path>/.claude/agents/` and lists each link in that repository's `.git/info/exclude`. It writes
+nothing to `~/.claude/agents/`, and removes the links an earlier version of the task left there.
 
 ## How it works
 

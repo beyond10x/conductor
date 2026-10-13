@@ -398,9 +398,10 @@ fn failure(check: &RepositoryCheck) -> Option<String> {
     Some(format!("{} ({what})", check.check))
 }
 
-/// What `--apply` leaves to a person, as the command to run: `to install: <program>` for each
-/// program missing or older than its pin, `to run: <cli> auth login --hostname <host>` for each
-/// forge CLI not logged in, and the store's migration.
+/// What `--apply` leaves to a person, as the command to run: `to install: <program>: <command>`
+/// for each program missing or older than its pin, the command doctor prints under its row
+/// ([`Doctor::install`], `story:install-hints`), `to run: <cli> auth login --hostname <host>` for
+/// each forge CLI not logged in, and the store's migration.
 fn left_to_a_person(doctor: &Doctor, checks: &[RepositoryCheck]) -> Vec<String> {
     let installs = doctor
         .rows
@@ -411,7 +412,10 @@ fn left_to_a_person(doctor: &Doctor, checks: &[RepositoryCheck]) -> Vec<String> 
                 PrerequisiteState::Missing | PrerequisiteState::OlderThanPin
             )
         })
-        .map(|row| format!("to install: {}", row.program));
+        .map(|row| match doctor.install(row) {
+            Some(command) => format!("to install: {}: {command}", row.program),
+            None => format!("to install: {}", row.program),
+        });
     let logins = doctor
         .logins
         .iter()

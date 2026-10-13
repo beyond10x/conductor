@@ -4,6 +4,8 @@ sidebar_position: 2
 description: Install the conductor CLI, check the programs it starts, write a one-instance config, validate it and take one snapshot of two local repositories.
 ---
 
+New to conductor? Read [why conductor](./concepts/why-conductor.md) first: the problem, one day with it, and what to adopt first.
+
 This page installs the `conductor` CLI, checks the programs it starts, writes the smallest config,
 checks it, and takes one snapshot of two tiny local repositories. It starts no session;
 [Start conductor](./guides/start-conductor.md) does that.
@@ -27,7 +29,7 @@ repositories with a specification; the [README](https://github.com/beyond10x/con
 Install from the repository:
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.8.1 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.8.2 --locked conductor-cli
 ```
 
 or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.
@@ -38,7 +40,7 @@ from `v0.6.0` on carries `conductor-<version>-<target>.tar.gz` for `x86_64-unkno
 `SHA256SUMS`. Verify the archive against it before you unpack it:
 
 ```console
-version=0.8.1 target=x86_64-unknown-linux-gnu
+version=0.8.2 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -59,7 +61,7 @@ Each way installs one binary, `conductor`; `conductor --version` prints its vers
 
 ```console
 $ conductor --version
-conductor 0.8.1
+conductor 0.8.2
 ```
 
 ## Check the programs
@@ -73,7 +75,7 @@ $ conductor doctor
 host: workstation
 system: Linux 6.18.0
 architecture: x86_64
-conductor 0.8.1
+conductor 0.8.2
 git: present, git version 2.55.0
 gh: not needed
 glab: not needed
@@ -106,6 +108,19 @@ logged in to a source's host makes the run not ready.
 doctor checks `aep`, `ess` and `worktree` against the pins the binary was built with. Run at or
 below a directory holding a `b10x.toml` (a checkout of the conductor repository has one), it
 names that file and checks each program it pins instead.
+
+Under each program that is missing or older than its pin, doctor prints the command that installs
+it on this machine, for the system `uname` names and the package manager on `PATH`: on macOS with
+Homebrew, a missing `task` reads
+
+```console
+task: missing
+  install: brew install go-task
+```
+
+On Linux it is the distribution's package (`sudo apt-get install jq`), or the program's own install
+page when no package manager it knows is there; `claude` points at the Claude Code install page, and
+`aep`, `ess` and `worktree` at the ecosystem's setup page with the pin they need.
 
 The last line is `ready`, or `not ready:` and each program that failed, such as
 `not ready: worktree (too old)` or `not ready: gh (not logged in to github.com)`; doctor then exits

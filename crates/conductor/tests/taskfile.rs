@@ -1,7 +1,7 @@
 //! `story:instance-records-start`: the tasks of `Taskfile.yml` that run conductor run it in the
 //! active instance's records directory, `task trust` trusts that directory, and `task
-//! agents:link` links this checkout's Claude Code adapters into `~/.claude/agents/` without
-//! overwriting anything. `task trust` runs `conductor trust` (`story:portable-trust`), whose own
+//! agents:link REPO=<path>` links this checkout's Claude Code adapters into that repository's
+//! `.claude/agents/` without overwriting anything (`story:agents-link-local`). `task trust` runs `conductor trust` (`story:portable-trust`), whose own
 //! cases are `tests/trust.rs`.
 //!
 //! The first tests read `Taskfile.yml` as YAML. The others run the tasks with `task` against a
@@ -196,10 +196,27 @@ fn agents_link_names_the_three_adapters_and_never_overwrites() {
         commands.contains("for name in conductor repo-controller conductor-dev"),
         "{commands}"
     );
-    for forbidden in ["ln -sf", "ln -fs", "ln -f", "rm ", "mv ", "--force"] {
+    for forbidden in ["ln -sf", "ln -fs", "ln -f", "mv ", "--force"] {
         assert!(
             !commands.contains(forbidden),
             "agents:link may overwrite ({forbidden}): {commands}"
+        );
+    }
+    // The one removal: a symbolic link under ~/.claude/agents/ that points into this checkout,
+    // which an earlier agents:link made; nothing in REPO/.claude/agents/ is ever removed.
+    assert_eq!(
+        commands.matches("rm ").count(),
+        1,
+        "agents:link removes only an old link into this checkout: {commands}"
+    );
+    for guard in [
+        "old=\"$HOME/.claude/agents/$name.md\"",
+        "if [ -L \"$old\" ]; then",
+        "\"$root\"/*|\"$real\"/*) rm \"$old\"",
+    ] {
+        assert!(
+            commands.contains(guard),
+            "agents:link removes only an old link into this checkout ({guard}): {commands}"
         );
     }
     for agent in AGENTS {
@@ -336,6 +353,41 @@ impl Case {
         let file = self.dir.join("conductor.yaml");
         fs::write(&file, text).expect("write the config file");
         file
+    }
+
+    /// A git repository `name` in the case's directory, made with `git init`.
+    fn git_repository(&self, name: &str) -> PathBuf {
+        let repo = self.dir.join(name);
+        fs::create_dir_all(&repo).expect("create the repository");
+        let init = Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&repo)
+            .env("HOME", self.dir.join("home"))
+            .output()
+            .expect("git runs");
+        assert!(init.status.success(), "{init:?}");
+        repo
+    }
+
+    /// `git status --porcelain --untracked-files=all` in `repo`.
+    fn git_status(&self, repo: &Path) -> String {
+        let status = Command::new("git")
+            .args(["status", "--porcelain", "--untracked-files=all"])
+            .current_dir(repo)
+            .env("HOME", self.dir.join("home"))
+            .env("GIT_CEILING_DIRECTORIES", &self.dir)
+            .output()
+            .expect("git runs");
+        assert!(status.status.success(), "{status:?}");
+        String::from_utf8_lossy(&status.stdout).into_owned()
+    }
+
+    /// `task agents:link REPO=<repo>`, isolated as [`Case::task`] is.
+    fn agents_link(&self, repo: &Path) -> Output {
+        self.command("agents:link", None)
+            .arg(format!("REPO={}", repo.display()))
+            .output()
+            .expect("task runs")
     }
 
     /// `task <name>` on this checkout's `Taskfile.yml`, isolated as the module says.
@@ -528,24 +580,86 @@ fn trust_marks_the_records_directory_and_each_checkout_trusted() {
 }
 
 #[test]
-fn agents_link_links_each_adapter_once_and_refuses_a_different_file() {
+fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_different_file() {
     let Some(case) = Case::new("agents-link") else {
         return;
     };
-    let agents = case.dir.join("home/.claude/agents");
+    let repo = case.git_repository("repo");
+    let agents = repo.join(".claude/agents");
+    let home = case.dir.join("home/.claude/agents");
+    let exclude = repo.join(".git/info/exclude");
 
-    // Linked into a home that has no ~/.claude/agents yet.
+    // Without REPO the task refuses and writes nothing.
     let output = case.task("agents:link", None);
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("REPO=<path>"),
+        "{}",
+        shown(&output)
+    );
+    assert!(!agents.exists(), "{}", shown(&output));
+
+    // An earlier agents:link left a link into this checkout under ~/.claude/agents/; the user
+    // keeps a file of their own there too.
+    fs::create_dir_all(&home).expect("create ~/.claude/agents");
+    let old = home.join("conductor.md");
+    std::os::unix::fs::symlink(root().join(".claude/agents/conductor.md"), &old)
+        .expect("an old link into this checkout");
+    let own = home.join("repo-controller.md");
+    fs::write(&own, "the user's own\n").expect("write the user's file");
+
+    // Linked into the repository and left out of its status; the old link is removed, the
+    // user's file kept, and nothing is written to ~/.claude/agents/.
+    let output = case.agents_link(&repo);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     for agent in AGENTS {
         let link = agents.join(format!("{agent}.md"));
         let target = fs::read_link(&link).unwrap_or_else(|error| panic!("{agent}: {error}"));
         assert_eq!(target, root().join(format!(".claude/agents/{agent}.md")));
     }
+    assert_eq!(case.git_status(&repo), "", "{}", shown(&output));
+    assert!(
+        fs::symlink_metadata(&old).is_err(),
+        "the old link into this checkout is removed: {}",
+        shown(&output)
+    );
+    assert_eq!(fs::read_to_string(&own).expect("read"), "the user's own\n");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains(&format!("note: left {}", own.display())),
+        "{}",
+        shown(&output)
+    );
+    for name in ["conductor.md", "conductor-dev.md"] {
+        assert!(
+            fs::symlink_metadata(home.join(name)).is_err(),
+            "agents:link wrote ~/.claude/agents/{name}"
+        );
+    }
+    let excluded = fs::read_to_string(&exclude).expect("read the exclude file");
+    for agent in AGENTS {
+        let line = format!(".claude/agents/{agent}.md");
+        assert_eq!(
+            excluded.lines().filter(|l| *l == line).count(),
+            1,
+            "{excluded}"
+        );
+    }
 
-    // Linked again: the same links are fine.
-    let output = case.task("agents:link", None);
+    // Linked again: nothing changes.
+    let output = case.agents_link(&repo);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(
+        fs::read_to_string(&exclude).expect("read the exclude file"),
+        excluded
+    );
+    assert_eq!(case.git_status(&repo), "");
+    for agent in AGENTS {
+        let link = agents.join(format!("{agent}.md"));
+        assert_eq!(
+            fs::read_link(&link).expect("the link"),
+            root().join(format!(".claude/agents/{agent}.md"))
+        );
+    }
 
     // A different file and a link elsewhere are refused and kept as they are.
     let file = agents.join("conductor.md");
@@ -559,7 +673,7 @@ fn agents_link_links_each_adapter_once_and_refuses_a_different_file() {
     let missing = agents.join("conductor-dev.md");
     fs::remove_file(&missing).expect("remove the link");
 
-    let output = case.task("agents:link", None);
+    let output = case.agents_link(&repo);
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -1022,12 +1136,13 @@ fn adv_agents_link_links_nothing_when_only_the_last_adapter_is_in_the_way() {
     let Some(case) = Case::new("adv-agents-link-last") else {
         return;
     };
-    let agents = case.dir.join("home/.claude/agents");
-    fs::create_dir_all(&agents).expect("create ~/.claude/agents");
+    let repo = case.git_repository("repo");
+    let agents = repo.join(".claude/agents");
+    fs::create_dir_all(&agents).expect("create REPO/.claude/agents");
     let last = agents.join("conductor-dev.md");
     fs::write(&last, "the user's own\n").expect("write a different file");
 
-    let output = case.task("agents:link", None);
+    let output = case.agents_link(&repo);
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
     for agent in ["conductor", "repo-controller"] {
         assert!(
@@ -2541,11 +2656,12 @@ fn each_instance_s_dashboard_service_is_its_own_unit() {
     assert_eq!(calls[2], "systemctl --user stop b-conductor-dashboard");
 }
 
-/// `story:agents-link-user-scope`: every session the tasks start passes `--setting-sources
-/// project,local` and reads no user-level agent, so `task agents:link` says it serves an
-/// interactive session started with the user's own settings, not a session in another directory.
+/// `story:agents-link-local`: `task agents:link` serves a session started by hand in the
+/// repository it is given, never every session on the machine through `~/.claude/agents/`; the
+/// sessions the tasks start pass `--setting-sources project,local` and start from their role's
+/// profile, so the desc says so.
 #[test]
-fn agents_link_says_it_serves_a_session_with_the_users_own_settings() {
+fn agents_link_says_it_serves_a_session_started_by_hand_in_the_repository() {
     let taskfile = taskfile();
     let desc = taskfile["tasks"]["agents:link"]["desc"]
         .as_str()
@@ -2554,8 +2670,11 @@ fn agents_link_says_it_serves_a_session_with_the_users_own_settings() {
         !desc.contains("so a session started in another directory finds them"),
         "{desc}"
     );
+    assert!(desc.contains("REPO/.claude/agents/"), "{desc}");
+    assert!(desc.contains("task agents:link REPO=<path>"), "{desc}");
+    assert!(desc.contains("a session started by hand in REPO"), "{desc}");
     assert!(
-        desc.contains("an interactive session started with the user's own settings"),
+        desc.contains("writes nothing to ~/.claude/agents/"),
         "{desc}"
     );
     assert!(desc.contains("--setting-sources project,local"), "{desc}");

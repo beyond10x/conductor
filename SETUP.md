@@ -51,7 +51,11 @@ to fill in, and each step says where they come from. `<target>` is the build of 
    - Hands: none when `~/.local/bin` is on `PATH`; otherwise the person adds it.
 
 4. **Install `aep`, `ess` and `worktree` at conductor's pins.** `conductor doctor` names each pin,
-   on a line such as `aep: 0.69.1 is older than the build's pin 0.71`. A pin `x.y` takes the
+   on a line such as `aep: 0.69.1 is older than the build's pin 0.71`, and under the row of each
+   one missing or too old prints where to get it, such as
+   `  install: follow https://github.com/beyond10x/agentplugins/releases/latest/download/SETUP.md (needs aep 0.71)`;
+   for `task`, `jq`, `gh` and `claude` it prints this machine's command the same way, such as
+   `  install: brew install go-task`. A pin `x.y` takes the
    newest `x.y.z` release of that program, `<v>` below, listed at
    https://github.com/beyond10x/aep/releases, https://github.com/beyond10x/ess/releases and
    https://github.com/beyond10x/worktree/releases; their tags carry no `v`. `<name>` below is the

@@ -261,18 +261,21 @@ fn adv_env_chdir_into_another_repository_is_an_accepted_limit() {
     );
 }
 
-/// Finding 7: `GIT_DIR` and `GIT_WORK_TREE` are what `--git-dir` and `--work-tree` set: with
-/// `../b` a git repository, `GIT_DIR=../b/.git git rev-parse --git-dir` prints `../b/.git`.
+/// Finding 7, closed by `story:guard-git-c-outside`: `GIT_DIR` and `GIT_WORK_TREE` are what
+/// `--git-dir` and `--work-tree` set (with `../b` a git repository, `GIT_DIR=../b/.git git
+/// rev-parse --git-dir` prints `../b/.git`), so the guard follows them into another repository as
+/// it follows `-C`.
 #[test]
-fn adv_git_dir_and_work_tree_from_the_environment_are_an_accepted_limit() {
-    assert_accepted_limit(
+fn adv_git_dir_and_work_tree_from_the_environment_reach_another_repository() {
+    assert_bash_denied(
         "git-env",
-        PROBE,
         &[
             "GIT_DIR=../conductor/.git git log",
             "GIT_DIR=~/example-org/conductor/.git GIT_WORK_TREE=~/example-org/conductor git status",
             "env GIT_DIR=../conductor/.git git push",
         ],
+        "another repository",
+        "git log",
     );
 }
 

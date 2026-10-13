@@ -716,6 +716,22 @@ fn a_process_working_in_the_checkout_keeps_its_target() {
 /// What `conductor gc` calls the strip of build output from worktree archives.
 const ARCHIVE_BUILD_OUTPUT: &str = "build output in worktree archives";
 
+/// The `manifest.json` `worktree` writes into the archive at `archive`: a record of a managed tree
+/// of `alpha`, so the archive is one of the instance's.
+fn manifest(case: &Case, archive: &Path) {
+    let name = archive
+        .file_name()
+        .expect("an archive directory")
+        .to_string_lossy()
+        .into_owned();
+    write(
+        &archive.join("manifest.json"),
+        &json!({"format": "worktree.archive/1", "id": name,
+                "repository_root": case.checkout("alpha"), "path": case.tree(&name)})
+        .to_string(),
+    );
+}
+
 /// The fixture's archives of `alpha`, under the case's home: `one` holds 32 KiB of build output
 /// in its patch `one/dirty.patch`, `two` holds none. A `worktree` first on `PATH` answers
 /// `prune-archives` as the real one would over them, and with `--apply` empties `one`'s patch;
@@ -727,6 +743,9 @@ fn strip_fixture(case: &Case) -> PathBuf {
     let patch = archives.join("one/dirty.patch");
     fill(&patch, 32 * KIB);
     fill(&archives.join("two/commits.bundle"), 8 * KIB);
+    for name in ["one", "two"] {
+        manifest(case, &archives.join(name));
+    }
     let assessment = |name: &str, verdict: &str, strip: u64| {
         json!({
             "archive_directory": name, "path": archives.join(name), "worktree_id": name,
@@ -866,9 +885,10 @@ fn gc_strips_build_output_from_archives_and_its_dry_run_only_lists_it() {
 }
 
 /// `story:gc-archive-profile`: `worktree prune-archives` resolves its profile from `--repo`, and
-/// refuses the records directory, which no profile contains. Both calls `conductor gc` makes, the
-/// listing (in the dry run and in the run) and the strip, name the first git checkout under the
-/// checkouts root in name order, `alpha`, and never the records directory the binary runs in.
+/// refuses the records directory, which no profile contains. Every call `conductor gc` makes, the
+/// listing of each archive (`story:gc-archive-measure`: one per archive in the dry run, none in
+/// the run, whose archives the cache answers) and the strip, names the first git checkout under
+/// the checkouts root in name order, `alpha`, and never the records directory the binary runs in.
 #[test]
 fn prune_archives_is_given_the_first_checkout_under_the_checkouts_root_not_the_records() {
     let case = Case::new("strip-archives-repo");
@@ -879,7 +899,7 @@ fn prune_archives_is_given_the_first_checkout_under_the_checkouts_root_not_the_r
     assert!(output.status.success(), "{}", shown(&output));
     assert_eq!(
         repos(&case),
-        vec![("list".to_owned(), alpha.clone())],
+        vec![("list".to_owned(), alpha.clone()); 2],
         "the dry run's listing named another --repo: {}",
         shown(&output)
     );
@@ -1007,4 +1027,184 @@ fn gc_names_the_go_build_cache_among_the_holders_it_does_not_reclaim() {
         !removing(&logged).iter().any(|call| call.contains(&path)),
         "a removing call names the Go build cache:\n{logged}"
     );
+}
+
+/// The variable that bounds how long `conductor gc` walks archives, in seconds.
+const ARCHIVE_BOUND: &str = "CONDUCTOR_GC_ARCHIVE_BOUND";
+
+/// Three archives of `alpha`, `a1`, `a2` and `a3`, each a record of a managed tree of `alpha`
+/// with a 4 KiB patch. A `worktree` first on `PATH` answers `prune-archives --id <id>` for the
+/// archive `<id>` alone, 4 KiB strippable, unless the file `slow-<name>` lies in the case's
+/// directory: then it never answers. Each `prune-archives` call is appended to `calls.log`; every
+/// other call goes to the fixture's fake. Returns the archives' directory.
+fn measure_fixture(case: &Case) -> PathBuf {
+    let root = case.home().join(".local/state/worktree/archives");
+    let archives = root.join("alpha");
+    for name in ["a1", "a2", "a3"] {
+        fill(&archives.join(name).join("dirty.patch"), 4 * KIB);
+        manifest(case, &archives.join(name));
+    }
+    let bin = case.bin();
+    fs::rename(bin.join("worktree"), bin.join("worktree-fixture"))
+        .expect("keep the fixture's worktree");
+    program(
+        &bin,
+        "worktree",
+        &format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = prune-archives ]; then\n\
+             \x20 printf 'worktree %s\\n' \"$*\" >> '{calls}'\n\
+             \x20 id=; prev=\n\
+             \x20 for arg; do\n\
+             \x20   if [ \"$prev\" = --id ]; then id=$arg; fi\n\
+             \x20   prev=$arg\n\
+             \x20 done\n\
+             \x20 case \" $* \" in *' --apply '*) printf '{{\"version\":4,\"ok\":true}}\\n'; exit 0 ;; esac\n\
+             \x20 name=${{id#*/}}\n\
+             \x20 if [ -e '{dir}'/slow-\"$name\" ]; then exec sleep 600; fi\n\
+             \x20 printf '{{\"version\":4,\"ok\":true,\"applied\":false,\"archives\":[{{\"archive_directory\":\"%s\",\"path\":\"%s/%s\",\"verdict\":\"strippable\",\"strip_bytes\":4096}}],\"skipped\":[]}}\\n' \"$name\" '{root}' \"$id\"\n\
+             \x20 exit 0\n\
+             fi\n\
+             exec '{fixture}' \"$@\"\n",
+            calls = case.calls().display(),
+            dir = case.dir.display(),
+            root = root.display(),
+            fixture = bin.join("worktree-fixture").display(),
+        ),
+    );
+    archives
+}
+
+/// `conductor gc --dry-run` with the archive bound `bound` in seconds, if any, from the records
+/// directory, with a fresh `calls.log`.
+fn measured(case: &Case, bound: Option<&str>) -> Output {
+    let _ = fs::remove_file(case.calls());
+    let path = format!("{}:/usr/bin:/bin", case.bin().display());
+    let mut command = common::conductor(case.home());
+    command
+        .args(["gc", "--dry-run"])
+        .current_dir(case.records())
+        .env("PATH", path)
+        .env_remove(ARCHIVE_BOUND)
+        .stdin(Stdio::null());
+    if let Some(bound) = bound {
+        command.env(ARCHIVE_BOUND, bound);
+    }
+    command.output().expect("conductor runs")
+}
+
+/// The archives the last run walked: the ids its `worktree prune-archives` listings named.
+fn walked(case: &Case) -> Vec<String> {
+    case.logged()
+        .lines()
+        .filter(|line| line.starts_with("worktree prune-archives") && !line.contains(" --apply"))
+        .filter_map(|line| line.split(" --id ").nth(1))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The archive rows a text run printed, one per archive measured.
+fn archive_rows(output: &Output) -> Vec<String> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.starts_with("archive  "))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `story:gc-archive-measure`: gc measures archive by archive and, when its bound ends the walk,
+/// prints the archives it measured and a partial row instead of no row, and exits 0; the next run
+/// walks only the archive the bound left.
+#[test]
+fn the_archive_row_is_partial_when_the_bound_ends_the_walk() {
+    let case = Case::new("archives-partial");
+    measure_fixture(&case);
+    write(&case.dir.join("slow-a3"), "");
+
+    let started = Instant::now();
+    let output = measured(&case, Some("5"));
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(
+        started.elapsed() < Duration::from_secs(120),
+        "the bound did not stop the walk: {}",
+        shown(&output)
+    );
+    let rows = archive_rows(&output);
+    assert_eq!(rows.len(), 2, "{}", shown(&output));
+    assert!(
+        rows[0].contains("alpha/a1") && rows[1].contains("alpha/a2"),
+        "{}",
+        shown(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line.starts_with("reclaimable")
+            && line.contains(ARCHIVE_BUILD_OUTPUT)
+            && line.contains("8192 bytes")
+            && line.contains("partial: 2 of 3 archives")),
+        "no partial archive row: {}",
+        shown(&output)
+    );
+
+    // The next run: the two measured are answered from the cache, the third walked.
+    fs::remove_file(case.dir.join("slow-a3")).expect("make a3 answer");
+    let output = measured(&case, None);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert_eq!(walked(&case), ["alpha/a3"], "{}", shown(&output));
+    assert_eq!(archive_rows(&output).len(), 3, "{}", shown(&output));
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("partial:"),
+        "{}",
+        shown(&output)
+    );
+}
+
+/// `story:gc-archive-measure`: an archive's size is cached by its id and modification time, so a
+/// second run with nothing changed walks no archive and prints all three, and an archive whose
+/// modification time changed is walked again.
+#[test]
+fn an_unchanged_archive_is_answered_from_the_cache_and_a_changed_one_walked_again() {
+    let case = Case::new("archives-cache");
+    let archives = measure_fixture(&case);
+
+    let output = measured(&case, None);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert_eq!(
+        walked(&case),
+        ["alpha/a1", "alpha/a2", "alpha/a3"],
+        "{}",
+        shown(&output)
+    );
+    assert_eq!(archive_rows(&output).len(), 3, "{}", shown(&output));
+
+    let output = measured(&case, None);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert!(
+        walked(&case).is_empty(),
+        "an unchanged archive was walked again: {}\n{}",
+        case.logged(),
+        shown(&output)
+    );
+    assert_eq!(archive_rows(&output).len(), 3, "{}", shown(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line.starts_with("reclaimable")
+            && line.contains(ARCHIVE_BUILD_OUTPUT)
+            && line.contains("12288 bytes")),
+        "no archive row of all three: {}",
+        shown(&output)
+    );
+    assert!(!stdout.contains("partial:"), "{}", shown(&output));
+
+    let later = std::time::SystemTime::now() + Duration::from_secs(60);
+    fs::OpenOptions::new()
+        .write(true)
+        .open(archives.join("a2/dirty.patch"))
+        .expect("open a2's patch")
+        .set_modified(later)
+        .expect("change a2's modification time");
+    let output = measured(&case, None);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert_eq!(walked(&case), ["alpha/a2"], "{}", shown(&output));
+    assert_eq!(archive_rows(&output).len(), 3, "{}", shown(&output));
 }

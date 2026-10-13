@@ -13,6 +13,7 @@ const sidebars: SidebarsConfig = {
       label: 'Concepts',
       collapsed: false,
       items: [
+        'concepts/why-conductor',
         'concepts/roles',
         'concepts/the-loop',
         'concepts/decisions-and-messages',
@@ -44,6 +45,7 @@ const sidebars: SidebarsConfig = {
         'guides/add-a-repository-rule',
         'guides/read-the-dashboard',
         'guides/troubleshoot',
+        'guides/run-isolated',
       ],
     },
     {

@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:gc-archive-measure
 kind: story
-status: draft
+status: active
 title: gc measures archive build output within one cycle
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T15:22:36Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-13T15:22:37Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
