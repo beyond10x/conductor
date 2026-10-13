@@ -86,6 +86,7 @@ instances:
     controllers:
       max_working: 2
       max_subagents: 2
+      max_open_reviews: 2
     repositories:
       - {match: alpha, activity: inactive}
     cadence:

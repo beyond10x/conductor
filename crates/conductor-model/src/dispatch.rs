@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb
-// contract digest a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7
+// model digest 6c34291a578b45b47a352863bab11908e6e2fe374a6ae3d5ea7dedb1d4b1d656
+// contract digest 3abd04adcf6624e03c0d301e94f0f29887ea5d596587ab317d5f658243dae124
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -8,6 +8,13 @@
 //! How conductor directs the repository controllers. A controller is one session bound to one repository checkout, and at most one runs per repository. A dispatch is one brief to one controller in service of one goal, and it moves as the controller reports. Every message between conductor and a controller is recorded with its parsed first line, whichever harness and transport carried it. A resource request asks conductor for a build slot, disk or usage before a controller spends it. Design: docs/design/conductor.md § 3, § 6, § 7.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// CheckRecords — `conductor.dispatch.CheckRecords`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckRecords {
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
 
 /// The states of `conductor.dispatch.Controller`, as runtime values.
 ///
@@ -52,6 +59,76 @@ pub enum DispatchState {
 /// Every value starts with `DSP-`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchId(pub String);
+
+/// DispatchLogEvent — `conductor.dispatch.DispatchLogEvent`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchLogEvent {
+    /// `Sent`.
+    Sent,
+    /// `Started`.
+    Started,
+    /// `Blocked`.
+    Blocked,
+    /// `Unblocked`.
+    Unblocked,
+    /// `Done`.
+    Done,
+    /// `Failed`.
+    Failed,
+    /// `Cancelled`.
+    Cancelled,
+    /// `MessageReceived`.
+    MessageReceived,
+    /// `ResourceGranted`.
+    ResourceGranted,
+    /// `ResourceRefused`.
+    ResourceRefused,
+    /// `CharterRevised`.
+    CharterRevised,
+}
+
+/// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchLogLine {
+    /// `at` — `Timestamp`.
+    pub at: crate::primitives::Timestamp,
+    /// `event` — `conductor.dispatch.DispatchLogEvent`.
+    pub event: DispatchLogEvent,
+    /// `repo` — `String`.
+    pub repo: String,
+    /// `id` — `Optional<String>`.
+    pub id: Option<String>,
+    /// `to` — `Optional<String>`.
+    pub to: Option<String>,
+    /// `goal` — `Optional<String>`.
+    pub goal: Option<String>,
+    /// `brief` — `Optional<String>`.
+    pub brief: Option<String>,
+    /// `priority` — `Optional<Integer>`.
+    pub priority: Option<i64>,
+    /// `waits_on` — `Optional<String>`.
+    pub waits_on: Option<String>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+    /// `evidence` — `Optional<String>`.
+    pub evidence: Option<String>,
+    /// `controller_id` — `Optional<String>`.
+    pub controller_id: Option<String>,
+    /// `session_id` — `Optional<String>`.
+    pub session_id: Option<String>,
+    /// `charter_revision` — `Optional<Integer>`.
+    pub charter_revision: Option<i64>,
+    /// `from` — `Optional<String>`.
+    pub from: Option<String>,
+    /// `kind` — `Optional<String>`.
+    pub kind: Option<String>,
+    /// `first_line` — `Optional<String>`.
+    pub first_line: Option<String>,
+    /// `resource` — `Optional<String>`.
+    pub resource: Option<String>,
+    /// `amount` — `Optional<Integer>`.
+    pub amount: Option<i64>,
+}
 
 /// The states of `conductor.dispatch.GuardDecision`, as runtime values.
 ///
@@ -104,6 +181,30 @@ pub enum MessageKind {
     Escalation,
     /// `Unknown`.
     Unknown,
+}
+
+/// RecordsFinding — `conductor.dispatch.RecordsFinding`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordsFinding {
+    /// `file` — `String`.
+    pub file: String,
+    /// `line` — `Integer`.
+    pub line: i64,
+    /// `finding` — `conductor.dispatch.RecordsFindingKind`.
+    pub finding: RecordsFindingKind,
+    /// `detail` — `String`.
+    pub detail: String,
+}
+
+/// RecordsFindingKind — `conductor.dispatch.RecordsFindingKind`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordsFindingKind {
+    /// `UnknownDecision`.
+    UnknownDecision,
+    /// `UnknownKeySet`.
+    UnknownKeySet,
+    /// `DecisionInDispatchLog`.
+    DecisionInDispatchLog,
 }
 
 /// ResourceKind — `conductor.dispatch.ResourceKind`: one of a closed set of names.

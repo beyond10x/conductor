@@ -25,6 +25,14 @@ edits, then compiles and tests the integrated head in one build slot before the 
 One round of the four plan critics; every finding was answered in the stories (the guard half of
 `merge: human` became `story:merge-human-guard`, a draft for a later wave).
 
+## Deviations
+
+- The integrated head was regenerated, compiled, linted and tested once in a build slot before the
+  push (rules item 112): clippy clean; one guard test failed (`sed -ni` on a records file was not
+  seen as an in-place edit) and was fixed; the reference sample config gained the new key.
+- The slot waited for disk; that wait started `epic:disk-protocol` (filed in this wave, built in
+  the next).
+
 ## Outcome
 
 Pending.

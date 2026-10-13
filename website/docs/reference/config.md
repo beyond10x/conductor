@@ -67,6 +67,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `confinement.limits.tasks_max` | integer | none | `not defined(tasks_max)` or `tasks_max >= 1` |
 | `controllers.max_working` | integer | `5` | `max_working >= 1` |
 | `controllers.max_subagents` | integer | `4` | `max_subagents >= 1` |
+| `controllers.max_open_reviews` | integer | `3` | `max_open_reviews >= 0` |
 | `repositories` | list of [RepositoryRule](#repositoryrule) | `[]` |  |
 | `repositories[].match` | string | required |  |
 | `repositories[].activity` | `active` \| `inactive` | required |  |
@@ -242,9 +243,9 @@ Keys: `served_by`, `session_name`. Specified as `conductor.config.ConductorSessi
 
 ### Controllers
 
-How many controllers of the instance work at once, at most, and how many sub-agents one controller runs at once, at most. Absent, they are 5 and 4.
+How many controllers of the instance work at once, at most, how many sub-agents one controller runs at once, at most, and how many pull requests of one repository may wait for review before conductor sends that repository no new dispatch, `0` meaning no limit. Absent, they are 5, 4 and 3.
 
-Keys: `max_working`, `max_subagents`. Specified as `conductor.config.Controllers`.
+Keys: `max_working`, `max_subagents`, `max_open_reviews`. Specified as `conductor.config.Controllers`.
 
 ### RepositoryRule
 

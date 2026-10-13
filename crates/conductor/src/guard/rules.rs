@@ -2043,6 +2043,21 @@ fn holds_write_form(command: &str) -> bool {
     !shell::written(command).is_empty()
         || WRITE_SUBSTRINGS.iter().any(|form| command.contains(form))
         || WRITE_WORDS.iter().any(|form| contains_word(command, form))
+        || edits_in_place(command)
+}
+
+/// Whether `command` runs an in-place editor (`sed`, `yq`, `perl`) with an in-place flag among the
+/// flags that follow it ([`in_place`]): `sed -ni`, `sed -n -i`, `perl -0pi`, which the substrings
+/// of [`WRITE_SUBSTRINGS`] miss.
+fn edits_in_place(command: &str) -> bool {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    words.iter().enumerate().any(|(at, word)| {
+        matches!(shell::program(word), "sed" | "yq" | "perl")
+            && words[at + 1..]
+                .iter()
+                .take_while(|flag| flag.starts_with('-'))
+                .any(|flag| in_place(flag))
+    })
 }
 
 /// Whether `command` names the path `spelling` as a whole: `spelling` followed by the end of the

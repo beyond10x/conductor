@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb
-  contract digest a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7
+  model digest 6c34291a578b45b47a352863bab11908e6e2fe374a6ae3d5ea7dedb1d4b1d656
+  contract digest 3abd04adcf6624e03c0d301e94f0f29887ea5d596587ab317d5f658243dae124
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-409 capabilities: **398 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+416 capabilities: **405 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -70,6 +70,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.decision.Decision.State` |
 | domain type | `conductor.decision.DecisionClass` |
 | domain type | `conductor.decision.DecisionId` |
+| domain type | `conductor.decision.DecisionLogEvent` |
+| domain type | `conductor.decision.DecisionLogLine` |
 | domain type | `conductor.decision.DecisionRequest.State` |
 | domain type | `conductor.decision.RequestId` |
 | domain type | `conductor.decision.ShowDecision` |
@@ -84,15 +86,20 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.direction.RepositoryActivityRow` |
 | domain type | `conductor.direction.RepositoryMark.State` |
 | domain type | `conductor.direction.ServingId` |
+| domain type | `conductor.dispatch.CheckRecords` |
 | domain type | `conductor.dispatch.Controller.State` |
 | domain type | `conductor.dispatch.ControllerId` |
 | domain type | `conductor.dispatch.Dispatch.State` |
 | domain type | `conductor.dispatch.DispatchId` |
+| domain type | `conductor.dispatch.DispatchLogEvent` |
+| domain type | `conductor.dispatch.DispatchLogLine` |
 | domain type | `conductor.dispatch.GuardDecision.State` |
 | domain type | `conductor.dispatch.GuardDecisionId` |
 | domain type | `conductor.dispatch.Message.State` |
 | domain type | `conductor.dispatch.MessageId` |
 | domain type | `conductor.dispatch.MessageKind` |
+| domain type | `conductor.dispatch.RecordsFinding` |
+| domain type | `conductor.dispatch.RecordsFindingKind` |
 | domain type | `conductor.dispatch.ResourceKind` |
 | domain type | `conductor.dispatch.ResourceRequest.State` |
 | domain type | `conductor.dispatch.ResourceRequestId` |

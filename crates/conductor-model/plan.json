@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb",
-    "contract_digest": "a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7"
+    "source_digest": "6c34291a578b45b47a352863bab11908e6e2fe374a6ae3d5ea7dedb1d4b1d656",
+    "contract_digest": "3abd04adcf6624e03c0d301e94f0f29887ea5d596587ab317d5f658243dae124"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -404,6 +404,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.decision.DecisionLogEvent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.decision.DecisionLogLine",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.decision.DecisionRequest.State",
       "disposition": {
         "disposition": "generated"
@@ -502,6 +516,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.dispatch.CheckRecords",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.dispatch.Controller.State",
       "disposition": {
         "disposition": "generated"
@@ -524,6 +545,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.dispatch.DispatchId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.DispatchLogEvent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.DispatchLogLine",
       "disposition": {
         "disposition": "generated"
       }
@@ -559,6 +594,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.dispatch.MessageKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.RecordsFinding",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.RecordsFindingKind",
       "disposition": {
         "disposition": "generated"
       }

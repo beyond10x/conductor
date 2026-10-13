@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 12036b1b18860e485d49ea562998626ce5687d688d1ebc44c2155ce8c5d47ceb
-// contract digest a0e58f786885660221ebe1d489f0dd17c50bad33467c15be211a67dad661d7d7
+// model digest 6c34291a578b45b47a352863bab11908e6e2fe374a6ae3d5ea7dedb1d4b1d656
+// contract digest 3abd04adcf6624e03c0d301e94f0f29887ea5d596587ab317d5f658243dae124
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -46,6 +46,62 @@ pub enum DecisionClass {
 /// Every value starts with `DEC-`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionId(pub String);
+
+/// DecisionLogEvent — `conductor.decision.DecisionLogEvent`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecisionLogEvent {
+    /// `Decided`.
+    Decided,
+    /// `Requested`.
+    Requested,
+    /// `Answered`.
+    Answered,
+    /// `Escalated`.
+    Escalated,
+    /// `Withdrawn`.
+    Withdrawn,
+    /// `Reversed`.
+    Reversed,
+}
+
+/// DecisionLogLine — `conductor.decision.DecisionLogLine`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecisionLogLine {
+    /// `at` — `Timestamp`.
+    pub at: crate::primitives::Timestamp,
+    /// `event` — `conductor.decision.DecisionLogEvent`.
+    pub event: DecisionLogEvent,
+    /// `repo` — `Optional<String>`.
+    pub repo: Option<String>,
+    /// `id` — `String`.
+    pub id: String,
+    /// `class` — `Optional<conductor.decision.DecisionClass>`.
+    pub class: Option<DecisionClass>,
+    /// `decided_by` — `Optional<conductor.decision.Decider>`.
+    pub decided_by: Option<Decider>,
+    /// `question` — `Optional<String>`.
+    pub question: Option<String>,
+    /// `options` — `Optional<String>`.
+    pub options: Option<String>,
+    /// `choice` — `Optional<String>`.
+    pub choice: Option<String>,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+    /// `evidence` — `Optional<String>`.
+    pub evidence: Option<String>,
+    /// `recorded_by` — `Optional<String>`.
+    pub recorded_by: Option<String>,
+    /// `operator_words` — `Optional<String>`.
+    pub operator_words: Option<String>,
+    /// `recommendation` — `Optional<String>`.
+    pub recommendation: Option<String>,
+    /// `blocker` — `Optional<String>`.
+    pub blocker: Option<String>,
+    /// `decision_id` — `Optional<conductor.decision.DecisionId>`.
+    pub decision_id: Option<DecisionId>,
+    /// `escalation_class` — `Optional<conductor.decision.DecisionClass>`.
+    pub escalation_class: Option<DecisionClass>,
+}
 
 /// The states of `conductor.decision.DecisionRequest`, as runtime values.
 ///

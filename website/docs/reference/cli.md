@@ -128,6 +128,8 @@ Every command takes these, before or after its name.
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
+| [`conductor records`](#conductor-records) |  |
+| [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor store`](#conductor-store) |  |
@@ -1517,6 +1519,24 @@ Usage: conductor init [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--instance <NAME>` | no | none | The instance whose records directory is written. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
+
+## `conductor records`
+
+```text
+Usage: conductor records [OPTIONS] <COMMAND>
+```
+
+## `conductor records check`
+
+Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log
+
+```text
+Usage: conductor records check [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | none | How the findings are printed: text or json. Default: text |
 
 ## `conductor setup`
 
