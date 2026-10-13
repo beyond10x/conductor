@@ -4,6 +4,8 @@ id: story:restart-message
 kind: story
 status: draft
 title: Model the restart message, the ready report and the conductor-dev actor
+relations:
+- decomposes: epic:deterministic-steps
 revision: 1
 ---
 # Model the restart message, the ready report and the conductor-dev actor

@@ -6,6 +6,7 @@ status: draft
 title: conductor status prints the board, live sessions, open dispatches and waits
 relations:
 - decomposes: epic:loop-without-handwork
+- decomposes: epic:deterministic-steps
 scope:
 - confidence: cited
   path: .agents/conductor.md

@@ -6,6 +6,7 @@ status: draft
 title: The watch reports when an open pull request's checks have concluded
 relations:
 - decomposes: epic:loop-without-handwork
+- decomposes: epic:deterministic-steps
 scope:
 - confidence: cited
   path: .agents/conductor.md
