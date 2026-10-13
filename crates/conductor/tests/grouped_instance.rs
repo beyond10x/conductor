@@ -6,7 +6,9 @@
 //!   (`<root>/<repo>` or `<root>/<group>/<repo>`), and the same under `checkouts.trees` with the
 //!   tree below it; its name is its path under the root (`<group>/<repo>`). The guard, the
 //!   sessions collector and a `local:` source's listing all read it so.
-//! - A `gitlab:` source is read by no collector, and `config show` prints it.
+//! - A `gitlab:` source is read through `glab api --hostname <host>` only, never `gh`
+//!   (`story:gitlab-repositories`; its rows are `tests/collect_gitlab.rs`'s), and `config show`
+//!   prints it.
 //! - A `local:` or `gitlab:` source may carry `exclude`; an excluded repository is not listed and
 //!   not placed.
 //!
@@ -628,7 +630,7 @@ fn a_controller_cannot_widen_itself_by_writing_a_git_marker() {
 // ---------------------------------------------------------------------------------------------
 // Acceptance 2 and 3, through the binary: sessions are placed by the same rule, a `local:`
 // source lists repositories at depth 1 and 2, an excluded group's are not listed, and a
-// `gitlab:` source asks nothing.
+// `gitlab:` source asks `glab` for its group's projects and `gh` nothing.
 // ---------------------------------------------------------------------------------------------
 
 #[test]
@@ -674,7 +676,7 @@ fn a_local_source_lists_grouped_repositories_and_places_their_sessions() {
 }
 
 #[test]
-fn a_gitlab_source_asks_nothing_and_config_show_prints_it() {
+fn a_gitlab_source_asks_glab_only_and_config_show_prints_it() {
     let case = Case::new("gitlab");
     grouped(&case);
     let root = case.root();
@@ -683,7 +685,8 @@ fn a_gitlab_source_asks_nothing_and_config_show_prints_it() {
         live("s-s", &root.join("s/src")),
         live("s-x", &root.join("x/y")),
     ]));
-    // A `gitlab` source's snapshot asks for `glab` (story:gh-optional).
+    // A `gitlab` source's snapshot asks for `glab` (story:gh-optional), and reads the group's
+    // projects through it (story:gitlab-repositories): this group has none.
     case.program("glab", "printf '%s' '[]'");
     let config = case.config("[{gitlab: acme-group, exclude: [x]}]");
     let output = case.start_snapshot(&config);
@@ -693,6 +696,16 @@ fn a_gitlab_source_asks_nothing_and_config_show_prints_it() {
         Vec::<String>::new(),
         "gh is asked nothing"
     );
+    let asked = case.lines("glab");
+    assert!(!asked.is_empty(), "glab is asked for the group's projects");
+    for line in &asked {
+        assert_eq!(
+            line,
+            "api --hostname gitlab.com groups/acme-group/projects?include_subgroups=true&\
+             with_shared=false&per_page=100&page=1",
+            "{asked:#?}"
+        );
+    }
     assert_eq!(case.rows(&config, "repositories"), Vec::<Value>::new());
     assert_eq!(
         case.rows(&config, "sessions"),

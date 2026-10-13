@@ -1,0 +1,8 @@
+[
+  {"iid": 3, "title": "Start the board", "state": "merged",
+   "merged_at": "2026-10-02T09:00:00Z", "updated_at": "2026-10-02T09:00:00Z",
+   "web_url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/3"},
+  {"iid": 4, "title": "Plan the board", "state": "merged",
+   "merged_at": "2026-09-10T09:00:00Z", "updated_at": "2026-09-30T09:00:00Z",
+   "web_url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/4"}
+]

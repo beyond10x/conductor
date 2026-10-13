@@ -15,7 +15,12 @@
 //!   [`repositories::local_names`] lists it (`<repo>` or `<group>/<repo>`): read as that collector
 //!   reads it, at `HEAD`, with no fetch and nothing asked of GitHub, in an export of its `HEAD` this
 //!   collector makes under `<heads>/<repo>/`, `<heads>` beside `<exports>`. Its conformance status
-//!   is its workspace member's, when one names it as its source.
+//!   is its workspace member's, when one names it as its source;
+//! - each project of a `gitlab:` source's group and its subgroups, archived ones included, as the
+//!   repositories collector lists it ([`Forge::mapped`], `story:gitlab-repositories`): read
+//!   at `HEAD` of the checkout under the checkouts root whose `origin` names it, exported as a
+//!   local source's repository is, with no fetch; a project without such a checkout is `Missing`,
+//!   nothing read. Its conformance status is its workspace member's, when one names it.
 //!
 //! A name two origins list fails the collector naming it and both origins. An export holds what
 //! [`read_paths`] names. It never runs in a checkout, and never builds.
@@ -60,6 +65,7 @@ use conductor_model::observation::{
 use serde_json::Value;
 
 use crate::collect::blockers::{self, Workspace};
+use crate::collect::gitlab::Forge;
 use crate::collect::repositories::{self, one_of_each};
 use crate::collect::{self, Origins};
 use crate::config::{self, Active};
@@ -98,6 +104,11 @@ pub struct Sources {
     /// whose repositories are listed as [`repositories::local_names`] lists them and read at
     /// `HEAD`.
     pub local: Vec<(PathBuf, Vec<String>)>,
+    /// Each `gitlab:` source's forge, whose projects are listed as the repositories collector
+    /// lists them, each read at `HEAD` of its checkout under [`Sources::checkouts`].
+    pub gitlab: Vec<Forge>,
+    /// The checkouts root, which holds the checkouts of the `gitlab:` sources' projects.
+    pub checkouts: PathBuf,
     /// The directory a local source's repository's `HEAD` is exported under, as `<repo>/`. An
     /// absolute path.
     pub heads: PathBuf,
@@ -141,17 +152,21 @@ impl Sources {
                 (dir, exclude)
             })
             .collect();
+        sources.gitlab = Forge::all(instance);
+        sources.checkouts = PathBuf::from(&instance.checkouts.root);
         Ok(sources)
     }
 
     /// `workspace`; each of `owners` through
-    /// `gh repo list {organization} --limit 200 --json name,isArchived`; no local source, and
-    /// `heads` beside the workspace's exports; the installed `ess`; synthesis under
+    /// `gh repo list {organization} --limit 200 --json name,isArchived`; no local and no `gitlab`
+    /// source, and `heads` beside the workspace's exports; the installed `ess`; synthesis under
     /// `state/specs/`; and [`collect::BOUND`] for each command.
     #[must_use]
     pub fn over(workspace: blockers::Sources, owners: Vec<String>, state: &Path) -> Self {
         Self {
             local: Vec::new(),
+            gitlab: Vec::new(),
+            checkouts: PathBuf::new(),
             heads: workspace.exports.with_file_name("heads"),
             workspace,
             repositories: blockers::words(&[
@@ -231,14 +246,33 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
     for (name, origin) in &listed {
         let conformance_status =
             member(name).and_then(|member| conformance(&workspace, &member.name));
-        let export = match origin {
-            Origin::Owner(_) => member(name)
-                .map(|member| member.export.clone())
-                .ok_or_else(|| anyhow!("repository {name} is no member"))?,
-            Origin::Local(dir) => blockers::twice(|| export_head(sources, name, &dir.join(name)))
-                .with_context(|| format!("repository {name}, tried twice"))?,
+        let observed = match origin {
+            Origin::Owner(_) => {
+                let export = member(name)
+                    .map(|member| member.export.clone())
+                    .ok_or_else(|| anyhow!("repository {name} is no member"))?;
+                observe(sources, name, &export, conformance_status, &snapshot)?
+            }
+            Origin::Local(dir) => {
+                let export = blockers::twice(|| export_head(sources, name, &dir.join(name)))
+                    .with_context(|| format!("repository {name}, tried twice"))?;
+                observe(sources, name, &export, conformance_status, &snapshot)?
+            }
+            Origin::GitLab {
+                checkout: Some(dir),
+                ..
+            } => {
+                let export = blockers::twice(|| export_head(sources, name, dir))
+                    .with_context(|| format!("repository {name}, tried twice"))?;
+                observe(sources, name, &export, conformance_status, &snapshot)?
+            }
+            Origin::GitLab { checkout: None, .. } => unread(
+                name,
+                SpecificationPresence::Missing,
+                conformance_status,
+                &snapshot,
+            ),
         };
-        let observed = observe(sources, name, &export, conformance_status, &snapshot)?;
         record
             .specification(observed)
             .with_context(|| format!("record the specification of {name}"))?;
@@ -252,6 +286,12 @@ enum Origin {
     Owner(String),
     /// A local source's directory, which holds its checkout `<directory>/<name>`, read at `HEAD`.
     Local(PathBuf),
+    /// A project of a `gitlab` source, named as [`Forge::named`] names the source, read at `HEAD`
+    /// of its checkout when one names it.
+    GitLab {
+        source: String,
+        checkout: Option<PathBuf>,
+    },
 }
 
 impl Origin {
@@ -260,6 +300,7 @@ impl Origin {
         match self {
             Self::Owner(owner) => format!("owner {owner}"),
             Self::Local(dir) => format!("the local source {}", dir.display()),
+            Self::GitLab { source, .. } => source.clone(),
         }
     }
 }
@@ -288,6 +329,17 @@ fn enumerated(sources: &Sources) -> Result<Vec<(String, Origin)>> {
                 .into_iter()
                 .map(|name| (name, Origin::Local(dir.clone()))),
         );
+    }
+    for forge in &sources.gitlab {
+        listed.extend(forge.mapped(&sources.checkouts)?.into_iter().map(|mapped| {
+            (
+                mapped.project.name,
+                Origin::GitLab {
+                    source: forge.named(),
+                    checkout: mapped.checkout,
+                },
+            )
+        }));
     }
     listed.sort_by(|(one, _), (other, _)| one.cmp(other));
     one_of_each(&listed, |(name, _)| name, |(_, origin)| origin.named())?;
@@ -386,19 +438,7 @@ fn observe(
         } else {
             SpecificationPresence::Missing
         };
-        return Ok(RecordSpecification {
-            snapshot_id: snapshot.clone(),
-            repository: RepositoryName(repository.to_owned()),
-            presence,
-            path: None,
-            format: None,
-            required_ess: None,
-            validation: ValidationResult::NotRun,
-            validation_refusals: 0,
-            scenarios: None,
-            synthesis_refusals: None,
-            conformance_status,
-        });
+        return Ok(unread(repository, presence, conformance_status, snapshot));
     };
     let dir = export.join(&root);
     let (validation, validation_refusals) = blockers::twice(|| validate(sources, &dir))
@@ -424,6 +464,29 @@ fn observe(
         synthesis_refusals,
         conformance_status,
     })
+}
+
+/// The specification status of `repository` with no specification to read: `presence`, nothing
+/// validated, and its conformance status `conformance_status`.
+fn unread(
+    repository: &str,
+    presence: SpecificationPresence,
+    conformance_status: Option<String>,
+    snapshot: &SnapshotId,
+) -> RecordSpecification {
+    RecordSpecification {
+        snapshot_id: snapshot.clone(),
+        repository: RepositoryName(repository.to_owned()),
+        presence,
+        path: None,
+        format: None,
+        required_ess: None,
+        validation: ValidationResult::NotRun,
+        validation_refusals: 0,
+        scenarios: None,
+        synthesis_refusals: None,
+        conformance_status,
+    }
 }
 
 /// Every file named `ess-inputs.yaml` or `system.yaml` under `export`, relative to it, outside

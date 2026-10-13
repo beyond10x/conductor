@@ -29,6 +29,7 @@ use crate::snapshot::Recorder;
 
 pub mod blockers;
 pub mod github;
+pub mod gitlab;
 pub mod repositories;
 pub mod sessions;
 pub mod specifications;
@@ -81,15 +82,17 @@ impl fmt::Debug for Collector {
     }
 }
 
-/// The collectors `conductor snapshot start-snapshot` runs, in this order: the repositories (git
-/// and each owner's list), GitHub's pull requests and `main` runs, the planning stores'
-/// blockers, the specifications (whose conformance status reads the blockers' workspace listing),
-/// and the live sessions.
+/// The collectors `conductor snapshot start-snapshot` runs, in this order: the repositories (git,
+/// each owner's list and each GitLab group's projects), GitHub's pull requests and `main` runs,
+/// GitLab's merge requests and default-branch pipelines (`story:gitlab-merge-requests`), the
+/// planning stores' blockers, the specifications (whose conformance status reads the blockers'
+/// workspace listing), and the live sessions.
 #[must_use]
 pub fn registered() -> Vec<Collector> {
     vec![
         Collector::new("repositories", repositories::collect),
         Collector::new("github", github::collect),
+        Collector::new("gitlab", gitlab::collect),
         Collector::new("blockers", blockers::collect),
         Collector::new("specifications", specifications::collect),
         Collector::new("sessions", sessions::collect),
@@ -155,8 +158,8 @@ impl Origins {
                         origins.owners.push(owner.clone());
                     }
                 }
-                // No collector reads a GitLab forge: conductor reads it through its session's
-                // integration and records the rows with the snapshot record commands.
+                // A GitLab group is read through its forge, not listed here
+                // ([`gitlab::Forge::all`], `story:gitlab-repositories`).
                 Source::GitLab(_) => {}
                 Source::Local(LocalSource { path, .. }) => {
                     let path = PathBuf::from(path);

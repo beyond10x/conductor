@@ -7,8 +7,9 @@
 //! and its state files.
 //!
 //! It watches the instance the process runs ([`config::active`]): its checkouts, its records,
-//! its first `github` owner, its cadence (`cadence.watch` and `cadence.ci`, which `--every` and
-//! `--ci-every` override; [`Options::of`]) and its thresholds (`thresholds.context_handover`,
+//! its first `github` owner and its `gitlab` sources ([`Watch::with_gitlab`]), its cadence
+//! (`cadence.watch` and `cadence.ci`, which `--every` and `--ci-every` override;
+//! [`Options::of`]) and its thresholds (`thresholds.context_handover`,
 //! `disk_low`, `disk_clear` and `silent_session`; [`Settings::of`]), and names it in the
 //! usage-limit notification's title. Without a config file that is the built-in instance.
 //!
@@ -20,7 +21,7 @@
 //! | usage limit | the last [`TAIL`] lines of each such session's transcript | `usage limit: <text>; <n> sessions: <names>` |
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
-//! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
+//! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /` |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
@@ -105,9 +106,10 @@ use time::{OffsetDateTime, UtcOffset};
 use conductor_model::behaviour::SnapshotStorage;
 use conductor_model::config::{Instance, Source};
 use conductor_model::direction::Activity;
-use conductor_model::observation::SnapshotState;
+use conductor_model::observation::{RunConclusion, SnapshotState};
 
 use crate::cli::WatchRunArgs;
+use crate::collect::gitlab::{self, Forge, PIPELINE, Project};
 use crate::collect::repositories::{WIDTH, each, filled, words};
 use crate::collect::{self, BOUND};
 use crate::config::{self, Active};
@@ -230,7 +232,8 @@ impl Sources {
     /// under the records when a config file names them, else under `conductor/` of the checkouts
     /// root, as before a config file existed; the owner of the instance's first `github` source,
     /// whose run lists `gh` prints for the Active repositories of the store under `state` (none
-    /// for an instance without a `github` source); the free bytes `statvfs` reads on `/`;
+    /// for an instance without a `github` or a `gitlab` source; a `gitlab` source's are read
+    /// through [`Watch::with_gitlab`]); the free bytes `statvfs` reads on `/`;
     /// `notify-send -u critical`; the system clock; and [`BOUND`].
     #[must_use]
     pub fn new(home: PathBuf, active: &Active, state: PathBuf) -> Self {
@@ -241,6 +244,10 @@ impl Sources {
             Source::GitHub(github) => Some(github.owner.clone()),
             Source::Local(_) | Source::GitLab(_) => None,
         });
+        let gitlab = instance
+            .sources
+            .iter()
+            .any(|source| matches!(source, Source::GitLab(_)));
         Self {
             agents: ["claude", "agents", "--json"].map(OsString::from).to_vec(),
             trees: PathBuf::from(&instance.checkouts.trees),
@@ -252,7 +259,7 @@ impl Sources {
             records: active.from_file.then_some(records),
             root,
             projects: home.join(".claude/projects"),
-            store: owner.is_some().then_some(state),
+            store: (owner.is_some() || gitlab).then_some(state),
             organization: owner.unwrap_or_default(),
             repositories: Vec::new(),
             runs: words(&[
@@ -399,7 +406,8 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
         Sources::new(home, active, state.clone()),
         state.join("watch"),
     )
-    .with_settings(Settings::of(&active.instance));
+    .with_settings(Settings::of(&active.instance))
+    .with_gitlab(Forge::all(&active.instance));
     watch.run(&options, &mut io::stdout().lock(), &mut io::stderr().lock())?;
     Ok(ExitCode::SUCCESS)
 }
@@ -409,6 +417,8 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
 pub struct Watch {
     sources: Sources,
     settings: Settings,
+    /// The `gitlab` sources whose projects' default-branch pipelines are read as `main` CI.
+    gitlab: Vec<Forge>,
     dir: PathBuf,
     /// The sources named on standard error that have not answered since.
     failing: BTreeSet<String>,
@@ -502,6 +512,7 @@ impl Watch {
         Self {
             sources,
             settings: Settings::default(),
+            gitlab: Vec::new(),
             dir,
             failing: BTreeSet::new(),
         }
@@ -511,6 +522,16 @@ impl Watch {
     #[must_use]
     pub fn with_settings(mut self, settings: Settings) -> Self {
         self.settings = settings;
+        self
+    }
+
+    /// This watch reading the `main` CI of each project of `forges` (`story:watch-gitlab-ci`): a
+    /// repository a CI pass reads that is a project of one of them, not archived, is read from
+    /// its forge ([`newest_pipeline`]), not through [`Sources::runs`]; and without a GitHub owner
+    /// ([`Sources::organization`] empty) no other repository's run list is read.
+    #[must_use]
+    pub fn with_gitlab(mut self, forges: Vec<Forge>) -> Self {
+        self.gitlab = forges;
         self
     }
 
@@ -1056,18 +1077,29 @@ impl Watch {
                 return Ok(());
             }
         };
+        let projects = self.gitlab_projects(notes);
+        let github = self.gitlab.is_empty() || !self.sources.organization.is_empty();
+        let forges = &self.gitlab;
+        let sources = &self.sources;
         let read = each(&repositories, WIDTH, |repository| {
-            Ok(newest_runs(&self.sources, repository))
+            Ok(match projects.get(repository) {
+                Some((forge, project)) => {
+                    Some(newest_pipeline(&forges[*forge], project, repository))
+                }
+                None if github => Some(newest_runs(sources, repository)),
+                None => None,
+            })
         })?;
         let mut fresh = Vec::new();
         for (repository, answer) in repositories.iter().zip(read) {
             let source = format!("ci {repository}");
             match answer {
-                Ok(runs) => {
+                None => {}
+                Some(Ok(runs)) => {
                     self.answered(&source);
                     fresh.extend(runs);
                 }
-                Err(error) => self.failed(&source, &error, notes),
+                Some(Err(error)) => self.failed(&source, &error, notes),
             }
         }
         if fresh.is_empty() {
@@ -1111,6 +1143,30 @@ impl Watch {
             .map(|latest| format!("{}\n", latest.line()))
             .collect();
         replace(&file, &state)
+    }
+
+    /// The projects of [`Watch::gitlab`]'s forges that are not archived, by name, each with the
+    /// place of its forge. A forge whose project list does not answer is named on `notes`, as the
+    /// source `ci the gitlab group <group> on <host>`, until it answers again; its repositories
+    /// are read as no forge's.
+    fn gitlab_projects(&mut self, notes: &mut dyn Write) -> BTreeMap<String, (usize, Project)> {
+        let mut projects = BTreeMap::new();
+        let forges = self.gitlab.clone();
+        for (place, forge) in forges.iter().enumerate() {
+            let source = format!("ci {}", forge.named());
+            match forge.projects() {
+                Ok(listed) => {
+                    self.answered(&source);
+                    for project in listed.into_iter().filter(|project| !project.archived) {
+                        projects
+                            .entry(project.name.clone())
+                            .or_insert((place, project));
+                    }
+                }
+                Err(error) => self.failed(&source, &error, notes),
+            }
+        }
+        projects
     }
 
     /// The repositories whose `main` CI a pass reads: [`Sources::repositories`], or, with a
@@ -1250,6 +1306,55 @@ fn newest_runs(sources: &Sources, repository: &str) -> Result<Vec<Latest>> {
             run: run.database_id,
             conclusion: run.conclusion.unwrap_or_default(),
             at: run.created_at,
+        })
+        .collect())
+}
+
+/// One pipeline, as GitLab's `pipelines` answers it.
+#[derive(Deserialize)]
+struct Pipeline {
+    id: i64,
+    status: String,
+    created_at: String,
+}
+
+/// The newest pipeline of `project`'s default branch, of the latest 20, that decided something:
+/// a `Success` or a `Failure` by the `gitlab` collector's mapping ([`gitlab::conclusion`]), kept
+/// as `success` or `failure`, the GitHub conclusions [`GREEN`] and [`RED`] compare; recorded as
+/// the workflow [`PIPELINE`] of `repository`. Read with `glab api --hostname <host>` through the
+/// forge ([`Forge::get`]).
+fn newest_pipeline(forge: &Forge, project: &Project, repository: &str) -> Result<Vec<Latest>> {
+    let what = format!("main CI of {repository} not read");
+    let pipelines: Vec<Pipeline> = forge.get(
+        &what,
+        &format!(
+            "projects/{}/pipelines?ref={}&per_page=20",
+            project.id,
+            gitlab::encoded(&project.default_branch)
+        ),
+    )?;
+    let mut newest: Option<(Pipeline, &'static str)> = None;
+    for pipeline in pipelines {
+        let conclusion = match gitlab::conclusion(&pipeline.status) {
+            Some(RunConclusion::Success) => GREEN,
+            Some(RunConclusion::Failure) => RED[0],
+            _ => continue,
+        };
+        if newest
+            .as_ref()
+            .is_none_or(|(known, _)| !later(&known.created_at, &pipeline.created_at))
+        {
+            newest = Some((pipeline, conclusion));
+        }
+    }
+    Ok(newest
+        .into_iter()
+        .map(|(pipeline, conclusion)| Latest {
+            repository: repository.to_owned(),
+            workflow: PIPELINE.to_owned(),
+            run: pipeline.id,
+            conclusion: conclusion.to_owned(),
+            at: pipeline.created_at,
         })
         .collect())
 }

@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use conductor_cli::cli::WatchRunArgs;
 use conductor_cli::collect::Collector;
+use conductor_cli::collect::gitlab::Forge;
 use conductor_cli::config;
 use conductor_cli::disk;
 use conductor_cli::snapshot;
@@ -1212,6 +1213,128 @@ fn main_ci_turning_red_and_green_again_is_reported_on_a_ci_pass() {
     assert_eq!(
         passed(&mut watch, true).0,
         ["CI green again on main: alpha / CI"]
+    );
+}
+
+/// One pipeline, as GitLab's `pipelines` answers it.
+fn pipeline(id: u64, status: &str, at: &str) -> Value {
+    json!({"id": id, "status": status, "ref": "main", "created_at": at})
+}
+
+impl Case {
+    /// A fake `glab` in the case's directory, its words logged to `glab.log`: it answers the
+    /// group `example-org`'s projects with `alpha` (id 101, default branch `main`) and the
+    /// archived `beta` (id 102), and alpha's pipelines with `pipelines.json`, which
+    /// [`Case::pipelines`] replaces; anything else fails. Answers the forge that reads it.
+    fn gitlab(&self) -> Forge {
+        replace(
+            &self.dir.join("projects.json"),
+            &json!([
+                {"id": 101, "path_with_namespace": "example-org/alpha", "archived": false,
+                 "visibility": "private", "default_branch": "main", "open_issues_count": 0,
+                 "web_url": "https://gitlab.example.com/example-org/alpha"},
+                {"id": 102, "path_with_namespace": "example-org/beta", "archived": true,
+                 "visibility": "private", "default_branch": "main", "open_issues_count": 0,
+                 "web_url": "https://gitlab.example.com/example-org/beta"},
+            ])
+            .to_string(),
+        );
+        let dir = self.dir.display();
+        let glab = self.dir.join("glab");
+        fs::write(
+            &glab,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{dir}/glab.log'\n\
+                 for last in \"$@\"; do :; done\n\
+                 case \"$last\" in\n\
+                 \x20 groups/example-org/projects\\?*) exec cat '{dir}/projects.json' ;;\n\
+                 \x20 projects/101/pipelines\\?*) exec cat '{dir}/pipelines.json' ;;\n\
+                 esac\n\
+                 exit 1\n"
+            ),
+        )
+        .expect("write the fake glab");
+        fs::set_permissions(&glab, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+        Forge {
+            glab: vec![glab.display().to_string()],
+            host: "gitlab.example.com".to_owned(),
+            group: "example-org".to_owned(),
+            exclude: Vec::new(),
+            bound: Duration::from_secs(10),
+        }
+    }
+
+    /// Replaces alpha's pipelines, newest first.
+    fn pipelines(&self, pipelines: &Value) {
+        replace(&self.dir.join("pipelines.json"), &pipelines.to_string());
+    }
+}
+
+/// `story:watch-gitlab-ci`: for the repositories of a `gitlab` source, the CI pass reads the
+/// newest default-branch pipeline that decided something with `glab api --hostname <host>`, maps
+/// its status by the `gitlab` collector's mapping, and prints the red line when it turns from
+/// `success` to `failed` and the green line when it turns back; `gh`'s run list is not read for
+/// them.
+#[test]
+fn a_gitlab_default_branch_turning_red_and_green_again_is_reported() {
+    // The case's directory names neither the forge nor the repository, which a note would show.
+    let case = Case::new("ci-pipelines");
+    let forge = case.gitlab();
+    let mut sources = case.sources(None);
+    sources.organization = String::new();
+    sources.repositories = vec!["alpha".to_owned()];
+    let mut watch = Watch::new(sources, case.state()).with_gitlab(vec![forge]);
+
+    case.pipelines(&json!([pipeline(601, "success", "2026-10-07T10:00:00Z")]));
+    let (lines, notes) = passed(&mut watch, true);
+    assert_eq!(lines, NOTHING, "the first CI pass has nothing to compare");
+    assert!(
+        !notes.contains("alpha") && !notes.contains("gitlab"),
+        "the forge and alpha's pipelines answered: {notes:?}"
+    );
+    assert_eq!(
+        case.kept("ci.state"),
+        "alpha|pipeline|601|success|2026-10-07T10:00:00Z\n"
+    );
+
+    case.pipelines(&json!([
+        pipeline(603, "running", "2026-10-07T11:30:00Z"),
+        pipeline(602, "failed", "2026-10-07T11:00:00Z"),
+        pipeline(601, "success", "2026-10-07T10:00:00Z"),
+    ]));
+    assert_eq!(
+        passed(&mut watch, true).0,
+        ["CI red on main: alpha / pipeline (run 602)"]
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "reported once");
+
+    case.pipelines(&json!([
+        pipeline(604, "success", "2026-10-07T11:45:00Z"),
+        pipeline(603, "canceled", "2026-10-07T11:30:00Z"),
+        pipeline(602, "failed", "2026-10-07T11:00:00Z"),
+    ]));
+    assert_eq!(
+        passed(&mut watch, true).0,
+        ["CI green again on main: alpha / pipeline"]
+    );
+
+    let asked = fs::read_to_string(case.dir.join("glab.log")).expect("glab was asked");
+    for line in asked.lines() {
+        assert!(
+            line.starts_with("api --hostname gitlab.example.com "),
+            "{line}"
+        );
+    }
+    assert!(
+        asked.contains(
+            "groups/example-org/projects?include_subgroups=true&with_shared=false&per_page=100&\
+             page=1"
+        ),
+        "{asked}"
+    );
+    assert!(
+        asked.contains("projects/101/pipelines?ref=main&per_page=20"),
+        "{asked}"
     );
 }
 

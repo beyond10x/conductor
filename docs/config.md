@@ -25,8 +25,9 @@ instance after defaults, with every path absolute. It writes an absent optional 
 `conductor config workspace` writes the instance's `<records>/.engineering/workspace.yaml`
 (`aep.workspace/1`) from the config, replacing the file, and reads no network: one member per git
 checkout directly under `checkouts.root` for a `github` source, one per git checkout directly
-under its path, but its `exclude`, for a `local` source, none for a `gitlab` source, and the
-records directory itself. A member's `name` is its directory's name and its `source` that
+under its path, but its `exclude`, for a `local` source, one per git checkout under
+`checkouts.root` whose `origin` is on a `gitlab` source's `host` and under its group, but its
+`exclude`, and the records directory itself. A member's `name` is its directory's name and its `source` that
 directory relative to `<records>/.engineering/`. Two sources that give one name to two directories
 are refused by both YAML paths. `--check` writes nothing and exits 1 naming each member that
 differs from the file. `conductor init` writes the same file into the skeleton it creates.
@@ -164,7 +165,8 @@ A source is a mapping with exactly one of these keys.
 |---|---|---|
 | `github: <owner>` | string | the owner's repositories on GitHub, listed with `gh`; takes no `exclude` |
 | `local: <path>` | path | the repositories under a directory, read as they are |
-| `gitlab: <group>` | string | a GitLab group or root; the binary does not read it, the session records its rows |
+| `gitlab: <group>` | string | a GitLab group or root, read through `glab api --hostname <host>` |
+| `host: <name>` | string | `gitlab` only: the GitLab host, a name with an optional `:port`; default `gitlab.com` |
 | `exclude: [<path>]` | list of relative path | `local` and `gitlab` only: repositories at or under these paths are not listed and not placed; no `.` or `..` steps; default `[]` |
 
 A repository is the directory holding `.git` at depth 1 or 2 under a root: `<root>/<repo>` or

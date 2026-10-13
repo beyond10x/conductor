@@ -2,7 +2,9 @@
 //! `<records>/.engineering/workspace.yaml` (`aep.workspace/1`) from its config, replacing the
 //! file, with no network read: one member per git checkout directly under `checkouts.root` for a
 //! `github` source, one per git checkout directly under its `path` but its `exclude` for a
-//! `local` source, none for a `gitlab` source, and the records directory itself; every `source`
+//! `local` source, one per git checkout under `checkouts.root` whose `origin` is on its host and
+//! under its group but its `exclude` for a `gitlab` source (`story:gitlab-workspace`), and the
+//! records directory itself; every `source`
 //! relative to that `.engineering/` directory. `--check` writes nothing and exits 1 naming each
 //! member that differs from the file; `conductor init` writes the same file into its skeleton.
 //!
@@ -14,6 +16,7 @@ mod common;
 
 use std::fs;
 use std::io::ErrorKind;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -73,6 +76,43 @@ impl Case {
             "git remote add: {}",
             shown(&output)
         );
+    }
+
+    /// A git checkout at `path` whose `origin` remote is `origin`.
+    fn checkout_of(&self, path: &Path, origin: &str) {
+        self.local_checkout(path);
+        let output = self.git(
+            Command::new("git")
+                .arg("-C")
+                .arg(path)
+                .args(["remote", "add", "origin", origin]),
+        );
+        assert!(
+            output.status.success(),
+            "git remote add: {}",
+            shown(&output)
+        );
+    }
+
+    /// `glab` and `gh` in the case's `bin/`, each failing when it is called and leaving
+    /// `<program>.called` in the case's directory. Answers that directory.
+    fn failing_forges(&self) -> PathBuf {
+        let bin = self.dir.join("bin");
+        fs::create_dir_all(&bin).expect("create bin");
+        for program in ["glab", "gh"] {
+            let file = bin.join(program);
+            fs::write(
+                &file,
+                format!(
+                    "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexit 1\n",
+                    self.dir.join(format!("{program}.called")).display()
+                ),
+            )
+            .expect("write the program");
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o755))
+                .expect("make it runnable");
+        }
+        bin
     }
 
     /// A checkout with no `origin` remote, which the collectors cannot read at `origin/main`.
@@ -246,6 +286,68 @@ fn config_workspace_writes_each_checkout_of_the_sources_and_the_records() {
                 );
             }
         }
+    }
+}
+
+/// `story:gitlab-workspace`: for a `gitlab` source, one member per git checkout under the
+/// checkouts root whose `origin` is on the source's host and under its group, but its `exclude`
+/// entries; of four checkouts (on the group; on another host with the same group path; on
+/// another group of the same host; on the group but excluded) only the first. A `glab` and a
+/// `gh` on `PATH` fail when called, and neither is: no network is read.
+#[test]
+fn a_gitlab_source_writes_each_checkout_on_its_host_and_group_but_its_exclude() {
+    let case = Case::new("gitlab");
+    let root = case.dir.join("checkouts");
+    case.checkout_of(
+        &root.join("alpha"),
+        "git@gitlab.example.com:example-org/platform/alpha.git",
+    );
+    case.checkout_of(
+        &root.join("elsewhere"),
+        "https://git.example.net/example-org/platform/elsewhere.git",
+    );
+    case.checkout_of(
+        &root.join("tools"),
+        "git@gitlab.example.com:example-org/tools/tools.git",
+    );
+    case.checkout_of(
+        &root.join("archive"),
+        "ssh://git@gitlab.example.com/example-org/platform/archive.git",
+    );
+    case.checkout(&case.records());
+    let bin = case.failing_forges();
+    let config = case.config(&[
+        "gitlab: example-org/platform\n        host: gitlab.example.com\n        \
+         exclude: [archive]"
+            .to_owned(),
+    ]);
+
+    let mut path = std::ffi::OsString::from(bin.as_os_str());
+    if let Some(inherited) = std::env::var_os("PATH") {
+        path.push(":");
+        path.push(inherited);
+    }
+    let output = case.git(
+        common::conductor(case.home())
+            .args(["config", "workspace"])
+            .current_dir(&case.dir)
+            .env("CONDUCTOR_CONFIG", &config)
+            .env("PATH", &path),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(
+        members(&case.workspace()),
+        pairs(&[
+            ("alpha", "../../checkouts/alpha"),
+            ("records", "../../records"),
+        ])
+    );
+    for program in ["glab", "gh"] {
+        assert!(
+            !case.dir.join(format!("{program}.called")).exists(),
+            "{program} is not called: {}",
+            shown(&output)
+        );
     }
 }
 

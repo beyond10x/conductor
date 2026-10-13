@@ -1,0 +1,8 @@
+[
+  {"id": 101, "path": "alpha", "path_with_namespace": "example-org/alpha", "archived": false,
+   "visibility": "private", "default_branch": "main", "open_issues_count": 3,
+   "empty_repo": false, "web_url": "https://gitlab.example.com/example-org/alpha"},
+  {"id": 102, "path": "beta", "path_with_namespace": "example-org/beta", "archived": true,
+   "visibility": "public", "default_branch": "main", "open_issues_count": 0,
+   "empty_repo": false, "web_url": "https://gitlab.example.com/example-org/beta"}
+]

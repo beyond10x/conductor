@@ -525,6 +525,7 @@ fn adv_the_registered_collectors_run_in_the_documented_order() {
         [
             "repositories",
             "github",
+            "gitlab",
             "blockers",
             "specifications",
             "sessions"

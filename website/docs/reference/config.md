@@ -152,7 +152,7 @@ Keys: `path`, `exclude`. Specified as `conductor.config.LocalSource`.
 
 ### GitLabSource
 
-A group (or the root) on a GitLab forge, whose repositories are the instance's. `host` is the forge's host name, without a scheme or a path, such as `gitlab.example.com` for a self-hosted GitLab; absent, it is `gitlab.com`. The conductor binary does not read that forge: the collectors record nothing for this source, and conductor reads it through its session's integration and records the rows with the snapshot record commands.
+A group (or the root) on a GitLab forge, whose repositories are the instance's. `host` is the forge's host name, without a scheme or a path, such as `gitlab.example.com` for a self-hosted GitLab; absent, it is `gitlab.com`. The collectors read that forge with `glab api --hostname <host>`: one repository row and one specification row per project of the group and its subgroups, archived ones included, each named by its path under the group. A project's checkout is the git checkout under `checkouts.root` whose `origin` remote is on the host and names the project, read from its git config with no network read.
 
 Keys: `group`, `host`, `exclude`. Specified as `conductor.config.GitLabSource`.
 

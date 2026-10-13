@@ -72,9 +72,12 @@ types:
 
   # A group (or the root) on a GitLab forge, whose repositories are the instance's. `host` is the
   # forge's host name, without a scheme or a path, such as `gitlab.example.com` for a self-hosted
-  # GitLab; absent, it is `gitlab.com` (story:gitlab-source-host). The conductor binary does not
-  # read that forge: the collectors record nothing for this source, and conductor reads it
-  # through its session's integration and records the rows with the snapshot record commands.
+  # GitLab; absent, it is `gitlab.com` (story:gitlab-source-host). The collectors read that forge
+  # with `glab api --hostname <host>` (story:gitlab-repositories): one repository row and one
+  # specification row per project of the group and its subgroups, archived ones included, each
+  # named by its path under the group. A project's checkout is the git checkout under
+  # `checkouts.root` whose `origin` remote is on the host and names the project, read from its git
+  # config with no network read.
   - name: conductor.config.GitLabSource
     kind: struct
     fields:
@@ -410,7 +413,9 @@ types:
   # instance's `<records>/.engineering/workspace.yaml` (`aep.workspace/1`) from its config,
   # replacing the file, and reads no network: one member per git checkout directly under
   # `checkouts.root` for a `github` source; one per git checkout directly under its `path`, but
-  # its `exclude` entries, for a `local` source; none for a `gitlab` source; and the records
+  # its `exclude` entries, for a `local` source; one per git checkout under `checkouts.root`
+  # whose `origin` remote, read from its git config, is on its host and under its group, but its
+  # `exclude` entries, for a `gitlab` source (story:gitlab-workspace); and the records
   # directory itself. `instance` is selected as for `config show`; a config file must name it.
   # `check` writes nothing and exits 1 naming each member that differs from the file.
   - name: conductor.config.WriteWorkspace

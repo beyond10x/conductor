@@ -11,9 +11,12 @@
 //! git repository under a `local:` source's directory, at depth 1 or 2 (`<repo>` or
 //! `<group>/<repo>`, `story:grouped-instance`) and not under one of its `exclude` entries, read as
 //! it is: at `HEAD`, with no fetch, and with nothing asked of GitHub, so it is `Private`, not
-//! archived, and has no issue and no GitHub Release. A `gitlab:` source's repositories are not
-//! read here. A name two origins list is one checkout and one recorded repository, so the
-//! collector fails naming it and both origins. The specifications collector lists a local
+//! archived, and has no issue and no GitHub Release; and each project of a `gitlab:` source's group
+//! and its subgroups, archived ones included, read from its forge with `glab api --hostname <host>`
+//! ([`gitlab::read`], `story:gitlab-repositories`), named by its path under the group, with what
+//! only a checkout shows read from the checkout under the checkouts root whose `origin` names it
+//! ([`gitlab::checkouts`]), with no fetch. A name two origins list is one checkout and one
+//! recorded repository, so the collector fails naming it and both origins. The specifications collector lists a local
 //! source's repositories through this collector's own listing ([`local_names`]). Each field has
 //! one source:
 //!
@@ -68,6 +71,7 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
+use crate::collect::gitlab::{self, Forge, Mapped};
 use crate::collect::{self, Origins};
 use crate::config;
 use crate::snapshot::Recorder;
@@ -241,10 +245,11 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
         .iter()
         .map(|dir| (dir.clone(), collect::excluded_under(instance, dir)))
         .collect();
-    collect_excluding(
+    collect_with_gitlab(
         &Sources::of(instance, OffsetDateTime::now_utc()),
         &origins,
         &exclude,
+        &Forge::all(instance),
         record,
     )
 }
@@ -282,8 +287,25 @@ pub fn collect_excluding(
     exclude: &HashMap<PathBuf, Vec<String>>,
     record: &mut Recorder<'_>,
 ) -> Result<()> {
+    collect_with_gitlab(sources, origins, exclude, &[], record)
+}
+
+/// [`collect_excluding`], and one `RecordRepository` per project of each of `forges`
+/// ([`Forge::mapped`] under [`Sources::workspace`]), read from its forge
+/// (`story:gitlab-repositories`).
+///
+/// # Errors
+///
+/// What [`collect_over`] answers, for each forge's commands too.
+pub fn collect_with_gitlab(
+    sources: &Sources,
+    origins: &Origins,
+    exclude: &HashMap<PathBuf, Vec<String>>,
+    forges: &[Forge],
+    record: &mut Recorder<'_>,
+) -> Result<()> {
     let since = instant((sources.now - WINDOW).replace_nanosecond(0)?)?;
-    let listed = listed(sources, origins, exclude)?;
+    let listed = listed(sources, origins, exclude, forges)?;
     let read = each(&listed, sources.width, |listed| {
         read(sources, listed, &since)
     })?;
@@ -336,14 +358,17 @@ enum Origin {
     Owner(String),
     /// A local source's directory, which holds its checkout `<directory>/<name>`, read as it is.
     Local(PathBuf),
+    /// A project of a `gitlab` source's group, read from its forge, and its checkout when one
+    /// names it.
+    GitLab(Box<Mapped>),
 }
 
 impl Listed {
-    /// The owner whose list names it; none for a repository of a local source.
+    /// The owner whose list names it; none for a repository of a local or a `gitlab` source.
     fn owner(&self) -> Option<&str> {
         match &self.origin {
             Origin::Owner(owner) => Some(owner),
-            Origin::Local(_) => None,
+            Origin::Local(_) | Origin::GitLab(_) => None,
         }
     }
 
@@ -352,6 +377,10 @@ impl Listed {
         match &self.origin {
             Origin::Owner(_) => sources.workspace.join(&self.name),
             Origin::Local(dir) => dir.join(&self.name),
+            Origin::GitLab(mapped) => mapped
+                .checkout
+                .clone()
+                .unwrap_or_else(|| sources.workspace.join(&self.name)),
         }
     }
 
@@ -360,6 +389,7 @@ impl Listed {
         match &self.origin {
             Origin::Owner(owner) => format!("owner {owner}"),
             Origin::Local(dir) => format!("the local source {}", dir.display()),
+            Origin::GitLab(mapped) => mapped.forge.named(),
         }
     }
 }
@@ -374,11 +404,13 @@ struct ListedEntry {
     has_issues_enabled: bool,
 }
 
-/// The repositories of `origins`, by name: each owner's, then each local directory's.
+/// The repositories of `origins` and `forges`, by name: each owner's, each local directory's and
+/// each forge's projects.
 fn listed(
     sources: &Sources,
     origins: &Origins,
     exclude: &HashMap<PathBuf, Vec<String>>,
+    forges: &[Forge],
 ) -> Result<Vec<Listed>> {
     let mut listed = Vec::new();
     for owner in &origins.owners {
@@ -387,6 +419,20 @@ fn listed(
     for dir in &origins.local {
         let exclude = exclude.get(dir).map_or(&[][..], Vec::as_slice);
         listed.extend(local_repositories(dir, exclude)?);
+    }
+    for forge in forges {
+        listed.extend(
+            forge
+                .mapped(&sources.workspace)?
+                .into_iter()
+                .map(|mapped| Listed {
+                    name: mapped.project.name.clone(),
+                    visibility: mapped.project.visibility,
+                    archived: mapped.project.archived,
+                    issues: false,
+                    origin: Origin::GitLab(Box::new(mapped)),
+                }),
+        );
     }
     listed.sort_by(|one, other| one.name.cmp(&other.name));
     one_of_each(&listed, |listed| &listed.name, Listed::origin_named)?;
@@ -528,35 +574,35 @@ fn step<'p>(what: &str, path: &'p Path) -> Result<&'p str> {
 }
 
 /// What one repository's sources answered.
-struct Read {
-    local_checkout: bool,
-    main_head: String,
-    main_committed_at: String,
-    main_commits_7d: i64,
+pub(super) struct Read {
+    pub(super) local_checkout: bool,
+    pub(super) main_head: String,
+    pub(super) main_committed_at: String,
+    pub(super) main_commits_7d: i64,
     /// The window's commits that are not merges, each once.
-    commits: Vec<Commit>,
-    behind_main: i64,
-    dirty_files: i64,
-    worktrees: i64,
-    open_issues: i64,
-    oldest_open_issue_at: Option<String>,
-    release: Release,
-    planning_store_version: Option<String>,
+    pub(super) commits: Vec<Commit>,
+    pub(super) behind_main: i64,
+    pub(super) dirty_files: i64,
+    pub(super) worktrees: i64,
+    pub(super) open_issues: i64,
+    pub(super) oldest_open_issue_at: Option<String>,
+    pub(super) release: Release,
+    pub(super) planning_store_version: Option<String>,
 }
 
 /// A commit of the window that is not a merge.
-struct Commit {
-    subject: String,
+pub(super) struct Commit {
+    pub(super) subject: String,
     /// The paths it touches. Without a checkout, the files of a commit whose subject is a
     /// maintenance subject are not asked for, and this is empty: the subject excludes it already.
-    files: Vec<String>,
+    pub(super) files: Vec<String>,
 }
 
 #[derive(Default)]
-struct Release {
-    tag: Option<String>,
-    at: Option<String>,
-    unreleased: Option<i64>,
+pub(super) struct Release {
+    pub(super) tag: Option<String>,
+    pub(super) at: Option<String>,
+    pub(super) unreleased: Option<i64>,
 }
 
 /// One repository's sources: an owner's from its checkout, fetched, when it has one and from
@@ -575,6 +621,8 @@ fn read(sources: &Sources, listed: &Listed, since: &str) -> Result<Read> {
         }
         Origin::Owner(owner) => remote(sources, listed, owner, &what, since)?,
         Origin::Local(_) => local(sources, listed, &checkout, since, Reading::AsIs)?,
+        // A project's open issues come with its group's project list.
+        Origin::GitLab(mapped) => return gitlab::read(mapped, &what, since),
     };
     (read.open_issues, read.oldest_open_issue_at) = issues(sources, listed, &what)?;
     Ok(read)
@@ -705,6 +753,62 @@ fn local(
         release,
         planning_store_version,
     })
+}
+
+/// What only the checkout `dir` of a `gitlab` source's project shows, read with no fetch:
+/// `behind_main`, the commits of `origin/<branch>` as the checkout last fetched it that `HEAD`
+/// lacks, 0 when it holds no such ref; `dirty_files` and `worktrees`, as an owner's checkout
+/// reads them; and `planning_store_version`, read at `origin/<branch>`, else at `HEAD`, none in a
+/// checkout with no commit yet ([`born`]). `what` names the repository an error names.
+///
+/// # Errors
+///
+/// A git command failed twice.
+pub(super) fn checkout_state(
+    what: &str,
+    dir: &Path,
+    branch: &str,
+    bound: Duration,
+) -> Result<(i64, i64, i64, Option<String>)> {
+    let checkout = Checkout { what, dir, bound };
+    let dirty_files = checkout
+        .git(&["status", "--porcelain"])?
+        .lines()
+        .filter(|line| !line.is_empty())
+        .count();
+    let worktrees = checkout
+        .git(&["worktree", "list", "--porcelain"])?
+        .lines()
+        .filter(|line| line.starts_with("worktree "))
+        .count();
+    let reference = format!("refs/remotes/origin/{branch}");
+    let fetched = checkout
+        .git(&["for-each-ref", "--format=%(refname)", &reference])?
+        .lines()
+        .any(|line| line == reference);
+    let (behind_main, main) = if fetched {
+        let main = format!("origin/{branch}");
+        let behind = checkout.count(&["rev-list", "--count", &format!("HEAD..{main}")])?;
+        (behind, Some(main))
+    } else {
+        (0, born(dir).then(|| "HEAD".to_owned()))
+    };
+    let mut planning_store_version = None;
+    if let Some(main) = main
+        && !checkout
+            .git(&["ls-tree", "--name-only", &main, "--", PROJECT_FILE])?
+            .trim()
+            .is_empty()
+    {
+        planning_store_version =
+            store_version(&checkout.git(&["show", &format!("{main}:{PROJECT_FILE}")])?);
+    }
+    Ok((
+        behind_main,
+        number(dirty_files),
+        number(worktrees),
+        planning_store_version,
+    ))
 }
 
 /// The commits `git log --format=%x1e%H%x09%s --name-only` printed, each once.
@@ -1072,7 +1176,7 @@ fn normalised(subject: &str, repository: &str) -> String {
 /// `MAINTENANCE_KINDS`; otherwise its first word (after any type) when it is one of
 /// `MAINTENANCE_WORDS`; and a `release` scope, or `prepare`, `cut` or `tag` with the word
 /// `release`, is a release chore.
-fn maintenance(subject: &str) -> bool {
+pub(super) fn maintenance(subject: &str) -> bool {
     let lower = subject.trim().to_lowercase();
     let (kind, scope, rest) = conventional(&lower);
     if kind.is_some_and(|kind| MAINTENANCE_KINDS.contains(&kind)) || scope == Some("release") {

@@ -1805,12 +1805,17 @@ impl Reader<'_> {
             None => (host.as_str(), None),
         };
         let name_ok = !name.is_empty()
-            && !name.starts_with(['.', '-'])
-            && !name.ends_with(['.', '-'])
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
-        let port_ok = port.is_none_or(|port| port.parse::<u16>().is_ok_and(|port| port > 0));
+            && name.split('.').all(|label| {
+                !label.is_empty()
+                    && !label.starts_with('-')
+                    && !label.ends_with('-')
+                    && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            });
+        let port_ok = port.is_none_or(|port| {
+            !port.is_empty()
+                && port.chars().all(|c| c.is_ascii_digit())
+                && port.parse::<u16>().is_ok_and(|port| port > 0)
+        });
         if name_ok && port_ok {
             Some(host)
         } else {
@@ -2976,8 +2981,11 @@ pub fn workspace_member_name(name: &str) -> Option<String> {
 
 /// The members of `instance`'s workspace, by name, with no network read: each git checkout
 /// directly under `checkouts.root` for a `github` source; each one directly under its `path`,
-/// but those its `exclude` names, for a `local` source; none for a `gitlab` source, which the
-/// binary does not read; and the records directory. Each `source` is relative to
+/// but those its `exclude` names, for a `local` source; for a `gitlab` source, each one under
+/// `checkouts.root` whose `origin` remote is on its host and under its group, but those its
+/// `exclude` names or holds, named by its path under the root (`story:gitlab-workspace`), the
+/// checkouts the collectors read its projects in ([`crate::collect::gitlab::checkouts`]); and the
+/// records directory. Each `source` is relative to
 /// `<records>/.engineering/`. `index` is the instance's place in the config file, for the YAML
 /// paths a refusal names.
 ///
@@ -3013,7 +3021,16 @@ pub fn workspace_members(instance: &Instance, index: usize) -> Result<Vec<Worksp
                     }
                 }
             }
-            Source::GitLab(_) => {}
+            Source::GitLab(gitlab) => {
+                for checkout in crate::collect::gitlab::checkouts(
+                    root,
+                    &gitlab.host,
+                    &gitlab.group,
+                    &gitlab.exclude,
+                ) {
+                    found.add(&checkout.path, &checkout.dir, &yaml)?;
+                }
+            }
         }
     }
     let yaml = format!("instances[{index}].records");
