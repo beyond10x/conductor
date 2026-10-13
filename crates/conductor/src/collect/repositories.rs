@@ -1305,7 +1305,7 @@ pub(crate) fn answer(
     };
     let attempt = || {
         let mut command = Command::new(program);
-        collect::git_environment(command.args(arguments).env("GIT_OPTIONAL_LOCKS", "0"));
+        collect::git_environment(command.args(arguments).env("GIT_OPTIONAL_LOCKS", "0"), dir);
         if let Some(dir) = dir {
             command.current_dir(dir);
         }

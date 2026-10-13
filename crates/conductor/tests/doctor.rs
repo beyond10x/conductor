@@ -323,6 +323,20 @@ fn doctor_needs_no_gh_for_a_gitlab_only_instance() {
     );
 }
 
+/// Without a config file no source is named, so neither forge CLI is needed: a GitLab team that has
+/// not yet written its instance is not told `gh: missing` (the team's report on v0.7.0).
+#[test]
+fn doctor_needs_no_forge_cli_without_a_config_file() {
+    let case = Case::new("no-config-no-gh");
+    case.programs_but(&["gh", "glab"]);
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    for line in ["gh: not needed", "glab: not needed"] {
+        assert!(lines.contains(&line.to_owned()), "{}", shown(&output));
+    }
+}
+
 /// An instance whose only source is on GitHub needs no `glab`.
 #[test]
 fn doctor_needs_no_glab_for_a_github_only_instance() {

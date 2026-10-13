@@ -378,17 +378,42 @@ pub const SSH_OPTIONS: &str = "-o BatchMode=yes -o ConnectTimeout=10";
 /// specifications collectors runs with (`story:fetch-without-prompts`), so that no `origin` that
 /// asks for a login, a passphrase or a host key stops a snapshot until its bound:
 /// `GIT_TERMINAL_PROMPT=0`, so git asks for no login on the terminal, and [`SSH_COMMAND`], the ssh
-/// command the caller's own environment names (`ssh` when it names none) with [`SSH_OPTIONS`]
-/// after it. A command that is not git ignores both.
-pub fn git_environment(command: &mut Command) -> &mut Command {
-    let ssh = std::env::var(SSH_COMMAND)
-        .ok()
-        .map(|ssh| ssh.trim().to_owned())
-        .filter(|ssh| !ssh.is_empty())
-        .unwrap_or_else(|| "ssh".to_owned());
-    command
+/// command the user already gave git ([`ssh_command`]) with [`SSH_OPTIONS`] after it. `dir` is the
+/// directory the command runs in, whose `core.sshCommand` counts. A command that is not git
+/// ignores both.
+pub fn git_environment<'a>(command: &'a mut Command, dir: Option<&Path>) -> &'a mut Command {
+    let given = std::env::var(SSH_COMMAND).ok();
+    command.env("GIT_TERMINAL_PROMPT", "0").env(
+        SSH_COMMAND,
+        format!("{} {SSH_OPTIONS}", ssh_command(given, dir)),
+    )
+}
+
+/// The ssh command git would start in `dir`: `given` (the caller's [`SSH_COMMAND`]) when it names
+/// one, which wins in git too; else the `core.sshCommand` git's config gives in `dir` (the
+/// repository's, the user's or the system's), so a key named there is kept; else `ssh`.
+#[must_use]
+pub fn ssh_command(given: Option<String>, dir: Option<&Path>) -> String {
+    let named = |text: &str| Some(text.trim().to_owned()).filter(|text| !text.is_empty());
+    if let Some(given) = given.as_deref().and_then(named) {
+        return given;
+    }
+    let mut config = Command::new("git");
+    config
+        .args(["config", "--get", "core.sshCommand"])
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env(SSH_COMMAND, format!("{ssh} {SSH_OPTIONS}"))
+        .env(SSH_COMMAND, format!("ssh {SSH_OPTIONS}"))
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(dir) = dir {
+        config.current_dir(dir);
+    }
+    config
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| named(&String::from_utf8_lossy(&output.stdout)))
+        .unwrap_or_else(|| "ssh".to_owned())
 }
 
 thread_local! {

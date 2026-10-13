@@ -561,8 +561,8 @@ type Forges = (Vec<&'static str>, Vec<(&'static str, String)>);
 /// What doctor reads of the config `flag` (the global `--config`) and the environment name: the
 /// forge CLIs of [`FORGES`] that any of its instances starts ([`forges`]), in [`FORGES`]' order,
 /// every instance of the file, not only the one a command would select, since the default
-/// instance's conductor serves them all, the built-in instance's when there is no config file;
-/// and the hosts of the file's sources ([`forge_hosts`]), none without a file. Why the config
+/// instance's conductor serves them all, none when there is no config file; and the hosts of the
+/// file's sources ([`forge_hosts`]), none without a file. Why the config
 /// does not load when it does not, each line of it. The environment is `environment`, or this
 /// process's when none is given.
 fn read_config(
@@ -575,6 +575,9 @@ fn read_config(
             .and_then(|environment| config::load(flag, &environment)),
     };
     match loaded {
+        // Without a config file no source is named, so no forge CLI is needed: the built-in
+        // instance's placeholder GitHub source is no source of the user's.
+        Ok(loaded) if !loaded.read => Ok((Vec::new(), Vec::new())),
         Ok(loaded) => Ok((
             FORGES
                 .into_iter()
@@ -586,11 +589,7 @@ fn read_config(
                         .any(|instance| forges(instance).contains(forge))
                 })
                 .collect(),
-            if loaded.read {
-                forge_hosts(&loaded.config)
-            } else {
-                Vec::new()
-            },
+            forge_hosts(&loaded.config),
         )),
         Err(error) => Err(format!("{error:#}")
             .split(['\n', '\r'])

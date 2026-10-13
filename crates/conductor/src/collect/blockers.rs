@@ -748,7 +748,7 @@ pub(crate) fn shown(words: &[OsString]) -> String {
 pub(crate) fn run(words: &[OsString], dir: Option<&Path>, bound: Duration) -> Result<Output> {
     let (program, arguments) = words.split_first().context("an empty command line")?;
     let mut command = Command::new(program);
-    collect::git_environment(command.args(arguments));
+    collect::git_environment(command.args(arguments), dir);
     if let Some(dir) = dir {
         command.current_dir(dir);
     }

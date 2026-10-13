@@ -1531,6 +1531,47 @@ fn a_callers_ssh_command_is_kept_with_batch_mode_after_it() {
     }
 }
 
+/// (c) With no `GIT_SSH_COMMAND` of the caller's, the `core.sshCommand` git's config gives in the
+/// repository is kept, so a key named there still reaches ssh; the caller's variable wins over
+/// it, as in git, and without either the command is `ssh`.
+#[test]
+fn a_repositorys_core_ssh_command_is_kept_and_the_callers_wins() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("collect_stores")
+        .join("core-ssh-command");
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("clear the case's directory");
+    }
+    fs::create_dir_all(&dir).expect("create the case's directory");
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .expect("git runs");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            describe(&output)
+        );
+    };
+    git(&["init", "--quiet"]);
+    assert_eq!(
+        conductor_cli::collect::ssh_command(Some("  ".to_owned()), Some(&dir)),
+        conductor_cli::collect::ssh_command(None, Some(&dir)),
+        "a blank caller's command is no command"
+    );
+    git(&["config", "core.sshCommand", "ssh -i /tmp/repo-key"]);
+    assert_eq!(
+        conductor_cli::collect::ssh_command(None, Some(&dir)),
+        "ssh -i /tmp/repo-key"
+    );
+    assert_eq!(
+        conductor_cli::collect::ssh_command(Some("ssh -i /tmp/key".to_owned()), Some(&dir)),
+        "ssh -i /tmp/key"
+    );
+}
+
 /// Runs the case `test` of this file again in a child process whose `PATH` starts with a fake
 /// `git`, which writes its arguments, `GIT_TERMINAL_PROMPT` and `GIT_SSH_COMMAND` (tab-separated,
 /// `unset` for a variable that is not set) on one line of its log and then runs the real `git`.
