@@ -68,12 +68,12 @@ The pins are in [`b10x.toml`](b10x.toml). `aep`, `ess`, `worktree` and `b10x-gat
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.5.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.6.0 --locked conductor-cli
 conductor doctor
 ```
 
 From a checkout, `task install` does the same. Without a Rust toolchain, take the pre-built binary
-from the release instead: each GitHub Release from the first one after `v0.5.0` carries
+from the release instead: each GitHub Release from `v0.6.0` on carries
 `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
 `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
 

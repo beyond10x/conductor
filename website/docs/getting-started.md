@@ -20,13 +20,13 @@ specification; the [README](https://github.com/beyond10x/conductor#requirements)
 Install from the repository:
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.5.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.6.0 --locked conductor-cli
 ```
 
 or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.
 
-Without a Rust toolchain, download the pre-built binary instead. Each GitHub Release from the first
-one after `v0.5.0` carries `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`,
+Without a Rust toolchain, download the pre-built binary instead. Each GitHub Release
+from `v0.6.0` on carries `conductor-<version>-<target>.tar.gz` for `x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one
 `SHA256SUMS`. Verify the archive against it before you unpack it:
 
