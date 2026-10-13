@@ -131,17 +131,20 @@ tells the operator only by exception.
 - Order and priority inside an accepted epic or initiative. Design choices inside an approved
   design.
 - Issue triage, which profile or model a dispatch uses, and which repository waits for which.
-- Everything else that is not class O or H below, architecture and repository changes included:
-  conductor takes the recommended option that can be undone, records it and reports it as taken.
+- Everything else that is not class O or H below: conductor takes the recommended option that can
+  be undone, records it and reports it as taken.
   The operator asks for nothing to be held for them ("there should be no 'Waiting on you' — that's
   the point of conductor", 2026-10-12).
 
-**Class O: the operator decides, and only for what cannot be undone.** Conductor prepares the
-options and a recommendation, and escalates (`decision escalate-request`).
+**Class O: the operator decides.** Conductor prepares the options and a recommendation, and
+escalates (`decision escalate-request`).
 
 - Data loss: deleting another session's or person's work, an archive that is the only copy, a
   repository.
 - Rewriting published history.
+- A new, renamed or retired repository.
+- An architecture decision: a change an architecture decision record would carry (the system's
+  structure, a component's responsibility, a cross-repository contract or technology choice).
 
 **Class H: needs the operator's hands, not judgement.** Setting a secret, a login, a paid account,
 a permission only the operator holds.

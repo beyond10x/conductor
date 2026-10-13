@@ -24,7 +24,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -99,7 +99,49 @@ pub fn alive(group: i64) -> bool {
 /// The ledger, held under its lock from a request to its answer.
 pub struct Ledger {
     generated: Generated<Ports>,
+    state: PathBuf,
     _lock: File,
+}
+
+/// The directory of the run locks: each `build run` holds `<state>/host-runs/<grant>.lock` while it
+/// lives, so a sweep never releases a grant whose command ended but whose wrapper is still recording
+/// its peak and releasing it.
+const RUNS: &str = "host-runs";
+
+/// The run lock of `grant`, held by its `build run` until the grant is released.
+///
+/// # Errors
+///
+/// The directory or the file cannot be made, or locked.
+pub fn hold_run(state: &Path, grant: &GrantId) -> Result<File> {
+    let dir = state.join(RUNS);
+    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    let path = dir.join(format!("{}.lock", grant.0));
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open {}", path.display()))?;
+    file.lock()
+        .with_context(|| format!("lock {}", path.display()))?;
+    Ok(file)
+}
+
+/// Drops the run lock of `grant` and its file, once the grant is released.
+pub fn end_run(state: &Path, grant: &GrantId, lock: File) {
+    drop(lock);
+    let _ = fs::remove_file(state.join(RUNS).join(format!("{}.lock", grant.0)));
+}
+
+/// Whether a live `build run` holds the run lock of `grant`. A grant with no lock file (a run of an
+/// older binary) is not held.
+fn run_held(state: &Path, grant: &GrantId) -> bool {
+    let path = state.join(RUNS).join(format!("{}.lock", grant.0));
+    let Ok(file) = OpenOptions::new().write(true).open(&path) else {
+        return false;
+    };
+    file.try_lock().is_err()
 }
 
 /// How [`Ledger::reserve`] answered.
@@ -134,6 +176,7 @@ impl Ledger {
         let store = crate::store::open(state)?;
         Ok(Self {
             generated: Generated::new(Ports { store }),
+            state: state.to_owned(),
             _lock: lock,
         })
     }
@@ -158,6 +201,7 @@ impl Ledger {
         let store = crate::store::open(state)?;
         Ok(Some(Self {
             generated: Generated::new(Ports { store }),
+            state: state.to_owned(),
             _lock: lock,
         }))
     }
@@ -169,11 +213,13 @@ impl Ledger {
     ///
     /// The store does not read or keep a release.
     pub fn sweep(&mut self, at: &Timestamp) -> Result<Vec<GrantId>> {
+        let state = self.state.clone();
         let gone: Vec<GrantId> = HostGrantStorage::list(&self.generated.ports)
             .into_iter()
             .filter(|grant| {
                 grant.state == HostGrantState::Running
                     && grant.data.process_group.is_some_and(|group| !alive(group))
+                    && !run_held(&state, &grant.data.grant_id)
             })
             .map(|grant| grant.data.grant_id)
             .collect();
