@@ -72,3 +72,11 @@ jobs:
           aep --version
       - name: task check
         run: task check
+      # A failed gate whose cause is a generated page that was edited by hand shows what the
+      # generator writes, so the page can be corrected without a local build.
+      - name: Show what conductor-docs would generate
+        if: failure()
+        run: |
+          cargo run --locked -p conductor-docs -- generate
+          git --no-pager diff --stat
+          git --no-pager diff -- website/docs/reference website/docs/status.md website/data
