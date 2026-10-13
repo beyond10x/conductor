@@ -20,7 +20,7 @@ repositories with a specification; the [README](https://github.com/beyond10x/con
 Install from the repository:
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.6.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.7.0 --locked conductor-cli
 ```
 
 or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.
@@ -31,7 +31,7 @@ from `v0.6.0` on carries `conductor-<version>-<target>.tar.gz` for `x86_64-unkno
 `SHA256SUMS`. Verify the archive against it before you unpack it:
 
 ```console
-version=0.6.0 target=x86_64-unknown-linux-gnu
+version=0.7.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -46,7 +46,7 @@ Each way installs one binary, `conductor`; `conductor --version` prints its vers
 
 ```console
 $ conductor --version
-conductor 0.6.0
+conductor 0.7.0
 ```
 
 ## Check the programs
