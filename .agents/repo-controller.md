@@ -88,6 +88,9 @@ An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 - No full gate until every unit of the release is merged into the wave's integration branch;
   never a gate for a queued or intermediate branch. Then one full gate on the final integration
   head, one push and one pull request. A unit's own package-scoped tests are not a full gate.
+  Before that push, the integrated head compiles with every target and passes the linter, and
+  each test that lists every command, leaf or entity names what the wave added; the gate runs
+  every test binary (`--no-fail-fast` or the runner's equivalent), so one run names every failure.
 - One full-workspace gate at a time, in its own process group (`setsid`), under a watchdog
   reading free disk every `thresholds.watchdog_every`: `kill -STOP -<group>` under
   `thresholds.gate_stop`, `kill -CONT` over `thresholds.gate_resume`; a second stop is a

@@ -1778,7 +1778,8 @@ fn the_disk_floors_are_the_instances_and_one_fall_reports_each_crossed() {
     );
     assert_eq!(at(30), NOTHING);
     assert_eq!(at(29), ["disk admit: 29G free on / (builds wait)"]);
-    assert_eq!(at(11), ["disk gate stop: 11G free on / (gates stop)"]);
+    assert_eq!(at(11), NOTHING, "11G is over the 10G gate stop");
+    assert_eq!(at(9), ["disk gate stop: 9G free on / (gates stop)"]);
 }
 
 /// `story:watch-disk-reading`: a reading more than 20G from the watch's previous one is read

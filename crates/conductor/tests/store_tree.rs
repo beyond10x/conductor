@@ -286,8 +286,15 @@ fn file_store_counts(root: &Path) -> BTreeMap<String, (usize, usize)> {
 /// `session-leases` is covered by `tests/session.rs`, whose
 /// `a_second_live_conductor_is_refused_and_a_gone_one_is_taken_over`,
 /// `the_holder_itself_claims_again` and `a_claim_writes_the_guard_s_copy_of_the_lease` read
-/// `session leases`.
-const NOT_IN_FIXTURE: [&str; 1] = ["session-leases"];
+/// `session leases`. `snapshot-member-failures` is covered by `tests/member_failures.rs`, whose
+/// `a_member_whose_fetch_fails_is_a_member_failure_and_the_others_are_read` reads `snapshot
+/// member-failures`, and `snapshot-collector-runs` by `tests/snapshot.rs`, whose
+/// `each_collectors_run_is_recorded_with_its_duration` reads `snapshot collector-runs`.
+const NOT_IN_FIXTURE: [&str; 3] = [
+    "session-leases",
+    "snapshot-member-failures",
+    "snapshot-collector-runs",
+];
 
 /// The fixture covers every view of the `cli:` block that reads the store, but those
 /// [`NOT_IN_FIXTURE`] names, and every one answers rows; `snapshot boards` reads `STATUS.md`, not
