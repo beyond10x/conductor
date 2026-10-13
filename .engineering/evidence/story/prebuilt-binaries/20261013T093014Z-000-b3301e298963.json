@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T09:30:14Z",
+  "actor": "human:timo",
+  "artifact": "story:prebuilt-binaries",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "release workflow on v0.6.0: four archives and SHA256SUMS attached; the x86_64 linux archive verified against SHA256SUMS and ran --help with exit 0",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38376261294"
+  }
+}

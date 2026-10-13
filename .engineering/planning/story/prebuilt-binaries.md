@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:prebuilt-binaries
 kind: story
-status: active
+status: implemented
 title: Each release attaches pre-built conductor binaries for macOS and Linux
 relations:
 - decomposes: epic:conductor-autonomy
@@ -15,10 +15,11 @@ scope:
   path: README.md
 - confidence: cited
   path: website/docs/getting-started.md
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T09:17:00Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-10-13T09:17:00Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-13T09:30:59Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

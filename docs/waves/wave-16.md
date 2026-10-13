@@ -34,5 +34,13 @@ and `crates/conductor/tests/profiles.rs` and ran one after another; U4 shares `T
 `task check`, documentation and the Gates job green in CI on `368103d`
 (https://github.com/beyond10x/conductor/actions/runs/38374319466); the first run failed two
 status tests whose table reader kept the separator row, fixed in the test. Seven stories moved to
-`implemented` on that record. `story:prebuilt-binaries` stays `active` until v0.6.0's release
-page lists the five assets and an archive verifies and runs.
+`implemented` on that record.
+
+v0.6.0 released from `a2db4fa`. The release workflow
+(https://github.com/beyond10x/conductor/actions/runs/38376261294) built all four archives, but
+its publish step failed on its first try: it created the Release with `--notes-from-tag`, which
+needs the tag in a checkout the job does not have. The Release was then created with its notes
+through the API, and a rerun of the failed job attached the four archives and `SHA256SUMS` (five
+assets). The x86_64 Linux archive verified against `SHA256SUMS`, ran `--help` with exit 0 and was
+installed on the host without a source build. `story:prebuilt-binaries` moved to `implemented` on
+that run; the workflow now reads the tag's message through the API.
