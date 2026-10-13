@@ -1,14 +1,24 @@
 # Measured self-improvement
 
-Status: design for approval. A retrospective of conductor over its first week (2026-10-06 to
+Status: approved by the operator on 2026-10-13, with four changes made in this revision (the
+gateway, the K11 and per-task baselines, the evidence kept beside the records, stories for I4 and
+I7). A retrospective of conductor over its first week (2026-10-06 to
 2026-10-13), and a loop that keeps measuring and improving it. No story is delivered before the
 operator approves this design.
 
 Sources: two read-only analyses over the instance's records (decisions and dispatch logs, charters,
 hand-overs), the forge history of the instance's repositories (PRs, CI runs, releases) and 320
-session transcripts (50 conductor, 6 conductor-dev, 264 controller sessions). Every number below
-names its instrument; the full tables are kept beside the records, not in this repository, because
-they cite session ids.
+session transcripts (50 conductor, 6 conductor-dev, 264 controller sessions), and a per-task analysis
+of the same transcripts. Every number below names its instrument. The evidence (tables, data and the
+scripts that computed them) is kept in the instance's state directory beside the records
+(`<state>/conductor-dev/retro-2026-10-13/`), not in this repository, because it cites session ids.
+
+**Scope.** Every session of the instance and every path a message takes: conductor, conductor-dev,
+the controllers and their workers, and the operator's **gateway**: the Remote Control session the
+operator reaches conductor through, and its message path (operator → gateway session →
+cross-session message → conductor, and back). The gateway's sessions are measured like the others
+(K3 corrections, K8 waiting, K9 session loss), and each relay through it is a message round trip
+(K13 below), so a message held, dropped or delayed on that path is visible.
 
 ## 1. Vision
 
@@ -36,13 +46,28 @@ target for the end of the next two weeks.
 | K8 waiting | time sessions spend stopped on CI, disk, a slot or the operator | transcripts (`sleep`, background waits) + host ledger | **134.6 h** on background jobs; 8.9 h in sleep polls | −50 % |
 | K9 session loss | usage-limit errors, sessions that never resumed, conductor restarts per day | transcripts + hand-overs | **148** limit errors, 14 lost sessions; 50 conductor sessions in 7 days (24 restarts) | 0 lost; ≤ 2 restarts per day |
 | K10 guard friction | guard denials per day, and tokens spent recovering | guard decisions + transcripts | **236** denials, ~135k tokens | −75 % |
-| K11 cost per unit | assistant output tokens per merged PR | transcripts (usage fields) + forge | to compute (instrument story) | set after first measurement |
+| K11 output tokens per merged PR | assistant output tokens per merged PR, taking the final usage record of each message id | transcripts (usage fields) + forge | **416,740** per controller-delivered PR (137 of 376 merged PRs mapped, 36 %) | −30 % |
+| K13 relay round trip | operator message through the gateway → conductor answer; any message held or undelivered | gateway and conductor transcripts | to measure (`story:kpi-transcripts`) | set after first measurement |
 | K12 defects shipped | fix releases per feature release; issues labelled bug | forge | **0.45** patch per feature release | ≤ 0.2 |
 
-Per-task KPIs, measured per dispatch (a task) once `story:kpi-per-task` lands: **T1** tokens per
-task (in, out, cache), **T2** time per task, **T3** cost per task as a list-price equivalent, and
-**T4** LLM calls per task, which tracks the long-running goal of deterministic execution through the
-loom SDK and AEP with the fewest LLM calls.
+**Per-task KPIs.** A task is one merged PR, with the dispatch that produced it joined to it (the
+latest dispatch to its repository before the merge, until the dispatch records its PR). They track the
+organisation's long-running goal of deterministic execution through the loom SDK and AEP with the
+fewest model calls. Baselines over 128 controller-delivered merged PRs, 2026-10-07..13, median / p90:
+
+| KPI | baseline | target |
+|---|---|---|
+| T1 tokens per task | output 153,638 / 389,917; cache read 38.8M / 116.4M; cache write 869k / 2.53M; uncached input 542 / 1,180. Fully loaded (all 320 sessions ÷ 376 merged PRs): output 195,836, cache read 52.2M | −30 % each release cycle until flat |
+| T2 time per task | dispatch → merged 1.48 h / 50.0 h; dispatch → released 10.58 h / 50.1 h (90 and 85 PRs) | p90 dispatch → released ≤ 8 h |
+| T3 cost per task, list-price equivalent | $16.97 / $39.59; fully loaded $21.22 per merged PR; window total $7,977 (cache read 49 %, cache write 32 %, output 18 %) | −30 % |
+| T4 LLM calls per task | 265 / 590; fully loaded 294 | −50 % (`epic:deterministic-steps`) |
+
+Per dispatch (every controller session, merged or not, 247 tasks): median 220 calls, 1.1 h, $11
+(p90 797, 5.4 h, $54). Prices are the published list prices per model as of 2026-10-13, kept with
+the evidence; actual spend is by subscription. Two cautions the instrument fixes: usage must be read
+from the final record of each message id (sub-agents write a streaming snapshot first, which
+undercounts output eightfold), and PRs must be mapped to sessions by repository and time or by the
+dispatch, since reported merges covered only 36 % of merged PRs.
 
 Message round trips per decision were measured too: a decision request is answered in a median of
 0.4 min, so decisions are not where time goes.
@@ -108,19 +133,27 @@ never into the operator's global instruction files.
 `epic:measured-self-improvement`, with draft stories:
 1. `kpi-spec` — the KPI and friction-finding nouns, specified first.
 2. `kpi-records` — K1, K2, K4, K5 from the store, records and forge snapshot.
-3. `kpi-transcripts` — K3, K7, K8, K9, K10, K11 from transcripts, counts only.
+3. `kpi-transcripts` — K3, K7, K8, K9, K10, K11, K13 from transcripts (gateway included), counts
+   only, final usage record per message id, PRs mapped to sessions by repository and time.
+3a. `kpi-per-task` — T1–T4 per merged PR with its dispatch joined.
 4. `kpi-board` — the KPI table on the board and the dashboard, with targets and trend.
 5. `friction-findings` — detection of friction signatures into findings with evidence.
 6. `findings-to-stories` — conductor-dev's profile turns findings into draft stories, deduplicated.
 7. `kpi-verify` — the week-later check written into the story.
 8. `tool-smoke-install` — I5.
 9. `release-by-the-loop` — I3.
-The other improvements (I1, I2, I4, I6, I7) have stories in the store already or are added to them.
+10. `guard-rules-shown` — I4: each role's guard rules in its start reading, every denial naming the
+    allowed form.
+11. `status-subscription` — I7: `conductor status --follow` and a state-change feed instead of polls.
+I1, I2 and I6 are carried by stories already in the store (`watch-waits`, `watch-pr-checks`,
+`session-limits-systemd`, `conductor-start-reading`, `controller-start-reading`); the steps that need
+no model call are `epic:deterministic-steps`.
 
 ## Left out
 
 - Ranking or scoring people; per-person metrics.
 - Changing the operator's rules, targets or vision without them.
 - Automatic merges or releases that skip a gate.
-- Cost in money: the transcripts give tokens, not prices.
+- Billing: T3 is a list-price equivalent computed from tokens, not what the organisation is charged
+  (subscription); no invoices or accounts are read.
 - Measuring repositories outside the instance.
