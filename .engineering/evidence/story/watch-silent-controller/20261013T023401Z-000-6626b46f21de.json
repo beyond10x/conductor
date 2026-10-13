@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T02:34:01Z",
+  "actor": "human:timo",
+  "artifact": "story:watch-silent-controller",
+  "kind": "story",
+  "revision": 6,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/13: green",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38337152180"
+  }
+}

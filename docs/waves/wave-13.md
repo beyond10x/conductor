@@ -20,5 +20,11 @@ without a local build; CI gates them.
 
 | unit | story | stage | commit |
 |---|---|---|---|
-| U1 | watch-silent-controller (spec first: `thresholds.silent_session`) | running | — |
-| U2 | decision-id-free-in-records | running | — |
+| U1 | watch-silent-controller (spec first: `thresholds.silent_session`) | done | `527abb4` |
+| U2 | decision-id-free-in-records | done | `df76549` |
+
+## Outcome
+
+`task check` and the Gates job green in CI on the first push
+(https://github.com/beyond10x/conductor/actions/runs/38337152180). Stories moved to `implemented`
+on recorded evidence.

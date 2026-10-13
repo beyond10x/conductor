@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:watch-silent-controller
 kind: story
-status: active
+status: implemented
 title: The watch reports a live controller whose transcripts stay silent
 tags:
 - session-review
@@ -17,10 +17,11 @@ scope:
   path: crates/conductor/tests/watch.rs
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T02:22:17Z", actor: "human:timo", revision: 5}
 - {from: "proposed", to: "active", at: "2026-10-13T02:22:17Z", actor: "human:timo", revision: 6}
+- {from: "active", to: "implemented", at: "2026-10-13T02:34:02Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
