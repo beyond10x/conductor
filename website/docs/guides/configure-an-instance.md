@@ -28,18 +28,18 @@ instances:
       - role: conductor
         harness: claude
         model: opus
-        profile: ~/example-org/conductor/.agents/conductor.md
+        profile: ~/.b10x/conductor/profiles/conductor.md
         settings: ~/example-org/conductor/.claude/conductor-settings.json
       - role: conductor-dev
         harness: claude
         model: opus
-        profile: ~/example-org/conductor/.agents/conductor-dev.md
+        profile: ~/.b10x/conductor/profiles/conductor-dev.md
       - role: controller
         harness: claude
         model: opus
         agent: repo-controller
         settings: ~/example-org/conductor/.claude/controller-settings.json
-        profile: ~/example-org/conductor/.agents/repo-controller.md
+        profile: ~/.b10x/conductor/profiles/repo-controller.md
 ```
 
 | key | why |
@@ -107,7 +107,7 @@ value written `section.key` from its JSON form:
 $ conductor config show --format json | jq -c '.instances[0] | {records, state, cache}'
 {"records":"~/example-org/records","state":"~/.b10x/conductor/personal/state","cache":"~/.cache/b10x/conductor/personal"}
 $ conductor config show --format json | jq -c ".instances[0].roles[2]"
-{"role":"controller","harness":"claude","model":"opus","agent":"repo-controller","settings":"~/example-org/conductor/.claude/controller-settings.json","profile":"~/example-org/conductor/.agents/repo-controller.md","session_name":null,"read_only_tools":[]}
+{"role":"controller","harness":"claude","model":"opus","agent":"repo-controller","settings":"~/example-org/conductor/.claude/controller-settings.json","profile":"~/.b10x/conductor/profiles/repo-controller.md","session_name":null,"read_only_tools":[]}
 ```
 
 (The CLI prints the home directory in full; it is written `~` here.) `session_name` is derived,

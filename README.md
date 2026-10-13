@@ -154,16 +154,16 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
          - role: conductor
            harness: claude
            model: opus
-           profile: ~/example-org/conductor/.agents/conductor.md
+           profile: ~/.b10x/conductor/profiles/conductor.md
            settings: ~/example-org/conductor/.claude/conductor-settings.json
          - role: conductor-dev
            harness: claude
            model: opus
-           profile: ~/example-org/conductor/.agents/conductor-dev.md
+           profile: ~/.b10x/conductor/profiles/conductor-dev.md
          - role: controller
            harness: claude
            model: opus
-           profile: ~/example-org/conductor/.agents/repo-controller.md
+           profile: ~/.b10x/conductor/profiles/repo-controller.md
            settings: ~/example-org/conductor/.claude/controller-settings.json
    ```
 

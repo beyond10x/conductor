@@ -67,7 +67,8 @@ Each session commits only the files it writes, with a pathspec.
 | `task regen` | regenerates `crates/conductor-model` from `spec/` |
 | `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
-| `task install` | `cargo install --path crates/conductor --locked` |
+| `task install` | `cargo install --path crates/conductor --locked`, then `task profiles` |
+| `task profiles` | the three `.agents/` profiles into `~/.b10x/conductor/profiles/`, which the instance's roles start from; after a release archive is installed, run it from that release's checkout |
 
 A pull request merges when its `task check` job (`.github/workflows/check.yml`) and its Gates job
 (`common / Security and privacy`, which scans with the organization's policy; the `task check` job

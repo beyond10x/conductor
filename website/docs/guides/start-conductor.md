@@ -41,18 +41,24 @@ guard. With this checkout at `~/example-org/conductor`:
       - role: conductor
         harness: claude
         model: opus
-        profile: ~/example-org/conductor/.agents/conductor.md
+        profile: ~/.b10x/conductor/profiles/conductor.md
         settings: ~/example-org/conductor/.claude/conductor-settings.json
       - role: conductor-dev
         harness: claude
         model: opus
-        profile: ~/example-org/conductor/.agents/conductor-dev.md
+        profile: ~/.b10x/conductor/profiles/conductor-dev.md
       - role: controller
         harness: claude
         model: opus
-        profile: ~/example-org/conductor/.agents/repo-controller.md
+        profile: ~/.b10x/conductor/profiles/repo-controller.md
         settings: ~/example-org/conductor/.claude/controller-settings.json
 ```
+
+`task install` writes the three profiles (`.agents/conductor.md`, `.agents/conductor-dev.md`,
+`.agents/repo-controller.md`) of the checkout it installs from into `~/.b10x/conductor/profiles/`
+(beside the config file `CONDUCTOR_CONFIG` names, when it names one), so each profile matches the
+installed binary and a restart reads no checkout. A `profile` inside a git checkout is refused while
+that checkout is behind its upstream.
 
 Without a `profile`, `task conductor:start` starts the role's `agent` (default `conductor`) with
 `--agent`, and finds it only in `<records>/.claude/agents/`; it refuses when that file is not

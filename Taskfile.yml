@@ -54,7 +54,7 @@ tasks:
       - sh: test -z {{shellQuote .PROFILE}} || test -f {{shellQuote .PROFILE}}
         msg: the profile {{.PROFILE}} of the role conductor is not a file
       - sh: test -z {{shellQuote .CHECKOUT}} || ! git -C {{shellQuote .CHECKOUT}} rev-parse --verify --quiet '@{upstream}' >/dev/null || { GIT_TERMINAL_PROMPT=0 git -C {{shellQuote .CHECKOUT}} fetch --quiet >/dev/null 2>&1 || true; test "$(git -C {{shellQuote .CHECKOUT}} rev-list --count 'HEAD..@{upstream}' 2>/dev/null || echo 0)" = 0; }
-        msg: the checkout {{.CHECKOUT}} holding the profile {{.PROFILE}} of the role conductor is behind its upstream after git fetch, so conductor would start on an old profile; fast-forward it with git -C {{.CHECKOUT}} merge --ff-only, then run the task again
+        msg: the checkout {{.CHECKOUT}} holding the profile {{.PROFILE}} of the role conductor is behind its upstream after git fetch, so conductor would start on an old profile; fast-forward it with git -C {{.CHECKOUT}} merge --ff-only, or point the role's profile at the copy task install writes under ~/.b10x/conductor/profiles, then run the task again
       - sh: test -n {{shellQuote .PROFILE}} || case {{shellQuote .AGENT}} in '' | */* | .*) exit 1 ;; esac
         msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in {{.RECORDS}}/.claude/agents/
       - sh: test -n {{shellQuote .PROFILE}} || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
@@ -112,7 +112,7 @@ tasks:
       - sh: test -z {{shellQuote .PROFILE}} || test -f {{shellQuote .PROFILE}}
         msg: the profile {{.PROFILE}} of the role conductor is not a file
       - sh: test -z {{shellQuote .CHECKOUT}} || ! git -C {{shellQuote .CHECKOUT}} rev-parse --verify --quiet '@{upstream}' >/dev/null || { GIT_TERMINAL_PROMPT=0 git -C {{shellQuote .CHECKOUT}} fetch --quiet >/dev/null 2>&1 || true; test "$(git -C {{shellQuote .CHECKOUT}} rev-list --count 'HEAD..@{upstream}' 2>/dev/null || echo 0)" = 0; }
-        msg: the checkout {{.CHECKOUT}} holding the profile {{.PROFILE}} of the role conductor is behind its upstream after git fetch, so conductor would start on an old profile; fast-forward it with git -C {{.CHECKOUT}} merge --ff-only, then run the task again
+        msg: the checkout {{.CHECKOUT}} holding the profile {{.PROFILE}} of the role conductor is behind its upstream after git fetch, so conductor would start on an old profile; fast-forward it with git -C {{.CHECKOUT}} merge --ff-only, or point the role's profile at the copy task install writes under ~/.b10x/conductor/profiles, then run the task again
       - sh: test -n {{shellQuote .PROFILE}} || case {{shellQuote .AGENT}} in '' | */* | .*) exit 1 ;; esac
         msg: the agent {{.AGENT}} of the role conductor is not a plain agent name (no /, no leading .); the agent must be a file <agent>.md in {{.RECORDS}}/.claude/agents/
       - sh: test -n {{shellQuote .PROFILE}} || test -f {{shellQuote .RECORDS}}/.claude/agents/{{shellQuote .AGENT}}.md
@@ -293,9 +293,15 @@ tasks:
       - id=$(conductor snapshot start-snapshot) && conductor snapshot publish-board --snapshot-id "$id"
 
   install:
-    desc: Install the conductor binary from this checkout; conductor-dev runs it after a wave merges and check is green
+    desc: Install the conductor binary from this checkout, then the profiles (task profiles); conductor-dev runs it after a wave merges and check is green
     cmds:
       - cargo install --path crates/conductor --locked
+      - task: profiles
+
+  profiles:
+    desc: Install the profiles the sessions start from (.agents/conductor.md, conductor-dev.md, repo-controller.md) into profiles/ beside the config file (~/.b10x/conductor/profiles unless CONDUCTOR_CONFIG names another), so a role's profile matches the installed binary and a restart reads no checkout; run it from the checkout of the release installed, as after a release archive is installed
+    cmds:
+      - dir="$(dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}")/profiles" && mkdir -p "$dir" && install -m 0644 .agents/conductor.md .agents/conductor-dev.md .agents/repo-controller.md "$dir/" && echo "profiles installed in $dir"
 
   measure:
     desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio and the guard latency); run it on a quiet host

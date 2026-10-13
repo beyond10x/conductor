@@ -50,7 +50,9 @@ through the repository's bot route.
    step that cannot be undone or a credential only they can enter. A round ends with its tree finished and gc-ed (`worktree finish --discard-cache
    --archive`, then `worktree gc` on the exact reviewed id) and its merged branches deleted with
    `git branch -d`.
-4. **Rebuild.** After a wave merges into `main` and `task check` is green there: `task install`.
+4. **Rebuild.** After a wave merges into `main` and `task check` is green there: `task install`
+   (or, after installing a release archive, `task profiles` from that release's checkout), so the
+   profiles the roles start from match the binary and a restart reads no checkout.
 5. **Restart conductor** only when `.claude/agents/conductor.md`, `.agents/conductor.md`,
    `.agents/repo-controller.md`, `rules.md`, design §§ 2–12 or the conductor role's `settings`
    file changed since conductor started. Sessions start without the user's global Claude

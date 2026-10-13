@@ -71,7 +71,7 @@ check fails. Each message names its fix:
 | `conductor config show names no role conductor` | the instance's `roles` has no `conductor` entry, or the config does not load | `conductor config validate`; add the role |
 | `the role conductor runs on codex …; this task starts claude only` | the role's `harness` is not `claude` | set `harness: claude` for this role |
 | `the records directory … is not a directory` | the records were never written | [initialise the records](./initialise-the-records.md) with `conductor init` |
-| `the profile … of the role conductor is not a file` | the `profile` path is wrong | point it at `.agents/conductor.md` in a checkout of the conductor repository |
+| `the profile … of the role conductor is not a file` | the `profile` path is wrong | run `task install` in a checkout of the conductor repository, which writes `~/.b10x/conductor/profiles/conductor.md`, and point it there |
 | `the agent … is not in <records>/.claude/agents/` | the role names no `profile`, and sessions load no user-level agent | name a `profile` for the role ([start conductor](./start-conductor.md#2-name-each-roles-profile-and-settings)) |
 | `Claude Code's bypass-permissions disclaimer is not accepted …` | `claude --bg` refuses `bypassPermissions` until the disclaimer was accepted once | run `claude --dangerously-skip-permissions` once in the records directory, or set `"skipDangerousModePermissionPrompt": true` in the role's settings file |
 | `a session named … is already running; see task sessions` | a live session of that name exists | attach to it, or stop it before you start another; two conductors of one instance would answer the same controllers |

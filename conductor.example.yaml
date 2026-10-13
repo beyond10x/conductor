@@ -19,7 +19,7 @@ instances:
         model: opus
         agent: repo-controller
         settings: ~/example-org/conductor/.claude/controller-settings.json
-        profile: ~/example-org/conductor/.agents/repo-controller.md
+        profile: ~/.b10x/conductor/profiles/repo-controller.md
     catalog:
       repository: registry
       path: catalog/entries
@@ -57,7 +57,7 @@ instances:
         model: sonnet
         agent: repo-controller
         settings: ~/example-org/conductor/.claude/controller-settings.json
-        profile: ~/example-org/conductor/.agents/repo-controller.md
+        profile: ~/.b10x/conductor/profiles/repo-controller.md
     repositories:
       - {match: legacy-service, activity: inactive}
     retention:
