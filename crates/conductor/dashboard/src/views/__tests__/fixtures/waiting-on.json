@@ -1,0 +1,26 @@
+{
+  "rows": [
+    {
+      "repository": "alpha",
+      "causes": [
+        {
+          "cause": "operator",
+          "detail": "decision request alpha-7 (class O): may we vendor the licence-less OpenAPI document?"
+        },
+        {
+          "cause": "another-repository",
+          "on": "beta",
+          "detail": "[NEED beta] a refunds endpoint (dispatch DSP-20261013-02 to beta)"
+        }
+      ]
+    },
+    {
+      "repository": "beta",
+      "causes": []
+    },
+    {
+      "repository": "gamma",
+      "causes": []
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "rows": [
+    {
+      "at": "2026-10-13T08:12:00Z",
+      "repository": "alpha",
+      "kind": "dispatch",
+      "text": "G1"
+    },
+    {
+      "at": "2026-10-13T11:02:00Z",
+      "repository": "alpha",
+      "kind": "decision",
+      "text": "O: may we vendor the licence-less OpenAPI document?"
+    },
+    {
+      "at": "2026-10-13T09:57:00Z",
+      "repository": "alpha",
+      "kind": "merge",
+      "text": "#218 refund ledger idempotency key",
+      "link": "https://forge.example.org/example-org/alpha/pull/218"
+    },
+    {
+      "at": "2026-10-13T10:40:00Z",
+      "repository": "alpha",
+      "kind": "report",
+      "text": "started"
+    },
+    {
+      "at": "2026-10-13T10:44:00Z",
+      "repository": "alpha",
+      "kind": "release",
+      "text": "v2.14.1",
+      "link": "https://forge.example.org/example-org/alpha/releases/v2.14.1"
+    }
+  ]
+}

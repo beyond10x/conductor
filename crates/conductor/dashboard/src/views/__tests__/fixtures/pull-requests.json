@@ -1,0 +1,47 @@
+{
+  "snapshot": {
+    "id": "5f0c3a52-1111-4111-8111-111111111111",
+    "started_at": "2026-10-13T09:00:00Z"
+  },
+  "rows": [
+    {
+      "observation_id": "0b6e1c2a-3333-4333-8333-000000000001",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "number": 219,
+      "title": "Webhook dedup table migration",
+      "draft": false,
+      "mergeability": "Mergeable",
+      "failing_checks": 0,
+      "opened_at": "2026-10-13T07:00:00Z",
+      "updated_at": "2026-10-13T08:00:00Z",
+      "url": "https://forge.example.org/example-org/alpha/pull/219"
+    },
+    {
+      "observation_id": "0b6e1c2a-3333-4333-8333-000000000002",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "number": 221,
+      "title": "Refund retry window: back off on 409",
+      "draft": false,
+      "mergeability": "Mergeable",
+      "failing_checks": 2,
+      "opened_at": "2026-10-13T08:40:00Z",
+      "updated_at": "2026-10-13T09:10:00Z",
+      "url": "https://forge.example.org/example-org/alpha/pull/221"
+    },
+    {
+      "observation_id": "0b6e1c2a-3333-4333-8333-000000000003",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "beta",
+      "number": 12,
+      "title": "not alpha's",
+      "draft": false,
+      "mergeability": "Mergeable",
+      "failing_checks": 0,
+      "opened_at": "2026-10-13T08:00:00Z",
+      "updated_at": "2026-10-13T08:00:00Z",
+      "url": "https://forge.example.org/example-org/beta/pull/12"
+    }
+  ]
+}

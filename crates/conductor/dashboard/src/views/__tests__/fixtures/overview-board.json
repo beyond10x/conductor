@@ -1,0 +1,44 @@
+{
+  "snapshot": {
+    "id": "7a1d0c3e-2222-4222-8222-222222222222",
+    "started_at": "2026-10-13T09:00:00Z"
+  },
+  "rows": [
+    {
+      "repository": "alpha",
+      "deviations": ["red main", "failing PR"],
+      "open_prs": 2,
+      "failing_prs": 1,
+      "non_green_workflows": 1,
+      "open_blockers": 1,
+      "specifications_present": 1
+    },
+    {
+      "repository": "beta",
+      "deviations": ["no checkout"],
+      "open_prs": 1,
+      "failing_prs": 0,
+      "non_green_workflows": 0,
+      "open_blockers": 0,
+      "specifications_present": 0
+    },
+    {
+      "repository": "delta",
+      "deviations": ["red main"],
+      "open_prs": 0,
+      "failing_prs": 0,
+      "non_green_workflows": 1,
+      "open_blockers": 0,
+      "specifications_present": 1
+    },
+    {
+      "repository": "gamma",
+      "deviations": [],
+      "open_prs": 0,
+      "failing_prs": 0,
+      "non_green_workflows": 0,
+      "open_blockers": 0,
+      "specifications_present": 1
+    }
+  ]
+}

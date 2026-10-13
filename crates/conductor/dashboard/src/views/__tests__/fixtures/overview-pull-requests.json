@@ -1,0 +1,47 @@
+{
+  "snapshot": {
+    "id": "7a1d0c3e-2222-4222-8222-222222222222",
+    "started_at": "2026-10-13T09:00:00Z"
+  },
+  "rows": [
+    {
+      "observation_id": "0c1f2d3e-7777-4777-8777-000000000001",
+      "snapshot_id": "7a1d0c3e-2222-4222-8222-222222222222",
+      "repository": "alpha",
+      "number": 7,
+      "title": "Link the board",
+      "draft": false,
+      "mergeability": "Mergeable",
+      "failing_checks": 1,
+      "opened_at": "2026-10-12T09:00:00Z",
+      "updated_at": "2026-10-13T08:00:00Z",
+      "url": "https://forge.example.org/example-org/alpha/pull/7"
+    },
+    {
+      "observation_id": "0c1f2d3e-7777-4777-8777-000000000002",
+      "snapshot_id": "7a1d0c3e-2222-4222-8222-222222222222",
+      "repository": "alpha",
+      "number": 8,
+      "title": "Draw the tiles",
+      "draft": true,
+      "mergeability": "Unknown",
+      "failing_checks": 0,
+      "opened_at": "2026-10-13T07:00:00Z",
+      "updated_at": "2026-10-13T07:30:00Z",
+      "url": "https://forge.example.org/example-org/alpha/pull/8"
+    },
+    {
+      "observation_id": "0c1f2d3e-7777-4777-8777-000000000003",
+      "snapshot_id": "7a1d0c3e-2222-4222-8222-222222222222",
+      "repository": "beta",
+      "number": 3,
+      "title": "Read the beta feed",
+      "draft": false,
+      "mergeability": "Mergeable",
+      "failing_checks": 0,
+      "opened_at": "2026-10-11T09:00:00Z",
+      "updated_at": "2026-10-12T09:00:00Z",
+      "url": null
+    }
+  ]
+}

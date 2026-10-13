@@ -1,0 +1,39 @@
+{
+  "rows": [
+    {
+      "at": "2026-10-13T08:20:00Z",
+      "repository": "alpha",
+      "kind": "report",
+      "text": "started",
+      "link": null
+    },
+    {
+      "at": "2026-10-13T09:10:00Z",
+      "repository": "delta",
+      "kind": "release",
+      "text": "v2.0.0",
+      "link": "https://forge.example.org/example-org/delta/releases/tag/v2.0.0"
+    },
+    {
+      "at": "2026-10-13T08:00:00Z",
+      "repository": "alpha",
+      "kind": "dispatch",
+      "text": "G1",
+      "link": null
+    },
+    {
+      "at": "2026-10-13T09:00:00Z",
+      "repository": "alpha",
+      "kind": "merge",
+      "text": "#5 Count the cards",
+      "link": "https://forge.example.org/example-org/alpha/pull/5"
+    },
+    {
+      "at": "2026-10-13T08:30:00Z",
+      "repository": null,
+      "kind": "decision",
+      "text": "O: Release now?",
+      "link": null
+    }
+  ]
+}

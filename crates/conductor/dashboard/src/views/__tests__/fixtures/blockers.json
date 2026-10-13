@@ -1,0 +1,40 @@
+{
+  "snapshot": {
+    "id": "5f0c3a52-1111-4111-8111-111111111111",
+    "started_at": "2026-10-13T09:00:00Z"
+  },
+  "rows": [
+    {
+      "observation_id": "0b6e1c2a-1111-4111-8111-000000000001",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "reference": "story:partner-sandbox",
+      "blocker_kind": "upstream-blocker",
+      "title": "partner API keys"
+    },
+    {
+      "observation_id": "0b6e1c2a-1111-4111-8111-000000000002",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "reference": "story:refund-docs",
+      "blocker_kind": "decision-blocker",
+      "title": "which refund states to document"
+    },
+    {
+      "observation_id": "0b6e1c2a-1111-4111-8111-000000000003",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "reference": "story:partner-webhooks",
+      "blocker_kind": "upstream-blocker",
+      "title": "partner webhook signatures"
+    },
+    {
+      "observation_id": "0b6e1c2a-1111-4111-8111-000000000004",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "beta",
+      "reference": "story:beta-only",
+      "blocker_kind": "upstream-blocker",
+      "title": "not alpha's"
+    }
+  ]
+}

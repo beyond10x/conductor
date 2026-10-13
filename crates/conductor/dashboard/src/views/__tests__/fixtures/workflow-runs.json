@@ -1,0 +1,32 @@
+{
+  "snapshot": {
+    "id": "5f0c3a52-1111-4111-8111-111111111111",
+    "started_at": "2026-10-13T09:00:00Z"
+  },
+  "rows": [
+    {
+      "observation_id": "0b6e1c2a-4444-4444-8444-000000000001",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "workflow": "CI",
+      "conclusion": "Failure",
+      "run_at": "2026-10-13T06:00:00Z"
+    },
+    {
+      "observation_id": "0b6e1c2a-4444-4444-8444-000000000002",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "workflow": "CI",
+      "conclusion": "Success",
+      "run_at": "2026-10-13T08:38:00Z"
+    },
+    {
+      "observation_id": "0b6e1c2a-4444-4444-8444-000000000003",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "beta",
+      "workflow": "CI",
+      "conclusion": "Failure",
+      "run_at": "2026-10-13T09:00:00Z"
+    }
+  ]
+}

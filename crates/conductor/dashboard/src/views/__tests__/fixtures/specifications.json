@@ -1,0 +1,36 @@
+{
+  "snapshot": {
+    "id": "5f0c3a52-1111-4111-8111-111111111111",
+    "started_at": "2026-10-13T09:00:00Z"
+  },
+  "rows": [
+    {
+      "observation_id": "0b6e1c2a-2222-4222-8222-000000000001",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "alpha",
+      "presence": "Present",
+      "path": "spec",
+      "format": "ess/22",
+      "required_ess": null,
+      "validation": "Valid",
+      "validation_refusals": 0,
+      "scenarios": 214,
+      "synthesis_refusals": null,
+      "conformance_status": null
+    },
+    {
+      "observation_id": "0b6e1c2a-2222-4222-8222-000000000002",
+      "snapshot_id": "5f0c3a52-1111-4111-8111-111111111111",
+      "repository": "beta",
+      "presence": "Missing",
+      "path": null,
+      "format": null,
+      "required_ess": null,
+      "validation": "NotRun",
+      "validation_refusals": 0,
+      "scenarios": null,
+      "synthesis_refusals": null,
+      "conformance_status": null
+    }
+  ]
+}

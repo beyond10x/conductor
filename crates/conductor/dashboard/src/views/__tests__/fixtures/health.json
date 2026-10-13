@@ -1,0 +1,113 @@
+{
+  "generated_at": "2026-10-13T09:30:00Z",
+  "doctor": {
+    "taken_at": "2026-10-13T09:25:00Z",
+    "taking": false,
+    "rows": [
+      "machine: build-host, Linux 6.18.49, x86_64",
+      "conductor: 0.8.0",
+      "git: present, git version 2.51.0",
+      "aep: present, aep 0.22.8",
+      "gh: present, gh version 2.81.0 (2026-09-30)",
+      "gh: not logged in to github.com",
+      "pins: none"
+    ],
+    "verdict": "not ready: gh (not logged in to github.com)",
+    "ready": false,
+    "error": null
+  },
+  "snapshot": {
+    "snapshot_id": "0199e1a2-7c3b-7000-8000-000000000001",
+    "state": "Complete",
+    "started_at": "2026-10-13T09:20:00Z",
+    "disk_free_bytes": 38654705664,
+    "failure_reason": null
+  },
+  "collector_runs": [
+    {
+      "collector": "repositories",
+      "started_at": "2026-10-13T09:20:00Z",
+      "duration_ms": 41000,
+      "outcome": "Completed"
+    },
+    {
+      "collector": "ci",
+      "started_at": "2026-10-13T09:20:41Z",
+      "duration_ms": 18250,
+      "outcome": "Completed"
+    },
+    {
+      "collector": "blockers",
+      "started_at": "2026-10-13T09:20:59Z",
+      "duration_ms": 123000,
+      "outcome": "OverBudget"
+    }
+  ],
+  "member_failures": [
+    {
+      "member": "billing-worker",
+      "collector": "blockers",
+      "error_line": "`git fetch --quiet origin` exited 128: fatal: could not read Username for 'https://example.com': terminal prompts disabled",
+      "class": "needs login",
+      "fix": "The member's remote asked for a login or refused the credential: load the SSH key (`ssh-add`) or cache HTTPS credentials for its host, check with `git fetch` in its checkout, then take the snapshot again."
+    },
+    {
+      "member": "ledger",
+      "collector": "specifications",
+      "error_line": "error: project document (.engineering/planning/project.json) is not valid: [unsupported_protocol_version] project.version: this store is aep.project/1",
+      "class": "old store",
+      "fix": "The member's planning store is `aep.project/1`, which this `aep` refuses: in its checkout, review `aep plan store migrate git --dry-run`, then run it without `--dry-run`."
+    }
+  ],
+  "disk": {
+    "path": "/",
+    "free_bytes": 38654705664,
+    "disk_low_bytes": 42949672960,
+    "disk_admit_bytes": 21474836480,
+    "state": "low",
+    "measured_at": "2026-10-13T09:25:00Z",
+    "measured_ago": "5m",
+    "measuring": false,
+    "total_bytes": 6448739328,
+    "reclaimable_bytes": 5368709120,
+    "rows": [
+      {
+        "repository": "alpha",
+        "what": "build cache in idle managed trees",
+        "path": "~/.local/state/worktree/trees/example-org/alpha",
+        "count": 1,
+        "bytes": 5368709120,
+        "owner": null,
+        "age": null,
+        "state": "measured",
+        "reclaimable": true,
+        "gc": "worktree discard-cache"
+      },
+      {
+        "repository": "alpha",
+        "what": "target/ of the checkout",
+        "path": "~/example-org/alpha/target",
+        "count": null,
+        "bytes": 1073741824,
+        "owner": null,
+        "age": null,
+        "state": "measured",
+        "reclaimable": false,
+        "gc": "kept: not cargo's: no CACHEDIR.TAG"
+      },
+      {
+        "repository": null,
+        "what": "smaller /var/tmp entries",
+        "path": "/var/tmp",
+        "count": 2,
+        "bytes": 6288384,
+        "owner": "agent",
+        "age": "2d 4h",
+        "state": "measured",
+        "reclaimable": false,
+        "gc": "kept: not conductor's"
+      }
+    ]
+  },
+  "errors": []
+}

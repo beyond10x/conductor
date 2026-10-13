@@ -1,0 +1,37 @@
+{
+  "rows": [
+    {
+      "name": "alpha",
+      "repository": "alpha",
+      "state": "working",
+      "started_at": "2026-10-13T07:30:00Z",
+      "dispatch": {
+        "id": "DSP-20261013-01",
+        "brief": "Fix the refund retries"
+      },
+      "transcript": "~/.claude/projects/-home-example-example-org-alpha/0a1b2c3d-1111-4111-8111-111111111111.jsonl",
+      "spend_today": {
+        "calls": 42,
+        "input": 1000,
+        "output": 2000,
+        "cache_read": 30000,
+        "cache_write": 4000
+      }
+    },
+    {
+      "name": "alpha-w01",
+      "repository": "alpha",
+      "state": "exited",
+      "started_at": "2026-10-13T06:00:00Z",
+      "dispatch": null,
+      "transcript": "~/.claude/projects/-home-example--local-state-worktree-trees-example-org-alpha-alpha-w01/0a1b2c3d-2222-4222-8222-222222222222.jsonl",
+      "spend_today": {
+        "calls": 42,
+        "input": 1000,
+        "output": 2000,
+        "cache_read": 30000,
+        "cache_write": 4000
+      }
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-10-13T09:30:00Z",
+  "disk": {
+    "path": "/",
+    "free_bytes": 36079871590,
+    "size_bytes": 909494697984,
+    "measured_at": "2026-10-13T09:25:00Z",
+    "measured_ago": "5m",
+    "measuring": false,
+    "total_bytes": 6448739328,
+    "reclaimable_bytes": 5368709120,
+    "rows": [
+      {
+        "repository": "alpha",
+        "what": "build cache in idle managed trees",
+        "path": "~/.local/state/worktree/trees/example-org/alpha",
+        "count": 1,
+        "bytes": 5368709120,
+        "owner": null,
+        "age": null,
+        "state": "measured",
+        "reclaimable": true,
+        "gc": "worktree sweep --apply --repo ~/example-org/alpha"
+      },
+      {
+        "repository": "alpha",
+        "what": "target/ of the checkout",
+        "path": "~/example-org/alpha/target",
+        "count": null,
+        "bytes": 1073741824,
+        "owner": null,
+        "age": null,
+        "state": "measured",
+        "reclaimable": false,
+        "gc": "kept: the checkout's own build"
+      },
+      {
+        "repository": null,
+        "what": "smaller /var/tmp entries",
+        "path": "/var/tmp",
+        "count": 2,
+        "bytes": 6288384,
+        "owner": "agent",
+        "age": "2d 4h",
+        "state": "measured",
+        "reclaimable": false,
+        "gc": "kept: not conductor's"
+      }
+    ]
+  },
+  "controllers": 1,
+  "build_slot": "not recorded",
+  "sessions": [
+    {
+      "name": "alpha",
+      "kind": "background",
+      "exited": false,
+      "status": "busy",
+      "state": "working",
+      "cwd": "~/example-org/alpha",
+      "started_at": "2026-10-13T07:30:00Z",
+      "started_ago": "2h 0m",
+      "dispatch": {
+        "id": "DSP-20261013-01",
+        "goal": "G1",
+        "brief": "Fix <b>bold</b> & \"quoted\" refund retries",
+        "event": "started",
+        "event_at": "2026-10-13T09:25:00Z",
+        "event_ago": "5m"
+      }
+    },
+    {
+      "name": "conductor",
+      "kind": "background",
+      "exited": false,
+      "status": null,
+      "state": "blocked",
+      "cwd": "~/example-org/conductor",
+      "started_at": "2026-10-13T09:28:30Z",
+      "started_ago": "1m",
+      "dispatch": null
+    },
+    {
+      "name": "aardvark",
+      "kind": "interactive",
+      "exited": true,
+      "status": null,
+      "state": "exited",
+      "cwd": "~/example-org/aardvark",
+      "started_at": "2026-10-12T09:30:00Z",
+      "started_ago": "1d 0h",
+      "dispatch": null
+    }
+  ],
+  "watch": {
+    "usage_limit": [
+      {
+        "text": "Usage limit reached · resets 15:00",
+        "sessions": ["alpha", "conductor"]
+      }
+    ],
+    "usage_limit_today": ["Weekly limit reached"],
+    "context": [
+      {
+        "session": "s2",
+        "name": "conductor"
+      }
+    ]
+  },
+  "context_handover": 300000,
+  "red_ci": [
+    {
+      "repo": "beta",
+      "workflow": "Release",
+      "run_id": "202",
+      "conclusion": "failure",
+      "time": "2026-10-13T08:00:00Z"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-20261013-02",
+      "class": "O",
+      "choice": null,
+      "reason": "needs the operator"
+    },
+    {
+      "id": "DEC-20261013-01",
+      "class": "C",
+      "choice": "A",
+      "reason": "gate green, change inside the approved design"
+    }
+  ],
+  "awaiting_operator": [
+    {
+      "id": "DEC-20261013-02",
+      "class": "O",
+      "question": "Release now?"
+    }
+  ],
+  "usage": {
+    "since": "2026-10-13T00:00:00Z",
+    "measured_at": "2026-10-13T09:26:00Z",
+    "measured_ago": "4m",
+    "measuring": false,
+    "rows": [
+      {
+        "repository": "alpha",
+        "sessions": 2,
+        "calls": 14,
+        "input": 1200,
+        "output": 3400,
+        "cache_read": 250000,
+        "cache_write": 18000,
+        "cache_read_percent": 83.3
+      },
+      {
+        "repository": "conductor",
+        "sessions": 1,
+        "calls": 5,
+        "input": 300,
+        "output": 900,
+        "cache_read": 50000,
+        "cache_write": 4000,
+        "cache_read_percent": 16.7
+      }
+    ],
+    "errors": ["~/.claude/projects/broken.jsonl: line 3 is not JSON"]
+  },
+  "reading": {
+    "sessions": "claude agents --json",
+    "root": "~/example-org/conductor",
+    "ci_state": "~/.cache/conductor-watch/ci.state",
+    "checkouts": "~/example-org"
+  },
+  "errors": ["~/example-org/conductor/dispatches/2026-10.jsonl: 1 line(s) are not JSON objects"]
+}
