@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { NeedCard } from '../../api/overview';
 
-defineProps<{ cards: NeedCard[] }>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(defineProps<{ cards: NeedCard[]; error?: string | null }>(), { error: null });
 </script>
 
 <template>
   <section aria-labelledby="needs" class="col">
     <h2 id="needs">Needs you · {{ cards.length }}</h2>
-    <p v-if="cards.length === 0" class="muted">nothing needs you</p>
+    <PanelState v-if="error !== null" state="error" card>{{ error }}</PanelState>
+    <PanelState v-else-if="cards.length === 0" state="empty">nothing needs you</PanelState>
     <div v-else class="needs">
       <div
         v-for="(card, at) in cards"
@@ -34,12 +36,12 @@ defineProps<{ cards: NeedCard[] }>();
 .needs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .card.stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .card.warn {
   background: var(--warn-surface);
@@ -47,13 +49,13 @@ defineProps<{ cards: NeedCard[] }>();
 }
 .head {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 .pill {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 99px;
+  font-size: var(--text-xs);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
 }
 .pill-amber {
   color: var(--amber);
@@ -64,11 +66,11 @@ defineProps<{ cards: NeedCard[] }>();
   border: 1px solid var(--danger-border);
 }
 .cmd {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--dim);
   background: var(--header);
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
   display: block;
   overflow-x: auto;
   user-select: all;

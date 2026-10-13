@@ -24,7 +24,9 @@
 //!
 //! Once a snapshot is kept `Complete`, by the driver or by `complete-snapshot`, the store drops the
 //! observations of the snapshots the instance's `retention.snapshots` does not keep
-//! ([`Store::retain`], `story:observation-retention`); the `Snapshot` records stay.
+//! ([`Store::retain`], `story:observation-retention`); the `Snapshot` records stay. Before that,
+//! it adds what the snapshot saw to the daily rollups ([`crate::rollup`],
+//! `story:dashboard-history`), which retention keeps.
 //!
 //! Every command runs its generated behaviour over the store, maps a refusal to exit 1 and one
 //! line naming the specification's error, and is durable only when [`Store::check`] is `Ok` after
@@ -261,6 +263,7 @@ fn drive(
         .check()
         .context("keep the snapshot's end")?;
     if state == SnapshotState::Complete {
+        roll_up(&mut generated.ports.store, &snapshot_id);
         retain(&generated.ports.store, &snapshot_id)?;
     }
     Ok(Taken {
@@ -320,6 +323,20 @@ fn record_run(generated: &mut Generated<Ports>, run: RecordCollectorRun) -> Resu
 /// The complete snapshots whose observations the instance keeps: its `retention.snapshots`.
 fn retention() -> usize {
     usize::try_from(crate::config::active().instance.retention.snapshots).unwrap_or(1)
+}
+
+/// The daily rollups of `completed`, which was kept `Complete` ([`crate::rollup::update`], over
+/// the dispatch log of the instance's records), before retention drops the observations of the
+/// snapshot before it. A rollup that fails is named on standard error and fails nothing: the
+/// snapshot is complete, and the next one adds what this one saw, as long as it is kept.
+fn roll_up(store: &mut Store, completed: &SnapshotId) {
+    let records = PathBuf::from(&crate::config::active().instance.records);
+    if let Err(error) = crate::rollup::update(store, completed, &records) {
+        eprintln!(
+            "conductor: snapshot {} is complete; its daily rollups were not updated: {error:#}",
+            completed.0.0
+        );
+    }
 }
 
 /// [`Store::retain`] after `completed` was kept `Complete`, a failure naming it.
@@ -1126,6 +1143,7 @@ pub fn complete_snapshot(state: Option<&Path>, args: CompleteSnapshotArgs) -> Re
             .ports
             .check()
             .context("keep the completed snapshot")?;
+        roll_up(&mut generated.ports, &snapshot);
         retain(&generated.ports, &snapshot)?;
         Ok(ExitCode::SUCCESS)
     })

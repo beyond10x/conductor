@@ -2,13 +2,17 @@
 import { cell } from '../../format';
 import type { Session } from '../../types';
 
-defineProps<{ session: Session | null }>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(defineProps<{ session: Session | null; error?: string | null }>(), {
+  error: null,
+});
 </script>
 
 <template>
   <div class="card working">
     <div class="small muted">working on</div>
-    <template v-if="session !== null && session.dispatch !== null">
+    <PanelState v-if="error !== null" state="error">{{ error }}</PanelState>
+    <template v-else-if="session !== null && session.dispatch !== null">
       <div class="mid">{{ cell(session.dispatch.goal) }}</div>
       <div class="note brief">{{ session.dispatch.brief }}</div>
       <div class="small muted report">
@@ -26,16 +30,16 @@ defineProps<{ session: Session | null }>();
 
 <style scoped>
 .mid {
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 600;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
 }
 .note {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--soft);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .report {
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 </style>

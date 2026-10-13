@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import type { ReleaseRow } from '../../api/repo';
 
-defineProps<{ release: { latest: ReleaseRow | null; since: number | null } }>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(defineProps<{ release: { latest: ReleaseRow | null; since: number | null }; error?: string | null }>(), {
+  error: null,
+});
 </script>
 
 <template>
   <div class="card release">
     <div class="small muted">release</div>
-    <template v-if="release.latest !== null">
+    <PanelState v-if="error !== null" state="error">{{ error }}</PanelState>
+    <template v-else-if="release.latest !== null">
       <a class="big mono" :href="release.latest.url" rel="noreferrer">{{ release.latest.tag }}</a>
       <div class="note">
         <template v-if="release.since !== null">
@@ -23,13 +27,13 @@ defineProps<{ release: { latest: ReleaseRow | null; since: number | null } }>();
 <style scoped>
 .big {
   display: block;
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
 }
 .note {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--soft);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 </style>

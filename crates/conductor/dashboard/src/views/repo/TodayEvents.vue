@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { clock, type EventRow } from '../../api/repo';
 
-defineProps<{ events: EventRow[] }>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(defineProps<{ events: EventRow[]; error?: string | null }>(), {
+  error: null,
+});
 </script>
 
 <template>
   <section class="col" aria-labelledby="today-here">
     <h2 id="today-here">Today here</h2>
-    <p v-if="events.length === 0" class="muted">nothing yet today</p>
+    <PanelState v-if="error !== null" state="error" card>{{ error }}</PanelState>
+    <PanelState v-else-if="events.length === 0" state="empty">nothing yet today</PanelState>
     <ol v-else class="timeline">
       <li v-for="(event, at) in events" :key="at" :data-kind="event.kind">
         <div class="small muted mono">
@@ -28,6 +32,6 @@ ol.timeline {
   border-left: 2px solid var(--border);
 }
 ol.timeline li {
-  padding: 6px 0 12px 18px;
+  padding: var(--space-2) 0 var(--space-3) var(--space-4);
 }
 </style>

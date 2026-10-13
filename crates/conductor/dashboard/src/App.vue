@@ -10,12 +10,24 @@ import DecisionsPanel from './panels/DecisionsPanel.vue';
 import DiskWastePanel from './panels/DiskWastePanel.vue';
 import TokenSpendPanel from './panels/TokenSpendPanel.vue';
 import ErrorsPanel from './panels/ErrorsPanel.vue';
+import PanelState from './components/PanelState.vue';
 import Overview from './views/Overview.vue';
 import Repo from './views/Repo.vue';
 import Health from './views/Health.vue';
+import Metrics from './views/Metrics.vue';
+import Kpis from './views/Kpis.vue';
 
-/** The view a hash names: `#/` the overview, `#/repo/<name>`, `#/health`, `#/sessions`. */
-type Route = { view: 'overview' } | { view: 'repo'; name: string } | { view: 'health' } | { view: 'sessions' };
+/**
+ * The view a hash names: `#/` the overview, `#/repo/<name>`, `#/metrics`, `#/kpis`, `#/health`,
+ * `#/sessions`.
+ */
+type Route =
+  | { view: 'overview' }
+  | { view: 'repo'; name: string }
+  | { view: 'metrics' }
+  | { view: 'kpis' }
+  | { view: 'health' }
+  | { view: 'sessions' };
 
 function routeOf(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/';
@@ -23,13 +35,18 @@ function routeOf(hash: string): Route {
   if (repo !== null) {
     return { view: 'repo', name: decodeURIComponent(repo[1] ?? '') };
   }
-  if (path === '/health') {
-    return { view: 'health' };
+  switch (path) {
+    case '/metrics':
+      return { view: 'metrics' };
+    case '/kpis':
+      return { view: 'kpis' };
+    case '/health':
+      return { view: 'health' };
+    case '/sessions':
+      return { view: 'sessions' };
+    default:
+      return { view: 'overview' };
   }
-  if (path === '/sessions') {
-    return { view: 'sessions' };
-  }
-  return { view: 'overview' };
 }
 
 const route = ref<Route>(routeOf(window.location.hash));
@@ -42,9 +59,13 @@ const RELOAD_MS = 20_000;
 
 const THEME_KEY = 'conductor-dashboard-theme';
 
+/** The theme: the system's setting, or one the button pinned. */
+type Theme = 'system' | 'light' | 'dark';
+const NEXT: Record<Theme, Theme> = { system: 'light', light: 'dark', dark: 'system' };
+
 const data = ref<DashboardData | null>(null);
 const failure = ref<string | null>(null);
-const theme = ref<'dark' | 'light'>('dark');
+const theme = ref<Theme>('system');
 let timer: ReturnType<typeof setInterval> | undefined;
 
 async function load(): Promise<void> {
@@ -61,18 +82,26 @@ async function load(): Promise<void> {
   }
 }
 
-function applyTheme(next: 'dark' | 'light'): void {
+function applyTheme(next: Theme): void {
   theme.value = next;
-  document.documentElement.setAttribute('data-theme', next);
+  if (next === 'system') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', next);
+  }
   try {
-    localStorage.setItem(THEME_KEY, next);
+    if (next === 'system') {
+      localStorage.removeItem(THEME_KEY);
+    } else {
+      localStorage.setItem(THEME_KEY, next);
+    }
   } catch {
     // A browser without storage keeps the theme for this page only.
   }
 }
 
 function toggleTheme(): void {
-  applyTheme(theme.value === 'dark' ? 'light' : 'dark');
+  applyTheme(NEXT[theme.value]);
 }
 
 onMounted(() => {
@@ -82,7 +111,7 @@ onMounted(() => {
   } catch {
     stored = null;
   }
-  applyTheme(stored === 'light' ? 'light' : 'dark');
+  applyTheme(stored === 'light' || stored === 'dark' ? stored : 'system');
   window.addEventListener('hashchange', followHash);
   void load();
   timer = setInterval(() => void load(), RELOAD_MS);
@@ -118,6 +147,8 @@ onBeforeUnmount(() => {
     </div>
     <nav class="views" aria-label="Views">
       <a href="#/" :aria-current="route.view === 'overview' ? 'page' : undefined">Overview</a>
+      <a href="#/metrics" :aria-current="route.view === 'metrics' ? 'page' : undefined">Metrics</a>
+      <a href="#/kpis" :aria-current="route.view === 'kpis' ? 'page' : undefined">KPIs</a>
       <a href="#/sessions" :aria-current="route.view === 'sessions' ? 'page' : undefined">Sessions</a>
       <a href="#/health" :aria-current="route.view === 'health' ? 'page' : undefined">Health</a>
     </nav>
@@ -131,32 +162,40 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="theme"
-        :aria-label="`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`"
+        :aria-label="`Theme: ${theme}. Switch to ${NEXT[theme]}`"
         @click="toggleTheme"
       >
-        {{ theme === 'dark' ? 'Light' : 'Dark' }}
+        Theme: {{ theme }}
       </button>
     </div>
   </header>
-  <main id="main">
+  <main id="main" tabindex="-1">
     <Overview v-if="route.view === 'overview'" />
     <Repo v-else-if="route.view === 'repo'" :name="route.name" />
+    <Metrics v-else-if="route.view === 'metrics'" />
+    <Kpis v-else-if="route.view === 'kpis'" />
     <Health v-else-if="route.view === 'health'" />
-    <h1 v-if="route.view === 'sessions'" class="page">What every session works on</h1>
-    <template v-if="route.view === 'sessions' && data !== null">
-      <p class="summary small muted">
-        read {{ data.generated_at }} · free on {{ data.disk.path }}: {{ gib(data.disk.free_bytes) }}
-        of {{ gib(data.disk.size_bytes) }} · controllers running: {{ data.controllers }} · build
-        slot: {{ cell(data.build_slot) }}
-      </p>
-      <SessionsPanel :data="data" />
-      <WatchPanel :data="data" />
-      <RedCiPanel :data="data" />
-      <AwaitingPanel :data="data" />
-      <DecisionsPanel :data="data" />
-      <DiskWastePanel :data="data" />
-      <TokenSpendPanel :data="data" />
-      <ErrorsPanel :data="data" />
+    <template v-else>
+      <h1 class="page">What every session works on</h1>
+      <PanelState v-if="failure !== null" state="error" card>{{ failure }}</PanelState>
+      <PanelState v-if="data === null && failure === null" state="loading" card
+        >reading /data.json…</PanelState
+      >
+      <template v-if="data !== null">
+        <p class="summary small muted">
+          read {{ data.generated_at }} · free on {{ data.disk.path }}:
+          {{ gib(data.disk.free_bytes) }} of {{ gib(data.disk.size_bytes) }} · controllers running:
+          {{ data.controllers }} · build slot: {{ cell(data.build_slot) }}
+        </p>
+        <SessionsPanel :data="data" />
+        <WatchPanel :data="data" />
+        <RedCiPanel :data="data" />
+        <AwaitingPanel :data="data" />
+        <DecisionsPanel :data="data" />
+        <DiskWastePanel :data="data" />
+        <TokenSpendPanel :data="data" />
+        <ErrorsPanel :data="data" />
+      </template>
     </template>
   </main>
   <footer v-if="data !== null" class="small muted">

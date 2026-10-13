@@ -8,7 +8,11 @@ defineProps<{ data: DashboardData }>();
 <template>
   <section class="col" aria-labelledby="disk-waste">
     <h2 id="disk-waste">Disk waste</h2>
-    <p v-if="data.disk.measured_at === null" class="card muted">
+    <p
+      v-if="data.disk.measured_at === null"
+      class="card state"
+      :class="data.disk.measuring ? 'state-loading' : 'state-empty'"
+    >
       {{ data.disk.measuring ? 'measuring, no measurement yet' : 'no measurement' }}
     </p>
     <template v-else>
@@ -24,11 +28,11 @@ defineProps<{ data: DashboardData }>();
         <table aria-labelledby="disk-waste">
           <thead>
             <tr>
-              <th scope="col">size</th>
+              <th scope="col" class="num">size</th>
               <th scope="col">repository</th>
               <th scope="col">what</th>
               <th scope="col">path</th>
-              <th scope="col">trees or entries</th>
+              <th scope="col" class="num">trees or entries</th>
               <th scope="col">owner</th>
               <th scope="col">age</th>
               <th scope="col">state</th>
@@ -36,12 +40,15 @@ defineProps<{ data: DashboardData }>();
             </tr>
           </thead>
           <tbody>
+          <tr v-if="data.disk.rows.length === 0">
+            <td colspan="9" class="empty state state-empty">no waste found</td>
+          </tr>
             <tr v-for="(row, at) in data.disk.rows" :key="at">
-              <td class="mono small">{{ size(row.bytes) }}</td>
+              <td class="num mono small">{{ size(row.bytes) }}</td>
               <td>{{ cell(row.repository) }}</td>
               <td>{{ row.what }}</td>
               <td class="mono small">{{ cell(row.path) }}</td>
-              <td>{{ cell(row.count) }}</td>
+              <td class="num">{{ cell(row.count) }}</td>
               <td>{{ cell(row.owner) }}</td>
               <td>{{ cell(row.age) }}</td>
               <td>{{ row.state }}</td>

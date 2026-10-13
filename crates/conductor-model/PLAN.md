@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
-  contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
+  model digest 8bd3c263619114b4067a041fe2a8a45c6f68284b29154584c2fc54c3e72fd9f1
+  contract digest 3a9423a1c2b8b18b48b1ce4f80bdf6ce7a708393cb766ad753694ee19476fc51
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-465 capabilities: **454 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+476 capabilities: **465 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -130,6 +130,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.CollectorRunObservation.State` |
 | domain type | `conductor.observation.CollectorRunOutcome` |
 | domain type | `conductor.observation.CommitSha` |
+| domain type | `conductor.observation.DailySeries.State` |
+| domain type | `conductor.observation.DailySeriesId` |
 | domain type | `conductor.observation.DashboardServe` |
 | domain type | `conductor.observation.EnvelopeProvider` |
 | domain type | `conductor.observation.FailureClass` |
@@ -176,6 +178,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.observation.BlockerObservation` |
 | entity lifecycle | `conductor.observation.Board` |
 | entity lifecycle | `conductor.observation.CollectorRunObservation` |
+| entity lifecycle | `conductor.observation.DailySeries` |
 | entity lifecycle | `conductor.observation.MemberFailureObservation` |
 | entity lifecycle | `conductor.observation.MergedPullRequestObservation` |
 | entity lifecycle | `conductor.observation.PullRequestObservation` |
@@ -287,6 +290,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.observation.RecordBlocker` |
 | command contract | `conductor.observation.RecordCollectorRun` |
 | command behaviour | `conductor.observation.RecordCollectorRun` |
+| command contract | `conductor.observation.RecordDailySeries` |
+| command behaviour | `conductor.observation.RecordDailySeries` |
 | command contract | `conductor.observation.RecordMemberFailure` |
 | command behaviour | `conductor.observation.RecordMemberFailure` |
 | command contract | `conductor.observation.RecordMergedPullRequest` |
@@ -303,6 +308,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.observation.RecordSpecification` |
 | command contract | `conductor.observation.RecordWorkflowRun` |
 | command behaviour | `conductor.observation.RecordWorkflowRun` |
+| command contract | `conductor.observation.ReviseDailySeries` |
+| command behaviour | `conductor.observation.ReviseDailySeries` |
 | command contract | `conductor.observation.StartSnapshot` |
 | command behaviour | `conductor.observation.StartSnapshot` |
 | command contract | `conductor.session.ClaimLease` |
@@ -354,6 +361,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.observation.BlockerRecorded` |
 | event type | `conductor.observation.BoardPublished` |
 | event type | `conductor.observation.CollectorRunRecorded` |
+| event type | `conductor.observation.DailySeriesRecorded` |
+| event type | `conductor.observation.DailySeriesRevised` |
 | event type | `conductor.observation.MemberFailureRecorded` |
 | event type | `conductor.observation.MergedPullRequestRecorded` |
 | event type | `conductor.observation.PullRequestRecorded` |
@@ -409,6 +418,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.host.HostGrantStateConflict` |
 | error type | `conductor.host.InvalidSize` |
 | error type | `conductor.host.NotADiskGrant` |
+| error type | `conductor.observation.DailySeriesExists` |
+| error type | `conductor.observation.DailySeriesNotFound` |
 | error type | `conductor.observation.InvalidCount` |
 | error type | `conductor.observation.InvalidPullRequestNumber` |
 | error type | `conductor.observation.SnapshotNotCollecting` |
@@ -496,5 +507,5 @@ What the specification fully determines is generated; what it cannot determine i
 | actor grants | `conductor.direction.Operator` | planning | may invoke `conductor.direction.ActivateRepository`, `conductor.direction.ConfirmGoal`, `conductor.direction.DeactivateRepository`, `conductor.direction.DropGoal`, `conductor.direction.MarkRepository`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.dispatch.Conductor` | planning | may invoke `conductor.dispatch.CancelDispatch`, `conductor.dispatch.GrantResource`, `conductor.dispatch.HandleMessage`, `conductor.dispatch.PauseController`, `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.RefuseResource`, `conductor.dispatch.RejectMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.ResumeController`, `conductor.dispatch.ReviseCharter`, `conductor.dispatch.RouteNeed`, `conductor.dispatch.SendDispatch`, `conductor.dispatch.StartController`, `conductor.dispatch.StopController`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.dispatch.RepositoryController` | planning | may invoke `conductor.dispatch.RecordGuardDecision`, `conductor.dispatch.ReleaseResource`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.RequestResource`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
-| actor grants | `conductor.observation.Collector` | planning | may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordCollectorRun`, `conductor.observation.RecordMemberFailure`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.observation.Collector` | planning | may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordCollectorRun`, `conductor.observation.RecordDailySeries`, `conductor.observation.RecordMemberFailure`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.ReviseDailySeries`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.session.Conductor` | planning | may invoke `conductor.session.ClaimLease`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |

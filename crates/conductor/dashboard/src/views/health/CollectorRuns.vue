@@ -28,7 +28,7 @@ const summary = computed(() =>
           <tr>
             <th scope="col">collector</th>
             <th scope="col">started</th>
-            <th scope="col">took</th>
+            <th scope="col" class="num">took</th>
             <th scope="col">outcome</th>
           </tr>
         </thead>
@@ -40,7 +40,7 @@ const summary = computed(() =>
           >
             <td>{{ run.collector }}</td>
             <td class="mono small">{{ clock(run.started_at) }}</td>
-            <td class="mono small">{{ duration(run.duration_ms) }}</td>
+            <td class="num mono small">{{ duration(run.duration_ms) }}</td>
             <td>{{ words(run.outcome) }}</td>
           </tr>
         </tbody>
@@ -53,7 +53,7 @@ const summary = computed(() =>
 .row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: baseline;
   flex-wrap: wrap;
 }

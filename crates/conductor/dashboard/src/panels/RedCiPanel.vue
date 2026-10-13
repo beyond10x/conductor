@@ -7,8 +7,8 @@ defineProps<{ data: DashboardData }>();
 <template>
   <section class="col" aria-labelledby="red-ci">
     <h2 id="red-ci">Red CI on main</h2>
-    <p v-if="data.red_ci === null" class="card muted">no watch state</p>
-    <p v-else-if="data.red_ci.length === 0" class="card muted">none</p>
+    <p v-if="data.red_ci === null" class="card state state-empty">no watch state</p>
+    <p v-else-if="data.red_ci.length === 0" class="card state state-empty">none</p>
     <div v-else class="table-wrap danger">
       <table aria-labelledby="red-ci">
         <thead>

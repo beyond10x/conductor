@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import type { BlockerRow, SpecificationRow } from '../../api/repo';
 
-defineProps<{
-  blockers: Map<string, BlockerRow[]>;
-  specification: SpecificationRow | null;
-}>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(
+  defineProps<{
+    blockers: Map<string, BlockerRow[]>;
+    specification: SpecificationRow | null;
+    error?: string | null;
+  }>(),
+  { error: null },
+);
 
 /** A presence as the page writes it. */
 function presence(specification: SpecificationRow): string {
@@ -27,6 +32,7 @@ function validation(specification: SpecificationRow): string {
 <template>
   <section class="col" aria-labelledby="plan">
     <h2 id="plan">Plan</h2>
+    <PanelState v-if="error !== null" state="error" card>{{ error }}</PanelState>
     <div class="plan">
       <div class="card blockers" :class="{ danger: blockers.size > 0 }">
         <div class="lbl">open blockers</div>
@@ -62,19 +68,19 @@ function validation(specification: SpecificationRow): string {
 .plan {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .lbl {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 ul {
   list-style: none;
-  margin: 4px 0 8px;
+  margin: var(--space-1) 0 var(--space-2);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 </style>

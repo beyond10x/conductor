@@ -39,8 +39,8 @@ const lines = computed(() => {
   <section class="col" aria-labelledby="watch">
     <h2 id="watch">Usage limit and context</h2>
     <div class="card">
-      <p v-if="noState" class="muted">no watch state</p>
-      <p v-else-if="lines.length === 0" class="muted">none</p>
+      <p v-if="noState" class="state state-empty">no watch state</p>
+      <p v-else-if="lines.length === 0" class="state state-empty">none</p>
       <ul v-else class="lines">
         <li v-for="(line, at) in lines" :key="at" :class="{ 'c-red': line.red }">{{ line.text }}</li>
       </ul>

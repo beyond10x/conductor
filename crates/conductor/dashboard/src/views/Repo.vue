@@ -12,6 +12,9 @@ import PullRequests from './repo/PullRequests.vue';
 import PlanPanel from './repo/PlanPanel.vue';
 import RepoSessions from './repo/RepoSessions.vue';
 import TodayEvents from './repo/TodayEvents.vue';
+import RepoTrends from './repo/RepoTrends.vue';
+import PanelState from '../components/PanelState.vue';
+import { errorFor } from '../api/errors';
 
 /** Milliseconds between two reads, as the overview reads `/data.json`. */
 const RELOAD_MS = 20_000;
@@ -29,6 +32,11 @@ async function load(): Promise<void> {
   if (mine === reading) {
     view.value = read;
   }
+}
+
+/** The error of the endpoints `paths`, for the panel that reads them. */
+function error(paths: string[]): string | null {
+  return view.value === null ? null : errorFor(view.value.errors, paths);
 }
 
 onMounted(() => {
@@ -52,64 +60,80 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <header class="top repo">
-    <a href="#/" class="dim">← Overview</a>
-    <h1 class="title">{{ name }}</h1>
-  </header>
-  <main id="main" tabindex="-1">
-    <p v-if="view === null" class="muted loading">reading…</p>
+  <div class="repo-page">
+    <div class="repo-head">
+      <a href="#/" class="dim">← Overview</a>
+      <h1 class="title">{{ name }}</h1>
+    </div>
+    <PanelState v-if="view === null" state="loading" card>reading {{ name }}…</PanelState>
     <template v-else>
       <ul v-if="view.errors.length > 0" class="lines c-red errors">
         <li v-for="error in view.errors" :key="error">{{ error }}</li>
       </ul>
       <section aria-label="Status" class="status">
-        <WaitingOn :causes="view.waiting" />
-        <WorkingOn :session="view.working" />
-        <MainCi :run="view.main" />
-        <ReleaseCard :release="view.release" />
+        <WaitingOn :causes="view.waiting" :error="error(['/api/waiting-on'])" />
+        <WorkingOn :session="view.working" :error="error(['/data.json'])" />
+        <MainCi :run="view.main" :error="error(['/api/workflow-runs'])" />
+        <ReleaseCard :release="view.release" :error="error(['/api/releases', '/api/repositories'])" />
       </section>
+      <RepoTrends :name="name" />
       <div class="split">
         <div class="main-col">
-          <PullRequests :rows="view.pullRequests" />
-          <PlanPanel :blockers="view.blockers" :specification="view.specification" />
+          <PullRequests :rows="view.pullRequests" :error="error(['/api/pull-requests'])" />
+          <PlanPanel
+            :blockers="view.blockers"
+            :specification="view.specification"
+            :error="error(['/api/blockers', '/api/specifications'])"
+          />
         </div>
         <div class="side-col">
-          <RepoSessions :rows="view.sessions" />
-          <TodayEvents :events="view.events" />
+          <RepoSessions :rows="view.sessions" :error="error(['/api/sessions'])" />
+          <TodayEvents :events="view.events" :error="error(['/api/events'])" />
         </div>
       </div>
     </template>
-  </main>
+  </div>
 </template>
 
 <style scoped>
-header.repo .title {
+.repo-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.repo-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+.repo-head .title {
   font-weight: 600;
-  font-size: 18px;
+  font-size: var(--text-xl);
   margin: 0;
 }
 .status {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .split {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: var(--space-5);
 }
 .main-col {
   flex: 999 1 560px;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-5);
 }
 .side-col {
   flex: 1 1 340px;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-5);
 }
 </style>

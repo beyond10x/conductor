@@ -23,6 +23,11 @@
 //! when it is there ([`serve_over`] names another); `/api/events?since=<rfc3339>` the events since
 //! then, 00:00 UTC of the day without `since`.
 //!
+//! The charts' series and the KPIs ([`series`]): `/api/series` lists the series and, with
+//! `?series=<name>&by=<dimension>&days=<n>`, answers one by day and group; `/api/kpis` answers
+//! each KPI against its target. Both read the daily rollups of the same store
+//! (`story:dashboard-history`), the day ending now in UTC.
+//!
 //! Each request reads its [`Sources`] afresh and writes nothing:
 //! - the session list a command prints (`claude agents --json`): one row per session whose working
 //!   directory is under the instance's checkouts root, with its current dispatch; a session
@@ -48,6 +53,7 @@
 mod health;
 pub mod overview;
 pub mod repo;
+pub mod series;
 mod usage;
 pub(crate) mod waste;
 
@@ -449,6 +455,10 @@ enum Resource {
     Health,
     /// One of [`repo::PATHS`], by its path (`story:dashboard-repo-view`).
     Repo(&'static str),
+    /// [`series::SERIES_PATH`] (`story:dashboard-series-api`).
+    Series,
+    /// [`series::KPIS_PATH`] (`story:dashboard-kpi-panels`).
+    Kpis,
 }
 
 /// The health view's data (`story:dashboard-health`, `dashboard/health.rs`).
@@ -529,6 +539,8 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
         (HEALTH_PATH, _) => Resource::Health,
         (_, Some(known)) => Resource::Snapshot(known),
         (overview::EVENTS_PATH, _) => Resource::Events,
+        (series::SERIES_PATH, _) => Resource::Series,
+        (series::KPIS_PATH, _) => Resource::Kpis,
         _ if repo::PATHS.contains(&path) => Resource::Repo(
             repo::PATHS
                 .into_iter()
@@ -630,7 +642,35 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
             }
             Err(error) => store_failure(&error),
         },
+        Resource::Series => match open_store(server.state.as_deref()) {
+            Ok(store) => {
+                let today = OffsetDateTime::now_utc().date();
+                let (status, body) = series::answer(target, store.as_ref(), today);
+                json_status(status, &body)
+            }
+            Err(error) => store_failure(&error),
+        },
+        Resource::Kpis => match open_store(server.state.as_deref()) {
+            Ok(store) => json_answer(&series::kpis(
+                store.as_ref(),
+                OffsetDateTime::now_utc().date(),
+            )),
+            Err(error) => store_failure(&error),
+        },
     }
+}
+
+/// `value` answered as JSON with `status`: 200, 400 or 404.
+fn json_status(status: u16, value: &Value) -> Vec<u8> {
+    let reason = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        _ => "Internal Server Error",
+    };
+    let mut body = serde_json::to_string_pretty(value).unwrap_or_default();
+    body.push('\n');
+    response(status, reason, "application/json", body.as_bytes(), "")
 }
 
 /// `value` answered as JSON, `200 OK`.

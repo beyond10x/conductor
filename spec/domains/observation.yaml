@@ -83,6 +83,11 @@ types:
     kind: newtype
     of: Uuid
 
+  # The identity of one daily rollup (story:dashboard-history): `<series>|<by>|<key>|<day>`.
+  - name: conductor.observation.DailySeriesId
+    kind: newtype
+    of: String
+
   - name: conductor.observation.DashboardServe
     kind: struct
     fields:
@@ -605,6 +610,48 @@ entities:
       states: [Published]
       terminal: [Published]
 
+  # One day of one chart series for one group (story:dashboard-history): what the dashboard's
+  # `/api/series` reads. Each snapshot that completes updates the rollups of the days its data
+  # covers, from the data the store holds (the snapshot's observations and the one before it, the
+  # dispatch, decision and guard records and the host ledger). It is not an observation: it is
+  # kept in `state/series/`, whatever `retention.snapshots` drops, so the series reach back past
+  # the snapshots kept. `series` is the series' name (`prs_merged`); `day` the UTC date
+  # (`YYYY-MM-DD`); `by` the dimension it is grouped by (`repository`, `workflow`, `rule`, or
+  # `total` for a series without one) and `key` the group (a repository name, a workflow, a tool,
+  # or `total`). `items` names what the rollup counts, one id each (`alpha#12`), with its measure
+  # after `=` for a series of durations (`D-7=2.5`): a later snapshot adds the items it sees to
+  # those kept, so a rollup never forgets an item that left the snapshot's window. `value` is the
+  # number of items. `snapshot_id` is the snapshot whose completion last changed it.
+  - name: conductor.observation.DailySeries
+    identity:
+      name: daily_series_id
+      type: conductor.observation.DailySeriesId
+    fields:
+      - name: series
+        type: String
+      - name: day
+        type: String
+      - name: by
+        type: String
+      - name: key
+        type: String
+      - name: value
+        type: Decimal
+      - name: items
+        type: List<String>
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
 actors:
   - name: conductor.observation.Collector
     may:
@@ -622,6 +669,8 @@ actors:
       - conductor.observation.CompleteSnapshot
       - conductor.observation.FailSnapshot
       - conductor.observation.PublishBoard
+      - conductor.observation.RecordDailySeries
+      - conductor.observation.ReviseDailySeries
     naming:
       display: Collector
 
@@ -643,6 +692,18 @@ errors:
     fields:
       - name: snapshot_id
         type: conductor.observation.SnapshotId
+
+  - name: conductor.observation.DailySeriesExists
+    summary: A rollup already has this id; it is revised, not recorded again.
+    fields:
+      - name: daily_series_id
+        type: conductor.observation.DailySeriesId
+
+  - name: conductor.observation.DailySeriesNotFound
+    summary: No rollup has this id.
+    fields:
+      - name: daily_series_id
+        type: conductor.observation.DailySeriesId
 
   - name: conductor.observation.InvalidCount
     summary: A count was negative.
@@ -1423,6 +1484,95 @@ commands:
             deviation_rows: input.deviation_rows
         summary: STATUS.md was written from the snapshot, with its delta against the previous one.
 
+  # The first rollup of one series, day and group (story:dashboard-history), recorded by the rollup
+  # a completed snapshot runs; never a command line's.
+  - name: conductor.observation.RecordDailySeries
+    naming:
+      wire: record-daily-series
+      display: Record a daily rollup
+    input:
+      - name: daily_series_id
+        type: conductor.observation.DailySeriesId
+      - name: series
+        type: String
+      - name: day
+        type: String
+      - name: by
+        type: String
+      - name: key
+        type: String
+      - name: value
+        type: Decimal
+      - name: items
+        type: List<String>
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+    outcomes:
+      - name: recorded
+        creates: conductor.observation.DailySeries
+        instance: daily_series_id
+        sets:
+          series: input.series
+          day: input.day
+          by: input.by
+          key: input.key
+          value: input.value
+          items: input.items
+          snapshot_id: input.snapshot_id
+        emits:
+          - conductor.observation.DailySeriesRecorded
+        payload:
+          conductor.observation.DailySeriesRecorded:
+            daily_series_id: input.daily_series_id
+            snapshot_id: input.snapshot_id
+        summary: The day's rollup of the series for the group is kept.
+      - name: already-recorded
+        existing_instance: true
+        error: conductor.observation.DailySeriesExists
+        payload:
+          conductor.observation.DailySeriesExists:
+            daily_series_id: input.daily_series_id
+        summary: The rollup is there already, and is unchanged.
+
+  # A later snapshot's items added to a rollup (story:dashboard-history): its items and value are
+  # replaced by the union of the kept items and the new ones, and its snapshot by the one whose
+  # completion revised it.
+  - name: conductor.observation.ReviseDailySeries
+    naming:
+      wire: revise-daily-series
+      display: Revise a daily rollup
+    input:
+      - name: daily_series_id
+        type: conductor.observation.DailySeriesId
+      - name: value
+        type: Decimal
+      - name: items
+        type: List<String>
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+    outcomes:
+      - name: revised
+        when_subject_state: Recorded
+        updates: conductor.observation.DailySeries
+        instance: daily_series_id
+        sets:
+          value: input.value
+          items: input.items
+          snapshot_id: input.snapshot_id
+        emits:
+          - conductor.observation.DailySeriesRevised
+        payload:
+          conductor.observation.DailySeriesRevised:
+            daily_series_id: input.daily_series_id
+            snapshot_id: input.snapshot_id
+        summary: The rollup counts the items it kept and the new ones.
+      - name: no-such-rollup
+        unknown_instance: true
+        error: conductor.observation.DailySeriesNotFound
+        payload:
+          conductor.observation.DailySeriesNotFound:
+            daily_series_id: input.daily_series_id
+
   - name: conductor.observation.CompleteSnapshot
     naming:
       wire: complete-snapshot
@@ -1491,6 +1641,20 @@ commands:
         summary: The snapshot was already complete or failed.
 
 events:
+  - name: conductor.observation.DailySeriesRecorded
+    fields:
+      - name: daily_series_id
+        type: conductor.observation.DailySeriesId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+
+  - name: conductor.observation.DailySeriesRevised
+    fields:
+      - name: daily_series_id
+        type: conductor.observation.DailySeriesId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+
   - name: conductor.observation.SnapshotStarted
     fields:
       - name: snapshot_id

@@ -20,6 +20,9 @@ defineProps<{ data: DashboardData }>();
           </tr>
         </thead>
         <tbody>
+          <tr v-if="data.awaiting_operator.length === 0">
+            <td colspan="3" class="empty state state-empty">nothing awaits the operator</td>
+          </tr>
           <tr v-for="(decision, at) in data.awaiting_operator" :key="at">
             <td class="mono small">{{ cell(decision.id) }}</td>
             <td>{{ cell(decision.class) }}</td>

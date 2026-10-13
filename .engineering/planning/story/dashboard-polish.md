@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:dashboard-polish
 kind: story
-status: draft
+status: active
 title: 'The dashboard app is polished: layout, typography, states, dark mode, small screens'
 relations:
 - decomposes: epic:dashboard-charts
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T19:48:57Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-13T19:48:58Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

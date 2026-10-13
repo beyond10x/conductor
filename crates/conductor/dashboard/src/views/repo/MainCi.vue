@@ -2,7 +2,10 @@
 import { computed } from 'vue';
 import { clock, type WorkflowRunRow } from '../../api/repo';
 
-const props = defineProps<{ run: WorkflowRunRow | null }>();
+import PanelState from '../../components/PanelState.vue';
+const props = withDefaults(defineProps<{ run: WorkflowRunRow | null; error?: string | null }>(), {
+  error: null,
+});
 
 /** The run's conclusion as the page names it, and its colour. */
 const shown = computed(() => {
@@ -25,21 +28,22 @@ const shown = computed(() => {
 <template>
   <div class="card main-ci">
     <div class="small muted">main</div>
-    <div class="big" :class="shown.tone">{{ shown.text }}</div>
-    <div v-if="run !== null" class="note">{{ run.workflow }} · {{ clock(run.run_at) }}</div>
+    <PanelState v-if="error !== null" state="error">{{ error }}</PanelState>
+    <div v-else class="big" :class="shown.tone">{{ shown.text }}</div>
+    <div v-if="error === null && run !== null" class="note">{{ run.workflow }} · {{ clock(run.run_at) }}</div>
   </div>
 </template>
 
 <style scoped>
 .big {
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .note {
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--soft);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .c-green {
   color: var(--green);

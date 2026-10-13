@@ -37,6 +37,7 @@ import workflowRuns from './fixtures/workflow-runs.json';
 import releases from './fixtures/releases.json';
 import repositories from './fixtures/repositories.json';
 import events from './fixtures/events.json';
+import { seriesAnswer } from './series-fixtures';
 
 const waiting = waitingOn.rows as WaitingRow[];
 
@@ -214,6 +215,11 @@ describe('the repository page', () => {
       '/api/specifications': specifications,
       '/api/sessions?repository=alpha': sessions,
       '/api/events?since=2026-10-13T00%3A00%3A00Z&repository=alpha': events,
+      // The trends (story:dashboard-charts-ui).
+      '/api/series?series=prs_merged&by=repository&days=30': seriesAnswer('prs_merged', 'repository'),
+      '/api/series?series=ci_passed&by=repository&days=30': seriesAnswer('ci_passed', 'repository'),
+      '/api/series?series=ci_failed&by=repository&days=30': seriesAnswer('ci_failed', 'repository'),
+      '/api/series?series=releases&by=repository&days=30': seriesAnswer('releases', 'repository'),
     };
     const fetch = vi.fn(async (path: string) =>
       path in answers
@@ -227,6 +233,7 @@ describe('the repository page', () => {
     expect(wrapper.find('h1').text()).toBe('alpha');
     expect(wrapper.find('.errors').exists()).toBe(false);
     expect(wrapper.findAll('h2').map((heading) => heading.text())).toEqual([
+      'Trends · 30 days',
       'Merge and pull requests',
       'Plan',
       'Sessions',

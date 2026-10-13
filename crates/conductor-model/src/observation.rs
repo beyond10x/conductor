@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
-// contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
+// model digest 8bd3c263619114b4067a041fe2a8a45c6f68284b29154584c2fc54c3e72fd9f1
+// contract digest 3a9423a1c2b8b18b48b1ce4f80bdf6ce7a708393cb766ad753694ee19476fc51
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -66,6 +66,20 @@ pub enum CollectorRunOutcome {
 /// CommitSha — `conductor.observation.CommitSha`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitSha(pub String);
+
+/// The states of `conductor.observation.DailySeries`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `DailySeries<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DailySeriesState {
+    /// `Recorded`.
+    Recorded,
+}
+
+/// DailySeriesId — `conductor.observation.DailySeriesId`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailySeriesId(pub String);
 
 /// DashboardServe — `conductor.observation.DashboardServe`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -818,6 +832,148 @@ impl AnyCollectorRunObservation {
         match self {
             Self::Recorded(instance) => CollectorRunObservationSnapshot {
                 state: CollectorRunObservationState::Recorded,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
+/// What DailySeries — `conductor.observation.DailySeries` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`DailySeries<S>`], and at a boundary by [`DailySeriesSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailySeriesData {
+    /// The identity: `daily_series_id` — `conductor.observation.DailySeriesId`.
+    pub daily_series_id: DailySeriesId,
+    /// `series` — `String`.
+    pub series: String,
+    /// `day` — `String`.
+    pub day: String,
+    /// `by` — `String`.
+    pub by: String,
+    /// `key` — `String`.
+    pub key: String,
+    /// `value` — `Decimal`.
+    pub value: crate::primitives::Decimal,
+    /// `items` — `List<String>`.
+    pub items: Vec<String>,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    ///
+    /// Carries `snapshot`: `conductor.observation.DailySeries` references one `conductor.observation.Snapshot`.
+    pub snapshot_id: SnapshotId,
+}
+
+/// The states of `conductor.observation.DailySeries`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](daily_series_state::Marker), so [`DailySeries<S>`](DailySeries) can only ever rest in a real state.
+pub mod daily_series_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Recorded {}
+    }
+
+    /// A declared state of `DailySeries`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::DailySeriesState;
+    }
+
+    /// `Recorded`. Where a new instance starts.
+    pub struct Recorded;
+
+    impl Marker for Recorded {
+        const STATE: super::DailySeriesState = super::DailySeriesState::Recorded;
+    }
+}
+
+/// DailySeries — `conductor.observation.DailySeries` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Recorded`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`DailySeriesSnapshot`]
+/// and [`DailySeriesSnapshot::refine`].
+pub struct DailySeries<S: daily_series_state::Marker> {
+    data: DailySeriesData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: daily_series_state::Marker> DailySeries<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> DailySeriesState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &DailySeriesData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> DailySeriesData {
+        self.data
+    }
+}
+
+impl DailySeries<daily_series_state::Recorded> {
+    /// A new instance, resting in `Recorded` — the only state the lifecycle starts one in.
+    pub fn new(data: DailySeriesData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.observation.DailySeries` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`DailySeriesSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailySeriesSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: DailySeriesState,
+    /// What it holds.
+    pub data: DailySeriesData,
+}
+
+/// An `DailySeries` in whichever declared state it was found.
+pub enum AnyDailySeries {
+    /// Resting in `Recorded`.
+    Recorded(DailySeries<daily_series_state::Recorded>),
+}
+
+impl DailySeriesSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `DailySeriesState` cannot spell one.
+    pub fn refine(self) -> AnyDailySeries {
+        match self.state {
+            DailySeriesState::Recorded => AnyDailySeries::Recorded(DailySeries {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyDailySeries {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> DailySeriesState {
+        match self {
+            Self::Recorded(_) => DailySeriesState::Recorded,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> DailySeriesSnapshot {
+        match self {
+            Self::Recorded(instance) => DailySeriesSnapshot {
+                state: DailySeriesState::Recorded,
                 data: instance.into_data(),
             },
         }
@@ -2491,6 +2647,52 @@ pub enum RecordCollectorRunOutcome {
     },
 }
 
+/// Record a daily rollup — the input of `conductor.observation.RecordDailySeries`.
+///
+/// Everything it can result in is [`RecordDailySeriesOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordDailySeries {
+    /// `daily_series_id` — `conductor.observation.DailySeriesId`.
+    pub daily_series_id: DailySeriesId,
+    /// `series` — `String`.
+    pub series: String,
+    /// `day` — `String`.
+    pub day: String,
+    /// `by` — `String`.
+    pub by: String,
+    /// `key` — `String`.
+    pub key: String,
+    /// `value` — `Decimal`.
+    pub value: crate::primitives::Decimal,
+    /// `items` — `List<String>`.
+    pub items: Vec<String>,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+}
+
+/// Everything `conductor.observation.RecordDailySeries` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordDailySeriesOutcome {
+    /// `recorded` — otherwise.
+    ///
+    /// The day's rollup of the series for the group is kept.
+    Recorded {
+        /// The `conductor.observation.DailySeriesRecorded` this outcome publishes.
+        daily_series_recorded: DailySeriesRecorded,
+    },
+    /// `already-recorded` — for an identity a record already carries.
+    ///
+    /// The rollup is there already, and is unchanged.
+    AlreadyRecorded {
+        /// Why it was refused: `conductor.observation.DailySeriesExists`.
+        error: DailySeriesExists,
+    },
+}
+
 /// Record a member a collector could not read — the input of `conductor.observation.RecordMemberFailure`.
 ///
 /// Everything it can result in is [`RecordMemberFailureOutcome`].
@@ -2965,6 +3167,42 @@ pub enum RecordWorkflowRunOutcome {
     },
 }
 
+/// Revise a daily rollup — the input of `conductor.observation.ReviseDailySeries`.
+///
+/// Everything it can result in is [`ReviseDailySeriesOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviseDailySeries {
+    /// `daily_series_id` — `conductor.observation.DailySeriesId`.
+    pub daily_series_id: DailySeriesId,
+    /// `value` — `Decimal`.
+    pub value: crate::primitives::Decimal,
+    /// `items` — `List<String>`.
+    pub items: Vec<String>,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+}
+
+/// Everything `conductor.observation.ReviseDailySeries` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviseDailySeriesOutcome {
+    /// `revised` — when the existing subject is in Recorded.
+    ///
+    /// The rollup counts the items it kept and the new ones.
+    Revised {
+        /// The `conductor.observation.DailySeriesRevised` this outcome publishes.
+        daily_series_revised: DailySeriesRevised,
+    },
+    /// `no-such-rollup` — for an identity no record carries.
+    NoSuchRollup {
+        /// Why it was refused: `conductor.observation.DailySeriesNotFound`.
+        error: DailySeriesNotFound,
+    },
+}
+
 /// Start a snapshot — the input of `conductor.observation.StartSnapshot`.
 ///
 /// Everything it can result in is [`StartSnapshotOutcome`].
@@ -3038,6 +3276,24 @@ pub struct CollectorRunRecorded {
     pub duration_ms: i64,
     /// `outcome` — `conductor.observation.CollectorRunOutcome`.
     pub outcome: CollectorRunOutcome,
+}
+
+/// DailySeriesRecorded — the event `conductor.observation.DailySeriesRecorded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailySeriesRecorded {
+    /// `daily_series_id` — `conductor.observation.DailySeriesId`.
+    pub daily_series_id: DailySeriesId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+}
+
+/// DailySeriesRevised — the event `conductor.observation.DailySeriesRevised`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailySeriesRevised {
+    /// `daily_series_id` — `conductor.observation.DailySeriesId`.
+    pub daily_series_id: DailySeriesId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
 }
 
 /// MemberFailureRecorded — the event `conductor.observation.MemberFailureRecorded`.
@@ -3167,6 +3423,24 @@ pub struct WorkflowRunRecorded {
     pub repository: RepositoryName,
     /// `workflow` — `String`.
     pub workflow: String,
+}
+
+/// The declared error `conductor.observation.DailySeriesExists`.
+///
+/// A rollup already has this id; it is revised, not recorded again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailySeriesExists {
+    /// `daily_series_id` — `conductor.observation.DailySeriesId`.
+    pub daily_series_id: DailySeriesId,
+}
+
+/// The declared error `conductor.observation.DailySeriesNotFound`.
+///
+/// No rollup has this id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailySeriesNotFound {
+    /// `daily_series_id` — `conductor.observation.DailySeriesId`.
+    pub daily_series_id: DailySeriesId,
 }
 
 /// The declared error `conductor.observation.InvalidCount`.
@@ -3592,6 +3866,17 @@ pub mod obligations {
         fn record_collector_run(&mut self, input: super::RecordCollectorRun) -> Result<super::RecordCollectorRunOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.observation.RecordDailySeries` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RecordDailySeriesBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordDailySeries`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn record_daily_series(&mut self, input: super::RecordDailySeries) -> Result<super::RecordDailySeriesOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.observation.RecordMemberFailure` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -3678,6 +3963,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
         fn record_workflow_run(&mut self, input: super::RecordWorkflowRun) -> Result<super::RecordWorkflowRunOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.observation.ReviseDailySeries` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait ReviseDailySeriesBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.observation.ReviseDailySeries`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn revise_daily_series(&mut self, input: super::ReviseDailySeries) -> Result<super::ReviseDailySeriesOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.StartSnapshot` — generated.

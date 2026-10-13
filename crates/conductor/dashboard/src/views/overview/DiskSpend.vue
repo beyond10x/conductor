@@ -4,7 +4,11 @@ import { compactTokens, spentToday } from '../../api/overview';
 import { gib, size } from '../../format';
 import type { DashboardData } from '../../types';
 
-const props = defineProps<{ data: DashboardData | null }>();
+import PanelState from '../../components/PanelState.vue';
+const props = withDefaults(
+  defineProps<{ data: DashboardData | null; error?: string | null }>(),
+  { error: null },
+);
 
 const spent = computed(() => spentToday(props.data));
 
@@ -18,6 +22,7 @@ const summary = computed(() => {
 <template>
   <details class="disk-spend card">
     <summary>{{ summary }}</summary>
+    <PanelState v-if="error !== null" state="error">{{ error }}</PanelState>
     <template v-if="data !== null">
       <p class="small muted">
         free on {{ data.disk.path }}: {{ gib(data.disk.free_bytes) }} of
@@ -42,7 +47,7 @@ summary {
   color: var(--dim);
 }
 .spend {
-  margin: 8px 0 0;
-  padding-left: 18px;
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
 }
 </style>

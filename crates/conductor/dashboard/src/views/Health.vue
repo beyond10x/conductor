@@ -10,6 +10,7 @@ import SnapshotPanel from './health/SnapshotPanel.vue';
 import CollectorRuns from './health/CollectorRuns.vue';
 import MemberFailures from './health/MemberFailures.vue';
 import DiskPanel from './health/DiskPanel.vue';
+import PanelState from '../components/PanelState.vue';
 
 /** Milliseconds between two reads, as the overview reads `/data.json`. */
 const RELOAD_MS = 20_000;
@@ -45,11 +46,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main id="main" tabindex="-1" class="health">
+  <div class="health">
     <h1 class="page">Health</h1>
-    <p v-if="failure !== null" class="c-red">{{ failure }}</p>
-    <p v-if="health === null" class="muted loading">reading…</p>
-    <template v-else>
+    <PanelState v-if="failure !== null" state="error" card>{{ failure }}</PanelState>
+    <PanelState v-if="health === null && failure === null" state="loading" card
+      >reading /api/health…</PanelState
+    >
+    <template v-if="health !== null">
       <ul v-if="health.errors.length > 0" class="lines c-red errors">
         <li v-for="error in health.errors" :key="error">{{ error }}</li>
       </ul>
@@ -65,20 +68,25 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </template>
-  </main>
+  </div>
 </template>
 
 <style scoped>
+.health {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
 .split {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: var(--space-5);
 }
 .main-col,
 .side-col {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   min-width: 0;
 }
 .main-col {
