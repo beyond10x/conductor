@@ -30,7 +30,7 @@ scope:
   path: website/docs/security/overview.md
 - confidence: cited
   path: website/docs/security/the-guard.md
-revision: 21
+revision: 22
 ---
 ## Why
 
@@ -51,7 +51,7 @@ os.system("glab mr merge 1")'` passes both the guard and the box (scoping of
   `crates/conductor/tests/confine_bwrap.rs` read the masks and in
   `crates/conductor/tests/confine_systemd.rs` the `--setenv` arguments.
 - `conductor doctor` prints, per role with an empty `forge_token_env`, a line that the role's boxed
-  sessions have no forge access; a test in `crates/conductor/tests/doctor.rs` holds it.
+  sessions have no forge access, before the verdict line, which stays last; a test in `crates/conductor/tests/doctor.rs` holds it.
 - One recorded live run (`docs/analysis/session-forge-run.md`) of a boxed controller: with no token
   set, `gh api rate_limit` and `glab api user` fail to authenticate; with a read-only token,
   `gh api rate_limit` exits 0 and `python3 -c 'import os; os.system("gh pr merge 1")'` fails with an

@@ -53,10 +53,12 @@ scope:
 - confidence: cited
   path: docs/config.md
 - confidence: cited
+  path: docs/design/conductor.md
+- confidence: cited
   path: website/docs/guides/start-conductor.md
 - confidence: cited
   path: website/docs/security/confinement.md
-revision: 27
+revision: 29
 ---
 ## Why
 
@@ -70,14 +72,14 @@ need to prioritise the sandbox".
 ## Acceptance
 
 - A `confine` module (`crates/conductor/src/confine/mod.rs`) with a `Provider` trait whose methods
-  are the whole session surface: `available` (probe), `start` (from a request of absolute paths and
-  limits, returns the started session's identity), `prompt` (delivers the first prompt or charter),
+  are the whole session surface: `available` (probe), `start` (from a request of absolute paths, limits and the role's `forge_token_env` names, returns the started session's identity), `prompt` (delivers the first prompt or charter),
   `stop`, `resume` and `measure`. The `none` provider implements them with today's commands
   (`claude --bg`, `claude stop`, `claude --resume`) and measures nothing; `conductor spawn` and
   `session start` use only this trait.
 - A place resolver (`crates/conductor/src/confine/places.rs`) turns each of a role's `writable`
   place words (`checkout`, `trees`, `build-cache`, `scratch`, `harness-state`, `records`) into
-  existing absolute paths before the request reaches a provider; a test in
+  absolute paths before the request reaches a provider, passing a path through whether or not it
+  exists (the provider checks existence); a test in
   `crates/conductor/tests/confine.rs` reads the paths of each word for a controller and for
   conductor.
 - `session start --role` with a fake provider, one test per declared refusal
@@ -91,20 +93,24 @@ need to prioritise the sandbox".
   start` with the fake provider, then a snapshot, and reads them in `conductor snapshot sessions`.
 - `conductor spawn` starts a controller through the trait: a test in
   `crates/conductor/tests/spawn.rs` with the fake provider sees one `start` and one `prompt` per
-  spawn, with the controller role's request, and the `none` provider keeps today's argv.
+  spawn, with the controller role's request, and the `none` provider keeps today's argv; under
+  `strict`, one test each for a spawn refused as provider unavailable and as measurement short.
+- `session stop --role` stops the role's session through the provider's `stop`; a test with the
+  fake provider sees one `stop`, and one per declared refusal.
 - `conductor doctor` prints one provider row per provider after the program rows and before the
   verdict line, which stays last; a test with two fake providers, one available and one not, in
   `crates/conductor/tests/doctor.rs`.
 - `Taskfile.yml` `conductor:start`, `conductor:restart` and `dev:start` call `conductor session
-  start --role …` (and the restart stops through the provider) instead of `claude --bg`/`claude
-  stop`; a test in `crates/conductor/tests/taskfile.rs` reads the three tasks.
+  start --role …`, and `conductor:restart` stops with `conductor session stop --role conductor`,
+  instead of `claude --bg`/`claude stop`; a test in `crates/conductor/tests/taskfile.rs` reads the three tasks.
 - `.agents/conductor.md` no longer contains `claude --bg` and names `conductor spawn` and `conductor
   session start` as the only start forms; a test in `crates/conductor/tests/profiles.rs` holds both.
   The diff merges under `approval-record:sandbox-priority`.
-- The hand-written pages `website/docs/security/confinement.md`, `website/docs/guides/start-conductor.md`
-  and the `confinement.mode`/`provider` rows of `docs/config.md` describe the start path; the
-  phrase "nothing starts a session in a box yet" is gone (a test in
-  `crates/conductor/tests/docs_forge.rs` reads it).
+- The hand-written pages `website/docs/security/confinement.md`, `website/docs/guides/start-conductor.md`,
+  the `confinement.mode`/`provider` rows of `docs/config.md` and `docs/design/conductor.md`
+  ("Both sessions run in the background (`claude --bg`)") each name `conductor session start`, and
+  the phrase "nothing starts a session in a box yet" is gone; a test in
+  `crates/conductor/tests/docs_forge.rs` reads both.
 
 ## Notes
 
@@ -124,6 +130,7 @@ need to prioritise the sandbox".
 `crates/conductor/src/spawn.rs`, `crates/conductor/src/doctor.rs`,
 `crates/conductor/src/collect/sessions.rs`, `Taskfile.yml`, `.agents/conductor.md`,
 `website/docs/security/confinement.md`, `website/docs/guides/start-conductor.md`, `docs/config.md`,
+`docs/design/conductor.md`,
 `crates/conductor/tests/confine.rs` (new), `crates/conductor/tests/spawn.rs`,
 `crates/conductor/tests/doctor.rs`, `crates/conductor/tests/taskfile.rs`,
 `crates/conductor/tests/watch.rs`, `crates/conductor/tests/profiles.rs`,

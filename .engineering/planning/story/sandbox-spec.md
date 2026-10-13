@@ -29,12 +29,10 @@ scope:
 - confidence: cited
   path: spec/ess-inputs.yaml
 - confidence: cited
-  path: spec/system.yaml
-- confidence: cited
   path: website/docs/reference/cli.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 13
+revision: 15
 ---
 ## Why
 
@@ -47,11 +45,12 @@ The operator, 2026-10-13: "we need to prioritise the sandbox" and "conductor is 
 
 ## Acceptance
 
-- `spec/` declares, with `ess specify validate --path spec` passing on `ess` 0.59 (`ess/24`, the
-  newest format, which `spec/system.yaml` moves to):
+- `spec/` declares, with `ess specify validate --path spec` passing on `ess` 0.59 (the spec's
+  current format, `ess/22`):
   - `session start` (`[session, start]` in `crates/conductor/cli.yaml`, input `role`: conductor or
     conductor-dev) and one error per refusal: provider unavailable, measurement short, unknown
-    role, session already running, launch failed;
+    role, session already running, launch failed; and `session stop` (`[session, stop]`, input
+    `role`) with its refusals: unknown role, no session running;
   - `SpawnRefusal` gains provider unavailable and measurement short (`spec/domains/dispatch.yaml`);
   - a started session's identity (session name, provider, the unit name where there is one) and
     the measurement record a provider writes, including a partial box under `report` (limits
@@ -61,11 +60,13 @@ The operator, 2026-10-13: "we need to prioritise the sandbox" and "conductor is 
     result;
   - the resolved writable places of a session (each place word with its absolute paths) on the
     measurement;
-  - `roles[].forge_token_env` (a list of environment variable names) on a role.
+  - `roles[].forge_token_env` (a list of environment variable names) on a role, carried on the
+    session request a provider receives.
 - `ess verify conform synthesize` refuses nothing new, the regenerated `crates/conductor-model`,
   `website/docs/reference/config.md` and `website/docs/reference/cli.md` match (`task check`), and
-  the CLI tree test (`crates/conductor/tests/cli_tree.rs`) holds the new `session start` leaf with
-  a handler that answers "not implemented" until `story:session-envelope-seam`.
+  the CLI tree test (`crates/conductor/tests/cli_tree.rs`) holds the new `session start` and
+  `session stop` leaves, each with a handler that answers "not implemented" (exit 2) until
+  `story:session-envelope-seam`; a test reads that answer.
 
 ## Notes
 
@@ -76,7 +77,7 @@ The operator, 2026-10-13: "we need to prioritise the sandbox" and "conductor is 
 
 ## Scope
 
-`spec/system.yaml`, `spec/domains/session.yaml`, `spec/domains/dispatch.yaml`,
+`spec/domains/session.yaml`, `spec/domains/dispatch.yaml`,
 `spec/domains/config.yaml`, `spec/domains/observation.yaml`, `spec/ess-inputs.yaml`,
 `crates/conductor/cli.yaml`, `crates/conductor-model`, `crates/conductor/src/cli.rs`,
 `crates/conductor/tests/cli_tree.rs`, `website/docs/reference/config.md`,

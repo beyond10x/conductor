@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T10:33:52Z",
+  "actor": "human:timo",
+  "artifact": "story:session-envelope-seam",
+  "kind": "story",
+  "revision": 29,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2",
+    "reference": "sandbox-acceptance-r2#2",
+    "review": "review-result:sandbox-acceptance-r2",
+    "outcome": "fixed"
+  }
+}

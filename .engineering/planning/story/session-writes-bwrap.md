@@ -33,7 +33,7 @@ scope:
   path: website/docs/security/overview.md
 - confidence: cited
   path: website/docs/security/the-guard.md
-revision: 20
+revision: 21
 ---
 ## Why
 
@@ -56,12 +56,14 @@ runs unprivileged (`unprivileged_userns_clone` 1, no AppArmor userns restriction
   Tests in `crates/conductor/tests/confine_bwrap.rs` read the list for a controller and for
   conductor, and find no `--bind` of `~` itself.
 - `measure` records the writable paths applied (`envelope_writable`); a test reads them. Under
-  `strict`, `bwrap` missing or a requested place that does not exist is a shortfall and `start`
-  refuses (one test each, with a `PATH` without `bwrap` and with a place path removed); under
+  `strict`, `bwrap` missing or a requested place whose path does not exist is a shortfall and
+  `start` refuses (the seam's resolver passes such a path through) (one test each, with a `PATH` without `bwrap` and with a place path removed); under
   `report` a missing `bwrap` starts the session in its unit without the fence and records the
-  partial box `story:sandbox-spec` declares (a test reads it).
-- The provider's `available` also runs `bwrap --ro-bind / / true`; a test with a fake `bwrap` holds
-  both answers.
+  partial box `story:sandbox-spec` declares, and a missing place is skipped and left out of
+  `envelope_writable` (a test reads each).
+- The provider's `available` covers systemd only; the fence is probed apart (`bwrap --ro-bind / /
+  true`) and `conductor doctor` prints it as its own row, `systemd fence (bwrap)`; a test with a
+  fake `bwrap` holds both answers.
 - One recorded live run (`docs/analysis/session-writes-run.md`) of a boxed controller:
   `touch ~/outside-probe` and `python3 -c 'open("/home/<user>/outside-probe-2","w")'` fail with a
   read-only filesystem error, and a write in its checkout succeeds; the session completes a model

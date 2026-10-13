@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T10:33:51Z",
+  "actor": "human:timo",
+  "artifact": "story:sandbox-spec",
+  "kind": "story",
+  "revision": 15,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 2",
+    "reference": "sandbox-scope-r2#2",
+    "review": "review-result:sandbox-scope-r2",
+    "outcome": "fixed"
+  }
+}

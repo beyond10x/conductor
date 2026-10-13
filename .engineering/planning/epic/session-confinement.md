@@ -6,7 +6,7 @@ status: draft
 title: Harness sessions run in a box conductor controls
 relations:
 - implements: architecture-decision-record:external-confinement
-revision: 6
+revision: 7
 ---
 ## Outcome
 
@@ -56,7 +56,7 @@ Later part, each by its story's recorded run:
 - `story:substrate-tool-server`: a controller whose `run` calls execute in substrate; waits on the
   spike's go.
 
-The epic is done when the first part's six checks pass and each later story is implemented, or
+The epic is done when the first part's seven checks pass and each later story is implemented, or
 archived on a no-go recorded by the spike.
 
 ## Findings this rests on
