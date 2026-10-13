@@ -41,6 +41,10 @@
 //! checkouts, and [`collect_from`] against the built-in instance's under [`Sources::home`]
 //! ([`collect::built_in_checkouts`]); the last two place no session as conductor's.
 //!
+//! No source shows the box a session runs in, so every `envelope_*` field is recorded absent:
+//! the measured envelope (`story:session-envelope-model`) is what starts a session in a box to
+//! record, not this collector to guess.
+//!
 //! Both sources are read whole before anything is recorded, so a collector that fails records no
 //! session. A Codex file whose first line is not written to its end yet is left for the next
 //! snapshot; one whose first line is complete but no `session_meta` record fails the collector.
@@ -320,6 +324,15 @@ impl Live {
             repository: repository.map(RepositoryName),
             role,
             activity: self.activity,
+            // Neither list says what box a session runs in; the envelope is measured by what
+            // starts it in one (`story:session-envelope-model`), and absent here.
+            envelope_provider: None,
+            envelope_cgroup: None,
+            envelope_memory_max: None,
+            envelope_cpu_weight: None,
+            envelope_tasks_max: None,
+            envelope_writable: None,
+            envelope_unboxed: None,
         }
     }
 }

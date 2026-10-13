@@ -21,9 +21,10 @@ use conductor_cli::store;
 use conductor_model::behaviour::Generated;
 use conductor_model::observation::obligations::SpecificationsQuery;
 use conductor_model::observation::{
-    CommitSha, Harness, Mergeability, RecordBlocker, RecordPullRequest, RecordRepository,
-    RecordSession, RecordSpecification, RecordWorkflowRun, RepositoryName, RunConclusion,
-    SessionState, SnapshotId, SnapshotState, SpecificationPresence, ValidationResult, Visibility,
+    CommitSha, EnvelopeProvider, Harness, Mergeability, RecordBlocker, RecordPullRequest,
+    RecordRepository, RecordSession, RecordSpecification, RecordWorkflowRun, RepositoryName,
+    RunConclusion, SessionState, SnapshotId, SnapshotState, SpecificationPresence,
+    ValidationResult, Visibility,
 };
 use conductor_model::primitives::Timestamp;
 use serde_json::{Value, json};
@@ -455,6 +456,7 @@ fn every_observation_kind_reads_back_through_its_view() {
             repository: Some(repository.clone()),
             role: Some("conductor".to_owned()),
             activity: SessionState::Background,
+            ..unmeasured()
         })?;
         record.blocker(RecordBlocker {
             snapshot_id: snapshot.clone(),
@@ -518,6 +520,13 @@ fn every_observation_kind_reads_back_through_its_view() {
             "repository": "alpha",
             "role": "conductor",
             "activity": "Background",
+            "envelope_provider": null,
+            "envelope_cgroup": null,
+            "envelope_memory_max": null,
+            "envelope_cpu_weight": null,
+            "envelope_tasks_max": null,
+            "envelope_writable": null,
+            "envelope_unboxed": null,
         })]
     );
     assert_eq!(
@@ -552,6 +561,148 @@ fn every_observation_kind_reads_back_through_its_view() {
     assert_eq!(held.scenarios, Some(185));
     assert_eq!(held.synthesis_refusals, None);
     assert_eq!(held.conformance_status.as_deref(), Some("validated"));
+}
+
+/// A session with no envelope measured: every envelope field absent, the rest placeholders a
+/// case overrides.
+fn unmeasured() -> RecordSession {
+    RecordSession {
+        snapshot_id: SnapshotId(conductor_model::primitives::Uuid(String::new())),
+        harness: Harness::Claude,
+        session_ref: String::new(),
+        name: None,
+        cwd: String::new(),
+        repository: None,
+        role: None,
+        activity: SessionState::Unknown,
+        envelope_provider: None,
+        envelope_cgroup: None,
+        envelope_memory_max: None,
+        envelope_cpu_weight: None,
+        envelope_tasks_max: None,
+        envelope_writable: None,
+        envelope_unboxed: None,
+    }
+}
+
+/// `story:session-envelope-model`: a session's measured envelope (the provider, the cgroup, the
+/// limits read back and the places applied) and an unboxed session's reason read back, field for
+/// field, through `conductor snapshot sessions`, in JSON and as columns of the text table; a
+/// session nothing measured shows none.
+#[test]
+fn a_session_s_measured_envelope_reads_back_through_the_sessions_view() {
+    let root = case_dir("envelope");
+    let measured = Collector::new("measured", |record: &mut Recorder<'_>| {
+        let snapshot = record.snapshot().clone();
+        record.session(RecordSession {
+            snapshot_id: snapshot.clone(),
+            session_ref: "boxed-1".to_owned(),
+            name: Some("alpha".to_owned()),
+            cwd: "~/example-org/alpha".to_owned(),
+            repository: Some(RepositoryName("alpha".to_owned())),
+            activity: SessionState::Busy,
+            envelope_provider: Some(EnvelopeProvider::Systemd),
+            envelope_cgroup: Some("/example.slice/example-alpha.service".to_owned()),
+            envelope_memory_max: Some(8 * 1024 * 1024 * 1024),
+            envelope_cpu_weight: Some(100),
+            envelope_tasks_max: Some(512),
+            envelope_writable: Some("~/example-org/alpha:~/trees/alpha:/tmp".to_owned()),
+            ..unmeasured()
+        })?;
+        record.session(RecordSession {
+            snapshot_id: snapshot.clone(),
+            session_ref: "unboxed-1".to_owned(),
+            name: Some("beta".to_owned()),
+            cwd: "~/example-org/beta".to_owned(),
+            repository: Some(RepositoryName("beta".to_owned())),
+            activity: SessionState::Idle,
+            envelope_unboxed: Some("no provider on this host".to_owned()),
+            ..unmeasured()
+        })?;
+        record.session(RecordSession {
+            snapshot_id: snapshot,
+            session_ref: "plain-1".to_owned(),
+            cwd: "~/example-org/gamma".to_owned(),
+            repository: Some(RepositoryName("gamma".to_owned())),
+            activity: SessionState::Waiting,
+            ..unmeasured()
+        })?;
+        Ok(())
+    });
+    let taken = take(&root, &[measured]);
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    let snapshot = id(&taken.snapshot_id);
+
+    let row = |session: &str, name: Value, repository: &str, activity: &str| {
+        json!({
+            "snapshot_id": snapshot,
+            "harness": "Claude",
+            "session_ref": session,
+            "name": name,
+            "cwd": format!("~/example-org/{repository}"),
+            "repository": repository,
+            "role": null,
+            "activity": activity,
+            "envelope_provider": null,
+            "envelope_cgroup": null,
+            "envelope_memory_max": null,
+            "envelope_cpu_weight": null,
+            "envelope_tasks_max": null,
+            "envelope_writable": null,
+            "envelope_unboxed": null,
+        })
+    };
+    let mut boxed = row("boxed-1", json!("alpha"), "alpha", "Busy");
+    boxed["envelope_provider"] = json!("Systemd");
+    boxed["envelope_cgroup"] = json!("/example.slice/example-alpha.service");
+    boxed["envelope_memory_max"] = json!(8_589_934_592_i64);
+    boxed["envelope_cpu_weight"] = json!(100);
+    boxed["envelope_tasks_max"] = json!(512);
+    boxed["envelope_writable"] = json!("~/example-org/alpha:~/trees/alpha:/tmp");
+    let mut unboxed = row("unboxed-1", json!("beta"), "beta", "Idle");
+    unboxed["envelope_unboxed"] = json!("no provider on this host");
+    let plain = row("plain-1", Value::Null, "gamma", "Waiting");
+    let sessions: Vec<Value> = rows(&root, "sessions").into_iter().map(assigned).collect();
+    assert_eq!(sessions, vec![boxed, unboxed, plain]);
+
+    let output = conductor(&root, &["snapshot", "sessions"]);
+    assert!(output.status.success(), "{}", describe(&output));
+    let text = String::from_utf8_lossy(&output.stdout);
+    let header = text.lines().next().unwrap_or_default();
+    for column in [
+        "envelope_provider",
+        "envelope_cgroup",
+        "envelope_memory_max",
+        "envelope_cpu_weight",
+        "envelope_tasks_max",
+        "envelope_writable",
+        "envelope_unboxed",
+    ] {
+        assert!(
+            header.split_whitespace().any(|word| word == column),
+            "no column {column}: {text}"
+        );
+    }
+    let line = |session: &str| {
+        text.lines()
+            .find(|line| line.split_whitespace().any(|word| word == session))
+            .unwrap_or_else(|| panic!("no row of {session}: {text}"))
+            .to_owned()
+    };
+    let boxed = line("boxed-1");
+    for shown in [
+        "Systemd",
+        "/example.slice/example-alpha.service",
+        "8589934592",
+        "512",
+        "~/example-org/alpha:~/trees/alpha:/tmp",
+    ] {
+        assert!(boxed.contains(shown), "{shown}: {text}");
+    }
+    assert!(
+        line("unboxed-1").contains("no provider on this host"),
+        "{text}"
+    );
 }
 
 /// `snapshot start-snapshot` is the driver over the registered collectors. It prints the

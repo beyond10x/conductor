@@ -47,6 +47,12 @@
 //! - a role's `model`, `agent`, `settings` and `profile` are each a `conductor.config.CommandWord`:
 //!   letters, digits and `.`, `_`, `:`, `/`, `-` only, the alphabet the specification declares,
 //!   because a start command passes each to the harness as one shell word;
+//! - the instance's `confinement` (`story:session-envelope-model`) has a `mode`, `strict` or
+//!   `report`, and a `provider`, `systemd` or `none`; its `limits` and each role's are a
+//!   `memory_max` size of 1G or more, a `cpu_weight` from 1 to 10000 and a `tasks_max` of 1 or
+//!   more (`Limits`'s invariants), and a role's limit lies at or under the instance's of the same
+//!   key, where the instance sets one; a role's `writable` entry is a place's word
+//!   ([`PLACES`]) or a path, and its `network` is `open`;
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
 //!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed.
 //!
@@ -58,6 +64,8 @@
 //! `repositories` and `reports` are empty; `operator`, `catalog`, `session_prefix`, and a role's
 //! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
 //! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
+//! `confinement` is `report` through `systemd` with no limit; a role sets no limit, writes its
+//! default places ([`default_writable`]), and has the network `open`.
 //!
 //! `conductor config workspace` (`story:workspace-from-config`) writes the instance's workspace
 //! file from it ([`workspace_members`], [`workspace`]).
@@ -78,9 +86,10 @@ use std::sync::OnceLock;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
-    Controllers, Gibibytes, GitHubSource, GitLabSource, Harness, Instance, InstanceName,
-    LocalSource, Report, RepositoryRule, Retention, Role, SessionName, SessionPrefix, Source,
-    Thresholds, TimeOfDay, Tokens, WorkspaceMember,
+    Confinement, ConfinementMode, ConfinementProvider, Controllers, Gibibytes, GitHubSource,
+    GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network, Report,
+    RepositoryRule, Retention, Role, SessionName, SessionPrefix, Source, Thresholds, TimeOfDay,
+    Tokens, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -196,7 +205,7 @@ pub const DISK_CLEAR_GIB: u64 = 110;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 19] = [
+const INSTANCE_KEYS: [&str; 20] = [
     "name",
     "session_prefix",
     "dashboard_port",
@@ -206,6 +215,7 @@ const INSTANCE_KEYS: [&str; 19] = [
     "state",
     "cache",
     "roles",
+    "confinement",
     "controllers",
     "repositories",
     "cadence",
@@ -222,7 +232,7 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 4] = ["github", "local", "gitlab", "exclude"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 8] = [
+const ROLE_KEYS: [&str; 11] = [
     "role",
     "harness",
     "model",
@@ -231,7 +241,12 @@ const ROLE_KEYS: [&str; 8] = [
     "profile",
     "session_name",
     "read_only_tools",
+    "limits",
+    "writable",
+    "network",
 ];
+const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
+const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 2] = ["max_working", "max_subagents"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
@@ -255,6 +270,40 @@ const CATALOG_KEYS: [&str; 3] = ["repository", "path", "names"];
 /// How the file writes each `conductor.config.CatalogNames`.
 const CATALOG_NAMES: [(&str, CatalogNames); 2] =
     [("plain", CatalogNames::Plain), ("hex", CatalogNames::Hex)];
+
+/// How the file writes each `conductor.config.ConfinementMode`.
+const MODES: [(&str, ConfinementMode); 2] = [
+    ("strict", ConfinementMode::Strict),
+    ("report", ConfinementMode::Report),
+];
+
+/// How the file writes each `conductor.config.ConfinementProvider`.
+const PROVIDERS: [(&str, ConfinementProvider); 2] = [
+    ("systemd", ConfinementProvider::Systemd),
+    ("none", ConfinementProvider::None),
+];
+
+/// How the file writes each `conductor.config.Network`.
+const NETWORKS: [(&str, Network); 1] = [("open", Network::Open)];
+
+/// The words a role's `writable` may name besides a path (`conductor.config.Writable`), each a
+/// place resolved per session when it starts: the session's checkout, its managed trees, the
+/// build cache, scratch, the harness's own state directory, and the instance's records.
+pub const PLACES: [&str; 6] = [
+    "checkout",
+    "trees",
+    "build-cache",
+    "scratch",
+    "harness-state",
+    RECORDS_PLACE,
+];
+
+/// The place of the instance's records directory, which the `conductor` role writes by default.
+const RECORDS_PLACE: &str = "records";
+
+/// The weights a `cpu_weight` may name, systemd's `CPUWeight=` range: `conductor.config.Limits`'s
+/// invariants `cpu_weight >= 1` and `cpu_weight <= 10000`.
+const CPU_WEIGHTS: std::ops::RangeInclusive<i64> = 1..=10_000;
 
 /// The ports a `dashboard_port` may name: `conductor.config.Instance`'s invariants
 /// `dashboard_port >= 1` and `dashboard_port <= 65535`.
@@ -609,6 +658,7 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         state: text_of(&cwd.join(STATE)),
         cache: text_of(&home.join(CACHE)),
         roles: default_roles(None),
+        confinement: default_confinement(),
         controllers: default_controllers(),
         // Repository rules are written only by a user: without one, a repository's activity is
         // its mark or the newest snapshot's, as today.
@@ -689,8 +739,42 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
             profile: None,
             session_name: role_session_name(prefix, role),
             read_only_tools: Vec::new(),
+            limits: no_limits(),
+            writable: default_writable(role),
+            network: Network::Open,
         })
         .collect()
+}
+
+/// The places a session of the role `role` writes when the file names none
+/// (`story:session-envelope-model`): every place of [`PLACES`] but the records, and for the
+/// `conductor` role, whose session keeps them, the records too.
+#[must_use]
+pub fn default_writable(role: &str) -> Vec<Writable> {
+    PLACES
+        .iter()
+        .filter(|place| **place != RECORDS_PLACE || role == CONDUCTOR_ROLE)
+        .map(|place| Writable((*place).to_owned()))
+        .collect()
+}
+
+/// Limits that set no limit.
+fn no_limits() -> Limits {
+    Limits {
+        memory_max: None,
+        cpu_weight: None,
+        tasks_max: None,
+    }
+}
+
+/// The confinement of an instance whose file writes none: a session that cannot be boxed starts
+/// unboxed and is reported, boxes come from systemd, and the instance sets no limit.
+fn default_confinement() -> Confinement {
+    Confinement {
+        mode: ConfinementMode::Report,
+        provider: ConfinementProvider::Systemd,
+        limits: no_limits(),
+    }
 }
 
 /// The name a session of `instance` starts under for `word`, a role or a repository:
@@ -1553,6 +1637,15 @@ impl Reader<'_> {
                 }),
             None => Some(default_roles(session_prefix.clone().flatten().as_ref())),
         };
+        let confinement = match Self::get(map, "confinement") {
+            Some(value) => self.confinement(value, &join(path, "confinement")),
+            None => Some(default_confinement()),
+        };
+        // Every session of the instance runs inside the instance's box, so a role asks for no
+        // more than it (`story:session-envelope-model`).
+        if let (Some(roles), Some(confinement)) = (&roles, &confinement) {
+            self.within(roles, &confinement.limits, &join(path, "roles"));
+        }
         let controllers = match Self::get(map, "controllers") {
             Some(value) => self.controllers(value, &join(path, "controllers")),
             None => Some(default_controllers()),
@@ -1606,6 +1699,7 @@ impl Reader<'_> {
             state: state?,
             cache: cache?,
             roles: roles?,
+            confinement: confinement?,
             controllers: controllers?,
             repositories: repositories?,
             cadence: cadence?,
@@ -1838,6 +1932,19 @@ impl Reader<'_> {
             }),
             None => Some(Vec::new()),
         };
+        // The envelope the role's sessions ask for (`story:session-envelope-model`).
+        let limits = match Self::get(map, "limits") {
+            Some(value) => self.limits(value, &join(path, "limits")),
+            None => Some(no_limits()),
+        };
+        let writable = match Self::get(map, "writable") {
+            Some(value) => self.list(value, &join(path, "writable"), Self::writable),
+            None => Some(default_writable(role.as_deref().unwrap_or_default())),
+        };
+        let network = match Self::get(map, "network") {
+            Some(value) => self.word(value, &join(path, "network"), &NETWORKS),
+            None => Some(Network::Open),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
@@ -1847,7 +1954,140 @@ impl Reader<'_> {
             profile: profile?,
             session_name: session_name?,
             read_only_tools: read_only_tools?,
+            limits: limits?,
+            writable: writable?,
+            network: network?,
         })
+    }
+
+    /// One entry of a role's `writable`: a place's word ([`PLACES`]), kept as it is, or a path,
+    /// absolute or under `~`, made absolute.
+    fn writable(&mut self, value: &Value, path: &str) -> Option<Writable> {
+        let text = self.text(value, path)?;
+        if PLACES.contains(&text.as_str()) {
+            return Some(Writable(text));
+        }
+        if text.starts_with('/') || text == "~" || text.starts_with("~/") {
+            return self.path(value, path).map(Writable);
+        }
+        self.problem(
+            path,
+            format!(
+                "{} is neither a place nor a path: write one of {}, or a path absolute (/…) or \
+                 under the home directory (~/…)",
+                echo(value),
+                PLACES.join(", ")
+            ),
+        );
+        None
+    }
+
+    /// `conductor.config.Limits`, its invariants held: a `memory_max` of 1G or more, a
+    /// `cpu_weight` from 1 to 10000 and a `tasks_max` of 1 or more, each absent when not written.
+    fn limits(&mut self, value: &Value, path: &str) -> Option<Limits> {
+        let map = self.mapping(value, path, &LIMIT_KEYS)?;
+        let memory_max = match Self::get(map, "memory_max") {
+            Some(value) => {
+                let at = join(path, "memory_max");
+                match self.size(value, &at) {
+                    Some(size) if size.0 >= 1 => Some(Some(size)),
+                    Some(_) => {
+                        self.problem(&at, "0G sets no memory at all: write 1G or more");
+                        None
+                    }
+                    None => None,
+                }
+            }
+            None => Some(None),
+        };
+        let count = |reader: &mut Self, key: &str, valid: &dyn Fn(i64) -> bool, rule: &str| {
+            let Some(value) = Self::get(map, key) else {
+                return Some(None);
+            };
+            let count = value.as_i64().filter(|count| valid(*count));
+            if count.is_none() {
+                reader.problem(
+                    &join(path, key),
+                    format!(
+                        "{} is not a {key}: write a whole number {rule}",
+                        echo(value)
+                    ),
+                );
+            }
+            count.map(Some)
+        };
+        let cpu_weight = count(
+            self,
+            "cpu_weight",
+            &|weight| CPU_WEIGHTS.contains(&weight),
+            "from 1 to 10000",
+        );
+        let tasks_max = count(self, "tasks_max", &|tasks| tasks >= 1, "of 1 or more");
+        Some(Limits {
+            memory_max: memory_max?,
+            cpu_weight: cpu_weight?,
+            tasks_max: tasks_max?,
+        })
+    }
+
+    /// `conductor.config.Confinement`: its `mode`, `report` when absent; its `provider`,
+    /// `systemd` when absent; and its `limits`, none when absent.
+    fn confinement(&mut self, value: &Value, path: &str) -> Option<Confinement> {
+        let map = self.mapping(value, path, &CONFINEMENT_KEYS)?;
+        let defaults = default_confinement();
+        let mode = match Self::get(map, "mode") {
+            Some(value) => self.word(value, &join(path, "mode"), &MODES),
+            None => Some(defaults.mode),
+        };
+        let provider = match Self::get(map, "provider") {
+            Some(value) => self.word(value, &join(path, "provider"), &PROVIDERS),
+            None => Some(defaults.provider),
+        };
+        let limits = match Self::get(map, "limits") {
+            Some(value) => self.limits(value, &join(path, "limits")),
+            None => Some(defaults.limits),
+        };
+        Some(Confinement {
+            mode: mode?,
+            provider: provider?,
+            limits: limits?,
+        })
+    }
+
+    /// Each limit of each of `roles` that lies above `instance`'s limit of the same key, where
+    /// the instance sets one, is a problem by its path under `path`, the instance's `roles`.
+    fn within(&mut self, roles: &[Role], instance: &Limits, path: &str) {
+        let gibibytes = |size: Option<&Gibibytes>| size.map(|size| size.0);
+        for (index, role) in roles.iter().enumerate() {
+            for (key, own, cap, unit) in [
+                (
+                    "memory_max",
+                    gibibytes(role.limits.memory_max.as_ref()),
+                    gibibytes(instance.memory_max.as_ref()),
+                    "G",
+                ),
+                (
+                    "cpu_weight",
+                    role.limits.cpu_weight,
+                    instance.cpu_weight,
+                    "",
+                ),
+                ("tasks_max", role.limits.tasks_max, instance.tasks_max, ""),
+            ] {
+                if let (Some(own), Some(cap)) = (own, cap)
+                    && own > cap
+                {
+                    self.problem(
+                        &format!("{path}[{index}].limits.{key}"),
+                        format!(
+                            "{own}{unit} is above confinement.limits.{key}, {cap}{unit}: every \
+                             session of the instance runs inside the instance's box, so a role \
+                             asks for no more than the instance has"
+                        ),
+                    );
+                }
+            }
+        }
     }
 
     /// `conductor.config.Controllers`, its invariants `max_working >= 1` and
@@ -2135,6 +2375,24 @@ pub fn document(instance: &Instance) -> Yaml {
     fn optional(value: Option<&String>) -> Yaml {
         value.map_or(Yaml::Null, |value| text(value))
     }
+    /// A number.
+    fn number(value: i64) -> Yaml {
+        Yaml::Number(serde_yaml::Number::from(value))
+    }
+    /// A box's limits, each absent one null.
+    fn limits(limits: &Limits) -> Yaml {
+        mapping([
+            (
+                "memory_max",
+                limits
+                    .memory_max
+                    .as_ref()
+                    .map_or(Yaml::Null, |size| text(&format!("{}G", size.0))),
+            ),
+            ("cpu_weight", limits.cpu_weight.map_or(Yaml::Null, number)),
+            ("tasks_max", limits.tasks_max.map_or(Yaml::Null, number)),
+        ])
+    }
     /// A source's mapping with its `exclude`, written only when it holds an entry.
     fn excluding(mut source: Yaml, exclude: &[String]) -> Yaml {
         if let Yaml::Mapping(map) = &mut source
@@ -2192,6 +2450,17 @@ pub fn document(instance: &Instance) -> Yaml {
                 (
                     "read_only_tools",
                     Yaml::Sequence(role.read_only_tools.iter().map(|tool| text(tool)).collect()),
+                ),
+                ("limits", limits(&role.limits)),
+                (
+                    "writable",
+                    Yaml::Sequence(role.writable.iter().map(|place| text(&place.0)).collect()),
+                ),
+                (
+                    "network",
+                    text(match role.network {
+                        Network::Open => "open",
+                    }),
                 ),
             ])
         })
@@ -2251,6 +2520,26 @@ pub fn document(instance: &Instance) -> Yaml {
         ("state", text(&instance.state)),
         ("cache", text(&instance.cache)),
         ("roles", Yaml::Sequence(roles)),
+        (
+            "confinement",
+            mapping([
+                (
+                    "mode",
+                    text(match instance.confinement.mode {
+                        ConfinementMode::Strict => "strict",
+                        ConfinementMode::Report => "report",
+                    }),
+                ),
+                (
+                    "provider",
+                    text(match instance.confinement.provider {
+                        ConfinementProvider::Systemd => "systemd",
+                        ConfinementProvider::None => "none",
+                    }),
+                ),
+                ("limits", limits(&instance.confinement.limits)),
+            ]),
+        ),
         (
             "controllers",
             mapping([

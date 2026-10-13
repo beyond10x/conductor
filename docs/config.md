@@ -19,7 +19,8 @@ does not validate stops the command.
 `instances[0].cadence.watch`. `conductor config show --format text|json|yaml` prints the effective
 instance after defaults, with every path absolute. It writes an absent optional value (`operator`,
 `catalog`, `session_prefix`, a role's `agent`, `settings` and `profile`, the controller role's
-`session_name`, `conductor.served_by` of an instance with its own conductor) as `null`.
+`session_name`, `conductor.served_by` of an instance with its own conductor, a limit not set) as
+`null`.
 
 `conductor config workspace` writes the instance's `<records>/.engineering/workspace.yaml`
 (`aep.workspace/1`) from the config, replacing the file, and reads no network: one member per git
@@ -42,7 +43,7 @@ instance the session runs.
 - A size is a whole number of GiB with `G`: `15G`.
 - A token count is a whole number, or thousands with `k`: `300k`.
 - A time of day is `HH:MM`, UTC.
-- A count (`controllers.*`, `retention.snapshots`) is a whole number of 1 or more.
+- A count (`controllers.*`, `retention.snapshots`, a `tasks_max`) is a whole number of 1 or more.
 - No value may look like a token (a word starting `ghp_`, `github_pat_`, `glpat-` or
   `xox<letter>-`). Such a value is refused by its path and never printed.
 
@@ -80,6 +81,16 @@ accepted, defaulted and shown by `config show`.
 | `roles[].profile` | path | none; required for a `controller` role that names an `agent` | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter is needed. A `controller` role the file writes with an `agent` and without a profile is refused by this path |
 | `roles[].session_name` | string | derived | `task conductor:start`, `task conductor:restart`, `task dev:start`, `task conductor:attach`, `task dev:attach`, `task sessions` | the name the role's session starts under: `<session_prefix>-<role>`, or `<role>` without a prefix; none for `controller`, whose sessions are named per repository. Derived, never chosen: a file may write only that value. The session tasks act on the active instance's sessions by this full name and refuse a name more than one live background session holds |
 | `roles[].read_only_tools` | list of tool names | empty | guard | the tools, beyond the guard's built-in read-only allowlist (`Read`, `Glob`, `Grep`, `WebFetch`, the session's own task and schedule tools and the like; `READ_ONLY` in `crates/conductor/src/guard.rs`), that the guard allows this role's sessions, such as a read-only MCP tool `mcp__<server>__<tool>`. Read for the `conductor` and `controller` roles. Every other tool without a rule of its own is denied; `Edit`, `Write`, `NotebookEdit`, `SendMessage`, `Bash` and `Monitor` keep their rules whatever the list says |
+| `roles[].limits.memory_max` | GiB ≥ 1G | none | nothing yet | the most memory one session of the role may use (its cgroup's `MemoryMax`); at or under `confinement.limits.memory_max`, where that is set |
+| `roles[].limits.cpu_weight` | integer 1–10000 | none | nothing yet | the CPU weight of one session of the role (`CPUWeight`); at or under `confinement.limits.cpu_weight`, where that is set |
+| `roles[].limits.tasks_max` | integer ≥ 1 | none | nothing yet | the most processes and threads one session of the role runs at once (`TasksMax`); at or under `confinement.limits.tasks_max`, where that is set |
+| `roles[].writable` | list of places and paths | `checkout`, `trees`, `build-cache`, `scratch`, `harness-state`; for `conductor` also `records` | nothing yet | where a session of the role may write (below); a list given replaces the default |
+| `roles[].network` | `open` | `open` | nothing yet | the session's network: the host's, the only one there is |
+| `confinement.mode` | `strict` \| `report` | `report` | nothing yet | what happens when a session's box cannot be set up: `strict` starts no session, `report` starts it unboxed and records why |
+| `confinement.provider` | `systemd` \| `none` | `systemd` | nothing yet | what sets up the box: `systemd`, a `systemd-run --user` unit per session under the instance's slice; `none`, a host with no provider, where `strict` starts no session and `report` starts every one unboxed |
+| `confinement.limits.memory_max` | GiB ≥ 1G | none | nothing yet | the most memory the instance's sessions use together (the slice's `MemoryMax`) |
+| `confinement.limits.cpu_weight` | integer 1–10000 | none | nothing yet | the CPU weight of the instance's slice (`CPUWeight`) |
+| `confinement.limits.tasks_max` | integer ≥ 1 | none | nothing yet | the most processes and threads the instance's sessions run at once (`TasksMax`) |
 | `conductor.served_by` | instance name | derived | conductor profile, controller profile | the `default` instance whose conductor serves this one, when this one names no `conductor` role; otherwise none. Derived, never chosen: a file may write only that value |
 | `conductor.session_name` | string | derived | controller profile, guard | the session name of the conductor that serves the instance: its own `<session_prefix>-conductor` (or `conductor`), or the serving instance's; none when no conductor serves it. Derived, never chosen |
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
@@ -112,7 +123,37 @@ accepted, defaulted and shown by `config show`.
 | `catalog` | catalog | none | repositories collector | the instance's catalog of repositories (below) |
 
 An instance may leave out every key but `name`, `sources` and `checkouts`. Inside `controllers`,
-`cadence`, `thresholds`, `retention` and `authority`, each absent key takes its own default.
+`cadence`, `thresholds`, `retention`, `authority`, `confinement` and each `limits`, each absent
+key takes its own default.
+
+## Confinement
+
+Each session conductor starts is meant to run in a box set up and measured from outside: a
+cgroup with the role's limits inside the instance's slice, and writes allowed only to the role's
+`writable` places. `confinement` and each role's `limits`, `writable` and `network` are that
+request; nothing starts a session in a box yet, so no command reads them beyond `config validate`
+and `config show`. `conductor config validate` refuses an unknown `mode` or `provider`, a limit
+that is no limit (a size under 1G, a weight outside 1 to 10000, a `tasks_max` under 1), and a role
+limit above the instance's limit of the same key, each by its YAML path.
+
+A `writable` entry is a path, absolute or under `~`, or one of these places, resolved for each
+session when it starts:
+
+| place | where |
+|---|---|
+| `checkout` | the checkout the session starts in: a controller's repository's, conductor-dev's this repository's |
+| `trees` | the managed worktrees of that checkout, under `checkouts.trees` |
+| `build-cache` | the build tools' caches under the home directory, cargo's among them |
+| `scratch` | the session's scratch: under `$TMPDIR`, and for a controller `~/.cache/<repo>-*` |
+| `harness-state` | the harness's own state directory, `~/.claude` or `~/.codex` |
+| `records` | the instance's `records` directory |
+
+The request leaves out readable paths (the box binds the root read-only), the programs a session
+may run (a program list belongs to the tool server), and a lifetime (sessions are long-lived and
+conductor ends them). What a box actually applied is measured, not taken from this request: the
+`envelope_*` columns of `conductor snapshot sessions` hold the provider, the cgroup, the limits read
+back and the places applied, or the reason a session runs unboxed; they are empty for a session
+nothing measured.
 
 ## Source
 

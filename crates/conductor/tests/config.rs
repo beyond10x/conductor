@@ -405,10 +405,10 @@ fn show_without_a_file_prints_todays_constants() {
         } else {
             Value::from(name)
         };
-        serde_json::json!({
+        with_envelope(serde_json::json!({
             "role": name, "harness": "claude", "model": "opus", "agent": null, "settings": null,
             "profile": null, "session_name": session_name, "read_only_tools": []
-        })
+        }))
     };
     assert_eq!(
         instance["roles"],
@@ -510,6 +510,7 @@ fn show_without_a_file_prints_todays_constants() {
         "cadence",
         "catalog",
         "checkouts",
+        "confinement",
         "controllers",
         "name",
         "operator",
@@ -623,19 +624,19 @@ fn the_session_profile_keys_validate_and_show_as_written() {
     assert_eq!(
         one["roles"],
         serde_json::json!([
-            {
+            with_envelope(serde_json::json!({
                 "role": "controller", "harness": "claude", "model": "opus",
                 "agent": "repo-controller",
                 "settings": path_text(&home.join("profiles/controller.json")),
                 "profile": path_text(&home.join("profiles/repo-controller.md")),
                 "session_name": null,
                 "read_only_tools": ["mcp__example__read"],
-            },
-            {
+            })),
+            with_envelope(serde_json::json!({
                 "role": "conductor", "harness": "codex", "model": "gpt-fixture",
                 "agent": null, "settings": "/srv/conductor.json", "profile": null,
                 "session_name": "conductor", "read_only_tools": [],
-            },
+            })),
         ]),
         "{shown:#}"
     );
@@ -700,11 +701,11 @@ fn without_the_session_profile_keys_a_file_shows_their_defaults() {
         let one = instance(&shown);
         assert_eq!(
             one["roles"],
-            serde_json::json!([{
+            serde_json::json!([with_envelope(serde_json::json!({
                 "role": "controller", "harness": "claude", "model": "opus",
                 "agent": null, "settings": null, "profile": null, "session_name": null,
                 "read_only_tools": [],
-            }]),
+            }))]),
             "{name}: {shown:#}"
         );
         assert_eq!(one["controllers"]["max_subagents"], 4, "{name}: {shown:#}");
@@ -1124,11 +1125,11 @@ fn the_instance_flag_picks_one_and_fills_its_defaults() {
     );
     assert_eq!(
         second["roles"],
-        serde_json::json!([{
+        serde_json::json!([with_envelope(serde_json::json!({
             "role": "conductor", "harness": "codex", "model": "gpt-fixture",
             "agent": null, "settings": null, "profile": null,
             "session_name": "second-conductor", "read_only_tools": [],
-        }]),
+        }))]),
         "{shown:#}"
     );
     assert_eq!(second["repositories"], serde_json::json!([]), "{shown:#}");
@@ -2451,5 +2452,332 @@ fn a_dashboard_port_that_is_not_a_port_is_refused_by_its_path() {
             "{valid}: {}",
             describe(&validated)
         );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:session-envelope-model: the instance's `confinement` and each role's envelope request,
+// its `limits`, `writable` and `network`.
+// ---------------------------------------------------------------------------------------------
+
+/// The limits `config show` writes for a box that sets none.
+fn no_limits() -> Value {
+    serde_json::json!({"memory_max": null, "cpu_weight": null, "tasks_max": null})
+}
+
+/// The places a role that writes no `writable` may write: the session's checkout, its managed
+/// trees, the build cache, scratch and the harness's own state, and for the `conductor` role its
+/// records too.
+fn default_writable(role: &str) -> Value {
+    let mut places = vec![
+        "checkout",
+        "trees",
+        "build-cache",
+        "scratch",
+        "harness-state",
+    ];
+    if role == "conductor" {
+        places.push("records");
+    }
+    serde_json::json!(places)
+}
+
+/// `role`, a role as `config show` writes it, with the envelope of a role that writes none: no
+/// limit, its default places and the network open.
+fn with_envelope(mut role: Value) -> Value {
+    let name = role["role"].as_str().expect("a role's name").to_owned();
+    let map = role.as_object_mut().expect("a role is a mapping");
+    map.insert("limits".to_owned(), no_limits());
+    map.insert("writable".to_owned(), default_writable(&name));
+    map.insert("network".to_owned(), Value::from("open"));
+    role
+}
+
+/// Without a `confinement`, or with an empty one, an instance reports an unboxed session rather
+/// than refusing it, boxes through systemd, and sets no instance limit; the built-in instance
+/// too. A role without the envelope keys sets no limit, writes its default places, and has the
+/// network open.
+#[test]
+fn without_a_confinement_an_instance_reports_through_systemd_with_no_limit() {
+    let case = Case::new("confinement-defaults");
+    let expected = serde_json::json!({
+        "mode": "report", "provider": "systemd", "limits": no_limits(),
+    });
+    let built_in = json(&case.run(&["config", "show", "--format", "json"]));
+    assert_eq!(instance(&built_in)["confinement"], expected, "{built_in:#}");
+    for role in instance(&built_in)["roles"]
+        .as_array()
+        .expect("roles is a list")
+    {
+        let name = role["role"].as_str().expect("a role's name");
+        assert_eq!(role["limits"], no_limits(), "{name}: {built_in:#}");
+        assert_eq!(
+            role["writable"],
+            default_writable(name),
+            "{name}: {built_in:#}"
+        );
+        assert_eq!(role["network"], "open", "{name}: {built_in:#}");
+    }
+    for (name, extra) in [
+        (
+            "absent",
+            "\x20   roles: [{role: conductor, harness: claude, model: opus}]\n",
+        ),
+        (
+            "empty",
+            "\x20   roles: [{role: conductor, harness: claude, model: opus, limits: {}}]\n\
+             \x20   confinement: {limits: {}}\n",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let shown = case.show(&file, &[]);
+        let one = instance(&shown);
+        assert_eq!(one["confinement"], expected, "{name}: {shown:#}");
+        assert_eq!(
+            one["roles"],
+            serde_json::json!([with_envelope(serde_json::json!({
+                "role": "conductor", "harness": "claude", "model": "opus", "agent": null,
+                "settings": null, "profile": null, "session_name": "conductor",
+                "read_only_tools": [],
+            }))]),
+            "{name}: {shown:#}"
+        );
+    }
+}
+
+/// A written `confinement` and a role's written envelope are shown as written, a path made
+/// absolute and a place kept as its word, one text line each; a role's limit equal to the
+/// instance's is valid, and so is one where the instance sets none. The YAML round-trips.
+#[test]
+fn a_written_confinement_and_role_envelope_show_as_written() {
+    let case = Case::new("confinement-written");
+    let file = case.write(
+        "boxed.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: controller, harness: claude, model: opus, limits: {memory_max: 8G, \
+             cpu_weight: 200, tasks_max: 512}, writable: [checkout, scratch, ~/shared, \
+             /srv/cache], network: open}\n\
+             \x20     - {role: conductor, harness: claude, model: opus, limits: {memory_max: 4G}}\n\
+             \x20   confinement: {mode: strict, provider: none, limits: {memory_max: 8G, \
+             cpu_weight: 200}}\n",
+        ),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    assert!(stderr(&validated).is_empty(), "{}", describe(&validated));
+
+    let shown = case.show(&file, &[]);
+    let one = instance(&shown);
+    let home = case.home();
+    assert_eq!(
+        one["confinement"],
+        serde_json::json!({
+            "mode": "strict", "provider": "none",
+            "limits": {"memory_max": "8G", "cpu_weight": 200, "tasks_max": null},
+        }),
+        "{shown:#}"
+    );
+    let controller = &one["roles"][0];
+    assert_eq!(
+        controller["limits"],
+        serde_json::json!({"memory_max": "8G", "cpu_weight": 200, "tasks_max": 512}),
+        "{shown:#}"
+    );
+    assert_eq!(
+        controller["writable"],
+        serde_json::json!([
+            "checkout",
+            "scratch",
+            path_text(&home.join("shared")),
+            "/srv/cache"
+        ]),
+        "{shown:#}"
+    );
+    assert_eq!(controller["network"], "open", "{shown:#}");
+    let conductor = &one["roles"][1];
+    assert_eq!(
+        conductor["limits"],
+        serde_json::json!({"memory_max": "4G", "cpu_weight": null, "tasks_max": null}),
+        "{shown:#}"
+    );
+    assert_eq!(
+        conductor["writable"],
+        default_writable("conductor"),
+        "{shown:#}"
+    );
+
+    let text = case.with_file(&file, &["config", "show"]);
+    assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+    let text = String::from_utf8_lossy(&text.stdout);
+    for line in [
+        "instances[0].confinement.mode: strict".to_owned(),
+        "instances[0].confinement.provider: none".to_owned(),
+        "instances[0].confinement.limits.memory_max: 8G".to_owned(),
+        "instances[0].confinement.limits.cpu_weight: 200".to_owned(),
+        "instances[0].roles[0].limits.tasks_max: 512".to_owned(),
+        format!(
+            "instances[0].roles[0].writable[2]: {}",
+            path_text(&home.join("shared"))
+        ),
+        "instances[0].roles[0].network: open".to_owned(),
+        "instances[0].roles[1].writable[5]: records".to_owned(),
+    ] {
+        assert!(
+            text.lines().any(|shown| shown == line),
+            "no line `{line}`: {text}"
+        );
+    }
+
+    let yaml = case.with_file(&file, &["config", "show", "--format", "yaml"]);
+    assert_eq!(yaml.status.code(), Some(0), "{}", describe(&yaml));
+    let written = case.write("shown.yaml", &String::from_utf8_lossy(&yaml.stdout));
+    let validated = case.with_file(&written, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    assert_eq!(case.show(&written, &[]), shown, "the round trip");
+}
+
+/// `config validate` refuses a `confinement.mode` other than `strict` and `report`, and a
+/// `confinement.provider` other than `systemd` and `none`, each by its YAML path; `config show`
+/// refuses them too.
+#[test]
+fn an_unknown_confinement_mode_or_provider_is_refused_by_its_path() {
+    let case = Case::new("confinement-unknown");
+    for (name, confinement, path) in [
+        ("mode", "{mode: enforce}", "instances[0].confinement.mode: "),
+        (
+            "mode-capitalised",
+            "{mode: Strict}",
+            "instances[0].confinement.mode: ",
+        ),
+        (
+            "provider",
+            "{provider: bwrap}",
+            "instances[0].confinement.provider: ",
+        ),
+        (
+            "provider-capitalised",
+            "{provider: Systemd}",
+            "instances[0].confinement.provider: ",
+        ),
+        (
+            "network-of-the-instance",
+            "{mode: strict, network: open}",
+            "instances[0].confinement.network: ",
+        ),
+        (
+            "unknown-key",
+            "{mode: report, quota: 10G}",
+            "instances[0].confinement.quota: ",
+        ),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &one_instance(&format!("\x20   confinement: {confinement}\n")),
+        );
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
+    }
+}
+
+/// A role's limit above the instance's limit of the same key is refused by the role's path, for
+/// each of the three keys, and one equal to it is valid. A limit that is not one (a size without
+/// `G` or of nothing, a weight outside 1 to 10000, no process at all), a `writable` entry that is
+/// neither a place nor a path, and a `network` other than `open` are each refused by their own
+/// path.
+#[test]
+fn a_role_limit_above_the_instance_s_is_refused_by_its_path() {
+    let case = Case::new("confinement-role-above");
+    let boxed = |role_limits: &str| {
+        one_instance(&format!(
+            "\x20   roles: [{{role: controller, harness: claude, model: opus, limits: \
+             {role_limits}}}]\n\
+             \x20   confinement: {{limits: {{memory_max: 8G, cpu_weight: 100, tasks_max: 512}}}}\n"
+        ))
+    };
+    for (name, limits, path) in [
+        (
+            "memory",
+            "{memory_max: 9G}",
+            "instances[0].roles[0].limits.memory_max: ",
+        ),
+        (
+            "cpu",
+            "{cpu_weight: 101}",
+            "instances[0].roles[0].limits.cpu_weight: ",
+        ),
+        (
+            "tasks",
+            "{tasks_max: 513}",
+            "instances[0].roles[0].limits.tasks_max: ",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &boxed(limits));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
+        assert_eq!(problems.lines().count(), 1, "{name}: {problems}");
+    }
+    let equal = case.write(
+        "equal.yaml",
+        &boxed("{memory_max: 8G, cpu_weight: 100, tasks_max: 512}"),
+    );
+    let validated = case.with_file(&equal, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+
+    let role = |keys: &str| {
+        one_instance(&format!(
+            "\x20   roles: [{{role: controller, harness: claude, model: opus, {keys}}}]\n"
+        ))
+    };
+    for (name, keys, path) in [
+        (
+            "memory-unit",
+            "limits: {memory_max: 8}",
+            "instances[0].roles[0].limits.memory_max: ",
+        ),
+        (
+            "memory-zero",
+            "limits: {memory_max: 0G}",
+            "instances[0].roles[0].limits.memory_max: ",
+        ),
+        (
+            "cpu-zero",
+            "limits: {cpu_weight: 0}",
+            "instances[0].roles[0].limits.cpu_weight: ",
+        ),
+        (
+            "cpu-high",
+            "limits: {cpu_weight: 10001}",
+            "instances[0].roles[0].limits.cpu_weight: ",
+        ),
+        (
+            "tasks-zero",
+            "limits: {tasks_max: 0}",
+            "instances[0].roles[0].limits.tasks_max: ",
+        ),
+        (
+            "limit-key",
+            "limits: {pids_max: 10}",
+            "instances[0].roles[0].limits.pids_max: ",
+        ),
+        (
+            "writable-relative",
+            "writable: [checkout, target]",
+            "instances[0].roles[0].writable[1]: ",
+        ),
+        (
+            "writable-word",
+            "writable: [Checkout]",
+            "instances[0].roles[0].writable[0]: ",
+        ),
+        (
+            "network",
+            "network: none",
+            "instances[0].roles[0].network: ",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &role(keys));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
     }
 }

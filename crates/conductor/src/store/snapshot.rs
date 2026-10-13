@@ -38,10 +38,11 @@ use serde_json::{Value, json};
 
 use super::{DELETED, STORED, Store, StoreError, text, undecodable};
 use crate::snapshot::{
-    harness_name, harness_named, mergeability_name, mergeability_named, run_conclusion_name,
-    run_conclusion_named, session_state_name, session_state_named, snapshot_state_name,
-    snapshot_state_named, specification_presence_name, specification_presence_named,
-    validation_result_name, validation_result_named, visibility_name, visibility_named,
+    envelope_provider_name, envelope_provider_named, harness_name, harness_named,
+    mergeability_name, mergeability_named, run_conclusion_name, run_conclusion_named,
+    session_state_name, session_state_named, snapshot_state_name, snapshot_state_named,
+    specification_presence_name, specification_presence_named, validation_result_name,
+    validation_result_named, visibility_name, visibility_named,
 };
 
 /// `conductor.observation.Snapshot`.
@@ -457,6 +458,13 @@ fn encode_session(observation: &SessionObservationSnapshot) -> Value {
         "repository": data.repository.as_ref().map(|repository| &repository.0),
         "role": data.role,
         "activity": session_state_name(data.activity),
+        "envelope_provider": data.envelope_provider.map(envelope_provider_name),
+        "envelope_cgroup": data.envelope_cgroup,
+        "envelope_memory_max": data.envelope_memory_max,
+        "envelope_cpu_weight": data.envelope_cpu_weight,
+        "envelope_tasks_max": data.envelope_tasks_max,
+        "envelope_writable": data.envelope_writable,
+        "envelope_unboxed": data.envelope_unboxed,
     })
 }
 
@@ -474,6 +482,13 @@ fn decode_session(body: &Value) -> Result<SessionObservationSnapshot, String> {
             repository: optional_text(body, "repository")?.map(RepositoryName),
             role: optional_text(body, "role")?,
             activity: named(body, "activity", session_state_named)?,
+            envelope_provider: optional_named(body, "envelope_provider", envelope_provider_named)?,
+            envelope_cgroup: optional_text(body, "envelope_cgroup")?,
+            envelope_memory_max: optional_integer(body, "envelope_memory_max")?,
+            envelope_cpu_weight: optional_integer(body, "envelope_cpu_weight")?,
+            envelope_tasks_max: optional_integer(body, "envelope_tasks_max")?,
+            envelope_writable: optional_text(body, "envelope_writable")?,
+            envelope_unboxed: optional_text(body, "envelope_unboxed")?,
         },
     })
 }
@@ -584,6 +599,17 @@ fn snapshot_id(body: &Value) -> Result<SnapshotId, String> {
 fn named<T>(body: &Value, field: &str, named: fn(&str) -> Option<T>) -> Result<T, String> {
     let name = text(body, field)?;
     named(&name).ok_or_else(|| format!("unknown {field} {name:?}"))
+}
+
+/// An optional enum field, by the specification's spelling: `null` or absent is `None`.
+fn optional_named<T>(
+    body: &Value,
+    field: &str,
+    named: fn(&str) -> Option<T>,
+) -> Result<Option<T>, String> {
+    optional_text(body, field)?
+        .map(|name| named(&name).ok_or_else(|| format!("unknown {field} {name:?}")))
+        .transpose()
 }
 
 fn integer(body: &Value, field: &str) -> Result<i64, String> {

@@ -57,12 +57,12 @@ use conductor_model::observation::obligations::{
 };
 use conductor_model::observation::{
     BlockerObservationSnapshot, BoardId, CommitSha, CompleteSnapshot, CompleteSnapshotOutcome,
-    FailSnapshot, FailSnapshotOutcome, Harness, Mergeability, MergedPullRequestObservationSnapshot,
-    ObservationId, PullRequestObservationSnapshot, RecordBlocker, RecordBlockerOutcome,
-    RecordMergedPullRequest, RecordMergedPullRequestOutcome, RecordPullRequest,
-    RecordPullRequestOutcome, RecordRelease, RecordReleaseOutcome, RecordRepository,
-    RecordRepositoryOutcome, RecordSession, RecordSessionOutcome, RecordSpecification,
-    RecordSpecificationOutcome, RecordWorkflowRun, RecordWorkflowRunOutcome,
+    EnvelopeProvider, FailSnapshot, FailSnapshotOutcome, Harness, Mergeability,
+    MergedPullRequestObservationSnapshot, ObservationId, PullRequestObservationSnapshot,
+    RecordBlocker, RecordBlockerOutcome, RecordMergedPullRequest, RecordMergedPullRequestOutcome,
+    RecordPullRequest, RecordPullRequestOutcome, RecordRelease, RecordReleaseOutcome,
+    RecordRepository, RecordRepositoryOutcome, RecordSession, RecordSessionOutcome,
+    RecordSpecification, RecordSpecificationOutcome, RecordWorkflowRun, RecordWorkflowRunOutcome,
     ReleaseObservationSnapshot, RepositoryName, RepositoryObservationSnapshot, RunConclusion,
     SessionObservationSnapshot, SessionState, SnapshotId, SnapshotSnapshot, SnapshotState,
     SpecificationObservationSnapshot, SpecificationPresence, StartSnapshot, StartSnapshotOutcome,
@@ -838,6 +838,17 @@ pub fn record_session(state: Option<&Path>, args: RecordSessionArgs) -> Result<E
             repository: args.repository.map(RepositoryName),
             role: args.role,
             activity: given_named(args.activity, "activity", session_state_named)?,
+            envelope_provider: optional_named(
+                args.envelope_provider,
+                "envelope-provider",
+                envelope_provider_named,
+            )?,
+            envelope_cgroup: args.envelope_cgroup,
+            envelope_memory_max: args.envelope_memory_max,
+            envelope_cpu_weight: args.envelope_cpu_weight,
+            envelope_tasks_max: args.envelope_tasks_max,
+            envelope_writable: args.envelope_writable,
+            envelope_unboxed: args.envelope_unboxed,
         };
         record(state, &snapshot, |recorder| recorder.session(input))
     })
@@ -1118,7 +1129,7 @@ pub fn workflow_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 9] = [
+    const COLUMNS: [&str; 16] = [
         "observation_id",
         "snapshot_id",
         "harness",
@@ -1128,6 +1139,13 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "repository",
         "role",
         "activity",
+        "envelope_provider",
+        "envelope_cgroup",
+        "envelope_memory_max",
+        "envelope_cpu_weight",
+        "envelope_tasks_max",
+        "envelope_writable",
+        "envelope_unboxed",
     ];
     let generated = Generated::new(crate::state::open_existing(state)?);
     let rows = generated
@@ -1146,6 +1164,13 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.repository.map(|repository| repository.0)),
                 Value::from(row.role),
                 Value::from(session_state_name(row.activity)),
+                Value::from(row.envelope_provider.map(envelope_provider_name)),
+                Value::from(row.envelope_cgroup),
+                Value::from(row.envelope_memory_max),
+                Value::from(row.envelope_cpu_weight),
+                Value::from(row.envelope_tasks_max),
+                Value::from(row.envelope_writable),
+                Value::from(row.envelope_unboxed),
             ]
         })
         .collect();
@@ -1352,6 +1377,7 @@ names! {
     Harness: harness_name, harness_named = [Claude, Codex];
     SessionState: session_state_name, session_state_named =
         [Busy, Idle, Waiting, Background, Unknown];
+    EnvelopeProvider: envelope_provider_name, envelope_provider_named = [Systemd];
     SpecificationPresence: specification_presence_name, specification_presence_named =
         [Present, OptedOut, Missing];
     ValidationResult: validation_result_name, validation_result_named = [Valid, Refused, NotRun];
@@ -1411,6 +1437,17 @@ fn given<T>(value: Option<T>, flag: &str) -> Result<T> {
 fn given_named<T>(value: Option<String>, flag: &str, named: fn(&str) -> Option<T>) -> Result<T> {
     let name = given(value, flag)?;
     named(&name).ok_or_else(|| anyhow!("--{flag} {name:?} is not a value the specification names"))
+}
+
+/// The enum value `--<flag>` names, by the specification's spelling, when it is given.
+fn optional_named<T>(
+    value: Option<String>,
+    flag: &str,
+    named: fn(&str) -> Option<T>,
+) -> Result<Option<T>> {
+    value
+        .map(|name| given_named(Some(name), flag, named))
+        .transpose()
 }
 
 fn snapshot_id(value: Option<String>) -> Result<SnapshotId> {

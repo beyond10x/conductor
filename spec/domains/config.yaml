@@ -146,6 +146,16 @@ types:
   # `--setting-sources project,local`, which loads no user-level agent, so a controller starts
   # only from its profile, never from its agent; a controller role with an agent and no profile
   # is refused by its `profile` path. One with neither is valid, as the built-in role is.
+  # `limits`, `writable` and `network` are the envelope each session of the role asks for
+  # (story:session-envelope-model): the limits of one session, the places it may write, and its
+  # network; the instance's `confinement` says what happens when the box cannot be set up. A
+  # role's limit lies at or under the instance's limit of the same key, where the instance sets
+  # one, since every session of the instance runs inside the instance's box. Absent, a role sets
+  # no limit, writes its default places, and has the network open. The request leaves out three
+  # things on purpose: the readable paths, since the box binds the root read-only and nothing
+  # narrower is planned; the programs a session may run, since a program list belongs to the tool
+  # server (story:substrate-tool-server); and a lifetime, since sessions are long-lived and
+  # conductor ends them.
   - name: conductor.config.Role
     kind: struct
     fields:
@@ -157,6 +167,75 @@ types:
       - {name: profile, type: Optional<conductor.config.CommandWord>}
       - {name: session_name, type: Optional<conductor.config.SessionName>}
       - {name: read_only_tools, type: List<String>}
+      - {name: limits, type: conductor.config.Limits}
+      - {name: writable, type: List<conductor.config.Writable>}
+      - {name: network, type: conductor.config.Network}
+
+  # The CPU, memory and process limits of a box (story:session-envelope-model), as systemd sets
+  # them on a cgroup: `memory_max` its `MemoryMax`, in GiB, written as a size, `15G`;
+  # `cpu_weight` its `CPUWeight`, from 1 to 10000; `tasks_max` its `TasksMax`, the most
+  # processes and threads at once. Absent, a key sets no limit.
+  - name: conductor.config.Limits
+    kind: struct
+    fields:
+      - {name: memory_max, type: Optional<conductor.config.Gibibytes>}
+      - {name: cpu_weight, type: Optional<Integer>}
+      - {name: tasks_max, type: Optional<Integer>}
+    invariants:
+      - any:
+          - not defined(cpu_weight)
+          - cpu_weight >= 1
+      - any:
+          - not defined(cpu_weight)
+          - cpu_weight <= 10000
+      - any:
+          - not defined(tasks_max)
+          - tasks_max >= 1
+
+  # One place a role's sessions may write (story:session-envelope-model): a path written absolute
+  # or under `~`, made absolute, or one of the words for a place resolved per session when it
+  # starts: `checkout`, the checkout the session starts in (a controller's repository's,
+  # conductor-dev's this repository's); `trees`, the managed worktrees of that checkout under
+  # `checkouts.trees`; `build-cache`, the build tools' caches under the home directory (cargo's
+  # among them); `scratch`, the session's scratch, under `$TMPDIR` and, for a controller,
+  # `~/.cache/<repo>-*`; `harness-state`, the harness's own state directory, `~/.claude` or
+  # `~/.codex`; `records`, the instance's records directory. Absent, a role writes `checkout`,
+  # `trees`, `build-cache`, `scratch` and `harness-state`, and the `conductor` role `records` as
+  # well; a list the file writes takes their place.
+  - name: conductor.config.Writable
+    kind: newtype
+    of: String
+
+  # A session's network. The file writes it in lower case: `open`, the host's network, the only
+  # one there is.
+  - name: conductor.config.Network
+    kind: enum
+    variants: [Open]
+
+  # What happens when a session's box cannot be set up. The file writes it in lower case:
+  # `strict`, the session does not start; `report`, it starts unboxed, and the reason is recorded.
+  - name: conductor.config.ConfinementMode
+    kind: enum
+    variants: [Strict, Report]
+
+  # What sets up a session's box. The file writes it in lower case: `systemd`, a `systemd-run
+  # --user` unit per session under the instance's slice; `none`, a host with no provider, which
+  # `strict` refuses to start any session on and `report` starts every session on unboxed.
+  - name: conductor.config.ConfinementProvider
+    kind: enum
+    variants: [Systemd, None]
+
+  # How the instance's sessions are boxed (story:session-envelope-model): the `mode`, the
+  # `provider`, and the `limits` of the instance as a whole, the slice every session of the
+  # instance runs in. They take over the `instances[].limits` an earlier plan named
+  # (story:instance-cgroup-limits). Absent, the mode is `report`, the provider `systemd`, and no
+  # limit is set.
+  - name: conductor.config.Confinement
+    kind: struct
+    fields:
+      - {name: mode, type: conductor.config.ConfinementMode}
+      - {name: provider, type: conductor.config.ConfinementProvider}
+      - {name: limits, type: conductor.config.Limits}
 
   # The conductor a session of the instance messages (story:instance-session-names): its own,
   # `session_name` being `<session_prefix>-conductor` or `conductor`, when the instance names a
@@ -268,6 +347,7 @@ types:
       - {name: state, type: String}
       - {name: cache, type: String}
       - {name: roles, type: List<conductor.config.Role>}
+      - {name: confinement, type: conductor.config.Confinement}
       - {name: controllers, type: conductor.config.Controllers}
       - {name: repositories, type: List<conductor.config.RepositoryRule>}
       - {name: cadence, type: conductor.config.Cadence}

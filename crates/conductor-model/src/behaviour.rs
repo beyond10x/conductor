@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 7af0d7775ebd76cb8df59a81725ba56760ce87637d1973e65d73cefd3665413e
-// contract digest c69dbf22c1119cf616dd3b4ec584e37c62229d9e9dd153a0b98658ce1f92ee28
+// model digest 58bd82088247fdb82d6ffa0a810185129db9ebf3830641f8a7d2dc8f2fbe9e98
+// contract digest b8742a1b05a82479548731af80040d371fc9e8077603df4c239ead0923944c27
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2045,6 +2045,13 @@ where
             repository: input.repository.clone(),
             role: input.role.clone(),
             activity: input.activity.clone(),
+            envelope_provider: input.envelope_provider.clone(),
+            envelope_cgroup: input.envelope_cgroup.clone(),
+            envelope_memory_max: input.envelope_memory_max.clone(),
+            envelope_cpu_weight: input.envelope_cpu_weight.clone(),
+            envelope_tasks_max: input.envelope_tasks_max.clone(),
+            envelope_writable: input.envelope_writable.clone(),
+            envelope_unboxed: input.envelope_unboxed.clone(),
         };
         let answer = crate::observation::RecordSessionOutcome::Recorded { session_recorded: crate::observation::SessionRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), harness: input.harness.clone(), session_ref: input.session_ref.clone() } };
         SessionObservationStorage::put(&mut self.ports, crate::observation::AnySessionObservation::Recorded(crate::observation::SessionObservation::new(data)).snapshot());
@@ -2591,6 +2598,13 @@ where
                 repository: held.data.repository,
                 role: held.data.role,
                 activity: held.data.activity,
+                envelope_provider: held.data.envelope_provider,
+                envelope_cgroup: held.data.envelope_cgroup,
+                envelope_memory_max: held.data.envelope_memory_max,
+                envelope_cpu_weight: held.data.envelope_cpu_weight,
+                envelope_tasks_max: held.data.envelope_tasks_max,
+                envelope_writable: held.data.envelope_writable,
+                envelope_unboxed: held.data.envelope_unboxed,
             })
             .collect())
     }

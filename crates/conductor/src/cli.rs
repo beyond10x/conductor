@@ -1433,6 +1433,27 @@ pub struct RecordSessionArgs {
     /// SessionState
     #[arg(long, value_parser = ["Busy", "Idle", "Waiting", "Background", "Unknown"])]
     pub activity: Option<String>,
+    /// EnvelopeProvider, optional
+    #[arg(long, value_parser = ["Systemd"])]
+    pub envelope_provider: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub envelope_cgroup: Option<String>,
+    /// integer, optional
+    #[arg(long, allow_negative_numbers = true)]
+    pub envelope_memory_max: Option<i64>,
+    /// integer, optional
+    #[arg(long, allow_negative_numbers = true)]
+    pub envelope_cpu_weight: Option<i64>,
+    /// integer, optional
+    #[arg(long, allow_negative_numbers = true)]
+    pub envelope_tasks_max: Option<i64>,
+    /// string, optional
+    #[arg(long)]
+    pub envelope_writable: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub envelope_unboxed: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

@@ -201,6 +201,13 @@ fn row(
         "repository": repository,
         "role": null,
         "activity": activity,
+        "envelope_provider": null,
+        "envelope_cgroup": null,
+        "envelope_memory_max": null,
+        "envelope_cpu_weight": null,
+        "envelope_tasks_max": null,
+        "envelope_writable": null,
+        "envelope_unboxed": null,
     })
 }
 

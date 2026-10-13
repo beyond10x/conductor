@@ -16,6 +16,9 @@
 //! `story:operator-decision-guarded` added the decisions view's `recorded_by` and `operator_words`
 //! columns, last in each row: `decision-decisions.json` and `decision-show.json` hold them as
 //! `null`, which is what this build reads from a decision written without them.
+//! `story:session-envelope-model` added the sessions view's seven `envelope_*` columns, last in
+//! each row: `snapshot-sessions.json` holds them as `null`, which is what this build reads from a
+//! session written without them.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not

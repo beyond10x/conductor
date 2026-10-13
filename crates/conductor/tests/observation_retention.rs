@@ -373,6 +373,13 @@ fn every_kind() -> Collector {
             repository: Some(alpha.clone()),
             role: None,
             activity: SessionState::Idle,
+            envelope_provider: None,
+            envelope_cgroup: None,
+            envelope_memory_max: None,
+            envelope_cpu_weight: None,
+            envelope_tasks_max: None,
+            envelope_writable: None,
+            envelope_unboxed: None,
         })?;
         record.blocker(RecordBlocker {
             snapshot_id: snapshot.clone(),

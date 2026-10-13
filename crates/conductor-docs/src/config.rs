@@ -69,6 +69,19 @@ instances:
         settings: ~/example-org/controller-settings.json
         profile: ~/example-org/repo-controller.md
         read_only_tools: [mcp__example__read]
+        limits:
+          memory_max: 8G
+          cpu_weight: 50
+          tasks_max: 512
+        writable: [checkout, ~/example-org/shared]
+        network: open
+    confinement:
+      mode: strict
+      provider: none
+      limits:
+        memory_max: 32G
+        cpu_weight: 200
+        tasks_max: 4096
     controllers:
       max_working: 2
       max_subagents: 2

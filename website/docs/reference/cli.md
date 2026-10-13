@@ -304,6 +304,13 @@ Usage: conductor snapshot record-session [OPTIONS]
 | `--repository <REPOSITORY>` | no | none | RepositoryName, optional |
 | `--role <ROLE>` | no | none | string, optional |
 | `--activity <ACTIVITY>` | no | none | SessionState One of `Busy`, `Idle`, `Waiting`, `Background`, `Unknown`. |
+| `--envelope-provider <ENVELOPE_PROVIDER>` | no | none | EnvelopeProvider, optional One of `Systemd`. |
+| `--envelope-cgroup <ENVELOPE_CGROUP>` | no | none | string, optional |
+| `--envelope-memory-max <ENVELOPE_MEMORY_MAX>` | no | none | integer, optional |
+| `--envelope-cpu-weight <ENVELOPE_CPU_WEIGHT>` | no | none | integer, optional |
+| `--envelope-tasks-max <ENVELOPE_TASKS_MAX>` | no | none | integer, optional |
+| `--envelope-writable <ENVELOPE_WRITABLE>` | no | none | string, optional |
+| `--envelope-unboxed <ENVELOPE_UNBOXED>` | no | none | string, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-specification`

@@ -45,7 +45,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `records` | string | `~/.b10x/conductor/<name>/records` |  |
 | `state` | string | `~/.b10x/conductor/<name>/state` |  |
 | `cache` | string | `~/.cache/b10x/conductor/<name>` |  |
-| `roles` | list of [Role](#role) | `[{role: conductor, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: []}, {role: conductor-dev, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: []}, {role: controller, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: []}]` |  |
+| `roles` | list of [Role](#role) | `[{role: conductor, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state, records], network: open}, {role: conductor-dev, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state], network: open}, {role: controller, harness: claude, model: opus, agent: null, settings: null, profile: null, read_only_tools: [], limits: {memory_max: null, cpu_weight: null, tasks_max: null}, writable: [checkout, trees, build-cache, scratch, harness-state], network: open}]` |  |
 | `roles[].role` | string | required |  |
 | `roles[].harness` | `claude` \| `codex` | required |  |
 | `roles[].model` | [CommandWord](#commandword) | required | letters, digits, `._:/-` only |
@@ -54,6 +54,16 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `roles[].profile` | [CommandWord](#commandword) | required | letters, digits, `._:/-` only |
 | `roles[].session_name` | [SessionName](#sessionname) | derived |  |
 | `roles[].read_only_tools` | list of string | `[]` |  |
+| `roles[].limits.memory_max` | [Gibibytes](#gibibytes) | none |  |
+| `roles[].limits.cpu_weight` | integer | none | `not defined(cpu_weight)` or `cpu_weight >= 1`; `not defined(cpu_weight)` or `cpu_weight <= 10000` |
+| `roles[].limits.tasks_max` | integer | none | `not defined(tasks_max)` or `tasks_max >= 1` |
+| `roles[].writable` | list of [Writable](#writable) | `[checkout, trees, build-cache, scratch, harness-state]` |  |
+| `roles[].network` | `open` | `open` |  |
+| `confinement.mode` | `strict` \| `report` | `report` |  |
+| `confinement.provider` | `systemd` \| `none` | `systemd` |  |
+| `confinement.limits.memory_max` | [Gibibytes](#gibibytes) | none |  |
+| `confinement.limits.cpu_weight` | integer | none | `not defined(cpu_weight)` or `cpu_weight >= 1`; `not defined(cpu_weight)` or `cpu_weight <= 10000` |
+| `confinement.limits.tasks_max` | integer | none | `not defined(tasks_max)` or `tasks_max >= 1` |
 | `controllers.max_working` | integer | `5` | `max_working >= 1` |
 | `controllers.max_subagents` | integer | `4` | `max_subagents >= 1` |
 | `repositories` | list of [RepositoryRule](#repositoryrule) | `[]` |  |
@@ -182,9 +192,45 @@ Written as string. Specified as `conductor.config.SessionName`.
 
 ### Role
 
-The harness and model one session role runs on, such as `conductor` or `controller`; the harness agent the role starts with, such as `repo-controller`; the settings file it starts with; and the profile file its session starts with through `--append-system-prompt-file`, in place of the agent. The settings and profile files are written absolute or under `~`. Absent, a role names no agent, no settings file and no profile. `session_name` is derived, never chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when the instance has no prefix; absent for `controller`, whose sessions are named per repository, `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write only that value. `read_only_tools` names the tools, beyond the guard's built-in read-only allowlist, that the guard allows the role's sessions without a rule of its own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied. A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is decided by that rule whatever this list says. Absent, it is empty. A `controller` role the file writes that names an `agent` names a `profile` as well: every session of the instance starts with `--setting-sources project,local`, which loads no user-level agent, so a controller starts only from its profile, never from its agent; a controller role with an agent and no profile is refused by its `profile` path. One with neither is valid, as the built-in role is.
+The harness and model one session role runs on, such as `conductor` or `controller`; the harness agent the role starts with, such as `repo-controller`; the settings file it starts with; and the profile file its session starts with through `--append-system-prompt-file`, in place of the agent. The settings and profile files are written absolute or under `~`. Absent, a role names no agent, no settings file and no profile. `session_name` is derived, never chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when the instance has no prefix; absent for `controller`, whose sessions are named per repository, `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write only that value. `read_only_tools` names the tools, beyond the guard's built-in read-only allowlist, that the guard allows the role's sessions without a rule of its own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied. A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is decided by that rule whatever this list says. Absent, it is empty. A `controller` role the file writes that names an `agent` names a `profile` as well: every session of the instance starts with `--setting-sources project,local`, which loads no user-level agent, so a controller starts only from its profile, never from its agent; a controller role with an agent and no profile is refused by its `profile` path. One with neither is valid, as the built-in role is. `limits`, `writable` and `network` are the envelope each session of the role asks for: the limits of one session, the places it may write, and its network; the instance's `confinement` says what happens when the box cannot be set up. A role's limit lies at or under the instance's limit of the same key, where the instance sets one, since every session of the instance runs inside the instance's box. Absent, a role sets no limit, writes its default places, and has the network open. The request leaves out three things on purpose: the readable paths, since the box binds the root read-only and nothing narrower is planned; the programs a session may run, since a program list belongs to the tool server; and a lifetime, since sessions are long-lived and conductor ends them.
 
-Keys: `role`, `harness`, `model`, `agent`, `settings`, `profile`, `session_name`, `read_only_tools`. Specified as `conductor.config.Role`.
+Keys: `role`, `harness`, `model`, `agent`, `settings`, `profile`, `session_name`, `read_only_tools`, `limits`, `writable`, `network`. Specified as `conductor.config.Role`.
+
+### Limits
+
+The CPU, memory and process limits of a box, as systemd sets them on a cgroup: `memory_max` its `MemoryMax`, in GiB, written as a size, `15G`; `cpu_weight` its `CPUWeight`, from 1 to 10000; `tasks_max` its `TasksMax`, the most processes and threads at once. Absent, a key sets no limit.
+
+Keys: `memory_max`, `cpu_weight`, `tasks_max`. Specified as `conductor.config.Limits`.
+
+### Writable
+
+One place a role's sessions may write: a path written absolute or under `~`, made absolute, or one of the words for a place resolved per session when it starts: `checkout`, the checkout the session starts in (a controller's repository's, conductor-dev's this repository's); `trees`, the managed worktrees of that checkout under `checkouts.trees`; `build-cache`, the build tools' caches under the home directory (cargo's among them); `scratch`, the session's scratch, under `$TMPDIR` and, for a controller, `~/.cache/<repo>-*`; `harness-state`, the harness's own state directory, `~/.claude` or `~/.codex`; `records`, the instance's records directory. Absent, a role writes `checkout`, `trees`, `build-cache`, `scratch` and `harness-state`, and the `conductor` role `records` as well; a list the file writes takes their place.
+
+Written as string. Specified as `conductor.config.Writable`.
+
+### Network
+
+A session's network. The file writes it in lower case: `open`, the host's network, the only one there is.
+
+One of `open`. Specified as `conductor.config.Network`.
+
+### ConfinementMode
+
+What happens when a session's box cannot be set up. The file writes it in lower case: `strict`, the session does not start; `report`, it starts unboxed, and the reason is recorded.
+
+One of `strict` | `report`. Specified as `conductor.config.ConfinementMode`.
+
+### ConfinementProvider
+
+What sets up a session's box. The file writes it in lower case: `systemd`, a `systemd-run --user` unit per session under the instance's slice; `none`, a host with no provider, which `strict` refuses to start any session on and `report` starts every session on unboxed.
+
+One of `systemd` | `none`. Specified as `conductor.config.ConfinementProvider`.
+
+### Confinement
+
+How the instance's sessions are boxed: the `mode`, the `provider`, and the `limits` of the instance as a whole, the slice every session of the instance runs in. They take over the `instances[].limits` an earlier plan named. Absent, the mode is `report`, the provider `systemd`, and no limit is set.
+
+Keys: `mode`, `provider`, `limits`. Specified as `conductor.config.Confinement`.
 
 ### ConductorSession
 

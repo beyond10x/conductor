@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 7af0d7775ebd76cb8df59a81725ba56760ce87637d1973e65d73cefd3665413e
-// contract digest c69dbf22c1119cf616dd3b4ec584e37c62229d9e9dd153a0b98658ce1f92ee28
+// model digest 58bd82088247fdb82d6ffa0a810185129db9ebf3830641f8a7d2dc8f2fbe9e98
+// contract digest b8742a1b05a82479548731af80040d371fc9e8077603df4c239ead0923944c27
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -53,6 +53,13 @@ pub struct DashboardServe {
     pub port: Option<i64>,
     /// `root` — `Optional<String>`.
     pub root: Option<String>,
+}
+
+/// EnvelopeProvider — `conductor.observation.EnvelopeProvider`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvelopeProvider {
+    /// `Systemd`.
+    Systemd,
 }
 
 /// GarbageOutcome — `conductor.observation.GarbageOutcome`: one of a closed set of names.
@@ -1252,6 +1259,20 @@ pub struct SessionObservationData {
     pub role: Option<String>,
     /// `activity` — `conductor.observation.SessionState`.
     pub activity: SessionState,
+    /// `envelope_provider` — `Optional<conductor.observation.EnvelopeProvider>`.
+    pub envelope_provider: Option<EnvelopeProvider>,
+    /// `envelope_cgroup` — `Optional<String>`.
+    pub envelope_cgroup: Option<String>,
+    /// `envelope_memory_max` — `Optional<Integer>`.
+    pub envelope_memory_max: Option<i64>,
+    /// `envelope_cpu_weight` — `Optional<Integer>`.
+    pub envelope_cpu_weight: Option<i64>,
+    /// `envelope_tasks_max` — `Optional<Integer>`.
+    pub envelope_tasks_max: Option<i64>,
+    /// `envelope_writable` — `Optional<String>`.
+    pub envelope_writable: Option<String>,
+    /// `envelope_unboxed` — `Optional<String>`.
+    pub envelope_unboxed: Option<String>,
 }
 
 /// The states of `conductor.observation.SessionObservation`, at the type level.
@@ -2325,6 +2346,20 @@ pub struct RecordSession {
     pub role: Option<String>,
     /// `activity` — `conductor.observation.SessionState`.
     pub activity: SessionState,
+    /// `envelope_provider` — `Optional<conductor.observation.EnvelopeProvider>`.
+    pub envelope_provider: Option<EnvelopeProvider>,
+    /// `envelope_cgroup` — `Optional<String>`.
+    pub envelope_cgroup: Option<String>,
+    /// `envelope_memory_max` — `Optional<Integer>`.
+    pub envelope_memory_max: Option<i64>,
+    /// `envelope_cpu_weight` — `Optional<Integer>`.
+    pub envelope_cpu_weight: Option<i64>,
+    /// `envelope_tasks_max` — `Optional<Integer>`.
+    pub envelope_tasks_max: Option<i64>,
+    /// `envelope_writable` — `Optional<String>`.
+    pub envelope_writable: Option<String>,
+    /// `envelope_unboxed` — `Optional<String>`.
+    pub envelope_unboxed: Option<String>,
 }
 
 /// Everything `conductor.observation.RecordSession` can result in — one variant per declared outcome.
@@ -2876,6 +2911,20 @@ pub struct Sessions {
     pub role: Option<String>,
     /// `activity` — `conductor.observation.SessionState`.
     pub activity: SessionState,
+    /// `envelope_provider` — `Optional<conductor.observation.EnvelopeProvider>`.
+    pub envelope_provider: Option<EnvelopeProvider>,
+    /// `envelope_cgroup` — `Optional<String>`.
+    pub envelope_cgroup: Option<String>,
+    /// `envelope_memory_max` — `Optional<Integer>`.
+    pub envelope_memory_max: Option<i64>,
+    /// `envelope_cpu_weight` — `Optional<Integer>`.
+    pub envelope_cpu_weight: Option<i64>,
+    /// `envelope_tasks_max` — `Optional<Integer>`.
+    pub envelope_tasks_max: Option<i64>,
+    /// `envelope_writable` — `Optional<String>`.
+    pub envelope_writable: Option<String>,
+    /// `envelope_unboxed` — `Optional<String>`.
+    pub envelope_unboxed: Option<String>,
 }
 
 /// Snapshots — one row of the view `conductor.observation.Snapshots`.

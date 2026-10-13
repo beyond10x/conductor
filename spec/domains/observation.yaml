@@ -47,6 +47,12 @@ types:
     kind: enum
     variants: [Busy, Idle, Waiting, Background, Unknown]
 
+  # What set up the box a session was measured in (story:session-envelope-model): `Systemd`, a
+  # `systemd-run --user` unit, the one provider conductor has.
+  - name: conductor.observation.EnvelopeProvider
+    kind: enum
+    variants: [Systemd]
+
   - name: conductor.observation.SpecificationPresence
     kind: enum
     variants: [Present, OptedOut, Missing]
@@ -358,6 +364,30 @@ entities:
         type: Optional<String>
       - name: activity
         type: conductor.observation.SessionState
+      # The envelope measured for the session at the box's boundary (story:session-envelope-model),
+      # read back once its box was set up, never taken from what was asked for: the provider that
+      # set it up; the cgroup the session runs in, its path under the cgroup root; the limits
+      # read back from that cgroup, `memory.max` in bytes, `cpu.weight` and `pids.max`, each
+      # absent where the file reads `max` or no limit is set; and the places the box lets it
+      # write, absolute paths in the order applied, joined by `:` as `PATH` joins directories.
+      # `envelope_unboxed` is the reason a session runs unboxed, such as a host without the
+      # provider under `confinement.mode: report`; beside it every other envelope field is
+      # absent. A session with no envelope field at all was not measured: conductor did not start
+      # it in a box, or nothing measures it yet.
+      - name: envelope_provider
+        type: Optional<conductor.observation.EnvelopeProvider>
+      - name: envelope_cgroup
+        type: Optional<String>
+      - name: envelope_memory_max
+        type: Optional<Integer>
+      - name: envelope_cpu_weight
+        type: Optional<Integer>
+      - name: envelope_tasks_max
+        type: Optional<Integer>
+      - name: envelope_writable
+        type: Optional<String>
+      - name: envelope_unboxed
+        type: Optional<String>
     lifecycle:
       initial: Recorded
       states: [Recorded]
@@ -929,6 +959,23 @@ commands:
         example: "conductor"
       - name: activity
         type: conductor.observation.SessionState
+      - name: envelope_provider
+        type: Optional<conductor.observation.EnvelopeProvider>
+      - name: envelope_cgroup
+        type: Optional<String>
+        example: "/example.slice/example-x.service"
+      - name: envelope_memory_max
+        type: Optional<Integer>
+      - name: envelope_cpu_weight
+        type: Optional<Integer>
+      - name: envelope_tasks_max
+        type: Optional<Integer>
+      - name: envelope_writable
+        type: Optional<String>
+        example: "~/example-org/x:/tmp"
+      - name: envelope_unboxed
+        type: Optional<String>
+        example: "no provider on this host"
     outcomes:
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
@@ -956,6 +1003,13 @@ commands:
           repository: input.repository
           role: input.role
           activity: input.activity
+          envelope_provider: input.envelope_provider
+          envelope_cgroup: input.envelope_cgroup
+          envelope_memory_max: input.envelope_memory_max
+          envelope_cpu_weight: input.envelope_cpu_weight
+          envelope_tasks_max: input.envelope_tasks_max
+          envelope_writable: input.envelope_writable
+          envelope_unboxed: input.envelope_unboxed
         emits:
           - conductor.observation.SessionRecorded
         payload:
@@ -1582,6 +1636,20 @@ views:
         type: Optional<String>
       - name: activity
         type: conductor.observation.SessionState
+      - name: envelope_provider
+        type: Optional<conductor.observation.EnvelopeProvider>
+      - name: envelope_cgroup
+        type: Optional<String>
+      - name: envelope_memory_max
+        type: Optional<Integer>
+      - name: envelope_cpu_weight
+        type: Optional<Integer>
+      - name: envelope_tasks_max
+        type: Optional<Integer>
+      - name: envelope_writable
+        type: Optional<String>
+      - name: envelope_unboxed
+        type: Optional<String>
     naming:
       wire: sessions
       display: Sessions

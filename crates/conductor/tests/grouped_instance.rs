@@ -321,6 +321,13 @@ fn placed(id: &str, cwd: &Path, repository: Option<&str>) -> Value {
         "repository": repository,
         "role": null,
         "activity": "Busy",
+        "envelope_provider": null,
+        "envelope_cgroup": null,
+        "envelope_memory_max": null,
+        "envelope_cpu_weight": null,
+        "envelope_tasks_max": null,
+        "envelope_writable": null,
+        "envelope_unboxed": null,
     })
 }
 
@@ -334,6 +341,13 @@ fn unplaced() -> Value {
         "repository": null,
         "role": null,
         "activity": "Busy",
+        "envelope_provider": null,
+        "envelope_cgroup": null,
+        "envelope_memory_max": null,
+        "envelope_cpu_weight": null,
+        "envelope_tasks_max": null,
+        "envelope_writable": null,
+        "envelope_unboxed": null,
     })
 }
 

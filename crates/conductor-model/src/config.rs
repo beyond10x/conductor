@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 7af0d7775ebd76cb8df59a81725ba56760ce87637d1973e65d73cefd3665413e
-// contract digest c69dbf22c1119cf616dd3b4ec584e37c62229d9e9dd153a0b98658ce1f92ee28
+// model digest 58bd82088247fdb82d6ffa0a810185129db9ebf3830641f8a7d2dc8f2fbe9e98
+// contract digest b8742a1b05a82479548731af80040d371fc9e8077603df4c239ead0923944c27
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -92,6 +92,35 @@ pub struct Config {
     pub instances: Vec<Instance>,
 }
 
+/// Confinement — `conductor.config.Confinement`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confinement {
+    /// `mode` — `conductor.config.ConfinementMode`.
+    pub mode: ConfinementMode,
+    /// `provider` — `conductor.config.ConfinementProvider`.
+    pub provider: ConfinementProvider,
+    /// `limits` — `conductor.config.Limits`.
+    pub limits: Limits,
+}
+
+/// ConfinementMode — `conductor.config.ConfinementMode`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfinementMode {
+    /// `Strict`.
+    Strict,
+    /// `Report`.
+    Report,
+}
+
+/// ConfinementProvider — `conductor.config.ConfinementProvider`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfinementProvider {
+    /// `Systemd`.
+    Systemd,
+    /// `None`.
+    None,
+}
+
 /// Controllers — `conductor.config.Controllers`.
 ///
 /// Every value satisfies `max_working >= 1` — declared here, enforced by whatever behaviour constructs one.
@@ -164,6 +193,8 @@ pub struct Instance {
     pub cache: String,
     /// `roles` — `List<conductor.config.Role>`.
     pub roles: Vec<Role>,
+    /// `confinement` — `conductor.config.Confinement`.
+    pub confinement: Confinement,
     /// `controllers` — `conductor.config.Controllers`.
     pub controllers: Controllers,
     /// `repositories` — `List<conductor.config.RepositoryRule>`.
@@ -190,6 +221,21 @@ pub struct Instance {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceName(pub String);
 
+/// Limits — `conductor.config.Limits`.
+///
+/// Every value satisfies `(not (defined(cpu_weight)) or cpu_weight >= 1)` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `(not (defined(cpu_weight)) or cpu_weight <= 10000)` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `(not (defined(tasks_max)) or tasks_max >= 1)` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Limits {
+    /// `memory_max` — `Optional<conductor.config.Gibibytes>`.
+    pub memory_max: Option<Gibibytes>,
+    /// `cpu_weight` — `Optional<Integer>`.
+    pub cpu_weight: Option<i64>,
+    /// `tasks_max` — `Optional<Integer>`.
+    pub tasks_max: Option<i64>,
+}
+
 /// LocalSource — `conductor.config.LocalSource`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSource {
@@ -197,6 +243,13 @@ pub struct LocalSource {
     pub path: String,
     /// `exclude` — `List<String>`.
     pub exclude: Vec<String>,
+}
+
+/// Network — `conductor.config.Network`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Network {
+    /// `Open`.
+    Open,
 }
 
 /// Prerequisite — `conductor.config.Prerequisite`.
@@ -275,6 +328,12 @@ pub struct Role {
     pub session_name: Option<SessionName>,
     /// `read_only_tools` — `List<String>`.
     pub read_only_tools: Vec<String>,
+    /// `limits` — `conductor.config.Limits`.
+    pub limits: Limits,
+    /// `writable` — `List<conductor.config.Writable>`.
+    pub writable: Vec<Writable>,
+    /// `network` — `conductor.config.Network`.
+    pub network: Network,
 }
 
 /// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.
@@ -364,6 +423,10 @@ pub struct WorkspaceMember {
     /// `source` — `String`.
     pub source: String,
 }
+
+/// Writable — `conductor.config.Writable`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Writable(pub String);
 
 /// WriteWorkspace — `conductor.config.WriteWorkspace`.
 #[derive(Debug, Clone, PartialEq, Eq)]

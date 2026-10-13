@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:lease-by-process
 kind: story
-status: draft
+status: active
 title: The guard tells the lease holder from another process carrying its session id
 relations:
 - decomposes: epic:operating-loop-hardening
@@ -18,7 +18,10 @@ scope:
   path: crates/conductor/tests/cli_tree.rs
 - confidence: cited
   path: crates/conductor/tests/guard_hook.rs
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T01:15:10Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-13T01:15:11Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

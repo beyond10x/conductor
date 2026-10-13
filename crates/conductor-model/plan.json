@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "7af0d7775ebd76cb8df59a81725ba56760ce87637d1973e65d73cefd3665413e",
-    "contract_digest": "c69dbf22c1119cf616dd3b4ec584e37c62229d9e9dd153a0b98658ce1f92ee28"
+    "source_digest": "58bd82088247fdb82d6ffa0a810185129db9ebf3830641f8a7d2dc8f2fbe9e98",
+    "contract_digest": "b8742a1b05a82479548731af80040d371fc9e8077603df4c239ead0923944c27"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -68,6 +68,27 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.Confinement",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfinementMode",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfinementProvider",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Controllers",
       "disposition": {
         "disposition": "generated"
@@ -124,7 +145,21 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.Limits",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.LocalSource",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.Network",
       "disposition": {
         "disposition": "generated"
       }
@@ -237,6 +272,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.WorkspaceMember",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.Writable",
       "disposition": {
         "disposition": "generated"
       }
@@ -531,6 +573,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.observation.DashboardServe",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.observation.EnvelopeProvider",
       "disposition": {
         "disposition": "generated"
       }
