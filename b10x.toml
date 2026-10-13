@@ -1,4 +1,4 @@
 [pins]
 aep = "0.71"
 ess = "0.59"
-worktree = "0.18"
+worktree = "0.18.1"

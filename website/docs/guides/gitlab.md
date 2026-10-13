@@ -74,11 +74,11 @@ claude: present, 2.1.296 (Claude Code)
 jq: present, jq-1.8.2
 task: present, 3.53.1+ff3372fc
 aep: present, aep 0.71.2
-worktree: present, b10x-worktree-cli 0.18.0
+worktree: present, b10x-worktree-cli 0.18.1
 ess: present, ess 0.59.0
 pins: none
 aep: 0.71.2 meets the build's pin 0.71
-worktree: 0.18.0 meets the build's pin 0.18
+worktree: 0.18.1 meets the build's pin 0.18.1
 ess: 0.59.0 meets the build's pin 0.59
 ready
 ```

@@ -1,0 +1,36 @@
+---
+format: aep.planning-md/3
+id: story:guard-git-c-outside
+kind: story
+status: draft
+title: The guard decides git -C and GIT_DIR writes on their target
+revision: 1
+---
+## Why
+
+The founder's first run (2026-10-08, NOTE-1 in brain's case list) found that the guard allows
+`git -C <path>` where the path is outside `checkouts.root` and the records: a controller can run git
+in any repository on the machine. He noted it matches the README's security model, which says the
+guard bounds writes by path; `git -C` moves the write target and the guard does not follow it.
+
+## What
+
+The guard reads a git command's target from `-C <path>`, `--git-dir`, `--work-tree` and
+`GIT_DIR`/`GIT_WORK_TREE` assignments, and decides a writing git subcommand (commit, push, merge,
+rebase, reset, checkout, switch, branch -d/-D, tag, stash, clean, worktree, fetch into a ref) on
+that target as on a file write: allowed inside the session's writable roots, denied elsewhere with
+the denial naming the path and the root it is outside. Reading subcommands (status, log, diff,
+show, rev-parse, ls-files, config --get) stay allowed.
+
+## Acceptance
+
+- A controller session's `git -C /tmp/other commit -m x` is denied, naming `/tmp/other`.
+- `git -C <its checkout> commit` is allowed; `git -C /tmp/other status` is allowed.
+- `GIT_DIR=/tmp/other/.git git commit` and `git --work-tree=/tmp/other add .` are denied.
+- The guard's latency check stays under its bound.
+- The security page's guard section names the rule.
+
+## Scope
+
+`crates/conductor/src/guard/rules.rs`, `crates/conductor/tests/guard_rules.rs`,
+`website/docs/security/the-guard.md`. Under `epic:session-confinement`.
