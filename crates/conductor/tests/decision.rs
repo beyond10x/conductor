@@ -16,6 +16,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
+use conductor_cli::config::CONFIG_VARIABLE;
 use serde_json::{Value, json};
 
 /// The instant most records here are decided or raised at.
@@ -678,6 +679,68 @@ fn concurrent_records_get_distinct_ids() {
         ]
     );
     assert_eq!(case.rows("decisions").len(), 5);
+}
+
+/// `story:decision-id-free-in-records`: the instance's hand-written `decisions/*.jsonl` in the
+/// records directory its config file names hold `DEC-20261007-01` and `-02`, which the store does
+/// not. Given no `--decision-id`, each record command allocates an id free in both: `-03`, then
+/// `-04`. A line that does not read, a file that is not `.jsonl` and another date's id are passed
+/// over.
+#[test]
+fn an_allocated_decision_id_is_free_in_the_hand_written_decision_files() {
+    let case = Case::new("ids-free-in-records");
+    let root = case.work.parent().expect("the case's directory").to_owned();
+    let decisions = root.join("home/records/decisions");
+    fs::create_dir_all(&decisions).expect("create the records' decisions directory");
+    fs::write(
+        decisions.join("2026-10.jsonl"),
+        "{\"id\":\"DEC-20261007-01\",\"class\":\"C\"}\n\
+         not a JSON line\n\
+         {\"id\":\"DEC-20261007-02\",\"class\":\"R\"}\n\
+         {\"id\":\"DEC-20261008-09\",\"class\":\"C\"}\n",
+    )
+    .expect("write the hand-written decisions");
+    fs::write(
+        decisions.join("notes.txt"),
+        "{\"id\":\"DEC-20261007-50\"}\n",
+    )
+    .expect("write a file that is not jsonl");
+    let config = root.join("conductor.yaml");
+    fs::write(
+        &config,
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: example-org\n\
+         \x20   sources: [{github: example-org}]\n\
+         \x20   checkouts: {root: ~/checkouts, trees: ~/trees}\n\
+         \x20   records: ~/records\n\
+         \x20   state: ~/state\n",
+    )
+    .expect("write the config file");
+
+    let mut ids = Vec::new();
+    for who in ["record-conductor-decision", "record-operator-decision"] {
+        let args = Case::record_args(who, "C", AT, &[]);
+        let output = case
+            .command(&args)
+            .env(CONFIG_VARIABLE, &config)
+            .output()
+            .expect("the conductor binary runs");
+        assert!(
+            output.status.success(),
+            "`conductor {}` exited {:?}; stderr: {}",
+            args.join(" "),
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        ids.push(
+            String::from_utf8(output.stdout)
+                .expect("stdout is UTF-8")
+                .trim_end()
+                .to_owned(),
+        );
+    }
+    assert_eq!(ids, ["DEC-20261007-03", "DEC-20261007-04"]);
 }
 
 #[test]

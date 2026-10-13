@@ -13,8 +13,9 @@
 //! **Ids.** A request's id comes from the controller's message and is never allocated; one a
 //! request already has is refused (`RequestExists`), naming it, and nothing is written. Given no
 //! `--decision-id`, `record-conductor-decision` and `record-operator-decision` allocate
-//! `DEC-YYYYMMDD-NN`: the UTC date of `--decided-at`, and one more than the highest number the
-//! store holds for that date, at least two digits. A `--decided-at` whose UTC year is outside 1 to
+//! `DEC-YYYYMMDD-NN`: the UTC date of `--decided-at`, and one more than the highest number for
+//! that date that the store holds or a line of the instance's hand-written decision files holds
+//! ([`written_highest`]), at least two digits. A `--decided-at` whose UTC year is outside 1 to
 //! 9999 is refused. A decision id given by hand is in that form ([`allocator_form`]), or it is
 //! refused naming the form, before any store is opened; one a decision already has is refused
 //! (`DecisionExists`), naming it, and nothing is written. When another process records the
@@ -28,7 +29,7 @@
 //! lists every row it can read, in the order the rows were first stored, and answers through
 //! [`crate::store::show`]: a record it cannot read is named on standard error and exits 1, after
 //! the other rows. `decision show` renders one row of the `decisions` view the same way. No
-//! handler reads or writes `decisions/*.jsonl`.
+//! handler writes `decisions/*.jsonl`; the two record commands read only the ids in it.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -907,10 +908,10 @@ enum Answer {
 
 /// Records one decision through `run`, which runs the generated behaviour for the id it is given
 /// and answers what it decided. The id is `--decision-id`, refused when a decision already has it
-/// (`DecisionExists`), or else the [`next_id`] after the [`highest`] number stored for the UTC
-/// date of `--decided-at`, allocated again when another process records it first: while that
-/// highest number moves, and in at most [`ATTEMPTS`] attempts. Prints the id of the recorded
-/// decision.
+/// (`DecisionExists`), or else the [`next_id`] after the [`highest`] number stored or written by
+/// hand ([`written_highest`]) for the UTC date of `--decided-at`, allocated again when another
+/// process records it first: while that highest number moves, and in at most [`ATTEMPTS`]
+/// attempts. Prints the id of the recorded decision.
 ///
 /// The behaviour reads the id before it writes, so the write expects no stream: a decision
 /// another process records in between is refused by the store ([`StoreError::Exists`]) rather
@@ -924,6 +925,7 @@ fn record_decision(
     let date = utc_day(&fields.decided_at.0)
         .with_context(|| format!("{command}: --decided-at {:?}", fields.decided_at.0))?;
     let prefix = format!("{DECISION_PREFIX}{date}-");
+    let written = written_highest(&prefix);
     let mut before = None;
     for _ in 0..ATTEMPTS {
         // A fresh handle per attempt: a handle refuses every write after its first failure.
@@ -931,7 +933,7 @@ fn record_decision(
         let decision_id = match &fields.decision_id {
             Some(given) => given.clone(),
             None => {
-                let highest = stored_highest(command, &generated.ports, &prefix)?;
+                let highest = stored_highest(command, &generated.ports, &prefix)?.max(written);
                 if before.replace(highest) == Some(highest) {
                     bail!(
                         "{command}: the id allocated above {prefix}{highest:02} was taken, yet \
@@ -981,6 +983,39 @@ fn stored_highest(command: &str, store: &Ports, prefix: &str) -> Result<u128> {
         held.iter()
             .map(|decision| decision.data.decision_id.0.as_str()),
     ))
+}
+
+/// The highest number under `prefix` ([`highest`]) among the ids of the instance's hand-written
+/// decision files: the `"id"` of each line of each `decisions/*.jsonl` in the records directory
+/// the config file names (`story:decision-id-free-in-records`), 0 when there is none. Without a
+/// config file nothing is read. A directory or file that cannot be read, and a line that is not a
+/// JSON object with a string `"id"`, are passed over.
+fn written_highest(prefix: &str) -> u128 {
+    let active = crate::config::active();
+    if !active.from_file {
+        return 0;
+    }
+    let Ok(entries) = std::fs::read_dir(Path::new(&active.instance.records).join("decisions"))
+    else {
+        return 0;
+    };
+    let ids: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "jsonl")
+        })
+        .filter_map(|path| std::fs::read(path).ok())
+        .flat_map(|bytes| {
+            bytes
+                .split(|byte| *byte == b'\n')
+                .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
+                .filter_map(|line| line.get("id")?.as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    highest(prefix, ids.iter().map(String::as_str))
 }
 
 /// The prefix `conductor.decision.DecisionId` declares (`spec/domains/decision.yaml`).
