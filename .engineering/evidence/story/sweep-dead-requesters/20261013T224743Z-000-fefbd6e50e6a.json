@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T22:47:43Z",
+  "actor": "human:timo",
+  "artifact": "story:sweep-dead-requesters",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check (CI Check)",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38479468890"
+  }
+}

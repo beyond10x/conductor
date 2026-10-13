@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:sweep-dead-requesters
 kind: story
-status: active
+status: implemented
 title: The sweep closes requests and grants whose build run is gone
 relations:
 - decomposes: epic:disk-protocol
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T22:39:08Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T22:39:08Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T22:48:48Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

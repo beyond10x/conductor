@@ -11,4 +11,5 @@ Source: conductor's report of a host deadlocked by grants whose requesters had d
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `80c1e25c9`
+(https://github.com/beyond10x/conductor/actions/runs/38479468890), first run. Released as v0.10.6.
