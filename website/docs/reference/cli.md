@@ -119,6 +119,19 @@ Every command takes these, before or after its name.
 | [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
+| [`conductor host`](#conductor-host) | The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk |
+| [`conductor host record-reclaim`](#conductor-host-record-reclaim) | Record a reclaim run |
+| [`conductor host record-peak`](#conductor-host-record-peak) | Record a run's peak |
+| [`conductor host release-grant`](#conductor-host-release-grant) | Release a host grant |
+| [`conductor host request-disk`](#conductor-host-request-disk) | Request disk for a command |
+| [`conductor host reserve-disk`](#conductor-host-reserve-disk) | Answer a disk request |
+| [`conductor host start-run`](#conductor-host-start-run) | Start the reserved run |
+| [`conductor host take-host-grant`](#conductor-host-take-host-grant) | Take a host grant |
+| [`conductor host grants`](#conductor-host-grants) | Host grants |
+| [`conductor host reclaim-runs`](#conductor-host-reclaim-runs) | Reclaim runs |
+| [`conductor host reclaim`](#conductor-host-reclaim) | Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached |
+| [`conductor build`](#conductor-build) |  |
+| [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
 | [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file |
 | [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
@@ -1423,6 +1436,183 @@ Usage: conductor session leases [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor host`
+
+The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk
+
+```text
+Usage: conductor host [OPTIONS] <COMMAND>
+```
+
+## `conductor host record-reclaim`
+
+Record a reclaim run
+
+```text
+Usage: conductor host record-reclaim [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <INSTANCE>` | no | none | InstanceName |
+| `--steps <STEPS>` | no | none | list of ReclaimStep, a JSON array |
+| `--reclaimed-bytes <RECLAIMED_BYTES>` | no | none | integer |
+| `--shortfall-bytes <SHORTFALL_BYTES>` | no | none | integer |
+| `--left <LEFT>` | no | none | list of LeftOver, a JSON array |
+| `--ran-at <RAN_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host record-peak`
+
+Record a run's peak
+
+```text
+Usage: conductor host record-peak [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--grant-id <GRANT_ID>` | no | none | GrantId |
+| `--peak-bytes <PEAK_BYTES>` | no | none | integer |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host release-grant`
+
+Release a host grant
+
+```text
+Usage: conductor host release-grant [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--grant-id <GRANT_ID>` | no | none | GrantId |
+| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`. |
+| `--released-at <RELEASED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host request-disk`
+
+Request disk for a command
+
+```text
+Usage: conductor host request-disk [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <INSTANCE>` | no | none | InstanceName |
+| `--repository <REPOSITORY>` | no | none | RepositoryName, optional |
+| `--session-name <SESSION_NAME>` | no | none | SessionName, optional |
+| `--bytes <BYTES>` | no | none | integer |
+| `--command <COMMAND>` | no | none | string |
+| `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host reserve-disk`
+
+Answer a disk request
+
+```text
+Usage: conductor host reserve-disk [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--grant-id <GRANT_ID>` | no | none | GrantId |
+| `--shortfall-bytes <SHORTFALL_BYTES>` | no | none | integer |
+| `--reclaimed-bytes <RECLAIMED_BYTES>` | no | none | integer |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host start-run`
+
+Start the reserved run
+
+```text
+Usage: conductor host start-run [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--grant-id <GRANT_ID>` | no | none | GrantId |
+| `--process-group <PROCESS_GROUP>` | no | none | integer |
+| `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host take-host-grant`
+
+Take a host grant
+
+```text
+Usage: conductor host take-host-grant [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <INSTANCE>` | no | none | InstanceName |
+| `--repository <REPOSITORY>` | no | none | RepositoryName |
+| `--kind <KIND>` | no | none | GrantKind One of `ControllerSlot`, `BuildSlot`, `Disk`. |
+| `--bytes <BYTES>` | no | none | integer, optional |
+| `--session-name <SESSION_NAME>` | no | none | SessionName |
+| `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host grants`
+
+Host grants
+
+```text
+Usage: conductor host grants [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor host reclaim-runs`
+
+Reclaim runs
+
+```text
+Usage: conductor host reclaim-runs [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor host reclaim`
+
+Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
+
+```text
+Usage: conductor host reclaim [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | none | How the steps are printed: text or json. Default: text |
+
+## `conductor build`
+
+```text
+Usage: conductor build [OPTIONS] <COMMAND>
+```
+
+## `conductor build run`
+
+Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size
+
+```text
+Usage: conductor build run [OPTIONS] [-- <COMMAND>...]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--reserve <SIZE>` | no | none | The command's expected peak, in GiB: `8G`, or `8` |
+| `--repository <REPOSITORY>` | no | none | The repository the command builds, recorded with the reservation |
+| `<COMMAND>` | no | none | The command and its arguments, after `--` |
 
 ## `conductor config`
 

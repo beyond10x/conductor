@@ -240,8 +240,9 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// (`story:decision-commands`), and the `session` leaves by `tests/session.rs`
 /// (`story:single-conductor-lease`). `snapshot publish-board` and `snapshot boards` are decided by
 /// `tests/status.rs` (`story:status-board`); the member-failure and collector-run leaves by
-/// `tests/snapshot.rs` (`story:snapshot-member-failures`, `story:snapshot-duration`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 77] = [
+/// `tests/snapshot.rs` (`story:snapshot-member-failures`, `story:snapshot-duration`); the `host`
+/// ledger leaves by `tests/build_run.rs` (`story:build-run`). In the order the leaves are placed.
+const IMPLEMENTED: [&str; 84] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -319,6 +320,13 @@ const IMPLEMENTED: [&str; 77] = [
     "guard guard-decisions",
     "session claim",
     "session leases",
+    "host record-peak",
+    "host release-grant",
+    "host request-disk",
+    "host reserve-disk",
+    "host start-run",
+    "host take-host-grant",
+    "host grants",
 ];
 
 #[test]

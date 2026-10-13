@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6c34291a578b45b47a352863bab11908e6e2fe374a6ae3d5ea7dedb1d4b1d656
-// contract digest 3abd04adcf6624e03c0d301e94f0f29887ea5d596587ab317d5f658243dae124
+// model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
+// contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The `conductor` system, v1: its components assembled, its bindings wired, and its one transport.
@@ -91,6 +91,24 @@ pub enum SystemEvent {
     ResourceReleased(crate::dispatch::ResourceReleased),
     /// `conductor.dispatch.ResourceRequested`.
     ResourceRequested(crate::dispatch::ResourceRequested),
+    /// `conductor.host.DiskReclaimed`.
+    DiskReclaimed(crate::host::DiskReclaimed),
+    /// `conductor.host.DiskRequested`.
+    DiskRequested(crate::host::DiskRequested),
+    /// `conductor.host.DiskReservationRefused`.
+    DiskReservationRefused(crate::host::DiskReservationRefused),
+    /// `conductor.host.DiskReserved`.
+    DiskReserved(crate::host::DiskReserved),
+    /// `conductor.host.HostGrantReleased`.
+    HostGrantReleased(crate::host::HostGrantReleased),
+    /// `conductor.host.HostGrantTaken`.
+    HostGrantTaken(crate::host::HostGrantTaken),
+    /// `conductor.host.PeakRecorded`.
+    PeakRecorded(crate::host::PeakRecorded),
+    /// `conductor.host.ReclaimFloorNotReached`.
+    ReclaimFloorNotReached(crate::host::ReclaimFloorNotReached),
+    /// `conductor.host.RunStarted`.
+    RunStarted(crate::host::RunStarted),
     /// `conductor.observation.BlockerRecorded`.
     BlockerRecorded(crate::observation::BlockerRecorded),
     /// `conductor.observation.BoardPublished`.
@@ -165,6 +183,15 @@ impl SystemEvent {
             Self::ResourceRefused(_) => "conductor.dispatch.ResourceRefused",
             Self::ResourceReleased(_) => "conductor.dispatch.ResourceReleased",
             Self::ResourceRequested(_) => "conductor.dispatch.ResourceRequested",
+            Self::DiskReclaimed(_) => "conductor.host.DiskReclaimed",
+            Self::DiskRequested(_) => "conductor.host.DiskRequested",
+            Self::DiskReservationRefused(_) => "conductor.host.DiskReservationRefused",
+            Self::DiskReserved(_) => "conductor.host.DiskReserved",
+            Self::HostGrantReleased(_) => "conductor.host.HostGrantReleased",
+            Self::HostGrantTaken(_) => "conductor.host.HostGrantTaken",
+            Self::PeakRecorded(_) => "conductor.host.PeakRecorded",
+            Self::ReclaimFloorNotReached(_) => "conductor.host.ReclaimFloorNotReached",
+            Self::RunStarted(_) => "conductor.host.RunStarted",
             Self::BlockerRecorded(_) => "conductor.observation.BlockerRecorded",
             Self::BoardPublished(_) => "conductor.observation.BoardPublished",
             Self::CollectorRunRecorded(_) => "conductor.observation.CollectorRunRecorded",
@@ -224,6 +251,15 @@ impl From<crate::ports::conductor_cli::PublishedEvent> for SystemEvent {
             crate::ports::conductor_cli::PublishedEvent::ResourceRefused(event) => Self::ResourceRefused(event),
             crate::ports::conductor_cli::PublishedEvent::ResourceReleased(event) => Self::ResourceReleased(event),
             crate::ports::conductor_cli::PublishedEvent::ResourceRequested(event) => Self::ResourceRequested(event),
+            crate::ports::conductor_cli::PublishedEvent::DiskReclaimed(event) => Self::DiskReclaimed(event),
+            crate::ports::conductor_cli::PublishedEvent::DiskRequested(event) => Self::DiskRequested(event),
+            crate::ports::conductor_cli::PublishedEvent::DiskReservationRefused(event) => Self::DiskReservationRefused(event),
+            crate::ports::conductor_cli::PublishedEvent::DiskReserved(event) => Self::DiskReserved(event),
+            crate::ports::conductor_cli::PublishedEvent::HostGrantReleased(event) => Self::HostGrantReleased(event),
+            crate::ports::conductor_cli::PublishedEvent::HostGrantTaken(event) => Self::HostGrantTaken(event),
+            crate::ports::conductor_cli::PublishedEvent::PeakRecorded(event) => Self::PeakRecorded(event),
+            crate::ports::conductor_cli::PublishedEvent::ReclaimFloorNotReached(event) => Self::ReclaimFloorNotReached(event),
+            crate::ports::conductor_cli::PublishedEvent::RunStarted(event) => Self::RunStarted(event),
             crate::ports::conductor_cli::PublishedEvent::BlockerRecorded(event) => Self::BlockerRecorded(event),
             crate::ports::conductor_cli::PublishedEvent::BoardPublished(event) => Self::BoardPublished(event),
             crate::ports::conductor_cli::PublishedEvent::CollectorRunRecorded(event) => Self::CollectorRunRecorded(event),
@@ -287,7 +323,7 @@ impl<ConductorCliBehaviors> System<ConductorCliBehaviors> {
 
 impl<ConductorCliBehaviors> System<ConductorCliBehaviors>
 where
-    ConductorCliBehaviors: crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::LeasesQuery,
+    ConductorCliBehaviors: crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::LeasesQuery,
 {
     /// Delivers until quiescent: collects every component's outbox onto the log. No binding
     /// reacts to anything this specification publishes, so collecting is the whole delivery.

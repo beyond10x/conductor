@@ -10,6 +10,7 @@
 
 use std::fmt;
 
+pub mod build;
 pub mod cli;
 pub mod collect;
 pub mod config;
@@ -22,6 +23,7 @@ pub mod doctor;
 pub mod gc;
 pub mod goal;
 pub mod guard;
+pub mod host;
 pub mod init;
 pub mod message;
 pub mod records;

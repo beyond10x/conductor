@@ -9,3 +9,4 @@ domains:
   - conductor.dispatch
   - conductor.config
   - conductor.session
+  - conductor.host

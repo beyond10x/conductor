@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 6c34291a578b45b47a352863bab11908e6e2fe374a6ae3d5ea7dedb1d4b1d656
-  contract digest 3abd04adcf6624e03c0d301e94f0f29887ea5d596587ab317d5f658243dae124
+  model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
+  contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-416 capabilities: **405 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+465 capabilities: **454 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -108,6 +108,21 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.dispatch.SpawnRefused` |
 | domain type | `conductor.dispatch.Transport` |
 | domain type | `conductor.dispatch.Verdict` |
+| domain type | `conductor.host.BuildRun` |
+| domain type | `conductor.host.BuildRunRefused` |
+| domain type | `conductor.host.GrantId` |
+| domain type | `conductor.host.GrantKind` |
+| domain type | `conductor.host.HostGrant.State` |
+| domain type | `conductor.host.LeftOver` |
+| domain type | `conductor.host.ReclaimDisk` |
+| domain type | `conductor.host.ReclaimFellShort` |
+| domain type | `conductor.host.ReclaimKind` |
+| domain type | `conductor.host.ReclaimResult` |
+| domain type | `conductor.host.ReclaimRun.State` |
+| domain type | `conductor.host.ReclaimRunId` |
+| domain type | `conductor.host.ReclaimStep` |
+| domain type | `conductor.host.ReleaseReason` |
+| domain type | `conductor.host.ShowGrants` |
 | domain type | `conductor.observation.BlockerObservation.State` |
 | domain type | `conductor.observation.Board.State` |
 | domain type | `conductor.observation.BoardId` |
@@ -156,6 +171,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.dispatch.GuardDecision` |
 | entity lifecycle | `conductor.dispatch.Message` |
 | entity lifecycle | `conductor.dispatch.ResourceRequest` |
+| entity lifecycle | `conductor.host.HostGrant` |
+| entity lifecycle | `conductor.host.ReclaimRun` |
 | entity lifecycle | `conductor.observation.BlockerObservation` |
 | entity lifecycle | `conductor.observation.Board` |
 | entity lifecycle | `conductor.observation.CollectorRunObservation` |
@@ -246,6 +263,20 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command contract | `conductor.dispatch.StartController` |
 | command contract | `conductor.dispatch.StopController` |
 | command behaviour | `conductor.dispatch.StopController` |
+| command contract | `conductor.host.Reclaim` |
+| command behaviour | `conductor.host.Reclaim` |
+| command contract | `conductor.host.RecordPeak` |
+| command behaviour | `conductor.host.RecordPeak` |
+| command contract | `conductor.host.ReleaseGrant` |
+| command behaviour | `conductor.host.ReleaseGrant` |
+| command contract | `conductor.host.RequestDisk` |
+| command behaviour | `conductor.host.RequestDisk` |
+| command contract | `conductor.host.ReserveDisk` |
+| command behaviour | `conductor.host.ReserveDisk` |
+| command contract | `conductor.host.StartRun` |
+| command behaviour | `conductor.host.StartRun` |
+| command contract | `conductor.host.TakeHostGrant` |
+| command behaviour | `conductor.host.TakeHostGrant` |
 | command contract | `conductor.observation.CompleteSnapshot` |
 | command behaviour | `conductor.observation.CompleteSnapshot` |
 | command contract | `conductor.observation.FailSnapshot` |
@@ -311,6 +342,15 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.dispatch.ResourceRefused` |
 | event type | `conductor.dispatch.ResourceReleased` |
 | event type | `conductor.dispatch.ResourceRequested` |
+| event type | `conductor.host.DiskReclaimed` |
+| event type | `conductor.host.DiskRequested` |
+| event type | `conductor.host.DiskReservationRefused` |
+| event type | `conductor.host.DiskReserved` |
+| event type | `conductor.host.HostGrantReleased` |
+| event type | `conductor.host.HostGrantTaken` |
+| event type | `conductor.host.PeakRecorded` |
+| event type | `conductor.host.ReclaimFloorNotReached` |
+| event type | `conductor.host.RunStarted` |
 | event type | `conductor.observation.BlockerRecorded` |
 | event type | `conductor.observation.BoardPublished` |
 | event type | `conductor.observation.CollectorRunRecorded` |
@@ -364,6 +404,11 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.dispatch.ResourceRequestNotFound` |
 | error type | `conductor.dispatch.ResourceRequestStateConflict` |
 | error type | `conductor.dispatch.WaitsOnItself` |
+| error type | `conductor.host.DiskThroughReservation` |
+| error type | `conductor.host.HostGrantNotFound` |
+| error type | `conductor.host.HostGrantStateConflict` |
+| error type | `conductor.host.InvalidSize` |
+| error type | `conductor.host.NotADiskGrant` |
 | error type | `conductor.observation.InvalidCount` |
 | error type | `conductor.observation.InvalidPullRequestNumber` |
 | error type | `conductor.observation.SnapshotNotCollecting` |
@@ -392,6 +437,10 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.dispatch.Messages` |
 | view type | `conductor.dispatch.ResourceRequests` |
 | view query | `conductor.dispatch.ResourceRequests` |
+| view type | `conductor.host.Grants` |
+| view query | `conductor.host.Grants` |
+| view type | `conductor.host.ReclaimRuns` |
+| view query | `conductor.host.ReclaimRuns` |
 | view type | `conductor.observation.Blockers` |
 | view query | `conductor.observation.Blockers` |
 | view type | `conductor.observation.Boards` |

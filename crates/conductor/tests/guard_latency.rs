@@ -105,6 +105,18 @@ impl TryContext for Ports {
     ) -> Result<SnapshotId, UnmetObligation> {
         Err(unmet_context("not assigned here"))
     }
+
+    fn try_generate_conductor_host_grant_id(
+        &mut self,
+    ) -> Result<conductor_model::host::GrantId, UnmetObligation> {
+        Err(unmet_context("conductor.host.GrantId"))
+    }
+
+    fn try_generate_conductor_host_reclaim_run_id(
+        &mut self,
+    ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
+        Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
 }
 
 /// The recorded payload `name`, every `~/` value under `home`.

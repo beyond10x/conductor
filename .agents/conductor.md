@@ -93,8 +93,14 @@ this session and expire after 7 days, so a restart loses them.
      - before you pause work for disk, run `conductor gc` (without `--dry-run` it removes and
        strips archive build output) and report the bytes freed and the holders it names but
        does not reclaim;
-     - under `thresholds.build_slot`, no new build expected to write more than
-       `thresholds.build_size`; such a `[RESOURCE <repo>] build-slot` is refused with the number;
+     - Build slots are no longer granted by message. Every build, test or gate runs as
+       `conductor build run --reserve <size> -- <command>`, which reserves its disk in the host
+       ledger, reclaims what needs no decision when it does not fit, and refuses with the
+       shortfall when reclaim cannot reach it. Read the live reservations with `conductor host
+       grants`. Answer a `[RESOURCE <repo>] disk` or `[RESOURCE <repo>] build` with "use conductor
+       build run", and grant nothing. A `rules.md` rule that asks you to free disk is carried by
+       this protocol: the binary reclaims (`conductor host reclaim`), and a shortfall it cannot
+       cover is one operator item in `decision hands-todo`;
      - under `thresholds.disk_admit`, start nothing, grant nothing.
      - The watch says which floor was crossed. `disk low` asks for the cleanup above. On `disk
        admit`, pause new builds: start nothing, grant nothing until free disk is back at

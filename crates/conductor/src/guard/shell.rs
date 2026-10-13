@@ -79,6 +79,20 @@ pub(super) fn program(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
 
+/// `word` as the shell reads it back as that one word: as written when it holds only letters,
+/// digits and `-_./=:+,@%`, else in single quotes, a quote inside written `'\''`.
+pub(super) fn quoted(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./=:+,@%".contains(c));
+    if plain {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+
 fn collect(script: &str, depth: usize, out: &mut Vec<Simple>) {
     for (nested, simple) in Lexer::new(script).run() {
         if depth > 0 {
@@ -484,7 +498,17 @@ impl Lexer {
 
 #[cfg(test)]
 mod tests {
-    use super::{commands, program, simple_commands, written};
+    use super::{commands, program, quoted, simple_commands, written};
+
+    /// `story:guard-requires-build-run`: a word quoted for a denial to name reads back as itself.
+    #[test]
+    fn a_quoted_word_reads_back_as_itself() {
+        for word in ["cargo", "-p", "x/Cargo.toml", "a b", "it's", "$(x)", ""] {
+            assert_eq!(commands(&format!("echo {}", quoted(word)))[0][1..], [word]);
+        }
+        assert_eq!(quoted("--all-targets"), "--all-targets");
+        assert_eq!(quoted("a b"), "'a b'");
+    }
 
     /// `story:guard-write-targets`: each simple command carries the files its own redirections
     /// write, so that a read operand of one command is not taken for the target of another.

@@ -79,9 +79,9 @@ on. Gates, reports and boundaries are unchanged.
   - `[DECISION-REQUEST <repo> <request-id>] <question>`, then options, costs, recommendation;
     record it as a store `decision-blocker`.
   - `[NEED <repo> <request-id>] <other-repo> <what>`
-  - `[RESOURCE <repo>] <build-slot|disk|usage> <amount>` before a build expected to write over
-    `thresholds.build_size` while free disk is under `thresholds.build_slot` (the only disk
-    threshold for a build); amount = expected size.
+  - `[RESOURCE <repo>] usage <amount>` for a usage limit. Disk and build slots are not asked for
+    by message: `conductor build run` reserves them (see Boundaries), and conductor answers a
+    `[RESOURCE <repo>] disk` or `build` with "use conductor build run".
 - Bodies at most 20 lines (detail in a file, path in the message); `progress` at wave
   boundaries, when a pull request opens, when its CI turns red, and on merge.
 - When this profile or `rules.md` changed, re-read it (Read tool, charter's path); never `cd` or
@@ -109,11 +109,17 @@ on. Gates, reports and boundaries are unchanged.
   Before that push, the integrated head compiles with every target and passes the linter, and
   each test that lists every command, leaf or entity names what the wave added; the gate runs
   every test binary (`--no-fail-fast` or the runner's equivalent), so one run names every failure.
-- One full-workspace gate at a time, in its own process group (`setsid`), under a watchdog
-  reading free disk every `thresholds.watchdog_every`: `kill -STOP -<group>` under
-  `thresholds.gate_stop`, `kill -CONT` over `thresholds.gate_resume`; a second stop is a
-  `[RESOURCE <repo>] disk <G>`. A rerun waits until `kill -0 -<old group>` fails (never
-  `pgrep -f`); both ids go in the wave page.
+- Every build, test or gate runs as `conductor build run --reserve <size> -- <command>`
+  (`--reserve 8G` for a cargo build, test or gate, `2G` for npm): it reserves the command's
+  expected peak in the host ledger, reclaims what needs no decision when it does not fit, and runs
+  the command in its own process group under the disk watchdog, paused under
+  `thresholds.gate_stop` and resumed over `thresholds.gate_resume`. The guard denies a plain
+  `cargo build|test|check|clippy|nextest|install|run`,
+  `task check|gate|install|ui|regen|docs-generate`, `npm run build|test` or `npm ci`, and its
+  denial names the form to use; `cargo fmt` and `rustfmt` run as they are. A refusal names the shortfall and is reported, never retried in a
+  loop: `[REPORT <repo> <dispatch-id>] blocked disk: <the refusal's line>`.
+- One full-workspace gate at a time. A rerun waits until the earlier `conductor build run` has
+  exited and its reservation is gone from `conductor host grants`.
 - A gate that runs over an hour resumes: after a failure, rerun only the failed steps and the
   steps that depend on them, never the whole suite again. Keep one full run for the release
   commit.

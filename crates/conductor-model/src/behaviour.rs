@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6c34291a578b45b47a352863bab11908e6e2fe374a6ae3d5ea7dedb1d4b1d656
-// contract digest 3abd04adcf6624e03c0d301e94f0f29887ea5d596587ab317d5f658243dae124
+// model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
+// contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -198,6 +198,42 @@ pub trait ResourceRequestStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::dispatch::ResourceRequestSnapshot>;
+}
+
+/// Where `conductor.host.HostGrant` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `grant_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait HostGrantStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::host::GrantId) -> Option<crate::host::HostGrantSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::host::HostGrantSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::host::GrantId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::host::HostGrantSnapshot>;
+}
+
+/// Where `conductor.host.ReclaimRun` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `reclaim_run_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait ReclaimRunStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::host::ReclaimRunId) -> Option<crate::host::ReclaimRunSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::host::ReclaimRunSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::host::ReclaimRunId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::host::ReclaimRunSnapshot>;
 }
 
 /// Where `conductor.observation.BlockerObservation` is stored — a port the implementor provides.
@@ -455,6 +491,14 @@ pub trait Context {
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_dispatch_resource_request_id(&mut self) -> crate::dispatch::ResourceRequestId;
 
+    /// A new `conductor.host.GrantId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_host_grant_id(&mut self) -> crate::host::GrantId;
+
+    /// A new `conductor.host.ReclaimRunId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_host_reclaim_run_id(&mut self) -> crate::host::ReclaimRunId;
+
     /// A new `conductor.observation.BoardId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_observation_board_id(&mut self) -> crate::observation::BoardId;
@@ -480,6 +524,10 @@ fn try_generate_conductor_dispatch_message_id(&mut self) -> Result<crate::dispat
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_dispatch_resource_request_id(&mut self) -> Result<crate::dispatch::ResourceRequestId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_host_grant_id(&mut self) -> Result<crate::host::GrantId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::ReclaimRunId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation>;
@@ -492,6 +540,8 @@ fn try_generate_conductor_direction_serving_id(&mut self) -> Result<crate::direc
 fn try_generate_conductor_dispatch_guard_decision_id(&mut self) -> Result<crate::dispatch::GuardDecisionId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_guard_decision_id(self)) }
 fn try_generate_conductor_dispatch_message_id(&mut self) -> Result<crate::dispatch::MessageId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_message_id(self)) }
 fn try_generate_conductor_dispatch_resource_request_id(&mut self) -> Result<crate::dispatch::ResourceRequestId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_resource_request_id(self)) }
+fn try_generate_conductor_host_grant_id(&mut self) -> Result<crate::host::GrantId, UnmetObligation> { Ok(Context::generate_conductor_host_grant_id(self)) }
+fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::ReclaimRunId, UnmetObligation> { Ok(Context::generate_conductor_host_reclaim_run_id(self)) }
 fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation> { Ok(Context::generate_conductor_observation_board_id(self)) }
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation> { Ok(Context::generate_conductor_observation_observation_id(self)) }
 fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation> { Ok(Context::generate_conductor_observation_snapshot_id(self)) }
@@ -1720,6 +1770,289 @@ where
     }
 }
 
+/// `conductor.host.Reclaim`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::ReclaimBehavior for Generated<P>
+where
+    P: TryContext + ReclaimRunStorage,
+{
+    fn reclaim(&mut self, input: crate::host::Reclaim) -> Result<crate::host::ReclaimOutcome, UnmetObligation> {
+        let _ = &input;
+        // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(any(&[compare_numbers(Some(&input.reclaimed_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt)]), "conductor.host.Reclaim")? {
+            return Ok(crate::host::ReclaimOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.reclaimed_bytes.clone() } });
+        }
+        // `floor-not-reached`: an accepting branch, in declaration order.
+        if decided(compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_gt), "conductor.host.Reclaim")? {
+            let identity: crate::host::ReclaimRunId = self.ports.try_generate_conductor_host_reclaim_run_id()?;
+            let data = crate::host::ReclaimRunData {
+                reclaim_run_id: identity.clone(),
+                instance: input.instance.clone(),
+                result: crate::host::ReclaimResult::FloorNotReached,
+                steps: input.steps.clone(),
+                reclaimed_bytes: input.reclaimed_bytes.clone(),
+                shortfall_bytes: Some(input.shortfall_bytes.clone()),
+                left: input.left.clone(),
+                ran_at: input.ran_at.clone(),
+            };
+            if let Some(broken) = data.broken_invariant() {
+                let capability = "entity invariant";
+                return Err(UnmetObligation { capability, source: broken });
+            }
+            let answer = crate::host::ReclaimOutcome::FloorNotReached { reclaim_floor_not_reached: crate::host::ReclaimFloorNotReached { reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
+            ReclaimRunStorage::put(&mut self.ports, crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot());
+            return Ok(answer);
+        }
+        // `reclaimed`: the default.
+        let identity: crate::host::ReclaimRunId = self.ports.try_generate_conductor_host_reclaim_run_id()?;
+        let data = crate::host::ReclaimRunData {
+            reclaim_run_id: identity.clone(),
+            instance: input.instance.clone(),
+            result: crate::host::ReclaimResult::Reclaimed,
+            steps: input.steps.clone(),
+            reclaimed_bytes: input.reclaimed_bytes.clone(),
+            shortfall_bytes: None,
+            left: input.left.clone(),
+            ran_at: input.ran_at.clone(),
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::host::ReclaimOutcome::Reclaimed { disk_reclaimed: crate::host::DiskReclaimed { reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
+        ReclaimRunStorage::put(&mut self.ports, crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.host.RecordPeak`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::RecordPeakBehavior for Generated<P>
+where
+    P: HostGrantStorage,
+{
+    fn record_peak(&mut self, input: crate::host::RecordPeak) -> Result<crate::host::RecordPeakOutcome, UnmetObligation> {
+        let _ = &input;
+        // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(compare_numbers(Some(&input.peak_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.host.RecordPeak")? {
+            return Ok(crate::host::RecordPeakOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.peak_bytes.clone() } });
+        }
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+            return Ok(crate::host::RecordPeakOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+        };
+        let _ = &held;
+        // `recorded`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::host::HostGrantState::Running)), "conductor.host.RecordPeak")? {
+            let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+                return Ok(crate::host::RecordPeakOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            };
+            let _ = &held;
+            let mut next = held;
+            next.data.peak_bytes = Some(input.peak_bytes.clone());
+            let answer = crate::host::RecordPeakOutcome::Recorded { peak_recorded: crate::host::PeakRecorded { grant_id: input.grant_id.clone(), peak_bytes: input.peak_bytes.clone() } };
+            HostGrantStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `not-running`: the default.
+        return Ok(crate::host::RecordPeakOutcome::NotRunning { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } });
+    }
+}
+
+/// `conductor.host.ReleaseGrant`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::ReleaseGrantBehavior for Generated<P>
+where
+    P: HostGrantStorage,
+{
+    fn release_grant(&mut self, input: crate::host::ReleaseGrant) -> Result<crate::host::ReleaseGrantOutcome, UnmetObligation> {
+        let _ = &input;
+        // `released`: the default.
+        let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+            return Ok(crate::host::ReleaseGrantOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::host::AnyHostGrant::Granted(instance) => crate::host::AnyHostGrant::Released(instance.release()),
+            crate::host::AnyHostGrant::Running(instance) => crate::host::AnyHostGrant::Released(instance.release()),
+            _ => return Ok(crate::host::ReleaseGrantOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.released_at = Some(input.released_at.clone());
+        next.data.release_reason = input.reason.clone();
+        let answer = crate::host::ReleaseGrantOutcome::Released { host_grant_released: crate::host::HostGrantReleased { grant_id: input.grant_id.clone(), reason: input.reason.clone() } };
+        HostGrantStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.host.RequestDisk`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::RequestDiskBehavior for Generated<P>
+where
+    P: TryContext + HostGrantStorage,
+{
+    fn request_disk(&mut self, input: crate::host::RequestDisk) -> Result<crate::host::RequestDiskOutcome, UnmetObligation> {
+        let _ = &input;
+        // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(compare_numbers(Some(&input.bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_le), "conductor.host.RequestDisk")? {
+            return Ok(crate::host::RequestDiskOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.bytes.clone() } });
+        }
+        // `requested`: the default.
+        let identity: crate::host::GrantId = self.ports.try_generate_conductor_host_grant_id()?;
+        let data = crate::host::HostGrantData {
+            grant_id: identity.clone(),
+            instance: input.instance.clone(),
+            repository: input.repository.clone(),
+            kind: crate::host::GrantKind::Disk,
+            bytes: Some(input.bytes.clone()),
+            peak_bytes: None,
+            command: Some(input.command.clone()),
+            process_group: None,
+            session_name: input.session_name.clone(),
+            reclaimed_bytes: None,
+            shortfall_bytes: None,
+            requested_at: input.requested_at.clone(),
+            started_at: None,
+            released_at: None,
+            release_reason: None,
+        };
+        let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { grant_id: identity.clone(), instance: input.instance.clone(), bytes: input.bytes.clone() } };
+        HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Requested(crate::host::HostGrant::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.host.ReserveDisk`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::ReserveDiskBehavior for Generated<P>
+where
+    P: HostGrantStorage,
+{
+    fn reserve_disk(&mut self, input: crate::host::ReserveDisk) -> Result<crate::host::ReserveDiskOutcome, UnmetObligation> {
+        let _ = &input;
+        // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(any(&[compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), compare_numbers(Some(&input.reclaimed_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt)]), "conductor.host.ReserveDisk")? {
+            return Ok(crate::host::ReserveDiskOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.shortfall_bytes.clone() } });
+        }
+        // `refused`: an accepting branch, in declaration order.
+        if decided(compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_gt), "conductor.host.ReserveDisk")? {
+            let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+                return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            };
+            let _ = &held;
+            let before = held.data.clone();
+            let moved = match held.refine() {
+                crate::host::AnyHostGrant::Requested(instance) => crate::host::AnyHostGrant::Refused(instance.refuse()),
+                _ => return Ok(crate::host::ReserveDiskOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+            };
+            let mut next = moved.snapshot();
+            next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
+            next.data.shortfall_bytes = Some(input.shortfall_bytes.clone());
+            let answer = crate::host::ReserveDiskOutcome::Refused { disk_reservation_refused: crate::host::DiskReservationRefused { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
+            HostGrantStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `granted-after-reclaim`: an accepting branch, in declaration order.
+        if decided(compare_numbers(Some(&input.reclaimed_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_gt), "conductor.host.ReserveDisk")? {
+            let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+                return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            };
+            let _ = &held;
+            let before = held.data.clone();
+            let moved = match held.refine() {
+                crate::host::AnyHostGrant::Requested(instance) => crate::host::AnyHostGrant::Granted(instance.grant()),
+                _ => return Ok(crate::host::ReserveDiskOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+            };
+            let mut next = moved.snapshot();
+            next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
+            let answer = crate::host::ReserveDiskOutcome::GrantedAfterReclaim { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
+            HostGrantStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `granted`: the default.
+        let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+            return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+        };
+        let _ = &held;
+        let before = held.data.clone();
+        let moved = match held.refine() {
+            crate::host::AnyHostGrant::Requested(instance) => crate::host::AnyHostGrant::Granted(instance.grant()),
+            _ => return Ok(crate::host::ReserveDiskOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.reclaimed_bytes = Some(0);
+        let answer = crate::host::ReserveDiskOutcome::Granted { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: 0 } };
+        HostGrantStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.host.StartRun`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::StartRunBehavior for Generated<P>
+where
+    P: HostGrantStorage,
+{
+    fn start_run(&mut self, input: crate::host::StartRun) -> Result<crate::host::StartRunOutcome, UnmetObligation> {
+        let _ = &input;
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+            return Ok(crate::host::StartRunOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+        };
+        let _ = &held;
+        // `not-a-disk-grant`: selected by the addressed row.
+        if decided(equal(Some(&held.data.kind).map(|value| match value { crate::host::GrantKind::ControllerSlot => "ControllerSlot", crate::host::GrantKind::BuildSlot => "BuildSlot", crate::host::GrantKind::Disk => "Disk" }.to_owned()), Some("Disk".to_owned())).map(|value| !value), "conductor.host.StartRun")? {
+            return Ok(crate::host::StartRunOutcome::NotADiskGrant { error: crate::host::NotADiskGrant { grant_id: input.grant_id.clone() } });
+        }
+        // `started`: the default.
+        let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+            return Ok(crate::host::StartRunOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::host::AnyHostGrant::Granted(instance) => crate::host::AnyHostGrant::Running(instance.start()),
+            _ => return Ok(crate::host::StartRunOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.process_group = Some(input.process_group.clone());
+        next.data.started_at = Some(input.started_at.clone());
+        let answer = crate::host::StartRunOutcome::Started { run_started: crate::host::RunStarted { grant_id: input.grant_id.clone(), process_group: input.process_group.clone() } };
+        HostGrantStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.host.TakeHostGrant`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::TakeHostGrantBehavior for Generated<P>
+where
+    P: TryContext + HostGrantStorage,
+{
+    fn take_host_grant(&mut self, input: crate::host::TakeHostGrant) -> Result<crate::host::TakeHostGrantOutcome, UnmetObligation> {
+        let _ = &input;
+        // `disk-through-reservation`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(equal(Some(&input.kind).map(|value| match value { crate::host::GrantKind::ControllerSlot => "ControllerSlot", crate::host::GrantKind::BuildSlot => "BuildSlot", crate::host::GrantKind::Disk => "Disk" }.to_owned()), Some("Disk".to_owned())), "conductor.host.TakeHostGrant")? {
+            return Ok(crate::host::TakeHostGrantOutcome::DiskThroughReservation { error: crate::host::DiskThroughReservation { kind: input.kind.clone() } });
+        }
+        // `granted`: the default.
+        let identity: crate::host::GrantId = self.ports.try_generate_conductor_host_grant_id()?;
+        let data = crate::host::HostGrantData {
+            grant_id: identity.clone(),
+            instance: input.instance.clone(),
+            repository: Some(input.repository.clone()),
+            kind: input.kind.clone(),
+            bytes: input.bytes.clone(),
+            peak_bytes: None,
+            command: None,
+            process_group: None,
+            session_name: Some(input.session_name.clone()),
+            reclaimed_bytes: None,
+            shortfall_bytes: None,
+            requested_at: input.requested_at.clone(),
+            started_at: None,
+            released_at: None,
+            release_reason: None,
+        };
+        let answer = crate::host::TakeHostGrantOutcome::Granted { host_grant_taken: crate::host::HostGrantTaken { grant_id: identity.clone(), instance: input.instance.clone(), kind: input.kind.clone() } };
+        HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Granted(crate::host::HostGrant::new_granted(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.observation.CompleteSnapshot`, generated: every outcome is one the specification fully determines.
 impl<P> crate::observation::obligations::CompleteSnapshotBehavior for Generated<P>
 where
@@ -2553,6 +2886,61 @@ where
                 resource: held.data.resource,
                 amount: held.data.amount,
                 requested_at: held.data.requested_at,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.host.Grants`, generated: every row is one the specification fully determines from the stored `conductor.host.HostGrant`s.
+impl<P> crate::host::obligations::GrantsQuery for Generated<P>
+where
+    P: HostGrantStorage,
+{
+    fn grants(&self) -> Result<Vec<crate::host::Grants>, UnmetObligation> {
+        let admitted = HostGrantStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::host::Grants {
+                grant_id: held.data.grant_id,
+                state: held.state,
+                instance: held.data.instance,
+                repository: held.data.repository,
+                kind: held.data.kind,
+                bytes: held.data.bytes,
+                peak_bytes: held.data.peak_bytes,
+                command: held.data.command,
+                process_group: held.data.process_group,
+                session_name: held.data.session_name,
+                reclaimed_bytes: held.data.reclaimed_bytes,
+                shortfall_bytes: held.data.shortfall_bytes,
+                requested_at: held.data.requested_at,
+                started_at: held.data.started_at,
+                released_at: held.data.released_at,
+                release_reason: held.data.release_reason,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.host.ReclaimRuns`, generated: every row is one the specification fully determines from the stored `conductor.host.ReclaimRun`s.
+impl<P> crate::host::obligations::ReclaimRunsQuery for Generated<P>
+where
+    P: ReclaimRunStorage,
+{
+    fn reclaim_runs(&self) -> Result<Vec<crate::host::ReclaimRuns>, UnmetObligation> {
+        let admitted = ReclaimRunStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::host::ReclaimRuns {
+                reclaim_run_id: held.data.reclaim_run_id,
+                state: held.state,
+                instance: held.data.instance,
+                result: held.data.result,
+                steps: held.data.steps,
+                reclaimed_bytes: held.data.reclaimed_bytes,
+                shortfall_bytes: held.data.shortfall_bytes,
+                left: held.data.left,
+                ran_at: held.data.ran_at,
             })
             .collect())
     }

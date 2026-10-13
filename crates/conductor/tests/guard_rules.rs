@@ -659,7 +659,7 @@ fn a_controller_runs_git_and_cd_in_its_own_checkout() {
         "git -C src log --oneline -3",
         &format!("git -C {own} status"),
         "git -C ~/example-org/.guard-probe-w04 status",
-        "cd src && cargo test",
+        "cd src && cargo fmt --check",
         "cd ~/example-org/.guard-probe-w04/crates && ls",
         "cd ~/.local/state/worktree/trees/example-org/.guard-probe-w04/t && git status",
         "cd ~/example-org && ls",
@@ -1058,7 +1058,7 @@ fn a_worker_messages_only_conductor_and_reaches_no_other_repository() {
         "only conductor",
     );
     for command in [
-        "cargo test -p x",
+        "cargo tree -p x",
         "git -C ~/example-org/.guard-probe-w04 log",
         "cd ~/example-org/.guard-probe-w04 && git status",
         "cd ../guard-probe-w04-u2",
@@ -1796,7 +1796,7 @@ fn a_controller_names_conductor_without_running_a_leaf() {
         "ls crates/conductor src",
         "git log -- crates/conductor",
         "rg 'conductor decision record-operator-decision' docs",
-        "cargo test -p conductor-cli",
+        "cargo tree -p conductor-cli",
         "echo conductor",
     ] {
         assert_verdict(&bash(&home, PROBE, command), Verdict::Allow, "");
@@ -2858,7 +2858,7 @@ fn a_controller_s_bash_writes_no_config() {
             &format!("grep records {config}"),
             "ls ~/.b10x/conductor",
             "echo x > notes.txt",
-            "CONDUCTOR_CONFIG=x.yaml cargo test -p x > out.log",
+            "CONDUCTOR_CONFIG=x.yaml cargo tree -p x > out.log",
             "cp x ~/.b10x/conductor/fixture/records/decisions/2026-10.jsonl",
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
@@ -5349,5 +5349,154 @@ fn sec_forge_reads_stay_reads() {
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
         }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:guard-requires-build-run: a controller's build, test or gate runs under `conductor build
+// run`, which reserves its disk in the host ledger first.
+// -------------------------------------------------------------------------------------------------
+
+/// Each build, test or gate command a controller runs plainly is denied, and the denial names the
+/// exact `conductor build run` form with that command's default reservation: 8G for cargo and
+/// `task`, 2G for npm and `task ui`. A worker in a managed tree is held as its controller is.
+#[test]
+fn a_controller_s_unreserved_build_is_denied_with_the_build_run_form() {
+    let home = home("build-run-deny");
+    let cases = [
+        ("cargo build", "cargo build", "8G"),
+        ("cargo test -p x", "cargo test -p x", "8G"),
+        (
+            "cargo check --all-targets",
+            "cargo check --all-targets",
+            "8G",
+        ),
+        (
+            "cargo clippy --all-targets -- -D warnings",
+            "cargo clippy --all-targets -- -D warnings",
+            "8G",
+        ),
+        ("cargo nextest run", "cargo nextest run", "8G"),
+        (
+            "cargo install --path crates/conductor --locked",
+            "cargo install --path crates/conductor --locked",
+            "8G",
+        ),
+        ("cargo run -- --help", "cargo run -- --help", "8G"),
+        ("cargo +nightly test", "cargo +nightly test", "8G"),
+        (
+            "cargo --manifest-path x/Cargo.toml build",
+            "cargo --manifest-path x/Cargo.toml build",
+            "8G",
+        ),
+        ("cargo t", "cargo t", "8G"),
+        ("task check", "task check", "8G"),
+        ("task gate", "task gate", "8G"),
+        ("task install", "task install", "8G"),
+        ("task regen", "task regen", "8G"),
+        ("task docs-generate", "task docs-generate", "8G"),
+        ("task -d crates check", "task -d crates check", "8G"),
+        ("task ui", "task ui", "2G"),
+        ("npm run build", "npm run build", "2G"),
+        ("npm run test", "npm run test", "2G"),
+        ("npm test", "npm test", "2G"),
+        ("npm ci", "npm ci", "2G"),
+        (
+            "npm --prefix website run build",
+            "npm --prefix website run build",
+            "2G",
+        ),
+        ("cd src && cargo test 2>&1 | tail -5", "cargo test", "8G"),
+        ("timeout 600 cargo test", "cargo test", "8G"),
+        ("env RUSTFLAGS=-Dwarnings cargo build", "cargo build", "8G"),
+        ("/usr/bin/cargo test", "/usr/bin/cargo test", "8G"),
+        ("bash -c 'cargo test -p x'", "cargo test -p x", "8G"),
+        ("echo \"$(cargo build)\"", "cargo build", "8G"),
+        (
+            "conductor build run --reserve 8G -- true && cargo test",
+            "cargo test",
+            "8G",
+        ),
+        (
+            "conductor build run --reserve 8G -- bash -c 'cargo test' && bash -c 'cargo test'",
+            "cargo test",
+            "8G",
+        ),
+        (
+            "conductor build run --reserve 8G -- echo \"$(cargo build)\"",
+            "cargo build",
+            "8G",
+        ),
+        ("cargo test -p x -- 'a b'", "cargo test -p x -- 'a b'", "8G"),
+    ];
+    for cwd in [PROBE, WORKER] {
+        for (command, run, size) in cases {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                &format!("`conductor build run --reserve {size} -- {run}`"),
+            );
+        }
+    }
+}
+
+/// The same commands under `conductor build run`, with or without a reservation or a repository,
+/// a global flag before the group, or a shell script run under it, are allowed.
+#[test]
+fn a_controller_s_build_under_conductor_build_run_is_allowed() {
+    let home = home("build-run-allow");
+    for cwd in [PROBE, WORKER] {
+        for command in [
+            "conductor build run --reserve 8G -- cargo test",
+            "conductor build run --reserve 8G -- cargo clippy --all-targets -- -D warnings",
+            "conductor build run --reserve 8G --repository example-org/x -- task check",
+            "conductor build run --reserve 2G -- npm ci",
+            "conductor build run -- npm --prefix website run build",
+            "conductor --state-dir state build run --reserve 8G -- cargo build",
+            "cd crates && conductor build run --reserve 8G -- cargo test -p x 2>&1 | tail -5",
+            "conductor build run --reserve 8G -- bash -c 'cargo fmt --check && cargo test'",
+            "timeout 3600 conductor build run --reserve 8G -- task gate",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+/// What builds nothing stays allowed: formatting, metadata and the dependency tree, a listing of
+/// tasks, an npm command that is no build, test or install, and a build command named only as a
+/// word or a string.
+#[test]
+fn a_controller_formats_and_reads_without_conductor_build_run() {
+    let home = home("build-run-unheld");
+    for command in [
+        "cargo fmt --check",
+        "cargo fmt",
+        "rustfmt --edition 2024 src/lib.rs",
+        "cargo metadata --format-version 1",
+        "cargo tree -p x",
+        "cargo --version",
+        "task --list",
+        "npm run lint",
+        "npm view x version",
+        "echo cargo test",
+        "grep -rn 'cargo test' docs",
+        "rg 'task check' .agents",
+        "git commit -m 'run cargo test under conductor build run'",
+    ] {
+        assert_verdict(&bash(&home, PROBE, command), Verdict::Allow, "");
+    }
+}
+
+/// Conductor's own Bash is not held: it runs no builds, and the rule is a controller's.
+#[test]
+fn conductor_s_bash_is_not_held_to_conductor_build_run() {
+    let home = home("build-run-conductor");
+    for command in [
+        "cargo test",
+        "task check",
+        "npm ci",
+        "cargo build --release",
+    ] {
+        assert_verdict(&bash(&home, CONDUCTOR, command), Verdict::Allow, "");
     }
 }

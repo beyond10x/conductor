@@ -11,6 +11,7 @@ components:
         - conductor.dispatch
         - conductor.config
         - conductor.session
+        - conductor.host
     # The config file and the instance in it, each from its environment variable
     # (CONDUCTOR_CONFIG, CONDUCTOR_INSTANCE) when no flag names it (story:config-file).
     settings:
@@ -76,6 +77,13 @@ components:
         - conductor.dispatch.ReleaseResource
         - conductor.dispatch.RecordGuardDecision
         - conductor.session.ClaimLease
+        - conductor.host.TakeHostGrant
+        - conductor.host.RequestDisk
+        - conductor.host.ReserveDisk
+        - conductor.host.StartRun
+        - conductor.host.RecordPeak
+        - conductor.host.ReleaseGrant
+        - conductor.host.Reclaim
     publishes:
       events:
         - conductor.observation.SnapshotStarted
@@ -130,6 +138,15 @@ components:
         - conductor.dispatch.GuardDecisionRecorded
         - conductor.session.LeaseTaken
         - conductor.session.LeaseTakenOver
+        - conductor.host.HostGrantTaken
+        - conductor.host.DiskRequested
+        - conductor.host.DiskReserved
+        - conductor.host.DiskReservationRefused
+        - conductor.host.RunStarted
+        - conductor.host.PeakRecorded
+        - conductor.host.HostGrantReleased
+        - conductor.host.DiskReclaimed
+        - conductor.host.ReclaimFloorNotReached
     reached_by: command_line
     cli:
       binary: conductor
@@ -252,3 +269,16 @@ components:
             - conductor.session.ClaimLease
           views:
             - conductor.session.Leases
+        - name: host
+          summary: The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk
+          commands:
+            - conductor.host.TakeHostGrant
+            - conductor.host.RequestDisk
+            - conductor.host.ReserveDisk
+            - conductor.host.StartRun
+            - conductor.host.RecordPeak
+            - conductor.host.ReleaseGrant
+            - conductor.host.Reclaim
+          views:
+            - conductor.host.Grants
+            - conductor.host.ReclaimRuns

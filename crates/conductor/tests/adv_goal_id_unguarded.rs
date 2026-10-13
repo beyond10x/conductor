@@ -127,6 +127,12 @@ impl Context for Ports {
     fn generate_conductor_observation_snapshot_id(&mut self) -> SnapshotId {
         unreachable!("AddServing and SendDispatch assign no snapshot id")
     }
+    fn generate_conductor_host_grant_id(&mut self) -> conductor_model::host::GrantId {
+        unreachable!("AddServing and SendDispatch assign no grant id")
+    }
+    fn generate_conductor_host_reclaim_run_id(&mut self) -> conductor_model::host::ReclaimRunId {
+        unreachable!("AddServing and SendDispatch assign no reclaim run id")
+    }
 }
 
 fn state_dir(case: &str) -> PathBuf {

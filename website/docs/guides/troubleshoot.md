@@ -14,7 +14,7 @@ conductor config validate
 conductor doctor
 ```
 
-`conductor --version` names the installed release, `conductor 0.9.0`; quote it when you report a
+`conductor --version` names the installed release, `conductor 0.10.0`; quote it when you report a
 problem.
 
 Every command resolves the instance first and stops on a config problem, named by its YAML path.
@@ -117,7 +117,7 @@ of standard error, `member <name>: checkout absent, skipped`.
 
 | message | cause | fix |
 |---|---|---|
-| `ess generate synthesize` refuses files that carry `com.apple.provenance` | macOS marks files written by a process Claude Code started with the extended attribute `com.apple.provenance`, so files a session wrote carry it, and `ess` refuses them | run that generation from a plain terminal, not from a Claude Code session or a command it started; the fix belongs to `ess` |
+| `ess generate synthesize` refuses files that carry `com.apple.provenance` | an `ess` older than 0.54.0 runs in that shell: macOS marks files a process Claude Code started wrote with `com.apple.provenance`, and only `ess` 0.54.0 and later accept it | run `command -v ess` and `ess --version` in the same shell; install the `ess` your `b10x.toml` pins (`b10x install ess`) and remove the older copy from `PATH` |
 
 `xattr -l <file>` lists a file's extended attributes, `com.apple.provenance` among them.
 

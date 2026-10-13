@@ -47,6 +47,7 @@
 //! refused. A partial archive row is listed, and exits 0.
 
 mod archives;
+pub mod reclaim;
 
 use std::ffi::OsString;
 use std::fs;

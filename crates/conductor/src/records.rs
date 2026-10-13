@@ -375,6 +375,14 @@ pub fn records_check(state: Option<&Path>, args: &RecordsCheckArgs) -> Result<Ex
         .collect();
     known.extend(stored_decisions(state).with_context(|| COMMAND.to_owned())?);
     let findings = check(&dispatches, &decisions, &known);
+    let legacy_lines = legacy(&dispatches, &DISPATCH_KEYS, &DISPATCH_REQUIRED)
+        + legacy(&decisions, &DECISION_KEYS, &DECISION_REQUIRED);
+    if legacy_lines > 0 {
+        let _ = writeln!(
+            io::stderr().lock(),
+            "{COMMAND}: {legacy_lines} line(s) written before the first a command wrote, judged only on the decisions they cite"
+        );
+    }
 
     let mut out = io::stdout().lock();
     let written = if json {
@@ -515,9 +523,27 @@ fn decision_ids(text: &str) -> Vec<String> {
     ids
 }
 
+/// How many lines of `lines` come before the first one a command wrote, one whose key set is the
+/// log's (`keys`, `required`): the hand-written lines from before the commands wrote the log,
+/// which the key-set and misfiled-decision checks do not judge. Every line, when none is a
+/// command's yet.
+fn legacy(lines: &[Line], keys: &[&str], required: &[&str]) -> usize {
+    lines
+        .iter()
+        .position(|line| {
+            let object = serde_json::from_str::<Value>(&line.text).ok();
+            object.as_ref().is_some_and(Value::is_object)
+                && key_set(object.as_ref(), keys, required).is_none()
+        })
+        .unwrap_or(lines.len())
+}
+
 /// The findings over both logs, in file and line order: the dispatch log's, then the decision
-/// log's.
+/// log's. A line before the first a command wrote in its log ([`legacy`]) is judged only on the
+/// decision ids it cites.
 fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> Vec<RecordsFinding> {
+    let old_dispatches = legacy(dispatches, &DISPATCH_KEYS, &DISPATCH_REQUIRED);
+    let old_decisions = legacy(decisions, &DECISION_KEYS, &DECISION_REQUIRED);
     let mut findings = Vec::new();
     let finding = |line: &Line, kind: RecordsFindingKind, detail: String| RecordsFinding {
         file: line.file.clone(),
@@ -525,9 +551,11 @@ fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> V
         finding: kind,
         detail,
     };
-    for line in dispatches {
+    for (index, line) in dispatches.iter().enumerate() {
         let object = serde_json::from_str::<Value>(&line.text).ok();
-        if let Some(Value::Object(object)) = &object
+        let judged = index >= old_dispatches;
+        if judged
+            && let Some(Value::Object(object)) = &object
             && let Some(detail) = decision_in_dispatch_log(object)
         {
             findings.push(finding(
@@ -537,7 +565,8 @@ fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> V
             ));
             continue;
         }
-        if let Some(detail) = key_set(object.as_ref(), &DISPATCH_KEYS, &DISPATCH_REQUIRED) {
+        if judged && let Some(detail) = key_set(object.as_ref(), &DISPATCH_KEYS, &DISPATCH_REQUIRED)
+        {
             findings.push(finding(line, RecordsFindingKind::UnknownKeySet, detail));
         }
         let mut cited = decision_ids(&line.text);
@@ -555,7 +584,7 @@ fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> V
             }
         }
     }
-    for line in decisions {
+    for line in &decisions[old_decisions..] {
         let object = serde_json::from_str::<Value>(&line.text).ok();
         if let Some(detail) = key_set(object.as_ref(), &DECISION_KEYS, &DECISION_REQUIRED) {
             findings.push(finding(line, RecordsFindingKind::UnknownKeySet, detail));

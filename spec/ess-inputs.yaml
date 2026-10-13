@@ -9,6 +9,7 @@ specification:
   - domains/dispatch.yaml
   - domains/config.yaml
   - domains/session.yaml
+  - domains/host.yaml
 scenarios:
   - scenarios/grant-disk-under-floor.yaml
   - scenarios/adv-route-need-unsent-dispatch.yaml

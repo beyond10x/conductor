@@ -22,7 +22,9 @@
 //!   (`story:live-dashboard`), at its binding path, with its `about` as help and exactly the
 //!   option flags the binding maps its input fields to. Its group is the block's group of that
 //!   name, or a new one after the block's groups, with no help, when the block has none; a
-//!   one-word such command (`conductor trust`) is a word of its own after the block's groups.
+//!   one-word such command (`conductor trust`) is a word of its own after the block's groups. A
+//!   field the binding takes from a `trailing` source is the words after `--`, as written
+//!   (`conductor build run`, `story:build-run`), and no word before it.
 //!
 //! No other word parses: no catch-all, no inferred prefix, no `help` word, no positional. The
 //! binding's `globals` must also name an output flag (`ess-cli/1` refuses a binding without
@@ -75,6 +77,8 @@ enum Accepts {
     /// A `String` newtype that declares `prefix:`.
     Prefixed(String),
     OneOf(Vec<String>),
+    /// `List<…>`: a JSON array, its elements as the handler reads them (`host record-reclaim`).
+    JsonList,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +108,8 @@ enum Kind {
     /// A command the binding declares over a `local` callable outside the `cli:` block.
     Local {
         flags: Vec<LocalFlag>,
+        /// The fields the binding takes from the words after `--` (`story:build-run`).
+        trailing: Vec<String>,
     },
 }
 
@@ -198,6 +204,9 @@ struct BindingCommand {
     aliases: usize,
     /// Its arguments with an `option` source, as flags.
     flags: Vec<LocalFlag>,
+    /// Its arguments with a `trailing` source, by field: the words after `--`
+    /// (`story:build-run`).
+    trailing: Vec<String>,
     /// Its arguments with any other source, described; this test maps none of them.
     unmapped: Vec<String>,
 }
@@ -216,6 +225,7 @@ fn read_binding() -> Binding {
                 &plan["callables"][text(&command["callable"], "a binding command's callable")];
             let fields = &callable["input"]["shape"]["fields"];
             let mut flags = Vec::new();
+            let mut trailing = Vec::new();
             let mut unmapped = Vec::new();
             for argument in list(&command["arguments"]) {
                 let field = text(&argument["field"], "a binding argument's field");
@@ -225,6 +235,7 @@ fn read_binding() -> Binding {
                         long: long.to_owned(),
                         holds: holds(&fields[field]),
                     }),
+                    (Some("trailing"), _) => trailing.push(field.to_owned()),
                     _ => unmapped.push(format!("field `{field}` from {source}")),
                 }
             }
@@ -237,6 +248,7 @@ fn read_binding() -> Binding {
                 .to_owned(),
                 aliases: list(&command["aliases"]).len(),
                 flags,
+                trailing,
                 unmapped,
                 path,
             }
@@ -302,6 +314,7 @@ fn presented(spec: &Spec, binding: &Binding) -> Vec<Group> {
             display: command.about.clone(),
             kind: Kind::Local {
                 flags: command.flags.clone(),
+                trailing: command.trailing.clone(),
             },
         };
         match groups.iter_mut().find(|known| known.name == *group) {
@@ -330,6 +343,7 @@ fn list(value: &Value) -> &[Value] {
 fn accepts(model: &Value, type_ref: &Value, context: &str) -> Accepts {
     match type_ref["kind"].as_str() {
         Some("optional") => accepts(model, &type_ref["of"], context),
+        Some("list") => Accepts::JsonList,
         Some("primitive") => match text(&type_ref["name"], context) {
             "string" => Accepts::Text,
             "integer" => Accepts::Integer,
@@ -553,16 +567,27 @@ const ROOT_HARNESS: &[&str] = &["help", "version"];
 
 /// Every word on `command` besides its subcommands and the `harness` flags clap adds on its own:
 /// long flags, plus a problem for anything that is not a long flag (a positional, a short flag,
-/// an alias).
+/// an alias). The one exception is a field of `trailing`, which the binding takes from the words
+/// after `--`: a positional of that id, taken only after `--` (clap's `last`).
 fn flag_words(
     path: &str,
     command: &Command,
     harness: &[&str],
+    trailing: &[String],
     problems: &mut Vec<String>,
 ) -> BTreeSet<String> {
     let mut longs = BTreeSet::new();
     for arg in command.get_arguments() {
         if harness.contains(&arg.get_id().as_str()) {
+            continue;
+        }
+        if arg.is_positional() && trailing.iter().any(|field| field == arg.get_id().as_str()) {
+            if !arg.is_last_set() {
+                problems.push(format!(
+                    "`{path}`: `{}` takes the words after `--`, but is taken before it too",
+                    arg.get_id()
+                ));
+            }
             continue;
         }
         match arg.get_long() {
@@ -641,7 +666,7 @@ fn derive_tree_is_the_cli_block() {
             spec.binary
         ));
     }
-    let root_flags = flag_words(&spec.binary, &root, ROOT_HARNESS, &mut problems);
+    let root_flags = flag_words(&spec.binary, &root, ROOT_HARNESS, &[], &mut problems);
     // The root's `--version` is clap's own flag, not a modelled word that merely shares its id.
     match root.get_arguments().find(|arg| arg.get_id() == "version") {
         Some(arg)
@@ -702,7 +727,7 @@ fn derive_tree_is_the_cli_block() {
         };
         let path = format!("{} {}", spec.binary, group.name);
         check_about(&path, actual, group.summary.as_deref(), &mut problems);
-        let group_flags = flag_words(&path, actual, HARNESS, &mut problems);
+        let group_flags = flag_words(&path, actual, HARNESS, &[], &mut problems);
         // A one-word local command takes the binding's flags beside the global ones; a group
         // takes the global ones only.
         let mut expected_flags = global.clone();
@@ -794,7 +819,7 @@ fn derive_tree_is_the_cli_block() {
                         ));
                     }
                 }
-                Kind::Local { flags } => {
+                Kind::Local { flags, trailing } => {
                     for flag in flags {
                         if !expected.insert(flag.long.clone()) {
                             problems.push(format!(
@@ -803,9 +828,23 @@ fn derive_tree_is_the_cli_block() {
                             ));
                         }
                     }
+                    for field in trailing {
+                        if !command
+                            .get_arguments()
+                            .any(|arg| arg.is_positional() && arg.get_id().as_str() == field)
+                        {
+                            problems.push(format!(
+                                "`{path}`: the words after `--` (field `{field}`) are not taken"
+                            ));
+                        }
+                    }
                 }
             }
-            let actual_flags = flag_words(&path, command, HARNESS, &mut problems);
+            let trailing: &[String] = match &leaf.kind {
+                Kind::Local { trailing, .. } => trailing,
+                _ => &[],
+            };
+            let actual_flags = flag_words(&path, command, HARNESS, trailing, &mut problems);
             compare_flags(&path, &expected, &actual_flags, &mut problems);
         }
     }
@@ -972,6 +1011,10 @@ fn every_flag_accepts_what_its_field_holds() {
                                     "123e4567-e89b-12d3-a456-42661417400g",
                                 ],
                             ),
+                            Accepts::JsonList => (
+                                owned(&["[]", r#"[{"path":"/example","bytes":1}]"#]),
+                                vec!["x", "{}"],
+                            ),
                             Accepts::Prefixed(prefix) => {
                                 (vec![format!("{prefix}20261006-01")], vec!["20261006-01"])
                             }
@@ -1014,7 +1057,18 @@ fn every_flag_accepts_what_its_field_holds() {
                     }
                     expect_value_refused(&argv(&base, &["--format", "yaml"]), &mut problems);
                 }
-                Kind::Local { flags } => local_flags_accept(&base, flags, &mut problems),
+                Kind::Local { flags, trailing } => {
+                    local_flags_accept(&base, flags, &mut problems);
+                    if !trailing.is_empty() {
+                        // The words after `--` are taken as written, flags among them.
+                        for words in [
+                            &["--", "sh", "-c", "exit 0"][..],
+                            &["--", "cargo", "test", "--locked", "-p", "example"][..],
+                        ] {
+                            expect_accepted(&argv(&base, words), &mut problems);
+                        }
+                    }
+                }
             }
         }
         // A one-word local command: the global flags before and after it, and its own flags.
@@ -1229,8 +1283,8 @@ fn no_word_outside_the_cli_block_parses() {
 /// `cli:` block does not place validates too. So every command the binding presents is checked
 /// here to be a placed leaf of the block, under the block's binary and with its display as help,
 /// or a command over a `local` callable, which the derive tree presents beside the block
-/// (`story:live-dashboard`). Such a command has one or two words, no alias and only option flags:
-/// those are what `derive_tree_is_the_cli_block` compares.
+/// (`story:live-dashboard`). Such a command has one or two words, no alias, and only option flags
+/// and the words after `--`: those are what `derive_tree_is_the_cli_block` compares.
 #[test]
 fn the_binding_presents_only_placed_leaves_and_local_commands() {
     let spec = read_spec();

@@ -118,6 +118,23 @@ callables:
       checksum-mismatch: conductor.config.UpgradeRefused
       new-binary-does-not-run: conductor.config.UpgradeRefused
       binary-not-writable: conductor.config.UpgradeRefused
+  build-run:
+    target: {kind: local, owner: conductor-cli, action: build_run}
+    input: conductor.host.BuildRun
+    result: Integer
+    errors:
+      refused: conductor.host.BuildRunRefused
+  host-grants:
+    target: {kind: local, owner: conductor-cli, action: host_grants}
+    input: conductor.host.ShowGrants
+    result: String
+    errors: {}
+  gc-reclaim:
+    target: {kind: local, owner: conductor-cli, action: gc_reclaim}
+    input: conductor.host.ReclaimDisk
+    result: List<conductor.host.ReclaimStep>
+    errors:
+      floor-not-reached: conductor.host.ReclaimFellShort
 commands:
   - path: [goal, goals]
     callable: goals
@@ -251,3 +268,25 @@ commands:
         source: {kind: option, long: check}
       - field: release
         source: {kind: option, long: release}
+  - path: [build, run]
+    callable: build-run
+    about: Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size
+    arguments:
+      - field: reserve
+        source: {kind: option, long: reserve}
+      - field: repository
+        source: {kind: option, long: repository}
+      - field: command
+        source: {kind: trailing}
+  - path: [host, grants]
+    callable: host-grants
+    about: Host grants
+    arguments:
+      - field: format
+        source: {kind: option, long: format}
+  - path: [host, reclaim]
+    callable: gc-reclaim
+    about: Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
+    arguments:
+      - field: format
+        source: {kind: option, long: format}

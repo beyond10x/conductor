@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:disk-reclaim
 kind: story
-status: draft
+status: active
 title: Under a disk floor, conductor frees disk itself instead of waiting
 relations:
 - decomposes: epic:disk-protocol
 - depends_on: story:disk-protocol-spec
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T17:12:17Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-13T17:12:18Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

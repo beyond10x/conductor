@@ -107,8 +107,9 @@ const FORMS: [Form; 7] = [
                     "unblocked",
                     "done",
                     "failed",
+                    "ready",
                 ]
-                .contains(&words[0])
+                .contains(&words[0].strip_suffix(':').unwrap_or(words[0]))
         },
     },
     Form {
@@ -162,8 +163,10 @@ pub struct Reading {
 
 /// Reads `line` as a § 6 first line. The tag is the first word after `[`, ended by white space
 /// or `]`, so a line that names a kind with its tag is of that kind even when its `]` is missing.
-/// A field inside the brackets whose type declares a prefix holds a value with that prefix. A line
-/// holding a line break is no first line, and does not parse.
+/// A field inside the brackets whose type declares a prefix holds a value with that prefix; a
+/// dispatch id may be `-`, a report that answers no dispatch (`[REPORT conductor -] ready …`). A
+/// report's verb may end in `:` (`progress: …`). A line holding a line break is no first line, and
+/// does not parse.
 #[must_use]
 pub fn read(line: &str) -> Reading {
     let Some(opened) = line.trim().strip_prefix('[') else {
@@ -188,10 +191,9 @@ pub fn read(line: &str) -> Reading {
         let words: Vec<&str> = rest.split_whitespace().collect();
         !line.contains(['\n', '\r'])
             && fields.len() == form.fields.len()
-            && fields
-                .iter()
-                .zip(form.fields)
-                .all(|(field, prefix)| field.starts_with(prefix))
+            && fields.iter().zip(form.fields).all(|(field, prefix)| {
+                field.starts_with(prefix) || (*prefix == DISPATCH_ID && *field == "-")
+            })
             && rest.starts_with(' ')
             && (form.rest)(&words)
     });
@@ -557,6 +559,18 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<SnapshotId, UnmetObligation> {
         Err(unmet_context("conductor.observation.SnapshotId"))
+    }
+
+    fn try_generate_conductor_host_grant_id(
+        &mut self,
+    ) -> Result<conductor_model::host::GrantId, UnmetObligation> {
+        Err(unmet_context("conductor.host.GrantId"))
+    }
+
+    fn try_generate_conductor_host_reclaim_run_id(
+        &mut self,
+    ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
+        Err(unmet_context("conductor.host.ReclaimRunId"))
     }
 }
 

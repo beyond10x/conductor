@@ -73,6 +73,12 @@
 //!   each floor it crossed, in that order. A reading more than [`DISK_JUMP`] from the
 //!   last pass's is read again before it is compared, and the second reading stands
 //!   (`story:watch-disk-reading`): one odd reading is not reported.
+//! - **reclaim** once per fall under `disk_admit`, in the pass that reports `disk admit`
+//!   (`story:disk-reclaim`, `story:disk-escalation`): the watch runs [`crate::gc::reclaim`] to
+//!   the instance's floor ([`crate::gc::reclaim::floor_bytes`]: `disk_admit` plus a margin) and
+//!   reports `disk reclaimed: <n>G` when it reached it, else `disk floor not reached: <n>G short`
+//!   with the GiB still lacking by a reading taken after it, so conductor raises it to the
+//!   operator. A reclaim that fails is named on standard error, as a source that does not answer.
 //!
 //! An empty or unreadable session list skips the five session probes for that pass. A source
 //! that does not answer is named once on standard error, `conductor watch: <error>`, until it
@@ -119,6 +125,7 @@ use crate::collect::gitlab::{self, Forge, PIPELINE, Project};
 use crate::collect::repositories::{WIDTH, each, filled, words};
 use crate::collect::{self, BOUND};
 use crate::config::{self, Active};
+use crate::gc::reclaim::ReclaimReport;
 use crate::{repository, state};
 
 /// How recent a dispatch line must be to explain a session's exit.
@@ -224,7 +231,7 @@ pub struct Sources {
     /// The path on whose file system free disk is read: `/`.
     pub disk: PathBuf,
     /// Reads the bytes free on the file system holding [`Sources::disk`]: the `available` of
-    /// [`crate::disk::space`].
+    /// [`crate::disk::space`], or the readings [`crate::gc::reclaim::free_bytes`] is pointed at.
     pub free_bytes: fn(&Path) -> Result<u64>,
     /// The program and arguments of the desktop notifier; a title and a body are added.
     pub notify: Vec<OsString>,
@@ -285,7 +292,7 @@ impl Sources {
                 "workflowName,conclusion,status,createdAt,databaseId",
             ]),
             disk: PathBuf::from("/"),
-            free_bytes: |path| crate::disk::space(path).map(|space| space.available),
+            free_bytes: crate::gc::reclaim::free_bytes,
             notify: ["notify-send", "-u", "critical"]
                 .map(OsString::from)
                 .to_vec(),
@@ -432,7 +439,8 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
         state.join("watch"),
     )
     .with_settings(Settings::of(&active.instance))
-    .with_gitlab(Forge::all(&active.instance));
+    .with_gitlab(Forge::all(&active.instance))
+    .with_reclaim(state, crate::gc::reclaim::reclaim);
     watch.run(&options, &mut io::stdout().lock(), &mut io::stderr().lock())?;
     Ok(ExitCode::SUCCESS)
 }
@@ -447,7 +455,14 @@ pub struct Watch {
     dir: PathBuf,
     /// The sources named on standard error that have not answered since.
     failing: BTreeSet<String>,
+    /// The state directory a reclaim run is recorded under, and the reclaim run once per fall
+    /// under `disk_admit`; none: no reclaim.
+    reclaim: Option<(PathBuf, Reclaimer)>,
 }
+
+/// A reclaim run to a floor, recorded under a state directory: [`crate::gc::reclaim::reclaim`],
+/// or a test's fake.
+pub type Reclaimer = fn(&Path, u64) -> Result<ReclaimReport>;
 
 /// `sessions.json`: the session list of the last pass that read one, and when it was taken.
 #[derive(Debug, Serialize, Deserialize)]
@@ -540,7 +555,16 @@ impl Watch {
             gitlab: Vec::new(),
             dir,
             failing: BTreeSet::new(),
+            reclaim: None,
         }
+    }
+
+    /// This watch running `reclaim` once per fall under `disk_admit`, to the instance's floor
+    /// ([`crate::gc::reclaim::floor_bytes`]), recording it under the state directory `state`.
+    #[must_use]
+    pub fn with_reclaim(mut self, state: PathBuf, reclaim: Reclaimer) -> Self {
+        self.reclaim = Some((state, reclaim));
+        self
     }
 
     /// This watch on `settings`.
@@ -1337,11 +1361,13 @@ impl Watch {
                 format!("disk gate stop: {free}G free on / (gates stop)"),
             ),
         ];
+        let mut fell_under_admit = false;
         for (file, floor, clear, line) in floors {
             let marker = self.state(file);
             if free < floor && !marker.exists() {
                 lines.push(line);
                 fs::write(&marker, "").with_context(|| format!("write {}", marker.display()))?;
+                fell_under_admit |= file == DISK_ADMIT;
             } else if free >= clear {
                 match fs::remove_file(&marker) {
                     Ok(()) => {}
@@ -1352,7 +1378,39 @@ impl Watch {
                 }
             }
         }
+        if fell_under_admit {
+            self.reclaim(bytes, lines, notes);
+        }
         Ok(())
+    }
+
+    /// Runs the reclaim, if any, to the instance's floor, after a fall under `disk_admit` read as
+    /// `bytes` free: `disk reclaimed: <n>G` (the GiB it freed, rounded down) when it reached the
+    /// floor, else `disk floor not reached: <n>G short` (rounded up), by a reading taken after it
+    /// or, when that fails, by `bytes` and what it freed.
+    fn reclaim(&mut self, bytes: u64, lines: &mut Vec<String>, notes: &mut dyn Write) {
+        let Some((state, reclaim)) = self.reclaim.clone() else {
+            return;
+        };
+        let need = crate::gc::reclaim::floor_bytes(self.settings.disk_admit);
+        match reclaim(&state, need) {
+            Ok(report) => {
+                self.answered("reclaim");
+                if report.reached {
+                    lines.push(format!("disk reclaimed: {}G", report.reclaimed_bytes >> 30));
+                } else {
+                    let free = self
+                        .free_bytes()
+                        .unwrap_or_else(|_| bytes.saturating_add(report.reclaimed_bytes));
+                    let short = need.saturating_sub(free).max(1).div_ceil(1 << 30);
+                    lines.push(format!("disk floor not reached: {short}G short"));
+                }
+            }
+            Err(error) => {
+                let error = error.context("reclaim disk under disk_admit");
+                self.failed("reclaim", &error, notes);
+            }
+        }
     }
 
     fn free_bytes(&self) -> Result<u64> {

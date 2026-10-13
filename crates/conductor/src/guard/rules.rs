@@ -1373,6 +1373,18 @@ impl Session<'_> {
                 },
             );
         }
+        if self.rules == Rules::Controller
+            && let Some((run, size)) = unreserved_build(&commands)
+        {
+            return (
+                Verdict::Deny,
+                format!(
+                    "`{run}` builds, tests or gates outside the host's disk ledger: run it as \
+                     `conductor build run --reserve {size} -- {run}`, which reserves its disk \
+                     first; a refusal names the shortfall: report it, do not retry"
+                ),
+            );
+        }
         if self.rules == Rules::Conductor {
             return (Verdict::Allow, "no GitHub or GitLab write".to_owned());
         }
@@ -1902,6 +1914,161 @@ fn leaf_after(words: &[String], strict: bool, fed: bool) -> Option<DeniedRun> {
     let named = count == 2 || (count == 1 && declared(&operands[..1]).is_some());
     ((strict && expanded) || (fed && !named))
         .then(|| DeniedRun::Unknown(words[..at.min(words.len())].join(" ")))
+}
+
+/// The reservation a build, test or gate takes by default: cargo and `task` (8G), and npm and the
+/// dashboard's `task ui` (2G) (`story:guard-requires-build-run`).
+const BUILD_RESERVE: &str = "8G";
+const NPM_RESERVE: &str = "2G";
+
+/// The cargo subcommands that compile into a target directory, aliases included. `fmt`,
+/// `metadata` and `tree` compile nothing.
+const CARGO_BUILDS: [&str; 15] = [
+    "build", "b", "test", "t", "check", "c", "clippy", "nextest", "install", "run", "r", "bench",
+    "doc", "rustc", "fix",
+];
+
+/// The cargo options that take the next word as their value.
+const CARGO_VALUES: [&str; 5] = ["--manifest-path", "--config", "--color", "-Z", "-C"];
+
+/// The tasks that build, test or gate, with the reservation each takes.
+const TASK_BUILDS: [(&str, &str); 6] = [
+    ("check", BUILD_RESERVE),
+    ("gate", BUILD_RESERVE),
+    ("install", BUILD_RESERVE),
+    ("regen", BUILD_RESERVE),
+    ("docs-generate", BUILD_RESERVE),
+    ("ui", NPM_RESERVE),
+];
+
+/// The `task` options that take the next word as their value.
+const TASK_VALUES: [&str; 8] = [
+    "-d",
+    "--dir",
+    "-t",
+    "--taskfile",
+    "-o",
+    "--output",
+    "-C",
+    "--concurrency",
+];
+
+/// The npm options that take the next word as their value.
+const NPM_VALUES: [&str; 4] = ["--prefix", "-C", "-w", "--workspace"];
+
+/// The first build, test or gate among the simple commands `commands` ([`shell::commands`]) that
+/// does not run under `conductor build run`, as written from its program word on, and the
+/// reservation it takes by default (`story:guard-requires-build-run`).
+///
+/// A command is a build when its program word ([`is_program_word`]: after `env`, `timeout` and
+/// the other launchers too) is `cargo` with a subcommand of [`CARGO_BUILDS`], `task` with a task of
+/// [`TASK_BUILDS`] before `--`, or npm running `ci`, `test` or the `build` or `test` script. A
+/// `conductor build run` covers the words after its `--` and every command they run: a shell's
+/// `-c` script, an `eval`. A command substitution on its line runs before it, in the session's
+/// shell, and is held as any other command.
+fn unreserved_build(commands: &[Vec<String>]) -> Option<(String, &'static str)> {
+    let mut covered: Vec<Vec<String>> = Vec::new();
+    for words in commands {
+        if let Some(run) = build_run(words) {
+            let script: Vec<String> = run.iter().map(|word| shell::quoted(word)).collect();
+            covered.extend(shell::commands(&script.join(" ")));
+        }
+    }
+    for words in commands {
+        if build_run(words).is_some() {
+            continue;
+        }
+        if let Some(at) = covered.iter().position(|run| run == words) {
+            covered.swap_remove(at);
+            continue;
+        }
+        let name = words.len() - command_words(words).len();
+        for at in name..words.len() {
+            if !is_program_word(words, name, at) {
+                continue;
+            }
+            if let Some(size) = build_reserve(shell::program(&words[at]), &words[at + 1..]) {
+                let run: Vec<String> = words[at..].iter().map(|word| shell::quoted(word)).collect();
+                return Some((run.join(" "), size));
+            }
+        }
+    }
+    None
+}
+
+/// The words a `conductor build run` in `words` runs: those after its `--`, or after `run`
+/// when it has none. `None` when `words` runs no `conductor build run`.
+fn build_run(words: &[String]) -> Option<&[String]> {
+    let name = words.len() - command_words(words).len();
+    let at = (name..words.len()).find(|&at| {
+        shell::program(&words[at]) == "conductor" && is_program_word(words, name, at)
+    })?;
+    let mut next = at + 1;
+    let mut operands = Vec::new();
+    while operands.len() < 2
+        && let Some(word) = words.get(next)
+    {
+        next += 1;
+        if GLOBAL_VALUES.contains(&word.as_str()) {
+            next += 1;
+        } else if !word.starts_with('-') {
+            operands.push(word.as_str());
+        }
+    }
+    if operands != ["build", "run"] {
+        return None;
+    }
+    let rest = words.get(next..).unwrap_or_default();
+    Some(match rest.iter().position(|word| word == "--") {
+        Some(dash) => &rest[dash + 1..],
+        None => rest,
+    })
+}
+
+/// The reservation the run of `program` with `arguments` takes by default when it builds, tests
+/// or gates ([`unreserved_build`]).
+fn build_reserve(program: &str, arguments: &[String]) -> Option<&'static str> {
+    match program {
+        "cargo" => build_operands(arguments, &CARGO_VALUES)
+            .first()
+            .filter(|subcommand| CARGO_BUILDS.contains(*subcommand))
+            .map(|_| BUILD_RESERVE),
+        "task" => build_operands(arguments, &TASK_VALUES)
+            .into_iter()
+            .find_map(|task| {
+                TASK_BUILDS
+                    .iter()
+                    .find(|&&(name, _)| name == task)
+                    .map(|&(_, size)| size)
+            }),
+        "npm" => match build_operands(arguments, &NPM_VALUES).as_slice() {
+            [
+                "ci" | "clean-install" | "install-clean" | "test" | "t" | "tst",
+                ..,
+            ] => Some(NPM_RESERVE),
+            ["run" | "run-script" | "rum" | "urn", "build" | "test", ..] => Some(NPM_RESERVE),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The operands of a program's `arguments` before `--`: no option, no `+toolchain`, no
+/// assignment, and no value of an option in `values`.
+fn build_operands<'a>(arguments: &'a [String], values: &[&str]) -> Vec<&'a str> {
+    let mut operands = Vec::new();
+    let mut words = arguments.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            break;
+        }
+        if values.contains(&word.as_str()) {
+            words.next();
+        } else if !(word.starts_with('-') || word.starts_with('+') || is_assignment(word)) {
+            operands.push(word.as_str());
+        }
+    }
+    operands
 }
 
 /// Whether `command` names a file in a `.claude/` directory whose name holds `settings`: the

@@ -603,3 +603,59 @@ fn records_check_names_an_unknown_decision_an_unknown_key_set_and_a_decision_in_
         "records check is a view: it creates no store"
     );
 }
+
+/// Lines written by hand before the first line a command wrote are legacy: `records check`
+/// counts them on standard error and does not judge their key set, so a log kept by hand before
+/// the commands wrote it does not fail every check after the upgrade.
+#[test]
+fn records_check_does_not_judge_the_hand_written_lines_before_the_first_command_line() {
+    let case = Case::new("check-legacy");
+    let known = decision_id(1);
+    let decided = json!({"at": AT, "event": "decided", "repo": "alpha", "id": known, "class": "C",
+                         "decided_by": "Conductor", "choice": "A", "reason": "reversible"});
+    let hand = json!({"ts": AT, "decision": known, "repository": "alpha"});
+    fs::create_dir_all(case.records().join("decisions")).expect("create decisions/");
+    fs::write(
+        case.records().join("decisions/2026-10.jsonl"),
+        format!("{hand}\n{decided}\n"),
+    )
+    .expect("write the decision log");
+    let dispatches = [
+        // Legacy: a hand-written line with another key set.
+        json!({"ts": AT, "verb": "sent", "repository": "alpha", "dispatch": "DSP-1"}),
+        // The first line a command wrote.
+        json!({"at": AT, "event": "blocked", "repo": "alpha", "id": "DSP-1",
+               "reason": format!("waits on {known}")}),
+        // After it, a line with an unknown key set is a finding again.
+        json!({"at": AT, "event": "started", "repository": "alpha", "id": "DSP-2"}),
+    ];
+    fs::create_dir_all(case.records().join("dispatches")).expect("create dispatches/");
+    fs::write(
+        case.records().join("dispatches/2026-10.jsonl"),
+        dispatches
+            .iter()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>(),
+    )
+    .expect("write the dispatch log");
+
+    let output = case.run(&["records", "check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let findings: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        findings.len(),
+        1,
+        "only the line after the first command line: {stdout}"
+    );
+    assert!(
+        findings[0].starts_with("dispatches/2026-10.jsonl:3: UnknownKeySet: "),
+        "{findings:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("2 line(s) written before the first a command wrote"),
+        "{}",
+        describe(&output)
+    );
+}

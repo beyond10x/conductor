@@ -210,7 +210,9 @@ collector is the cross-check: an open blocker with no recorded request is a cont
 report.
 
 A `[RESOURCE]` request is granted or refused against the instance's thresholds
-(`resource grant-resource`, `refuse-resource`, `release-resource`).
+(`resource grant-resource`, `refuse-resource`, `release-resource`), except disk and build slots:
+those come from the host ledger (§ 9, Resources), and conductor answers a `[RESOURCE <repo>]
+disk` or `build` with "use conductor build run".
 
 ## 7. The guard
 
@@ -225,7 +227,7 @@ A `[RESOURCE]` request is granted or refused against the instance's thresholds
 | no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`), a role's `settings` file or a role's `profile` file, by a file tool or a Bash write target | the guard |
 | no `conductor` command that writes, only its views | the guard |
 | conductor's Edit, Write, NotebookEdit only to its records, or in its scratch | the guard |
-| a build over `thresholds.build_size` while free disk is under `thresholds.build_slot` asks for a slot | the profile and `[RESOURCE]` |
+| a controller's build, test or gate (`cargo build\|test\|check\|clippy\|nextest\|install\|run`, `task check\|gate\|install\|ui\|regen\|docs-generate`, `npm run build\|test`, `npm ci`) runs under `conductor build run`, which reserves its disk in the host ledger | the guard: the denial names `conductor build run --reserve <size> -- <command>` |
 
 Scratch is a session's own temporary space: under `$TMPDIR` for every session, and for a
 controller also under `~/.cache/<repo>-*/`, `<repo>` its repository with `/` written `-`. Scratch
@@ -272,8 +274,11 @@ It denies a `cd`, `pushd` or `git -C` into another checkout or the records, a `g
 view|list|download`, `repo view|list`, `ci view|list|status|trace|get`, `api` with GET and no
 request fields, `auth status`, `--help`, `--version`), held exactly as a `gh` write, a `conductor`
 write, a command that writes a settings file, a role's profile file or (a controller's)
-conductor's records, and a command that names conductor's config and holds a write form anywhere
-in it. A write form is a redirection to a file outside quotes (`2>&1`, `>&2`, `>/dev/null` and a
+conductor's records, a command that names conductor's config and holds a write form anywhere
+in it, and (a controller's) build, test or gate that does not run under `conductor build run`:
+its denial names `conductor build run --reserve <size> -- <command>`, 8G for cargo and `task`,
+2G for npm and `task ui`, and `cargo fmt`, `rustfmt`, `cargo metadata` and `cargo tree` stay
+allowed. A write form is a redirection to a file outside quotes (`2>&1`, `>&2`, `>/dev/null` and a
 `>` inside a quoted program such as `awk 'NR>=490'` are none), or a write command or flag (`tee`,
 `cp`, `mv`, `rm`, `sed -i` and the like). A Bash command is decided on its write targets: for the
 records, the settings and the profile files the guard reads the targets of the command's
@@ -341,6 +346,21 @@ root and a directory in it; the repositories collector reads it (§ 4).
 
 The file never holds a secret. A value that looks like a token is refused by its path and never
 printed.
+
+### Resources
+
+Build slots come from the host ledger, not from messages. Every build, test or gate a session
+runs is `conductor build run --reserve <size> [--repository <repo>] -- <command>`: the binary
+grants the reservation at once when free disk minus the live reservations minus the floor covers
+it; when it does not, it reclaims what needs no decision (`conductor host reclaim`: build output
+of idle managed trees and of worktree archives, caches past their age, snapshots past retention)
+and grants, or refuses with the shortfall, exit 2, and records one operator item
+(`decision hands-todo`) per fall naming what is left by path and size. The command runs in its own
+process group under a disk watchdog, paused under `thresholds.gate_stop` and resumed over
+`thresholds.gate_resume`; its peak is recorded with the reservation, which is released when the
+command exits or is killed. `conductor host grants` shows the ledger, shared by every instance on
+the host (`spec/domains/host.yaml`). The guard denies a controller's build that bypasses it (§ 7),
+and no profile grants a slot by message. The concept page is `website/docs/concepts/disk.md`.
 
 ## 10. The store
 

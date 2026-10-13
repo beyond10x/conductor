@@ -448,3 +448,59 @@ fn a_controller_delivers_in_a_repository_with_no_planning_store() {
         "website/docs/concepts/roles.md: a repository needs no planning store"
     );
 }
+
+/// `story:disk-escalation`: conductor grants no build slot by message; it reads the host ledger
+/// and answers a disk or build `[RESOURCE …]` with the command that reserves one, and a `rules.md`
+/// rule to free disk is carried by the protocol.
+#[test]
+fn conductor_grants_no_build_slot_by_message_and_reads_the_host_ledger() {
+    let text = profile("conductor.md");
+    for sentence in [
+        "Build slots are no longer granted by message.",
+        "Every build, test or gate runs as `conductor build run --reserve <size> -- <command>`",
+        "Read the live reservations with `conductor host grants`.",
+        "Answer a `[RESOURCE <repo>] disk` or `[RESOURCE <repo>] build` with \"use conductor build \
+         run\", and grant nothing.",
+        "A `rules.md` rule that asks you to free disk is carried by this protocol: the binary \
+         reclaims (`conductor host reclaim`), and a shortfall it cannot cover is one operator item \
+         in `decision hands-todo`",
+    ] {
+        assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+    }
+    assert!(
+        !text.contains("`[RESOURCE <repo>] build-slot` is refused with the number"),
+        "conductor.md: the build slot granted by message is gone"
+    );
+}
+
+/// `story:disk-escalation` and `story:guard-requires-build-run`: a controller and conductor-dev
+/// run every build, test or gate under `conductor build run`, and report a refusal instead of
+/// retrying it.
+#[test]
+fn every_build_runs_under_conductor_build_run_and_a_refusal_is_reported() {
+    for name in ["repo-controller.md", "conductor-dev.md"] {
+        let text = profile(name);
+        for sentence in [
+            "build, test or gate runs as `conductor build run --reserve <size> -- <command>`",
+            "refusal names the shortfall and is reported, never retried in a loop",
+        ] {
+            assert!(text.contains(sentence), "{name}: holds {sentence:?}");
+        }
+    }
+    let controller = profile("repo-controller.md");
+    for sentence in [
+        "The guard denies a plain `cargo build|test|check|clippy|nextest|install|run`, \
+         `task check|gate|install|ui|regen|docs-generate`, `npm run build|test` or `npm ci`, and \
+         its denial names the form to use; `cargo fmt` and `rustfmt` run as they are.",
+        "Disk and build slots are not asked for by message: `conductor build run` reserves them",
+    ] {
+        assert!(
+            controller.contains(sentence),
+            "repo-controller.md: holds {sentence:?}"
+        );
+    }
+    assert!(
+        !controller.contains("kill -STOP"),
+        "repo-controller.md: the hand-written watchdog is gone"
+    );
+}

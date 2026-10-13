@@ -18,6 +18,7 @@ const sidebars: SidebarsConfig = {
         'concepts/the-loop',
         'concepts/decisions-and-messages',
         'concepts/instances-and-config',
+        'concepts/disk',
       ],
     },
     {

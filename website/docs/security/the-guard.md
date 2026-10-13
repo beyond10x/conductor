@@ -151,7 +151,21 @@ Denied in a controller's session, in addition:
 - a command that writes conductor's records, or a path under them;
 - a `conductor` command that is not a read: `conductor trust`, `conductor init`, and every leaf
   of the command groups except the views, `decision show`, `config show`, `config validate` and
-  the hook's own `guard record-guard-decision`. `conductor doctor` reads, and is allowed.
+  the hook's own `guard record-guard-decision`. `conductor doctor` reads, and is allowed;
+- a build, test or gate that does not run under `conductor build run`
+  ([disk](/docs/concepts/disk)): `cargo build|test|check|clippy|nextest|install|run` (and
+  `bench`, `doc`, `rustc`, `fix`, and the aliases `b`, `t`, `c`, `r`),
+  `task check|gate|install|ui|regen|docs-generate`, `npm run build|test`, `npm test` and `npm ci`,
+  as the program a simple command runs (after `env`, `timeout` and the other launchers, in a
+  `sh -c` script, in a command substitution). The denial names the exact form to run instead,
+  with a default reservation: `conductor build run --reserve 8G -- cargo test -p x` for cargo and
+  `task`, `--reserve 2G` for npm and `task ui`. `conductor build run [--reserve <size>]
+  [--repository <repo>] -- <command>` covers the words after its `--` and every script they run;
+  a substitution on the same line runs before it, in the session's shell, and is held. `cargo
+  fmt`, `rustfmt`, `cargo metadata` and `cargo tree` build nothing and stay allowed. Conductor's
+  own Bash is not held: it runs no builds. Conductor-dev has no rule of its own: the guard
+  decides a session by its cwd, so conductor-dev is held only when its role's `settings` file
+  wires the guard and its checkout is decided by the controller rule.
 
 A **write form** is a redirection to a file outside quotes (`2>&1`, `>&2` and `>/dev/null` are
 none), one of `sed -i`, `sed --in-place`, `yq -i`, `yq --inplace`, `perl -i`, `perl -pi` or

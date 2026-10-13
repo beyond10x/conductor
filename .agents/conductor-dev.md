@@ -39,6 +39,10 @@ through the repository's bot route.
    - one managed worktree per implementation round, holding every change of that round;
    - review and gate once, just before the merge: `task check` in that tree, then merge into
      `main` (a pull request where the repository is on a forge);
+   - every build, test or gate runs as `conductor build run --reserve <size> -- <command>`
+     (`conductor build run --reserve 8G -- task check`; `2G` for npm), which reserves its disk in
+     the host ledger first; a refusal names the shortfall and is reported, never retried in a
+     loop;
    - an adversarial review only for large or risky changes;
    - keep each session short; hand over and start a fresh one rather than carry a long context.
      A hand-over holds session ids, decisions and host state, so it goes to

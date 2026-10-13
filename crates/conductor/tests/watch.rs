@@ -32,6 +32,7 @@ use conductor_cli::collect::Collector;
 use conductor_cli::collect::gitlab::Forge;
 use conductor_cli::config;
 use conductor_cli::disk;
+use conductor_cli::gc::reclaim::{ReclaimReport, floor_bytes};
 use conductor_cli::snapshot;
 use conductor_cli::store;
 use conductor_cli::watch::{Options, Settings, Sources, Watch};
@@ -1848,6 +1849,131 @@ fn each_disk_floor_is_reported_once_per_fall_low_admit_and_gate_stop() {
     );
 }
 
+/// A fake reclaim run under the state directory `state`: appends the bytes it was asked for to
+/// `state/reclaim.calls`, and reaches them, freeing 7G, when `state/reclaim.reached` is there;
+/// else it frees 1G and leaves 6G.
+fn fake_reclaim(state: &Path, need: u64) -> anyhow::Result<ReclaimReport> {
+    let calls = state.join("reclaim.calls");
+    let mut log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&calls)?;
+    writeln!(log, "{need}")?;
+    let reached = state.join("reclaim.reached").exists();
+    Ok(ReclaimReport {
+        reclaimed_bytes: if reached { 7 * GIB } else { GIB },
+        steps: Vec::new(),
+        left: if reached {
+            Vec::new()
+        } else {
+            vec![(format!("{TREES}/alpha/busy"), 6 * GIB)]
+        },
+        reached,
+    })
+}
+
+/// A reclaim run that fails.
+fn failing_reclaim(_: &Path, _: u64) -> anyhow::Result<ReclaimReport> {
+    anyhow::bail!("the store did not open")
+}
+
+impl Case {
+    /// The directory the fake reclaim keeps its calls in, created.
+    fn reclaim_dir(&self) -> PathBuf {
+        let dir = self.dir.join("reclaim");
+        fs::create_dir_all(&dir).expect("create the reclaim directory");
+        dir
+    }
+
+    /// The bytes each reclaim run was asked for, in order.
+    fn reclaims(&self) -> Vec<u64> {
+        fs::read_to_string(self.dir.join("reclaim/reclaim.calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| line.parse().expect("a count of bytes"))
+            .collect()
+    }
+}
+
+/// `story:disk-reclaim`, `story:disk-escalation`: the watch runs reclaim once per fall under
+/// `disk_admit` (20G), not on every pass, to `disk_admit` plus the margin; it reports `disk floor
+/// not reached: <n>G short` once per fall, by the reading after the run, and `disk reclaimed:
+/// <n>G` when the run reached the floor.
+#[test]
+fn reclaim_runs_once_per_fall_under_disk_admit_and_reports_its_shortfall_once() {
+    let case = Case::new("disk-reclaim");
+    let state = case.reclaim_dir();
+    let mut watch = case.watch(None).with_reclaim(state.clone(), fake_reclaim);
+    let mut at = |readings: &[u64]| {
+        let bytes: Vec<u64> = readings.iter().map(|gib| gib * GIB).collect();
+        case.readings(&bytes);
+        pass(&mut watch)
+    };
+    let floor = floor_bytes(20);
+    assert!(floor > 20 * GIB, "the floor is over disk_admit");
+    let short = (floor - 19 * GIB).div_ceil(GIB);
+
+    assert_eq!(at(&[30]), ["disk low: 30G free on /"]);
+    assert_eq!(
+        case.reclaims(),
+        Vec::<u64>::new(),
+        "no reclaim over disk_admit"
+    );
+
+    // The fall under disk_admit: one run, and the shortfall by the reading after it, 19G.
+    assert_eq!(
+        at(&[18, 19]),
+        [
+            "disk admit: 18G free on / (builds wait)".to_owned(),
+            format!("disk floor not reached: {short}G short"),
+        ]
+    );
+    assert_eq!(case.reclaims(), [floor]);
+    assert_eq!(at(&[18]), NOTHING, "once per fall");
+    assert_eq!(at(&[19]), NOTHING);
+    assert_eq!(
+        case.reclaims(),
+        [floor],
+        "not on every pass under the floor"
+    );
+
+    // Back at disk_admit, then a new fall: one more run, which reaches the floor.
+    assert_eq!(at(&[20]), NOTHING);
+    fs::write(state.join("reclaim.reached"), "").expect("write the marker");
+    assert_eq!(
+        at(&[17]),
+        [
+            "disk admit: 17G free on / (builds wait)",
+            "disk reclaimed: 7G"
+        ]
+    );
+    assert_eq!(at(&[18]), NOTHING);
+    assert_eq!(case.reclaims(), [floor, floor]);
+}
+
+/// A watch without a reclaim runs none, and a reclaim that fails is named once on standard error
+/// and reports nothing; the fall is still reported.
+#[test]
+fn a_failing_reclaim_is_named_on_standard_error_and_the_fall_still_reported() {
+    let case = Case::new("disk-reclaim-fails");
+    let mut watch = case
+        .watch(None)
+        .with_reclaim(case.reclaim_dir(), failing_reclaim);
+    case.disk(18 * GIB);
+    let (lines, notes) = passed(&mut watch, false);
+    assert_eq!(
+        lines,
+        [
+            "disk low: 18G free on /",
+            "disk admit: 18G free on / (builds wait)"
+        ]
+    );
+    assert!(
+        notes.contains("conductor watch: reclaim disk under disk_admit: the store did not open"),
+        "{notes}"
+    );
+}
+
 /// The floors are the instance's: `disk_admit` rearmed at itself, `gate_stop` at `gate_resume`;
 /// a fall past all three in one pass reports each, in the order low, admit, gate stop.
 #[test]
@@ -2382,10 +2508,13 @@ fn the_binary_reports_disk_low_under_100g_without_a_file_and_under_the_instances
         // stop` after it (`story:watch-disk-floors`).
         let (low, floors) = stdout.split_at(stdout.find('\n').map_or(stdout.len(), |at| at + 1));
         assert_disk_low(low, free, &stderr);
+        // Under `disk_admit` the watch reclaims and reports what it reached
+        // (`story:disk-reclaim`); with no `worktree` on `PATH` it frees nothing here.
         assert!(
-            floors.lines().all(
-                |line| line.starts_with("disk admit: ") || line.starts_with("disk gate stop: ")
-            ),
+            floors.lines().all(|line| line.starts_with("disk admit: ")
+                || line.starts_with("disk gate stop: ")
+                || line.starts_with("disk floor not reached: ")
+                || line.starts_with("disk reclaimed: ")),
             "{stdout:?}: {stderr}"
         );
     } else {

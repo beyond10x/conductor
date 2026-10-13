@@ -10,8 +10,7 @@
 //! - The first 12 lines of `README.md` link the guide and keep the `SETUP.md` pointer
 //!   `docs_setup.rs` holds; the last step of `SETUP.md` links it.
 //! - `website/docs/guides/troubleshoot.md` has a table row naming `com.apple.provenance`, its
-//!   cause (files written by a process Claude Code started) and the workaround (a plain
-//!   terminal).
+//!   cause (an `ess` older than 0.54.0 on `PATH`) and the check (`command -v ess`).
 //!
 //! Every file is read relative to the workspace root, and a finding names the file and the line.
 
@@ -296,8 +295,8 @@ fn troubleshooting_has_the_macos_provenance_row() {
         });
     for needed in [
         "`ess generate synthesize`",
-        "a process Claude Code started",
-        "plain terminal",
+        "older than 0.54.0",
+        "command -v ess",
     ] {
         assert!(
             row.contains(needed),

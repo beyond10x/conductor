@@ -1628,6 +1628,18 @@ impl TryContext for Ports {
     ) -> Result<SnapshotId, UnmetObligation> {
         Ok(SnapshotId(Uuid(eventlog_core::new_event_id())))
     }
+
+    fn try_generate_conductor_host_grant_id(
+        &mut self,
+    ) -> Result<conductor_model::host::GrantId, UnmetObligation> {
+        Err(unmet_context("conductor.host.GrantId"))
+    }
+
+    fn try_generate_conductor_host_reclaim_run_id(
+        &mut self,
+    ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
+        Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
 }
 
 /// Each enum's names as the specification spells them: `$name` answers a value's name and

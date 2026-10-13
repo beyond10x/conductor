@@ -84,7 +84,7 @@ in a file in the sender's own repository, and the message carries its path.
 | `[DECISION-REQUEST <repo> <request-id>] <question>` | controller → conductor | options A/B/C and a recommendation below |
 | `[DECISION <request-id>] <option> <one-line reason> (<decision-id>)` | conductor → controller | the answer |
 | `[NEED <repo> <request-id>] <other-repo> <what is needed>` | controller → conductor | a cross-repository request |
-| `[RESOURCE <repo>] <build-slot\|disk\|usage> <amount>` | controller → conductor | asked before a large build |
+| `[RESOURCE <repo>] <usage> <amount>` | controller → conductor | a usage budget; disk and build slots are not asked by message: a build runs as `conductor build run --reserve <size> -- <command>` ([Disk](./disk.md)) |
 | `[ESCALATION <request-id>] <O\|H> <question>` | conductor → operator | class O or H |
 
 Conductor records every message it receives (`conductor message receive-message`). It rejects one
@@ -100,8 +100,10 @@ reference to conductor. Conductor records each request it receives (`decision
 raise-decision-request`, with the blocker reference); the blockers collector is the cross-check,
 because an open blocker with no recorded request is a controller that did not report.
 
-A `[RESOURCE]` request is granted or refused against the instance's thresholds
-(`conductor resource grant-resource`, `refuse-resource`, `release-resource`).
+A `[RESOURCE]` usage request is granted or refused against the instance's thresholds
+(`conductor resource grant-resource`, `refuse-resource`, `release-resource`). Disk is reserved
+by the binary itself from the host ledger (`conductor build run`, `conductor host grants`), with no
+message.
 
 :::caution[Planned]
 

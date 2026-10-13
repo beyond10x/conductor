@@ -32,6 +32,8 @@
 //! `repository shipped` (`story:release-digest`), `repository activity`
 //! (`story:repository-marks`), `resource usage` (`story:token-spend`), `store migrate`
 //! (`story:store-on-eventlog-tree`) and `records check` (`story:records-from-commands`).
+//! `host reclaim` (`story:disk-reclaim`) joins the `host` group; `build run` (`story:build-run`)
+//! alone also takes the words after `--`, as written: the command it runs.
 //!
 //! `config validate` and `config show` (`story:config-file`) are such commands too, and the only
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
@@ -61,8 +63,8 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::{
-    controller, dashboard, decide, dispatch, goal, guard, message, repository, resource, session,
-    shipped, snapshot, status,
+    build, controller, dashboard, decide, dispatch, goal, guard, host, message, repository,
+    resource, session, shipped, snapshot, status,
 };
 
 /// The records conductor and the repository controllers keep.
@@ -252,6 +254,25 @@ impl Cli {
                 SessionCommand::Claim(args) => session::claim(state, args),
                 SessionCommand::Leases(view) => session::leases(state, view),
             },
+            Group::Host(command) => match command {
+                // `host reclaim` records its own runs (`crate::gc::reclaim`); the placed
+                // record-reclaim and reclaim-runs leaves are not written yet.
+                HostCommand::RecordReclaim(_) => crate::not_implemented("host record-reclaim"),
+                HostCommand::RecordPeak(args) => host::record_peak(state, args),
+                HostCommand::ReleaseGrant(args) => host::release_grant(state, args),
+                HostCommand::RequestDisk(args) => host::request_disk(state, args),
+                HostCommand::ReserveDisk(args) => host::reserve_disk(state, args),
+                HostCommand::StartRun(args) => host::start_run_command(state, args),
+                HostCommand::TakeHostGrant(args) => host::take_host_grant(state, args),
+                HostCommand::Grants(view) => host::grants(state, view),
+                HostCommand::ReclaimRuns(_) => crate::not_implemented("host reclaim-runs"),
+                HostCommand::Reclaim(args) => {
+                    crate::gc::reclaim::run_reclaim(state, args.format.as_deref())
+                }
+            },
+            Group::Build(command) => match command {
+                BuildCommand::Run(args) => build::build_run(state, &args),
+            },
             Group::Config(command) => match command {
                 ConfigCommand::Show(args) => crate::config::show(self.config.as_deref(), &args),
                 ConfigCommand::Validate(args) => {
@@ -327,6 +348,15 @@ pub enum Group {
     #[command(subcommand)]
     Session(SessionCommand),
 
+    /// The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk
+    #[command(subcommand)]
+    Host(HostCommand),
+
+    // No help, as for `dashboard`: the binding declares the group only through `build run`
+    // (`story:build-run`).
+    #[command(subcommand)]
+    Build(BuildCommand),
+
     // No help, as for `dashboard`: the binding declares the group only through `config validate`
     // and `config show` (`story:config-file`).
     #[command(subcommand)]
@@ -395,19 +425,22 @@ pub enum Access {
     /// Writes the guard's record of its own verdict: every session runs it, as the guard hook
     /// (`guard record-guard-decision`).
     HookWrites,
+    /// Writes the host ledger for the session's own run: every session runs it, a controller's
+    /// builds included (`build run`, `story:build-run`).
+    RunWrites,
 }
 
 impl Access {
     /// Whether the leaf writes.
     #[must_use]
     pub const fn writes(self) -> bool {
-        matches!(self, Self::Writes | Self::HookWrites)
+        matches!(self, Self::Writes | Self::HookWrites | Self::RunWrites)
     }
 
     /// Whether a controller's session may run the leaf.
     #[must_use]
     pub const fn controller_runs(self) -> bool {
-        matches!(self, Self::Reads | Self::HookWrites)
+        matches!(self, Self::Reads | Self::HookWrites | Self::RunWrites)
     }
 }
 
@@ -500,6 +533,20 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // taken for the instance's conductor.
     (&["session", "claim"], Access::Writes),
     (&["session", "leases"], Access::Reads),
+    (&["host", "record-reclaim"], Access::Writes),
+    (&["host", "record-peak"], Access::Writes),
+    (&["host", "release-grant"], Access::Writes),
+    (&["host", "request-disk"], Access::Writes),
+    (&["host", "reserve-disk"], Access::Writes),
+    (&["host", "start-run"], Access::Writes),
+    (&["host", "take-host-grant"], Access::Writes),
+    (&["host", "grants"], Access::Reads),
+    (&["host", "reclaim-runs"], Access::Reads),
+    // Removes what needs no decision until free disk is back over the floor (story:disk-reclaim).
+    (&["host", "reclaim"], Access::Writes),
+    // Reserves disk in the host ledger and runs the session's own build under the disk watchdog
+    // (story:build-run); the guard sends every build through it.
+    (&["build", "run"], Access::RunWrites),
     (&["config", "show"], Access::Reads),
     (&["config", "validate"], Access::Reads),
     (&["config", "workspace"], Access::Writes),
@@ -913,6 +960,85 @@ pub enum SessionCommand {
     Leases(ViewArgs),
 }
 
+/// `conductor host`: the host ledger of slots and disk reservations every instance shares, and
+/// the reclaim runs that free disk.
+#[derive(Debug, Subcommand)]
+pub enum HostCommand {
+    /// Record a reclaim run
+    #[command(name = "record-reclaim")]
+    RecordReclaim(RecordReclaimArgs),
+
+    /// Record a run's peak
+    #[command(name = "record-peak")]
+    RecordPeak(RecordPeakArgs),
+
+    /// Release a host grant
+    #[command(name = "release-grant")]
+    ReleaseGrant(ReleaseGrantArgs),
+
+    /// Request disk for a command
+    #[command(name = "request-disk")]
+    RequestDisk(RequestDiskArgs),
+
+    /// Answer a disk request
+    #[command(name = "reserve-disk")]
+    ReserveDisk(ReserveDiskArgs),
+
+    /// Start the reserved run
+    #[command(name = "start-run")]
+    StartRun(StartRunArgs),
+
+    /// Take a host grant
+    #[command(name = "take-host-grant")]
+    TakeHostGrant(TakeHostGrantArgs),
+
+    /// Host grants
+    #[command(name = "grants")]
+    Grants(ViewArgs),
+
+    /// Reclaim runs
+    #[command(name = "reclaim-runs")]
+    ReclaimRuns(ViewArgs),
+
+    /// Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
+    #[command(name = "reclaim")]
+    Reclaim(HostReclaimArgs),
+}
+
+/// The input of the binding's `gc-reclaim` callable, `conductor.host.ReclaimDisk`. The format is
+/// text the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct HostReclaimArgs {
+    /// How the steps are printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
+}
+
+// `conductor build`: the command the binding declares over the `local` callable `build-run`
+// (`story:build-run`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum BuildCommand {
+    /// Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size
+    #[command(name = "run")]
+    Run(BuildRunArgs),
+}
+
+/// The input of the binding's `build-run` callable, `conductor.host.BuildRun`: the size and the
+/// repository as flags, and the command after `--`, taken as it is written.
+#[derive(Debug, Clone, Args)]
+pub struct BuildRunArgs {
+    /// The command's expected peak, in GiB: `8G`, or `8`
+    #[arg(long, value_name = "SIZE", value_parser = crate::build::gibibytes)]
+    pub reserve: Option<i64>,
+    /// The repository the command builds, recorded with the reservation
+    #[arg(long)]
+    pub repository: Option<String>,
+    /// The command and its arguments, after `--`
+    #[arg(last = true, value_name = "COMMAND")]
+    pub command: Vec<String>,
+}
+
 // `conductor dashboard`: the commands the binding declares over the `local` callable
 // `dashboard-serve`. A plain comment, since clap would make a doc comment the group's help, and
 // the binding declares none.
@@ -1324,6 +1450,159 @@ fn prefixed(
             Err(format!("must start with `{prefix}`"))
         }
     }
+}
+
+/// Accepts a JSON array, as the flag of a `List<…>` field holds its elements, one JSON object
+/// each, for the handler to read.
+fn json_list(value: &str) -> Result<String, String> {
+    match serde_json::from_str::<Value>(value) {
+        Ok(Value::Array(_)) => Ok(value.to_owned()),
+        Ok(_) => Err("not a JSON array".to_owned()),
+        Err(error) => Err(format!("not a JSON array: {error}")),
+    }
+}
+
+/// The input of `conductor.host.Reclaim`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordReclaimArgs {
+    /// InstanceName
+    #[arg(long)]
+    pub instance: Option<String>,
+    /// list of ReclaimStep, a JSON array
+    #[arg(long, value_parser = json_list)]
+    pub steps: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub reclaimed_bytes: Option<i64>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub shortfall_bytes: Option<i64>,
+    /// list of LeftOver, a JSON array
+    #[arg(long, value_parser = json_list)]
+    pub left: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub ran_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.RecordPeak`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordPeakArgs {
+    /// GrantId
+    #[arg(long)]
+    pub grant_id: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub peak_bytes: Option<i64>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.ReleaseGrant`.
+#[derive(Debug, Clone, Args)]
+pub struct ReleaseGrantArgs {
+    /// GrantId
+    #[arg(long)]
+    pub grant_id: Option<String>,
+    /// ReleaseReason, optional
+    #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone"])]
+    pub reason: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub released_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.RequestDisk`.
+#[derive(Debug, Clone, Args)]
+pub struct RequestDiskArgs {
+    /// InstanceName
+    #[arg(long)]
+    pub instance: Option<String>,
+    /// RepositoryName, optional
+    #[arg(long)]
+    pub repository: Option<String>,
+    /// SessionName, optional
+    #[arg(long)]
+    pub session_name: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub bytes: Option<i64>,
+    /// string
+    #[arg(long)]
+    pub command: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub requested_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.ReserveDisk`.
+#[derive(Debug, Clone, Args)]
+pub struct ReserveDiskArgs {
+    /// GrantId
+    #[arg(long)]
+    pub grant_id: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub shortfall_bytes: Option<i64>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub reclaimed_bytes: Option<i64>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.StartRun`.
+#[derive(Debug, Clone, Args)]
+pub struct StartRunArgs {
+    /// GrantId
+    #[arg(long)]
+    pub grant_id: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub process_group: Option<i64>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub started_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.TakeHostGrant`.
+#[derive(Debug, Clone, Args)]
+pub struct TakeHostGrantArgs {
+    /// InstanceName
+    #[arg(long)]
+    pub instance: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub repository: Option<String>,
+    /// GrantKind
+    #[arg(long, value_parser = ["ControllerSlot", "BuildSlot", "Disk"])]
+    pub kind: Option<String>,
+    /// integer, optional
+    #[arg(long, allow_negative_numbers = true)]
+    pub bytes: Option<i64>,
+    /// SessionName
+    #[arg(long)]
+    pub session_name: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub requested_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
 }
 
 /// The input of `conductor.observation.StartSnapshot`.

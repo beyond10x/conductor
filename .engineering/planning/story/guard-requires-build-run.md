@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:guard-requires-build-run
 kind: story
-status: draft
+status: active
 title: The guard denies a build that does not run under conductor build run
 relations:
 - decomposes: epic:disk-protocol
 - depends_on: story:build-run
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T17:12:17Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-13T17:12:18Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
