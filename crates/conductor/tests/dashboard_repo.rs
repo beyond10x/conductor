@@ -17,10 +17,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use conductor_cli::collect::Collector;
-use conductor_cli::dashboard::Sources;
 use conductor_cli::dashboard::repo::{
     self, CAUSES, Facts, Need, PullRequest, Request, ResourceWait,
 };
+use conductor_cli::dashboard::{HealthSources, Sources};
 use conductor_cli::snapshot::{self, Recorder};
 use conductor_cli::store;
 use conductor_cli::usage;
@@ -263,6 +263,7 @@ fn sources(home: &Path) -> Sources {
         measure_every: Duration::from_secs(600),
         measure_timeout: Duration::from_secs(30),
         context_handover: 300_000,
+        health: HealthSources::new(home.to_path_buf(), &home.join("records")),
     }
 }
 
