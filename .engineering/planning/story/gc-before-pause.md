@@ -6,6 +6,8 @@ status: draft
 title: conductor gc strips archive build output and names other holders before work pauses for disk
 relations:
 - depends_on: story:conductor-gc
+- decomposes: epic:conductor-autonomy
+- depends_on: story:operator-items-age
 scope:
 - confidence: cited
   path: .agents/conductor.md
@@ -15,7 +17,9 @@ scope:
   path: crates/conductor/src/gc.rs
 - confidence: cited
   path: crates/conductor/tests/gc.rs
-revision: 2
+- confidence: cited
+  path: crates/conductor/tests/profiles.rs
+revision: 5
 ---
 ## Why
 
@@ -26,12 +30,25 @@ Flutter build output. `conductor gc` (wave 10) reclaims idle trees' caches only.
 
 ## Acceptance
 
-- Before conductor pauses work for disk, `conductor gc` also strips build output from archives the
-  worktree tool marks strippable and reports every other large holder it can measure (shared build
-  caches, archives it may not touch) with its size and owner in one table; a test over a fixture
-  archive root and a fixture cache holds both.
+- `conductor gc` lists, beside idle trees, the strip of build output from worktree archives
+  (`worktree prune-archives --strip-build-output`), and `conductor gc --apply` runs it; a test with
+  a fixture `worktree` on `PATH` reads the strip row in the dry run's output and records that
+  `--apply` called it and the dry run did not.
+- `conductor gc` prints one table of the holders the waste panel (`dashboard/waste.rs`) measures
+  but gc does not reclaim, now including the Go build cache (`~/.cache/go-build`), each with its
+  path and size; a test with a fixture `HOME` holding a `.cache/go-build` directory reads its row.
+- `.agents/conductor.md` tells conductor to run `conductor gc --apply` before it pauses work for
+  disk; a test in `crates/conductor/tests/profiles.rs` holds that sentence.
+
+## Notes
+
+- Flutter build output is left out of this story; it becomes a follow-up if it recurs.
+
+- Shares `.agents/conductor.md` and `crates/conductor/tests/profiles.rs` with the other profile
+  stories of `epic:conductor-autonomy`; it depends on `story:operator-items-age` so it lands after it
+  on those files.
 
 ## Scope
 
 `crates/conductor/src/gc.rs`, `crates/conductor/src/dashboard/waste.rs`,
-`crates/conductor/tests/gc.rs`, `.agents/conductor.md`.
+`crates/conductor/tests/gc.rs`, `.agents/conductor.md`, `crates/conductor/tests/profiles.rs`.

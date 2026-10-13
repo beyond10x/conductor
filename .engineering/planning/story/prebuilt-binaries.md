@@ -4,6 +4,8 @@ id: story:prebuilt-binaries
 kind: story
 status: draft
 title: Each release attaches pre-built conductor binaries for macOS and Linux
+relations:
+- decomposes: epic:conductor-autonomy
 scope:
 - confidence: cited
   path: .github/workflows/release.yml

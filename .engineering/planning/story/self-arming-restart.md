@@ -6,6 +6,9 @@ status: draft
 title: A restarted conductor arms its cycles and watch from the config, not the hand-over
 relations:
 - informed_by: story:restart-message
+- decomposes: epic:conductor-autonomy
+- depends_on: story:gc-before-pause
+- depends_on: story:status-board
 scope:
 - confidence: cited
   path: .agents/conductor.md
@@ -14,8 +17,10 @@ scope:
 - confidence: cited
   path: Taskfile.yml
 - confidence: cited
+  path: crates/conductor/tests/profiles.rs
+- confidence: cited
   path: crates/conductor/tests/taskfile.rs
-revision: 2
+revision: 4
 ---
 ## Why
 
@@ -26,12 +31,21 @@ hand from the hand-over's first section. `story:controller-start-reading` and
 
 ## Acceptance
 
-- A restarted conductor session re-arms its scheduled cycles and its watch without reading them from
-  the hand-over: `task conductor:restart` (or the session-start hook) passes them in the start
-  prompt generated from the config (cadence, watch command), and the hand-over keeps only open
-  work; a test over the Taskfile and the hook holds it.
+- `task conductor:restart` starts the new session with a prompt that names the two recurring jobs
+  (at `cadence.cycle` and `cadence.daily` of `conductor config show`) and the watch command
+  `conductor watch run --follow`; a test in `crates/conductor/tests/taskfile.rs` reads the task's
+  prompt and finds the cadence keys and the watch command in it.
+- `.agents/conductor.md`'s hand-over rule says a hand-over keeps only open work and does not list the
+  jobs or the watch; a test in `crates/conductor/tests/profiles.rs` holds that sentence.
+
+## Notes
+
+- Shares `.agents/conductor.md` and `crates/conductor/tests/profiles.rs` with the other profile
+  stories of `epic:conductor-autonomy`, and `Taskfile.yml` and `crates/conductor/tests/taskfile.rs`
+  with `story:status-board`: it depends on `story:gc-before-pause` and `story:status-board` so it
+  lands last on those files.
 
 ## Scope
 
 `Taskfile.yml`, `.claude/conductor-settings.json`, `.agents/conductor.md`,
-`crates/conductor/tests/taskfile.rs`.
+`crates/conductor/tests/taskfile.rs`, `crates/conductor/tests/profiles.rs`.

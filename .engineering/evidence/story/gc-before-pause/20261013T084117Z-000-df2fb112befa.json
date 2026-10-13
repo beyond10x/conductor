@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T08:41:17Z",
+  "actor": "human:timo",
+  "artifact": "story:gc-before-pause",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1 (bodies, scopes, ordering edges)",
+    "reference": "autonomy-acceptance-r1#5",
+    "review": "review-result:autonomy-acceptance-r1",
+    "outcome": "fixed"
+  }
+}

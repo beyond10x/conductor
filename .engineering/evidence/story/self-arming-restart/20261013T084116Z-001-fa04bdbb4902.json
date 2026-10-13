@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-13T08:41:16Z",
+  "actor": "human:timo",
+  "artifact": "story:self-arming-restart",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "plan revision after round 1 (bodies, scopes, ordering edges)",
+    "reference": "autonomy-acceptance-r1#1",
+    "review": "review-result:autonomy-acceptance-r1",
+    "outcome": "fixed"
+  }
+}

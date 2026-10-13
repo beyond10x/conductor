@@ -4,6 +4,8 @@ id: story:resumable-gates
 kind: story
 status: draft
 title: A long gate reruns only what failed
+relations:
+- decomposes: epic:conductor-autonomy
 scope:
 - confidence: cited
   path: .agents/conductor.md
@@ -11,7 +13,7 @@ scope:
   path: .agents/repo-controller.md
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -21,10 +23,18 @@ prepared on 2026-10-11 was still in its gate on 2026-10-13 (conductor's reports,
 
 ## Acceptance
 
-- The controller profile and conductor's dispatch rules require a resumable gate for any gate over
-  an hour: after a failure, the controller reruns only the failed steps and the steps that depend on
-  them, and keeps one full run for the release commit; conductor's charter template states it, and a
-  test over `.agents/repo-controller.md` holds the wording.
+- `.agents/repo-controller.md` requires, for any gate over an hour, that after a failure the
+  controller reruns only the failed steps and the steps that depend on them, and keeps one full run
+  for the release commit; a test in `crates/conductor/tests/profiles.rs` holds that wording.
+- `.agents/conductor.md`'s dispatch rules state the same rule for the charters conductor writes; the
+  same test file holds that wording.
+
+## Notes
+
+- Shares `.agents/conductor.md`, `.agents/repo-controller.md` and
+  `crates/conductor/tests/profiles.rs` with the other profile stories of `epic:conductor-autonomy`.
+  It is first in their order: resumable-gates, work-beside-long-gate, claims-cite-source,
+  operator-items-age, gc-before-pause, self-arming-restart.
 
 ## Scope
 
