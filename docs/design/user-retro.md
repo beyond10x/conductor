@@ -1,7 +1,19 @@
 # Retro for conductor's users
 
-Status: design for approval, beside `docs/design/self-improvement.md`. It sends data out of the
-engineer's machine, so no story is delivered before the operator approves it.
+Status: approved by the operator on 2026-10-13 ("the retro thing just as you proposed"), with four
+forks settled (§ Decisions) and three fixes made in this revision. Beside
+`docs/design/self-improvement.md`.
+
+## Decisions
+
+- **Private repository.** GitHub issues go to a private organisation repository named in the
+  instance config, where outsiders cannot file; there is no public target.
+- **A person sends.** The skill never passes `--yes`; the engineer types `send`. `--yes` exists only
+  for scripted use of the CLI, and the skill's profile forbids it.
+- **Slack is a notice.** With both targets configured, the Slack message is a link to the GitHub
+  issue; the loop reads GitHub only.
+- **Attribution.** A report is attributed to the engineer's own login (the issue's author), for
+  follow-up and for counting distinct engineers; per-person data is allowed for user retros only.
 
 ## What it is
 
@@ -16,7 +28,8 @@ $ conductor retro --session <id> ...    # named sessions
 $ conductor retro --submit github       # after review: submit to the configured target
 ```
 
-Without `--submit` it only writes the report locally (`<state>/retro/<date>-<id>.md`) and prints it.
+`--yes` skips the typed confirmation for scripted use only; the `conductor:retro` skill never passes
+it. Without `--submit` it only writes the report locally (`<state>/retro/<date>-<id>.md`) and prints it.
 
 ## Report format
 
@@ -25,14 +38,20 @@ One markdown document, at most 60 lines, the same sections every time:
 1. **Outcome**: what the engineer said they were doing (their first request, paraphrased by the
    engineer at confirmation, never quoted from the transcript) and whether it ended merged, released,
    abandoned or still open.
-2. **KPIs for this work**: the user-side subset of `self-improvement.md` § 2, each as a number with
-   its definition id: K3 corrections, K7 idle time, K8 waiting, K9 session loss (limit errors,
-   restarts), K10 guard denials, K11 tokens in and out, K6 failed CI runs and patch releases; plus
-   **security**: guard denials by rule, secrets-scan hits, writes refused outside the checkout.
+2. **KPIs for this work**, each as a number with its definition id from `self-improvement.md` § 2,
+   where it applies to these sessions: wall-clock duration; per task (each merged PR, with its
+   dispatch): T1 tokens (in, out, cache), T2 time, T3 list-price cost, T4 LLM calls; K4 intent →
+   merged and K5 merged → released for those PRs; K3 corrections, K7 idle time, K8 waiting, K9
+   session loss (limit errors, restarts), K10 guard denials, K11 output tokens, K6 failed CI runs and
+   patch releases; plus **security**: guard denials by rule, secrets found by the organisation's
+   secret scanner (`b10x-gates scan-text` with the instance's policy, run over each commit message
+   and the diff summary of the sessions' pushes, counting hits by rule, never their text), and writes
+   refused outside the checkout.
 3. **Friction**: the top five friction signatures seen (`self-improvement.md` § 5 step 2), each as
    a signature id, a count and the time lost, with no message text.
 4. **Versions**: conductor, aep, ess, worktree, Claude Code; the operating system family.
-5. **Free text**: what the engineer chooses to add at confirmation.
+5. **Free text**: the engineer's answers, at confirmation, to two questions: "What went wrong?" and
+   "What went well?" Either may be left empty.
 
 A machine-readable block (YAML front matter) carries the same numbers, with `format:
 conductor-retro/1`, so the loop can parse a submitted report without reading prose.
@@ -53,8 +72,8 @@ second line of defence, not the first.
 2. **Hosts and URLs**: every URL and host name except an allow list (`github.com`, `gitlab.com` and
    the public documentation hosts conductor itself names) becomes `[host]`. IP addresses become
    `[ip]`.
-3. **Paths**: the home directory becomes `~`; any absolute path outside `~` keeps only its last
-   component.
+3. **Paths**: every absolute path, under `~` or not, keeps only its last component (a customer's
+   folder name never survives in the middle of a path); `~` alone stays `~`.
 4. **People and customers**: the names from a deny list (the instance config's `retro.deny` file,
    one term per line, kept out of any repository) and every e-mail address become `[name]`;
    repository names outside the instance's public sources become `[repository]`.
@@ -78,7 +97,7 @@ Configured per instance, all optional:
 retro:
   deny: ~/.b10x/conductor/retro-deny.txt      # names to replace; never in a repository
   targets:
-    github: {repository: example-org/conductor-feedback, labels: [retro]}
+    github: {repository: example-org/conductor-feedback, labels: [retro]}   # must be private
     slack:  {channel: "#conductor-retro", as: bot}   # through the instance's existing reports route
 ```
 
@@ -107,14 +126,22 @@ the operator's or an engineer's global instruction files.
 - People's names, e-mail addresses, customer names, repository names outside the public sources.
 - Anything the engineer has not seen on screen in the confirmation step.
 
-## Stories (after approval), under `epic:measured-self-improvement`
+## Stories, under `epic:measured-self-improvement`
 
-1. `retro-spec`: the report and its submission, specified first.
-2. `retro-report`: `conductor retro` builds the report from the KPI instruments.
-3. `retro-redaction`: the redaction with its corpus and property tests.
-4. `retro-submit`: confirmation and the two targets.
-5. `retro-loop`: submitted reports feed the KPIs and findings.
-6. `retro-skill`: the `conductor:retro` skill and the docs page.
+1. `retro-spec`: the report (`conductor-retro/1`), its sections and the submission are specified
+   first; `ess specify validate --path spec` exits 0.
+2. `retro-report`: `conductor retro --since 2h` over fixture transcripts prints the five sections,
+   each KPI with its id, and the YAML block parses back to the same numbers.
+3. `retro-redaction`: over the seeded corpus every seed is replaced and nothing else changes; the
+   property test passes; the secret scanner finds nothing in the scrubbed corpus.
+4. `retro-submit`: the confirmation shows the exact bytes and the count of replacements; nothing is
+   sent until `send` is typed; a public GitHub target is refused at config validation; with both
+   targets the Slack message holds the issue's link.
+5. `retro-loop`: issues labelled `retro` in the configured repository are read; their numbers enter a
+   "user sessions" series and a signature from three distinct authors becomes a finding citing the
+   issues.
+6. `retro-skill`: the skill runs `conductor retro`, asks the two questions, never passes `--yes` (a
+   profile test holds it), and the docs page shows the flow.
 
 ## Left out
 

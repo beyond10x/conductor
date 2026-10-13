@@ -7,16 +7,18 @@ title: Submitted retro reports feed the KPIs and friction findings
 relations:
 - decomposes: epic:measured-self-improvement
 - depends_on: story:retro-spec
-revision: 1
+revision: 2
 ---
 ## Why
 
-The operator asked for a retro of a user's conductor sessions; see `docs/design/user-retro.md`.
+`docs/design/user-retro.md` (approved 2026-10-13): submitted reports feed the KPIs and friction findings.
 
 ## Acceptance
 
-- As `docs/design/user-retro.md` states for `retro-loop`; the operator approves that design first.
+- the loop's daily run reads issues labelled `retro` from the configured repository (a fake forge), parses their YAML blocks into a `user sessions` series per KPI;
+- a friction signature reported by three distinct authors becomes a finding citing the issue numbers; two authors do not;
+- a report whose YAML block does not parse is skipped and named once.
 
 ## Scope
 
-`docs/design/user-retro.md` § Stories.
+`crates/conductor/src/kpi/`, tests.

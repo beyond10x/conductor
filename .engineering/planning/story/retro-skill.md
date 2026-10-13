@@ -7,16 +7,18 @@ title: A conductor:retro skill and docs page run the retro
 relations:
 - decomposes: epic:measured-self-improvement
 - depends_on: story:retro-spec
-revision: 1
+revision: 2
 ---
 ## Why
 
-The operator asked for a retro of a user's conductor sessions; see `docs/design/user-retro.md`.
+`docs/design/user-retro.md` (approved 2026-10-13): a conductor:retro skill runs the retro with a person in the loop.
 
 ## Acceptance
 
-- As `docs/design/user-retro.md` states for `retro-skill`; the operator approves that design first.
+- the skill runs `conductor retro`, asks "What went wrong?" and "What went well?", shows the report, and asks the engineer to type `send`;
+- its profile forbids `--yes` (a profile test holds the sentence);
+- a docs page under website/docs/guides/ shows the flow and lists what is never sent.
 
 ## Scope
 
-`docs/design/user-retro.md` § Stories.
+`.claude/skills/conductor-retro/` (or the product's skill location), `website/docs/guides/retro.md`, tests.

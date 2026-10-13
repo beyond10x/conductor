@@ -151,7 +151,9 @@ no model call are `epic:deterministic-steps`.
 
 ## Left out
 
-- Ranking or scoring people; per-person metrics.
+- Ranking or scoring people. Per-person data exists only in user retros (`docs/design/user-retro.md`):
+  a report is attributed to its author for follow-up and for counting distinct engineers, never
+  ranked or compared.
 - Changing the operator's rules, targets or vision without them.
 - Automatic merges or releases that skip a gate.
 - Billing: T3 is a list-price equivalent computed from tokens, not what the organisation is charged
