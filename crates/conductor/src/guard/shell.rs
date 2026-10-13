@@ -7,7 +7,8 @@
 //! - a command substitution, `$(…)` or `` `…` ``, unquoted or inside double quotes, is read as
 //!   commands of its own, ahead of the command that holds it;
 //! - the script of `sh -c`, `bash -c` (any shell, any flag cluster ending in `c`) and the
-//!   arguments of `eval` are read as commands of their own, after the command that holds them;
+//!   arguments of `eval` and the string `env -S` (`--split-string`) splits are read as commands of
+//!   their own, after the command that holds them;
 //! - a here-document's body and a comment are not commands, and are dropped.
 //!
 //! Redirection operators are dropped and their targets kept as words. Words are not expanded:
@@ -97,9 +98,37 @@ fn argument_scripts(words: &[String]) -> Vec<String> {
             }
         } else if name == "eval" && at + 1 < words.len() {
             scripts.push(words[at + 1..].join(" "));
+        } else if name == "env"
+            && let Some(script) = split_string(&words[at + 1..])
+        {
+            scripts.push(script);
         }
     }
     scripts
+}
+
+/// The string `env -S` (`--split-string`) splits into a command and runs, from the words after
+/// `env`: the value of `-S`, attached (`-S'…'`, `-iS…`, `--split-string=…`) or the next word. Every
+/// word after `env` is searched, so a flag of `env`'s own that takes a value before it does not
+/// hide it.
+fn split_string(words: &[String]) -> Option<String> {
+    for (at, word) in words.iter().enumerate() {
+        let attached = if word == "--split-string" {
+            Some("")
+        } else if let Some(value) = word.strip_prefix("--split-string=") {
+            Some(value)
+        } else if word.starts_with('-') && !word.starts_with("--") {
+            word.find('S').map(|flag| &word[flag + 1..])
+        } else {
+            None
+        };
+        match attached {
+            Some("") => return words.get(at + 1).cloned(),
+            Some(value) => return Some(value.to_owned()),
+            None => {}
+        }
+    }
+    None
 }
 
 /// One pass over a script: each simple command with the substitutions found inside it.
@@ -515,6 +544,24 @@ mod tests {
                 vec!["cd", "z"],
             ]
         );
+    }
+
+    /// The string `env -S` splits is a command of its own, whichever way `-S` is written.
+    #[test]
+    fn an_env_split_string_is_read_as_commands() {
+        for script in [
+            "env -S 'glab mr merge 12'",
+            "env -iS'glab mr merge 12'",
+            "env --split-string 'glab mr merge 12'",
+            "env --split-string='glab mr merge 12'",
+            "env -u X -S 'glab mr merge 12'",
+        ] {
+            assert_eq!(
+                words(script).last().map(Vec::as_slice),
+                Some(["glab", "mr", "merge", "12"].map(String::from).as_slice()),
+                "{script}"
+            );
+        }
     }
 
     #[test]

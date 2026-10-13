@@ -115,7 +115,7 @@ denial is not the session's last word: the session sees the reason and can take 
   with the list in the reason. When the tool only reads, add it to the role's `read_only_tools`
   ([instances and config](../concepts/instances-and-config.md#roles-profile-settings-read-only-tools)).
 - **A credential write.** A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write, and a
-  `glab variable`, `glab auth`, `glab ssh-key`, `glab gpg-key`, `glab deploy-key` or `glab token`
+  `glab variable`, `glab auth`, `glab ssh-key`, `glab gpg-key`, `glab deploy-key`, `glab token`, `glab config` or `glab securefile`
   write, is class H: the denial carries the exact command for the operator to run themselves.
 - **Every call denied.** When every tool call of a session is blocked, the hook could not run
   `conductor`: the settings run `conductor guard record-guard-decision --from-pre-tool-use || exit 2`,

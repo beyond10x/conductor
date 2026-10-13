@@ -622,18 +622,22 @@ const GLAB_READS: [(&str, &[&str]); 5] = [
 ];
 
 /// The `glab` groups whose writes are credentials, as [`GH_CREDENTIAL_GROUPS`] are for `gh`: CI
-/// variables (GitLab's secrets), the login, keys and access tokens.
-const GLAB_CREDENTIAL_GROUPS: [&str; 6] = [
+/// variables (GitLab's secrets), the login, keys and access tokens, the CLI's own config (`glab
+/// config set token …` writes the login's access token) and CI secure files (signing keys,
+/// certificates).
+const GLAB_CREDENTIAL_GROUPS: [&str; 8] = [
     "variable",
     "auth",
     "ssh-key",
     "gpg-key",
     "deploy-key",
     "token",
+    "config",
+    "securefile",
 ];
 
 /// Commands that name `gh` or `glab` without running it, or run it through the bot route, which
-/// this rule leaves alone.
+/// this rule leaves alone: only as the simple command's program ([`names_without_running`]).
 const GH_NOT_RUN: [&str; 6] = ["b10x-gates", "which", "type", "whereis", "man", "hash"];
 
 /// A forge whose command-line tool the guard reads: `gh` for GitHub, `glab` for GitLab. A write
@@ -1250,9 +1254,19 @@ impl Session<'_> {
     /// Bash: the verdict on running `command`.
     pub(super) fn bash(&self, command: &str) -> (Verdict, String) {
         let commands = shell::commands(command);
+        // Whether a variable the line assigns may hold the forge's program, so that a program
+        // word that expands may run it (`g=glab; $g mr merge 12`).
+        let assigned = |forge: Forge| {
+            commands.iter().flatten().any(|word| {
+                is_assignment(word)
+                    && word
+                        .split_once('=')
+                        .is_some_and(|(_, value)| contains_word(value, forge.program()))
+            })
+        };
         for words in &commands {
             for forge in Forge::ALL {
-                let Some(write) = forge_write(words, forge) else {
+                let Some(write) = forge_write(words, forge, assigned(forge)) else {
                     continue;
                 };
                 if write
@@ -1862,7 +1876,21 @@ fn lexical(path: &Path) -> PathBuf {
 /// The forge write a simple command makes through `forge`'s program: any call that is not a read,
 /// as `<program> <group> <verb>`. The group and the verb are the first two words after the
 /// program that are not flags, `-R`/`--repo` taking its value. A program named by [`GH_NOT_RUN`]
-/// before it, or by `command -v`, is not run here.
+/// or `command -v`, as the simple command's program, does not run it here
+/// ([`names_without_running`]).
+///
+/// The program is a word naming `forge`'s program anywhere in the command, or a program word that
+/// [`expands`] ([`is_program_word`], or any word after a [`LAUNCHERS`] command name) and so may
+/// become it. As [`conductor_run`] holds an expanding program word, one that mentions the forge's
+/// program (`$(which glab)`, `"$(command -v gh)"`) is a write whatever follows it: the shell, not
+/// the guard, decides what runs. One that does not mention it (`$g`) is read as the forge's program
+/// when `assigned`, a variable the line assigns may hold it (`g=glab; $g mr merge 12`).
+///
+/// Any flag but `-R`/`--repo`, `--help` and `--version`, written between a group other than `api`
+/// and its verb, makes the call a write: it may take the next word as its value (`glab mr -m view
+/// note 12` posts the note `view`), so the verb read is not the one that runs. `--help` is a help
+/// request only when the word before it is no flag that may take it as its value (`glab mr note
+/// 12 -m --help` posts the note `--help`).
 ///
 /// A `gh` read is `<group> view|list|status|diff|checks|search|download`,
 /// `run view|list|watch|download`, `api` with GET and no request fields, `api graphql` without a
@@ -1874,58 +1902,131 @@ fn lexical(path: &Path) -> PathBuf {
 /// `repo view|list`, `ci view|list|status|trace|get` ([`GLAB_READS`]), `api` with GET and no
 /// request fields, `auth status`, any call carrying `--help`, or `--version` with no group
 /// (`story:guard-glab-writes`).
-fn forge_write(words: &[String], forge: Forge) -> Option<String> {
-    let at = words.iter().position(|word| forge.runs(word))?;
-    let before = &words[..at];
-    if before
-        .iter()
-        .any(|word| GH_NOT_RUN.contains(&shell::program(word)))
-        || (before.iter().any(|word| word == "command")
-            && before.iter().any(|word| word == "-v" || word == "-V"))
-    {
+///
+/// The `api` call is read with every flag on the line, those before the `api` group too: the leaf
+/// parses them all (`glab -XDELETE api projects/1` deletes).
+fn forge_write(words: &[String], forge: Forge, assigned: bool) -> Option<String> {
+    let name = words.len() - command_words(words).len();
+    let launched = words
+        .get(name)
+        .is_some_and(|word| LAUNCHERS.contains(&shell::program(word)));
+    let at = (0..words.len()).find(|&at| {
+        let word = &words[at];
+        forge.runs(word)
+            || (expands(word)
+                && !is_assignment(word)
+                && (is_program_word(words, name, at) || (launched && at > name))
+                && (assigned || contains_word(word, forge.program())))
+    })?;
+    if !forge.runs(&words[at]) && contains_word(&words[at], forge.program()) {
+        return Some(words[at..].join(" "));
+    }
+    if names_without_running(&words[..at]) {
         return None;
     }
     let rest = &words[at + 1..];
-    let mut operands = Vec::new();
-    let mut flags = Vec::new();
+    let mut operands: Vec<(usize, &str)> = Vec::new();
+    let mut flags: Vec<(usize, &str)> = Vec::new();
+    let mut help = false;
+    // A flag written after the group and before the verb, and whether one was before the verb.
+    let mut pending = false;
+    let mut flag_before_verb = false;
     let mut next = 0;
     while let Some(word) = rest.get(next) {
         next += 1;
         if word == "-R" || word == "--repo" {
             next += 1;
         } else if word.starts_with('-') && word.len() > 1 {
-            flags.push(word.as_str());
+            if word == "--help" {
+                let previous = next.checked_sub(2).map(|before| rest[before].as_str());
+                help |= !previous.is_some_and(|before| before.starts_with('-') && before.len() > 1);
+            }
+            if operands.len() == 1
+                && !(matches!(word.as_str(), "--help" | "--version") || word.starts_with("--repo="))
+            {
+                pending = true;
+            }
+            flags.push((next - 1, word.as_str()));
         } else {
+            if operands.len() == 1 {
+                flag_before_verb = pending;
+            }
             operands.push((next - 1, word.as_str()));
         }
     }
     let group = operands.first().map(|(_, word)| *word);
     let verb = operands.get(1).map(|(_, word)| *word);
-    let read = flags.contains(&"--help")
-        || match forge {
-            Forge::GitHub => match (group, verb) {
-                (None, _) => flags.iter().any(|flag| matches!(*flag, "--version" | "-h")),
-                (Some("help" | "search"), _)
-                | (Some("status"), None)
-                | (Some("auth"), Some("status")) => true,
-                (Some("api"), _) => api_reads(&rest[operands[0].0 + 1..], forge),
-                (Some("run"), Some(verb)) => GH_RUN_READ_VERBS.contains(&verb),
-                (Some(_), Some(verb)) => GH_READ_VERBS.contains(&verb),
-                (Some(_), None) => false,
-            },
-            Forge::GitLab => match (group, verb) {
-                (None, _) => flags.contains(&"--version"),
-                (Some("auth"), Some("status")) => true,
-                (Some("api"), _) => api_reads(&rest[operands[0].0 + 1..], forge),
-                (Some(group), Some(verb)) => glab_reads(group, verb),
-                (Some(_), None) => false,
-            },
-        };
+    let has_flag = |wanted: &str| flags.iter().any(|(_, flag)| *flag == wanted);
+    // The words `api` reads: every flag before the `api` group, then the words after it.
+    let api_arguments = || -> Vec<String> {
+        let api = operands[0].0;
+        flags
+            .iter()
+            .filter(|(index, _)| *index < api)
+            .map(|(_, flag)| (*flag).to_owned())
+            .chain(rest[api + 1..].iter().cloned())
+            .collect()
+    };
+    // A verb a flag's value may have displaced is no verb the guard can read.
+    let displaced = flag_before_verb && group != Some("api");
+    let read = help
+        || (!displaced
+            && match forge {
+                Forge::GitHub => match (group, verb) {
+                    (None, _) => has_flag("--version") || has_flag("-h"),
+                    (Some("help" | "search"), _)
+                    | (Some("status"), None)
+                    | (Some("auth"), Some("status")) => true,
+                    (Some("api"), _) => api_reads(&api_arguments(), forge),
+                    (Some("run"), Some(verb)) => GH_RUN_READ_VERBS.contains(&verb),
+                    (Some(_), Some(verb)) => GH_READ_VERBS.contains(&verb),
+                    (Some(_), None) => false,
+                },
+                Forge::GitLab => match (group, verb) {
+                    (None, _) => has_flag("--version"),
+                    (Some("auth"), Some("status")) => true,
+                    (Some("api"), _) => api_reads(&api_arguments(), forge),
+                    (Some(group), Some(verb)) => glab_reads(group, verb),
+                    (Some(_), None) => false,
+                },
+            });
     (!read).then(|| {
+        if flag_before_verb && let Some(&(verb_at, _)) = operands.get(1) {
+            // The flag and the value it may take, as written.
+            return format!("{} {}", forge.program(), rest[..=verb_at].join(" "));
+        }
         let named: Vec<&str> = operands.iter().take(2).map(|(_, word)| *word).collect();
         let shown = format!("{} {}", forge.program(), named.join(" "));
         shown.trim_end().to_owned()
     })
+}
+
+/// Whether the words before a `gh` or `glab` word, `before`, make a command that names it without
+/// running it: the simple command's program, after reserved words and variable assignments, is
+/// one of [`GH_NOT_RUN`] (`which glab`, `b10x-gates gh -- pr create`), or is `command` with only
+/// flags after it, one of them `-v` or `-V` (`command -v gh`). The same name anywhere else, as an
+/// assignment's value or a launcher's argument (`env -C /usr/share/man glab`), runs it.
+fn names_without_running(before: &[String]) -> bool {
+    const RESERVED: [&str; 15] = [
+        "!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time",
+        "builtin", "exec",
+    ];
+    let start = before
+        .iter()
+        .position(|word| !(RESERVED.contains(&word.as_str()) || is_assignment(word)))
+        .unwrap_or(before.len());
+    let Some(program) = before.get(start) else {
+        return false;
+    };
+    if GH_NOT_RUN.contains(&shell::program(program)) {
+        return true;
+    }
+    let options = &before[start + 1..];
+    program == "command"
+        && options
+            .iter()
+            .all(|word| word.starts_with('-') && word.len() > 1 && !word.starts_with("--"))
+        && options.iter().any(|word| word[1..].contains(['v', 'V']))
 }
 
 /// Whether `glab <group> <verb>` is one of the reads [`GLAB_READS`] names.

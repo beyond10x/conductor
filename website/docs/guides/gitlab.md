@@ -131,7 +131,7 @@ forge write, denied in every guarded session as the same `gh` write would be. A 
 with `--help`, and `--version`. So `glab mr merge` is denied where `gh pr merge` is, and
 `glab mr view` allowed where `gh pr view` is. Writes go through the repository's own route.
 
-A write in `glab variable`, `auth`, `ssh-key`, `gpg-key`, `deploy-key` or `token` is a forge
+A write in `glab variable`, `auth`, `ssh-key`, `gpg-key`, `deploy-key`, `token`, `config` or `securefile` is a forge
 credential, class H, like a `gh secret` or `gh auth` write: it needs the operator's hands
 ([the guard](../security/the-guard.md)).
 

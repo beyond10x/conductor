@@ -1335,12 +1335,24 @@ fn a_glab_write_of_a_credential_is_the_operator_s_for_a_controller_and_for_condu
 const FORGE_PAIRS: [(&str, &str, Verdict); 9] = [
     ("glab mr view 12", "gh pr view 12", Verdict::Allow),
     ("glab mr merge 12", "gh pr merge 12", Verdict::Deny),
-    ("glab mr note 12 -m hi", "gh pr comment 12 --body hi", Verdict::Deny),
+    (
+        "glab mr note 12 -m hi",
+        "gh pr comment 12 --body hi",
+        Verdict::Deny,
+    ),
     ("glab issue list", "gh issue list", Verdict::Allow),
-    ("glab release create v1.0.0", "gh release create v1.0.0", Verdict::Deny),
+    (
+        "glab release create v1.0.0",
+        "gh release create v1.0.0",
+        Verdict::Deny,
+    ),
     ("glab ci view", "gh run view 1", Verdict::Allow),
     ("glab api projects", "gh api repos", Verdict::Allow),
-    ("glab api -X POST projects", "gh api -X POST repos", Verdict::Deny),
+    (
+        "glab api -X POST projects",
+        "gh api -X POST repos",
+        Verdict::Deny,
+    ),
     ("glab auth status", "gh auth status", Verdict::Allow),
 ];
 
@@ -4794,6 +4806,214 @@ fn review_w04_an_agent_call_does_not_move_its_sub_agent_out_of_the_caller_s_plac
             payload["tool_name"] = serde_json::json!(tool);
             let decision = guard::decide_in(&payload, &places, &unlisted());
             assert_verdict(&decision, Verdict::Allow, "");
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// Security review of `story:guard-glab-writes`: `glab` calls that run a GitLab write while the
+// guard reads them as a read. Each case lists commands that should be denied for a controller and
+// for conductor, and reports every one that is not, with the decision it got.
+// -------------------------------------------------------------------------------------------------
+
+/// Every `(cwd, command)` of `commands`, from a controller's and from conductor's checkout, that
+/// is not denied with a reason naming `because`, with the decision it got.
+fn sec_glab_not_denied(home: &Path, commands: &[&str], because: &str) -> Vec<String> {
+    let mut missed = Vec::new();
+    for cwd in [PROBE, CONDUCTOR] {
+        for command in commands {
+            let decision = bash(home, cwd, command);
+            if decision.verdict != Verdict::Deny || !decision.reason.contains(because) {
+                missed.push(format!(
+                    "from {cwd}, `{command}`: {:?} because {:?}",
+                    decision.verdict, decision.reason
+                ));
+            }
+        }
+    }
+    missed
+}
+
+/// A method or a request field written before the `api` group still reaches `glab api` (the
+/// leaf parses every flag on the line), so the guard must read it as `api`'s own.
+#[test]
+fn sec_glab_a_method_or_field_before_the_api_group_is_a_gitlab_write() {
+    let home = home("sec-glab-api-flags-before-group");
+    let missed = sec_glab_not_denied(
+        &home,
+        &[
+            "glab --method=DELETE api projects/1",
+            "glab -XDELETE api projects/1",
+            "glab -iXPOST api projects/1/issues",
+            "glab --raw-field=title=t api projects/1/issues",
+            "glab --field=title=t api projects/1/issues",
+        ],
+        "GitLab write",
+    );
+    assert!(
+        missed.is_empty(),
+        "read as no GitLab write:\n{}",
+        missed.join("\n")
+    );
+}
+
+/// A flag that takes a value, written between the group and the verb, takes the next word as its
+/// value: `glab mr -m view note 12` posts the note `view` on MR 12, and `glab issue --title list
+/// create` creates an issue titled `list`. The verb is the word after the value, not `view`/`list`.
+#[test]
+fn sec_glab_a_flag_value_between_group_and_verb_does_not_make_the_verb_a_read() {
+    let home = home("sec-glab-flag-value-before-verb");
+    let missed = sec_glab_not_denied(
+        &home,
+        &[
+            "glab mr -m view note 12",
+            "glab mr --message view note 12",
+            "glab issue --title list create --description d",
+            "glab release --name view create v1.0.0",
+        ],
+        "GitLab write",
+    );
+    assert!(
+        missed.is_empty(),
+        "read as no GitLab write:\n{}",
+        missed.join("\n")
+    );
+}
+
+/// `--help` taken as another flag's value is no help request: `glab mr note 12 -m --help` posts
+/// the note `--help`.
+#[test]
+fn sec_glab_help_as_a_flag_value_is_no_help_request() {
+    let home = home("sec-glab-help-as-value");
+    let missed = sec_glab_not_denied(
+        &home,
+        &[
+            "glab mr note 12 -m --help",
+            "glab mr note 12 --message --help",
+            "glab issue create --title --help --description d",
+        ],
+        "GitLab write",
+    );
+    assert!(
+        missed.is_empty(),
+        "read as no GitLab write:\n{}",
+        missed.join("\n")
+    );
+}
+
+/// A word before `glab` whose last path component is `which`, `type`, `man`, `whereis`, `hash` or
+/// `b10x-gates`, or `command` with a `-v` that is not `command`'s, does not stop `glab` running.
+#[test]
+fn sec_glab_a_not_run_name_in_an_argument_before_glab_does_not_stop_it_running() {
+    let home = home("sec-glab-not-run-word");
+    let missed = sec_glab_not_denied(
+        &home,
+        &[
+            "env -C /usr/share/man glab mr merge 12",
+            "X=/usr/bin/which glab mr merge 12",
+            "GLAB_CONFIG_DIR=~/.config/type glab mr merge 12",
+            "env -v command glab mr merge 12",
+        ],
+        "GitLab write",
+    );
+    assert!(
+        missed.is_empty(),
+        "read as no GitLab write:\n{}",
+        missed.join("\n")
+    );
+}
+
+/// A program word the shell expands to `glab`, or a single word `env -S` splits into a `glab`
+/// call, runs `glab` as surely as `glab` written out.
+#[test]
+fn sec_glab_a_program_word_that_expands_to_glab_is_held() {
+    let home = home("sec-glab-expanded-program");
+    let missed = sec_glab_not_denied(
+        &home,
+        &[
+            "$(which glab) mr merge 12",
+            "\"$(command -v glab)\" mr merge 12",
+            "g=glab; $g mr merge 12",
+            "env -S 'glab mr merge 12'",
+        ],
+        "GitLab write",
+    );
+    assert!(
+        missed.is_empty(),
+        "read as no GitLab write:\n{}",
+        missed.join("\n")
+    );
+}
+
+/// `glab config set token` writes the login's access token, and `glab securefile` CI secure files
+/// (signing keys, certificates): credentials, the operator's hands, as `glab auth login` is.
+#[test]
+fn sec_glab_token_and_secure_file_writes_are_credentials() {
+    let home = home("sec-glab-credential-groups");
+    let missed = sec_glab_not_denied(
+        &home,
+        &[
+            "glab config set token glpat-x --host gitlab.example.com",
+            "glab securefile create signing.p12 ./signing.p12",
+        ],
+        "GitLab write of a credential",
+    );
+    assert!(
+        missed.is_empty(),
+        "not held as a credential:\n{}",
+        missed.join("\n")
+    );
+}
+
+/// The `gh` twins of the `glab` cases above: `gh` is read by the same parser, so a method before
+/// `api`, a flag value between group and verb, `--help` as a flag's value, a not-run name in an
+/// argument and an expanding program word each leave a GitHub write a write.
+#[test]
+fn sec_gh_twins_are_held() {
+    let home = home("sec-gh-twins");
+    let missed = sec_glab_not_denied(
+        &home,
+        &[
+            "gh --method=DELETE api repos/o/r",
+            "gh -XDELETE api repos/o/r",
+            "gh pr --body view comment 12",
+            "gh pr comment 12 --body --help",
+            "env -C /usr/share/man gh pr merge 12",
+            "X=/usr/bin/which gh pr merge 12",
+            "$(which gh) pr merge 12",
+            "\"$(command -v gh)\" pr merge 12",
+            "g=gh; $g pr merge 12",
+            "env -S 'gh pr merge 12'",
+        ],
+        "GitHub write",
+    );
+    assert!(
+        missed.is_empty(),
+        "read as no GitHub write:\n{}",
+        missed.join("\n")
+    );
+}
+
+/// The reads the security fixes leave alone: a flag after the verb, `--help` after a flag's value
+/// or as the first word, `-R` between group and verb, and `which`/`command -v` naming the program.
+#[test]
+fn sec_forge_reads_stay_reads() {
+    let home = home("sec-forge-reads");
+    for cwd in [PROBE, CONDUCTOR] {
+        for command in [
+            "gh pr view 12 --json title,body",
+            "gh pr --repo o/r view 12",
+            "gh pr -R o/r view 12",
+            "gh pr comment 12 --body x --help",
+            "gh --help pr merge 12",
+            "glab mr view 12 --comments",
+            "glab mr -R example-org/r view 12",
+            "glab mr note 12 -m hi --help",
+            "which gh && which glab",
+            "command -v glab",
+            "echo \"$(gh pr view 12 --json title)\"",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
         }
     }
 }

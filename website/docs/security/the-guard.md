@@ -154,7 +154,7 @@ the session's sandbox bounds such a call, and there is no operating-system sandb
 ### Forge credentials are class H
 
 A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write, and a `glab variable`, `glab auth`,
-`glab ssh-key`, `glab gpg-key`, `glab deploy-key` or `glab token` write, is denied as class H: it
+`glab ssh-key`, `glab gpg-key`, `glab deploy-key`, `glab token`, `glab config` or `glab securefile` write, is denied as class H: it
 needs the operator's hands, whoever authorized it. The denial says so and hands the operator the exact
 command to run, prefixed with `!`, so it can be passed on as is.
 

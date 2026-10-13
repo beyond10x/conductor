@@ -40,7 +40,7 @@ the decision rests on (`--operator-words`); both are required, and `decision sho
 
 The guard enforces one class-H line in code: a forge write of a credential (`gh secret`, `gh
 auth`, `gh ssh-key` or `gh gpg-key`; `glab variable`, `glab auth`, `glab ssh-key`, `glab
-gpg-key`, `glab deploy-key` or `glab token`) is denied to every guarded session, whoever
+gpg-key`, `glab deploy-key`, `glab token`, `glab config` or `glab securefile`) is denied to every guarded session, whoever
 authorized it, and the denial hands the operator the exact command to run themselves. Every other
 `gh` or `glab` write from a guarded session is denied too, as not a read
 ([the guard](/docs/security/the-guard)).
