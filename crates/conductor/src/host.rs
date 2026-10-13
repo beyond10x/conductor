@@ -134,14 +134,46 @@ pub fn end_run(state: &Path, grant: &GrantId, lock: File) {
     let _ = fs::remove_file(state.join(RUNS).join(format!("{}.lock", grant.0)));
 }
 
-/// Whether a live `build run` holds the run lock of `grant`. A grant with no lock file (a run of an
-/// older binary) is not held.
-fn run_held(state: &Path, grant: &GrantId) -> bool {
+/// What the run lock of a grant says about its `build run`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunLock {
+    /// A live run holds it.
+    Held,
+    /// The file is there and nobody holds it: the run that made it is gone.
+    Free,
+    /// There is no file: a run of a binary before 0.10.6, which locked only from its start, or a
+    /// run that ended and removed it.
+    Absent,
+}
+
+fn run_lock(state: &Path, grant: &GrantId) -> RunLock {
     let path = state.join(RUNS).join(format!("{}.lock", grant.0));
     let Ok(file) = OpenOptions::new().write(true).open(&path) else {
-        return false;
+        return RunLock::Absent;
     };
-    file.try_lock().is_err()
+    if file.try_lock().is_err() {
+        RunLock::Held
+    } else {
+        RunLock::Free
+    }
+}
+
+/// How old a request or grant with no run lock file must be before a sweep takes its requester for
+/// gone: a `build run` of a binary before 0.10.6 holds no lock while it waits, and waits at most an
+/// hour.
+const LEGACY_AGE: time::Duration = time::Duration::hours(3);
+
+/// Whether `requested_at` is older than [`LEGACY_AGE`] at `at`; an instant that does not parse is
+/// not old.
+fn older_than_legacy_age(requested_at: &Timestamp, at: &Timestamp) -> bool {
+    use time::format_description::well_known::Rfc3339;
+    match (
+        time::OffsetDateTime::parse(&requested_at.0, &Rfc3339),
+        time::OffsetDateTime::parse(&at.0, &Rfc3339),
+    ) {
+        (Ok(requested), Ok(now)) => now - requested > LEGACY_AGE,
+        _ => false,
+    }
 }
 
 /// How [`Ledger::reserve`] answered.
@@ -223,12 +255,19 @@ impl Ledger {
         let mut gone = Vec::new();
         for grant in grants {
             let id = grant.data.grant_id;
-            if run_held(&state, &id) {
+            let lock = run_lock(&state, &id);
+            if lock == RunLock::Held {
                 continue;
             }
+            // A request or grant is its requester's until the run is known gone: its lock file is
+            // free, or it has none and is older than any waiter of an older binary would wait.
+            let requester_gone =
+                lock == RunLock::Free || older_than_legacy_age(&grant.data.requested_at, at);
             match grant.state {
-                HostGrantState::Requested => requests.push((id, grant.data.bytes.unwrap_or(1))),
-                HostGrantState::Granted => gone.push(id),
+                HostGrantState::Requested if requester_gone => {
+                    requests.push((id, grant.data.bytes.unwrap_or(1)));
+                }
+                HostGrantState::Granted if requester_gone => gone.push(id),
                 HostGrantState::Running
                     if grant.data.process_group.is_some_and(|group| !alive(group)) =>
                 {

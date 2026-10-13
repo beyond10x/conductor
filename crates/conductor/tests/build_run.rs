@@ -680,6 +680,9 @@ fn a_request_or_grant_whose_run_is_gone_is_closed_by_the_next_run() {
         ledger.reserve(&granted, 0, 0).expect("it is granted");
         (request, granted)
     };
+    // Both runs held their lock and died: the files stay, nobody holds them.
+    drop(host::hold_run(&case.state(), &request).expect("a run lock"));
+    drop(host::hold_run(&case.state(), &granted).expect("a run lock"));
     // 12G free over a 10G floor: the dead 6G grant would leave no room for 1G.
     case.free(12 * GIB);
     let outcome = build::run(
@@ -698,6 +701,33 @@ fn a_request_or_grant_whose_run_is_gone_is_closed_by_the_next_run() {
     let state_of = |id| grants.iter().find(|row| row.grant_id == id).unwrap().state;
     assert_eq!(state_of(request), HostGrantState::Refused);
     assert_eq!(state_of(granted), HostGrantState::Released);
+}
+
+/// A request with no run lock file is a waiter of a binary before 0.10.6, which locks only from its
+/// start: a sweep leaves it while it is younger than the legacy age.
+#[test]
+fn a_young_request_with_no_run_lock_file_is_left_to_its_waiter() {
+    let case = Case::new("legacy-waiter");
+    let at = host::now(OffsetDateTime::now_utc());
+    let request = host::Ledger::lock(&case.state())
+        .expect("the ledger opens")
+        .request(
+            "example-org",
+            None,
+            None,
+            GIB,
+            "a waiter of an older binary",
+            &at,
+        )
+        .expect("a request is recorded");
+    let swept = host::Ledger::lock(&case.state())
+        .expect("the ledger opens")
+        .sweep(&host::now(OffsetDateTime::now_utc()))
+        .expect("the sweep reads");
+    assert!(swept.is_empty(), "{swept:?}");
+    let grants = case.grants();
+    let row = grants.iter().find(|row| row.grant_id == request).unwrap();
+    assert_eq!(row.state, HostGrantState::Requested);
 }
 
 #[test]
