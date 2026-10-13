@@ -80,7 +80,8 @@ pub fn send_dispatch(state: Option<&Path>, args: SendDispatchArgs) -> Result<Exi
     let goal_id = GoalId(flag(COMMAND, "--goal-id", args.goal_id)?);
     let brief = flag(COMMAND, "--brief", args.brief)?;
     let sent_at = flag(COMMAND, "--sent-at", args.sent_at)?;
-    let priority = flag(COMMAND, "--priority", args.priority)?;
+    // Lower runs first; a dispatch sent without one runs first (design § 3).
+    let priority = args.priority.unwrap_or(0);
     let waits_on = args.waits_on.map(DispatchId);
     let day = utc_day(&sent_at).with_context(|| format!("{COMMAND}: --sent-at {sent_at:?}"))?;
     if let Some(given) = &args.dispatch_id {

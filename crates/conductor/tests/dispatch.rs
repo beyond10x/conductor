@@ -555,7 +555,8 @@ fn a_dispatch_event_missing_a_required_field_is_refused_with_the_fields_name() {
         ("--sent-at", SENT_AT),
         ("--priority", "1"),
     ];
-    for (left_out, _) in full {
+    // `--priority` is not required: a dispatch sent without one takes priority 0.
+    for (left_out, _) in full.into_iter().filter(|(flag, _)| *flag != "--priority") {
         let mut args = vec!["dispatch", "send-dispatch"];
         for (flag, value) in full {
             if flag != left_out {

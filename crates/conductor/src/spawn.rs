@@ -206,7 +206,7 @@ pub fn spawn(
             let mut line = crate::records::dispatch_line(DispatchLogEvent::Sent, &repository)?;
             line.controller_id = Some(controller_id.0.0.clone());
             line.to = Some(session_name.0.clone());
-            line.session_id = Some(String::from_utf8_lossy(&output.stdout).trim().to_owned());
+            line.session_id = Some(session_id(&String::from_utf8_lossy(&output.stdout)));
             line.charter_revision = Some(1);
             crate::records::append_dispatch(&line).with_context(|| {
                 format!(
@@ -563,4 +563,21 @@ fn exited(output: &Output) -> String {
     } else {
         format!("{how}: {}", said.join("; "))
     }
+}
+
+/// The session id `claude --bg` printed: the id of its `backgrounded · <id> · <name>` line, or the
+/// output itself when it is one word (a harness that prints only the id).
+#[must_use]
+pub fn session_id(stdout: &str) -> String {
+    stdout
+        .lines()
+        .find_map(|line| {
+            let mut parts = line.split('·').map(str::trim);
+            (parts.next() == Some("backgrounded"))
+                .then(|| parts.next())
+                .flatten()
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| stdout.trim().to_owned())
 }
