@@ -59,6 +59,9 @@ pub struct Settings {
     pub gate_stop: u64,
     /// Free bytes from which a stopped run continues: `thresholds.gate_resume`.
     pub gate_resume: u64,
+    /// How long a reservation waits for live reservations to release when they alone hold the
+    /// space it lacks: such a shortfall ends when their runs end, and is not the operator's.
+    pub wait: Duration,
 }
 
 impl Settings {
@@ -74,9 +77,13 @@ impl Settings {
             ),
             gate_stop: bytes(thresholds.gate_stop.0),
             gate_resume: bytes(thresholds.gate_resume.0),
+            wait: WAIT_FOR_RESERVATIONS,
         }
     }
 }
+
+/// How long a reservation waits for live reservations to release: an hour, a long gate's length.
+pub const WAIT_FOR_RESERVATIONS: Duration = Duration::from_secs(3600);
 
 /// Where a run reads what it decides by. A case gives its own.
 #[derive(Debug, Clone)]
@@ -253,21 +260,47 @@ pub fn run(
         left = report.left;
         short = lacking(&ledger)?;
     }
+    // A shortfall live reservations cover is a wait: they release as their runs end. Wait for
+    // them, without the lock, rather than refuse.
+    let mut waited = Duration::ZERO;
+    let pause = sources.every.max(Duration::from_millis(10));
+    while short > 0 && short <= ledger.reserved(Some(&grant))? && waited < settings.wait {
+        if waited.is_zero() {
+            eprintln!(
+                "conductor: build run: waiting: {}G short while live reservations hold {}G; \
+                 they release as their runs end",
+                short.div_ceil(GIB),
+                ledger.reserved(Some(&grant))?.div_ceil(GIB)
+            );
+        }
+        drop(ledger);
+        thread::sleep(pause);
+        waited += pause;
+        ledger = Ledger::lock(state)?;
+        ledger.sweep(&host::now((sources.clock)()))?;
+        short = lacking(&ledger)?;
+    }
+    // Only a shortfall live reservations do not cover needs a person.
+    let beyond_reservations = short > ledger.reserved(Some(&grant))?;
     let answer = ledger.reserve(&grant, short, reclaimed)?;
     if answer == Answer::Refused {
-        let item = host::escalate(
-            state,
-            &Shortfall {
-                instance: &settings.instance,
-                repository: request.repository.as_deref(),
-                command: &command,
-                bytes: request.reserve,
-                shortfall: short,
-                left: &left,
-                disk: &sources.disk,
-                at: &at,
-            },
-        )
+        let escalate = |shortfall: &Shortfall<'_>| {
+            if beyond_reservations {
+                host::escalate(state, shortfall)
+            } else {
+                Ok(None)
+            }
+        };
+        let item = escalate(&Shortfall {
+            instance: &settings.instance,
+            repository: request.repository.as_deref(),
+            command: &command,
+            bytes: request.reserve,
+            shortfall: short,
+            left: &left,
+            disk: &sources.disk,
+            at: &at,
+        })
         .unwrap_or_else(|error| {
             eprintln!("conductor: build run: the operator item was not recorded: {error:#}");
             None

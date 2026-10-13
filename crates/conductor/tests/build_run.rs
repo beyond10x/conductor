@@ -115,6 +115,7 @@ fn settings() -> Settings {
         floor: 10 * GIB,
         gate_stop: 5 * GIB,
         gate_resume: 8 * GIB,
+        wait: Duration::ZERO,
     }
 }
 
@@ -584,6 +585,46 @@ fn a_running_grant_holds_its_reservation_less_what_it_wrote() {
         .join()
         .expect("the runner ends")
         .expect("the run ends");
+}
+
+/// A shortfall live reservations cover is a wait: the run waits for them to release and then
+/// runs, and no operator item is raised.
+#[test]
+fn a_shortfall_live_reservations_cover_waits_for_them_and_raises_no_item() {
+    let case = Case::new("waits-for-reservations");
+    // 12G free over a 10G floor: 2G to reserve.
+    case.free(12 * GIB);
+    let state = case.state();
+    let sources = case.sources(reclaim_nothing);
+    let first = case.request(2 * GIB, "sleep 0.5");
+    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &first));
+    wait_until("the first run is running", || {
+        host::rows(&case.state())
+            .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
+    });
+    let waiting = Settings {
+        wait: Duration::from_secs(30),
+        ..settings()
+    };
+    let second = build::run(
+        &case.state(),
+        &waiting,
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, "true"),
+    )
+    .expect("the second run ends");
+    assert!(
+        matches!(second, Outcome::Ran { code: 0, .. }),
+        "it waited for the first to release and ran: {second:?}"
+    );
+    runner
+        .join()
+        .expect("the runner ends")
+        .expect("the first run ends");
+    assert!(
+        !case.state().join("host.fall").exists(),
+        "no operator item for a wait"
+    );
 }
 
 /// Runs reserving, starting and releasing at once keep every write: none fails on another's.

@@ -514,7 +514,7 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
     let question = format!(
         "Disk floor not reached: {short}G short for `{}`, which asked {}G; reclaim freed what \
          needs no decision. What else may go?",
-        shortfall.command,
+        home_relative(shortfall.command),
         gib(shortfall.bytes)
     );
     let options = if shortfall.left.is_empty() {
