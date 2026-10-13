@@ -31,11 +31,11 @@ accept agents that run unattended under your account (see the next section).
 - **The guard is the only check.** A PreToolUse hook,
   `conductor guard record-guard-decision --from-pre-tool-use`, sees every tool call of conductor
   and of each controller. It denies a file write outside the session's own repository, records or
-  scratch, a message to anyone but the session's own peers, any `gh` call that is not a read, and
-  any tool it has no rule for, MCP tools included. A missing binary blocks the call.
+  scratch, a message to anyone but the session's own peers, any `gh` or `glab` call that is not a
+  read, and any tool it has no rule for, MCP tools included. A missing binary blocks the call.
 - **Bash is not confined.** The Bash rules are a heuristic: they deny a few forms (a `cd` into
-  another checkout, a `gh` write, a write naming a settings or config path), not where a command
-  writes. `git push` and `curl` to a forge API are not checked. The guard catches mistakes; it is
+  another checkout, a `gh` or `glab` write, a write naming a settings or config path), not where a
+  command writes. `git push` and `curl` to a forge API are not checked. The guard catches mistakes; it is
   no defence against a hostile prompt in an issue or pull request a controller reads.
 - **Not every session is guarded.** conductor-dev runs without the guard by default, a session
   started by hand without the instance's settings is not guarded, and `task trust` lets each
@@ -53,7 +53,8 @@ The full model, with what is enforced and what is only instructed:
 | Claude Code (`claude`) | | the sessions; `claude agents --json` for the sessions collector and the tasks |
 | Rust toolchain and `cargo` | edition 2024 | building and installing the CLI from source |
 | `git` | | the repositories collector, worktree listing |
-| `gh`, logged in | | pull requests, CI runs, releases, repository lists of a GitHub source |
+| `gh`, logged in | | pull requests, CI runs, releases, repository lists of a GitHub source; not needed without one |
+| `glab`, logged in to the source's host | | merge requests, pipelines, releases, project lists of a GitLab source; not needed without one |
 | `task` (go-task) | | the tasks in [`Taskfile.yml`](Taskfile.yml) |
 | `jq` | | the tasks in `Taskfile.yml` |
 | `aep` | 0.71 | the planning stores: blockers per repository |
@@ -62,8 +63,14 @@ The full model, with what is enforced and what is only instructed:
 | `b10x-gates` | | the bot route for commits and pushes; the secret scan of `task check` |
 | `notify-send` (optional) | | the watch's desktop notification on a usage limit |
 
-The pins are in [`b10x.toml`](b10x.toml). `aep`, `ess`, `worktree` and `b10x-gates` come from the
-`b10x` marketplace (`/plugin marketplace add beyond10x/agentplugins` in Claude Code).
+The pins are in [`b10x.toml`](b10x.toml). With no `b10x.toml` in the working directory or a
+directory above it, `conductor doctor` checks `aep`, `ess` and `worktree` against the
+pins the binary was built with. `aep`, `ess`, `worktree` and `b10x-gates` come from the `b10x`
+marketplace (`/plugin marketplace add beyond10x/agentplugins` in Claude Code).
+
+A `gitlab` source names the host its group is on, such as `host: gitlab.example.com`
+(`gitlab.com` when absent), and needs `glab` logged in to that host; the
+[GitLab guide](https://beyond10x.github.io/conductor/docs/guides/gitlab) sets an instance up.
 
 ## Install
 
@@ -87,8 +94,11 @@ install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
 conductor doctor
 ```
 
-On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`. `conductor doctor` lists each program conductor
-starts with its version, and exits 1 when one is missing or older than its pin.
+On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`.
+`conductor --version` prints the installed version, `conductor 0.6.0`. `conductor doctor` lists
+each program conductor starts with its version, `not needed` for the forge CLI the instance has no
+source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
+it exits 1 when not ready.
 
 ## Quickstart (no sessions)
 

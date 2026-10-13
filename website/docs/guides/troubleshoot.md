@@ -9,18 +9,37 @@ source: crates/conductor/src/doctor.rs; crates/conductor/src/snapshot.rs, crates
 ## Start with doctor
 
 ```console
+conductor --version
 conductor config validate
 conductor doctor
 ```
+
+`conductor --version` names the installed release, `conductor 0.6.0`; quote it when you report a
+problem.
 
 Every command resolves the instance first and stops on a config problem, named by its YAML path.
 The tasks read the instance through `conductor config show`, so a config that does not validate
 shows up there as a missing role or records directory; validate it first.
 
-`conductor doctor` lists every program conductor starts (`git`, `gh`, `claude`, `jq`, `task`, `aep`,
-`worktree`, `ess`), present with its version line or missing, and, below a `b10x.toml`, whether each
-pinned program meets its pin. It exits 1 when one is missing or older than its pin, and writes
-nothing.
+`conductor doctor` lists every program conductor starts (`git`, `gh`, `glab`, `claude`, `jq`,
+`task`, `aep`, `worktree`, `ess`), present with its version line, missing, or not needed. A forge's
+CLI is needed only for an instance with a source on that forge, `gh` for `github` and `glab` for
+`gitlab`; the other reads `not needed` whether it is installed or not. A GitLab instance needs
+`glab` logged in to its source's `host` ([GitLab](./gitlab.md)).
+
+Doctor then names the pins it checks against: the nearest `b10x.toml` in the working directory or
+a directory above it, or `pins: none` when there is none, in which case it checks `aep`, `ess` and
+`worktree` against the pins the binary was built with (`meets the build's pin`). Its last line is
+the verdict:
+
+| last line | meaning |
+|---|---|
+| `ready` | every program it needs is present and meets its pin; exit 0 |
+| `not ready: <program> (missing), …` | the program is not on `PATH`; install it |
+| `not ready: <program> (too old), …` | its version is older than the pin; upgrade it |
+| `not ready: <program> (version unread), …` | it is pinned and its `--version` names no version doctor can read, or the pin is not `x.y.z` or `x.y` |
+
+Doctor exits 1 on any `not ready:` line, and writes nothing.
 
 ## A refused start
 
@@ -88,14 +107,16 @@ recipient), the reason and the time. `--format json` gives the same rows for `jq
 instance's config, since denials are kept in the instance's state directory.
 
 The reason says which rule denied the call. Most denials are the guard doing its job: a controller
-that tried to write outside its checkout, message another controller, or call `gh` for a write. A
+that tried to write outside its checkout, message another controller, or call `gh` or `glab` for a
+write. A
 denial is not the session's last word: the session sees the reason and can take another route.
 
 - **A tool with no rule.** A tool not on the built-in read-only list, MCP tools included, is denied
   with the list in the reason. When the tool only reads, add it to the role's `read_only_tools`
   ([instances and config](../concepts/instances-and-config.md#roles-profile-settings-read-only-tools)).
-- **A credential write.** A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write is class H:
-  the denial carries the exact command for the operator to run themselves.
+- **A credential write.** A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write, and a
+  `glab variable`, `glab auth`, `glab ssh-key`, `glab gpg-key`, `glab deploy-key` or `glab token`
+  write, is class H: the denial carries the exact command for the operator to run themselves.
 - **Every call denied.** When every tool call of a session is blocked, the hook could not run
   `conductor`: the settings run `conductor guard record-guard-decision --from-pre-tool-use || exit 2`,
   so a binary missing from the session's `PATH` blocks the call. Install it with `task install`.

@@ -14,8 +14,8 @@ ids, times and sizes differ on your machine.
 ## Install
 
 You need `git`, and a Rust toolchain (edition 2024) with `cargo` to build from source. Taking a snapshot also runs `aep`
-and `claude` (Claude Code), `gh` for a `github` source and `ess` for repositories with a
-specification; the [README](https://github.com/beyond10x/conductor#requirements) lists every tool.
+and `claude` (Claude Code), `gh` for a `github` source, `glab` for a `gitlab` source and `ess` for
+repositories with a specification; the [README](https://github.com/beyond10x/conductor#requirements) lists every tool.
 
 Install from the repository:
 
@@ -41,29 +41,50 @@ install -m 755 "conductor-$version-$target/conductor" ~/.local/bin/
 
 On macOS, `shasum -a 256 --check` stands in for `sha256sum --check --strict`.
 
-Each way installs one binary, `conductor`; `conductor --help` lists its commands.
+Each way installs one binary, `conductor`; `conductor --version` prints its version and
+`conductor --help` lists its commands:
+
+```console
+$ conductor --version
+conductor 0.6.0
+```
 
 ## Check the programs
 
 `conductor doctor` lists every program conductor starts, present with the first line its
-`--version` prints, or missing:
+`--version` prints, missing, or not needed, and ends with its verdict:
 
 ```console
 $ conductor doctor
 git: present, git version 2.55.0
 gh: present, gh version 2.100.0 (2026-09-04)
+glab: not needed
 claude: present, 2.1.296 (Claude Code)
 jq: present, jq-1.8.2
 task: present, 3.53.1+ff3372fc
 aep: present, aep 0.71.2
-worktree: present, b10x-worktree-cli 0.14.0
+worktree: present, b10x-worktree-cli 0.18.0
 ess: present, ess 0.59.0
-pins: no pins, no b10x.toml in ~/work or a directory above it
+pins: none
+aep: 0.71.2 meets the build's pin 0.71
+worktree: 0.18.0 meets the build's pin 0.18
+ess: 0.59.0 meets the build's pin 0.59
+ready
 ```
 
-It writes nothing and exits 1 when a program is missing. Run at or below a directory holding a
-`b10x.toml` (a checkout of the conductor repository has one), it also says whether each pinned
-program meets its pin, and exits 1 when one is older.
+A forge's CLI is needed only for an instance with a source on that forge: `gh` for a `github`
+source, `glab` for a `gitlab` source. With no config file yet, doctor checks the built-in
+instance, whose one source is on GitHub, so `glab` is not needed; once the config below is
+written, its `local` source needs neither. A GitLab instance needs `glab` instead of `gh`; the
+[GitLab guide](./guides/gitlab.md) sets one up.
+
+`pins: none` says no `b10x.toml` was found in the working directory or a directory above it, so
+doctor checks `aep`, `ess` and `worktree` against the pins the binary was built with. Run at or
+below a directory holding a `b10x.toml` (a checkout of the conductor repository has one), it
+names that file and checks each program it pins instead.
+
+The last line is `ready`, or `not ready:` and each program that failed, such as
+`not ready: worktree (too old)`; doctor then exits 1. It writes nothing.
 
 ## Two repositories to watch
 
