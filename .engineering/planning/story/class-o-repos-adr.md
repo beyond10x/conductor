@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:class-o-repos-adr
 kind: story
-status: active
+status: implemented
 title: Repositories and architecture decisions are class O; a bare report verb parses
 relations:
 - decomposes: epic:conductor-autonomy
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T21:38:27Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T21:38:27Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T21:47:03Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
