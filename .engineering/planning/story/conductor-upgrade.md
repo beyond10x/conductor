@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:conductor-upgrade
 kind: story
-status: draft
+status: implemented
 title: conductor upgrade checks for, downloads and verifies a newer release
 relations:
 - depends_on: story:setup-command
@@ -35,7 +35,11 @@ scope:
   path: website/docs/getting-started.md
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 5
+revision: 9
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:51Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":5}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:03Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":5}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:36Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1,"review_outcome":5}}}
 ---
 ## Why
 
@@ -50,7 +54,7 @@ with another version, the "etc." of the request.
 ## Acceptance
 
 - Spec first: `conductor upgrade` (`[upgrade]` in `crates/conductor/cli.yaml`, inputs `--check` and
-  `--version <x.y.z>`) and its outcomes — upgrade available, none available, upgraded from/to,
+  `--release <x.y.z>`; `--version` is reserved by `ess-cli/1`) and its outcomes — upgrade available, none available, upgraded from/to,
   already current, no archive for this target, checksum mismatch, new binary does not run, binary
   not writable — are declared in `spec/domains/config.yaml` and validated (`ess specify validate`)
   before any code.
@@ -81,7 +85,7 @@ with another version, the "etc." of the request.
   - an archive whose binary exits non-zero on `--version` (a script that does) refuses with
     `new binary does not run`, copy byte-identical and no `conductor.previous` written;
   - a copy in a read-only directory refuses with `binary not writable`, copy unchanged;
-  - `--version 0.6.0` downloads `conductor-0.6.0-<target>.tar.gz` (the fake `curl` records the
+  - `--release 0.6.0` downloads `conductor-0.6.0-<target>.tar.gz` (the fake `curl` records the
     URL it was asked for) and installs it.
 - README, `website/docs/getting-started.md` and `SETUP.md` name `conductor upgrade` as the way to
   upgrade.

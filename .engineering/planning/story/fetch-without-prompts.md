@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:fetch-without-prompts
 kind: story
-status: draft
+status: implemented
 title: Collector git never prompts and one failed fetch does not fail the snapshot
 relations:
 - depends_on: story:snapshot-member-failures
@@ -15,7 +15,11 @@ scope:
   path: crates/conductor/src/collect/repositories.rs
 - confidence: cited
   path: crates/conductor/tests/collect_stores.rs
-revision: 7
+revision: 10
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:53Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:04Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:37Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 

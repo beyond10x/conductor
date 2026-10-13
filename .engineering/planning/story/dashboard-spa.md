@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:dashboard-spa
 kind: story
-status: draft
+status: implemented
 title: The dashboard is a Vue app embedded in the binary
 relations:
 - decomposes: epic:dashboard-for-engineers
@@ -42,7 +42,11 @@ scope:
   path: docs/design/dashboard-mockup.html
 - confidence: cited
   path: website/docs/guides/read-the-dashboard.md
-revision: 6
+revision: 9
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:55Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:07Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:38Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

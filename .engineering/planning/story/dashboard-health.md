@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:dashboard-health
 kind: story
-status: draft
+status: implemented
 title: The health view shows doctor, snapshot failures and collector times with their fixes
 relations:
 - decomposes: epic:dashboard-for-engineers
@@ -23,7 +23,11 @@ scope:
   path: crates/conductor/tests/dashboard.rs
 - confidence: cited
   path: spec/domains/observation.yaml
-revision: 5
+revision: 8
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:57Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":6}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:09Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":6}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:39Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"test_result":1,"review_outcome":6}}}
 ---
 ## Why
 

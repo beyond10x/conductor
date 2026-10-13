@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:snapshot-member-failures
 kind: story
-status: draft
+status: implemented
 title: A member a collector cannot read is a recorded failure, not a failed snapshot
 relations:
 - supersedes: story:specifications-owner-nonmembers
@@ -32,7 +32,11 @@ scope:
   path: spec/domains/observation.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 5
+revision: 8
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:52Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":5}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:04Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":5}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:37Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"test_result":1,"review_outcome":5}}}
 ---
 ## Why
 

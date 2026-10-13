@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:watch-disk-floors
 kind: story
-status: draft
+status: implemented
 title: 'The watch reports each disk floor crossed: low, admit and gate stop'
 relations:
 - decomposes: epic:loop-without-handwork
@@ -17,7 +17,11 @@ scope:
   path: crates/conductor/tests/watch.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:53Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:06Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:37Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

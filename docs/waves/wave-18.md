@@ -26,6 +26,20 @@ Design reference for the dashboard: `docs/design/dashboard-mockup.html`.
 Commits the approval covers: one commit per unit on `wave/18`, CI fixes, the closing store commit,
 the fast-forward of `main` once CI is green, and the v0.8.0 release commit and tag.
 
+## Deviations
+
+- Implementors wrote without a local build (a build hold was in force), so CI was the first
+  compile: eight gate runs. The failures were a lint, struct literals and command lists missing
+  what parallel units added, a class test's fixture missing a new observation kind, a fixture
+  exemption for two new views, and a floor test reading over its own floor. `task check` now runs
+  `cargo test --no-fail-fast`, and the controller profile asks for a compiled, linted integration
+  head before the push.
+- `conductor upgrade` takes `--release`, not `--version`, which `ess-cli/1` reserves.
+- `story:onboarding-run`'s two recorded runs run on the v0.8.0 archive after the release; any gap
+  they find goes to v0.8.1.
+
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `660ce7fb7`
+(https://github.com/beyond10x/conductor/actions/runs/38403188681); thirteen stories moved to
+`implemented` on that record. Released as v0.8.0.

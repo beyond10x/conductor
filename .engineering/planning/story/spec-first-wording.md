@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:spec-first-wording
 kind: story
-status: draft
+status: implemented
 title: 'Every profile says: check for ESS specifications and get them green first'
 scope:
 - confidence: cited
@@ -13,7 +13,11 @@ scope:
   path: .agents/repo-controller.md
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:54Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"review_outcome":1}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:06Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":1}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:38Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1,"review_outcome":1}}}
 ---
 ## Why
 

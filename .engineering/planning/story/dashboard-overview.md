@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:dashboard-overview
 kind: story
-status: draft
+status: implemented
 title: The overview shows what needs you, repositories, today and health at a glance
 relations:
 - decomposes: epic:dashboard-for-engineers
@@ -37,7 +37,11 @@ scope:
   path: spec/domains/observation.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 6
+revision: 9
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:56Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":8}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:07Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"review_outcome":8}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:38Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1,"review_outcome":8}}}
 ---
 ## Why
 

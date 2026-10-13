@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:setup-command
 kind: story
-status: draft
+status: implemented
 title: conductor setup checks a repository's prerequisites and applies the safe fixes
 relations:
 - decomposes: epic:onboarding-from-url
@@ -31,7 +31,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 13
+revision: 16
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:50Z", actor: "human:timo", revision: 14, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:02Z", actor: "human:timo", revision: 15, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:36Z", actor: "human:timo", revision: 16, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

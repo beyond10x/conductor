@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:snapshot-duration
 kind: story
-status: draft
+status: implemented
 title: A snapshot records each collector's duration and completes in under five minutes
 relations:
 - informed_by: story:snapshot-member-failures
@@ -33,7 +33,11 @@ scope:
   path: spec/domains/observation.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 7
+revision: 11
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:53Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":6}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:05Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":6}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:37Z", actor: "human:timo", revision: 11, decided_on: {"recorded":{"test_result":1,"review_outcome":6}}}
 ---
 ## Why
 
@@ -45,7 +49,7 @@ which collector costs what, so the slow one cannot be named.
 ## Acceptance
 
 - Spec first: a collector run of a snapshot, `CollectorRunObservation` (snapshot id, collector
-  name, start, duration in milliseconds, state `completed`, `failed` or `over budget`), is declared
+  name, start, duration in milliseconds, `outcome` `completed`, `failed` or `over budget`), is declared
   in `spec/domains/observation.yaml`, with a view `CollectorRuns` placed in the `snapshot` group of
   `spec/components.yaml`, so `conductor snapshot collector-runs --snapshot-id <id>` lists them; a
   test with fake collectors of known delay reads the durations in that view.

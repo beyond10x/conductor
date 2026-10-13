@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:setup-guide-for-agents
 kind: story
-status: draft
+status: implemented
 title: SETUP.md is the step list an agent follows to set conductor up
 relations:
 - decomposes: epic:onboarding-from-url
@@ -17,7 +17,11 @@ scope:
   path: crates/conductor/tests/no_organization.rs
 - confidence: cited
   path: website/docs/getting-started.md
-revision: 8
+revision: 11
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:49Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:01Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:36Z", actor: "human:timo", revision: 11, decided_on: {"recorded":{"test_result":1,"review_outcome":3}}}
 ---
 ## Why
 

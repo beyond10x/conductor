@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:onboarding-run
 kind: story
-status: draft
+status: active
 title: Two fresh sessions given only the URL end ready
 relations:
 - decomposes: epic:onboarding-from-url
@@ -33,7 +33,10 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 16
+revision: 18
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:58Z", actor: "human:timo", revision: 17, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:09Z", actor: "human:timo", revision: 18, decided_on: {"recorded":{"review_outcome":3}}}
 ---
 ## Why
 

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:doctor-identity
 kind: story
-status: draft
+status: implemented
 title: conductor doctor names the machine and each forge identity
 relations:
 - depends_on: story:doctor-minimum-versions
@@ -27,7 +27,11 @@ scope:
   path: website/docs/guides/troubleshoot.md
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 8
+revision: 11
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T13:13:49Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "proposed", to: "active", at: "2026-10-13T13:14:02Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"review_outcome":3}}}
+- {from: "active", to: "implemented", at: "2026-10-13T13:19:36Z", actor: "human:timo", revision: 11, decided_on: {"recorded":{"test_result":1,"review_outcome":3}}}
 ---
 ## Why
 
