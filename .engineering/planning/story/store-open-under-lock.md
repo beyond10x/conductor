@@ -2,17 +2,18 @@
 format: aep.planning-md/3
 id: story:store-open-under-lock
 kind: story
-status: active
+status: implemented
 title: The store is opened under its lock, so a concurrent commit never reads as corruption
 scope:
 - confidence: cited
   path: crates/conductor/src/store.rs
 - confidence: cited
   path: crates/conductor/tests/decision.rs
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T02:40:52Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-10-13T02:40:52Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-13T02:50:09Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

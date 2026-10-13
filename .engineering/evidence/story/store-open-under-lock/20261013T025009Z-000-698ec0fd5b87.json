@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T02:50:09Z",
+  "actor": "human:timo",
+  "artifact": "story:store-open-under-lock",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check on wave/14: green, the new lock test and six_concurrent_records_are_all_recorded included",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38338412828"
+  }
+}
