@@ -54,6 +54,7 @@ instances:
       - local: ~/alpha
         exclude: [archive]
       - gitlab: example-group
+        host: gitlab.example.com
         exclude: [legacy]
     checkouts:
       root: ~/example-org

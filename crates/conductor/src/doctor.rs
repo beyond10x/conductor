@@ -1,7 +1,11 @@
 //! `conductor doctor` (`story:install-prerequisites`): each program conductor starts, present
 //! with the first line its `--version` prints, or missing; and, when the nearest `b10x.toml`
-//! pins one of them, whether it is older than that pin. One
-//! `conductor.config.Prerequisite` row per program.
+//! pins one of them, whether it is older than that pin; without one, whether `aep`, `ess` or
+//! `worktree` is older than the pins the binary was built with ([`build_pins`],
+//! `story:doctor-minimum-versions`). One `conductor.config.Prerequisite` row per program. A
+//! forge's CLI is needed only for an instance with a source on that forge (`story:gh-optional`):
+//! `gh` for a `github` source, `glab` for a `gitlab` source; the other is `not needed`. The last
+//! line is the verdict, `ready` or `not ready: ` and why (`story:doctor-verdict`).
 //!
 //! [`find`] is the one check of whether a program is there: `conductor snapshot start-snapshot`
 //! runs it on the programs its collectors start ([`crate::collect::programs`]) and refuses at
@@ -16,21 +20,58 @@ use std::process::{Command, ExitCode};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::{Prerequisite, PrerequisiteState};
+use conductor_model::config::{Instance, Prerequisite, PrerequisiteState, Source};
 
 use crate::collect;
+use crate::config;
 
-/// Every program conductor starts: its collectors, its gate and its tasks.
-pub const PROGRAMS: [&str; 8] = [
-    "git", "gh", "claude", "jq", "task", "aep", "worktree", "ess",
+/// Every program conductor starts: its collectors, its gate and its tasks. A forge's CLI of
+/// [`FORGES`] is among them only for an instance with a source on that forge ([`forges`]).
+pub const PROGRAMS: [&str; 9] = [
+    "git", "gh", "glab", "claude", "jq", "task", "aep", "worktree", "ess",
 ];
+
+/// The forges' CLIs: `gh` for GitHub, `glab` for GitLab.
+pub const FORGES: [&str; 2] = ["gh", "glab"];
 
 /// The pin file the ecosystem installer's `pin` command writes, found from the working
 /// directory upward.
 pub const PIN_FILE: &str = "b10x.toml";
 
+/// The pins this binary was built with (`story:doctor-minimum-versions`): `name=spec` pairs
+/// separated by `,`, the `aep`, `ess` and `worktree` pins of the product repository's own
+/// `b10x.toml` at build time (`build.rs`); empty when the build found no such file.
+const BUILD_PINS: &str = env!("CONDUCTOR_BUILD_PINS");
+
+/// [`BUILD_PINS`] as `(program, spec)` pairs, in their order: what `conductor doctor` compares
+/// with when it finds no `b10x.toml`.
+#[must_use]
+pub fn build_pins() -> Vec<(String, String)> {
+    BUILD_PINS
+        .split(',')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(name, spec)| (name.to_owned(), spec.to_owned()))
+        .collect()
+}
+
 /// How long `<program> --version` may take.
 const VERSION_BOUND: Duration = Duration::from_secs(10);
+
+/// The forge CLIs of [`FORGES`] that `instance` starts (`story:gh-optional`): `gh` when it has a
+/// `github` source, `glab` when it has a `gitlab` source.
+#[must_use]
+pub fn forges(instance: &Instance) -> Vec<&'static str> {
+    FORGES
+        .into_iter()
+        .filter(|forge| {
+            instance.sources.iter().any(|source| match source {
+                Source::GitHub(_) => *forge == "gh",
+                Source::GitLab(_) => *forge == "glab",
+                Source::Local(_) => false,
+            })
+        })
+        .collect()
+}
 
 /// Where `program` is on `PATH`: the first directory holding a regular file of that name that
 /// may be run. `None` when there is none, or `PATH` is not set.
@@ -247,8 +288,9 @@ fn uncommented(line: &str) -> &str {
     line
 }
 
-/// One row per program of [`PROGRAMS`], with its pin from `pins` when there is one.
-fn examine(pins: &[(String, String)]) -> Vec<Prerequisite> {
+/// One row per program of [`PROGRAMS`], with its pin from `pins` when there is one; a forge
+/// CLI of [`FORGES`] that `needed` does not name is `NotNeeded`, whether it is there or not.
+fn examine(pins: &[(String, String)], needed: &[&str]) -> Vec<Prerequisite> {
     PROGRAMS
         .iter()
         .map(|program| {
@@ -256,6 +298,15 @@ fn examine(pins: &[(String, String)]) -> Vec<Prerequisite> {
                 .iter()
                 .find(|(name, _)| name == program)
                 .map(|(_, spec)| spec.clone());
+            if FORGES.contains(program) && !needed.contains(program) {
+                return Prerequisite {
+                    program: (*program).to_owned(),
+                    state: PrerequisiteState::NotNeeded,
+                    version_line: None,
+                    version: None,
+                    pin,
+                };
+            }
             let Some(path) = find(program) else {
                 return Prerequisite {
                     program: (*program).to_owned(),
@@ -286,11 +337,14 @@ fn examine(pins: &[(String, String)]) -> Vec<Prerequisite> {
         .collect()
 }
 
-/// The lines `conductor doctor` prints for `row`.
-fn lines(row: &Prerequisite) -> Vec<String> {
+/// The lines `conductor doctor` prints for `row`, whose pin is called `its` (`its pin` for a pin
+/// of a `b10x.toml`, `the build's pin` for one of [`build_pins`]).
+fn lines(row: &Prerequisite, its: &str) -> Vec<String> {
     let program = &row.program;
-    if row.state == PrerequisiteState::Missing {
-        return vec![format!("{program}: missing")];
+    match row.state {
+        PrerequisiteState::Missing => return vec![format!("{program}: missing")],
+        PrerequisiteState::NotNeeded => return vec![format!("{program}: not needed")],
+        _ => {}
     }
     let mut lines = vec![format!(
         "{program}: present, {}",
@@ -300,30 +354,65 @@ fn lines(row: &Prerequisite) -> Vec<String> {
         let version = row.version.as_deref().unwrap_or("");
         lines.push(match row.state {
             PrerequisiteState::OlderThanPin => {
-                format!("{program}: {version} is older than its pin {pin}")
+                format!("{program}: {version} is older than {its} {pin}")
             }
             PrerequisiteState::VersionUnread if Pin::parse(pin).is_none() => {
-                format!("{program}: its pin {pin:?} is not a version: write x.y.z or x.y")
+                format!("{program}: {its} {pin:?} is not a version: write x.y.z or x.y")
             }
             PrerequisiteState::VersionUnread => {
-                format!("{program}: no version read, so its pin {pin} cannot be checked")
+                format!("{program}: no version read, so {its} {pin} cannot be checked")
             }
-            _ => format!("{program}: {version} meets its pin {pin}"),
+            _ => format!("{program}: {version} meets {its} {pin}"),
         });
     }
     lines
 }
 
-/// `conductor doctor`: one line per program of [`PROGRAMS`], `present` with its version line or
-/// `missing`; the `b10x.toml` it read, or that there are no pins; one line per pinned program,
-/// meeting its pin or older than it. Exits 1 when a program is missing, older than its pin, or
-/// pinned with no version read; 0 otherwise. Writes nothing.
+/// The forge CLIs the instance that `flag` (the global `--config`) and the environment select
+/// starts ([`forges`]); when that config does not load, a line saying so, and every one of
+/// [`FORGES`].
+fn needed_forges(flag: Option<&Path>) -> Vec<&'static str> {
+    match config::Environment::from_process()
+        .and_then(|environment| config::resolve(flag, &environment))
+    {
+        Ok(active) => forges(&active.instance),
+        Err(error) => {
+            let error = format!("{error:#}");
+            println!(
+                "config: {}; gh and glab are each counted as needed",
+                error
+                    .split(['\n', '\r'])
+                    .find(|line| !line.is_empty())
+                    .unwrap_or_default()
+            );
+            FORGES.to_vec()
+        }
+    }
+}
+
+/// `conductor doctor` for the instance the environment selects: [`doctor_with`] without a
+/// `--config`.
+///
+/// # Errors
+///
+/// What [`doctor_with`] answers.
+pub fn doctor() -> Result<ExitCode> {
+    doctor_with(None)
+}
+
+/// `conductor doctor`: one line per program of [`PROGRAMS`], `present` with its version line,
+/// `missing`, or `not needed` for a forge CLI that the instance `flag` and the environment select
+/// does not start; the `b10x.toml` it read, or `pins: none`; one line per pinned program, meeting
+/// its pin or older than it, the pins being the build's own ([`build_pins`]) without a file; and
+/// last the verdict, `ready` or `not ready: ` with each program that failed. Exits 1 when a
+/// program is missing, older than its pin, or pinned with no version read; 0 otherwise. Writes
+/// nothing.
 ///
 /// # Errors
 ///
 /// The working directory cannot be read, or the `b10x.toml` found cannot be read or holds a line
 /// in `[pins]` that is no pin.
-pub fn doctor() -> Result<ExitCode> {
+pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
     const WHAT: &str = "doctor";
     let cwd = env::current_dir().context(WHAT)?;
     let home = env::var_os("HOME").map(PathBuf::from);
@@ -334,37 +423,67 @@ pub fn doctor() -> Result<ExitCode> {
                 .with_context(|| format!("{WHAT}: read {}", file.display()))?;
             pins(&text, file).context(WHAT)?
         }
-        None => Vec::new(),
+        // Without a pin file, the build's own (story:doctor-minimum-versions).
+        None => build_pins(),
     };
-    let rows = examine(&pins);
+    let its = if file.is_some() {
+        "its pin"
+    } else {
+        "the build's pin"
+    };
+    let needed = needed_forges(flag);
+    let rows = examine(&pins, &needed);
     for row in &rows {
-        if let Some(first) = lines(row).first() {
+        if let Some(first) = lines(row, its).first() {
             println!("{first}");
         }
     }
     match &file {
         Some(file) => println!("pins: {}", file.display()),
-        None => println!(
-            "pins: no pins, no {PIN_FILE} in {} or a directory above it",
-            cwd.display()
-        ),
+        None => println!("pins: none"),
     }
     for row in rows
         .iter()
         .filter(|row| row.pin.is_some() && row.state != PrerequisiteState::Missing)
     {
-        for line in lines(row).into_iter().skip(1) {
+        for line in lines(row, its).into_iter().skip(1) {
             println!("{line}");
         }
     }
-    let healthy = rows
-        .iter()
-        .all(|row| row.state == PrerequisiteState::Present);
-    Ok(if healthy {
+    let verdict = verdict(&rows);
+    println!("{verdict}");
+    Ok(if verdict == READY {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// The verdict of a run every program of which passed (`story:doctor-verdict`).
+const READY: &str = "ready";
+
+/// The last line `conductor doctor` prints (`story:doctor-verdict`): [`READY`] when every row is
+/// `Present` or `NotNeeded`; otherwise `not ready: ` and each program that failed, in
+/// [`PROGRAMS`]' order, as `<program> (missing)`, `<program> (too old)` or
+/// `<program> (version unread)`, comma-separated.
+fn verdict(rows: &[Prerequisite]) -> String {
+    let failed: Vec<String> = rows
+        .iter()
+        .filter_map(|row| {
+            let why = match row.state {
+                PrerequisiteState::Present | PrerequisiteState::NotNeeded => return None,
+                PrerequisiteState::Missing => "missing",
+                PrerequisiteState::OlderThanPin => "too old",
+                PrerequisiteState::VersionUnread => "version unread",
+            };
+            Some(format!("{} ({why})", row.program))
+        })
+        .collect();
+    if failed.is_empty() {
+        READY.to_owned()
+    } else {
+        format!("not ready: {}", failed.join(", "))
+    }
 }
 
 #[cfg(test)]
@@ -389,6 +508,17 @@ mod tests {
         }
         for line in ["no version here", "", "build 7", "1.2.3.4"] {
             assert_eq!(version_of(line), None, "{line}");
+        }
+    }
+
+    #[test]
+    fn each_build_pin_is_a_pin_of_aep_ess_or_worktree() {
+        for (program, spec) in build_pins() {
+            assert!(
+                ["aep", "ess", "worktree"].contains(&program.as_str()),
+                "{program}"
+            );
+            assert!(Pin::parse(&spec).is_some(), "{program} = {spec:?}");
         }
     }
 

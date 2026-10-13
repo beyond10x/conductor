@@ -121,7 +121,7 @@ Every command takes these, before or after its name.
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
-| [`conductor doctor`](#conductor-doctor) | Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin |
+| [`conductor doctor`](#conductor-doctor) | Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
@@ -1420,7 +1420,7 @@ Usage: conductor dashboard serve [OPTIONS]
 
 ## `conductor doctor`
 
-Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin
+Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with
 
 ```text
 Usage: conductor doctor [OPTIONS]

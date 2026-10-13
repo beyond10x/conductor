@@ -193,7 +193,7 @@ commands:
         source: {kind: option, long: instance}
   - path: [doctor]
     callable: doctor
-    about: Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin
+    about: Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with
     arguments: []
   - path: [gc]
     callable: gc

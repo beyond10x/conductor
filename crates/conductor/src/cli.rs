@@ -246,7 +246,7 @@ impl Cli {
             Group::Dashboard(command) => match command {
                 DashboardCommand::Serve(args) => dashboard::dashboard_serve(&args),
             },
-            Group::Doctor => crate::doctor::doctor(),
+            Group::Doctor => crate::doctor::doctor_with(self.config.as_deref()),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
             Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
@@ -313,7 +313,7 @@ pub enum Group {
     #[command(subcommand)]
     Dashboard(DashboardCommand),
 
-    /// Report each program conductor starts as present, with its version, or missing, and each one older than its b10x.toml pin
+    /// Report each program conductor starts as present, with its version, or missing, and each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with
     #[command(name = "doctor")]
     Doctor,
 

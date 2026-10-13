@@ -2781,3 +2781,93 @@ fn a_role_limit_above_the_instance_s_is_refused_by_its_path() {
         assert!(problems.contains(path), "{name}: {problems}");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// story:gitlab-source-host: a `gitlab` source names its host, `gitlab.com` when the file omits it.
+// ---------------------------------------------------------------------------------------------
+
+/// A config file of one instance `one` whose only source is `source`, written as the inside of a
+/// YAML flow mapping.
+fn one_source_instance(source: &str) -> String {
+    format!(
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: one\n\
+         \x20   sources: [{{{source}}}]\n\
+         \x20   checkouts: {{root: ~/one, trees: ~/trees}}\n"
+    )
+}
+
+/// `config show` prints a `gitlab` source's `host`: `gitlab.com` when the file leaves it out, and
+/// the host the file writes otherwise; in JSON, as a text line and through a YAML round trip.
+#[test]
+fn a_gitlab_source_shows_its_host_and_gitlab_com_when_the_file_omits_it() {
+    let case = Case::new("gitlab-host");
+    for (name, source, host) in [
+        ("absent", "gitlab: example-group", "gitlab.com"),
+        (
+            "written",
+            "gitlab: example-group, host: gitlab.example.com",
+            "gitlab.example.com",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_source_instance(source));
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&validated)
+        );
+        let shown = case.show(&file, &[]);
+        assert_eq!(
+            instance(&shown)["sources"],
+            serde_json::json!([{"gitlab": "example-group", "host": host}]),
+            "{name}: {shown:#}"
+        );
+
+        let text = case.with_file(&file, &["config", "show"]);
+        assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+        let text = String::from_utf8_lossy(&text.stdout);
+        for line in [
+            "instances[0].sources[0].gitlab: example-group".to_owned(),
+            format!("instances[0].sources[0].host: {host}"),
+        ] {
+            assert!(
+                text.lines().any(|shown| shown == line),
+                "{name}: no line `{line}`: {text}"
+            );
+        }
+
+        let yaml = case.with_file(&file, &["config", "show", "--format", "yaml"]);
+        assert_eq!(yaml.status.code(), Some(0), "{}", describe(&yaml));
+        let written = case.write(
+            &format!("{name}-shown.yaml"),
+            &String::from_utf8_lossy(&yaml.stdout),
+        );
+        assert_eq!(case.show(&written, &[]), shown, "{name}: the round trip");
+    }
+}
+
+/// A `host` is a host name, without a scheme or a path, and only a `gitlab` source takes one.
+#[test]
+fn a_host_is_refused_by_its_path_when_it_is_no_host_or_beside_another_source() {
+    let case = Case::new("gitlab-host-refused");
+    for (name, source) in [
+        (
+            "scheme",
+            "gitlab: example-group, host: \"https://gitlab.example.com\"",
+        ),
+        ("path", "gitlab: example-group, host: gitlab.example.com/g"),
+        ("empty", "gitlab: example-group, host: \"\""),
+        ("github", "github: one, host: gitlab.example.com"),
+        ("local", "local: ~/one, host: gitlab.example.com"),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_source_instance(source));
+        let problems = refused(&case, &file);
+        assert!(
+            problems.contains("instances[0].sources[0].host: "),
+            "{name}: {problems}"
+        );
+    }
+}

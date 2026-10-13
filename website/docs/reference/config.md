@@ -40,6 +40,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `sources[].local` | string | one of `github`, `local`, `gitlab` |  |
 | `sources[].gitlab` | string | one of `github`, `local`, `gitlab` |  |
 | `sources[].exclude` | list of string | `[]` | only beside `local` or `gitlab` |
+| `sources[].host` | string | `gitlab.com` | only beside `gitlab` |
 | `checkouts.root` | string | required |  |
 | `checkouts.trees` | string | required |  |
 | `records` | string | `~/.b10x/conductor/<name>/records` |  |
@@ -131,7 +132,7 @@ Written as string. Specified as `conductor.config.TimeOfDay`.
 
 ### Source
 
-Where an instance's repositories come from. The file writes `{github: <owner>}`, `{local: <path>}` or `{gitlab: <group or root>}`; a `local` or `gitlab` source may add `exclude: [<path under the root>]`.
+Where an instance's repositories come from. The file writes `{github: <owner>}`, `{local: <path>}` or `{gitlab: <group or root>}`; a `local` or `gitlab` source may add `exclude: [<path under the root>]`, and a `gitlab` source `host: <host name>`.
 
 A repository is the directory that holds `.git` at depth 1 or 2 under a root (`<root>/<repo>` or `<root>/<group>/<repo>`), named by its path under the root (`<group>/<repo>`); the root is a `local` source's path, and for the checkouts of the other sources `checkouts.root`. A repository whose name is an `exclude` entry, or lies under one, is not listed and not placed. Absent, `exclude` is empty. A `github` source takes no `exclude`: GitHub lists its owner's repositories, and the collectors that read that list do not filter it.
 
@@ -151,9 +152,9 @@ Keys: `path`, `exclude`. Specified as `conductor.config.LocalSource`.
 
 ### GitLabSource
 
-A group (or the root) on a GitLab forge, whose repositories are the instance's. The conductor binary does not read that forge: the collectors record nothing for this source, and conductor reads it through its session's integration and records the rows with the snapshot record commands.
+A group (or the root) on a GitLab forge, whose repositories are the instance's. `host` is the forge's host name, without a scheme or a path, such as `gitlab.example.com` for a self-hosted GitLab; absent, it is `gitlab.com`. The conductor binary does not read that forge: the collectors record nothing for this source, and conductor reads it through its session's integration and records the rows with the snapshot record commands.
 
-Keys: `group`, `exclude`. Specified as `conductor.config.GitLabSource`.
+Keys: `group`, `host`, `exclude`. Specified as `conductor.config.GitLabSource`.
 
 ### Checkouts
 

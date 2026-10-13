@@ -16,17 +16,26 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
-/// Each program conductor starts, with the version line its fake prints.
+/// Each program conductor starts, with the version line its fake prints. `aep`, `worktree` and
+/// `ess` print a version newer than any pin a build carries (`story:doctor-minimum-versions`), so
+/// a case without a pin file passes whatever the repository's `b10x.toml` pins.
 const PROGRAMS: [(&str, &str); 8] = [
     ("git", "git version 2.51.0"),
     ("gh", "gh version 2.100.0 (2026-09-04)"),
     ("claude", "2.1.295 (Claude Code)"),
     ("jq", "jq-1.8.2"),
     ("task", "3.53.1+ff3372fc"),
-    ("aep", "aep 0.69.1"),
-    ("worktree", "worktree-cli 0.13.0"),
-    ("ess", "ess 0.56.0"),
+    ("aep", "aep 99.1.0"),
+    ("worktree", "worktree-cli 99.1.0"),
+    ("ess", "ess 99.1.0"),
 ];
+
+/// The pins of the repository's own `b10x.toml`, which the build carries as its minimum versions.
+fn repository_pins() -> Vec<(String, String)> {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../b10x.toml");
+    let text = fs::read_to_string(&file).expect("the repository has a b10x.toml");
+    conductor_cli::doctor::pins(&text, &file).expect("the repository's pins read")
+}
 
 struct Case {
     dir: PathBuf,
@@ -102,6 +111,44 @@ impl Case {
     fn doctor(&self, cwd: &Path) -> Output {
         self.conductor(cwd, &["doctor"])
     }
+
+    /// A config file of one instance `alpha` whose `sources` are `sources` (a YAML flow
+    /// sequence), with its checkouts, trees and records in the case's directory.
+    fn config(&self, sources: &str) -> PathBuf {
+        let file = self.dir.join("conductor.yaml");
+        fs::write(
+            &file,
+            format!(
+                "version: conductor.config/1\n\
+                 instances:\n\
+                 \x20 - name: alpha\n\
+                 \x20   sources: {sources}\n\
+                 \x20   checkouts:\n\
+                 \x20     root: {root}\n\
+                 \x20     trees: {trees}\n\
+                 \x20   records: {records}\n",
+                root = self.dir.join("checkouts").display(),
+                trees = self.dir.join("trees").display(),
+                records = self.dir.join("records").display(),
+            ),
+        )
+        .expect("write the config file");
+        file
+    }
+
+    /// `conductor doctor` in `work/` for the instance `config` names (`CONDUCTOR_CONFIG`).
+    fn doctor_for(&self, config: &Path) -> Output {
+        common::conductor(self.home())
+            .arg("doctor")
+            .current_dir(self.work())
+            .env_clear()
+            .env("HOME", self.home())
+            .env("PATH", self.bin())
+            .env("CONDUCTOR_CONFIG", config)
+            .stdin(Stdio::null())
+            .output()
+            .expect("conductor runs")
+    }
 }
 
 fn shown(output: &Output) -> String {
@@ -136,9 +183,7 @@ fn doctor_reports_each_program_present_with_its_version() {
         );
     }
     assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("pins: no pins") && line.contains("b10x.toml")),
+        lines.contains(&"pins: none".to_owned()),
         "without a b10x.toml doctor says there are no pins: {}",
         shown(&output)
     );
@@ -185,6 +230,9 @@ fn doctor_counts_a_file_that_cannot_run_as_missing() {
 fn doctor_reports_a_cli_older_than_its_pin() {
     let case = Case::new("pins");
     case.programs_but(&[]);
+    case.program("aep", "aep 0.69.1", 0);
+    case.program("worktree", "worktree-cli 0.13.0", 0);
+    case.program("ess", "ess 0.56.0", 0);
     let repository = case.home().join("repository");
     let below = repository.join("crates/x");
     fs::create_dir_all(&below).expect("create the repository");
@@ -235,16 +283,192 @@ fn doctor_reports_a_cli_older_than_its_pin() {
 fn doctor_reads_no_pins_from_home_or_above() {
     let case = Case::new("pins-home");
     case.programs_but(&[]);
-    fs::write(case.home().join("b10x.toml"), "[pins]\naep = \"9.9\"\n").expect("write b10x.toml");
+    fs::write(case.home().join("b10x.toml"), "[pins]\naep = \"999.9\"\n").expect("write b10x.toml");
     let output = case.doctor(&case.work());
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     assert!(
-        stdout(&output)
-            .iter()
-            .any(|line| line.starts_with("pins: no pins")),
+        stdout(&output).contains(&"pins: none".to_owned()),
         "{}",
         shown(&output)
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:gh-optional: a forge's CLI is needed only for a source on that forge.
+// ---------------------------------------------------------------------------------------------
+
+/// The GitLab CLI, with the version line its fake prints.
+const GLAB: (&str, &str) = ("glab", "glab 1.46.0 (2024-09-01)");
+
+/// An instance whose only source is on GitLab needs no `gh`: without it on `PATH` doctor prints
+/// `gh: not needed` and exits 0 when every other program is there.
+#[test]
+fn doctor_needs_no_gh_for_a_gitlab_only_instance() {
+    let case = Case::new("gitlab-only");
+    case.programs_but(&["gh"]);
+    case.program(GLAB.0, GLAB.1, 0);
+    let config = case.config("[{gitlab: example-group, host: gitlab.example.com}]");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        lines.contains(&"gh: not needed".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        lines.contains(&format!("glab: present, {}", GLAB.1)),
+        "{}",
+        shown(&output)
+    );
+}
+
+/// An instance whose only source is on GitHub needs no `glab`.
+#[test]
+fn doctor_needs_no_glab_for_a_github_only_instance() {
+    let case = Case::new("github-only");
+    case.programs_but(&[]);
+    let config = case.config("[{github: example-org}]");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        lines.contains(&"glab: not needed".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        lines.contains(&"gh: present, gh version 2.100.0 (2026-09-04)".to_owned()),
+        "{}",
+        shown(&output)
+    );
+}
+
+/// An instance with a `gitlab` source needs `glab`: without it doctor exits 1 naming it.
+#[test]
+fn doctor_exits_1_naming_glab_for_a_gitlab_source_without_it() {
+    let case = Case::new("gitlab-no-glab");
+    case.programs_but(&["gh"]);
+    let config = case.config("[{gitlab: example-group}]");
+    let output = case.doctor_for(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        lines.contains(&"glab: missing".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        lines.contains(&"gh: not needed".to_owned()),
+        "{}",
+        shown(&output)
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:doctor-verdict: doctor ends with one ready or not-ready line.
+// ---------------------------------------------------------------------------------------------
+
+/// The last line `output` printed.
+fn last(output: &Output) -> String {
+    stdout(output).pop().unwrap_or_default()
+}
+
+/// Doctor's last line is `ready` when it exits 0, and otherwise `not ready: ` with each program
+/// that failed and why, in doctor's order; without a pin file its pins line is `pins: none`,
+/// naming no path.
+#[test]
+fn doctor_ends_with_one_ready_or_not_ready_line() {
+    let case = Case::new("verdict");
+
+    // A passing run, without a pin file.
+    case.programs_but(&[]);
+    let output = case.doctor(&case.work());
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+    let lines = stdout(&output);
+    assert!(
+        lines.contains(&"pins: none".to_owned()),
+        "{}",
+        shown(&output)
+    );
+    assert!(
+        lines
+            .iter()
+            .filter(|line| line.starts_with("pins: "))
+            .all(|line| line.as_str() == "pins: none"),
+        "the pins line names no path: {}",
+        shown(&output)
+    );
+
+    // One program missing and one pinned whose version is not read.
+    let repository = case.home().join("repository");
+    fs::create_dir_all(&repository).expect("create the repository");
+    fs::write(repository.join("b10x.toml"), "[pins]\naep = \"0.70\"\n").expect("write b10x.toml");
+    fs::remove_file(case.bin().join("jq")).expect("take jq off PATH");
+    case.program("aep", "aep (development build)", 0);
+    let output = case.doctor(&repository);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    assert_eq!(
+        last(&output),
+        "not ready: jq (missing), aep (version unread)",
+        "{}",
+        shown(&output)
+    );
+
+    // Every program there, one older than its pin.
+    case.programs_but(&[]);
+    case.program("aep", "aep 0.69.1", 0);
+    let output = case.doctor(&repository);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    assert_eq!(
+        last(&output),
+        "not ready: aep (too old)",
+        "{}",
+        shown(&output)
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:doctor-minimum-versions: without a pin file, the build's own pins.
+// ---------------------------------------------------------------------------------------------
+
+/// Without a `b10x.toml`, doctor compares `aep`, `ess` and `worktree` with the pins the binary
+/// was built with, the repository's own `b10x.toml`: each older one is `too old`, and doctor
+/// exits 1.
+#[test]
+fn without_a_pin_file_doctor_refuses_a_cli_older_than_the_build_s_pins() {
+    let pins = repository_pins();
+    for (name, line, version) in [
+        ("aep", "aep 0.63.1", "0.63.1"),
+        ("ess", "ess 0.58.0", "0.58.0"),
+        ("worktree", "worktree 0.17.0", "0.17.0"),
+    ] {
+        let pin = pins
+            .iter()
+            .find(|(program, _)| program == name)
+            .map(|(_, pin)| pin.clone())
+            .unwrap_or_else(|| panic!("the repository's b10x.toml pins {name}"));
+        let case = Case::new(&format!("build-pins-{name}"));
+        case.programs_but(&[]);
+        case.program(name, line, 0);
+        let output = case.doctor(&case.work());
+        assert_eq!(output.status.code(), Some(1), "{name}: {}", shown(&output));
+        let lines = stdout(&output);
+        assert!(
+            lines.contains(&"pins: none".to_owned()),
+            "{name}: {}",
+            shown(&output)
+        );
+        let older = format!("{name}: {version} is older than the build's pin {pin}");
+        assert!(lines.contains(&older), "{}", shown(&output));
+        assert_eq!(
+            last(&output),
+            format!("not ready: {name} (too old)"),
+            "{name}: {}",
+            shown(&output)
+        );
+    }
 }
 
 /// The collectors start `aep` on every run: without it `start-snapshot` refuses at start, with

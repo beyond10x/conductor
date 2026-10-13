@@ -19,7 +19,8 @@
 //!   `conductor.config/1`, no two instances share a name, and `default` names an instance;
 //! - a source is one of `github`, `local` and `gitlab`; a `local` or `gitlab` source may carry
 //!   `exclude`, each entry a relative path under its root without `.` or `..` steps, and a
-//!   `github` source carries none;
+//!   `github` source carries none; only a `gitlab` source carries a `host`, a host name without
+//!   a scheme or a path, `gitlab.com` when absent (`story:gitlab-source-host`);
 //! - a duration is a whole number above 0 with `s`, `m`, `h` or `d` (held as the ISO 8601
 //!   duration the generated `Duration` carries), a size a whole number with `G` (GiB), a count of
 //!   tokens a whole number or thousands with `k`, a time of day `HH:MM`;
@@ -115,6 +116,9 @@ pub const INSTANCE_VARIABLE: &str = "CONDUCTOR_INSTANCE";
 /// The config file under the home directory, when neither `--config` nor [`CONFIG_VARIABLE`]
 /// names one.
 pub const DEFAULT_FILE: &str = ".b10x/conductor/conductor.yaml";
+
+/// The host of a `gitlab` source that writes none (`story:gitlab-source-host`).
+pub const GITLAB_HOST: &str = "gitlab.com";
 
 /// The session roles and the model each runs on today: `claude … --model opus` in `Taskfile.yml`
 /// (`conductor`, `conductor-dev`) and in `.agents/conductor.md` (a controller).
@@ -234,7 +238,7 @@ const INSTANCE_KEYS: [&str; 20] = [
 const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 /// The keys that name a source's kind; a source names exactly one.
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
-const SOURCE_KEYS: [&str; 4] = ["github", "local", "gitlab", "exclude"];
+const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
 const ROLE_KEYS: [&str; 11] = [
     "role",
@@ -1719,7 +1723,8 @@ impl Reader<'_> {
     }
 
     /// One source: exactly one of `github`, `local` and `gitlab`, and for a `local` or `gitlab`
-    /// source its `exclude`, empty when absent.
+    /// source its `exclude`, empty when absent; for a `gitlab` source its `host`, [`GITLAB_HOST`]
+    /// when absent (`story:gitlab-source-host`).
     fn source(&mut self, value: &Value, path: &str) -> Option<Source> {
         let map = self.mapping(value, path, &SOURCE_KEYS)?;
         let kinds: Vec<(&str, &Value)> = SOURCE_KINDS
@@ -1727,6 +1732,14 @@ impl Reader<'_> {
             .filter_map(|kind| Self::get(map, kind).map(|value| (*kind, value)))
             .collect();
         let exclude = Self::get(map, "exclude");
+        let host = Self::get(map, "host");
+        if host.is_some() && !matches!(kinds.as_slice(), [("gitlab", _)] | []) {
+            self.problem(
+                &join(path, "host"),
+                "only a gitlab source takes a host: it names the GitLab forge the group is on",
+            );
+            return None;
+        }
         match kinds.as_slice() {
             [("github", owner)] => {
                 if exclude.is_some() {
@@ -1752,9 +1765,11 @@ impl Reader<'_> {
             }
             [("gitlab", group)] => {
                 let group = self.text(group, &join(path, "gitlab"));
+                let host = self.host(host, &join(path, "host"));
                 let exclude = self.exclude(exclude, &join(path, "exclude"));
                 Some(Source::GitLab(GitLabSource {
                     group: group?,
+                    host: host?,
                     exclude: exclude?,
                 }))
             }
@@ -1775,6 +1790,36 @@ impl Reader<'_> {
                 );
                 None
             }
+        }
+    }
+
+    /// A `gitlab` source's `host`: a host name, letters, digits, `.` and `-`, with an optional
+    /// `:<port>`, and no scheme or path. Absent, it is [`GITLAB_HOST`].
+    fn host(&mut self, value: Option<&Value>, path: &str) -> Option<String> {
+        let Some(value) = value else {
+            return Some(GITLAB_HOST.to_owned());
+        };
+        let host = self.text(value, path)?;
+        let (name, port) = match host.split_once(':') {
+            Some((name, port)) => (name, Some(port)),
+            None => (host.as_str(), None),
+        };
+        let name_ok = !name.is_empty()
+            && !name.starts_with(['.', '-'])
+            && !name.ends_with(['.', '-'])
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+        let port_ok = port.is_none_or(|port| port.parse::<u16>().is_ok_and(|port| port > 0));
+        if name_ok && port_ok {
+            Some(host)
+        } else {
+            self.problem(
+                path,
+                "is not a host name: write the forge's host without a scheme or a path, such as \
+                 gitlab.example.com",
+            );
+            None
         }
     }
 
@@ -2433,7 +2478,11 @@ pub fn document(instance: &Instance) -> Yaml {
                 excluding(mapping([("local", text(&local.path))]), &local.exclude)
             }
             Source::GitLab(gitlab) => {
-                excluding(mapping([("gitlab", text(&gitlab.group))]), &gitlab.exclude)
+                let source = mapping([
+                    ("gitlab", text(&gitlab.group)),
+                    ("host", text(&gitlab.host)),
+                ]);
+                excluding(source, &gitlab.exclude)
             }
         })
         .collect();

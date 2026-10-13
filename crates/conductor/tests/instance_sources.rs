@@ -1464,6 +1464,8 @@ fn an_own_prefix_does_not_place_a_session_under_an_excluded_repository() {
         {"id": "s-placed", "name": "a-z", "pid": 102, "status": "idle",
          "cwd": text(&case.home().join("elsewhere"))},
     ]));
+    // A `gitlab` source's snapshot asks for `glab` (story:gh-optional).
+    case.program("glab", "printf '%s' '[]'");
     let config = case.config_with(
         "[{gitlab: acme-group, exclude: [x]}]",
         "    session_prefix: a\n",
@@ -1476,6 +1478,33 @@ fn an_own_prefix_does_not_place_a_session_under_an_excluded_repository() {
             session("", None, "", None, "Busy"),
             session("s-placed", Some("a-z"), "~/elsewhere", None, "Idle"),
         ]
+    );
+}
+
+/// `story:gh-optional`: an instance with a `gitlab` source asks for `glab`, so a snapshot without
+/// it on `PATH` is refused before it starts, naming it; `gh` is not asked for, and no snapshot is
+/// taken.
+#[test]
+fn a_gitlab_instance_without_glab_is_refused_before_its_snapshot_starts() {
+    let case = Case::new("gitlab-without-glab");
+    case.programs(&json!([]));
+    fs::remove_file(case.bin().join("gh")).expect("take gh off PATH");
+    let config = case.config("[{gitlab: acme-group}]");
+    let output = case.start_snapshot(&config);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr).trim_end(),
+        "conductor: snapshot start-snapshot: `glab` is not on PATH, and a snapshot's collectors \
+         start it; `conductor doctor` lists every program conductor starts",
+        "{}",
+        describe(&output)
+    );
+    assert!(output.stdout.is_empty(), "{}", describe(&output));
+    assert_eq!(case.lines("aep"), Vec::<String>::new(), "no collector ran");
+    assert_eq!(
+        case.lines("claude"),
+        Vec::<String>::new(),
+        "no collector ran"
     );
 }
 

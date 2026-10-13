@@ -40,7 +40,8 @@ types:
 
   # Where an instance's repositories come from. The file writes `{github: <owner>}`,
   # `{local: <path>}` or `{gitlab: <group or root>}`; a `local` or `gitlab` source may add
-  # `exclude: [<path under the root>]` (story:grouped-instance).
+  # `exclude: [<path under the root>]` (story:grouped-instance), and a `gitlab` source
+  # `host: <host name>` (story:gitlab-source-host).
   #
   # A repository is the directory that holds `.git` at depth 1 or 2 under a root (`<root>/<repo>`
   # or `<root>/<group>/<repo>`), named by its path under the root (`<group>/<repo>`); the root is
@@ -69,14 +70,16 @@ types:
       - {name: path, type: String}
       - {name: exclude, type: List<String>}
 
-  # A group (or the root) on a GitLab forge, whose repositories are the instance's. The conductor
-  # binary does not read that forge: the collectors record nothing for this source, and conductor
-  # reads it through its session's integration and records the rows with the snapshot record
-  # commands.
+  # A group (or the root) on a GitLab forge, whose repositories are the instance's. `host` is the
+  # forge's host name, without a scheme or a path, such as `gitlab.example.com` for a self-hosted
+  # GitLab; absent, it is `gitlab.com` (story:gitlab-source-host). The conductor binary does not
+  # read that forge: the collectors record nothing for this source, and conductor reads it
+  # through its session's integration and records the rows with the snapshot record commands.
   - name: conductor.config.GitLabSource
     kind: struct
     fields:
       - {name: group, type: String}
+      - {name: host, type: String}
       - {name: exclude, type: List<String>}
 
   # The directory holding the instance's checkouts, and the one holding their managed worktrees.
@@ -448,10 +451,12 @@ types:
   # What `conductor doctor` found of one program conductor starts (story:install-prerequisites):
   # `Present`, on `PATH` and runnable, at or above its pin when the nearest `b10x.toml` pins it;
   # `Missing`; `OlderThanPin`, present and older than that pin; `VersionUnread`, present and
-  # pinned, with no version read from what `--version` printed.
+  # pinned, with no version read from what `--version` printed; `NotNeeded`, a forge's CLI the
+  # instance does not start, `gh` without a `github` source or `glab` without a `gitlab` source
+  # (story:gh-optional), whether it is on `PATH` or not.
   - name: conductor.config.PrerequisiteState
     kind: enum
-    variants: [Present, Missing, OlderThanPin, VersionUnread]
+    variants: [Present, Missing, OlderThanPin, VersionUnread, NotNeeded]
 
   # One program conductor starts, as `conductor doctor` reports it: the first line its
   # `--version` printed, the version read from that line, and its `b10x.toml` pin, `x.y.z` or

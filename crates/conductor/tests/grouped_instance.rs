@@ -683,6 +683,8 @@ fn a_gitlab_source_asks_nothing_and_config_show_prints_it() {
         live("s-s", &root.join("s/src")),
         live("s-x", &root.join("x/y")),
     ]));
+    // A `gitlab` source's snapshot asks for `glab` (story:gh-optional).
+    case.program("glab", "printf '%s' '[]'");
     let config = case.config("[{gitlab: acme-group, exclude: [x]}]");
     let output = case.start_snapshot(&config);
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
@@ -706,7 +708,7 @@ fn a_gitlab_source_asks_nothing_and_config_show_prints_it() {
     let shown: Value = serde_json::from_slice(&shown.stdout).expect("JSON");
     assert_eq!(
         shown["instances"][0]["sources"],
-        json!([{"gitlab": "acme-group", "exclude": ["x"]}]),
+        json!([{"gitlab": "acme-group", "host": "gitlab.com", "exclude": ["x"]}]),
         "{shown:#}"
     );
     let yaml = case.conductor(&config, &["config", "show", "--format", "yaml"]);

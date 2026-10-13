@@ -97,17 +97,24 @@ pub fn registered() -> Vec<Collector> {
 }
 
 /// The programs the [`registered`] collectors start on every run for `instance`
-/// (`story:install-prerequisites`): `gh` when it has a `github` source, `git` when its checkouts
-/// root or a `local` source holds a repository (a directory holding `.git`, at depth 1 or in a
-/// group at depth 2), and `aep` and `claude` always. `ess` is not among them: the
-/// `specifications` collector starts it only for a repository whose export holds a
-/// specification, which is known only once the export is made.
+/// (`story:install-prerequisites`): `gh` when it has a `github` source, `glab` when it has a
+/// `gitlab` source (`story:gh-optional`), `git` when its checkouts root or a `local` source holds
+/// a repository (a directory holding `.git`, at depth 1 or in a group at depth 2), and `aep` and
+/// `claude` always. `ess` is not among them: the `specifications` collector starts it only for a
+/// repository whose export holds a specification, which is known only once the export is made.
 #[must_use]
 pub fn programs(instance: &Instance) -> Vec<&'static str> {
     let origins = Origins::of(instance);
     let mut programs = Vec::new();
     if !origins.owners.is_empty() {
         programs.push("gh");
+    }
+    if instance
+        .sources
+        .iter()
+        .any(|source| matches!(source, Source::GitLab(_)))
+    {
+        programs.push("glab");
     }
     let roots = std::iter::once(PathBuf::from(&instance.checkouts.root)).chain(origins.local);
     let holds_repository = |root: &Path| {
