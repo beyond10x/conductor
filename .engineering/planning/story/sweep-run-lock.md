@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:sweep-run-lock
 kind: story
-status: active
+status: implemented
 title: A sweep never takes a grant whose build run is still recording and releasing it
 relations:
 - decomposes: epic:disk-protocol
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T20:04:51Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T20:04:51Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-13T20:15:34Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
