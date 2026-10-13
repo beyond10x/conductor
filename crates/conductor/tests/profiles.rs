@@ -245,3 +245,42 @@ fn the_profiles_name_glab_beside_every_gh_command() {
         assert!(with_gh > 0, "{name}: names no `gh` command");
     }
 }
+
+/// The sentence every profile carries for `story:spec-first-wording`.
+const SPEC_FIRST: &str = "Before any change, check whether the repository has ESS specifications; \
+                          if it does, modify them first and get them green (`ess specify validate` \
+                          and the conformance suite they drive) before implementing.";
+
+/// A profile on single spaces with each line's blockquote marker dropped, so a sentence quoted
+/// across lines reads as it does in prose.
+fn profile_unquoted(name: &str) -> String {
+    profile_lines(name)
+        .iter()
+        .map(|line| {
+            let line = line.trim_start();
+            line.strip_prefix('>').unwrap_or(line)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `story:spec-first-wording`: before any change, check for ESS specifications and get them green
+/// first. Once in conductor-dev's profile, once in the paragraph conductor's `[DISPATCH …]` briefs
+/// carry, and twice in the controller's: its own paragraph and the brief text conductor copies.
+#[test]
+fn every_profile_says_check_for_ess_specifications_and_get_them_green_first() {
+    for (name, expected) in [
+        ("conductor-dev.md", 1),
+        ("conductor.md", 1),
+        ("repo-controller.md", 2),
+    ] {
+        assert_eq!(
+            profile_unquoted(name).matches(SPEC_FIRST).count(),
+            expected,
+            "{name}: the spec-first sentence"
+        );
+    }
+}

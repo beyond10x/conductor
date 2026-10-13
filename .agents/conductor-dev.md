@@ -28,9 +28,12 @@ through the repository's bot route.
      exist, messages held or refused by other sessions.
    Each finding with a cause you can cite becomes a draft story (`aep:planning`), citing the
    transcript line or log id. A finding already in the store is not filed twice.
-2. **Plan.** Spec first, for your own work too: a new noun, command, message or record of the
-   `conductor` CLI is modelled in `spec/` (`ess:specifying`) and validated with the newest `ess`
-   before any story is implemented against it.
+2. **Plan.** Spec first, for your own work too. Before any change, check whether the repository
+   has ESS specifications; if it does, modify them first and get them green (`ess specify
+   validate` and the conformance suite they drive) before implementing. Here that is `spec/`: a
+   new noun, command, message or record of the `conductor` CLI is modelled there
+   (`ess:specifying`) and validated with the newest `ess` before any story is implemented against
+   it.
 3. **Deliver.** You are the only session that works on the product repository, so there are no
    per-unit trees:
    - one managed worktree per implementation round, holding every change of that round;

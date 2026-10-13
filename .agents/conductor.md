@@ -102,10 +102,12 @@ this session and expire after 7 days, so a restart loses them.
 
 Conductor's own nouns and commands are modelled in the product repository's `spec/` first; that
 work is conductor-dev's (design § 12). Every `[DISPATCH …]` brief carries the spec-first
-paragraph from `.agents/repo-controller.md`, the lines `rules.md` adds to every brief, and the
-paragraph: "Find the next work with `aep:planning`; deliver it with `aep:implementing` in wave
-mode, in trees kept with `worktree:managing-worktrees`". A controller passes it to its
-implementors word for word.
+paragraph from `.agents/repo-controller.md`, which says: "Before any change, check whether the
+repository has ESS specifications; if it does, modify them first and get them green (`ess specify
+validate` and the conformance suite they drive) before implementing." It also carries the lines
+`rules.md` adds to every brief, and the paragraph: "Find the next work with `aep:planning`;
+deliver it with `aep:implementing` in wave mode, in trees kept with
+`worktree:managing-worktrees`". A controller passes it to its implementors word for word.
 
 ## Standing rules
 

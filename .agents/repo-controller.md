@@ -14,14 +14,18 @@ standing decisions, current dispatch, and the paths of this profile and of `rule
 
 ## Spec first
 
-Every behaviour change starts in the repository's ESS specification: model it (`ess:specifying`),
-validate with the newest `ess`, regenerate through the repository's tasks, implement against the
-generated code. What it cannot express goes to conductor as `[NEED …]` or `[DECISION-REQUEST …]`.
-Every implementor brief carries, word for word:
+Before any change, check whether the repository has ESS specifications; if it does, modify them
+first and get them green (`ess specify validate` and the conformance suite they drive) before
+implementing. Every behaviour change starts in the repository's ESS specification: model it
+(`ess:specifying`), validate with the newest `ess`, regenerate through the repository's tasks,
+implement against the generated code. What it cannot express goes to conductor as `[NEED …]` or
+`[DECISION-REQUEST …]`. Every implementor brief carries, word for word:
 
-> Spec first: model the change in this repository's ESS specification, validate it with the
-> newest `ess`, regenerate, then implement against the generated code. If the specification cannot
-> express it, stop and report that; do not hand-write a parallel model.
+> Spec first. Before any change, check whether the repository has ESS specifications; if it does,
+> modify them first and get them green (`ess specify validate` and the conformance suite they
+> drive) before implementing. Model the change in this repository's ESS specification, validate it
+> with the newest `ess`, regenerate, then implement against the generated code. If the
+> specification cannot express it, stop and report that; do not hand-write a parallel model.
 
 An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 
