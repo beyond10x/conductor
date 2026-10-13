@@ -102,13 +102,14 @@ instance's. The dashboard takes the same care with its port and its service:
 
 The blockers collector reads the instance's repositories as the members of a workspace file,
 `<records>/.engineering/workspace.yaml` (`aep.workspace/1`), and exports each member's `origin/main`;
-the specifications collector reads a `github` source's repositories in those exports.
+the specifications collector reads a `github` or `gitlab` source's repositories in those exports.
 `conductor config workspace` writes it from the config, with no network read:
 
 - for a `github` source, each git checkout directly under `checkouts.root` that has an `origin`
   remote;
 - for a `local` source, each such checkout directly under its path, but those its `exclude` names;
-- for a `gitlab` source, none;
+- for a `gitlab` source, each git checkout under `checkouts.root` whose `origin` remote is on the
+  source's `host` and under its group, but those its `exclude` names;
 - and the records directory itself.
 
 Each member's `source` is relative to `<records>/.engineering/`. A checkout without an `origin`
@@ -125,9 +126,9 @@ A repository is the directory holding `.git` at depth 1 or 2 under a root (`<roo
 
 | source | lists |
 |---|---|
-| `github: <owner>` | the owner's repositories on GitHub, through `gh` |
+| `github: <owner>` | the owner's repositories on GitHub, through `gh`; `gh` is needed only with this source |
 | `local: <path>` | the repositories under a directory, as they are |
-| `gitlab: <group>` | a GitLab group; the binary does not read it, and the session records its rows |
+| `gitlab: <group>` | the projects of a GitLab group and its subgroups on `host` (default `gitlab.com`, for example `host: gitlab.example.com`), through `glab api --hostname <host>`: repositories and specifications, merge requests as pull requests, pipelines as workflow runs, releases; `glab` is needed only with this source |
 
 A `local` or `gitlab` source may `exclude` paths under its root. An instance's `catalog` names a
 repository under the checkouts root and a directory in it; the repositories collector then records

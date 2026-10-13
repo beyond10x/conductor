@@ -38,10 +38,12 @@ records nothing. The operator records what was decided or done with `record-oper
 It names the session that records it (`--recorded-by <session>`) and quotes the operator's words
 the decision rests on (`--operator-words`); both are required, and `decision show` prints them.
 
-The guard enforces one class-H line in code: a `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key`
-write is denied to every guarded session, whoever authorized it, and the denial hands the operator
-the exact command to run themselves. Every other `gh` write from a guarded session is denied too,
-as not a read ([the guard](/docs/security/the-guard)).
+The guard enforces one class-H line in code: a forge write of a credential (`gh secret`, `gh
+auth`, `gh ssh-key` or `gh gpg-key`; `glab variable`, `glab auth`, `glab ssh-key`, `glab
+gpg-key`, `glab deploy-key` or `glab token`) is denied to every guarded session, whoever
+authorized it, and the denial hands the operator the exact command to run themselves. Every other
+`gh` or `glab` write from a guarded session is denied too, as not a read
+([the guard](/docs/security/the-guard)).
 
 When a class is unclear, conductor treats it as class C, takes the option that can be undone, and
 records why. That record is how the

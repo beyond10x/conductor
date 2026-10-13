@@ -37,7 +37,7 @@ someone else can be told to run such a command.
 
 ## `git push` and direct forge API calls are not checked
 
-The guard denies `gh` writes. It does not look at `git push`, and it does not look at `curl` or
+The guard denies `gh` and `glab` writes. It does not look at `git push`, and it does not look at `curl` or
 any other client calling the forge's API. A session with a token can push to any branch, and
 call any endpoint, that the token allows.
 

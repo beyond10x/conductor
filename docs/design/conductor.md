@@ -99,14 +99,15 @@ when all five answered.
 
 | collector | reads | records |
 |---|---|---|
-| repositories | `git` in each checkout, `gh` for each `github` source | one row per repository: visibility, archived, open issues, `main` head, real commits in 7 days, behind `main`, dirty files, worktrees, latest release, unreleased commits, planning-store version, and `in_catalog` when the instance names a catalog |
-| github | `gh pr list`, `gh run list` and releases per repository | open pull requests, the newest `main` run per workflow, releases, merged pull requests |
+| repositories | `git` in each checkout, `gh` for each `github` source, `glab api --hostname <host>` for each `gitlab` source's group and subgroups | one row per repository: visibility, archived, open issues, `main` head, real commits in 7 days, behind `main`, dirty files, worktrees, latest release, unreleased commits, planning-store version, and `in_catalog` when the instance names a catalog |
+| github | per repository, `gh pr list`, `gh run list` and releases for a `github` source; merge requests, default-branch pipelines and releases through `glab api --hostname <host>` for a `gitlab` source | open pull requests (a GitLab merge request is one), the newest `main` run per workflow (a GitLab pipeline is one), releases, merged pull requests |
 | blockers | `git fetch`, an export of `origin/main`, `aep plan workspace list` | open `decision-blocker` artifacts across the AEP stores |
 | specifications | the same exports, `ess specify validate`, `ess verify conform synthesize` | per repository: specification present, opted out or missing; valid or refused; scenario count |
 | sessions | `claude agents --json` | live sessions, their cwd, the repository each is bound to |
 
-A `gitlab` source is not read by the binary. The session reads that forge through its own
-integration and records the rows with the `snapshot record-*` commands.
+A `gitlab` source names its `host` (default `gitlab.com`) and is read through `glab api --hostname
+<host>`: repositories and specifications, merge requests as pull requests, pipelines as workflow
+runs, releases. `gh` is needed only with a `github` source, `glab` only with a `gitlab` source.
 
 The catalog is optional. An instance that names one (`catalog`: a repository under the checkouts
 root, a directory in it, and how a file's stem spells a name) gets `in_catalog` on every
@@ -218,7 +219,7 @@ A `[RESOURCE]` request is granted or refused against the instance's thresholds
 | a controller's cwd is its checkout | the session is started there |
 | a controller's Edit, Write, NotebookEdit only inside its repository's checkout and managed worktrees, or in its scratch | the guard |
 | a controller's SendMessage only to `conductor` or to a sub-agent it started | the guard; a sub-agent by the shape of its id, not by who started it |
-| no `gh` writes; writes to the forge go through the repository's own route | the guard |
+| no `gh` or `glab` writes; writes to the forge go through the repository's own route; a forge write of a credential is class H, handed to the operator | the guard |
 | no `cd`, `pushd` or `git -C` into another repository or into conductor's records | the guard (a heuristic) |
 | no write to conductor's records or conductor's config | the guard: file tools; Bash a write form that names them |
 | no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`), a role's `settings` file or a role's `profile` file, by a file tool or a Bash write form that names it | the guard |
@@ -253,8 +254,8 @@ It reads the hook payload on standard input and decides by the payload's `cwd`:
   source of the instance excludes that repository;
 - a cwd in conductor's records (the instance's `records` when a config file names it) runs under
   conductor's rules, which allow edits to the records (`decisions/`, `dispatches/`, `charters/`,
-  `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`) and to scratch, and deny `gh`
-  writes;
+  `docs/handoff/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`) and to scratch, and deny `gh` and
+  `glab` writes;
 - a cwd in no repository is denied every tool that has a rule.
 
 Exit 0 allows the call. Exit 2 blocks it, with one line of reason on standard error. Anything that
@@ -267,7 +268,10 @@ without opening the store, because every tool call of every guarded session runs
 
 The Bash rule is a heuristic over the command line, and it does not check where a command writes.
 It denies a `cd`, `pushd` or `git -C` into another checkout or the records, a `gh` write, a
-`conductor` write, and a command that names a settings file, a role's profile file, conductor's
+`glab` call that is not a read (`mr view|list|diff`, `issue view|list`, `release
+view|list|download`, `repo view|list`, `ci view|list|status|trace|get`, `api` with GET and no
+request fields, `auth status`, `--help`, `--version`), held exactly as a `gh` write, a `conductor`
+write, and a command that names a settings file, a role's profile file, conductor's
 config or (a controller's) conductor's records and holds a write form anywhere in it. A write form
 is a redirection to a file outside quotes (`2>&1`, `>&2`, `>/dev/null` and a `>` inside a
 quoted program such as `awk 'NR>=490'` are none), or a write command or flag (`tee`, `cp`,
@@ -290,7 +294,7 @@ runs it with `--follow` under the harness `Monitor` tool.
 | usage limit | the tail of each such session's transcript | `usage limit: …`; also a desktop notification (`notify-send`) |
 | context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
 | silent controllers | the modification times of each live controller's transcript and its sub-agents' | `session silent: <name> <id> <m>m` when a controller `working` or `waiting` and all its sub-agents have written nothing for longer than `thresholds.silent_session`; again only after it wrote and fell silent anew |
-| `main` CI | `gh run list` for each Active repository of the newest complete snapshot | `CI red on main: …`, `CI green again on main: …` |
+| `main` CI | for each Active repository of the newest complete snapshot, `gh run list` for a `github` source, the default-branch pipeline through `glab api --hostname <host>` for a `gitlab` source | `CI red on main: …`, `CI green again on main: …` |
 | free disk | `statvfs` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, again only after it was back at `disk_clear` |
 
 A pass runs every `cadence.watch` (`--every <SECONDS>`), and CI is read every `cadence.ci`
@@ -323,7 +327,9 @@ command with its problems. `conductor config validate` names each problem by its
 
 A repository is the directory holding `.git` at depth 1 or 2 under a root (`<root>/<repo>` or
 `<root>/<group>/<repo>`), named by its path under the root. A `local` or `gitlab` source may
-`exclude` paths under its root. An instance's `catalog` names a repository under the checkouts
+`exclude` paths under its root. A `gitlab` source names its `host` (default `gitlab.com`);
+`conductor config workspace` writes a member for each checkout under the checkouts root whose
+`origin` remote is on that host and under the source's group, but those it excludes. An instance's `catalog` names a repository under the checkouts
 root and a directory in it; the repositories collector reads it (§ 4).
 
 The file never holds a secret. A value that looks like a token is refused by its path and never
@@ -395,7 +401,7 @@ the `cli:` block of `spec/components.yaml` plus the local commands of `crates/co
 | `guard` | the hook and its verdicts |
 | `config` | `validate`, `show`; `workspace` (write `<records>/.engineering/workspace.yaml` from the config; `--check` only compares) |
 | `dashboard` | `serve`: a read-only page on 127.0.0.1 (default port 7313) |
-| `doctor` | each program conductor starts, present with its version or missing, and each one older than its `b10x.toml` pin; exit 1 on either |
+| `doctor` | each program conductor starts, present with its version or missing, and each one older than its `b10x.toml` pin; exit 1 on either; `gh` is needed only with a `github` source and `glab` only with a `gitlab` source, otherwise `not needed` |
 | `init` | write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | `store` | `migrate` |
 | `trust` | mark every git checkout under `checkouts.root`, and the records directory, as trusted Claude Code workspaces in `~/.claude.json` (`task trust`) |

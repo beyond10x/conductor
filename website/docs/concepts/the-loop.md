@@ -36,8 +36,8 @@ when all five answered.
 
 | collector | reads | records |
 |---|---|---|
-| repositories | `git` in each checkout, `gh` for each `github` source | one row per repository: visibility, archived, open issues, `main` head, real commits in 7 days, behind `main`, dirty files, worktrees, latest release, unreleased commits, planning-store version, and `in_catalog` when the instance names a catalog |
-| github | `gh pr list`, `gh run list` and releases per repository | open pull requests, the newest `main` run per workflow, releases, merged pull requests |
+| repositories | `git` in each checkout, `gh` for each `github` source, `glab api --hostname <host>` for each `gitlab` source's group and subgroups | one row per repository: visibility, archived, open issues, `main` head, real commits in 7 days, behind `main`, dirty files, worktrees, latest release, unreleased commits, planning-store version, and `in_catalog` when the instance names a catalog |
+| github | per repository, `gh pr list`, `gh run list` and releases for a `github` source; merge requests, default-branch pipelines and releases through `glab api --hostname <host>` for a `gitlab` source | open pull requests (a GitLab merge request is one, failing when its head pipeline failed), the newest `main` run per workflow (a GitLab pipeline is one, its status mapped to the same conclusions), releases, merged pull requests |
 | blockers | the members of the records' workspace file (`aep plan workspace members`), then per member `git fetch origin`, an export of `origin/main`, and `aep plan workspace list` over the exports | open blockers across the planning stores: each open artifact whose kind ends in `blocker` |
 | specifications | the same exports, `ess specify validate`, `ess verify conform synthesize` | per repository: specification present, opted out or missing; valid or refused; scenario count |
 | sessions | `claude agents --json`, and the Codex session files under `~/.codex/sessions` written in the last hour | live Claude Code and Codex sessions, their working directory, the repository each is bound to |
@@ -47,11 +47,15 @@ The blockers collector reads only the repositories the workspace file
 config ([instances and config](./instances-and-config.md#the-workspace-file)); without that file it
 records no blockers. Every member must have an `origin` remote with a `main` branch, the records
 directory included: a fetch that fails fails the snapshot. A member whose checkout is absent is
-skipped with one line on standard error. The specifications collector reads a `github` source's
-repositories in the same exports, and a `local` source's repositories at their `HEAD`.
+skipped with one line on standard error. The specifications collector reads a `github` or
+`gitlab` source's repositories in the same exports, and a `local` source's repositories at their
+`HEAD`.
 
-A `gitlab` source is not read by the binary. The session reads that forge through its own
-integration and records the rows with the `conductor snapshot record-*` commands.
+A `gitlab` source names its `host` (default `gitlab.com`), and the collectors read it through
+`glab api --hostname <host>`: the group's projects and those of its subgroups as repositories
+(archived ones marked archived), their specifications, open and merged merge requests as pull
+requests, the newest default-branch pipeline as a workflow run, and releases. `gh` is needed only
+with a `github` source, `glab` only with a `gitlab` source.
 
 The views (`snapshot repositories`, `pull-requests`, `workflow-runs`, `blockers`, `specifications`,
 `sessions`, `releases`, `merged-pull-requests`, `snapshots`) list every kept snapshot's rows; filter
@@ -90,7 +94,7 @@ nothing.
 | usage limit | the tail of each such session's transcript | `usage limit: …`, and a desktop notification through `notify-send` |
 | context | the newest usage line of each live session's transcript | `context: <repo> <n>k tokens` above `thresholds.context_handover` |
 | silent controllers | the modification times of each live controller's transcript and its sub-agents' | `session silent: <name> <id> <m>m` when a controller `working` or `waiting` and all its sub-agents have written nothing for longer than `thresholds.silent_session`, once per silence |
-| `main` CI | `gh run list` for each Active repository of the newest complete snapshot | `CI red on main: …`, `CI green again on main: …` |
+| `main` CI | for each Active repository of the newest complete snapshot, `gh run list` for a `github` source, the default-branch pipeline through `glab api --hostname <host>` for a `gitlab` source | `CI red on main: …`, `CI green again on main: …` |
 | free disk | `df` on `/` | `disk low: <n>G free on /` under `thresholds.disk_low`, again only after it was back at `thresholds.disk_clear` |
 
 A pass runs every `cadence.watch` (`--every`), and CI is read every `cadence.ci` (`--ci-every`).

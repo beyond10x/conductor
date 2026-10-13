@@ -115,7 +115,14 @@ Denied in every guarded session:
 - a `gh` call that is not a read. A read is `view`, `list`, `status`, `diff`, `checks`, `search`
   or `download` after any group; `gh run view|list|watch|download`; `gh api` with GET and no
   request fields; `gh api graphql` without a mutation; `gh auth status`; `gh search`; `gh status`;
-  `gh help`; any call with `--help`. Writes go through the repository's own route.
+  `gh help`; any call with `--help`; `--version` or `-h` with no group. Writes go through the
+  repository's own route.
+- a `glab` call that is not a read, held exactly as a `gh` write. A read is `glab mr
+  view|list|diff`, `glab issue view|list`, `glab release view|list|download`, `glab repo
+  view|list`, `glab ci view|list|status|trace|get`; `glab api` with GET and no request fields
+  (`glab api graphql` reads only as any other endpoint does); `glab auth status`; any call with
+  `--help`; `--version` with no group. No verb reads after any other group: a `glab` group not
+  named here makes only writes.
 - a command that names a `.claude/` settings file or a role's settings file and holds a write
   form;
 - a command that names a role's profile file and holds a write form.
@@ -139,10 +146,16 @@ none), one of `sed -i`, `sed --in-place`, `yq -i`, `yq --inplace`, `perl -i`, `p
 protected path while it writes another file is denied, and a command that writes a protected
 file by a relative path, a variable or after a `cd` is not caught.
 
+A `gh` or `glab` call hidden inside an interpreter string (`python -c "…"`, `node -e "…"`) is
+not caught by the guard's parsing, which follows `sh -c` scripts but not another language's; only
+the session's sandbox bounds such a call, and there is no operating-system sandbox yet
+([limits](/docs/security/limits)).
+
 ### Forge credentials are class H
 
-A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write is denied as class H: it needs the
-operator's hands, whoever authorized it. The denial says so and hands the operator the exact
+A `gh secret`, `gh auth`, `gh ssh-key` or `gh gpg-key` write, and a `glab variable`, `glab auth`,
+`glab ssh-key`, `glab gpg-key`, `glab deploy-key` or `glab token` write, is denied as class H: it
+needs the operator's hands, whoever authorized it. The denial says so and hands the operator the exact
 command to run, prefixed with `!`, so it can be passed on as is.
 
 ### The read-flag exemption
