@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:gc-before-pause
 kind: story
-status: draft
+status: implemented
 title: conductor gc strips archive build output and names other holders before work pauses for disk
 relations:
 - depends_on: story:conductor-gc
@@ -19,7 +19,11 @@ scope:
   path: crates/conductor/tests/gc.rs
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-revision: 5
+revision: 8
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T09:16:59Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-13T09:16:59Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-13T09:16:59Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

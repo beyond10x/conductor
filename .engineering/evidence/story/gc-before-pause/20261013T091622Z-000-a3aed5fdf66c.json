@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-13T09:16:22Z",
+  "actor": "human:timo",
+  "artifact": "story:gc-before-pause",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check (CI, wave/16 368103de0)",
+    "reference": "https://github.com/beyond10x/conductor/actions/runs/38374319466"
+  }
+}

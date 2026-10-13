@@ -1,25 +1,38 @@
 # Wave 16
 
 Coordinator: conductor-dev, `aep:implementing` 0.22.8, wave mode. Approved up front (rules item 99).
-One managed tree, `conductor-wave-16`, branch `wave/16`; implementors write without a local build
-and CI gates the round. Epic: `epic:conductor-autonomy`.
+One managed tree, `conductor-wave-16`, branch `wave/16`; implementors wrote without a local build
+and CI gated the round. Epic: `epic:conductor-autonomy`.
 
 ## Units
 
-| unit | stories | agent | stage |
-|---|---|---|---|
-| U1 | prebuilt-binaries | `aep:implementor` | dispatched |
-| U2 | status-board | `aep:implementor` | dispatched |
-| U3 | resumable-gates, work-beside-long-gate, claims-cite-source, operator-items-age, gc-before-pause | `aep:implementor`, in that order | dispatched |
-| U4 | self-arming-restart | `aep:implementor`, after U2 and U3 | waiting |
+| unit | stories | commit |
+|---|---|---|
+| U1 | prebuilt-binaries | `cb5dff0` |
+| U2 | status-board | `cb5dff0`, `368103d` |
+| U3 | resumable-gates, work-beside-long-gate, claims-cite-source, operator-items-age, gc-before-pause, in that order | `cc0f30f` |
+| U4 | self-arming-restart, after U2 and U3 | `285e936` |
 
-U1 and U2 and U3 touch disjoint files (`aep plan artifact waves`); U3's stories share
-`.agents/conductor.md` and `crates/conductor/tests/profiles.rs` and run one after another; U4 shares
-`Taskfile.yml` and `crates/conductor/tests/taskfile.rs` with U2 and the profile files with U3.
+U1, U2 and U3 touched disjoint files and ran at once; U3's stories share `.agents/conductor.md`
+and `crates/conductor/tests/profiles.rs` and ran one after another; U4 shares `Taskfile.yml` and
+`crates/conductor/tests/taskfile.rs` with U2 and the profile files with U3, so it ran last.
 
-Commits the approval covers: one commit per unit on `wave/16`, the closing store commit, and the
-fast-forward of `main` once CI is green on the round.
+## Off-plan
+
+- `conductor gc` has no `--apply`: a run without `--dry-run` removes. The profile and the test use
+  that run; the strip is called with `worktree prune-archives --strip-build-output --apply`.
+- The age of a hands item shows in the `text` and `markdown` formats of `decision hands-todo`; the
+  `json` and `jsonl` rows keep the specification's fields, so the age is not in them.
+- The restart prompt names the keys `cadence.cycle` and `cadence.daily` and has the session read
+  their values from `conductor config show`, rather than putting the values in the prompt.
+- `PublishBoard` takes `deviation_rows` as an input, which the board counts itself: the command
+  refuses the flag. Dropping the input from the specification is a follow-up.
+- `story:version-flag` filed: `conductor --version` is refused.
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `368103d`
+(https://github.com/beyond10x/conductor/actions/runs/38374319466); the first run failed two
+status tests whose table reader kept the separator row, fixed in the test. Seven stories moved to
+`implemented` on that record. `story:prebuilt-binaries` stays `active` until v0.6.0's release
+page lists the five assets and an archive verifies and runs.

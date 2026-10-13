@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:status-board
 kind: story
-status: draft
+status: implemented
 title: conductor status and STATUS.md
 relations:
 - decomposes: epic:conductor-autonomy
@@ -17,7 +17,11 @@ scope:
   path: crates/conductor/tests/status.rs
 - confidence: cited
   path: crates/conductor/tests/taskfile.rs
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T09:16:55Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "proposed", to: "active", at: "2026-10-13T09:16:56Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "active", to: "implemented", at: "2026-10-13T09:16:56Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 # `conductor snapshot publish-board` and STATUS.md
 

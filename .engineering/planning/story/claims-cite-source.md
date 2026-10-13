@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:claims-cite-source
 kind: story
-status: draft
+status: implemented
 title: A news or status claim cites the source it was checked against
 relations:
 - decomposes: epic:conductor-autonomy
@@ -12,7 +12,11 @@ scope:
   path: .agents/conductor.md
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T09:16:57Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "proposed", to: "active", at: "2026-10-13T09:16:57Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "active", to: "implemented", at: "2026-10-13T09:16:58Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 

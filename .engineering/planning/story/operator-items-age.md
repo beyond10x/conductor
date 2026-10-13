@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:operator-items-age
 kind: story
-status: draft
+status: implemented
 title: An operator item shows its age and is re-sent with a default and a deadline
 relations:
 - decomposes: epic:conductor-autonomy
@@ -16,7 +16,11 @@ scope:
   path: crates/conductor/tests/decision.rs
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-revision: 4
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T09:16:58Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "proposed", to: "active", at: "2026-10-13T09:16:58Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "active", to: "implemented", at: "2026-10-13T09:16:58Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:self-arming-restart
 kind: story
-status: draft
+status: implemented
 title: A restarted conductor arms its cycles and watch from the config, not the hand-over
 relations:
 - informed_by: story:restart-message
@@ -20,7 +20,11 @@ scope:
   path: crates/conductor/tests/profiles.rs
 - confidence: cited
   path: crates/conductor/tests/taskfile.rs
-revision: 4
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-13T09:16:59Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "proposed", to: "active", at: "2026-10-13T09:16:59Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"review_outcome":2}}}
+- {from: "active", to: "implemented", at: "2026-10-13T09:17:00Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1,"review_outcome":2}}}
 ---
 ## Why
 
