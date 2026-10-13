@@ -150,12 +150,13 @@ pub(crate) enum Reclaim {
     RemoveTrees { root: PathBuf, trees: Vec<PathBuf> },
     /// `cargo clean --manifest-path <checkout>/Cargo.toml --target-dir <target>`.
     CargoClean { checkout: PathBuf, target: PathBuf },
-    /// `worktree prune-archives --strip-build-output --apply --json --repo <root> --id
+    /// `worktree prune-archives --strip-build-output --apply --json --repo <checkout> --id
     /// <repository>/<archive>…`: the build output in the archives `worktree` listed strippable,
-    /// each re-assessed by `worktree` before it rewrites the archive's patch. No archive is
-    /// deleted.
+    /// each re-assessed by `worktree` before it rewrites the archive's patch. `checkout` is the
+    /// git checkout whose `worktree` profile the listing read ([`profile_checkout`]). No archive
+    /// is deleted.
     StripArchives {
-        root: PathBuf,
+        checkout: PathBuf,
         archives: Vec<PathBuf>,
     },
 }
@@ -223,7 +224,7 @@ impl Reclaim {
                 ];
                 vec![(command, Some(checkout.clone()))]
             }
-            Self::StripArchives { root, archives } => {
+            Self::StripArchives { checkout, archives } => {
                 let mut command = vec![
                     os("worktree"),
                     os("prune-archives"),
@@ -231,7 +232,7 @@ impl Reclaim {
                     os("--apply"),
                     os("--json"),
                     os("--repo"),
-                    root.clone().into_os_string(),
+                    checkout.clone().into_os_string(),
                 ];
                 for archive in archives {
                     command.push(os("--id"));
@@ -286,11 +287,16 @@ fn archive_id(path: &Path) -> String {
 
 /// The build output `worktree` would strip from the instance's worktree archives
 /// (`story:gc-before-pause`), listed by `worktree prune-archives --strip-build-output --scope
-/// profile --json --repo <root>`, its own dry run, which writes nothing: one row summing the
+/// profile --json --repo <checkout>`, its own dry run, which writes nothing: one row summing the
 /// strippable archives' `strip_bytes`, which `conductor gc` strips through
 /// [`Reclaim::StripArchives`]. The listing reads every archive's patch, so it runs under
 /// [`STRIP_TIMEOUT`] when that is longer than [`Sources::measure_timeout`]. A row that could not
 /// be listed, or with nothing to strip, is kept.
+///
+/// `--repo` names a git checkout under the checkouts root ([`profile_checkout`]), never the
+/// records directory: `worktree` resolves the profile from it, and refuses a directory no
+/// active profile contains (`story:gc-archive-profile`). Without a checkout the row is kept,
+/// not measured.
 ///
 /// The disk panel does not read it: its measurement repeats every [`Sources::measure_every`],
 /// and this listing is too slow for that.
@@ -306,13 +312,20 @@ pub(crate) fn archive_strip(sources: &Sources) -> Row {
     ]
     .map(OsString::from)
     .to_vec();
-    command.push(sources.root.clone().into_os_string());
     let archive_root = sources.home.join(".local/state/worktree/archives");
     let row = Row {
         what: ARCHIVE_BUILD_OUTPUT,
         path: Some(archive_root.display().to_string()),
         ..Row::default()
     };
+    let Some(checkout) = profile_checkout(&sources.checkouts) else {
+        let state = format!(
+            "failed: no git checkout under the checkouts root {} names the worktree profile",
+            sources.checkouts.display()
+        );
+        return Row { state, ..row }.kept("not measured");
+    };
+    command.push(checkout.clone().into_os_string());
     let report = match json_of(&command, sources.measure_timeout.max(STRIP_TIMEOUT)) {
         Ok(report) => report,
         Err(state) => return Row { state, ..row }.kept("not measured"),
@@ -337,10 +350,16 @@ pub(crate) fn archive_strip(sources: &Sources) -> Row {
     if archives.is_empty() {
         return row.kept("nothing to strip");
     }
-    row.reclaimed_by(Reclaim::StripArchives {
-        root: sources.root.clone(),
-        archives,
-    })
+    row.reclaimed_by(Reclaim::StripArchives { checkout, archives })
+}
+
+/// The checkout `worktree prune-archives --repo` is given: the first git checkout directly
+/// under the checkouts root `root`, in name order; none when there is none.
+fn profile_checkout(root: &Path) -> Option<PathBuf> {
+    checkouts(root)
+        .into_iter()
+        .next()
+        .map(|name| root.join(name))
 }
 
 /// A tracked repository, and why `conductor gc` keeps the trees grouped under it: none when it

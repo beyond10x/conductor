@@ -114,6 +114,11 @@ impl Case {
         self.dir.join("calls.log")
     }
 
+    /// The `--repo` arguments of `worktree prune-archives`, written by [`strip_fixture`]'s fake.
+    fn repos(&self) -> PathBuf {
+        self.dir.join("repos.log")
+    }
+
     fn checkout(&self, name: &str) -> PathBuf {
         self.home().join("example-org").join(name)
     }
@@ -711,17 +716,13 @@ fn a_process_working_in_the_checkout_keeps_its_target() {
 /// What `conductor gc` calls the strip of build output from worktree archives.
 const ARCHIVE_BUILD_OUTPUT: &str = "build output in worktree archives";
 
-/// `story:gc-before-pause`: `conductor gc --dry-run` lists, beside the idle trees, the build
-/// output `worktree prune-archives --strip-build-output` would strip from the archives, read from
-/// that command's own dry run, and strips nothing; `conductor gc` strips it through `worktree
-/// prune-archives --strip-build-output --apply`, naming each strippable archive and no other.
-///
-/// The fixture's archives of `alpha`: `one` holds 32 KiB of build output in its patch, `two`
-/// holds none. A `worktree` first on `PATH` answers `prune-archives` as the real one would over
-/// them, and with `--apply` empties `one`'s patch; every other call goes to the fixture's fake.
-#[test]
-fn gc_strips_build_output_from_archives_and_its_dry_run_only_lists_it() {
-    let case = Case::new("strip-archives");
+/// The fixture's archives of `alpha`, under the case's home: `one` holds 32 KiB of build output
+/// in its patch `one/dirty.patch`, `two` holds none. A `worktree` first on `PATH` answers
+/// `prune-archives` as the real one would over them, and with `--apply` empties `one`'s patch;
+/// every other call goes to the fixture's fake. Each `prune-archives` call is appended to
+/// `calls.log`, and its `--repo` argument to `repos.log`, one line `list<TAB><repo>` or
+/// `apply<TAB><repo>`. Returns the archives' directory.
+fn strip_fixture(case: &Case) -> PathBuf {
     let archives = case.home().join(".local/state/worktree/archives/alpha");
     let patch = archives.join("one/dirty.patch");
     fill(&patch, 32 * KIB);
@@ -753,19 +754,56 @@ fn gc_strips_build_output_from_archives_and_its_dry_run_only_lists_it() {
             "#!/bin/sh\n\
              if [ \"$1\" = prune-archives ]; then\n\
              \x20 printf 'worktree %s\\n' \"$*\" >> '{calls}'\n\
+             \x20 repo=; prev=\n\
+             \x20 for arg; do\n\
+             \x20   if [ \"$prev\" = --repo ]; then repo=$arg; fi\n\
+             \x20   prev=$arg\n\
+             \x20 done\n\
              \x20 case \" $* \" in\n\
-             \x20 *' --apply '*) : > '{patch}'; printf '{{\"version\":4,\"ok\":true}}\\n' ;;\n\
-             \x20 *) cat '{strip}' ;;\n\
+             \x20 *' --apply '*)\n\
+             \x20   printf 'apply\\t%s\\n' \"$repo\" >> '{repos}'\n\
+             \x20   : > '{patch}'; printf '{{\"version\":4,\"ok\":true}}\\n' ;;\n\
+             \x20 *)\n\
+             \x20   printf 'list\\t%s\\n' \"$repo\" >> '{repos}'\n\
+             \x20   cat '{strip}' ;;\n\
              \x20 esac\n\
              \x20 exit 0\n\
              fi\n\
              exec '{fixture}' \"$@\"\n",
             calls = case.calls().display(),
+            repos = case.repos().display(),
             patch = patch.display(),
             strip = case.dir.join("strip.json").display(),
             fixture = bin.join("worktree-fixture").display(),
         ),
     );
+    archives
+}
+
+/// The `--repo` arguments the fixture's `worktree prune-archives` was given, in order, each with
+/// `list` or `apply`.
+fn repos(case: &Case) -> Vec<(String, PathBuf)> {
+    fs::read_to_string(case.repos())
+        .unwrap_or_default()
+        .lines()
+        .map(|line| {
+            let (mode, repo) = line.split_once('\t').unwrap_or((line, ""));
+            (mode.to_owned(), PathBuf::from(repo))
+        })
+        .collect()
+}
+
+/// `story:gc-before-pause`: `conductor gc --dry-run` lists, beside the idle trees, the build
+/// output `worktree prune-archives --strip-build-output` would strip from the archives, read from
+/// that command's own dry run, and strips nothing; `conductor gc` strips it through `worktree
+/// prune-archives --strip-build-output --apply`, naming each strippable archive and no other.
+///
+/// The archives are [`strip_fixture`]'s.
+#[test]
+fn gc_strips_build_output_from_archives_and_its_dry_run_only_lists_it() {
+    let case = Case::new("strip-archives");
+    let archives = strip_fixture(&case);
+    let patch = archives.join("one/dirty.patch");
     let text = |path: PathBuf| path.display().to_string();
 
     // The dry run: the strip row, read from worktree's own dry run, and nothing stripped.
@@ -805,7 +843,7 @@ fn gc_strips_build_output_from_archives_and_its_dry_run_only_lists_it() {
     let logged = case.logged();
     let call = format!(
         "worktree prune-archives --strip-build-output --apply --json --repo {} --id alpha/one",
-        text(case.records())
+        text(case.checkout("alpha"))
     );
     assert!(
         logged.lines().any(|line| line == call),
@@ -824,6 +862,86 @@ fn gc_strips_build_output_from_archives_and_its_dry_run_only_lists_it() {
             && line.contains(ARCHIVE_BUILD_OUTPUT)),
         "no removed strip row: {}",
         shown(&output)
+    );
+}
+
+/// `story:gc-archive-profile`: `worktree prune-archives` resolves its profile from `--repo`, and
+/// refuses the records directory, which no profile contains. Both calls `conductor gc` makes, the
+/// listing (in the dry run and in the run) and the strip, name the first git checkout under the
+/// checkouts root in name order, `alpha`, and never the records directory the binary runs in.
+#[test]
+fn prune_archives_is_given_the_first_checkout_under_the_checkouts_root_not_the_records() {
+    let case = Case::new("strip-archives-repo");
+    strip_fixture(&case);
+    let alpha = case.checkout("alpha");
+
+    let output = case.gc(&["--dry-run", "--format", "json"]);
+    assert!(output.status.success(), "{}", shown(&output));
+    assert_eq!(
+        repos(&case),
+        vec![("list".to_owned(), alpha.clone())],
+        "the dry run's listing named another --repo: {}",
+        shown(&output)
+    );
+
+    let output = case.gc(&[]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let called = repos(&case);
+    assert_eq!(
+        called,
+        vec![
+            ("list".to_owned(), alpha.clone()),
+            ("list".to_owned(), alpha.clone()),
+            ("apply".to_owned(), alpha),
+        ],
+        "the run's listing or strip named another --repo:\n{}",
+        case.logged()
+    );
+    assert!(
+        called.iter().all(|(_, repo)| repo != &case.records()),
+        "a prune-archives call named the records directory:\n{}",
+        case.logged()
+    );
+}
+
+/// `story:gc-archive-profile`: with no git checkout under the checkouts root, `conductor gc`
+/// calls no `worktree prune-archives` and keeps the archive strip as a holder, not measured,
+/// saying why.
+#[test]
+fn without_a_checkout_the_archive_strip_is_kept_not_measured() {
+    let case = Case::new("strip-archives-no-checkout");
+    strip_fixture(&case);
+    for name in ["alpha", "beta"] {
+        fs::remove_dir_all(case.checkout(name).join(".git")).expect("remove the checkout's .git");
+    }
+
+    let output = case.gc(&["--dry-run", "--format", "json"]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let listed: Value = serde_json::from_slice(&output.stdout).expect("gc prints JSON");
+    assert!(
+        listed["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .all(|row| row["what"] != ARCHIVE_BUILD_OUTPUT),
+        "the strip is listed reclaimable without a checkout: {}",
+        shown(&output)
+    );
+    let holder = listed["holders"]
+        .as_array()
+        .expect("holders")
+        .iter()
+        .find(|holder| holder["what"] == ARCHIVE_BUILD_OUTPUT)
+        .unwrap_or_else(|| panic!("no strip holder: {}", shown(&output)));
+    let kept = holder["kept"].as_str().expect("why it is kept");
+    assert!(
+        kept.starts_with("not measured (failed: no git checkout under the checkouts root"),
+        "{kept}"
+    );
+    assert!(
+        repos(&case).is_empty(),
+        "prune-archives was called without a checkout:\n{}",
+        case.logged()
     );
 }
 
