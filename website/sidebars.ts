@@ -38,6 +38,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'guides/configure-an-instance',
+        'guides/gitlab',
         'guides/initialise-the-records',
         'guides/start-conductor',
         'guides/add-a-repository-rule',
