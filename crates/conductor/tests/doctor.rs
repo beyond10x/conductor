@@ -167,11 +167,13 @@ fn stdout(output: &Output) -> Vec<String> {
         .collect()
 }
 
+/// With a config file whose source is on GitHub, so that `gh` is needed and read.
 #[test]
 fn doctor_reports_each_program_present_with_its_version() {
     let case = Case::new("present");
     case.programs_but(&[]);
-    let output = case.doctor(&case.work());
+    let config = case.config("[{github: example-org}]");
+    let output = case.doctor_for(&config);
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let lines = stdout(&output);
     for (name, version) in PROGRAMS {
