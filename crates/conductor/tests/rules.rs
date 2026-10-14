@@ -240,6 +240,31 @@ fn an_item_or_section_the_file_does_not_hold_exits_1_and_is_named() {
     assert!(error.contains("forty"), "names the word: {error}");
 }
 
+/// `story:rules-section-names`: a heading the file does not hold is refused on one line naming
+/// every section heading the file has (level 2 and deeper, in file order, each once), so a session
+/// told to read a section learns what the file calls its sections instead of guessing.
+#[test]
+fn a_missing_section_is_refused_naming_every_section_the_file_has() {
+    let case = Case::new("section-names");
+    let error = case.refused(&["--section", "all sessions"]);
+    assert_eq!(error.trim().lines().count(), 1, "one line: {error}");
+    assert!(
+        error.contains("RuleSectionNotFound") && error.contains("\"all sessions\""),
+        "the refusal names the error and the heading: {error}"
+    );
+    assert!(
+        error.trim_end().ends_with(
+            "sections: Conductor, Session start, Briefs, Repository controller, Operator's \
+             standing rules"
+        ),
+        "the refusal names each section of the file once, in file order: {error}"
+    );
+    assert!(
+        !error.contains("Rules of the example-org instance"),
+        "the file's title is no section: {error}"
+    );
+}
+
 #[test]
 fn json_rows_carry_item_title_section_source_and_text() {
     let case = Case::new("json");

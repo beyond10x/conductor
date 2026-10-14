@@ -88,6 +88,36 @@ fn a_controller_reads_the_sections_for_all_sessions_and_reports_pr_ci_and_merge(
     );
 }
 
+/// `story:rules-section-names`: conductor reads the shared section at start only when the file
+/// has it; a refusal of it (which names the sections the file has) is skipped, not a failed start.
+#[test]
+fn conductor_reads_the_all_sessions_section_only_when_the_file_has_it() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "and, when the file has that section, `conductor rules show --section \"all \
+             sessions\"` (the rules every session follows; when it is refused, skip it: the \
+             refusal names the sections the file has)"
+        ),
+        "conductor.md: the shared section is read only when the file has it"
+    );
+}
+
+/// `story:controller-trees-by-path`: a controller works in a managed tree by its absolute path,
+/// never through `EnterWorktree`, which the guard denies (`guard_rules.rs` holds the denial).
+#[test]
+fn a_controller_works_in_a_managed_tree_by_its_absolute_path() {
+    let text = profile("repo-controller.md");
+    assert!(
+        text.contains(
+            "Work in a managed tree by its absolute path, never through `EnterWorktree`, which \
+             the guard denies: file tools name `<tree>/…`, and commands run as `cd <tree> && …` \
+             or `git -C <tree> …`."
+        ),
+        "repo-controller.md: managed trees by absolute path, never EnterWorktree"
+    );
+}
+
 /// `story:resumable-gates`: a gate over an hour reruns only what failed and what depends on it,
 /// and one full run stays for the release commit; the controller profile and the charters
 /// conductor writes both say so.
@@ -566,8 +596,10 @@ fn conductor_restarts_rarely_and_starts_on_less_reading() {
     let conductor = profile("conductor.md");
     for sentence in [
         "At session start read, in this order: this profile; the rules for your role, through \
-         `conductor rules show --section conductor` and `conductor rules show --section \
-         \"all sessions\"` (the rules every session follows), not the whole `rules.md`;",
+         `conductor rules show --section conductor` and, when the file has that section, \
+         `conductor rules show --section \"all sessions\"` (the rules every session follows; \
+         when it is refused, skip it: the refusal names the sections the file has), not the \
+         whole `rules.md`;",
         "§§ 4–8 of `docs/design/conductor.md` in the product repository, and no other section;",
         "When a restart you need cannot be answered because conductor-dev is unreachable",
         "write your hand-over as for `[RESTART conductor]`, commit it, and run `task \

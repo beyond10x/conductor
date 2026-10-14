@@ -12,7 +12,8 @@
 //! each heading of that text (any case), its subsections' included, in file order; neither, every
 //! item. Text output is the items verbatim with one blank line between two; `--format json` a list
 //! of rows. A number no item holds, or a heading the file does not hold, is refused on one line of
-//! standard error naming it, and nothing is printed.
+//! standard error naming it, and nothing is printed; a heading's refusal names, on that line, every
+//! section heading the file has (`story:rules-section-names`).
 
 use std::fs;
 use std::io::{self, Write as _};
@@ -115,6 +116,24 @@ fn close(open: &mut Option<Open<'_>>, items: &mut Vec<Item>) {
     });
 }
 
+/// Every section heading of `text`: the headings of level 2 and deeper, in file order, each once
+/// (a heading that differs from an earlier one only in case is that one, as `--section` reads it).
+#[must_use]
+pub fn sections(text: &str) -> Vec<String> {
+    let mut sections: Vec<String> = Vec::new();
+    for line in text.lines() {
+        if let Some((level, heading)) = heading(line)
+            && level > 1
+            && !sections
+                .iter()
+                .any(|seen| seen.to_lowercase() == heading.to_lowercase())
+        {
+            sections.push(heading);
+        }
+    }
+    sections
+}
+
 /// The level and text of a Markdown heading line (`## Conductor`).
 fn heading(line: &str) -> Option<(usize, String)> {
     let level = line.bytes().take_while(|&byte| byte == b'#').count();
@@ -186,8 +205,9 @@ fn source(text: &str) -> Option<String> {
 ///
 /// A word of `item` that is no number, both `item` and `section`, or the refusal the
 /// specification names: [`RulesRefusal::RuleItemNotFound`] for a number no item holds,
-/// [`RulesRefusal::RuleSectionNotFound`] for a heading the file does not hold.
-pub fn select<'a>(items: &'a [Item], input: &Rules) -> Result<Vec<&'a Item>> {
+/// [`RulesRefusal::RuleSectionNotFound`] for a heading the file does not hold, naming `sections`,
+/// the file's section headings ([`sections`]).
+pub fn select<'a>(items: &'a [Item], sections: &[String], input: &Rules) -> Result<Vec<&'a Item>> {
     match (input.item.as_deref(), input.section.as_deref()) {
         (Some(_), Some(_)) => bail!("{COMMAND}: give --item or --section, not both"),
         (Some(list), None) => {
@@ -229,7 +249,13 @@ pub fn select<'a>(items: &'a [Item], input: &Rules) -> Result<Vec<&'a Item>> {
                 refuse(&RulesRefused {
                     refusal: RulesRefusal::RuleSectionNotFound,
                     detail: format!(
-                        "no heading of {RULES_FILE} with an item under it reads {section:?}"
+                        "no heading of {RULES_FILE} with an item under it reads {section:?}; \
+                         sections: {}",
+                        if sections.is_empty() {
+                            "none".to_owned()
+                        } else {
+                            sections.join(", ")
+                        }
                     ),
                 })?;
             }
@@ -278,7 +304,7 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
     let text =
         fs::read_to_string(&file).with_context(|| format!("{COMMAND}: read {}", file.display()))?;
     let items = parse(&text);
-    let chosen = select(&items, &input)?;
+    let chosen = select(&items, &sections(&text), &input)?;
 
     let printed = if json {
         let rows: Vec<Value> = chosen

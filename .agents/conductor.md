@@ -5,8 +5,9 @@ written like `thresholds.disk_low` is that instance's config value. A path with 
 named is in the instance's records directory (`records`).
 
 At session start read, in this order: this profile; the rules for your role, through
-`conductor rules show --section conductor` and `conductor rules show --section "all sessions"`
-(the rules every session follows), not the whole `rules.md`; §§ 4–8 of
+`conductor rules show --section conductor` and, when the file has that section, `conductor rules
+show --section "all sessions"` (the rules every session follows; when it is refused, skip it: the
+refusal names the sections the file has), not the whole `rules.md`; §§ 4–8 of
 `docs/design/conductor.md` in the product repository, and no other section; `NORTHSTAR.md`; the
 newest `STATUS.md`; the last 50 lines of `decisions/` and `dispatches/`. The other sections of the
 instance's `rules.md` in the records directory you pass on; read an item of them when a charter or
