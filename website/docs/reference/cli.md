@@ -70,6 +70,7 @@ Every command takes these, before or after its name.
 | [`conductor repository repository-marks`](#conductor-repository-repository-marks) | Repository marks |
 | [`conductor repository activity`](#conductor-repository-activity) | Every repository's effective activity, decided by its mark or computed from the newest complete snapshot |
 | [`conductor repository shipped`](#conductor-repository-shipped) | What shipped since an instant, from the newest complete snapshot's GitHub observations |
+| [`conductor repository refresh-hooks`](#conductor-repository-refresh-hooks) | List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after |
 | [`conductor decision`](#conductor-decision) | Decision requests and the decisions that answer them |
 | [`conductor decision answer-escalated-request`](#conductor-decision-answer-escalated-request) | Answer an escalated decision request |
 | [`conductor decision answer-request`](#conductor-decision-answer-request) | Answer a decision request |
@@ -143,6 +144,8 @@ Every command takes these, before or after its name.
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
 | [`conductor records`](#conductor-records) |  |
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
+| [`conductor rules`](#conductor-rules) |  |
+| [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor store`](#conductor-store) |  |
@@ -339,6 +342,8 @@ Usage: conductor snapshot record-repository [OPTIONS]
 | `--unreleased-commits <UNRELEASED_COMMITS>` | no | none | integer, optional |
 | `--planning-store-version <PLANNING_STORE_VERSION>` | no | none | string, optional |
 | `--in-catalog <IN_CATALOG>` | no | none | boolean, optional One of `true`, `false`. |
+| `--gates-hooks-version <GATES_HOOKS_VERSION>` | no | none | string, optional |
+| `--gates-version <GATES_VERSION>` | no | none | string, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-session`
@@ -773,6 +778,19 @@ Usage: conductor repository shipped [OPTIONS]
 |---|---|---|---|
 | `--since <SINCE>` | no | none | The instant, RFC 3339: what was released or merged at or after it is listed |
 | `--format <FORMAT>` | no | none | How the rows are rendered: text, json, jsonl or markdown. Default: text |
+
+## `conductor repository refresh-hooks`
+
+List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after
+
+```text
+Usage: conductor repository refresh-hooks [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--apply <BOOL>` | no | none | Run `b10x-gates install` in each checkout listed, with the instance's `gates_policy`. `--apply` alone is `--apply true` One of `true`, `false`. |
+| `--format <FORMAT>` | no | none | How the rows are rendered: text or json. Default: text |
 
 ## `conductor decision`
 
@@ -1727,6 +1745,26 @@ Usage: conductor records check [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the findings are printed: text or json. Default: text |
+
+## `conductor rules`
+
+```text
+Usage: conductor rules [OPTIONS] <COMMAND>
+```
+
+## `conductor rules show`
+
+Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold
+
+```text
+Usage: conductor rules show [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--item <ITEM>` | no | none | The item numbers to print, comma-separated (43,49,51), in the order given |
+| `--section <SECTION>` | no | none | A heading of rules.md, any case: print every item under each heading of that text |
+| `--format <FORMAT>` | no | none | How the items are printed: text (verbatim) or json. Default: text |
 
 ## `conductor setup`
 

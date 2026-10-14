@@ -98,6 +98,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `catalog.repository` | string | required |  |
 | `catalog.path` | string | required |  |
 | `catalog.names` | `plain` \| `hex` | `plain` |  |
+| `gates_policy` | string | none |  |
 | `conductor.served_by` | [InstanceName](#instancename) | derived |  |
 | `conductor.session_name` | [SessionName](#sessionname) | derived |  |
 

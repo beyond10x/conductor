@@ -350,6 +350,8 @@ pub fn collector(
                 unreleased_commits: None,
                 planning_store_version: None,
                 in_catalog: None,
+                gates_hooks_version: None,
+                gates_version: None,
             })?;
         }
         for (repository, number, opened_at) in &open {
