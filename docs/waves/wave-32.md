@@ -12,4 +12,5 @@ Source: conductor's report of live 0.10.5 waiters refused by the 0.10.6 sweep.
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on `d15d940a`
+(https://github.com/beyond10x/conductor/actions/runs/38493934449), first run. Released as v0.10.7.
