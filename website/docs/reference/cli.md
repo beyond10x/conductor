@@ -69,8 +69,8 @@ Every command takes these, before or after its name.
 | [`conductor repository mark-repository`](#conductor-repository-mark-repository) | Mark a repository for the first time |
 | [`conductor repository repository-marks`](#conductor-repository-repository-marks) | Repository marks |
 | [`conductor repository activity`](#conductor-repository-activity) | Every repository's effective activity, decided by its mark or computed from the newest complete snapshot |
-| [`conductor repository shipped`](#conductor-repository-shipped) | What shipped since an instant, from the newest complete snapshot's GitHub observations |
 | [`conductor repository refresh-hooks`](#conductor-repository-refresh-hooks) | List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after |
+| [`conductor repository shipped`](#conductor-repository-shipped) | What shipped since an instant, from the newest complete snapshot's GitHub observations |
 | [`conductor decision`](#conductor-decision) | Decision requests and the decisions that answer them |
 | [`conductor decision answer-escalated-request`](#conductor-decision-answer-escalated-request) | Answer an escalated decision request |
 | [`conductor decision answer-request`](#conductor-decision-answer-request) | Answer a decision request |
@@ -766,19 +766,6 @@ Usage: conductor repository activity [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the rows are rendered: text, json, jsonl or markdown. Default: text |
 
-## `conductor repository shipped`
-
-What shipped since an instant, from the newest complete snapshot's GitHub observations
-
-```text
-Usage: conductor repository shipped [OPTIONS]
-```
-
-| Argument | Required | Default | Meaning |
-|---|---|---|---|
-| `--since <SINCE>` | no | none | The instant, RFC 3339: what was released or merged at or after it is listed |
-| `--format <FORMAT>` | no | none | How the rows are rendered: text, json, jsonl or markdown. Default: text |
-
 ## `conductor repository refresh-hooks`
 
 List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after
@@ -791,6 +778,19 @@ Usage: conductor repository refresh-hooks [OPTIONS]
 |---|---|---|---|
 | `--apply <BOOL>` | no | none | Run `b10x-gates install` in each checkout listed, with the instance's `gates_policy`. `--apply` alone is `--apply true` One of `true`, `false`. |
 | `--format <FORMAT>` | no | none | How the rows are rendered: text or json. Default: text |
+
+## `conductor repository shipped`
+
+What shipped since an instant, from the newest complete snapshot's GitHub observations
+
+```text
+Usage: conductor repository shipped [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--since <SINCE>` | no | none | The instant, RFC 3339: what was released or merged at or after it is listed |
+| `--format <FORMAT>` | no | none | How the rows are rendered: text, json, jsonl or markdown. Default: text |
 
 ## `conductor decision`
 

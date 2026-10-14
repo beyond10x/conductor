@@ -709,6 +709,7 @@ fn adv_each_record_command_reads_back_through_its_view() {
                 "open_issues": 16, "oldest_open_issue_at": null, "latest_release": "1.2.3",
                 "latest_release_at": null, "unreleased_commits": 17,
                 "planning_store_version": "aep.project/6", "in_catalog": false,
+                "gates_hooks_version": null, "gates_version": null,
             }),
         ),
         (

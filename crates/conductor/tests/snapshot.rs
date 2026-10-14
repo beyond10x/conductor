@@ -203,6 +203,8 @@ fn repository_row(snapshot: &SnapshotId, name: &str) -> Value {
         "unreleased_commits": null,
         "planning_store_version": "aep.project/5",
         "in_catalog": true,
+        "gates_hooks_version": null,
+        "gates_version": null,
     })
 }
 

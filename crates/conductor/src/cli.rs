@@ -753,13 +753,13 @@ pub enum RepositoryCommand {
     #[command(name = "activity")]
     Activity(RepositoryActivityArgs),
 
-    /// What shipped since an instant, from the newest complete snapshot's GitHub observations
-    #[command(name = "shipped")]
-    Shipped(RepositoryShippedArgs),
-
     /// List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after
     #[command(name = "refresh-hooks")]
     RefreshHooks(RefreshHooksArgs),
+
+    /// What shipped since an instant, from the newest complete snapshot's GitHub observations
+    #[command(name = "shipped")]
+    Shipped(RepositoryShippedArgs),
 }
 
 /// `conductor decision`: decision requests and the decisions that answer them.
