@@ -1381,6 +1381,22 @@ impl Watch {
         if fell_under_admit {
             self.reclaim(bytes, lines, notes);
         }
+        // Free disk back at `disk_clear` ends a fall `conductor build run` recorded an operator
+        // item for, which is withdrawn (`story:disk-item-per-fall`).
+        if let Some(state) = self.reclaim.as_ref().map(|(state, _)| state.clone()) {
+            let clear = self
+                .settings
+                .disk_clear
+                .saturating_mul(1 << 30)
+                .max(crate::gc::reclaim::floor_bytes(self.settings.disk_admit));
+            match crate::host::clear_fall(&state, bytes, clear) {
+                Ok(_) => self.answered("disk item"),
+                Err(error) => {
+                    let error = error.context("withdraw the operator item of a fall that is over");
+                    self.failed("disk item", &error, notes);
+                }
+            }
+        }
         Ok(())
     }
 

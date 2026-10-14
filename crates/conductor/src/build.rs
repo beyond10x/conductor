@@ -11,7 +11,9 @@
 //!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The answer (`ReserveDisk`) is
 //!    granted, granted after reclaim, or refused with the shortfall: the command never runs, the
 //!    shortfall and what is left are printed on standard error, one operator item is recorded for
-//!    the fall ([`host::escalate`]), and the exit is 2.
+//!    the fall of free disk ([`host::escalate`]), and the exit is 2. The fall, and its item, end
+//!    when free disk is back at `thresholds.disk_clear`: each run reads it first
+//!    ([`host::Ledger::clear_fall`]), not when a reservation fits.
 //! 3. **Run under the watchdog.** The command runs in its own process group (`StartRun`). Every
 //!    `thresholds.watchdog_every` a watchdog reads free disk: under `thresholds.gate_stop` it
 //!    stops the group (`SIGSTOP`) and runs reclaim; at or over `thresholds.gate_resume` it
@@ -55,6 +57,9 @@ pub struct Settings {
     /// Free bytes no reservation may take: `thresholds.disk_admit` and reclaim's margin
     /// ([`crate::gc::reclaim::floor_bytes`]).
     pub floor: u64,
+    /// Free bytes from which a fall of free disk is over and its operator item withdrawn:
+    /// `thresholds.disk_clear`, never under [`Settings::floor`] ([`host::clear_fall`]).
+    pub clear: u64,
     /// Free bytes under which the run is stopped: `thresholds.gate_stop`.
     pub gate_stop: u64,
     /// Free bytes from which a stopped run continues: `thresholds.gate_resume`.
@@ -75,6 +80,7 @@ impl Settings {
             floor: crate::gc::reclaim::floor_bytes(
                 u64::try_from(thresholds.disk_admit.0).unwrap_or(0),
             ),
+            clear: bytes(thresholds.disk_clear.0),
             gate_stop: bytes(thresholds.gate_stop.0),
             gate_resume: bytes(thresholds.gate_resume.0),
             wait: WAIT_FOR_RESERVATIONS,
@@ -99,6 +105,10 @@ pub struct Sources {
     pub clock: fn() -> OffsetDateTime,
     /// How often the watchdog reads free disk and measures the run.
     pub every: Duration,
+    /// The home directory, written `~` in an operator item: `HOME`.
+    pub home: Option<PathBuf>,
+    /// `/var/tmp`, whose entries an operator item names only as a count and a total size.
+    pub var_tmp: PathBuf,
 }
 
 impl Sources {
@@ -115,6 +125,10 @@ impl Sources {
             every: crate::config::seconds(&thresholds.watchdog_every)
                 .filter(|seconds| *seconds > 0)
                 .map_or(EVERY, Duration::from_secs),
+            home: std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .filter(|home| home.is_absolute()),
+            var_tmp: PathBuf::from("/var/tmp"),
         }
     }
 }
@@ -228,6 +242,11 @@ pub fn run(
 
     let mut ledger = Ledger::lock(state)?;
     ledger.sweep(&at)?;
+    // Free disk back at `disk_clear` ends the fall: its operator item is withdrawn.
+    let clear = settings.clear.max(settings.floor);
+    if let Err(error) = ledger.clear_fall(free_bytes(sources)?, clear) {
+        eprintln!("conductor: build run: the fall's operator item was not withdrawn: {error:#}");
+    }
     let grant = ledger.request(
         &settings.instance,
         request.repository.as_deref(),
@@ -301,6 +320,8 @@ pub fn run(
             shortfall: short,
             left: &left,
             disk: &sources.disk,
+            home: sources.home.as_deref(),
+            var_tmp: &sources.var_tmp,
             at: &at,
         })
         .unwrap_or_else(|error| {
@@ -317,7 +338,6 @@ pub fn run(
             item,
         });
     }
-    host::fall_over(state)?;
     drop(ledger);
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
     let start = size(&measured(&request.cwd), sources.every).unwrap_or(0);

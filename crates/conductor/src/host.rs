@@ -19,8 +19,14 @@
 //! **Escalation.** A refused reservation records one operator item ([`escalate`]): a decision
 //! request raised and escalated as class H, so `decision hands-todo` lists it, naming the
 //! shortfall, what reclaim left by path and size, and the one command only a person runs. One item
-//! per fall: `host.fall` in the state directory holds the item's id until a reservation fits
-//! again ([`fall_over`]), and a refusal while it is there records none.
+//! per fall of free disk, whatever command or repository is refused in it
+//! (`story:disk-item-per-fall`): `host.fall` in the state directory holds the item's id, and a
+//! refusal while it is there records none. A reservation that fits does not end the fall; free
+//! disk back at `thresholds.disk_clear` does, read by the next `build run` or the watch's pass
+//! ([`clear_fall`]), which withdraws the item (`WithdrawRequest`) and removes the marker. The item
+//! is the instance's, not one repository's. It names no personal path
+//! (`story:disk-item-redacted`): the entries of `/var/tmp` only as a count and a total size, and
+//! the home directory as `~` wherever it appears.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
@@ -28,8 +34,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::behaviour::{Generated, HostGrantStorage, TryContext, unmet_context};
+use conductor_model::behaviour::{
+    DecisionRequestStorage, Generated, HostGrantStorage, TryContext, unmet_context,
+};
 use conductor_model::config::{InstanceName, SessionName};
+use conductor_model::decision::{DecisionRequestState, RequestId};
 use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{GuardDecisionId, MessageId, ResourceRequestId};
 use conductor_model::host::obligations::{
@@ -55,6 +64,7 @@ use time::format_description::well_known::Rfc3339;
 use crate::cli::{
     EscalateRequestArgs, JsonInput, RaiseDecisionRequestArgs, RecordPeakArgs, ReleaseGrantArgs,
     RequestDiskArgs, ReserveDiskArgs, StartRunArgs, TakeHostGrantArgs, ViewArgs,
+    WithdrawRequestArgs,
 };
 use crate::not_implemented;
 use crate::store::Store;
@@ -599,8 +609,74 @@ pub struct Shortfall<'a> {
     pub left: &'a [(String, u64)],
     /// The file system free disk is read on.
     pub disk: &'a Path,
+    /// The home directory, written `~` wherever it appears in the item.
+    pub home: Option<&'a Path>,
+    /// `/var/tmp`: its entries are none of the instance's, and the item counts them, never names
+    /// them.
+    pub var_tmp: &'a Path,
     /// When.
     pub at: &'a Timestamp,
+}
+
+/// What a shortfall left, as an operator item names it: each path outside `/var/tmp` (the home
+/// directory written `~`), and the entries of `/var/tmp` as one count and one total size.
+#[derive(Debug)]
+struct Left {
+    /// What is named, by its redacted path, and its size.
+    named: Vec<(String, u64)>,
+    /// The `/var/tmp` entries: how many and their total size, when reclaim left any.
+    outside: Option<(usize, u64)>,
+}
+
+impl Left {
+    fn of(shortfall: &Shortfall<'_>) -> Self {
+        let var_tmp = shortfall.var_tmp;
+        let mut named = Vec::new();
+        let mut entries = 0usize;
+        let mut rest = false;
+        let mut bytes = 0u64;
+        for (path, size) in shortfall.left {
+            let place = Path::new(path);
+            if place == var_tmp {
+                // The row of the smaller entries, which carries no count of its own.
+                rest = true;
+                bytes = bytes.saturating_add(*size);
+            } else if place.parent() == Some(var_tmp) {
+                entries += 1;
+                bytes = bytes.saturating_add(*size);
+            } else {
+                named.push((redact(path, shortfall), *size));
+            }
+        }
+        let outside = (entries > 0 || rest).then(|| {
+            let listed = if rest {
+                fs::read_dir(var_tmp).map_or(entries + 1, Iterator::count)
+            } else {
+                0
+            };
+            (entries.max(listed), bytes)
+        });
+        Self { named, outside }
+    }
+
+    /// What is left, largest first, each with its size, the `/var/tmp` entries as one.
+    fn by_size(&self, shortfall: &Shortfall<'_>) -> Vec<(String, u64)> {
+        let mut all = self.named.clone();
+        if let Some((count, bytes)) = self.outside {
+            all.push((outside(count, shortfall), bytes));
+        }
+        all.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        all
+    }
+}
+
+/// The `/var/tmp` entries as an item names them: `/var/tmp: 4 entries outside the instance`.
+fn outside(count: usize, shortfall: &Shortfall<'_>) -> String {
+    let entries = if count == 1 { "entry" } else { "entries" };
+    format!(
+        "{}: {count} {entries} outside the instance",
+        redact(&shortfall.var_tmp.display().to_string(), shortfall)
+    )
 }
 
 /// Records one operator item for `shortfall`, unless the open fall has one: a decision request
@@ -617,36 +693,41 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
     }
     let request_id = format!("disk-{}", eventlog_core::new_event_id());
     let short = gib(shortfall.shortfall);
+    let in_repository = shortfall
+        .repository
+        .map(|repository| format!(" in {repository}"))
+        .unwrap_or_default();
     let question = format!(
-        "Disk floor not reached: {short}G short for `{}`, which asked {}G; reclaim freed what \
-         needs no decision. What else may go?",
-        home_relative(shortfall.command),
+        "Disk floor not reached: {short}G short for `{}`{in_repository}, which asked {}G, the \
+         first build refused in this fall; reclaim freed what needs no decision. What else may \
+         go?",
+        redact(shortfall.command, shortfall),
         gib(shortfall.bytes)
     );
+    let left = Left::of(shortfall);
     let options = if shortfall.left.is_empty() {
         format!(
             "nothing reclaimable is left on {}",
-            home_relative(&shortfall.disk.display().to_string())
+            redact(&shortfall.disk.display().to_string(), shortfall)
         )
     } else {
-        shortfall
-            .left
+        let mut options: Vec<String> = left
+            .named
             .iter()
-            .map(|(path, bytes)| format!("{} ({}G)", home_relative(path), gib(*bytes)))
-            .collect::<Vec<_>>()
-            .join("; ")
+            .map(|(path, bytes)| format!("{path} ({}G)", gib(*bytes)))
+            .collect();
+        if let Some((count, bytes)) = left.outside {
+            options.push(format!("{}, {}G", outside(count, shortfall), gib(bytes)));
+        }
+        options.join("; ")
     };
-    let recommendation = person_command(shortfall);
+    let recommendation = person_command(shortfall, &left);
     crate::decide::raise_decision_request(
         Some(state),
         RaiseDecisionRequestArgs {
             request_id: Some(request_id.clone()),
-            repository: Some(
-                shortfall
-                    .repository
-                    .unwrap_or(shortfall.instance)
-                    .to_owned(),
-            ),
+            // One item stands for every refusal of the fall, whatever repository each builds.
+            repository: Some(shortfall.instance.to_owned()),
             question: Some(question),
             options: Some(options),
             recommendation: Some(recommendation),
@@ -675,24 +756,22 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
 /// What only a person does: review what is left, largest first, enough to cover the shortfall, and
 /// remove what is no longer needed; or, with nothing left, free the shortfall by hand. Never a
 /// removal command to paste: what is left is not known to be unneeded.
-fn person_command(shortfall: &Shortfall<'_>) -> String {
+fn person_command(shortfall: &Shortfall<'_>, left: &Left) -> String {
     if shortfall.left.is_empty() {
         return format!(
             "free {}G on {} by hand, then run `conductor host reclaim`",
             gib(shortfall.shortfall),
-            home_relative(&shortfall.disk.display().to_string())
+            redact(&shortfall.disk.display().to_string(), shortfall)
         );
     }
-    let mut left: Vec<&(String, u64)> = shortfall.left.iter().collect();
-    left.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     let mut covered = 0u64;
     let mut paths = Vec::new();
-    for (path, bytes) in left {
+    for (path, bytes) in left.by_size(shortfall) {
         if covered >= shortfall.shortfall {
             break;
         }
-        covered = covered.saturating_add(*bytes);
-        paths.push(home_relative(path));
+        covered = covered.saturating_add(bytes);
+        paths.push(path);
     }
     format!(
         "review and remove what is no longer needed, largest first: {}; then run `conductor host \
@@ -701,28 +780,156 @@ fn person_command(shortfall: &Shortfall<'_>) -> String {
     )
 }
 
-/// `path` with the home directory written `~`, so no record line names a person's home.
-fn home_relative(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && home != "/" => match path.strip_prefix(&home) {
-            Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("~{rest}"),
-            _ => path.to_owned(),
-        },
-        _ => path.to_owned(),
+/// `text` as an operator item writes it: the home directory written `~` wherever it appears as
+/// a whole path, and every entry of `/var/tmp` named as `…`, so no record line names a person's
+/// home or what another user keeps in `/var/tmp`.
+fn redact(text: &str, shortfall: &Shortfall<'_>) -> String {
+    let text = match shortfall.home.and_then(Path::to_str) {
+        Some(home) => tilde(text, home.trim_end_matches('/')),
+        None => text.to_owned(),
+    };
+    match shortfall.var_tmp.to_str() {
+        Some(var_tmp) => entries_hidden(&text, var_tmp.trim_end_matches('/')),
+        None => text,
     }
 }
 
-/// The fall is over: a reservation fitted. The next shortfall records a new item.
+/// Whether `c` can be part of a path's name, so a path that continues with it is another one.
+fn in_name(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '+' | '@')
+}
+
+/// Each `(start, end)` of `path` in `text` that stands as a whole path: nothing of a name or a
+/// `/` before it, and the end of the text, a `/` or no name after it.
+fn whole(text: &str, path: &str) -> Vec<(usize, usize)> {
+    if path.is_empty() || path == "/" {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = text[from..].find(path) {
+        let start = from + at;
+        let end = start + path.len();
+        let before = text[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !in_name(c) && c != '/');
+        let after = text[end..].chars().next().is_none_or(|c| !in_name(c));
+        if before && after {
+            found.push((start, end));
+        }
+        from = end;
+    }
+    found
+}
+
+/// `text` with the home directory `home` written `~`.
+fn tilde(text: &str, home: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (start, end) in whole(text, home) {
+        out.push_str(&text[last..start]);
+        out.push('~');
+        last = end;
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// `text` with the name of each entry of `var_tmp` written `…`.
+fn entries_hidden(text: &str, var_tmp: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (start, end) in whole(text, var_tmp) {
+        if !text[end..].starts_with('/') {
+            continue;
+        }
+        let name = text[end + 1..]
+            .find(|c: char| !in_name(c))
+            .map_or(text.len(), |at| end + 1 + at);
+        if name == end + 1 {
+            continue;
+        }
+        out.push_str(&text[last..start]);
+        out.push_str(var_tmp);
+        out.push_str("/…");
+        last = name;
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// Ends the open fall once `free` bytes are free and that is at least `clear`
+/// (`thresholds.disk_clear`): withdraws its operator item, if still open (`WithdrawRequest`),
+/// and removes the marker, so the next shortfall records a new item. Answers the id of the item
+/// withdrawn. The watch's pass calls it with what it reads; it takes the ledger's lock, and
+/// leaves the fall to the next pass while a `build run` holds it.
 ///
 /// # Errors
 ///
-/// The marker is there and cannot be removed.
-pub fn fall_over(state: &Path) -> Result<()> {
-    let marker = state.join(FALL);
-    match fs::remove_file(&marker) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error).with_context(|| format!("remove {}", marker.display())),
+/// The ledger or the decision store does not open, or the withdrawal or the marker's removal is
+/// not kept.
+pub fn clear_fall(state: &Path, free: u64, clear: u64) -> Result<Option<String>> {
+    if free < clear || !state.join(FALL).exists() {
+        return Ok(None);
+    }
+    match Ledger::try_lock(state)? {
+        Some(ledger) => ledger.clear_fall(free, clear),
+        None => Ok(None),
+    }
+}
+
+impl Ledger {
+    /// [`clear_fall`] under this ledger's lock.
+    ///
+    /// # Errors
+    ///
+    /// As [`clear_fall`].
+    pub fn clear_fall(&self, free: u64, clear: u64) -> Result<Option<String>> {
+        if free < clear {
+            return Ok(None);
+        }
+        let marker = self.state.join(FALL);
+        let item = match fs::read_to_string(&marker) {
+            Ok(text) => text.trim().to_owned(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(error).with_context(|| format!("read {}", marker.display()));
+            }
+        };
+        let open = !item.is_empty()
+            && DecisionRequestStorage::get(
+                &crate::store::open(&self.state)?,
+                &RequestId(item.clone()),
+            )
+            .is_some_and(|request| {
+                matches!(
+                    request.state,
+                    DecisionRequestState::Open | DecisionRequestState::Escalated
+                )
+            });
+        if open {
+            crate::decide::withdraw_request(
+                Some(&self.state),
+                WithdrawRequestArgs {
+                    request_id: Some(item.clone()),
+                    reason: Some(format!(
+                        "free disk is back at {}G, at or over disk_clear {}G: the fall is over",
+                        free / GIB,
+                        gib(clear)
+                    )),
+                    input_json: None,
+                },
+            )?;
+        }
+        match fs::remove_file(&marker) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("remove {}", marker.display()));
+            }
+        }
+        Ok(open.then_some(item))
     }
 }
 
