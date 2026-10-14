@@ -41,10 +41,13 @@
 //!
 //! `conductor status` ([`status`], `story:status-command`) is the view `conductor.observation.Status`:
 //! the answer to "what is the status" in one call, read from the store alone, without starting a
-//! snapshot. Its six parts, in order: the newest complete snapshot's id, start and age; its
+//! snapshot. Its seven parts, in order: the newest complete snapshot's id, start and age; its
 //! deviations, worked out by the board's own [`figures`]; the sessions it observed; the open
-//! dispatches (`Sent`, `Started`, `Blocked`); the registered waits; and the pending requests
-//! (decision requests `Open` or `Escalated`, resource requests `Requested`). With no complete
+//! dispatches (`Sent`, `Started`, `Blocked`); the registered waits; the pending requests
+//! (decision requests `Open` or `Escalated`, resource requests `Requested`); and the usage line
+//! the watch prints, `usage: pool runs out ~<hour>, next reset <minute>`, of the newest usage
+//! readings of the complete snapshots ([`crate::collect::usage::Forecast`],
+//! `story:usage-probe`), or `None: no usage reading.`. With no complete
 //! snapshot it says so and prints every other part. No wait is recorded in the store yet
 //! (`story:watch-waits`), so the waits part reads `None.` until that story's `Waits` view lands.
 
@@ -267,6 +270,7 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
         dispatches: Vec::new(),
         waits: Vec::new(),
         requests: Vec::new(),
+        usage: crate::collect::usage::Forecast::of(store).map(|forecast| forecast.line()),
     };
     if let Some(snapshot) = &newest {
         report.snapshot_id = Some(snapshot.snapshot_id.0.0.clone());
@@ -366,7 +370,7 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
     report
 }
 
-/// `report` as the text `conductor status` prints: its six parts, each under its heading.
+/// `report` as the text `conductor status` prints: its seven parts, each under its heading.
 fn status_text(report: &StatusReport) -> String {
     const NO_SNAPSHOT: &str = "None: no snapshot is complete.\n\n";
     let mut out = String::from("# Status\n\n");
@@ -475,6 +479,12 @@ fn status_text(report: &StatusReport) -> String {
         &["kind", "request", "repository", "state", "since", "what"],
         &rows,
     ));
+
+    out.push_str("## Usage\n\n");
+    match &report.usage {
+        Some(line) => out.push_str(&format!("{}\n", line.replace(['\n', '\r'], " "))),
+        None => out.push_str("None: no usage reading.\n"),
+    }
     out
 }
 
@@ -518,6 +528,7 @@ fn status_json(report: &StatusReport) -> Value {
             "since": row.since,
             "summary": row.summary,
         })).collect::<Vec<Value>>(),
+        "usage": report.usage,
     })
 }
 

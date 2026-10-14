@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-  contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+  model digest 5d508b6ceebdcc0f08a173b5860fbe0a3fa1dc4d55b1b32aa191131aee365a05
+  contract digest 09cc903abfeacbbfa195c582afee1c6901a34f4138e6a182daa3fe01a1500b16
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-488 capabilities: **477 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+496 capabilities: **485 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -62,6 +62,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.UpgradeRefusal` |
 | domain type | `conductor.config.UpgradeRefused` |
 | domain type | `conductor.config.UpgradeReport` |
+| domain type | `conductor.config.Usage` |
 | domain type | `conductor.config.ValidateConfig` |
 | domain type | `conductor.config.WorkspaceMember` |
 | domain type | `conductor.config.Writable` |
@@ -169,6 +170,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.StatusRequest` |
 | domain type | `conductor.observation.StatusSession` |
 | domain type | `conductor.observation.StoreMigrate` |
+| domain type | `conductor.observation.UsageObservation.State` |
 | domain type | `conductor.observation.ValidationResult` |
 | domain type | `conductor.observation.Visibility` |
 | domain type | `conductor.observation.WatchRun` |
@@ -199,6 +201,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.observation.SessionObservation` |
 | entity lifecycle | `conductor.observation.Snapshot` |
 | entity lifecycle | `conductor.observation.SpecificationObservation` |
+| entity lifecycle | `conductor.observation.UsageObservation` |
 | entity lifecycle | `conductor.observation.WorkflowRunObservation` |
 | entity lifecycle | `conductor.session.Lease` |
 | command contract | `conductor.decision.AnswerEscalatedRequest` |
@@ -318,6 +321,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.observation.RecordSession` |
 | command contract | `conductor.observation.RecordSpecification` |
 | command behaviour | `conductor.observation.RecordSpecification` |
+| command contract | `conductor.observation.RecordUsage` |
+| command behaviour | `conductor.observation.RecordUsage` |
 | command contract | `conductor.observation.RecordWorkflowRun` |
 | command behaviour | `conductor.observation.RecordWorkflowRun` |
 | command contract | `conductor.observation.ReviseDailySeries` |
@@ -385,6 +390,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.observation.SnapshotFailed` |
 | event type | `conductor.observation.SnapshotStarted` |
 | event type | `conductor.observation.SpecificationRecorded` |
+| event type | `conductor.observation.UsageRecorded` |
 | event type | `conductor.observation.WorkflowRunRecorded` |
 | event type | `conductor.session.LeaseTaken` |
 | event type | `conductor.session.LeaseTakenOver` |
@@ -486,6 +492,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.observation.Snapshots` |
 | view type | `conductor.observation.Specifications` |
 | view query | `conductor.observation.Specifications` |
+| view type | `conductor.observation.UsageReadings` |
+| view query | `conductor.observation.UsageReadings` |
 | view type | `conductor.observation.WorkflowRuns` |
 | view query | `conductor.observation.WorkflowRuns` |
 | view type | `conductor.session.Leases` |

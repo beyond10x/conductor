@@ -54,6 +54,8 @@
 //!   more (`Limits`'s invariants), and a role's limit lies at or under the instance's of the same
 //!   key, where the instance sets one; a role's `writable` entry is a place's word
 //!   ([`PLACES`]) or a path, and its `network` is `open`;
+//! - `usage.probe` (`story:usage-probe`) is a command, not empty, and `usage.watcher` a systemd
+//!   unit name ([`unit_name`]);
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
 //!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed.
 //!
@@ -62,7 +64,8 @@
 //! and `~/.cache/b10x/conductor/<name>`; `roles`, `controllers`, `cadence`, `thresholds`,
 //! `retention` and `authority`, and each key of the last five, are the built-in defaults;
 //! `dashboard_port` is 7313 plus the instance's index in the file ([`dashboard_port`]);
-//! `repositories` and `reports` are empty; `operator`, `catalog`, `gates_policy`, `session_prefix`, and a role's
+//! `repositories` and `reports` are empty; `operator`, `catalog`, `gates_policy`, `usage.probe`,
+//! `usage.watcher`, `session_prefix`, and a role's
 //! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
 //! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
 //! `confinement` is `report` through `systemd` with no limit; a role sets no limit, writes its
@@ -90,7 +93,7 @@ use conductor_model::config::{
     Confinement, ConfinementMode, ConfinementProvider, Controllers, Gibibytes, GitHubSource,
     GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network, Report,
     RepositoryRule, Retention, Role, SessionName, SessionPrefix, Source, Thresholds, TimeOfDay,
-    Tokens, WorkspaceMember, Writable,
+    Tokens, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -217,7 +220,7 @@ pub const SILENT_SESSION_MINUTES: u64 = 30;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 21] = [
+const INSTANCE_KEYS: [&str; 22] = [
     "name",
     "session_prefix",
     "dashboard_port",
@@ -235,6 +238,7 @@ const INSTANCE_KEYS: [&str; 21] = [
     "retention",
     "reports",
     "authority",
+    "usage",
     "operator",
     "catalog",
     "gates_policy",
@@ -280,6 +284,22 @@ const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
 const AUTHORITY_KEYS: [&str; 2] = ["class_c", "class_o"];
 const CATALOG_KEYS: [&str; 3] = ["repository", "path", "names"];
+const USAGE_KEYS: [&str; 2] = ["probe", "watcher"];
+
+/// The suffixes of a systemd unit name: what `usage.watcher` ends with (`story:usage-probe`).
+const UNIT_TYPES: [&str; 11] = [
+    "service",
+    "socket",
+    "target",
+    "timer",
+    "path",
+    "scope",
+    "slice",
+    "mount",
+    "automount",
+    "swap",
+    "device",
+];
 
 /// How the file writes each `conductor.config.CatalogNames`.
 const CATALOG_NAMES: [(&str, CatalogNames); 2] =
@@ -682,6 +702,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         retention: default_retention(),
         reports: Vec::new(),
         authority: default_authority(),
+        // A usage probe and watcher are named only by a user (story:usage-probe).
+        usage: no_usage(),
         // The operator is named only by a user.
         operator: None,
         // A catalog is named only by a user (story:catalog-source).
@@ -883,6 +905,25 @@ fn default_thresholds() -> Thresholds {
         gate_resume: Gibibytes(GATE_RESUME_GIB),
         watchdog_every: Duration(format!("PT{WATCHDOG_EVERY}S")),
         silent_session: Duration(format!("PT{SILENT_SESSION_MINUTES}M")),
+    }
+}
+
+/// Whether `unit` is a systemd unit name: letters, digits, `:`, `_`, `.`, `@` and `-`, ending
+/// in `.` and one of [`UNIT_TYPES`] after a name of its own (`story:usage-probe`).
+#[must_use]
+pub fn unit_name(unit: &str) -> bool {
+    unit.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '.' | '@' | '-'))
+        && unit.rsplit_once('.').is_some_and(|(name, kind)| {
+            !name.is_empty() && !name.starts_with('-') && UNIT_TYPES.contains(&kind)
+        })
+}
+
+/// No usage probe and no watcher: what an instance that names neither has (`story:usage-probe`).
+fn no_usage() -> Usage {
+    Usage {
+        probe: None,
+        watcher: None,
     }
 }
 
@@ -1692,6 +1733,10 @@ impl Reader<'_> {
             Some(value) => self.authority(value, &join(path, "authority")),
             None => Some(default_authority()),
         };
+        let usage = match Self::get(map, "usage") {
+            Some(value) => self.usage(value, &join(path, "usage")),
+            None => Some(no_usage()),
+        };
         let operator = match Self::get(map, "operator") {
             Some(value) => self.text(value, &join(path, "operator")).map(Some),
             None => Some(None),
@@ -1729,6 +1774,7 @@ impl Reader<'_> {
             retention: retention?,
             reports: reports?,
             authority: authority?,
+            usage: usage?,
             operator: operator?,
             catalog: catalog?,
             gates_policy: gates_policy?,
@@ -2348,6 +2394,41 @@ impl Reader<'_> {
         })
     }
 
+    /// `conductor.config.Usage` (`story:usage-probe`): `probe`, a command, and `watcher`, a
+    /// systemd unit name ([`unit_name`]); each absent when not written.
+    fn usage(&mut self, value: &Value, path: &str) -> Option<Usage> {
+        let map = self.mapping(value, path, &USAGE_KEYS)?;
+        let probe = match Self::get(map, "probe") {
+            Some(value) => self.text(value, &join(path, "probe")).map(Some),
+            None => Some(None),
+        };
+        let watcher = match Self::get(map, "watcher") {
+            Some(value) => {
+                let at = join(path, "watcher");
+                self.text(value, &at).and_then(|unit| {
+                    if unit_name(&unit) {
+                        Some(Some(unit))
+                    } else {
+                        self.problem(
+                            &at,
+                            format!(
+                                "{} is not a systemd unit name: letters, digits, ':', '_', '.', \
+                                 '@' and '-', ending in a unit type such as .service",
+                                echo(value)
+                            ),
+                        );
+                        None
+                    }
+                })
+            }
+            None => Some(None),
+        };
+        Some(Usage {
+            probe: probe?,
+            watcher: watcher?,
+        })
+    }
+
     fn authority(&mut self, value: &Value, path: &str) -> Option<Authority> {
         let map = self.mapping(value, path, &AUTHORITY_KEYS)?;
         let defaults = default_authority();
@@ -2693,6 +2774,13 @@ pub fn document(instance: &Instance) -> Yaml {
             mapping([
                 ("class_c", text(decider(instance.authority.class_c))),
                 ("class_o", text(decider(instance.authority.class_o))),
+            ]),
+        ),
+        (
+            "usage",
+            mapping([
+                ("probe", optional(instance.usage.probe.as_ref())),
+                ("watcher", optional(instance.usage.watcher.as_ref())),
             ]),
         ),
         ("operator", optional(instance.operator.as_ref())),

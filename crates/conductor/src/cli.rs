@@ -132,6 +132,7 @@ impl Cli {
                 SnapshotCommand::RecordSpecification(args) => {
                     snapshot::record_specification(state, args)
                 }
+                SnapshotCommand::RecordUsage(args) => snapshot::record_usage(state, args),
                 SnapshotCommand::RecordCollectorRun(args) => {
                     snapshot::record_collector_run(state, args)
                 }
@@ -154,6 +155,7 @@ impl Cli {
                 SnapshotCommand::Specifications(view) => snapshot::specifications(state, view),
                 SnapshotCommand::MemberFailures(view) => snapshot::member_failures(state, view),
                 SnapshotCommand::CollectorRuns(view) => snapshot::collector_runs(state, view),
+                SnapshotCommand::UsageReadings(view) => snapshot::usage_readings(state, view),
                 SnapshotCommand::Boards(view) => status::boards(state, view),
             },
             Group::Goal(command) => match command {
@@ -479,6 +481,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["snapshot", "record-repository"], Access::Writes),
     (&["snapshot", "record-session"], Access::Writes),
     (&["snapshot", "record-specification"], Access::Writes),
+    (&["snapshot", "record-usage"], Access::Writes),
     (&["snapshot", "record-workflow-run"], Access::Writes),
     (&["snapshot", "start-snapshot"], Access::Writes),
     (&["snapshot", "blockers"], Access::Reads),
@@ -492,6 +495,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["snapshot", "sessions"], Access::Reads),
     (&["snapshot", "snapshots"], Access::Reads),
     (&["snapshot", "specifications"], Access::Reads),
+    (&["snapshot", "usage-readings"], Access::Reads),
     (&["snapshot", "workflow-runs"], Access::Reads),
     (&["goal", "add-serving"], Access::Writes),
     (&["goal", "confirm-goal"], Access::Writes),
@@ -645,6 +649,10 @@ pub enum SnapshotCommand {
     #[command(name = "record-specification")]
     RecordSpecification(RecordSpecificationArgs),
 
+    /// Record one window of an account's usage
+    #[command(name = "record-usage")]
+    RecordUsage(RecordUsageArgs),
+
     /// Record a workflow run
     #[command(name = "record-workflow-run")]
     RecordWorkflowRun(RecordWorkflowRunArgs),
@@ -696,6 +704,10 @@ pub enum SnapshotCommand {
     /// Specifications
     #[command(name = "specifications")]
     Specifications(ViewArgs),
+
+    /// Usage readings
+    #[command(name = "usage-readings")]
+    UsageReadings(ViewArgs),
 
     /// Workflow runs
     #[command(name = "workflow-runs")]
@@ -1986,6 +1998,38 @@ pub struct RecordCollectorRunArgs {
     /// CollectorRunOutcome
     #[arg(long, value_parser = ["Completed", "Failed", "OverBudget"])]
     pub outcome: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.observation.RecordUsage`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordUsageArgs {
+    /// SnapshotId
+    #[arg(long, value_parser = uuid)]
+    pub snapshot_id: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub read_at: Option<String>,
+    /// string
+    #[arg(long)]
+    pub account: Option<String>,
+    /// boolean
+    #[arg(long)]
+    pub active: Option<bool>,
+    /// string
+    #[arg(long)]
+    pub health: Option<String>,
+    /// string
+    #[arg(long)]
+    pub window: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub used_percent: Option<i64>,
+    /// timestamp, RFC 3339, optional
+    #[arg(long, value_parser = timestamp)]
+    pub resets_at: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

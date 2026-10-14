@@ -525,6 +525,7 @@ fn show_without_a_file_prints_todays_constants() {
         "sources",
         "state",
         "thresholds",
+        "usage",
     ];
     let mut sorted = keys.clone();
     sorted.sort_unstable();

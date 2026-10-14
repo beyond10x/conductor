@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a",
-    "contract_digest": "a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd"
+    "source_digest": "5d508b6ceebdcc0f08a173b5860fbe0a3fa1dc4d55b1b32aa191131aee365a05",
+    "contract_digest": "09cc903abfeacbbfa195c582afee1c6901a34f4138e6a182daa3fe01a1500b16"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -342,6 +342,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.UpgradeReport",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.Usage",
       "disposition": {
         "disposition": "generated"
       }
@@ -1097,6 +1104,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.observation.UsageObservation.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.observation.ValidationResult",
       "disposition": {
         "disposition": "generated"
@@ -1301,6 +1315,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.observation.SpecificationObservation",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.observation.UsageObservation",
       "disposition": {
         "disposition": "generated"
       }
@@ -2152,6 +2173,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.observation.RecordUsage",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.observation.RecordUsage",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.observation.RecordWorkflowRun",
       "disposition": {
         "disposition": "generated"
@@ -2627,6 +2662,13 @@
     {
       "kind": "event_type",
       "source": "conductor.observation.SpecificationRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.observation.UsageRecorded",
       "disposition": {
         "disposition": "generated"
       }
@@ -3334,6 +3376,20 @@
     {
       "kind": "view_query",
       "source": "conductor.observation.Specifications",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.observation.UsageReadings",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.observation.UsageReadings",
       "disposition": {
         "disposition": "generated"
       }

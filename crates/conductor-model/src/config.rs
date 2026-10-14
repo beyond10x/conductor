@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest 5d508b6ceebdcc0f08a173b5860fbe0a3fa1dc4d55b1b32aa191131aee365a05
+// contract digest 09cc903abfeacbbfa195c582afee1c6901a34f4138e6a182daa3fe01a1500b16
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -249,6 +249,8 @@ pub struct Instance {
     pub reports: Vec<Report>,
     /// `authority` — `conductor.config.Authority`.
     pub authority: Authority,
+    /// `usage` — `conductor.config.Usage`.
+    pub usage: Usage,
     /// `operator` — `Optional<String>`.
     pub operator: Option<String>,
     /// `catalog` — `Optional<conductor.config.Catalog>`.
@@ -565,6 +567,15 @@ pub struct UpgradeReport {
     pub outcome: UpgradeOutcome,
     /// `binary` — `String`.
     pub binary: String,
+}
+
+/// Usage — `conductor.config.Usage`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Usage {
+    /// `probe` — `Optional<String>`.
+    pub probe: Option<String>,
+    /// `watcher` — `Optional<String>`.
+    pub watcher: Option<String>,
 }
 
 /// ValidateConfig — `conductor.config.ValidateConfig`.

@@ -34,6 +34,7 @@ components:
         - conductor.observation.RecordSpecification
         - conductor.observation.RecordMemberFailure
         - conductor.observation.RecordCollectorRun
+        - conductor.observation.RecordUsage
         - conductor.observation.PublishBoard
         - conductor.observation.CompleteSnapshot
         - conductor.observation.FailSnapshot
@@ -97,6 +98,7 @@ components:
         - conductor.observation.SpecificationRecorded
         - conductor.observation.MemberFailureRecorded
         - conductor.observation.CollectorRunRecorded
+        - conductor.observation.UsageRecorded
         - conductor.observation.BoardPublished
         - conductor.observation.SnapshotCompleted
         - conductor.observation.SnapshotFailed
@@ -165,6 +167,7 @@ components:
             - conductor.observation.RecordSpecification
             - conductor.observation.RecordMemberFailure
             - conductor.observation.RecordCollectorRun
+            - conductor.observation.RecordUsage
             - conductor.observation.PublishBoard
             - conductor.observation.CompleteSnapshot
             - conductor.observation.FailSnapshot
@@ -180,6 +183,7 @@ components:
             - conductor.observation.Specifications
             - conductor.observation.MemberFailures
             - conductor.observation.CollectorRuns
+            - conductor.observation.UsageReadings
             - conductor.observation.Boards
         - name: goal
           summary: The goals dispatches serve

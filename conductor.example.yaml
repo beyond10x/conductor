@@ -39,6 +39,11 @@ instances:
     authority:
       class_c: conductor
       class_o: operator
+    # The command that prints the harness accounts' usage as JSON, and the systemd user unit that
+    # rotates them (docs/config.md, Usage). Both are the operator's tools; conductor names none.
+    usage:
+      probe: usage-probe --json
+      watcher: usage-rotator.service
 
   - name: work
     session_prefix: work

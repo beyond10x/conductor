@@ -252,7 +252,9 @@ types:
   # each; and the pending requests. The parts after the first are printed whether or not a
   # snapshot is complete; the deviations and sessions are empty when none is. Ids and times are
   # text (a snapshot id as its UUID, a time as RFC 3339), because a result the `ess-cli/1`
-  # binding returns holds no `Uuid` or `Timestamp`.
+  # binding returns holds no `Uuid` or `Timestamp`. `usage` is the usage line the watch prints,
+  # `usage: pool runs out ~<time>, next reset <time>`, from the newest usage readings of the
+  # complete snapshots (story:usage-probe); absent when no complete snapshot holds one.
   - name: conductor.observation.StatusReport
     kind: struct
     fields:
@@ -264,6 +266,7 @@ types:
       - {name: dispatches, type: List<conductor.observation.StatusDispatch>}
       - {name: waits, type: List<String>}
       - {name: requests, type: List<conductor.observation.StatusRequest>}
+      - {name: usage, type: Optional<String>}
 
 entities:
   - name: conductor.observation.Snapshot
@@ -635,6 +638,47 @@ entities:
         via: snapshot_id
     invariants:
       - validation_refusals >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # One window of one account's usage, as the instance's usage probe (`usage.probe`) printed it
+  # in one snapshot (story:usage-probe): when the probe was read, the account by its id and
+  # nothing else (never an e-mail address or a name), whether it is the account in use, its
+  # health as the probe names it (`exhausted` is an account with nothing left), the window's
+  # name (such as `five_hour` or `seven_day`), the whole percent of it used, and when it resets,
+  # absent when the probe names no time. An account the probe prints without a window is not
+  # recorded.
+  - name: conductor.observation.UsageObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: read_at
+        type: Timestamp
+      - name: account
+        type: String
+      - name: active
+        type: Boolean
+      - name: health
+        type: String
+      - name: window
+        type: String
+      - name: used_percent
+        type: Integer
+      - name: resets_at
+        type: Optional<Timestamp>
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    invariants:
+      - used_percent >= 0
     lifecycle:
       initial: Recorded
       states: [Recorded]
@@ -1472,6 +1516,78 @@ commands:
             validation: input.validation
         summary: The repository's specification status at this snapshot is recorded.
 
+  - name: conductor.observation.RecordUsage
+    naming:
+      wire: record-usage
+      display: Record one window of an account's usage
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: read_at
+        type: Timestamp
+        example: "2026-10-14T10:00:00Z"
+      - name: account
+        type: String
+        example: "account-a"
+      - name: active
+        type: Boolean
+      - name: health
+        type: String
+        example: "ready"
+      - name: window
+        type: String
+        example: "seven_day"
+      - name: used_percent
+        type: Integer
+        example: 40
+      - name: resets_at
+        type: Optional<Timestamp>
+        example: "2026-10-16T11:00:00Z"
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: negative-percent
+        when: used_percent < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.used_percent
+        summary: A percent used is never negative; nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.UsageObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          read_at: input.read_at
+          account: input.account
+          active: input.active
+          health: input.health
+          window: input.window
+          used_percent: input.used_percent
+          resets_at: input.resets_at
+        emits:
+          - conductor.observation.UsageRecorded
+        payload:
+          conductor.observation.UsageRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            account: input.account
+            window: input.window
+            used_percent: input.used_percent
+        summary: The window of the account's usage, as the probe read it, is recorded.
+
   - name: conductor.observation.RecordMemberFailure
     naming:
       wire: record-member-failure
@@ -1898,6 +2014,19 @@ events:
       - name: validation
         type: conductor.observation.ValidationResult
 
+  - name: conductor.observation.UsageRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: account
+        type: String
+      - name: window
+        type: String
+      - name: used_percent
+        type: Integer
+
   - name: conductor.observation.MemberFailureRecorded
     fields:
       - name: observation_id
@@ -2163,6 +2292,34 @@ views:
     naming:
       wire: specifications
       display: Specifications
+
+  # Each window of each account's usage the probe printed, one row per window per snapshot
+  # (story:usage-probe).
+  - name: conductor.observation.UsageReadings
+    source: conductor.observation.UsageObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: read_at
+        type: Timestamp
+      - name: account
+        type: String
+      - name: active
+        type: Boolean
+      - name: health
+        type: String
+      - name: window
+        type: String
+      - name: used_percent
+        type: Integer
+      - name: resets_at
+        type: Optional<Timestamp>
+    naming:
+      wire: usage-readings
+      display: Usage readings
 
   # The members a collector could not read, one row per failure recorded, each with its snapshot,
   # member, collector and the error's first line (story:snapshot-member-failures).

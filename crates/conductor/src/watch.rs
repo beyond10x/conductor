@@ -26,6 +26,7 @@
 //! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
+//! | usage | the usage readings of the complete snapshots of the store under the state directory ([`crate::collect::usage::Forecast`], [`Watch::with_usage`]) | `usage: pool runs out ~<hour>, next reset <minute>`, once per change of the forecast hour (`usage.hour`; `story:usage-probe`) |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
@@ -92,7 +93,8 @@
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
-//! (the id of the snapshot the Gates hooks probe read last),
+//! (the id of the snapshot the Gates hooks probe read last), `usage.hour` (the forecast hour the
+//! usage line was last printed for),
 //! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
 //! `disk-admit`, `gate-stop`, `disk.free` (the bytes free the last pass read), and, in the
 //! formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen` (`YYYY-MM-DD <text>`),
@@ -190,6 +192,9 @@ const REVIEW_FULL: &str = "review.full";
 
 /// The id of the last complete snapshot the Gates hooks probe read.
 const GATES_HOOKS_READ: &str = "gates-hooks.snapshot";
+
+/// The forecast hour the usage line was last printed for (`story:usage-probe`).
+const USAGE_HOUR: &str = "usage.hour";
 
 /// The states of the session list in which a live controller is expected to write to its
 /// transcripts.
@@ -445,6 +450,7 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
     )
     .with_settings(Settings::of(&active.instance))
     .with_gitlab(Forge::all(&active.instance))
+    .with_usage(state.clone())
     .with_reclaim(state, crate::gc::reclaim::reclaim);
     watch.run(&options, &mut io::stdout().lock(), &mut io::stderr().lock())?;
     Ok(ExitCode::SUCCESS)
@@ -463,6 +469,9 @@ pub struct Watch {
     /// The state directory a reclaim run is recorded under, and the reclaim run once per fall
     /// under `disk_admit`; none: no reclaim.
     reclaim: Option<(PathBuf, Reclaimer)>,
+    /// The state directory whose store's usage readings the usage probe reads; none: no usage
+    /// line (`story:usage-probe`).
+    usage: Option<PathBuf>,
 }
 
 /// A reclaim run to a floor, recorded under a state directory: [`crate::gc::reclaim::reclaim`],
@@ -561,6 +570,7 @@ impl Watch {
             dir,
             failing: BTreeSet::new(),
             reclaim: None,
+            usage: None,
         }
     }
 
@@ -569,6 +579,14 @@ impl Watch {
     #[must_use]
     pub fn with_reclaim(mut self, state: PathBuf, reclaim: Reclaimer) -> Self {
         self.reclaim = Some((state, reclaim));
+        self
+    }
+
+    /// This watch printing the usage line of the store under the state directory `state`
+    /// (`story:usage-probe`).
+    #[must_use]
+    pub fn with_usage(mut self, state: PathBuf) -> Self {
+        self.usage = Some(state);
         self
     }
 
@@ -652,6 +670,7 @@ impl Watch {
             self.gates_hooks(&mut lines)?;
         }
         self.disk(&mut lines, notes)?;
+        self.usage(&mut lines)?;
         Ok(lines)
     }
 
@@ -1341,6 +1360,33 @@ impl Watch {
             lines.push(format!("gates hooks stale: {stale} checkouts"));
         }
         replace(&file, &format!("{id}\n"))
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Usage
+    // -----------------------------------------------------------------------------------------
+
+    /// The usage line of the store under [`Watch::with_usage`]'s state directory, once per change
+    /// of the forecast hour (`story:usage-probe`): nothing without such a store or a reading in
+    /// a complete snapshot of it; otherwise the line when the hour differs from the one kept in
+    /// `usage.hour`, which then keeps it.
+    fn usage(&self, lines: &mut Vec<String>) -> Result<()> {
+        let Some(state) = &self.usage else {
+            return Ok(());
+        };
+        let Ok(store) = state::open_existing(Some(state)) else {
+            return Ok(());
+        };
+        let Some(forecast) = crate::collect::usage::Forecast::of(&store) else {
+            return Ok(());
+        };
+        let hour = forecast.hour();
+        let file = self.state(USAGE_HOUR);
+        if read_optional(&file)?.is_some_and(|kept| kept.trim() == hour) {
+            return Ok(());
+        }
+        lines.push(forecast.line());
+        replace(&file, &format!("{hour}\n"))
     }
 
     // -----------------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest 5d508b6ceebdcc0f08a173b5860fbe0a3fa1dc4d55b1b32aa191131aee365a05
+// contract digest 09cc903abfeacbbfa195c582afee1c6901a34f4138e6a182daa3fe01a1500b16
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -422,6 +422,8 @@ pub struct StatusReport {
     pub waits: Vec<String>,
     /// `requests` — `List<conductor.observation.StatusRequest>`.
     pub requests: Vec<StatusRequest>,
+    /// `usage` — `Optional<String>`.
+    pub usage: Option<String>,
 }
 
 /// StatusRequest — `conductor.observation.StatusRequest`.
@@ -461,6 +463,16 @@ pub struct StatusSession {
 pub struct StoreMigrate {
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
+}
+
+/// The states of `conductor.observation.UsageObservation`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `UsageObservation<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageObservationState {
+    /// `Recorded`.
+    Recorded,
 }
 
 /// ValidationResult — `conductor.observation.ValidationResult`: one of a closed set of names.
@@ -2406,6 +2418,168 @@ impl AnySpecificationObservation {
     }
 }
 
+/// What UsageObservation — `conductor.observation.UsageObservation` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`UsageObservation<S>`], and at a boundary by [`UsageObservationSnapshot::state`].
+///
+/// Every value satisfies `used_percent >= 0` — checked by [`UsageObservationData::broken_invariant`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageObservationData {
+    /// The identity: `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    ///
+    /// Carries `snapshot`: `conductor.observation.UsageObservation` references one `conductor.observation.Snapshot`.
+    pub snapshot_id: SnapshotId,
+    /// `read_at` — `Timestamp`.
+    pub read_at: crate::primitives::Timestamp,
+    /// `account` — `String`.
+    pub account: String,
+    /// `active` — `Boolean`.
+    pub active: bool,
+    /// `health` — `String`.
+    pub health: String,
+    /// `window` — `String`.
+    pub window: String,
+    /// `used_percent` — `Integer`.
+    pub used_percent: i64,
+    /// `resets_at` — `Optional<Timestamp>`.
+    pub resets_at: Option<crate::primitives::Timestamp>,
+}
+
+impl UsageObservationData {
+    /// The first declared invariant of `conductor.observation.UsageObservation` this value breaks, as the specification declares it,
+    /// or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value. One that reads something
+    /// absent — an empty `Optional`, a list position past the end, or `state`, which this
+    /// type does not hold — decides nothing, as the conformance interpreter reads it.
+    pub fn broken_invariant(&self) -> Option<&'static str> {
+        use crate::primitives::invariant as iv;
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.used_percent)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+            return Some("used_percent >= 0");
+        }
+        None
+    }
+}
+
+/// The states of `conductor.observation.UsageObservation`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](usage_observation_state::Marker), so [`UsageObservation<S>`](UsageObservation) can only ever rest in a real state.
+pub mod usage_observation_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Recorded {}
+    }
+
+    /// A declared state of `UsageObservation`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::UsageObservationState;
+    }
+
+    /// `Recorded`. Where a new instance starts.
+    pub struct Recorded;
+
+    impl Marker for Recorded {
+        const STATE: super::UsageObservationState = super::UsageObservationState::Recorded;
+    }
+}
+
+/// UsageObservation — `conductor.observation.UsageObservation` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Recorded`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`UsageObservationSnapshot`]
+/// and [`UsageObservationSnapshot::refine`].
+pub struct UsageObservation<S: usage_observation_state::Marker> {
+    data: UsageObservationData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: usage_observation_state::Marker> UsageObservation<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> UsageObservationState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &UsageObservationData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> UsageObservationData {
+        self.data
+    }
+}
+
+impl UsageObservation<usage_observation_state::Recorded> {
+    /// A new instance, resting in `Recorded` — the only state the lifecycle starts one in.
+    pub fn new(data: UsageObservationData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.observation.UsageObservation` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`UsageObservationSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageObservationSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: UsageObservationState,
+    /// What it holds.
+    pub data: UsageObservationData,
+}
+
+/// An `UsageObservation` in whichever declared state it was found.
+pub enum AnyUsageObservation {
+    /// Resting in `Recorded`.
+    Recorded(UsageObservation<usage_observation_state::Recorded>),
+}
+
+impl UsageObservationSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `UsageObservationState` cannot spell one.
+    pub fn refine(self) -> AnyUsageObservation {
+        match self.state {
+            UsageObservationState::Recorded => AnyUsageObservation::Recorded(UsageObservation {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyUsageObservation {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> UsageObservationState {
+        match self {
+            Self::Recorded(_) => UsageObservationState::Recorded,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> UsageObservationSnapshot {
+        match self {
+            Self::Recorded(instance) => UsageObservationSnapshot {
+                state: UsageObservationState::Recorded,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
 /// What WorkflowRunObservation — `conductor.observation.WorkflowRunObservation` — holds, apart from where it is in its lifecycle.
 ///
 /// The identity and every declared field. The state is deliberately not one: inside the domain it
@@ -3256,6 +3430,66 @@ pub enum RecordSpecificationOutcome {
     },
 }
 
+/// Record one window of an account's usage — the input of `conductor.observation.RecordUsage`.
+///
+/// Everything it can result in is [`RecordUsageOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordUsage {
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `read_at` — `Timestamp`.
+    pub read_at: crate::primitives::Timestamp,
+    /// `account` — `String`.
+    pub account: String,
+    /// `active` — `Boolean`.
+    pub active: bool,
+    /// `health` — `String`.
+    pub health: String,
+    /// `window` — `String`.
+    pub window: String,
+    /// `used_percent` — `Integer`.
+    pub used_percent: i64,
+    /// `resets_at` — `Optional<Timestamp>`.
+    pub resets_at: Option<crate::primitives::Timestamp>,
+}
+
+/// Everything `conductor.observation.RecordUsage` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordUsageOutcome {
+    /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
+    ///
+    /// No snapshot has this id, and nothing was recorded.
+    NoSuchSnapshot {
+        /// Why it was refused: `conductor.observation.SnapshotNotFound`.
+        error: SnapshotNotFound,
+    },
+    /// `closed` — when the `conductor.observation.Snapshot` that `input.snapshot_id` names satisfies `state != Collecting`.
+    ///
+    /// The snapshot is not collecting, and nothing was recorded.
+    Closed {
+        /// Why it was refused: `conductor.observation.SnapshotNotCollecting`.
+        error: SnapshotNotCollecting,
+    },
+    /// `negative-percent` — when `used_percent < 0`.
+    ///
+    /// A percent used is never negative; nothing was recorded.
+    NegativePercent {
+        /// Why it was refused: `conductor.observation.InvalidCount`.
+        error: InvalidCount,
+    },
+    /// `recorded` — otherwise.
+    ///
+    /// The window of the account's usage, as the probe read it, is recorded.
+    Recorded {
+        /// The `conductor.observation.UsageRecorded` this outcome publishes.
+        usage_recorded: UsageRecorded,
+    },
+}
+
 /// Record a workflow run — the input of `conductor.observation.RecordWorkflowRun`.
 ///
 /// Everything it can result in is [`RecordWorkflowRunOutcome`].
@@ -3546,6 +3780,21 @@ pub struct SpecificationRecorded {
     pub presence: SpecificationPresence,
     /// `validation` — `conductor.observation.ValidationResult`.
     pub validation: ValidationResult,
+}
+
+/// UsageRecorded — the event `conductor.observation.UsageRecorded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageRecorded {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `account` — `String`.
+    pub account: String,
+    /// `window` — `String`.
+    pub window: String,
+    /// `used_percent` — `Integer`.
+    pub used_percent: i64,
 }
 
 /// WorkflowRunRecorded — the event `conductor.observation.WorkflowRunRecorded`.
@@ -3931,6 +4180,33 @@ pub struct Specifications {
     pub conformance_status: Option<String>,
 }
 
+/// Usage readings — one row of the view `conductor.observation.UsageReadings`.
+///
+/// Projects `conductor.observation.UsageObservation` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageReadings {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `read_at` — `Timestamp`.
+    pub read_at: crate::primitives::Timestamp,
+    /// `account` — `String`.
+    pub account: String,
+    /// `active` — `Boolean`.
+    pub active: bool,
+    /// `health` — `String`.
+    pub health: String,
+    /// `window` — `String`.
+    pub window: String,
+    /// `used_percent` — `Integer`.
+    pub used_percent: i64,
+    /// `resets_at` — `Optional<Timestamp>`.
+    pub resets_at: Option<crate::primitives::Timestamp>,
+}
+
 /// Workflow runs — one row of the view `conductor.observation.WorkflowRuns`.
 ///
 /// Projects `conductor.observation.WorkflowRunObservation` at `read_your_writes` consistency.
@@ -4100,6 +4376,17 @@ pub mod obligations {
         fn record_specification(&mut self, input: super::RecordSpecification) -> Result<super::RecordSpecificationOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.observation.RecordUsage` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RecordUsageBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordUsage`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn record_usage(&mut self, input: super::RecordUsage) -> Result<super::RecordUsageOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.observation.RecordWorkflowRun` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -4252,6 +4539,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn specifications(&self) -> Result<Vec<super::Specifications>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.observation.UsageReadings` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait UsageReadingsQuery {
+        /// Serves `conductor.observation.UsageReadings` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn usage_readings(&self) -> Result<Vec<super::UsageReadings>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.WorkflowRuns` — generated.
