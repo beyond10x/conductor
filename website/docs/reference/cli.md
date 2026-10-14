@@ -711,7 +711,8 @@ Usage: conductor repository activate-repository [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--repository <REPOSITORY>` | no | none | MarkedRepository |
-| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`. |
+| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
+| `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -726,7 +727,8 @@ Usage: conductor repository deactivate-repository [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--repository <REPOSITORY>` | no | none | MarkedRepository |
-| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`. |
+| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
+| `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -742,7 +744,8 @@ Usage: conductor repository mark-repository [OPTIONS]
 |---|---|---|---|
 | `--repository <REPOSITORY>` | no | none | MarkedRepository |
 | `--activity <ACTIVITY>` | no | none | Activity One of `Active`, `Inactive`. |
-| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`. |
+| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
+| `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 

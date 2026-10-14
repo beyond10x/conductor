@@ -66,6 +66,7 @@ fn encode(mark: &RepositoryMarkSnapshot) -> Value {
         "state": state_name(mark.state),
         "repository": data.repository.0,
         "marked_by": marked_by_name(data.marked_by),
+        "session": data.session,
         "reason": data.reason,
     })
 }
@@ -80,7 +81,18 @@ fn decode(body: &Value) -> Result<RepositoryMarkSnapshot, String> {
             repository: MarkedRepository(text(body, "repository")?),
             marked_by: marked_by_named(&marked_by)
                 .ok_or_else(|| format!("unknown MarkedBy {marked_by:?}"))?,
+            session: session(body)?,
             reason: text(body, "reason")?,
         },
     })
+}
+
+/// The mark's `session`: absent or null when the command named none, as every mark recorded
+/// before `story:marked-by-session` is.
+fn session(body: &Value) -> Result<Option<String>, String> {
+    match body.get("session") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(session)) => Ok(Some(session.clone())),
+        Some(other) => Err(format!("session is {other}, not a string")),
+    }
 }

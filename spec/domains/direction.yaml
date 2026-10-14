@@ -19,9 +19,11 @@ types:
     kind: enum
     variants: [Active, Inactive]
 
+  # Who set a repository's mark: conductor, the operator, or a repository controller
+  # (story:marked-by-session).
   - name: conductor.direction.MarkedBy
     kind: enum
-    variants: [Conductor, Operator]
+    variants: [Conductor, Operator, Controller]
 
   - name: conductor.direction.ServingId
     kind: newtype
@@ -110,8 +112,11 @@ entities:
   # An override of whether conductor processes a repository's GitHub issues and pull requests
   # (design § 10). Without a mark, activity is computed from the newest
   # complete snapshot: Active when `real_commits_7d` is at least 1 and the repository is not
-  # archived. A mark, set by the operator or by conductor with a reason, wins over that
-  # computation and is never overwritten by it, for example for a repository superseded by another.
+  # archived. A mark, set by the operator, by conductor or by a controller with a reason, wins over
+  # that computation and is never overwritten by it, for example for a repository superseded by
+  # another. `session` is the name of the session that set the mark, when the command named one
+  # (story:marked-by-session); each command that sets the mark sets it, so it never names the
+  # session of an earlier one.
   - name: conductor.direction.RepositoryMark
     identity:
       name: repository
@@ -119,6 +124,8 @@ entities:
     fields:
       - name: marked_by
         type: conductor.direction.MarkedBy
+      - name: session
+        type: Optional<String>
       - name: reason
         type: String
     lifecycle:
@@ -279,6 +286,8 @@ commands:
         type: conductor.direction.Activity
       - name: marked_by
         type: conductor.direction.MarkedBy
+      - name: session
+        type: Optional<String>
       - name: reason
         type: String
     outcomes:
@@ -298,6 +307,7 @@ commands:
         instance: repository
         sets:
           marked_by: input.marked_by
+          session: input.session
           reason: input.reason
         emits:
           - conductor.direction.RepositoryMarked
@@ -312,6 +322,7 @@ commands:
         instance: repository
         sets:
           marked_by: input.marked_by
+          session: input.session
           reason: input.reason
         emits:
           - conductor.direction.RepositoryMarked
@@ -331,6 +342,8 @@ commands:
         type: conductor.direction.MarkedRepository
       - name: marked_by
         type: conductor.direction.MarkedBy
+      - name: session
+        type: Optional<String>
       - name: reason
         type: String
     outcomes:
@@ -339,6 +352,7 @@ commands:
         instance: repository
         sets:
           marked_by: input.marked_by
+          session: input.session
           reason: input.reason
         emits:
           - conductor.direction.RepositoryActivated
@@ -370,6 +384,8 @@ commands:
         type: conductor.direction.MarkedRepository
       - name: marked_by
         type: conductor.direction.MarkedBy
+      - name: session
+        type: Optional<String>
       - name: reason
         type: String
     outcomes:
@@ -378,6 +394,7 @@ commands:
         instance: repository
         sets:
           marked_by: input.marked_by
+          session: input.session
           reason: input.reason
         emits:
           - conductor.direction.RepositoryDeactivated
@@ -725,6 +742,8 @@ views:
         type: conductor.direction.RepositoryMark.State
       - name: marked_by
         type: conductor.direction.MarkedBy
+      - name: session
+        type: Optional<String>
       - name: reason
         type: String
     naming:
