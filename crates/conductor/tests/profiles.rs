@@ -654,3 +654,22 @@ fn conductor_never_sleeps_or_polls_in_its_session() {
                     your watch or the controller's report wakes you.";
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
+
+/// `story:status-command`: conductor answers an operator's status question with `conductor
+/// status`, one call, rather than assembling it from the views.
+#[test]
+fn conductor_answers_a_status_question_with_conductor_status() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "Answer an operator's status question with `conductor status`: the newest complete \
+             snapshot and its age, its deviations, live sessions, open dispatches, registered \
+             waits and pending requests, read from the store in one call."
+        ),
+        "conductor.md: a status question is answered with `conductor status`"
+    );
+    assert!(
+        !text.contains("`conductor status` once it exists"),
+        "conductor.md: `conductor status` exists"
+    );
+}

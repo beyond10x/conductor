@@ -38,8 +38,11 @@ this session and expire after 7 days, so a restart loses them.
   with `conductor repository refresh-hooks` and install them afresh with `--apply`, which uses
   `gates_policy`). Session starts print nothing. When the monitor ends, start it again.
 
-1. **Sense.** Build the snapshot: `conductor status` once it exists, the product `AGENTS.md`
-   command list until then. Read open decision-blockers with
+1. **Sense.** Build the snapshot with `task status` (the collectors, then the board) and read it
+   with `conductor status`, which starts none. Answer an operator's status question with
+   `conductor status`: the newest complete snapshot and its age, its deviations, live sessions,
+   open dispatches, registered waits and pending requests, read from the store in one call.
+   Read open decision-blockers with
    `aep plan workspace list --kind decision-blocker --status open`. A `snapshot sessions` row
    with an empty `session_ref` and `cwd` and no `name` is a session outside `checkouts.root`,
    `checkouts.trees` and the records directory, redacted by design, not a defect; the row whose

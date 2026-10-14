@@ -136,6 +136,11 @@ callables:
     result: Integer
     errors:
       refused: conductor.host.BuildRunRefused
+  status:
+    target: {kind: local, owner: conductor-cli, action: status}
+    input: conductor.observation.Status
+    result: conductor.observation.StatusReport
+    errors: {}
   host-grants:
     target: {kind: local, owner: conductor-cli, action: host_grants}
     input: conductor.host.ShowGrants
@@ -308,6 +313,12 @@ commands:
         source: {kind: option, long: repository}
       - field: command
         source: {kind: trailing}
+  - path: [status]
+    callable: status
+    about: Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+    arguments:
+      - field: format
+        source: {kind: option, long: format}
   - path: [host, grants]
     callable: host-grants
     about: Host grants
