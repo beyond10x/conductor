@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest a7f9871bdabc63897967bf2cd72fe7f3e4a6232eafb0109d0e08d01c54c699d0
-// contract digest 4f558702eb89a37a651256cf70ff0e0c742b1cc51d7ccbc88d2be22a2fe9b0a4
+// model digest e6c77bcc7ee0e79df63499d4607914bc01087e8a17250dc26ed3b68caa1041e1
+// contract digest b02ae21d8bc0215dc253eb959a34254ff287e39dbd164717556e86b8af4a99fd
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -912,6 +912,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.marked_by = input.marked_by.clone();
+        next.data.session = input.session.clone();
         next.data.reason = input.reason.clone();
         let answer = crate::direction::ActivateRepositoryOutcome::Activated { repository_activated: crate::direction::RepositoryActivated { repository: input.repository.clone(), marked_by: input.marked_by.clone() } };
         RepositoryMarkStorage::put(&mut self.ports, next);
@@ -999,6 +1000,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.marked_by = input.marked_by.clone();
+        next.data.session = input.session.clone();
         next.data.reason = input.reason.clone();
         let answer = crate::direction::DeactivateRepositoryOutcome::Deactivated { repository_deactivated: crate::direction::RepositoryDeactivated { repository: input.repository.clone(), marked_by: input.marked_by.clone(), reason: input.reason.clone() } };
         RepositoryMarkStorage::put(&mut self.ports, next);
@@ -1078,6 +1080,7 @@ where
             let data = crate::direction::RepositoryMarkData {
                 repository: identity.clone(),
                 marked_by: input.marked_by.clone(),
+                session: input.session.clone(),
                 reason: input.reason.clone(),
             };
             let answer = crate::direction::MarkRepositoryOutcome::MarkedActive { repository_marked: crate::direction::RepositoryMarked { repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
@@ -1089,6 +1092,7 @@ where
         let data = crate::direction::RepositoryMarkData {
             repository: identity.clone(),
             marked_by: input.marked_by.clone(),
+            session: input.session.clone(),
             reason: input.reason.clone(),
         };
         let answer = crate::direction::MarkRepositoryOutcome::MarkedInactive { repository_marked: crate::direction::RepositoryMarked { repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
@@ -2851,6 +2855,7 @@ where
                 repository: held.data.repository,
                 state: held.state,
                 marked_by: held.data.marked_by,
+                session: held.data.session,
                 reason: held.data.reason,
             })
             .collect())

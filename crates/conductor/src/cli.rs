@@ -2173,8 +2173,11 @@ pub struct MarkRepositoryArgs {
     #[arg(long, value_parser = ["Active", "Inactive"])]
     pub activity: Option<String>,
     /// MarkedBy
-    #[arg(long, value_parser = ["Conductor", "Operator"])]
+    #[arg(long, value_parser = ["Conductor", "Operator", "Controller"])]
     pub marked_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub session: Option<String>,
     /// string
     #[arg(long)]
     pub reason: Option<String>,
@@ -2190,8 +2193,11 @@ pub struct ActivateRepositoryArgs {
     #[arg(long)]
     pub repository: Option<String>,
     /// MarkedBy
-    #[arg(long, value_parser = ["Conductor", "Operator"])]
+    #[arg(long, value_parser = ["Conductor", "Operator", "Controller"])]
     pub marked_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub session: Option<String>,
     /// string
     #[arg(long)]
     pub reason: Option<String>,
@@ -2207,8 +2213,11 @@ pub struct DeactivateRepositoryArgs {
     #[arg(long)]
     pub repository: Option<String>,
     /// MarkedBy
-    #[arg(long, value_parser = ["Conductor", "Operator"])]
+    #[arg(long, value_parser = ["Conductor", "Operator", "Controller"])]
     pub marked_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub session: Option<String>,
     /// string
     #[arg(long)]
     pub reason: Option<String>,

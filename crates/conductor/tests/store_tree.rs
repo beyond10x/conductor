@@ -20,7 +20,9 @@
 //! the two files hold as `null` for the same reason.
 //! `story:session-envelope-model` added the sessions view's seven `envelope_*` columns, last in
 //! each row: `snapshot-sessions.json` holds them as `null`, which is what this build reads from a
-//! session written without them.
+//! session written without them. `story:marked-by-session` added the repository marks view's
+//! `session` column after `marked_by`: `repository-repository-marks.json` holds it as `null` in
+//! every row, which is what this build reads from a mark written without one.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not

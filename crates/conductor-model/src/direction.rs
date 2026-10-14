@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest a7f9871bdabc63897967bf2cd72fe7f3e4a6232eafb0109d0e08d01c54c699d0
-// contract digest 4f558702eb89a37a651256cf70ff0e0c742b1cc51d7ccbc88d2be22a2fe9b0a4
+// model digest e6c77bcc7ee0e79df63499d4607914bc01087e8a17250dc26ed3b68caa1041e1
+// contract digest b02ae21d8bc0215dc253eb959a34254ff287e39dbd164717556e86b8af4a99fd
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -66,6 +66,8 @@ pub enum MarkedBy {
     Conductor,
     /// `Operator`.
     Operator,
+    /// `Controller`.
+    Controller,
 }
 
 /// MarkedRepository — `conductor.direction.MarkedRepository`: a distinct wrapper around `String`.
@@ -548,6 +550,8 @@ pub struct RepositoryMarkData {
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
     pub marked_by: MarkedBy,
+    /// `session` — `Optional<String>`.
+    pub session: Option<String>,
     /// `reason` — `String`.
     pub reason: String,
 }
@@ -727,6 +731,8 @@ pub struct ActivateRepository {
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
     pub marked_by: MarkedBy,
+    /// `session` — `Optional<String>`.
+    pub session: Option<String>,
     /// `reason` — `String`.
     pub reason: String,
 }
@@ -853,6 +859,8 @@ pub struct DeactivateRepository {
     pub repository: MarkedRepository,
     /// `marked_by` — `conductor.direction.MarkedBy`.
     pub marked_by: MarkedBy,
+    /// `session` — `Optional<String>`.
+    pub session: Option<String>,
     /// `reason` — `String`.
     pub reason: String,
 }
@@ -988,6 +996,8 @@ pub struct MarkRepository {
     pub activity: Activity,
     /// `marked_by` — `conductor.direction.MarkedBy`.
     pub marked_by: MarkedBy,
+    /// `session` — `Optional<String>`.
+    pub session: Option<String>,
     /// `reason` — `String`.
     pub reason: String,
 }
@@ -1317,6 +1327,8 @@ pub struct RepositoryMarks {
     pub state: RepositoryMarkState,
     /// `marked_by` — `conductor.direction.MarkedBy`.
     pub marked_by: MarkedBy,
+    /// `session` — `Optional<String>`.
+    pub session: Option<String>,
     /// `reason` — `String`.
     pub reason: String,
 }
