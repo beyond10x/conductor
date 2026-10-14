@@ -6,6 +6,7 @@ status: draft
 title: conductor handover draft renders a hand-over's open work from the store
 relations:
 - decomposes: epic:loop-without-handwork
+- decomposes: epic:deterministic-steps
 scope:
 - confidence: cited
   path: .agents/conductor.md

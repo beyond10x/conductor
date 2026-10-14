@@ -4,6 +4,8 @@ id: epic:onboarding-from-url
 kind: epic
 status: draft
 title: A session given conductor's URL sets conductor up in its repository
+relations:
+- decomposes: initiative:adoption
 revision: 3
 ---
 ## Why

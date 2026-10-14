@@ -4,6 +4,8 @@ id: epic:disk-protocol
 kind: epic
 status: draft
 title: 'Disk is a protocol the binary runs: reserve, reclaim, watch, escalate, enforce'
+relations:
+- decomposes: initiative:self-improvement
 revision: 1
 ---
 ## Why

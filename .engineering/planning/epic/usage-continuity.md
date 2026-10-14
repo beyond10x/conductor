@@ -4,6 +4,8 @@ id: epic:usage-continuity
 kind: epic
 status: draft
 title: The instance forecasts, conserves and resumes across usage limits by itself
+relations:
+- decomposes: initiative:self-improvement
 revision: 1
 ---
 ## Why

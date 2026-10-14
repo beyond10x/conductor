@@ -6,6 +6,7 @@ status: draft
 title: Waits are registered and the watch resumes from a cursor, surviving restarts
 relations:
 - decomposes: epic:loop-without-handwork
+- decomposes: epic:deterministic-steps
 scope:
 - confidence: cited
   path: .agents/conductor.md
