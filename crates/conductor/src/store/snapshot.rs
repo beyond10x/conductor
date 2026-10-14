@@ -313,6 +313,8 @@ fn encode_repository(observation: &RepositoryObservationSnapshot) -> Value {
         "unreleased_commits": data.unreleased_commits,
         "planning_store_version": data.planning_store_version,
         "in_catalog": data.in_catalog,
+        "gates_hooks_version": data.gates_hooks_version,
+        "gates_version": data.gates_version,
     })
 }
 
@@ -341,6 +343,8 @@ fn decode_repository(body: &Value) -> Result<RepositoryObservationSnapshot, Stri
             unreleased_commits: optional_integer(body, "unreleased_commits")?,
             planning_store_version: optional_text(body, "planning_store_version")?,
             in_catalog: in_catalog(body)?,
+            gates_hooks_version: optional_text(body, "gates_hooks_version")?,
+            gates_version: optional_text(body, "gates_version")?,
         },
     })
 }

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6226ef1b625b88bce44065a5b6313e70ea6605bae111eb1c93d9e7cff3ed8d08
-// contract digest b7469f2cf745398ea45d13856f361e36621d049aab6cd4819ea48b4e89f5dba5
+// model digest 2764625359a16169ce5c0fe898fec84fb849a766b3354792d6399b6345746de6
+// contract digest de22fe83d7bb2748cdad9a88059528eaa8d1f46b7316af48ee1271c035267b7c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -153,6 +153,36 @@ pub enum Harness {
     Codex,
 }
 
+/// HooksOutcome — `conductor.observation.HooksOutcome`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HooksOutcome {
+    /// `Lagging`.
+    Lagging,
+    /// `Absent`.
+    Absent,
+    /// `Refreshed`.
+    Refreshed,
+    /// `Refused`.
+    Refused,
+}
+
+/// HooksRow — `conductor.observation.HooksRow`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HooksRow {
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `checkout` — `String`.
+    pub checkout: String,
+    /// `before` — `Optional<String>`.
+    pub before: Option<String>,
+    /// `after` — `Optional<String>`.
+    pub after: Option<String>,
+    /// `outcome` — `conductor.observation.HooksOutcome`.
+    pub outcome: HooksOutcome,
+    /// `detail` — `Optional<String>`.
+    pub detail: Option<String>,
+}
+
 /// The states of `conductor.observation.MemberFailureObservation`, as runtime values.
 ///
 /// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
@@ -196,6 +226,15 @@ pub struct ObservationId(pub crate::primitives::Uuid);
 pub enum PullRequestObservationState {
     /// `Recorded`.
     Recorded,
+}
+
+/// RefreshHooks — `conductor.observation.RefreshHooks`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefreshHooks {
+    /// `apply` — `Optional<Boolean>`.
+    pub apply: Option<bool>,
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
 }
 
 /// The states of `conductor.observation.ReleaseObservation`, as runtime values.
@@ -1630,6 +1669,10 @@ pub struct RepositoryObservationData {
     pub planning_store_version: Option<String>,
     /// `in_catalog` — `Optional<Boolean>`.
     pub in_catalog: Option<bool>,
+    /// `gates_hooks_version` — `Optional<String>`.
+    pub gates_hooks_version: Option<String>,
+    /// `gates_version` — `Optional<String>`.
+    pub gates_version: Option<String>,
 }
 
 /// The states of `conductor.observation.RepositoryObservation`, at the type level.
@@ -2955,6 +2998,10 @@ pub struct RecordRepository {
     pub planning_store_version: Option<String>,
     /// `in_catalog` — `Optional<Boolean>`.
     pub in_catalog: Option<bool>,
+    /// `gates_hooks_version` — `Optional<String>`.
+    pub gates_hooks_version: Option<String>,
+    /// `gates_version` — `Optional<String>`.
+    pub gates_version: Option<String>,
 }
 
 /// Everything `conductor.observation.RecordRepository` can result in — one variant per declared outcome.
@@ -3690,6 +3737,10 @@ pub struct Repositories {
     pub planning_store_version: Option<String>,
     /// `in_catalog` — `Optional<Boolean>`.
     pub in_catalog: Option<bool>,
+    /// `gates_hooks_version` — `Optional<String>`.
+    pub gates_hooks_version: Option<String>,
+    /// `gates_version` — `Optional<String>`.
+    pub gates_version: Option<String>,
 }
 
 /// Sessions — one row of the view `conductor.observation.Sessions`.

@@ -20,6 +20,7 @@ pub mod decide;
 pub mod disk;
 pub mod dispatch;
 pub mod doctor;
+pub mod gates;
 pub mod gc;
 pub mod goal;
 pub mod guard;

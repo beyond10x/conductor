@@ -1554,6 +1554,8 @@ fn observation(name: &str, real_commits_7d: i64, archived: bool) -> RecordReposi
         unreleased_commits: None,
         planning_store_version: None,
         in_catalog: Some(true),
+        gates_hooks_version: None,
+        gates_version: None,
     }
 }
 
@@ -1770,6 +1772,94 @@ fn without_a_review_limit_no_review_line_is_printed() {
         });
     take_reviews(&state, "2026-10-07T10:00:00Z", 5);
     assert_eq!(passed(&mut watch, true), (Vec::new(), String::new()));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Gates hooks (story:gates-hooks-fresh)
+// ---------------------------------------------------------------------------------------------
+
+/// Takes a complete snapshot started at `started_at` into the store under `state`, in which each
+/// `(repository, hook version)` of `hooks` was observed with `b10x-gates` 0.1.17 on `PATH`.
+fn take_hooks(state: &Path, started_at: &str, hooks: &[(&'static str, Option<&'static str>)]) {
+    let hooks = hooks.to_vec();
+    let collector = Collector::new("repositories", move |recorder| {
+        let snapshot = recorder.snapshot().clone();
+        for (name, hook) in &hooks {
+            recorder.repository(RecordRepository {
+                snapshot_id: snapshot.clone(),
+                gates_hooks_version: hook.map(str::to_owned),
+                gates_version: Some("0.1.17".to_owned()),
+                ..observation(name, 1, false)
+            })?;
+        }
+        Ok(())
+    });
+    let store = store::open(state).expect("open the case's store");
+    let start = StartSnapshot {
+        started_at: Timestamp(started_at.to_owned()),
+        disk_free_bytes: 1_000_000,
+        budget: None,
+    };
+    let taken = snapshot::take_from(store, start, &[collector]).expect("the snapshot ends");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+}
+
+/// A pass prints `gates hooks stale: <n> checkouts` once per new complete snapshot that finds a
+/// checkout whose hook differs from the `b10x-gates` on `PATH`; a checkout without a hook is not
+/// counted, and a snapshot that finds none prints nothing.
+#[test]
+fn a_new_snapshot_finding_stale_gates_hooks_is_reported_once() {
+    let case = Case::new("gates-hooks");
+    case.sessions(&[]);
+    let state = case.dir.join("state");
+    let calls = case.dir.join("calls.txt");
+    let mut watch = Watch::new(recording_runs(&case, &state, &calls), case.state());
+
+    take_hooks(
+        &state,
+        "2026-10-07T10:00:00Z",
+        &[
+            ("alpha", Some("0.1.14")),
+            ("beta", Some("0.1.17")),
+            ("gamma", None),
+        ],
+    );
+    assert_eq!(
+        passed(&mut watch, true),
+        (
+            vec!["gates hooks stale: 1 checkouts".to_owned()],
+            String::new()
+        )
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "once per snapshot");
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "a pass without CI reads no snapshot"
+    );
+
+    take_hooks(
+        &state,
+        "2026-10-07T11:00:00Z",
+        &[("alpha", Some("0.1.14")), ("beta", Some("0.1.15"))],
+    );
+    assert_eq!(
+        passed(&mut watch, true).0,
+        ["gates hooks stale: 2 checkouts"],
+        "a new snapshot that finds stale hooks"
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "once");
+
+    take_hooks(
+        &state,
+        "2026-10-07T12:00:00Z",
+        &[("alpha", Some("0.1.17")), ("beta", Some("0.1.17"))],
+    );
+    assert_eq!(
+        passed(&mut watch, true).0,
+        NOTHING,
+        "a snapshot that finds none"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------

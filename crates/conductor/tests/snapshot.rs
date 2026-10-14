@@ -176,6 +176,8 @@ fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
         unreleased_commits: None,
         planning_store_version: Some("aep.project/5".to_owned()),
         in_catalog: Some(true),
+        gates_hooks_version: None,
+        gates_version: None,
     }
 }
 

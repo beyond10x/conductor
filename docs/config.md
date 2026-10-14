@@ -18,7 +18,7 @@ does not validate stops the command.
 `conductor config validate` checks the file and names each problem by its YAML path, such as
 `instances[0].cadence.watch`. `conductor config show --format text|json|yaml` prints the effective
 instance after defaults, with every path absolute. It writes an absent optional value (`operator`,
-`catalog`, `session_prefix`, a role's `agent`, `settings` and `profile`, the controller role's
+`catalog`, `gates_policy`, `session_prefix`, a role's `agent`, `settings` and `profile`, the controller role's
 `session_name`, `conductor.served_by` of an instance with its own conductor, a limit not set) as
 `null`.
 
@@ -125,6 +125,7 @@ accepted, defaulted and shown by `config show`.
 | `authority.class_o` | `conductor` \| `operator` | `operator` | nothing yet | who decides class-O decisions |
 | `operator` | string | none | nothing yet | how sessions name the person who decides class O |
 | `catalog` | catalog | none | repositories collector | the instance's catalog of repositories (below) |
+| `gates_policy` | path | none | `conductor repository refresh-hooks --apply` | the Gates policy file each checkout's hooks are installed with (`b10x-gates install --policy`); without it `--apply` installs none |
 
 An instance may leave out every key but `name`, `sources` and `checkouts`. Inside `controllers`,
 `cadence`, `thresholds`, `retention`, `authority`, `confinement` and each `limits`, each absent

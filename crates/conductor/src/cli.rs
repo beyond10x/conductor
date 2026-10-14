@@ -30,9 +30,9 @@
 //! callable, with exactly the option flags the binding maps its input fields to: `dashboard
 //! serve` (`story:live-dashboard`), `decision show`, `watch run` (`story:watch-command`),
 //! `repository shipped` (`story:release-digest`), `repository activity`
-//! (`story:repository-marks`), `resource usage` (`story:token-spend`), `store migrate`
-//! (`story:store-on-eventlog-tree`), `records check` (`story:records-from-commands`) and `rules
-//! show` (`story:rules-show`).
+//! (`story:repository-marks`), `repository refresh-hooks` (`story:gates-hooks-fresh`), `resource
+//! usage` (`story:token-spend`), `store migrate` (`story:store-on-eventlog-tree`), `records check`
+//! (`story:records-from-commands`) and `rules show` (`story:rules-show`).
 //! `host reclaim` (`story:disk-reclaim`) joins the `host` group; `build run` (`story:build-run`)
 //! alone also takes the words after `--`, as written: the command it runs.
 //!
@@ -178,6 +178,9 @@ impl Cli {
                 }
                 RepositoryCommand::Activity(args) => repository::repository_activity(state, &args),
                 RepositoryCommand::Shipped(args) => shipped::shipped(state, &args),
+                RepositoryCommand::RefreshHooks(args) => {
+                    repository::repository_refresh_hooks(self.config.as_deref(), &args)
+                }
             },
             Group::Decision(command) => match command {
                 DecisionCommand::RaiseDecisionRequest(args) => {
@@ -498,6 +501,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["repository", "repository-marks"], Access::Reads),
     (&["repository", "activity"], Access::Reads),
     (&["repository", "shipped"], Access::ConductorReads),
+    // Installs the Gates hooks of the instance's checkouts with --apply (story:gates-hooks-fresh).
+    (&["repository", "refresh-hooks"], Access::Writes),
     (&["decision", "answer-escalated-request"], Access::Writes),
     (&["decision", "answer-request"], Access::Writes),
     (&["decision", "escalate-request"], Access::Writes),
@@ -751,6 +756,10 @@ pub enum RepositoryCommand {
     /// What shipped since an instant, from the newest complete snapshot's GitHub observations
     #[command(name = "shipped")]
     Shipped(RepositoryShippedArgs),
+
+    /// List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after
+    #[command(name = "refresh-hooks")]
+    RefreshHooks(RefreshHooksArgs),
 }
 
 /// `conductor decision`: decision requests and the decisions that answer them.
@@ -1188,6 +1197,20 @@ pub struct RepositoryShippedArgs {
     #[arg(long)]
     pub since: Option<String>,
     /// How the rows are rendered: text, json, jsonl or markdown. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
+}
+
+/// The input of the binding's `repository-refresh-hooks` callable,
+/// `conductor.observation.RefreshHooks` (`story:gates-hooks-fresh`). The format is text the
+/// handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct RefreshHooksArgs {
+    /// Run `b10x-gates install` in each checkout listed, with the instance's `gates_policy`.
+    /// `--apply` alone is `--apply true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub apply: Option<bool>,
+    /// How the rows are rendered: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
 }
@@ -1721,6 +1744,12 @@ pub struct RecordRepositoryArgs {
     /// boolean, optional
     #[arg(long)]
     pub in_catalog: Option<bool>,
+    /// string, optional
+    #[arg(long)]
+    pub gates_hooks_version: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub gates_version: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

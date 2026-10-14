@@ -33,7 +33,10 @@ this session and expire after 7 days, so a restart loses them.
   `main` CI of an Active repository turning red or green, a live controller whose transcripts
   and sub-agents' have written nothing for longer than `thresholds.silent_session` (`session silent: <name> <id> <m>m`: see Standing rules), two live
   sessions under your own session name (`conductors: …`: tell the operator at once which one is
-  not you; do no conductor work until one is gone). Session starts print nothing. When the monitor ends, start it again.
+  not you; do no conductor work until one is gone), a new snapshot finding checkouts whose Gates
+  hooks differ from the `b10x-gates` on `PATH` (`gates hooks stale: <n> checkouts`: list them
+  with `conductor repository refresh-hooks` and install them afresh with `--apply`, which uses
+  `gates_policy`). Session starts print nothing. When the monitor ends, start it again.
 
 1. **Sense.** Build the snapshot: `conductor status` once it exists, the product `AGENTS.md`
    command list until then. Read open decision-blockers with

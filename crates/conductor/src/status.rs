@@ -15,7 +15,8 @@
 //!    (limit <n>): no new dispatch`, the line conductor holds that repository's dispatch on;
 //! 3. **Deviations**, one row per repository that is not archived with at least one: a red `main`
 //!    workflow, a pull request with a failing check, one open more than 14 days, unreleased
-//!    commits, no checkout, a specification missing or refused;
+//!    commits, no checkout, a specification missing or refused, a Gates hook whose version
+//!    differs from the `b10x-gates` on `PATH` (`stale gates hooks`, `story:gates-hooks-fresh`);
 //! 4. **Overview**, one row per repository that is not archived, in name order;
 //! 5. **Specifications**, one row per repository with its specification's presence and
 //!    validation;
@@ -89,6 +90,7 @@ const UNRELEASED: &str = "unreleased commits";
 const NO_CHECKOUT: &str = "no checkout";
 const SPECIFICATION_MISSING: &str = "specification missing";
 const SPECIFICATION_REFUSED: &str = "specification refused";
+const STALE_GATES_HOOKS: &str = "stale gates hooks";
 
 /// `conductor snapshot publish-board`: the command `conductor.observation.PublishBoard`. Writes
 /// the board and prints the id of the board it recorded.
@@ -360,6 +362,15 @@ pub(crate) fn repository_figures(store: &Store, held: &SnapshotSnapshot) -> Vec<
         .collect()
 }
 
+/// How many repositories of the snapshot `held` in `store` the board names `stale gates hooks`
+/// (`story:gates-hooks-fresh`): the watch's count.
+pub(crate) fn stale_gates_hooks(store: &Store, held: &SnapshotSnapshot) -> usize {
+    figures(&observed(store, held))
+        .values()
+        .filter(|figures| figures.deviations.contains(&STALE_GATES_HOOKS))
+        .count()
+}
+
 /// The figures of each repository of `observed` that is not archived, by name: the board's
 /// deviations and delta, and [`repository_figures`].
 fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
@@ -412,6 +423,12 @@ fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
             if specification.validation == ValidationResult::Refused {
                 deviations.push(SPECIFICATION_REFUSED);
             }
+        }
+        if crate::gates::stale(
+            repository.gates_hooks_version.as_deref(),
+            repository.gates_version.as_deref(),
+        ) {
+            deviations.push(STALE_GATES_HOOKS);
         }
 
         let counts = Counts {

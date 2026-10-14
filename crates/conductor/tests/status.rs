@@ -170,6 +170,8 @@ fn from_fixture(name: &str) -> Collector {
                 unreleased_commits: item["unreleased_commits"].as_i64(),
                 planning_store_version: None,
                 in_catalog: None,
+                gates_hooks_version: None,
+                gates_version: None,
             })?;
         }
         for item in items(&fixture, "pull_requests") {

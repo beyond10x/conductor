@@ -490,6 +490,8 @@ fn show_without_a_file_prints_todays_constants() {
         .collect();
     // story:catalog-source: the built-in instance names no catalog.
     assert_eq!(instance["catalog"], Value::Null, "{shown:#}");
+    // story:gates-hooks-fresh: nor a Gates policy; `refresh-hooks --apply` installs none.
+    assert_eq!(instance["gates_policy"], Value::Null, "{shown:#}");
     // story:instance-session-names: nor a session prefix; its sessions keep today's names.
     assert_eq!(instance["session_prefix"], Value::Null, "{shown:#}");
     // story:instance-scoped-tasks: src/dashboard.rs, `DEFAULT_PORT`, the port `task dashboard`
@@ -512,6 +514,7 @@ fn show_without_a_file_prints_todays_constants() {
         "checkouts",
         "confinement",
         "controllers",
+        "gates_policy",
         "name",
         "operator",
         "records",

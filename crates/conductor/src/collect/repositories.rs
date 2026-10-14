@@ -31,6 +31,8 @@
 //! | `latest_release`, `latest_release_at` | the latest GitHub Release, drafts aside, and its publication date ([`Sources::latest_release`]); without one, the newest tag on `origin/main`; the tag's commit date when there is no publication date |
 //! | `unreleased_commits` | `git rev-list --count <tag>..origin/main`, when the checkout holds the tag |
 //! | `planning_store_version` | `version` in `.engineering/project.yaml` on `origin/main` (YAML or JSON) |
+//! | `gates_hooks_version` | what `<checkout>/.git/b10x-gates-hooks/b10x-gates --version` prints, its last word ([`gates::installed`], `story:gates-hooks-fresh`); `unread` for a hook that prints none; absent without such a hook or without a checkout |
+//! | `gates_version` | what [`Sources::gates`] (`b10x-gates --version`) prints, its last word, read once per snapshot; absent when it prints none |
 //! | `in_catalog` | whether the instance's catalog ([`Sources::catalog`], `story:catalog-source`) names the repository: a `<stem>.json` entry of the catalog's directory on its repository's `origin/main`, never that checkout's working tree, whose stem spells the name as the catalog's `names` says; absent for every repository when the instance names no catalog or `<workspace>/<catalog repository>` is no checkout |
 //!
 //! A local source's repository reads `HEAD` where the table reads `origin/main`, its own branches
@@ -74,6 +76,7 @@ use time::{OffsetDateTime, UtcOffset};
 use crate::collect::gitlab::{self, Forge, Mapped};
 use crate::collect::{self, Origins};
 use crate::config;
+use crate::gates;
 use crate::snapshot::Recorder;
 
 /// The commit a fetched checkout is read at.
@@ -152,6 +155,9 @@ pub struct Sources {
     /// Prints the commit `{sha}` with its `files` as GitHub's REST API answers it, for a
     /// repository without a checkout.
     pub commit: Vec<String>,
+    /// Prints the version of the `b10x-gates` on `PATH`, as `b10x-gates <version>`
+    /// (`story:gates-hooks-fresh`); read once per snapshot.
+    pub gates: Vec<String>,
     /// How many repositories are read at once.
     pub width: usize,
     /// How long one command may run before it is stopped.
@@ -225,6 +231,7 @@ impl Sources {
                 "api",
                 "repos/{organization}/{repository}/commits/{sha}",
             ]),
+            gates: words(&[gates::PROGRAM, "--version"]),
             width: WIDTH,
             bound: collect::BOUND,
         }
@@ -310,6 +317,7 @@ pub fn collect_with_gitlab(
         read(sources, listed, &since)
     })?;
     let cataloged = cataloged(sources, &listed)?;
+    let gates_version = gates::version(&sources.gates, sources.bound)?;
     let sweeps = sweeps(&listed, &read);
     for (listed, read) in listed.iter().zip(read) {
         let real = read
@@ -338,6 +346,8 @@ pub fn collect_with_gitlab(
             unreleased_commits: read.release.unreleased,
             planning_store_version: read.planning_store_version,
             in_catalog: cataloged.as_ref().map(|names| names.contains(&listed.name)),
+            gates_hooks_version: gates::installed(&listed.checkout(sources), sources.bound)?,
+            gates_version: gates_version.clone(),
         })?;
     }
     Ok(())
