@@ -527,14 +527,13 @@ fn config_show_writes_each_secret_sync_and_fills_the_branch() {
         .expect("write the config file");
     };
     let show = || {
-        let output = common::conductor(dir.join("home"))
+        common::conductor(dir.join("home"))
             .current_dir(dir.join("work"))
             .env("CONDUCTOR_CONFIG", &file)
             .args(["config", "show", "--format", "json"])
             .stdin(Stdio::null())
             .output()
-            .expect("the conductor binary runs");
-        output
+            .expect("the conductor binary runs")
     };
 
     write("");

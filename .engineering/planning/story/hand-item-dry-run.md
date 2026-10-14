@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:hand-item-dry-run
 kind: story
-status: draft
+status: active
 title: A class-H item carries its dry-run result
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-14T17:07:17Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-14T17:07:17Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
