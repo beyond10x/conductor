@@ -20,6 +20,7 @@
 
 mod active;
 mod common;
+mod scratch;
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -1536,13 +1537,8 @@ fn a_callers_ssh_command_is_kept_with_batch_mode_after_it() {
 /// it, as in git, and without either the command is `ssh`.
 #[test]
 fn a_repositorys_core_ssh_command_is_kept_and_the_callers_wins() {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("collect_stores")
-        .join("core-ssh-command");
-    if dir.exists() {
-        fs::remove_dir_all(&dir).expect("clear the case's directory");
-    }
-    fs::create_dir_all(&dir).expect("create the case's directory");
+    let case = scratch::Scratch::new("collect_stores/core-ssh-command");
+    let dir = case.path().to_owned();
     let git = |args: &[&str]| {
         let output = Command::new("git")
             .args(args)
@@ -1579,13 +1575,8 @@ fn a_repositorys_core_ssh_command_is_kept_and_the_callers_wins() {
 /// [`GIT_COLLECTORS`] with the lines its git commands wrote, each collector having run at least
 /// one.
 fn git_environment_of(case: &str, test: &str, ssh: Option<&str>) -> Vec<(String, Vec<String>)> {
-    let fake = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("collect_stores")
-        .join(format!("{case}-fake-git"));
-    if fake.exists() {
-        fs::remove_dir_all(&fake).expect("clear the fake git's directory");
-    }
-    fs::create_dir_all(&fake).expect("create the fake git's directory");
+    let fake_dir = scratch::Scratch::new(format!("collect_stores/{case}-fake-git"));
+    let fake = fake_dir.path().to_owned();
     let path_variable = std::env::var_os("PATH").unwrap_or_default();
     let real = std::env::split_paths(&path_variable)
         .map(|dir| dir.join("git"))

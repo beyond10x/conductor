@@ -11,6 +11,11 @@
 //!   [`active::isolate`] (`tests/active/mod.rs`), or `config::set_active` with a config file of
 //!   its own. A file that names such a module but reaches no reader is listed in
 //!   [`REACHES_NO_READER`], with why.
+//!
+//! And no test leaves a git repository under `target/tmp`, where `worktree gc` would keep the tree
+//! that holds it (`story:test-fixtures-no-nested-git`): a test file that creates one takes every
+//! directory under `target/tmp` from [`scratch::Scratch`] (`tests/scratch/mod.rs`) or from a case
+//! type whose `Drop` removes it.
 
 mod active;
 mod common;
@@ -32,6 +37,22 @@ const HELPER: &str = "common/mod.rs";
 
 /// What fixes the instance of the process: the shared helper, or a file's own config.
 const FIXES: [&str; 2] = ["active::isolate()", "config::set_active(Some("];
+
+/// What a line that creates a git repository holds: `init` or `clone` among a command's arguments
+/// (`git init`, and `conductor init`, which makes the records a repository), or a `.git` path the
+/// case writes or plants. Written in halves so this file does not match itself.
+const CREATES_REPOSITORY: [&str; 7] = [
+    concat!("[\"", "init\""),
+    concat!("(\"", "init\")"),
+    concat!("\"", "clone\""),
+    concat!("\".", "git\""),
+    concat!("\".", "git/"),
+    concat!("/.", "git\""),
+    concat!("/.", "git/"),
+];
+
+/// How a test names its target's temporary directory, `target/tmp`.
+const TARGET_TMP: &str = concat!("CARGO_TARGET", "_TMPDIR");
 
 /// Files that name a module whose code reads the instance of the process, and reach no reader
 /// of it: the guard decides through `guard::decide` and `guard::decide_in` over the places a case
@@ -185,6 +206,107 @@ fn every_test_file_that_reads_the_active_instance_fixes_it_first() {
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// The lines of `text`, a test file, that name `target/tmp` outside a type whose `Drop` removes
+/// the directory, as `<line>: <text>`, when the file creates a git repository; none when it creates
+/// none. A line belongs to the item that the nearest line above it starting with a letter opens;
+/// it is owned when that item is `impl <Type>` and the file's `impl Drop for <Type>` calls
+/// `remove_dir_all`.
+fn undropped_fixture_dirs(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    if !lines.iter().any(|line| {
+        CREATES_REPOSITORY
+            .iter()
+            .any(|needle| line.contains(needle))
+    }) {
+        return Vec::new();
+    }
+    let removed_on_drop = |owner: &str| {
+        let header = format!("impl Drop for {owner} {{");
+        lines
+            .iter()
+            .position(|line| line.starts_with(&header))
+            .is_some_and(|start| {
+                lines[start..]
+                    .iter()
+                    .take_while(|line| **line != "}")
+                    .any(|line| line.contains("remove_dir_all"))
+            })
+    };
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.contains(TARGET_TMP))
+        .filter(|(at, _)| {
+            let owner = lines[..*at]
+                .iter()
+                .rev()
+                .find(|line| line.starts_with(|c: char| c.is_ascii_alphabetic()))
+                .and_then(|line| line.strip_prefix("impl "))
+                .map(|rest| {
+                    rest.chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect::<String>()
+                });
+            !owner.is_some_and(|owner| !owner.is_empty() && removed_on_drop(&owner))
+        })
+        .map(|(at, line)| format!("{}: {}", at + 1, line.trim()))
+        .collect()
+}
+
+/// No test leaves a git repository under `target/tmp`: a file that creates one, by `git init`,
+/// `git clone`, `conductor init` or a planted `.git`, puts every directory it makes there in
+/// [`scratch::Scratch`] or a case type whose `Drop` removes it. `worktree gc` keeps a tree that
+/// holds a nested `.git`, so one left there keeps a finished wave's tree.
+#[test]
+fn every_fixture_repository_is_removed_when_its_case_ends() {
+    let tests = crate_dir().join("tests");
+    let mut problems = Vec::new();
+    for path in rust_files(&tests) {
+        let name = relative(&path, &tests);
+        let text = fs::read_to_string(&path).expect("read a test file");
+        problems.extend(
+            undropped_fixture_dirs(&text)
+                .into_iter()
+                .map(|line| format!("tests/{name}:{line}")),
+        );
+    }
+    assert!(
+        problems.is_empty(),
+        "these files create a git repository, and these lines put a directory under target/tmp \
+         that nothing removes when the case ends; take it from `scratch::Scratch` \
+         (tests/scratch/mod.rs):\n{}",
+        problems.join("\n")
+    );
+}
+
+#[test]
+fn the_fixture_scan_reads_repositories_and_their_owners() {
+    let tmp = format!("PathBuf::from(env!(\"{TARGET_TMP}\")).join(\"x\")");
+    let creates = format!("    git(&dir, &{}, \"--quiet\"]);", CREATES_REPOSITORY[0]);
+    let loose = format!("fn home() -> PathBuf {{\n    {tmp}\n}}\n{creates}\n");
+    assert_eq!(undropped_fixture_dirs(&loose), [format!("2: {tmp}")]);
+    let owned = format!(
+        "impl Case {{\n    fn new() -> Self {{\n        Self {{ dir: {tmp} }}\n    }}\n}}\n\
+         impl Drop for Case {{\n    fn drop(&mut self) {{\n        \
+         let _ = fs::remove_dir_all(&self.dir);\n    }}\n}}\n{creates}\n"
+    );
+    assert_eq!(undropped_fixture_dirs(&owned), Vec::<String>::new());
+    let kept = owned.replace("remove_dir_all", "remove_file");
+    assert_eq!(
+        undropped_fixture_dirs(&kept),
+        [format!("3: Self {{ dir: {tmp} }}")]
+    );
+    assert_eq!(
+        undropped_fixture_dirs(&loose.replace(&creates, "")),
+        Vec::<String>::new(),
+        "a file that creates no repository may keep its directories"
+    );
+    for needle in CREATES_REPOSITORY {
+        let planted = format!("{tmp}\n    fs::create_dir_all(dir.join({needle}x\"));\n");
+        assert_eq!(undropped_fixture_dirs(&planted).len(), 1, "{needle}");
+    }
 }
 
 /// A fresh directory for case `name` under this test target's temporary directory.

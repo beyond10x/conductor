@@ -15,8 +15,11 @@
 //! rule, and a cwd under neither is denied for every tool that has a rule. The cases at the end
 //! decide the same rules in the places a config file names.
 
+mod scratch;
+
 use std::ffi::OsString;
 use std::fs;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -24,6 +27,7 @@ use conductor_cli::cli::{Access, LEAVES};
 use conductor_cli::config;
 use conductor_cli::guard::{self, Decision, Places, SessionList};
 use conductor_model::dispatch::Verdict;
+use scratch::Scratch;
 use serde_json::{Map, Value};
 
 /// The repository the probe session ran in.
@@ -32,17 +36,33 @@ const PROBE: &str = "~/example-org/.guard-probe-w04";
 /// Conductor's checkout.
 const CONDUCTOR: &str = "~/example-org/conductor";
 
-/// A home directory of its own for one case.
-fn home(case: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("guard_rules")
-        .join(case)
-        .join("home");
-    if dir.exists() {
-        fs::remove_dir_all(&dir).expect("clear the case's home");
+/// A case's home directory, `home/` of the case's directory; the checkouts and records a case
+/// plants beside it lie in that directory too, which is removed when the case ends.
+struct Home {
+    path: PathBuf,
+    _case: Scratch,
+}
+
+impl Deref for Home {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.path
     }
-    fs::create_dir_all(&dir).expect("create the case's home");
-    dir
+}
+
+impl AsRef<Path> for Home {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// A home directory of its own for one case.
+fn home(case: &str) -> Home {
+    let dir = Scratch::new(Path::new("guard_rules").join(case));
+    let path = dir.path().join("home");
+    fs::create_dir_all(&path).expect("create the case's home");
+    Home { path, _case: dir }
 }
 
 /// A recorded payload, by its file name under `tests/fixtures/guard/`.
@@ -2608,7 +2628,7 @@ fn records_inside_a_checkout_are_conductor_s_and_no_controller_writes_or_reaches
         name: "records in a checkout",
         places: places_from_file(&home, &config_text(&root, &trees, &records)),
         config: file_beside(&home),
-        home: home.clone(),
+        home: home.to_path_buf(),
         outside: Vec::new(),
         conductor: records.clone(),
         root,
@@ -2662,7 +2682,7 @@ fn managed_worktrees_inside_the_checkouts_root_belong_to_their_repository() {
         name: "trees in the root",
         places: places_from_file(&home, &config_text(&root, &trees, &records)),
         config: file_beside(&home),
-        home: home.clone(),
+        home: home.to_path_buf(),
         outside: Vec::new(),
         conductor: records.clone(),
         root,
@@ -2699,7 +2719,7 @@ fn managed_worktrees_inside_the_checkouts_root_belong_to_their_repository() {
 fn without_a_config_file_the_active_places_are_the_built_in_ones() {
     let home = home("places-active-without-file");
     let environment = config::Environment {
-        home: Some(home.clone()),
+        home: Some(home.to_path_buf()),
         cwd: home.join("somewhere"),
         config: None,
         instance: None,
@@ -3670,7 +3690,7 @@ fn a_tmpdir_at_or_above_the_home_directory_is_no_scratch() {
                 &[(field, "~/.cache/claude-tmp/x.py")],
             );
             assert_verdict(&control, Verdict::Allow, "scratch");
-            for dir in [&home, &parent, &grandparent, Path::new("/")] {
+            for dir in [&*home, &parent, &grandparent, Path::new("/")] {
                 for target in ["~/x.py", "~/.bashrc", "~/.cache/claude-tmp/x.py"] {
                     let decision = decide_with_tmp(name, &home, cwd, Some(dir), &[(field, target)]);
                     assert_verdict(&decision, Verdict::Deny, why);
@@ -4763,8 +4783,8 @@ fn another_instance_s_conductor_may_not_message_a_bare_instance_s_own_controller
     let file = file_beside(&home);
     fs::write(&file, text).expect("write the config file");
     let environment = config::Environment {
-        home: Some(home.clone()),
-        cwd: home.clone(),
+        home: Some(home.to_path_buf()),
+        cwd: home.to_path_buf(),
         config: Some(file.as_os_str().to_owned()),
         instance: Some("beta".into()),
     };
