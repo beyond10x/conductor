@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 54468fc4d040c20057d06b756280f9a5701e132bd68fa6fe160fddb617fc801d
-// contract digest b31d4151c2590a38684f774f23275554b16d990db78094d0451b603ccc9b190b
+// model digest e98bb57e9ad50f20a2803c655059351b8ba7e7cb456589854506622bd401c20d
+// contract digest c2b596a31d360334884375d85a60850eb793b7d662bbe34ada84b3de36c69bf1
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -686,6 +686,14 @@ impl Dispatch<dispatch_state::Blocked> {
         }
     }
 
+    /// `finish` — `Blocked` → `Done`. Taken by the `done` outcome of `conductor.dispatch.ReportDone`.
+    pub fn finish(self) -> Dispatch<dispatch_state::Done> {
+        Dispatch {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
     /// `fail` — `Blocked` → `Failed`. Taken by the `failed` outcome of `conductor.dispatch.ReportFailed`.
     pub fn fail(self) -> Dispatch<dispatch_state::Failed> {
         Dispatch {
@@ -706,6 +714,14 @@ impl Dispatch<dispatch_state::Blocked> {
 impl Dispatch<dispatch_state::Sent> {
     /// `start` — `Sent` → `Started`. Taken by the `started` outcome of `conductor.dispatch.ReportStarted`.
     pub fn start(self) -> Dispatch<dispatch_state::Started> {
+        Dispatch {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+
+    /// `finish` — `Sent` → `Done`. Taken by the `done` outcome of `conductor.dispatch.ReportDone`.
+    pub fn finish(self) -> Dispatch<dispatch_state::Done> {
         Dispatch {
             data: self.data,
             state: core::marker::PhantomData,
@@ -1885,7 +1901,7 @@ pub enum ReportDoneOutcome {
     },
     /// `wrong-state` — from a state no declared move starts in.
     ///
-    /// Only a started dispatch is done.
+    /// Only a sent, started or blocked dispatch is done.
     WrongState {
         /// Why it was refused: `conductor.dispatch.DispatchStateConflict`.
         error: DispatchStateConflict,

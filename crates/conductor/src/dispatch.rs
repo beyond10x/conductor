@@ -322,7 +322,7 @@ pub fn report_done(state: Option<&Path>, args: ReportDoneArgs) -> Result<ExitCod
         ReportDoneOutcome::WrongState { error } => wrong_state(
             COMMAND,
             &error.dispatch_id,
-            "only a started dispatch is done",
+            "only a sent, started or blocked dispatch is done",
         ),
     }
 }
