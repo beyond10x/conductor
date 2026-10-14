@@ -621,3 +621,36 @@ fn a_controller_runs_wide_concurrent_waves() {
         );
     }
 }
+
+/// `story:decision-reads-charter`: a decision about a repository is checked against its charter's
+/// "Do not touch" lines first, which `record-conductor-decision --repository` prints.
+#[test]
+fn conductor_checks_a_decision_against_the_charter_s_do_not_touch_lines() {
+    let text = profile("conductor.md");
+    let sentence = "A decision about a repository is checked against its charter's \"Do not \
+                    touch\" lines first:";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}
+
+/// `story:profile-zsh-shell`: the sessions' shell may be zsh, where an unquoted word that starts
+/// with `=` expands as a command path and an unmatched glob aborts the command.
+#[test]
+fn conductor_and_controllers_quote_for_zsh() {
+    let sentence = "The shell may be zsh: quote a word that starts with `=`, and guard a glob that \
+                    may match nothing (`(N)` or an `ls` test).";
+    for name in ["conductor.md", "repo-controller.md"] {
+        assert!(
+            profile(name).contains(sentence),
+            "{name}: holds {sentence:?}"
+        );
+    }
+}
+
+/// `story:conductor-no-poll`: conductor never waits inside its own session.
+#[test]
+fn conductor_never_sleeps_or_polls_in_its_session() {
+    let text = profile("conductor.md");
+    let sentence = "Never sleep or poll on a pull request, a suite or a CI run in your session: \
+                    your watch or the controller's report wakes you.";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}

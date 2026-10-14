@@ -25,6 +25,10 @@
 //! specification whether it refuses the class before it allocates an id, so a class O or H
 //! refusal names no allocated id.
 //!
+//! **Charter.** Given `--repository`, `record-conductor-decision` prints that repository's
+//! charter's "Do not touch" and standing-rule lines on standard error before it records
+//! ([`print_charter`], `story:decision-reads-charter`); a class O or H refusal prints none.
+//!
 //! A view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
 //! lists every row it can read, in the order the rows were first stored, and answers through
 //! [`crate::store::show`]: a record it cannot read is named on standard error and exits 1, after
@@ -251,6 +255,9 @@ pub fn record_conductor_decision(
                 class_name(fields.decision_class)
             ),
         );
+    }
+    if let Some(repository) = &fields.repository {
+        print_charter(COMMAND, &repository.0)?;
     }
     record_decision(
         COMMAND,
@@ -1226,6 +1233,106 @@ fn written_highest(prefix: &str) -> u128 {
         })
         .collect();
     highest(prefix, ids.iter().map(String::as_str))
+}
+
+/// Prints the "Do not touch" and standing-rule lines of `repository`'s charter on standard error
+/// (`story:decision-reads-charter`): a first line naming the repository and the charter, then
+/// [`charter_lines`]. The charter is `charters/<repository>.md` in the records directory the
+/// config file names; without a config file, without a charter that reads, or without such lines,
+/// nothing is printed.
+fn print_charter(command: &str, repository: &str) -> Result<()> {
+    let active = crate::config::active();
+    if !active.from_file {
+        return Ok(());
+    }
+    let path = Path::new(&active.instance.records)
+        .join("charters")
+        .join(format!("{repository}.md"));
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let lines = charter_lines(&text);
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let mut err = std::io::stderr().lock();
+    writeln!(
+        err,
+        "{command}: check the decision against the \"Do not touch\" and standing-rule lines of \
+         {repository}'s charter, {}:",
+        path.display()
+    )
+    .and_then(|()| lines.iter().try_for_each(|line| writeln!(err, "{line}")))
+    .with_context(|| format!("{command}: write to standard error"))
+}
+
+/// The "Do not touch" and standing-rule lines of a charter, in its order, blank lines left out.
+///
+/// A standing-rule line is a line of a section whose heading starts with "Standing", in any case
+/// (`## Standing decisions`, `## Standing: …`), the heading included; the section ends at the next
+/// heading. A "Do not touch" line is a line of a paragraph or list item that says "do not touch",
+/// in any case, wrapped over lines or not; a paragraph or item ends at a blank line, a heading or
+/// the start of a list item.
+fn charter_lines(text: &str) -> Vec<&str> {
+    /// A heading's text, without its `#`s.
+    fn heading(line: &str) -> Option<&str> {
+        let text = line.trim_start_matches('#');
+        (text.len() < line.len()).then(|| text.trim())
+    }
+    /// Whether a line starts a list item: `-`, `*`, `+` or `<n>.` and a space.
+    fn item(line: &str) -> bool {
+        let line = line.trim_start();
+        let rest = line.trim_start_matches(|c: char| c.is_ascii_digit());
+        let rest = if rest.len() < line.len() {
+            rest.strip_prefix('.')
+        } else {
+            rest.strip_prefix(['-', '*', '+'])
+        };
+        rest.is_some_and(|rest| rest.starts_with(' '))
+    }
+    let mut chosen = Vec::new();
+    let mut standing = false;
+    let mut entry: Vec<&str> = Vec::new();
+    let flush = |entry: &mut Vec<&str>, chosen: &mut Vec<(usize, bool)>| {
+        let words = entry
+            .iter()
+            .flat_map(|line| line.split_whitespace())
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        if words.contains("do not touch") {
+            for slot in chosen.iter_mut().rev().take(entry.len()) {
+                slot.1 = true;
+            }
+        }
+        entry.clear();
+    };
+    for (index, line) in text.lines().enumerate() {
+        let blank = line.trim().is_empty();
+        let title = heading(line);
+        if blank || title.is_some() || item(line) {
+            flush(&mut entry, &mut chosen);
+        }
+        if let Some(title) = title {
+            standing = title
+                .get(..8)
+                .is_some_and(|start| start.eq_ignore_ascii_case("standing"));
+        }
+        if blank {
+            continue;
+        }
+        chosen.push((index, standing));
+        if title.is_none() {
+            entry.push(line);
+        }
+    }
+    flush(&mut entry, &mut chosen);
+    let lines: Vec<&str> = text.lines().collect();
+    chosen
+        .into_iter()
+        .filter(|(_, keep)| *keep)
+        .map(|(index, _)| lines[index])
+        .collect()
 }
 
 /// The prefix `conductor.decision.DecisionId` declares (`spec/domains/decision.yaml`).
