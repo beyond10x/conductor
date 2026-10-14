@@ -2479,6 +2479,13 @@ pub struct EscalateRequestArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
+    /// The file holding the dry run: what every step of the operator's script that needs no
+    /// credential printed. A class-H escalation carries this or `--no-dry-run`
+    #[arg(long, value_name = "FILE")]
+    pub dry_run: Option<String>,
+    /// Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run`
+    #[arg(long, value_name = "REASON")]
+    pub no_dry_run: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

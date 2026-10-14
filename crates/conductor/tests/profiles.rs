@@ -203,6 +203,21 @@ fn an_old_operator_item_is_re_sent_with_a_default_and_a_deadline() {
     );
 }
 
+/// `story:hand-item-dry-run`: an operator script is dry-run before it is handed over, and the
+/// class-H item carries what the dry run printed or why there is none.
+#[test]
+fn an_operator_script_is_dry_run_before_it_is_handed_over() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains("An operator script is dry-run before it is handed over."),
+        "conductor.md: an operator script is dry-run first"
+    );
+    assert!(
+        text.contains("`--dry-run <file>`") && text.contains("`--no-dry-run <reason>`"),
+        "conductor.md: the item carries the dry run or why there is none"
+    );
+}
+
 /// `story:gc-before-pause`: conductor runs `conductor gc`, which removes, before it pauses work
 /// for disk.
 #[test]

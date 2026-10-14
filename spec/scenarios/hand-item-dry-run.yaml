@@ -1,0 +1,49 @@
+# story:hand-item-dry-run: a class-H item is dry-run before it is handed over. Escalated as class H
+# without its dry run or a reason for none, the request is refused and stays open; with its dry
+# run it is on the hands to-do, carrying what the dry run printed. A class-O escalation needs
+# neither.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: hand-item-dry-run
+summary: A class-H escalation without a dry run or a reason for none is refused; with its dry run it is on the hands to-do.
+
+timeline:
+  - at: 2026-10-14T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-dry-h1
+      repository: cortex
+      question: Upload the release asset
+      options: "A: upload it now; B: wait"
+      recommendation: A
+      raised_at: 2026-10-14T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-14T09:00:01Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-dry-h1
+      escalation_class: H
+      reason: only the operator holds the upload token
+    outcome: untested
+    error:
+      name: conductor.decision.DryRunMissing
+
+  - at: 2026-10-14T09:00:02Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-dry-h1
+      escalation_class: H
+      reason: only the operator holds the upload token
+      dry_run: "size check: 12 MiB, under the 25 MiB limit"
+    outcome: escalated
+
+assert:
+  - view: conductor.decision.HandsTodo
+    contains:
+      request_id: REQ-dry-h1
+      state: Escalated
+      dry_run: "size check: 12 MiB, under the 25 MiB limit"

@@ -81,7 +81,7 @@ use crate::store::{Store, StoreError};
 /// another writer's record, and each loss is retried while the date's highest number moves.
 pub const ATTEMPTS: usize = 64;
 
-/// The fields of the `Requests` and `HandsTodo` views, in the specification's order
+/// The fields of the `Requests` view, in the specification's order
 /// (`spec/domains/decision.yaml`).
 const REQUEST_COLUMNS: [&str; 11] = [
     "escalation_class",
@@ -100,8 +100,9 @@ const REQUEST_COLUMNS: [&str; 11] = [
 /// The columns `decision hands-todo` prints as a table (`text`, `markdown`): the fields of the
 /// `HandsTodo` view, then `age`, how long each request has been open in whole days
 /// (`story:operator-items-age`). `age` is computed when the table is rendered and is no field of
-/// the specification's view, so `json` and `jsonl` print the view's fields alone.
-const HANDS_TODO_COLUMNS: [&str; 12] = [
+/// the specification's view, so `json` and `jsonl` print the view's fields alone
+/// ([`HANDS_TODO_FIELDS`]).
+const HANDS_TODO_COLUMNS: [&str; 14] = [
     "escalation_class",
     "escalation_reason",
     "request_id",
@@ -113,7 +114,27 @@ const HANDS_TODO_COLUMNS: [&str; 12] = [
     "recommendation",
     "raised_at",
     "blocker",
+    "dry_run",
+    "no_dry_run",
     "age",
+];
+
+/// The fields of the `HandsTodo` view, in the specification's order: the `Requests` view's, then
+/// each item's dry run or why it has none (`story:hand-item-dry-run`).
+const HANDS_TODO_FIELDS: [&str; 13] = [
+    "escalation_class",
+    "escalation_reason",
+    "request_id",
+    "state",
+    "repository",
+    "decision_id",
+    "question",
+    "options",
+    "recommendation",
+    "raised_at",
+    "blocker",
+    "dry_run",
+    "no_dry_run",
 ];
 
 /// The fields of the `Decisions` view, in the specification's order.
@@ -468,9 +489,33 @@ pub fn answer_escalated_request(
 /// # Errors
 ///
 /// A flag is missing, `--input-json` is given ([`NotImplemented`](crate::NotImplemented)), the
-/// store does not open or keep the move, or the specification refuses it: `NotEscalatable`,
-/// `RequestNotFound`, `RequestStateConflict`.
+/// file `--dry-run` names cannot be read, the store does not open or keep the move, or the
+/// specification refuses it: `NotEscalatable`, `DryRunMissing` (class H with neither `--dry-run`
+/// nor `--no-dry-run`, `story:hand-item-dry-run`), `RequestNotFound`, `RequestStateConflict`.
 pub fn escalate_request(state: Option<&Path>, args: EscalateRequestArgs) -> Result<ExitCode> {
+    escalate(state, args, None)
+}
+
+/// [`escalate_request`] for a caller inside conductor whose item's dry run is text it measured
+/// itself, not a file (`story:hand-item-dry-run`): a disk item's numbers ([`crate::host`]).
+/// `dry_run` stands for `--dry-run`, and `args.dry_run` is not read.
+///
+/// # Errors
+///
+/// As [`escalate_request`].
+pub fn escalate_request_measured(
+    state: Option<&Path>,
+    args: EscalateRequestArgs,
+    dry_run: String,
+) -> Result<ExitCode> {
+    escalate(state, args, Some(dry_run))
+}
+
+fn escalate(
+    state: Option<&Path>,
+    args: EscalateRequestArgs,
+    measured: Option<String>,
+) -> Result<ExitCode> {
     const COMMAND: &str = "decision escalate-request";
     flags_only(args.input_json, "decision escalate-request --input-json")?;
     let request_id = RequestId(flag(COMMAND, "--request-id", args.request_id)?);
@@ -480,10 +525,19 @@ pub fn escalate_request(state: Option<&Path>, args: EscalateRequestArgs) -> Resu
         flag(COMMAND, "--escalation-class", args.escalation_class)?,
     )?;
     let reason = flag(COMMAND, "--reason", args.reason)?;
+    let dry_run = match measured {
+        Some(text) => Some(text),
+        None => args
+            .dry_run
+            .map(|file| dry_run_of(COMMAND, &file))
+            .transpose()?,
+    };
     let input = EscalateRequest {
         request_id,
         escalation_class,
         reason: reason.clone(),
+        dry_run,
+        no_dry_run: args.no_dry_run,
     };
     let mut generated = record(COMMAND, state)?;
     let outcome = generated
@@ -509,6 +563,15 @@ pub fn escalate_request(state: Option<&Path>, args: EscalateRequestArgs) -> Resu
                 error.request_id.0
             ),
         ),
+        EscalateRequestOutcome::Untested { error } => refused(
+            COMMAND,
+            "DryRunMissing",
+            &format!(
+                "a class-H item carries its dry run (`--dry-run <file>`) or why it has none \
+                 (`--no-dry-run <reason>`); request {:?} is unchanged",
+                error.request_id.0
+            ),
+        ),
         EscalateRequestOutcome::NoSuchRequest { error } => {
             refused(COMMAND, "RequestNotFound", &no_request(&error.request_id))
         }
@@ -521,6 +584,14 @@ pub fn escalate_request(state: Option<&Path>, args: EscalateRequestArgs) -> Resu
             ),
         ),
     }
+}
+
+/// What the dry run in `file` printed (`story:hand-item-dry-run`), its trailing whitespace dropped;
+/// a file that cannot be read is named, before any store is opened.
+fn dry_run_of(command: &str, file: &str) -> Result<String> {
+    let text = std::fs::read_to_string(file)
+        .with_context(|| format!("{command}: --dry-run: read the dry run {file:?}"))?;
+    Ok(text.trim_end().to_owned())
 }
 
 /// `conductor decision withdraw-request`: the command `conductor.decision.WithdrawRequest`.
@@ -749,6 +820,8 @@ pub fn hands_todo(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.recommendation),
                 Value::from(row.raised_at.0),
                 Value::from(row.blocker),
+                Value::from(row.dry_run),
+                Value::from(row.no_dry_run),
             ];
             if aged {
                 values.push(Value::from(age));
@@ -759,7 +832,7 @@ pub fn hands_todo(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     let columns: &[&str] = if aged {
         &HANDS_TODO_COLUMNS
     } else {
-        &REQUEST_COLUMNS
+        &HANDS_TODO_FIELDS
     };
     crate::store::show(
         &generated.ports.store,

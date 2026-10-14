@@ -104,6 +104,13 @@ entities:
         type: Optional<conductor.decision.DecisionClass>
       - name: escalation_reason
         type: Optional<String>
+      # A class-H item's dry run (story:hand-item-dry-run): the output of every step of the
+      # operator's script that needs no credential, or why there is none. Absent on a class-O
+      # escalation and on an item escalated before it.
+      - name: dry_run
+        type: Optional<String>
+      - name: no_dry_run
+        type: Optional<String>
       - name: decision_id
         type: Optional<conductor.decision.DecisionId>
     relations:
@@ -198,6 +205,14 @@ actors:
       display: Operator
 
 errors:
+  - name: conductor.decision.DryRunMissing
+    summary: >
+      A class-H item carries its dry run (`--dry-run`) or why it has none (`--no-dry-run`), and
+      this one carries neither.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
   - name: conductor.decision.NotEscalatable
     summary: The request is class C; conductor decides it.
     fields:
@@ -550,6 +565,14 @@ commands:
       # Why the class is O or H; for an unclear class, why it was treated as O (design § 5).
       - name: reason
         type: String
+      # A class-H item is dry-run before it is handed over (story:hand-item-dry-run): `dry_run`
+      # is the output of every step of the operator's script that needs no credential (the CLI
+      # reads it from the file `--dry-run` names); `no_dry_run` is why there is none. A class-H
+      # escalation carries one of them; a class-O one needs neither.
+      - name: dry_run
+        type: Optional<String>
+      - name: no_dry_run
+        type: Optional<String>
     outcomes:
       - name: class-c
         when: escalation_class == C
@@ -558,12 +581,27 @@ commands:
           conductor.decision.NotEscalatable:
             request_id: input.request_id
         summary: A class-C request is decided by conductor, never escalated.
+      - name: untested
+        when:
+          all:
+            - escalation_class == H
+            - missing(dry_run)
+            - missing(no_dry_run)
+        error: conductor.decision.DryRunMissing
+        payload:
+          conductor.decision.DryRunMissing:
+            request_id: input.request_id
+        summary: >
+          A class-H item without its dry run or a reason for none is not handed over, and the
+          request stays open.
       - name: escalated
         moves: conductor.decision.DecisionRequest.escalate
         instance: request_id
         sets:
           escalation_class: input.escalation_class
           escalation_reason: input.reason
+          dry_run: input.dry_run
+          no_dry_run: input.no_dry_run
         emits:
           - conductor.decision.RequestEscalated
         payload:
@@ -807,6 +845,11 @@ views:
       - name: raised_at
         type: Timestamp
       - name: blocker
+        type: Optional<String>
+      # What the item's dry run printed, or why it has none (story:hand-item-dry-run).
+      - name: dry_run
+        type: Optional<String>
+      - name: no_dry_run
         type: Optional<String>
     naming:
       wire: hands-todo

@@ -220,6 +220,8 @@ impl Case {
                         blocker: None,
                         escalation_class: class,
                         escalation_reason: class.map(|_| "needs a person".to_owned()),
+                        dry_run: None,
+                        no_dry_run: None,
                         decision_id: None,
                     },
                 },

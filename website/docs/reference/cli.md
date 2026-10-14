@@ -916,6 +916,8 @@ Usage: conductor decision escalate-request [OPTIONS]
 | `--request-id <REQUEST_ID>` | no | none | RequestId |
 | `--escalation-class <ESCALATION_CLASS>` | no | none | DecisionClass One of `C`, `O`, `H`. |
 | `--reason <REASON>` | no | none | string |
+| `--dry-run <FILE>` | no | none | The file holding the dry run: what every step of the operator's script that needs no credential printed. A class-H escalation carries this or `--no-dry-run` |
+| `--no-dry-run <REASON>` | no | none | Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run` |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision raise-decision-request`

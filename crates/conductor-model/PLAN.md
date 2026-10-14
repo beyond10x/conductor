@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 94c243e41a5eecaf30f3e973693876f90eae09b9ef7792a84a4cad78f7fd93d4
-  contract digest 5c02298efda5d4aa65c01b03ee8446dd7c1b88faf63ea928d5d408d54191365d
+  model digest 761d8d1a401452b05530050e9769321d8211815ec199f91a7507adff77806d64
+  contract digest c696e3d0c098959dea35ec5286d2480ab3df7d9d5dfd2dcb53f0bc84b3a7bd7e
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-506 capabilities: **495 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+507 capabilities: **496 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -406,6 +406,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.decision.DecisionNotFound` |
 | error type | `conductor.decision.DecisionReversed` |
 | error type | `conductor.decision.DecisionStateConflict` |
+| error type | `conductor.decision.DryRunMissing` |
 | error type | `conductor.decision.NotEscalatable` |
 | error type | `conductor.decision.RequestExists` |
 | error type | `conductor.decision.RequestNotFound` |

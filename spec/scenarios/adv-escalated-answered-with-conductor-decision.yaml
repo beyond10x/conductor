@@ -29,6 +29,7 @@ timeline:
       request_id: REQ-adv2-h1
       escalation_class: H
       reason: only the operator can set a repository secret
+      dry_run: "gh secret list: the repository holds no deploy token yet"
     outcome: escalated
 
   - at: 2026-10-06T09:00:02Z

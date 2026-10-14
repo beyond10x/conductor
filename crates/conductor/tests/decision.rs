@@ -419,6 +419,8 @@ fn a_request_is_withdrawn_once() {
         "H",
         "--reason",
         "it needs a login",
+        "--no-dry-run",
+        "a login has no step that runs without it",
     ]);
     case.quiet(&[
         "decision",
@@ -538,6 +540,8 @@ fn a_request_escalated_as_class_h_is_on_the_hands_todo_until_answered() {
             class,
             "--reason",
             "the operator's",
+            "--no-dry-run",
+            "no step runs without the operator",
         ]);
     }
     let todo = case.rows("hands-todo");
@@ -603,6 +607,8 @@ fn the_hands_todo_shows_each_item_s_age_in_whole_days() {
         "H",
         "--reason",
         "the operator's hands",
+        "--no-dry-run",
+        "renewing a token has no step that runs without it",
     ]);
 
     let text = case.ok(&["decision", "hands-todo"]);
@@ -639,6 +645,114 @@ fn the_hands_todo_shows_each_item_s_age_in_whole_days() {
     assert_eq!(todo[0]["request_id"], "hands-1");
     assert_eq!(todo[0]["raised_at"], raised_at.as_str());
     assert!(todo[0].get("age").is_none(), "{todo:?}");
+}
+
+/// `story:hand-item-dry-run`: a class-H escalation carries its dry run (`--dry-run <file>`, the
+/// output of every step of the operator's script that needs no credential) or why it has none
+/// (`--no-dry-run <reason>`). Without either it is refused naming both flags, and the request
+/// stays open; `decision hands-todo` prints each item's dry run or reason. A class-O escalation
+/// needs neither.
+#[test]
+fn a_class_h_escalation_carries_its_dry_run_or_why_it_has_none() {
+    let case = Case::new("hand-item-dry-run");
+    case.raise("h-untested", "llm");
+    case.raise("h-dry", "llm");
+    case.raise("h-none", "llm");
+    case.raise("o-plain", "llm");
+    let escalate = |request: &str, class: &str, more: &[&str]| {
+        let mut args = vec![
+            "decision",
+            "escalate-request",
+            "--request-id",
+            request,
+            "--escalation-class",
+            class,
+            "--reason",
+            "the operator's hands",
+        ];
+        args.extend_from_slice(more);
+        args.into_iter().map(str::to_owned).collect::<Vec<_>>()
+    };
+    fn strs(args: &[String]) -> Vec<&str> {
+        args.iter().map(String::as_str).collect()
+    }
+
+    // Neither: refused naming both flags, and nothing moved.
+    let untested = escalate("h-untested", "H", &[]);
+    let stderr = case.refused(&strs(&untested), "DryRunMissing");
+    assert!(
+        stderr.contains("--dry-run") && stderr.contains("--no-dry-run"),
+        "the refusal names both flags: {stderr:?}"
+    );
+    assert_eq!(case.request("h-untested")["state"], "Open", "nothing moved");
+
+    // A dry run, read from the file `--dry-run` names.
+    let dry = case.work.join("dry-run.txt");
+    fs::write(
+        &dry,
+        "step 1: size check: 12 MiB, under the 25 MiB limit\nstep 2: needs the token, not run\n",
+    )
+    .expect("write the dry-run file");
+    let dry_path = dry.to_str().expect("a UTF-8 path").to_owned();
+    case.quiet(&strs(&escalate("h-dry", "H", &["--dry-run", &dry_path])));
+
+    // Or why there is none.
+    case.quiet(&strs(&escalate(
+        "h-none",
+        "H",
+        &["--no-dry-run", "every step needs the operator's login"],
+    )));
+
+    // A class-O escalation needs neither.
+    case.quiet(&strs(&escalate("o-plain", "O", &[])));
+
+    // A dry-run file that does not exist is named, and nothing moved.
+    let missing = case.work.join("no-such-dry-run.txt");
+    let missing_path = missing.to_str().expect("a UTF-8 path").to_owned();
+    let stderr = case.failed(&strs(&escalate(
+        "h-untested",
+        "H",
+        &["--dry-run", &missing_path],
+    )));
+    assert!(
+        stderr.contains("no-such-dry-run.txt"),
+        "the unreadable file is named: {stderr:?}"
+    );
+    assert_eq!(case.request("h-untested")["state"], "Open", "nothing moved");
+
+    let todo = case.rows("hands-todo");
+    let row = |request: &str| {
+        todo.iter()
+            .find(|row| row["request_id"] == request)
+            .unwrap_or_else(|| panic!("hands-todo has no row for {request}: {todo:?}"))
+            .clone()
+    };
+    assert_eq!(
+        row("h-dry")["dry_run"],
+        "step 1: size check: 12 MiB, under the 25 MiB limit\nstep 2: needs the token, not run",
+        "{todo:?}"
+    );
+    assert_eq!(row("h-dry")["no_dry_run"], Value::Null, "{todo:?}");
+    assert_eq!(
+        row("h-none")["no_dry_run"],
+        "every step needs the operator's login",
+        "{todo:?}"
+    );
+    assert_eq!(row("h-none")["dry_run"], Value::Null, "{todo:?}");
+
+    // The table a person reads prints both too.
+    let text = case.ok(&["decision", "hands-todo"]);
+    for shown in [
+        "step 1: size check: 12 MiB, under the 25 MiB limit",
+        "every step needs the operator's login",
+    ] {
+        assert!(text.contains(shown), "hands-todo prints {shown:?}: {text}");
+    }
+    let header = text.lines().next().unwrap_or_default();
+    assert!(
+        header.contains("dry_run") && header.contains("no_dry_run"),
+        "the table has both columns: {header:?}"
+    );
 }
 
 #[test]
@@ -856,6 +970,8 @@ fn a_request_id_is_given_and_never_reused() {
         "H",
         "--reason",
         "a secret",
+        "--no-dry-run",
+        "setting a secret has no step that runs without it",
     ]);
     let before = case.ok(&["decision", "requests", "--format", "jsonl"]);
     let stderr = case.failed(&[

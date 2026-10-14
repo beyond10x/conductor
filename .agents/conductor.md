@@ -173,6 +173,11 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   with the output of its dry run (`dry_run`), or the command alone when the entry names none. Read
   `secret unread: <sync>` as a failed read to look into (`conductor snapshot secret-syncs` names
   it in `error_line`), not as a stale secret. Never write a secret any other way.
+- **An operator script is dry-run before it is handed over.** Run every step of it that needs no
+  credential (a size check, a lookup, a read-back) and keep what they print in a file; record the
+  class-H item with `conductor decision escalate-request` and `--dry-run <file>`, or with
+  `--no-dry-run <reason>` when no step runs without the credential. A class-H escalation with
+  neither is refused, and `decision hands-todo` shows each item's dry run.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.
