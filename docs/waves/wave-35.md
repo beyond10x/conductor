@@ -21,4 +21,5 @@ relayed by conductor, and the same faults seen on this instance.
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on the integration head
+(https://github.com/beyond10x/conductor/actions/runs/38527073372), first run. Released as v0.13.0.
