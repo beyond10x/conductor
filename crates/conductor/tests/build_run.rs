@@ -616,8 +616,10 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
 }
 
 /// A reclaim that frees 1G and leaves, only a person may remove, an 8G cache under the case's
-/// home and three `/var/tmp` entries of the case: one named after the user (3G), one after a
-/// third party's project (2G), and the smaller ones in one row.
+/// home, three `/var/tmp` entries of the case: one named after the user (3G), one after a
+/// third party's project (2G), and the smaller ones in one row; and the rustup toolchains under
+/// the home (1G), which are no scratch or cache, so the shortfall still needs a person
+/// (`story:reclaim-scratch-class-c`).
 fn reclaim_leaves_personal_paths(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
     count_reclaim(state);
     let case = case_of(state);
@@ -637,9 +639,105 @@ fn reclaim_leaves_personal_paths(state: &Path, _need: u64) -> anyhow::Result<Rec
                 2 * GIB,
             ),
             (var_tmp.display().to_string(), GIB / 4),
+            (home.join(".rustup/toolchains").display().to_string(), GIB),
         ],
         reached: false,
     })
+}
+
+/// What a reclaim that frees 1G leaves when only scratch and caches are left, none of them stale
+/// or each held: the agents' scratch (3G) and a cache (2G) under the case's home, a `/var/tmp`
+/// entry (1G) and the smaller `/var/tmp` entries in one row.
+fn scratch_left(state: &Path) -> anyhow::Result<Vec<(String, u64)>> {
+    count_reclaim(state);
+    let case = case_of(state);
+    let free = case.join("free.txt");
+    let now = written_bytes(&free)?;
+    replace(&free, &(now + GIB).to_string());
+    let var_tmp = case.join("var-tmp");
+    let home = case.join("home").join("example-user");
+    Ok(vec![
+        (
+            home.join(".cache/claude-tmp").display().to_string(),
+            3 * GIB,
+        ),
+        (home.join(".cache/go-build").display().to_string(), 2 * GIB),
+        (var_tmp.join("held").display().to_string(), GIB),
+        (var_tmp.display().to_string(), GIB / 4),
+    ])
+}
+
+/// A reclaim that frees 1G and leaves only scratch and caches ([`scratch_left`]).
+fn reclaim_leaves_only_scratch(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
+    Ok(ReclaimReport {
+        reclaimed_bytes: GIB,
+        steps: Vec::new(),
+        left: scratch_left(state)?,
+        reached: false,
+    })
+}
+
+/// A reclaim that frees 1G and leaves scratch and caches ([`scratch_left`]) and the build output
+/// of a tree a live session works in (2G).
+fn reclaim_leaves_scratch_and_a_tree(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
+    let mut left = scratch_left(state)?;
+    left.push(("/example/trees/live/target".to_owned(), 2 * GIB));
+    Ok(ReclaimReport {
+        reclaimed_bytes: GIB,
+        steps: Vec::new(),
+        left,
+        reached: false,
+    })
+}
+
+/// `story:reclaim-scratch-class-c`: freeing scratch and caches is class C, so a shortfall left
+/// only by them records no operator item; the run is still refused and says so. One left by
+/// anything else as well still records the item.
+#[test]
+fn a_shortfall_left_only_by_scratch_and_caches_records_no_operator_item() {
+    let case = Case::new("scratch-left");
+    fs::create_dir_all(case.var_tmp().join("held")).expect("create a /var/tmp entry");
+    case.free(10 * GIB);
+    let outcome = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_leaves_only_scratch),
+        &case.request(4 * GIB, "true"),
+    )
+    .expect("the run answers");
+    let Outcome::Refused {
+        shortfall, item, ..
+    } = &outcome
+    else {
+        panic!("refused: {outcome:?}");
+    };
+    assert_eq!(*shortfall, 3 * GIB);
+    assert_eq!(*item, None, "no operator item: {outcome:?}");
+    assert!(case.hands_todo().is_empty(), "{:?}", case.hands_todo());
+    assert!(case.disk_items().is_empty(), "{:?}", case.disk_items());
+    assert!(case.said().contains("refused: 4G asked"), "{}", case.said());
+
+    let case = Case::new("scratch-and-tree-left");
+    fs::create_dir_all(case.var_tmp().join("held")).expect("create a /var/tmp entry");
+    case.free(10 * GIB);
+    let outcome = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_leaves_scratch_and_a_tree),
+        &case.request(4 * GIB, "true"),
+    )
+    .expect("the run answers");
+    assert!(
+        matches!(outcome, Outcome::Refused { item: Some(_), .. }),
+        "refused with an operator item: {outcome:?}"
+    );
+    let todo = case.hands_todo();
+    assert_eq!(todo.len(), 1, "{todo:?}");
+    assert_eq!(
+        todo[0].data.escalation_class,
+        Some(DecisionClass::H),
+        "{todo:?}"
+    );
 }
 
 /// `story:disk-item-redacted`: a disk item names the `/var/tmp` entries outside the instance only
@@ -1487,4 +1585,86 @@ fn reserve_reads_a_size_in_gibibytes() {
     assert!(build::gibibytes("4.2").is_err());
     assert!(build::gibibytes("x").is_err());
     assert!(build::gibibytes("8M").is_err());
+}
+
+/// Two short runs in a row walk the disk once: the second reuses the reclaim the first ran a
+/// moment ago (`build::RECLAIM_REUSE`), what it left included, rather than walk again.
+#[test]
+fn two_short_runs_in_a_row_run_one_reclaim() {
+    let case = Case::new("one-reclaim");
+    case.free(10 * GIB);
+    for _ in 0..2 {
+        let outcome = build::run(
+            &case.state(),
+            &settings(),
+            &case.sources(reclaim_frees_1g),
+            &case.request(4 * GIB, "true"),
+        )
+        .expect("the run answers");
+        let Outcome::Refused { left, .. } = &outcome else {
+            panic!("refused: {outcome:?}");
+        };
+        assert_eq!(
+            left,
+            &[("/example/trees/live/target".to_owned(), 2 * GIB)],
+            "each refusal names what the one reclaim left: {outcome:?}"
+        );
+    }
+    assert_eq!(case.reclaims(), 1, "one reclaim walk for two short runs");
+}
+
+/// A reclaim that writes `reclaim.started` in its case and waits, at most 20 seconds, until the
+/// case holds `reclaim.go`; it frees nothing.
+fn slow_reclaim(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
+    count_reclaim(state);
+    let case = case_of(state);
+    fs::write(case.join("reclaim.started"), "").expect("mark the reclaim started");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !case.join("reclaim.go").exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    Ok(ReclaimReport {
+        reclaimed_bytes: 0,
+        steps: Vec::new(),
+        left: Vec::new(),
+        reached: false,
+    })
+}
+
+/// Writes `reclaim.go` in the case when dropped, so a failing case leaves no reclaim waiting.
+struct Go(PathBuf);
+
+impl Drop for Go {
+    fn drop(&mut self) {
+        let _ = fs::write(&self.0, "");
+    }
+}
+
+/// A run that reclaims holds no ledger lock meanwhile: another run takes the lock while the
+/// reclaim walks, so the host queue never waits on one run's walk.
+#[test]
+fn the_ledger_lock_is_free_while_a_reclaim_runs() {
+    let case = Case::new("lock-free-during-reclaim");
+    case.free(10 * GIB);
+    let go = Go(case.dir.join("reclaim.go"));
+    let state = case.state();
+    let sources = case.sources(slow_reclaim);
+    let request = case.request(4 * GIB, "true");
+    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &request));
+    wait_until("the reclaim runs", || {
+        case.dir.join("reclaim.started").exists()
+    });
+    let taken = host::Ledger::try_lock(&case.state()).expect("the ledger opens");
+    let free = taken.is_some();
+    drop(taken);
+    drop(go);
+    let outcome = runner
+        .join()
+        .expect("the run does not panic")
+        .expect("the run answers");
+    assert!(free, "the ledger lock is free while the reclaim runs");
+    assert!(
+        matches!(outcome, Outcome::Refused { .. }),
+        "refused: {outcome:?}"
+    );
 }

@@ -20,9 +20,18 @@
 //!    read again just before each tree, as `conductor gc` does;
 //! 2. the build output in the instance's worktree archives that `worktree prune-archives
 //!    --strip-build-output` lists strippable, through its `--apply` on each archive's id;
-//! 3. caches past their age: `conductor gc` lists none as reclaimable (every shared cache it
-//!    names is kept: something outside conductor's view may use it), so this step frees nothing
-//!    yet;
+//! 3. stale scratch and caches (`story:reclaim-scratch-class-c`: freeing them is class C): each
+//!    entry directly under a root [`scratch_roots`] names (the agents' scratch, sccache and the Go
+//!    build cache under the home, as the disk panel lists them, and `/var/tmp`), deleted only when
+//!    [`kept_scratch`] finds no reason to keep it, read just before: the entry is ours and no
+//!    link; it neither holds nor lies in one of the instance's own places; nothing in it was
+//!    modified in the last [`STALE`]; it is no `target/` and holds none; it holds no git worktree
+//!    (a tree a session may hold a lease on: only `worktree` removes trees); no live session works
+//!    in it; no process on the host has its working directory, root, program or an open file in
+//!    it (`/proc/<pid>/{cwd,root,exe,fd/*}`, read at most [`HOLDERS_FRESH`] before); and no git
+//!    repository in it has uncommitted or untracked work, a stash or a commit on no remote. Each
+//!    deletion is one step of kind `cache` with its bytes. When the live sessions cannot be read,
+//!    the step deletes nothing;
 //! 4. the observations of the snapshots past the instance's `retention.snapshots`
 //!    ([`Store::retain`]).
 //!
@@ -38,9 +47,10 @@
 use std::env;
 use std::fs;
 use std::io::{self, Write as _};
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
-use std::time::{Duration, SystemTime};
+use std::process::{Command, ExitCode, Stdio};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{Generated, ReclaimRunStorage, TryContext, unmet_context};
@@ -75,6 +85,41 @@ pub const MARGIN: u64 = 5 << 30;
 /// The variable naming a file of free-disk readings, one a line, read instead of `statvfs`
 /// ([`free_bytes`]).
 pub const READINGS_VARIABLE: &str = "CONDUCTOR_DISK_READINGS";
+
+/// The variable naming a directory read instead of `/var/tmp`, as the disk panel's `/var/tmp`
+/// and as a root of stale entries ([`scratch_roots`]); a case points it at a fixture.
+pub const VAR_TMP_VARIABLE: &str = "CONDUCTOR_RECLAIM_VAR_TMP";
+
+/// How long nothing in a scratch directory or a cache entry may have been modified before reclaim
+/// deletes it: a day. Neither the disk panel nor `thresholds` holds a staleness age yet; a
+/// `thresholds` key for it is a change to the specification first.
+pub const STALE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The scratch and caches under the home directory, as the disk panel lists them among the
+/// shared holders: sccache, the Go build cache and the agents' scratch. The rustup toolchains,
+/// which the panel lists beside them, are neither: builds run them.
+const SCRATCH_UNDER_HOME: [&str; 3] = [".cache/sccache", ".cache/go-build", ".cache/claude-tmp"];
+
+/// How old the reading of what the host's processes hold may be when an entry is checked: the
+/// links of every process are read again once it is older.
+const HOLDERS_FRESH: Duration = Duration::from_secs(5);
+
+/// The roots whose entries are scratch or a cache: [`SCRATCH_UNDER_HOME`] under the home
+/// directory `home`, and `var_tmp`. Reclaim deletes their stale entries nothing holds (step 3),
+/// and a shortfall left only by them needs no person (`crate::host::needs_person`).
+#[must_use]
+pub fn scratch_roots(home: Option<&Path>, var_tmp: &Path) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = home
+        .map(|home| {
+            SCRATCH_UNDER_HOME
+                .iter()
+                .map(|path| home.join(path))
+                .collect()
+        })
+        .unwrap_or_default();
+    roots.push(var_tmp.to_path_buf());
+    roots
+}
 
 /// How recent a write under a tree's `target/` keeps its build output: a gate between two
 /// compiler runs writes nothing for a while, and no process may work in the tree meanwhile.
@@ -226,10 +271,13 @@ fn run(state: &Path, need: u64) -> Result<Run> {
     };
     let mut left = Vec::new();
     if !steps.reached() {
-        let sources = Sources::active(None)?;
+        let mut sources = Sources::active(None)?;
+        if let Some(var_tmp) = env::var_os(VAR_TMP_VARIABLE).filter(|dir| !dir.is_empty()) {
+            sources.var_tmp = PathBuf::from(var_tmp);
+        }
         let kept = trees(&sources, &mut steps)?;
         let archives = strip_archives(&sources, state, &mut steps)?;
-        // 3. Caches past their age: `conductor gc` marks none reclaimable.
+        scratch(&sources, state, &mut steps)?;
         if !steps.reached() {
             snapshots(state, &mut steps)?;
         }
@@ -346,6 +394,294 @@ fn strip_archives(
         }
     }
     Ok(left)
+}
+
+/// Step 3: each stale entry of the scratch and cache roots ([`scratch_roots`]) that
+/// [`kept_scratch`] finds no reason to keep, until enough is free.
+fn scratch(sources: &Sources, state: &Path, steps: &mut Steps) -> Result<()> {
+    if steps.reached() {
+        return Ok(());
+    }
+    // A session whose working directory is not known may work in any of them.
+    let Ok(live) = waste::live(sources) else {
+        return Ok(());
+    };
+    let own = [
+        state,
+        sources.root.as_path(),
+        sources.checkouts.as_path(),
+        sources.trees.as_path(),
+        sources.targets.as_path(),
+        sources.watch.as_path(),
+    ];
+    let mut holders = Holders::default();
+    for root in scratch_roots(Some(&sources.home), &sources.var_tmp) {
+        let Ok(listed) = fs::read_dir(&root) else {
+            continue;
+        };
+        let mut entries: Vec<PathBuf> = listed.flatten().map(|entry| entry.path()).collect();
+        entries.sort();
+        for entry in entries {
+            if steps.reached() {
+                return Ok(());
+            }
+            let checks = Checks {
+                own: &own,
+                home: &sources.home,
+                live: &live,
+                deadline: Instant::now() + sources.measure_timeout,
+            };
+            if kept_scratch(&entry, &checks, &mut holders).is_some() {
+                continue;
+            }
+            let before = allocated(std::slice::from_ref(&entry));
+            let removed = if fs::symlink_metadata(&entry).is_ok_and(|meta| meta.is_dir()) {
+                fs::remove_dir_all(&entry)
+            } else {
+                fs::remove_file(&entry)
+            };
+            let after = if fs::symlink_metadata(&entry).is_ok() {
+                allocated(std::slice::from_ref(&entry))
+            } else {
+                0
+            };
+            let freed = before.saturating_sub(after);
+            if removed.is_ok() || freed > 0 {
+                steps.took(&entry, ReclaimKind::Cache, freed)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What [`kept_scratch`] checks an entry against: the instance's own places, which no entry may
+/// hold or lie in; the home directory, which no entry may hold; the working directories of the
+/// live sessions; and when the walk of the entry must have ended.
+struct Checks<'a> {
+    own: &'a [&'a Path],
+    home: &'a Path,
+    live: &'a [PathBuf],
+    deadline: Instant,
+}
+
+/// Why the scratch or cache entry `entry` must stay, read just before it would be deleted; none
+/// when it may go. Anything that cannot be read is a reason to keep.
+fn kept_scratch(entry: &Path, checks: &Checks<'_>, holders: &mut Holders) -> Option<String> {
+    let metadata = match fs::symlink_metadata(entry) {
+        Ok(metadata) => metadata,
+        Err(error) => return Some(format!("cannot read it: {error}")),
+    };
+    if metadata.file_type().is_symlink() {
+        return Some("a link".to_owned());
+    }
+    // The owner of `/proc/self` is the effective user of this process.
+    match fs::metadata("/proc/self") {
+        Ok(me) if me.uid() == metadata.uid() => {}
+        Ok(_) => return Some("another user's".to_owned()),
+        Err(error) => return Some(format!("cannot tell whose it is: {error}")),
+    }
+    if checks.home.starts_with(entry)
+        || checks
+            .own
+            .iter()
+            .any(|place| place.starts_with(entry) || entry.starts_with(place))
+    {
+        return Some("one of the instance's own places".to_owned());
+    }
+    if entry.file_name().is_some_and(|name| name == "target") {
+        return Some("a target/ directory".to_owned());
+    }
+    let walked = match walk(entry, checks.deadline) {
+        Ok(walked) => walked,
+        Err(why) => return Some(why),
+    };
+    if walked.target {
+        return Some("it holds a target/ directory".to_owned());
+    }
+    if walked.worktree {
+        return Some("it holds a git worktree, which a session may hold".to_owned());
+    }
+    let Some(stale_since) = SystemTime::now().checked_sub(STALE) else {
+        return Some("the clock is before the staleness age".to_owned());
+    };
+    if walked.newest.is_none_or(|newest| newest > stale_since) {
+        return Some(format!(
+            "modified in the last {} hours",
+            STALE.as_secs() / 3600
+        ));
+    }
+    if waste::works_in(checks.live, entry) {
+        return Some("a live session works in it".to_owned());
+    }
+    match holders.holding(entry) {
+        Err(why) => return Some(why),
+        Ok(Some(pid)) => return Some(format!("process {pid} holds it")),
+        Ok(None) => {}
+    }
+    walked
+        .repositories
+        .iter()
+        .find_map(|repository| uncommitted(repository))
+}
+
+/// What a walk of a scratch or cache entry found.
+#[derive(Debug, Default)]
+struct Walked {
+    /// The newest modification time of anything in it, itself included.
+    newest: Option<SystemTime>,
+    /// Whether a directory named `target` lies below it.
+    target: bool,
+    /// Whether a `.git` file lies in it: a linked git worktree.
+    worktree: bool,
+    /// The directories holding a `.git` directory: git repositories.
+    repositories: Vec<PathBuf>,
+}
+
+/// Walks `entry` without following a link, by `deadline`; or why it could not be walked.
+fn walk(entry: &Path, deadline: Instant) -> Result<Walked, String> {
+    let mut walked = Walked::default();
+    let mut pending = vec![(entry.to_path_buf(), 0usize)];
+    while let Some((path, depth)) = pending.pop() {
+        if Instant::now() > deadline {
+            return Err("it could not be walked in time".to_owned());
+        }
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+        };
+        if let Ok(modified) = metadata.modified() {
+            walked.newest = walked.newest.max(Some(modified));
+        }
+        let name = path.file_name().unwrap_or_default();
+        if name == ".git" {
+            if metadata.is_dir() {
+                walked
+                    .repositories
+                    .push(path.parent().unwrap_or(entry).to_path_buf());
+            } else {
+                walked.worktree = true;
+            }
+            continue;
+        }
+        if !metadata.is_dir() {
+            continue;
+        }
+        if depth > 0 && name == "target" {
+            walked.target = true;
+        }
+        let listed = fs::read_dir(&path)
+            .map_err(|error| format!("cannot list {}: {error}", path.display()))?;
+        for child in listed {
+            let child =
+                child.map_err(|error| format!("cannot list {}: {error}", path.display()))?;
+            pending.push((child.path(), depth + 1));
+        }
+    }
+    Ok(walked)
+}
+
+/// What the host's processes hold: each process's working directory, root, program and open
+/// files, read from the `/proc/<pid>` links, and when they were read.
+#[derive(Debug, Default)]
+struct Holders {
+    read_at: Option<Instant>,
+    links: Vec<(u32, PathBuf)>,
+}
+
+impl Holders {
+    /// The first process that holds `path` or anything under it, from links read at most
+    /// [`HOLDERS_FRESH`] before; a process whose links cannot be read (another user's, or one that
+    /// ended) is skipped. When `/proc` cannot be listed, why: no process can then be told to be
+    /// clear of `path`.
+    fn holding(&mut self, path: &Path) -> Result<Option<u32>, String> {
+        if self
+            .read_at
+            .is_none_or(|read_at| read_at.elapsed() > HOLDERS_FRESH)
+        {
+            self.links = holder_links()?;
+            self.read_at = Some(Instant::now());
+        }
+        let paths: Vec<PathBuf> = [Some(path.to_path_buf()), fs::canonicalize(path).ok()]
+            .into_iter()
+            .flatten()
+            .collect();
+        Ok(self
+            .links
+            .iter()
+            .find(|(_, link)| paths.iter().any(|path| link.starts_with(path)))
+            .map(|(pid, _)| *pid))
+    }
+}
+
+/// Every `/proc/<pid>/{cwd,root,exe,fd/*}` link that can be read, with its process.
+fn holder_links() -> Result<Vec<(u32, PathBuf)>, String> {
+    let entries = fs::read_dir("/proc").map_err(|error| format!("cannot list /proc: {error}"))?;
+    let mut links = Vec::new();
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let process = entry.path();
+        let named = ["cwd", "root", "exe"]
+            .iter()
+            .filter_map(|link| fs::read_link(process.join(link)).ok());
+        let open = fs::read_dir(process.join("fd"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|fd| fs::read_link(fd.path()).ok());
+        // The root of a process outside a container is `/`, which holds everything: only a root
+        // elsewhere is a hold.
+        links.extend(
+            named
+                .chain(open)
+                .filter(|link| link != Path::new("/"))
+                .map(|link| (pid, link)),
+        );
+    }
+    Ok(links)
+}
+
+/// Why the git repository at `repository` holds work: uncommitted changes or untracked files, a
+/// stash, or a commit on no remote; or git could not tell. None when it holds none.
+fn uncommitted(repository: &Path) -> Option<String> {
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(repository)
+            .args(args)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+    };
+    let shown = repository.display();
+    for (args, what) in [
+        (
+            &["status", "--porcelain", "--ignore-submodules=none"][..],
+            "uncommitted git work",
+        ),
+        (
+            &["rev-list", "-n", "1", "--all", "--not", "--remotes"][..],
+            "a commit or stash on no remote",
+        ),
+    ] {
+        match git(args) {
+            Ok(output) if output.status.success() => {
+                if !output.stdout.is_empty() {
+                    return Some(format!("{what} in {shown}"));
+                }
+            }
+            _ => return Some(format!("git could not tell whether {shown} holds work")),
+        }
+    }
+    None
 }
 
 /// Step 4: the observations of the snapshots past the instance's retention.

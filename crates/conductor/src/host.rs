@@ -29,7 +29,9 @@
 //! ([`clear_fall`]), which withdraws the item (`WithdrawRequest`) and removes the marker. The item
 //! is the instance's, not one repository's. It names no personal path
 //! (`story:disk-item-redacted`): the entries of `/var/tmp` only as a count and a total size, and
-//! the home directory as `~` wherever it appears.
+//! the home directory as `~` wherever it appears. A shortfall left only by scratch and caches
+//! records none ([`needs_person`], `story:reclaim-scratch-class-c`): freeing them is class C, and
+//! reclaim deletes each entry once it is stale and nothing holds it.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
@@ -717,6 +719,21 @@ impl Left {
 #[must_use]
 pub fn left_redacted(shortfall: &Shortfall<'_>) -> Vec<(String, u64)> {
     Left::of(shortfall).by_size(shortfall)
+}
+
+/// Whether only a person may free what `shortfall` left, so it becomes an operator item: reclaim
+/// left nothing (the disk must be freed by hand), or it left something that is no scratch or
+/// cache, neither a root [`crate::gc::reclaim::scratch_roots`] names nor under one. Freeing
+/// scratch and caches is class C (`story:reclaim-scratch-class-c`): reclaim deletes each entry
+/// once it is stale and nothing holds it, and no person is asked to decide it.
+#[must_use]
+pub fn needs_person(shortfall: &Shortfall<'_>) -> bool {
+    let roots = crate::gc::reclaim::scratch_roots(shortfall.home, shortfall.var_tmp);
+    shortfall.left.is_empty()
+        || shortfall
+            .left
+            .iter()
+            .any(|(path, _)| !roots.iter().any(|root| Path::new(path).starts_with(root)))
 }
 
 /// The `/var/tmp` entries as an item names them: `/var/tmp: 4 entries outside the instance`.
