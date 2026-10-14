@@ -283,6 +283,9 @@ fn active_snapshot(state: &Path, repository: &'static str) {
             in_catalog: Some(true),
             gates_hooks_version: None,
             gates_version: None,
+            wave_width: None,
+            wave_ready: None,
+            wave_reason: None,
         })?;
         Ok(())
     });

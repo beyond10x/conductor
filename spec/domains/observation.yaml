@@ -311,6 +311,25 @@ entities:
       # absent when none is on `PATH`. A hook whose version differs from it is stale.
       - name: gates_version
         type: Optional<String>
+      # The width of the repository's newest wave (story:wave-width), read from its planning
+      # store on `origin/main`: how many stories moved to `active` within 10 minutes before the
+      # newest move to `active` of any story (the `to: active` entries of `transitions` in
+      # `.engineering/planning/story/*.md`), each story once. Absent without a checkout, without
+      # stories, or when no story ever moved to `active`.
+      - name: wave_width
+        type: Optional<Integer>
+      # The ready units the store's waves offer when the repository is observed: the stories of
+      # the first wave `aep plan artifact waves --kind story --status draft` derives over that
+      # store (disjoint scope, no unmet `depends_on`), 0 when it derives none. It is read at the
+      # snapshot, not at the newest wave's start. Absent where `wave_width` is, and when `aep`
+      # does not answer.
+      - name: wave_ready
+        type: Optional<Integer>
+      # The reason the repository's newest wave page (the highest-numbered `docs/waves/*.md` on
+      # `origin/main`) gives for its width: the text after `Width:` on its first line that starts
+      # with it. Absent when the page gives none, or there is no page.
+      - name: wave_reason
+        type: Optional<String>
     lifecycle:
       initial: Recorded
       states: [Recorded]
@@ -858,6 +877,18 @@ commands:
       - name: gates_version
         type: Optional<String>
         example: "0.1.17"
+      # The newest wave's width, the ready units and the wave page's reason (story:wave-width);
+      # the board names `narrow wave` when the width is under both the ready units and
+      # `controllers.max_subagents` and the page gives no reason.
+      - name: wave_width
+        type: Optional<Integer>
+        example: 2
+      - name: wave_ready
+        type: Optional<Integer>
+        example: 5
+      - name: wave_reason
+        type: Optional<String>
+        example: "two units share the store crate"
     outcomes:
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
@@ -898,6 +929,9 @@ commands:
           in_catalog: input.in_catalog
           gates_hooks_version: input.gates_hooks_version
           gates_version: input.gates_version
+          wave_width: input.wave_width
+          wave_ready: input.wave_ready
+          wave_reason: input.wave_reason
         emits:
           - conductor.observation.RepositoryRecorded
         payload:
@@ -1907,6 +1941,12 @@ views:
       - name: gates_hooks_version
         type: Optional<String>
       - name: gates_version
+        type: Optional<String>
+      - name: wave_width
+        type: Optional<Integer>
+      - name: wave_ready
+        type: Optional<Integer>
+      - name: wave_reason
         type: Optional<String>
     naming:
       wire: repositories

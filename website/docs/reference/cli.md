@@ -344,6 +344,9 @@ Usage: conductor snapshot record-repository [OPTIONS]
 | `--in-catalog <IN_CATALOG>` | no | none | boolean, optional One of `true`, `false`. |
 | `--gates-hooks-version <GATES_HOOKS_VERSION>` | no | none | string, optional |
 | `--gates-version <GATES_VERSION>` | no | none | string, optional |
+| `--wave-width <WAVE_WIDTH>` | no | none | integer, optional |
+| `--wave-ready <WAVE_READY>` | no | none | integer, optional |
+| `--wave-reason <WAVE_REASON>` | no | none | string, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-session`

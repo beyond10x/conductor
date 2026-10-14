@@ -198,6 +198,9 @@ fn fixture() -> Collector {
                 in_catalog: None,
                 gates_hooks_version: None,
                 gates_version: None,
+                wave_width: None,
+                wave_ready: None,
+                wave_reason: None,
             })?;
         }
         record.pull_request(RecordPullRequest {
@@ -428,6 +431,9 @@ fn asks_while_collecting(port: u16, seen: Arc<Mutex<Vec<(String, Value)>>>) -> C
             in_catalog: None,
             gates_hooks_version: None,
             gates_version: None,
+            wave_width: None,
+            wave_ready: None,
+            wave_reason: None,
         })?;
         let mut seen = seen.lock().expect("the answers");
         for path in &ENDPOINTS[..5] {
@@ -814,6 +820,9 @@ fn reviews_fixture() -> Collector {
                 in_catalog: None,
                 gates_hooks_version: None,
                 gates_version: None,
+                wave_width: None,
+                wave_ready: None,
+                wave_reason: None,
             })?;
         }
         for (repository, number, draft, failing_checks, opened_at) in [

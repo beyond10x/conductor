@@ -116,6 +116,9 @@ fn everything() -> Collector {
             in_catalog: Some(true),
             gates_hooks_version: None,
             gates_version: None,
+            wave_width: None,
+            wave_ready: None,
+            wave_reason: None,
         })?;
         record.pull_request(RecordPullRequest {
             snapshot_id: snapshot.clone(),

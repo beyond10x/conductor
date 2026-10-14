@@ -258,6 +258,7 @@ fn repository_sources(world: &World, dir: &str) -> repositories::Sources {
         main_commits: cat(&format!("{dir}/{{repository}}.commits.json")),
         commit: cat(&format!("{dir}/{{repository}}.commit.{{sha}}.json")),
         gates: vec!["false".to_owned()],
+        waves: repositories::waves_command(),
         width: 8,
         bound: Duration::from_secs(60),
     }

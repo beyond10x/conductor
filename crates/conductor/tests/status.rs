@@ -172,6 +172,9 @@ fn from_fixture(name: &str) -> Collector {
                 in_catalog: None,
                 gates_hooks_version: None,
                 gates_version: None,
+                wave_width: None,
+                wave_ready: None,
+                wave_reason: None,
             })?;
         }
         for item in items(&fixture, "pull_requests") {

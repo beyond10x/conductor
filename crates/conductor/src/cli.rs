@@ -1750,6 +1750,15 @@ pub struct RecordRepositoryArgs {
     /// string, optional
     #[arg(long)]
     pub gates_version: Option<String>,
+    /// integer, optional
+    #[arg(long, allow_negative_numbers = true)]
+    pub wave_width: Option<i64>,
+    /// integer, optional
+    #[arg(long, allow_negative_numbers = true)]
+    pub wave_ready: Option<i64>,
+    /// string, optional
+    #[arg(long)]
+    pub wave_reason: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

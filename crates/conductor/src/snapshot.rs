@@ -789,6 +789,9 @@ pub fn record_repository(state: Option<&Path>, args: RecordRepositoryArgs) -> Re
             in_catalog: args.in_catalog,
             gates_hooks_version: args.gates_hooks_version,
             gates_version: args.gates_version,
+            wave_width: args.wave_width,
+            wave_ready: args.wave_ready,
+            wave_reason: args.wave_reason,
         };
         record(state, &snapshot, |recorder| recorder.repository(input))
     })
@@ -1211,7 +1214,7 @@ pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 22] = [
+    const COLUMNS: [&str; 25] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1234,6 +1237,9 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "in_catalog",
         "gates_hooks_version",
         "gates_version",
+        "wave_width",
+        "wave_ready",
+        "wave_reason",
     ];
     let generated = Generated::new(crate::state::open_existing(state)?);
     let rows = generated
@@ -1265,6 +1271,9 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.in_catalog),
                 Value::from(row.gates_hooks_version),
                 Value::from(row.gates_version),
+                Value::from(row.wave_width),
+                Value::from(row.wave_ready),
+                Value::from(row.wave_reason),
             ]
         })
         .collect();

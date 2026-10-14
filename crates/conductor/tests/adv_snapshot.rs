@@ -173,6 +173,9 @@ fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
         in_catalog: Some(true),
         gates_hooks_version: None,
         gates_version: None,
+        wave_width: None,
+        wave_ready: None,
+        wave_reason: None,
     }
 }
 
@@ -710,6 +713,7 @@ fn adv_each_record_command_reads_back_through_its_view() {
                 "latest_release_at": null, "unreleased_commits": 17,
                 "planning_store_version": "aep.project/6", "in_catalog": false,
                 "gates_hooks_version": null, "gates_version": null,
+                "wave_width": null, "wave_ready": null, "wave_reason": null,
             }),
         ),
         (
