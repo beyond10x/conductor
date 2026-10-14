@@ -23,6 +23,12 @@ reserve was left to each brief (rules item 103).
   naming the peak. Tests over a ledger fixture with recorded peaks hold both.
 - `.agents/repo-controller.md` says builds use `--reserve auto` unless a size is known to be larger;
   a profile test holds the sentence.
+- The guard's denial of an unreserved build (`BUILD_RESERVE`, `crates/conductor/src/guard/rules.rs`)
+  proposes `--reserve auto`, or the size `auto` would pick for that repository when the guard can
+  read it from the host ledger without opening the store, never a fixed 8G; and a `build run`
+  refused for disk names the repository's measured peak beside the shortfall. Source: conductor's
+  NEED N-20261014-29, 2026-10-14: aep and connectors asked the guard's 8G and were refused "8G
+  short" at 23-25G free while their ledger peaks were 0.49-0.69G and 0.2-2.1G.
 
 ## Scope
 
