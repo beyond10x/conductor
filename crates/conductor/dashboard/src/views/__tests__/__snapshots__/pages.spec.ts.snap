@@ -1153,6 +1153,71 @@ exports[`the metrics page > has no axe finding, one main, one banner and the nav
       </section>
       <section data-v-264890cb="" class="chart-panel card">
         <div class="head">
+          <h2>Disk peak against reserved</h2><span class="scope small muted">by repository</span>
+        </div>
+        <figure data-v-3c317057="" class="chart"><svg data-v-3c317057="" viewBox="0 0 640 220" role="img" aria-label="Disk peak against reserved: line chart of 30 days, Sep 14 to Oct 13; alpha, beta. Arrow keys step through the days." tabindex="0" focusable="true">
+            <g data-v-3c317057="" class="grid" aria-hidden="true">
+              <line data-v-3c317057="" x1="52" x2="630" y1="198" y2="198"></line>
+              <line data-v-3c317057="" x1="52" x2="630" y1="135.33" y2="135.33"></line>
+              <line data-v-3c317057="" x1="52" x2="630" y1="72.67" y2="72.67"></line>
+              <line data-v-3c317057="" x1="52" x2="630" y1="10" y2="10"></line>
+            </g>
+            <g data-v-3c317057="" class="y-axis" aria-hidden="true"><text data-v-3c317057="" x="46" y="202" text-anchor="end">0%</text><text data-v-3c317057="" x="46" y="139.33" text-anchor="end">50%</text><text data-v-3c317057="" x="46" y="76.67" text-anchor="end">100%</text><text data-v-3c317057="" x="46" y="14" text-anchor="end">150%</text></g>
+            <g data-v-3c317057="" class="x-axis" aria-hidden="true">
+              <line data-v-3c317057="" class="axis-line" x1="52" x2="630" y1="198" y2="198"></line><text data-v-3c317057="" x="61.63" y="214" text-anchor="start">Sep 14</text><text data-v-3c317057="" x="254.3" y="214" text-anchor="middle">Sep 24</text><text data-v-3c317057="" x="427.7" y="214" text-anchor="middle">Oct 3</text><text data-v-3c317057="" x="620.37" y="214" text-anchor="end">Oct 13</text>
+            </g>
+            <g data-v-3c317057="" class="hits">
+              <rect data-v-3c317057="" class="hit" x="52" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="71.27" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="90.53" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="109.8" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="129.07" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="148.33" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="167.6" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="186.87" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="206.13" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="225.4" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="244.67" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="263.93" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="283.2" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="302.47" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="321.73" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="341" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="360.27" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="379.53" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="398.8" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="418.07" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="437.33" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="456.6" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="475.87" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="495.13" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="514.4" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="533.67" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="552.93" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="572.2" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="591.47" y="10" width="19.27" height="188"></rect>
+              <rect data-v-3c317057="" class="hit" x="610.73" y="10" width="19.27" height="188"></rect>
+            </g>
+            <g data-v-3c317057="" class="marks" aria-hidden="true">
+              <path data-v-3c317057="" class="line s0" d="M581.8 119.7 M620.4 135.3"></path>
+              <circle data-v-3c317057="" class="dot s0" cx="581.83" cy="119.67" r="3"></circle>
+              <circle data-v-3c317057="" class="dot s0" cx="620.37" cy="135.33" r="3"></circle>
+              <path data-v-3c317057="" class="line s1" d="M601.1 10.0"></path>
+              <circle data-v-3c317057="" class="dot s1" cx="601.1" cy="10" r="3"></circle>
+              <!--v-if-->
+            </g>
+            <!--v-if-->
+          </svg>
+          <ul data-v-3c317057="" class="legend">
+            <li data-v-3c317057=""><span data-v-3c317057="" class="swatch s0" aria-hidden="true"></span>alpha</li>
+            <li data-v-3c317057=""><span data-v-3c317057="" class="swatch s1" aria-hidden="true"></span>beta</li>
+          </ul>
+          <p data-v-3c317057="" class="sr-only" aria-live="polite"></p>
+        </figure>
+        <p class="source small muted">source: host ledger: released runs, recorded peak over bytes reserved</p>
+      </section>
+      <section data-v-264890cb="" class="chart-panel card">
+        <div class="head">
           <h2>Merged to released</h2><span class="scope small muted">all repositories</span>
         </div>
         <figure data-v-3c317057="" class="chart"><svg data-v-3c317057="" viewBox="0 0 640 220" role="img" aria-label="Merged to released: line chart of 30 days, Sep 14 to Oct 13; p50, p90. Arrow keys step through the days." tabindex="0" focusable="true">

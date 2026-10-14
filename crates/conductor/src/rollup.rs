@@ -27,9 +27,12 @@
 //! | `guard_denials` | rule | a guard decision that denied, keyed by the tool whose rule denied it | its `decided_at` |
 //! | `disk_granted`, `disk_refused` | repository | a disk reservation of the host ledger granted (granted, running or released) or refused | its request |
 //! | `disk_waited` | repository | a granted disk reservation whose run started [`WAITED`] or more after its request: it waited for live reservations, or for a reclaim | its request |
+//! | `disk_peak_vs_reserved` | repository | a released disk reservation with the bytes it reserved and the peak its run recorded (`host record-peak`), `G-3=<peak>/<bytes>` | its request |
 //!
 //! A series without a dimension is kept under `by` and `key` `total`. A duration's item carries
-//! its measure after `=` (`D-7=2.50`). A reservation without a repository is keyed `(none)`.
+//! its measure after `=` (`D-7=2.50`), a run's its peak and reserved bytes (`G-3=512/1024`). A
+//! reservation without a repository is keyed `(none)`. A run counts once released: only then is
+//! its peak final, and a rollup keeps the first form of an item it sees.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -71,6 +74,9 @@ pub const WAITED: time::Duration = time::Duration::minutes(1);
 /// The series whose items carry a measure (`id=hours`): their values are read as percentiles.
 pub const DURATIONS: [&str; 2] = ["merged_to_released_hours", "dispatch_lead_hours"];
 
+/// The series of the runs' peaks against their reservations: its items carry `peak/bytes`.
+pub const PEAK_VS_RESERVED: &str = "disk_peak_vs_reserved";
+
 /// The id of the rollup of `series` grouped by `by` as `key` on `day`.
 #[must_use]
 pub fn rollup_id(series: &str, by: &str, key: &str, day: &str) -> String {
@@ -80,7 +86,7 @@ pub fn rollup_id(series: &str, by: &str, key: &str, day: &str) -> String {
 /// What an item is known by in its rollup: the part before its measure, for a duration.
 #[must_use]
 pub fn item_id<'a>(series: &str, item: &'a str) -> &'a str {
-    if DURATIONS.contains(&series) {
+    if DURATIONS.contains(&series) || series == PEAK_VS_RESERVED {
         item.rsplit_once('=').map_or(item, |(id, _)| id)
     } else {
         item
@@ -91,6 +97,13 @@ pub fn item_id<'a>(series: &str, item: &'a str) -> &'a str {
 #[must_use]
 pub fn measure(item: &str) -> Option<f64> {
     item.rsplit_once('=')?.1.parse().ok()
+}
+
+/// The peak and the reserved bytes of a run's item (`G-3=512/1024`).
+#[must_use]
+pub fn usage(item: &str) -> Option<(f64, f64)> {
+    let (peak, bytes) = item.rsplit_once('=')?.1.split_once('/')?;
+    Some((peak.parse().ok()?, bytes.parse().ok()?))
 }
 
 /// The UTC date of an RFC 3339 instant.
@@ -431,6 +444,17 @@ fn seen(store: &Store, snapshot: &SnapshotId, records: &Path) -> Result<Seen> {
                     .is_some_and(|(started, requested)| started - requested >= WAITED);
                 if waited {
                     seen.add("disk_waited", &groups, &data.requested_at.0, id.clone());
+                }
+                if grant.state == HostGrantState::Released
+                    && let (Some(bytes), Some(peak)) = (data.bytes, data.peak_bytes)
+                    && bytes > 0
+                {
+                    seen.add(
+                        PEAK_VS_RESERVED,
+                        &groups,
+                        &data.requested_at.0,
+                        format!("{id}={peak}/{bytes}"),
+                    );
                 }
                 seen.add("disk_granted", &groups, &data.requested_at.0, id);
             }

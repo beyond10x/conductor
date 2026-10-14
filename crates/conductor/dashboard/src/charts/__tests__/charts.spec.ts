@@ -19,6 +19,22 @@ describe('the scale', () => {
     expect(niceScale(9.5, 'hours').max).toBe(10);
     expect(niceScale(80, 'percent')).toEqual({ max: 100, ticks: [0, 25, 50, 75, 100] });
   });
+
+  it('reaches past 100 % for a share that can exceed it: a run over its reservation', () => {
+    expect(niceScale(100, 'percent')).toEqual({ max: 100, ticks: [0, 25, 50, 75, 100] });
+    expect(niceScale(150, 'percent')).toEqual({ max: 150, ticks: [0, 50, 100, 150] });
+    const disk = chartData(
+      seriesAnswer('disk_peak_vs_reserved', 'repository'),
+      SERIES_NOW,
+      7,
+    );
+    const wrapper = mount(LineChart, { props: { data: disk, label: 'Disk peak against reserved' } });
+    for (const dot of wrapper.findAll('circle.dot')) {
+      expect(Number(dot.attributes('cy'))).toBeGreaterThanOrEqual(0);
+    }
+    expect(wrapper.findAll('.y-axis text').map((text) => text.text())).toContain('150%');
+    wrapper.unmount();
+  });
 });
 
 describe('every series of the fixtures', () => {

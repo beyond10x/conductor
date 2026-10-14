@@ -14,7 +14,9 @@
 //! A count's value is the number of items its rollups hold that day; its total, the items of
 //! every group of its first dimension. A duration's rows are its percentiles, keys `p50` and
 //! `p90`, nearest rank over the day's items, in hours. A ratio's value is its numerator's total
-//! over its denominator's on each day the denominator counts anything ([`Kind::Ratio`]).
+//! over its denominator's on each day the denominator counts anything ([`Kind::Ratio`]). A
+//! usage's value is the peaks of the day's runs over the bytes they reserved, in percent
+//! ([`Kind::Usage`]).
 //!
 //! `GET /api/kpis` answers [`KPIS`], in their order: a measured KPI with its `value` over the
 //! last [`WINDOW_DAYS`] days up to today (null when its denominator counts nothing there) and the
@@ -62,6 +64,9 @@ pub enum Kind {
         denominator: &'static str,
         scale: f64,
     },
+    /// The peaks of the runs of the rollups of the series over the bytes they reserved, in
+    /// percent ([`rollup::usage`]).
+    Usage,
     /// No source yet: the story that adds one.
     NoSource(&'static str),
 }
@@ -139,7 +144,7 @@ const fn ratio(
 const REPOSITORY: &[&str] = &["repository"];
 
 /// Every series `/api/series` answers, in the order it lists them.
-pub const SERIES: [Series; 22] = [
+pub const SERIES: [Series; 23] = [
     count(
         "prs_opened",
         "PRs opened",
@@ -242,6 +247,15 @@ pub const SERIES: [Series; 22] = [
         None,
         "host ledger",
     ),
+    Series {
+        name: rollup::PEAK_VS_RESERVED,
+        title: "Disk peak against reserved",
+        unit: "percent",
+        by: REPOSITORY,
+        kpi: None,
+        source: Some("host ledger: released runs, recorded peak over bytes reserved"),
+        kind: Kind::Usage,
+    },
     none("tokens_in", "Input tokens", "tokens", "K11"),
     none("tokens_out", "Output tokens", "tokens", "K11"),
     none("idle_hours", "Idle controller time", "hours", "K7"),
@@ -380,10 +394,37 @@ impl Rollups {
         out
     }
 
+    /// The peaks of `series` over their reservations in percent, by day and key: grouped by
+    /// `by`, or under `total` over every group of its primary dimension; from `first` on.
+    fn usage(&self, series: &str, by: Option<&str>, first: Date) -> Vec<(String, String, Value)> {
+        let mut runs: BTreeMap<(String, String), BTreeMap<String, String>> = BTreeMap::new();
+        let grouping = by.unwrap_or_else(|| primary(series));
+        for ((day, key), items) in self.grouped(series, grouping, first) {
+            let key = if by.is_some() { key } else { TOTAL.to_owned() };
+            let held = runs.entry((day, key)).or_default();
+            for item in items {
+                held.entry(rollup::item_id(series, &item).to_owned())
+                    .or_insert(item);
+            }
+        }
+        runs.into_iter()
+            .filter_map(|((day, key), items)| {
+                let (peak, bytes) = items
+                    .values()
+                    .filter_map(|item| rollup::usage(item))
+                    .fold((0.0, 0.0), |(peak, bytes), (one, two)| {
+                        (peak + one, bytes + two)
+                    });
+                (bytes > 0.0).then(|| (day, key, number(peak / bytes * 100.0, 1)))
+            })
+            .collect()
+    }
+
     /// `(day, key, value)` of `series` grouped by `by` (its total without), from `first` on.
     fn rows(&self, series: &Series, by: Option<&str>, first: Date) -> Vec<(String, String, Value)> {
         match series.kind {
             Kind::NoSource(_) => Vec::new(),
+            Kind::Usage => self.usage(series.name, by, first),
             Kind::Count => match by {
                 Some(by) => self
                     .grouped(series.name, by, first)
