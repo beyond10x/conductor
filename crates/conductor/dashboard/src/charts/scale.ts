@@ -1,5 +1,6 @@
 // The value axis of a chart: from zero to a round top, in round steps; whole steps for counts and
-// 0–100 for a percentage.
+// 0–100 for a percentage, or a round top past 100 for one that exceeds it (a run's disk peak over
+// its reservation).
 
 export interface Scale {
   max: number;
@@ -26,7 +27,7 @@ function step(max: number, unit: string): number {
 }
 
 export function niceScale(max: number, unit: string): Scale {
-  if (unit === 'percent') {
+  if (unit === 'percent' && !(max > 100)) {
     return { max: 100, ticks: [0, 25, 50, 75, 100] };
   }
   if (!(max > 0)) {

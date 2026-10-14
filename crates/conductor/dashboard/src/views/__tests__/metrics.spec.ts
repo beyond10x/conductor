@@ -49,6 +49,25 @@ describe('the Metrics page', () => {
     wrapper.unmount();
   });
 
+  it('draws the runs\' disk peak against reserved, a line per repository (story:dashboard-disk-series)', async () => {
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', seriesFetch({}, asked));
+    const wrapper = mount(Metrics);
+    await flushPromises();
+    expect(asked).toContain('/api/series?series=disk_peak_vs_reserved&by=repository&days=30');
+    const disk = panel(wrapper, 'Disk peak against reserved');
+    expect(disk.find('.scope').text()).toBe('by repository');
+    expect(disk.find('.source').text()).toBe(
+      'source: host ledger: released runs, recorded peak over bytes reserved',
+    );
+    expect(disk.findAll('path.line')).toHaveLength(2);
+    expect(disk.findAll('.legend li').map((item) => item.text())).toEqual(['alpha', 'beta']);
+    expect(disk.find('rect.bar').exists()).toBe(false);
+    await wrapper.find('select#metrics-repository').setValue('beta');
+    expect(panel(wrapper, 'Disk peak against reserved').findAll('path.line')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   it('reads every series again over the range chosen', async () => {
     const asked: string[] = [];
     vi.stubGlobal('fetch', seriesFetch({}, asked));

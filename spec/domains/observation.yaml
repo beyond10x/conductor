@@ -676,7 +676,9 @@ entities:
   # (`YYYY-MM-DD`); `by` the dimension it is grouped by (`repository`, `workflow`, `rule`, or
   # `total` for a series without one) and `key` the group (a repository name, a workflow, a tool,
   # or `total`). `items` names what the rollup counts, one id each (`alpha#12`), with its measure
-  # after `=` for a series of durations (`D-7=2.5`): a later snapshot adds the items it sees to
+  # after `=` for a series of durations (`D-7=2.5`), and a run's recorded peak and reserved bytes
+  # for `disk_peak_vs_reserved` (`G-3=512/1024`, story:dashboard-disk-series, from released
+  # reservations of the host ledger): a later snapshot adds the items it sees to
   # those kept, so a rollup never forgets an item that left the snapshot's window. `value` is the
   # number of items. `snapshot_id` is the snapshot whose completion last changed it.
   - name: conductor.observation.DailySeries

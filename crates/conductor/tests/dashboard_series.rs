@@ -15,6 +15,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use conductor_cli::dashboard::{self, Sources, series};
+use conductor_model::behaviour::HostGrantStorage;
+use conductor_model::config::InstanceName;
+use conductor_model::host::{GrantId, GrantKind, HostGrantData, HostGrantSnapshot, HostGrantState};
+use conductor_model::observation::RepositoryName;
+use conductor_model::primitives::Timestamp;
 use serde_json::{Value, json};
 use series_fixture::{Case, today};
 
@@ -80,6 +85,7 @@ fn the_list_names_every_series_with_its_source_or_story() {
         "disk_granted",
         "disk_refused",
         "disk_waited",
+        "disk_peak_vs_reserved",
         "tokens_in",
         "tokens_out",
         "idle_hours",
@@ -263,6 +269,121 @@ fn each_series_with_a_source_answers_its_rows() {
             "{query}"
         );
     }
+}
+
+/// One GiB, in bytes.
+const GIB: i64 = 1 << 30;
+
+/// `story:dashboard-disk-series`: the host ledger's runs, each with the bytes it reserved and the
+/// peak it measured (`host record-peak`), charted as the peak over the reservation, in percent,
+/// per day of the request and repository. Two alpha runs on 10-13, 1 GiB of 4 and 2 GiB of 2:
+/// 3 of 6, 50 %; one beta run on 10-12 over its 2 GiB, 3 GiB: 150 %. A run still running has no
+/// final peak, and a run with no peak recorded (the fixture's G-1) nothing to chart: neither
+/// counts.
+#[test]
+fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
+    let case = case("disk-peak");
+    let b = case.build();
+    let mut store = case.store();
+    for (id, repository, state, requested, bytes, peak) in [
+        (
+            "G-11",
+            "alpha",
+            HostGrantState::Released,
+            "2026-10-13T02:00:00Z",
+            4 * GIB,
+            GIB,
+        ),
+        (
+            "G-12",
+            "alpha",
+            HostGrantState::Released,
+            "2026-10-13T03:00:00Z",
+            2 * GIB,
+            2 * GIB,
+        ),
+        (
+            "G-13",
+            "beta",
+            HostGrantState::Released,
+            "2026-10-12T09:00:00Z",
+            2 * GIB,
+            3 * GIB,
+        ),
+        (
+            "G-14",
+            "beta",
+            HostGrantState::Running,
+            "2026-10-13T04:00:00Z",
+            GIB,
+            8 * GIB,
+        ),
+    ] {
+        let at = |text: &str| Timestamp(text.to_owned());
+        HostGrantStorage::put(
+            &mut store,
+            HostGrantSnapshot {
+                state,
+                data: HostGrantData {
+                    grant_id: GrantId(id.to_owned()),
+                    instance: InstanceName("example-org".to_owned()),
+                    repository: Some(RepositoryName(repository.to_owned())),
+                    kind: GrantKind::Disk,
+                    bytes: Some(bytes),
+                    peak_bytes: Some(peak),
+                    command: Some("cargo test".to_owned()),
+                    process_group: None,
+                    session_name: None,
+                    reclaimed_bytes: None,
+                    shortfall_bytes: None,
+                    requested_at: at(requested),
+                    started_at: Some(at(requested)),
+                    released_at: (state == HostGrantState::Released).then(|| at(requested)),
+                    release_reason: None,
+                },
+            },
+        );
+    }
+    store.check().expect("the store kept the runs");
+    conductor_cli::rollup::update(&mut store, &b, &case.records()).expect("the rollup of the runs");
+    store.check().expect("the store kept the rollups");
+    drop(store);
+
+    let (status, list) = ask(&case, "/api/series");
+    assert_eq!(status, 200);
+    let entry = list
+        .as_array()
+        .and_then(|list| {
+            list.iter()
+                .find(|entry| entry["series"] == "disk_peak_vs_reserved")
+        })
+        .unwrap_or_else(|| panic!("disk_peak_vs_reserved is listed: {list}"));
+    assert_eq!(entry["unit"], "percent", "{entry}");
+    assert_eq!(entry["by"], json!(["repository"]), "{entry}");
+    assert!(
+        entry["source"]
+            .as_str()
+            .is_some_and(|source| source.starts_with("host ledger")),
+        "{entry}"
+    );
+    assert_eq!(entry.get("story"), None, "a series with a source: {entry}");
+
+    assert_eq!(
+        rows(&case, "series=disk_peak_vs_reserved&by=repository&days=30"),
+        vec![
+            row("2026-10-12", "beta", json!(150)),
+            row("2026-10-13", "alpha", json!(50)),
+        ]
+    );
+    assert_eq!(
+        rows(&case, "series=disk_peak_vs_reserved&days=30"),
+        vec![
+            row("2026-10-12", "total", json!(150)),
+            row("2026-10-13", "total", json!(50)),
+        ]
+    );
+    let (_, answer) = ask(&case, "/api/series?series=disk_peak_vs_reserved");
+    assert_eq!(answer["unit"], "percent");
 }
 
 #[test]
