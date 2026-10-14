@@ -338,6 +338,46 @@ types:
       - {name: class_c, type: conductor.decision.Decider}
       - {name: class_o, type: conductor.decision.Decider}
 
+  # One secret sync of the instance (story:policy-secret-drift): a file on a branch of one of its
+  # repositories that the organization's own tool publishes into GitHub Actions secrets, which its
+  # CI reads. `name` names the sync on the board; `source` is the file; `secrets` are the secrets
+  # it feeds, one or more; `command` is the command line that publishes it, and `dry_run`, when
+  # given, the one that shows what `command` would publish without publishing it. Conductor runs
+  # neither: the snapshot reads the source's last commit and each secret's `updated_at`, and the
+  # board flags `secret stale: <name>` when the source changed after a secret was written. The
+  # conductor session runs `command` only where the instance's `rules.md` grants it. No two syncs
+  # of an instance share a name.
+  - name: conductor.config.SecretSync
+    kind: struct
+    fields:
+      - {name: name, type: String}
+      - {name: source, type: conductor.config.SecretSource}
+      - {name: secrets, type: List<conductor.config.ForgeSecret>}
+      - {name: command, type: String}
+      - {name: dry_run, type: Optional<String>}
+
+  # The file a secret sync publishes: `repository` names a repository whose checkout lies under
+  # `checkouts.root`, written as its path under the root; `path` is the file, written relative to
+  # that repository's top; `branch` is the branch its last commit is read on, as
+  # `origin/<branch>`, `main` when absent. Neither path takes `.` or `..` steps.
+  - name: conductor.config.SecretSource
+    kind: struct
+    fields:
+      - {name: repository, type: String}
+      - {name: branch, type: String}
+      - {name: path, type: String}
+
+  # One GitHub Actions secret a sync feeds, by its `name`: the organization `owner`'s secret, or,
+  # when `repository` is given, that repository's of the owner. It is read with `gh api` (`GET
+  # /orgs/<owner>/actions/secrets/<name>`, `GET /repos/<owner>/<repository>/actions/secrets/
+  # <name>`), which answers the secret's `updated_at` and never its value.
+  - name: conductor.config.ForgeSecret
+    kind: struct
+    fields:
+      - {name: owner, type: String}
+      - {name: repository, type: Optional<String>}
+      - {name: name, type: String}
+
   # One instance. A path is written absolute or under `~`, which is the home directory; the
   # effective path is absolute. `operator` is how sessions name the person who decides class O.
   # `session_prefix` is the prefix of every session the instance starts; without one its sessions
@@ -371,6 +411,8 @@ types:
       - {name: authority, type: conductor.config.Authority}
       - {name: operator, type: Optional<String>}
       - {name: catalog, type: Optional<conductor.config.Catalog>}
+      # The secret syncs whose drift the snapshot reads (story:policy-secret-drift); absent, none.
+      - {name: secret_syncs, type: List<conductor.config.SecretSync>}
       # The Gates policy file `conductor repository refresh-hooks --apply` installs each
       # checkout's hooks with (`b10x-gates install --policy`); absent, it installs none
       # (story:gates-hooks-fresh).

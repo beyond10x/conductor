@@ -18,7 +18,7 @@ does not validate stops the command.
 `conductor config validate` checks the file and names each problem by its YAML path, such as
 `instances[0].cadence.watch`. `conductor config show --format text|json|yaml` prints the effective
 instance after defaults, with every path absolute. It writes an absent optional value (`operator`,
-`catalog`, `gates_policy`, `session_prefix`, a role's `agent`, `settings` and `profile`, the controller role's
+`catalog`, `gates_policy`, `session_prefix`, a secret sync's `dry_run` and a secret's `repository`, a role's `agent`, `settings` and `profile`, the controller role's
 `session_name`, `conductor.served_by` of an instance with its own conductor, a limit not set) as
 `null`.
 
@@ -125,6 +125,7 @@ accepted, defaulted and shown by `config show`.
 | `authority.class_o` | `conductor` \| `operator` | `operator` | nothing yet | who decides class-O decisions |
 | `operator` | string | none | nothing yet | how sessions name the person who decides class O |
 | `catalog` | catalog | none | repositories collector | the instance's catalog of repositories (below) |
+| `secret_syncs` | list of secret sync | `[]` | secrets collector, board, conductor profile | the files the organization's own tool publishes into GitHub Actions secrets, whose drift the snapshot reads (below) |
 | `gates_policy` | path | none | `conductor repository refresh-hooks --apply` | the Gates policy file each checkout's hooks are installed with (`b10x-gates install --policy`); without it `--apply` installs none |
 
 An instance may leave out every key but `name`, `sources` and `checkouts`. Inside `controllers`,
@@ -192,6 +193,33 @@ The collector reads the directory on the catalog repository's `origin/main`, nev
 tree. Each recorded repository then carries `in_catalog`: `true` when an entry names it, `false`
 when none does. When the instance names no catalog, or the catalog repository has no checkout under
 `checkouts.root`, `in_catalog` is absent for every repository (`null` in JSON).
+
+## Secret syncs
+
+A secret sync is a file in one of the instance's repositories that the organization's own tool
+publishes into GitHub Actions secrets, which its CI reads, such as a policy file. Conductor never
+publishes one and never reads a secret's value: the `secrets` collector records, per sync, the
+committer time of the last commit on `origin/<branch>` that touched the file (`git log -1
+--format=%cI`, in the source's checkout under `checkouts.root`) and the oldest `updated_at` of its
+secrets (`gh api orgs/<owner>/actions/secrets/<name>`, or `repos/<owner>/<repository>/…` for a
+repository's secret), which `conductor snapshot secret-syncs` lists. The board names
+`secret stale: <name>` on the source repository's row when the file was committed after the oldest
+secret was written, and `secret unread: <name>` when either read failed. The conductor profile
+runs `command` only where the instance's `rules.md` grants it; otherwise it hands the sync over as
+class H with the output of `dry_run`.
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `secret_syncs[].name` | string | required | the sync's name on the board; no two syncs of an instance share one |
+| `secret_syncs[].source.repository` | relative path | required | the repository holding the file, written as its path under `checkouts.root`; no `.` or `..` steps |
+| `secret_syncs[].source.branch` | string | `main` | the branch whose `origin/<branch>` the last commit is read on |
+| `secret_syncs[].source.path` | relative path | required | the file, relative to the repository's top (`ci/policy.json`); no `.` or `..` steps |
+| `secret_syncs[].secrets` | list of secret | required | the secrets the file is published into, one or more |
+| `secret_syncs[].secrets[].owner` | string | required | the GitHub organization or user that owns the secret |
+| `secret_syncs[].secrets[].repository` | string | none | the owner's repository whose secret it is; absent, it is the owner's own secret |
+| `secret_syncs[].secrets[].name` | string | required | the secret's name |
+| `secret_syncs[].command` | string | required | the command line that publishes the file into the secrets: the organization's own tool |
+| `secret_syncs[].dry_run` | string | none | the command line that shows what `command` would publish, without publishing |
 
 ## Roles, agents, profiles and settings
 

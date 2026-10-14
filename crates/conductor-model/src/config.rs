@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest da2650ca246276e52671fae1b8f0cb94808d7ac6df9237ba08bb0953984621f7
+// contract digest 40f96bb6aa267ca9c7e4701e8fd647464238ddcc0603cc26e1357adc1d4f1e9b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -171,6 +171,17 @@ pub enum ForgeLoginState {
     NotLoggedIn,
 }
 
+/// ForgeSecret — `conductor.config.ForgeSecret`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgeSecret {
+    /// `owner` — `String`.
+    pub owner: String,
+    /// `repository` — `Optional<String>`.
+    pub repository: Option<String>,
+    /// `name` — `String`.
+    pub name: String,
+}
+
 /// Gibibytes — `conductor.config.Gibibytes`: a distinct wrapper around `Integer`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gibibytes(pub i64);
@@ -253,6 +264,8 @@ pub struct Instance {
     pub operator: Option<String>,
     /// `catalog` — `Optional<conductor.config.Catalog>`.
     pub catalog: Option<Catalog>,
+    /// `secret_syncs` — `List<conductor.config.SecretSync>`.
+    pub secret_syncs: Vec<SecretSync>,
     /// `gates_policy` — `Optional<String>`.
     pub gates_policy: Option<String>,
     /// `conductor` — `conductor.config.ConductorSession`.
@@ -406,6 +419,32 @@ pub struct Role {
     pub writable: Vec<Writable>,
     /// `network` — `conductor.config.Network`.
     pub network: Network,
+}
+
+/// SecretSource — `conductor.config.SecretSource`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSource {
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `branch` — `String`.
+    pub branch: String,
+    /// `path` — `String`.
+    pub path: String,
+}
+
+/// SecretSync — `conductor.config.SecretSync`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSync {
+    /// `name` — `String`.
+    pub name: String,
+    /// `source` — `conductor.config.SecretSource`.
+    pub source: SecretSource,
+    /// `secrets` — `List<conductor.config.ForgeSecret>`.
+    pub secrets: Vec<ForgeSecret>,
+    /// `command` — `String`.
+    pub command: String,
+    /// `dry_run` — `Optional<String>`.
+    pub dry_run: Option<String>,
 }
 
 /// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.

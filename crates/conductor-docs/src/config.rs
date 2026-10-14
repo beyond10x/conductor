@@ -118,6 +118,13 @@ instances:
       repository: registry
       path: catalog/entries
       names: hex
+    secret_syncs:
+      - name: ci-policy
+        source: {repository: policies, branch: release, path: ci/policy.json}
+        secrets:
+          - {owner: example-org, repository: ci, name: CI_POLICY}
+        command: example-sync publish ci/policy.json
+        dry_run: example-sync publish ci/policy.json --dry-run
     gates_policy: ~/example-org/gates/policy.json
 ";
 

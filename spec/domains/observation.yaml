@@ -701,6 +701,46 @@ entities:
       states: [Recorded]
       terminal: [Recorded]
 
+  # One secret sync of the instance in one snapshot (story:policy-secret-drift), as the config's
+  # `secret_syncs` names it: `sync` is its name; `repository`, `branch` and `path` its source;
+  # `source_committed_at` the committer time of the last commit on `origin/<branch>` that touched
+  # the path, in the source's checkout under `checkouts.root`; `secrets_updated_at` the oldest
+  # `updated_at` of the secrets it feeds, as GitHub answers it; `error_line` the first line of the
+  # first read that failed, which leaves the time it would have read absent. The board names the
+  # sync `secret stale: <sync>` on its repository's row when the source was committed after the
+  # oldest secret was written, and `secret unread: <sync>` when a read failed.
+  - name: conductor.observation.SecretSyncObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: branch
+        type: String
+      - name: path
+        type: String
+      - name: source_committed_at
+        type: Optional<Timestamp>
+      - name: secrets_updated_at
+        type: Optional<Timestamp>
+      - name: error_line
+        type: Optional<String>
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
   # STATUS.md as published from one complete snapshot, compared with the previous one.
   - name: conductor.observation.Board
     identity:
@@ -1580,6 +1620,69 @@ commands:
             outcome: input.outcome
         summary: The collector's run, its start, duration and outcome, is recorded.
 
+  - name: conductor.observation.RecordSecretSync
+    naming:
+      wire: record-secret-sync
+      display: Record a secret sync
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+        example: "ci-policy"
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: branch
+        type: String
+        example: "main"
+      - name: path
+        type: String
+        example: "policy/ci.json"
+      - name: source_committed_at
+        type: Optional<Timestamp>
+        example: "2026-10-13T10:03:00Z"
+      - name: secrets_updated_at
+        type: Optional<Timestamp>
+        example: "2026-10-12T08:00:00Z"
+      - name: error_line
+        type: Optional<String>
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.SecretSyncObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          sync: input.sync
+          repository: input.repository
+          branch: input.branch
+          path: input.path
+          source_committed_at: input.source_committed_at
+          secrets_updated_at: input.secrets_updated_at
+          error_line: input.error_line
+        emits:
+          - conductor.observation.SecretSyncRecorded
+        payload:
+          conductor.observation.SecretSyncRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            sync: input.sync
+            repository: input.repository
+        summary: The sync's source commit and its secrets' oldest write are recorded.
+
   - name: conductor.observation.PublishBoard
     naming:
       wire: publish-board
@@ -1922,6 +2025,17 @@ events:
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
 
+  - name: conductor.observation.SecretSyncRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+      - name: repository
+        type: conductor.observation.RepositoryName
+
   - name: conductor.observation.BoardPublished
     fields:
       - name: board_id
@@ -2205,6 +2319,34 @@ views:
     naming:
       wire: collector-runs
       display: Collector runs
+
+  # Each secret sync of every kept snapshot, with its source's last commit and its secrets'
+  # oldest write (story:policy-secret-drift).
+  - name: conductor.observation.SecretSyncs
+    source: conductor.observation.SecretSyncObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: branch
+        type: String
+      - name: path
+        type: String
+      - name: source_committed_at
+        type: Optional<Timestamp>
+      - name: secrets_updated_at
+        type: Optional<Timestamp>
+      - name: error_line
+        type: Optional<String>
+    naming:
+      wire: secret-syncs
+      display: Secret syncs
 
   - name: conductor.observation.Boards
     source: conductor.observation.Board

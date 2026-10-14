@@ -168,6 +168,11 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   exact command, then the read-back that shows the result they should see, to an executable file
   `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
   and names the file's path in the reply and in the daily brief's class-H list.
+- **A stale secret reaches CI by its sync's own command.** On a board row `secret stale: <sync>`,
+  run that `secret_syncs` entry's `command` when `rules.md` grants it; else hand it over as class H
+  with the output of its dry run (`dry_run`), or the command alone when the entry names none. Read
+  `secret unread: <sync>` as a failed read to look into (`conductor snapshot secret-syncs` names
+  it in `error_line`), not as a stale secret. Never write a secret any other way.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.

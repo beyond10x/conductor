@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest da2650ca246276e52671fae1b8f0cb94808d7ac6df9237ba08bb0953984621f7
+// contract digest 40f96bb6aa267ca9c7e4701e8fd647464238ddcc0603cc26e1357adc1d4f1e9b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -392,6 +392,24 @@ pub trait RepositoryObservationStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::observation::RepositoryObservationSnapshot>;
+}
+
+/// Where `conductor.observation.SecretSyncObservation` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait SecretSyncObservationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SecretSyncObservationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::observation::SecretSyncObservationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::observation::ObservationId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::observation::SecretSyncObservationSnapshot>;
 }
 
 /// Where `conductor.observation.SessionObservation` is stored — a port the implementor provides.
@@ -2520,6 +2538,47 @@ where
     }
 }
 
+/// `conductor.observation.RecordSecretSync`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::RecordSecretSyncBehavior for Generated<P>
+where
+    P: TryContext + SecretSyncObservationStorage + SnapshotStorage,
+{
+    fn record_secret_sync(&mut self, input: crate::observation::RecordSecretSync) -> Result<crate::observation::RecordSecretSyncOutcome, UnmetObligation> {
+        let _ = &input;
+        // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.snapshot_id);
+        let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
+        // `no-such-snapshot`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::observation::RecordSecretSyncOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+        }
+        let _ = &related;
+        // `closed`: selected by the present related row, in declaration order.
+        if let Some(related) = &related {
+        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordSecretSync")? {
+            return Ok(crate::observation::RecordSecretSyncOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
+        }
+        }
+        // `recorded`: the default.
+        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let data = crate::observation::SecretSyncObservationData {
+            observation_id: identity.clone(),
+            snapshot_id: input.snapshot_id.clone(),
+            sync: input.sync.clone(),
+            repository: input.repository.clone(),
+            branch: input.branch.clone(),
+            path: input.path.clone(),
+            source_committed_at: input.source_committed_at.clone(),
+            secrets_updated_at: input.secrets_updated_at.clone(),
+            error_line: input.error_line.clone(),
+        };
+        let answer = crate::observation::RecordSecretSyncOutcome::Recorded { secret_sync_recorded: crate::observation::SecretSyncRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), sync: input.sync.clone(), repository: input.repository.clone() } };
+        SecretSyncObservationStorage::put(&mut self.ports, crate::observation::AnySecretSyncObservation::Recorded(crate::observation::SecretSyncObservation::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.observation.RecordSession`, generated: every outcome is one the specification fully determines.
 impl<P> crate::observation::obligations::RecordSessionBehavior for Generated<P>
 where
@@ -3218,6 +3277,30 @@ where
                 wave_width: held.data.wave_width,
                 wave_ready: held.data.wave_ready,
                 wave_reason: held.data.wave_reason,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.observation.SecretSyncs`, generated: every row is one the specification fully determines from the stored `conductor.observation.SecretSyncObservation`s.
+impl<P> crate::observation::obligations::SecretSyncsQuery for Generated<P>
+where
+    P: SecretSyncObservationStorage,
+{
+    fn secret_syncs(&self) -> Result<Vec<crate::observation::SecretSyncs>, UnmetObligation> {
+        let admitted = SecretSyncObservationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::observation::SecretSyncs {
+                observation_id: held.data.observation_id,
+                snapshot_id: held.data.snapshot_id,
+                sync: held.data.sync,
+                repository: held.data.repository,
+                branch: held.data.branch,
+                path: held.data.path,
+                source_committed_at: held.data.source_committed_at,
+                secrets_updated_at: held.data.secrets_updated_at,
+                error_line: held.data.error_line,
             })
             .collect())
     }

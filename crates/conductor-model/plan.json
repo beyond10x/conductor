@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a",
-    "contract_digest": "a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd"
+    "source_digest": "da2650ca246276e52671fae1b8f0cb94808d7ac6df9237ba08bb0953984621f7",
+    "contract_digest": "40f96bb6aa267ca9c7e4701e8fd647464238ddcc0603cc26e1357adc1d4f1e9b"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -111,6 +111,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.ForgeLoginState",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ForgeSecret",
       "disposition": {
         "disposition": "generated"
       }
@@ -237,6 +244,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Role",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SecretSource",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SecretSync",
       "disposition": {
         "disposition": "generated"
       }
@@ -1013,6 +1034,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.observation.SecretSyncObservation.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.observation.SessionObservation.State",
       "disposition": {
         "disposition": "generated"
@@ -1280,6 +1308,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.observation.RepositoryObservation",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.observation.SecretSyncObservation",
       "disposition": {
         "disposition": "generated"
       }
@@ -2124,6 +2159,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.observation.RecordSecretSync",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.observation.RecordSecretSync",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.observation.RecordSession",
       "disposition": {
         "disposition": "generated"
@@ -2592,6 +2641,13 @@
     {
       "kind": "event_type",
       "source": "conductor.observation.RepositoryRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.observation.SecretSyncRecorded",
       "disposition": {
         "disposition": "generated"
       }
@@ -3292,6 +3348,20 @@
     {
       "kind": "view_query",
       "source": "conductor.observation.Repositories",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.observation.SecretSyncs",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.observation.SecretSyncs",
       "disposition": {
         "disposition": "generated"
       }

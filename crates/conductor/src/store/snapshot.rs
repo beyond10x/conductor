@@ -2,7 +2,7 @@
 //! `story:snapshot-driver`: one for the snapshot and one for each observation a collector records,
 //! `SpecificationObservation` included, so a collector story writes no storage of its own. The
 //! release and merged-pull-request observations are `story:release-digest`'s, the member failures
-//! `story:snapshot-member-failures`'s.
+//! `story:snapshot-member-failures`'s, the secret syncs `story:policy-secret-drift`'s.
 //!
 //! Each instance is one stream, as in `store.rs`: the snapshot's in `state/tree/`, an
 //! observation's in its snapshot's tenant of `state/observations/` ([`super::observations`]),
@@ -20,8 +20,8 @@
 use conductor_model::behaviour::{
     BlockerObservationStorage, CollectorRunObservationStorage, MemberFailureObservationStorage,
     MergedPullRequestObservationStorage, PullRequestObservationStorage, ReleaseObservationStorage,
-    RepositoryObservationStorage, SessionObservationStorage, SnapshotStorage,
-    SpecificationObservationStorage, WorkflowRunObservationStorage,
+    RepositoryObservationStorage, SecretSyncObservationStorage, SessionObservationStorage,
+    SnapshotStorage, SpecificationObservationStorage, WorkflowRunObservationStorage,
 };
 use conductor_model::observation::{
     BlockerObservationData, BlockerObservationSnapshot, BlockerObservationState,
@@ -32,6 +32,7 @@ use conductor_model::observation::{
     PullRequestObservationData, PullRequestObservationSnapshot, PullRequestObservationState,
     ReleaseObservationData, ReleaseObservationSnapshot, ReleaseObservationState, RepositoryName,
     RepositoryObservationData, RepositoryObservationSnapshot, RepositoryObservationState,
+    SecretSyncObservationData, SecretSyncObservationSnapshot, SecretSyncObservationState,
     SessionObservationData, SessionObservationSnapshot, SessionObservationState, SnapshotData,
     SnapshotId, SnapshotSnapshot, SpecificationObservationData, SpecificationObservationSnapshot,
     SpecificationObservationState, WorkflowRunObservationData, WorkflowRunObservationSnapshot,
@@ -82,6 +83,9 @@ pub(super) const MEMBER_FAILURE: &str = "conductor.observation.MemberFailureObse
 
 /// `conductor.observation.CollectorRunObservation`.
 pub(super) const COLLECTOR_RUN: &str = "conductor.observation.CollectorRunObservation";
+
+/// `conductor.observation.SecretSyncObservation` (`story:policy-secret-drift`).
+pub(super) const SECRET_SYNC: &str = "conductor.observation.SecretSyncObservation";
 
 /// The one state of every observation, as the specification spells it.
 const RECORDED: &str = "Recorded";
@@ -221,6 +225,15 @@ storage!(
     observation_id,
     encode_collector_run,
     decode_collector_run
+);
+storage!(
+    SecretSyncObservationStorage,
+    SECRET_SYNC,
+    ObservationId,
+    SecretSyncObservationSnapshot,
+    observation_id,
+    encode_secret_sync,
+    decode_secret_sync
 );
 
 /// The instance `key` of `entity`, decoded; `None` when absent, or when the read or the decoding
@@ -657,6 +670,41 @@ fn decode_collector_run(body: &Value) -> Result<CollectorRunObservationSnapshot,
             started_at: Timestamp(text(body, "started_at")?),
             duration_ms: integer(body, "duration_ms")?,
             outcome: named(body, "outcome", collector_run_outcome_named)?,
+        },
+    })
+}
+
+fn encode_secret_sync(observation: &SecretSyncObservationSnapshot) -> Value {
+    let SecretSyncObservationState::Recorded = observation.state;
+    let data = &observation.data;
+    json!({
+        "state": RECORDED,
+        "observation_id": data.observation_id.0.0,
+        "snapshot_id": data.snapshot_id.0.0,
+        "sync": data.sync,
+        "repository": data.repository.0,
+        "branch": data.branch,
+        "path": data.path,
+        "source_committed_at": data.source_committed_at.as_ref().map(|at| &at.0),
+        "secrets_updated_at": data.secrets_updated_at.as_ref().map(|at| &at.0),
+        "error_line": data.error_line,
+    })
+}
+
+fn decode_secret_sync(body: &Value) -> Result<SecretSyncObservationSnapshot, String> {
+    recorded(body)?;
+    Ok(SecretSyncObservationSnapshot {
+        state: SecretSyncObservationState::Recorded,
+        data: SecretSyncObservationData {
+            observation_id: observation_id(body)?,
+            snapshot_id: snapshot_id(body)?,
+            sync: text(body, "sync")?,
+            repository: RepositoryName(text(body, "repository")?),
+            branch: text(body, "branch")?,
+            path: text(body, "path")?,
+            source_committed_at: optional_text(body, "source_committed_at")?.map(Timestamp),
+            secrets_updated_at: optional_text(body, "secrets_updated_at")?.map(Timestamp),
+            error_line: optional_text(body, "error_line")?,
         },
     })
 }

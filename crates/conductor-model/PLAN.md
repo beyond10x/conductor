@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-  contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+  model digest da2650ca246276e52671fae1b8f0cb94808d7ac6df9237ba08bb0953984621f7
+  contract digest 40f96bb6aa267ca9c7e4701e8fd647464238ddcc0603cc26e1357adc1d4f1e9b
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-488 capabilities: **477 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+498 capabilities: **487 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -29,6 +29,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.DoctorReport` |
 | domain type | `conductor.config.ForgeLogin` |
 | domain type | `conductor.config.ForgeLoginState` |
+| domain type | `conductor.config.ForgeSecret` |
 | domain type | `conductor.config.Gibibytes` |
 | domain type | `conductor.config.GitHubSource` |
 | domain type | `conductor.config.GitLabSource` |
@@ -47,6 +48,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.RepositoryRule` |
 | domain type | `conductor.config.Retention` |
 | domain type | `conductor.config.Role` |
+| domain type | `conductor.config.SecretSource` |
+| domain type | `conductor.config.SecretSync` |
 | domain type | `conductor.config.SessionName` |
 | domain type | `conductor.config.SessionPrefix` |
 | domain type | `conductor.config.SetupReport` |
@@ -157,6 +160,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.RepositoryShipped` |
 | domain type | `conductor.observation.ResourceUsage` |
 | domain type | `conductor.observation.RunConclusion` |
+| domain type | `conductor.observation.SecretSyncObservation.State` |
 | domain type | `conductor.observation.SessionObservation.State` |
 | domain type | `conductor.observation.SessionState` |
 | domain type | `conductor.observation.Snapshot.State` |
@@ -196,6 +200,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.observation.PullRequestObservation` |
 | entity lifecycle | `conductor.observation.ReleaseObservation` |
 | entity lifecycle | `conductor.observation.RepositoryObservation` |
+| entity lifecycle | `conductor.observation.SecretSyncObservation` |
 | entity lifecycle | `conductor.observation.SessionObservation` |
 | entity lifecycle | `conductor.observation.Snapshot` |
 | entity lifecycle | `conductor.observation.SpecificationObservation` |
@@ -314,6 +319,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.observation.RecordRelease` |
 | command contract | `conductor.observation.RecordRepository` |
 | command behaviour | `conductor.observation.RecordRepository` |
+| command contract | `conductor.observation.RecordSecretSync` |
+| command behaviour | `conductor.observation.RecordSecretSync` |
 | command contract | `conductor.observation.RecordSession` |
 | command behaviour | `conductor.observation.RecordSession` |
 | command contract | `conductor.observation.RecordSpecification` |
@@ -380,6 +387,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.observation.PullRequestRecorded` |
 | event type | `conductor.observation.ReleaseRecorded` |
 | event type | `conductor.observation.RepositoryRecorded` |
+| event type | `conductor.observation.SecretSyncRecorded` |
 | event type | `conductor.observation.SessionRecorded` |
 | event type | `conductor.observation.SnapshotCompleted` |
 | event type | `conductor.observation.SnapshotFailed` |
@@ -480,6 +488,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.observation.Releases` |
 | view type | `conductor.observation.Repositories` |
 | view query | `conductor.observation.Repositories` |
+| view type | `conductor.observation.SecretSyncs` |
+| view query | `conductor.observation.SecretSyncs` |
 | view type | `conductor.observation.Sessions` |
 | view query | `conductor.observation.Sessions` |
 | view type | `conductor.observation.Snapshots` |
