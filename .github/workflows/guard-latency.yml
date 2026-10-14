@@ -7,16 +7,16 @@
 # its own binary, with a store seeded fresh in its own `target/`.
 #
 # Dispatch it on `main`; `before` is the revision to compare against, by default the commit before
-# `1f8bd04` (`story:guard-all-tools`).
+# `d6fb77b3` (`story:guard-all-tools`).
 name: Guard latency
 
 on:
   workflow_dispatch:
     inputs:
       before:
-        description: The revision measured as "before", for example 1f8bd04^.
+        description: The revision measured as "before", for example d6fb77b3^.
         required: true
-        default: 1f8bd04^
+        default: d6fb77b3^
         type: string
 
 permissions:

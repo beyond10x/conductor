@@ -42,6 +42,12 @@ items.
 - **Deliver** in waves (`aep:implementing`, wave mode) in managed worktrees: one implementor per
   unit, an adversary on risky changes, the pre-push gates `rules.md` names on the exact commit.
   A red CI: read the failing log, fix every cause; never push while that PR's run is in progress.
+- **Waves are wide and concurrent.** A wave takes every ready unit with disjoint scope, up to
+  `controllers.max_subagents`; a narrower wave records its reason on its wave page. All of a
+  wave's implementors start in one message, as background sub-agents, each in its own tree when
+  units share specification or CLI files. The next wave is planned and started while a gate or a
+  CI run runs. Adversary and security reviews run alongside the building units, not after them.
+  Disk is still admitted through `conductor build run --reserve`.
 - **A charter with `merge: human`** (the default is `merge: controller`) leaves the merge to a
   person: run the full gate as always and open one pull request; the controller never merges it
   and never enables auto-merge. Report `[REPORT <repo> <dispatch>] review <url>`; the dispatch

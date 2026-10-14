@@ -602,3 +602,19 @@ fn conductor_dev_answers_a_need_in_the_report_form() {
         "conductor-dev.md: no report names conductor-dev as its repository"
     );
 }
+
+/// Waves are wide and concurrent (the operator, 2026-10-14): every ready unit with disjoint scope,
+/// all implementors started at once, the next wave planned while a gate runs.
+#[test]
+fn a_controller_runs_wide_concurrent_waves() {
+    let text = profile("repo-controller.md");
+    for sentence in [
+        "A wave takes every ready unit with disjoint scope, up to `controllers.max_subagents`; a \
+         narrower wave records its reason on its wave page.",
+        "All of a wave's implementors start in one message, as background sub-agents,",
+        "The next wave is planned and started while a gate or a CI run runs.",
+        "Adversary and security reviews run alongside the building units, not after them.",
+    ] {
+        assert!(text.contains(sentence), "repo-controller.md: holds {sentence:?}");
+    }
+}
