@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest 7fd530d18e536436e00fd6831889497791ff8dccca6a54be89642900c2d1b982
+// contract digest ddd111c119c3f1c1b2bfddb761ccd256e712e25029d39f82115c4ccb2737aa01
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -333,6 +333,10 @@ pub struct DecisionRequestData {
     pub escalation_class: Option<DecisionClass>,
     /// `escalation_reason` — `Optional<String>`.
     pub escalation_reason: Option<String>,
+    /// `dry_run` — `Optional<String>`.
+    pub dry_run: Option<String>,
+    /// `no_dry_run` — `Optional<String>`.
+    pub no_dry_run: Option<String>,
     /// `decision_id` — `Optional<conductor.decision.DecisionId>`.
     ///
     /// Carries `decision`: `conductor.decision.DecisionRequest` references one `conductor.decision.Decision`.
@@ -673,6 +677,10 @@ pub struct EscalateRequest {
     pub escalation_class: DecisionClass,
     /// `reason` — `String`.
     pub reason: String,
+    /// `dry_run` — `Optional<String>`.
+    pub dry_run: Option<String>,
+    /// `no_dry_run` — `Optional<String>`.
+    pub no_dry_run: Option<String>,
 }
 
 /// Everything `conductor.decision.EscalateRequest` can result in — one variant per declared outcome.
@@ -688,6 +696,13 @@ pub enum EscalateRequestOutcome {
     ClassC {
         /// Why it was refused: `conductor.decision.NotEscalatable`.
         error: NotEscalatable,
+    },
+    /// `untested` — when `(escalation_class == H and not (defined(dry_run)) and not (defined(no_dry_run)))`.
+    ///
+    /// A class-H item without its dry run or a reason for none is not handed over, and the request stays open.
+    Untested {
+        /// Why it was refused: `conductor.decision.DryRunMissing`.
+        error: DryRunMissing,
     },
     /// `escalated` — otherwise.
     ///
@@ -1075,6 +1090,15 @@ pub struct DecisionStateConflict {
     pub decision_id: DecisionId,
 }
 
+/// The declared error `conductor.decision.DryRunMissing`.
+///
+/// A class-H item carries its dry run (`--dry-run`) or why it has none (`--no-dry-run`), and this one carries neither.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DryRunMissing {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
 /// The declared error `conductor.decision.NotEscalatable`.
 ///
 /// The request is class C; conductor decides it.
@@ -1193,6 +1217,10 @@ pub struct HandsTodo {
     pub raised_at: crate::primitives::Timestamp,
     /// `blocker` — `Optional<String>`.
     pub blocker: Option<String>,
+    /// `dry_run` — `Optional<String>`.
+    pub dry_run: Option<String>,
+    /// `no_dry_run` — `Optional<String>`.
+    pub no_dry_run: Option<String>,
 }
 
 /// Decision requests — one row of the view `conductor.decision.Requests`.

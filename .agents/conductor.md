@@ -168,6 +168,11 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   exact command, then the read-back that shows the result they should see, to an executable file
   `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
   and names the file's path in the reply and in the daily brief's class-H list.
+- **An operator script is dry-run before it is handed over.** Run every step of it that needs no
+  credential (a size check, a lookup, a read-back) and keep what they print in a file; record the
+  class-H item with `conductor decision escalate-request` and `--dry-run <file>`, or with
+  `--no-dry-run <reason>` when no step runs without the credential. A class-H escalation with
+  neither is refused, and `decision hands-todo` shows each item's dry run.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.

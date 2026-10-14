@@ -785,7 +785,15 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
             input_json: None,
         },
     )?;
-    crate::decide::escalate_request(
+    // The item's dry run is what conductor measured with no credential: the shortfall, the ask,
+    // and what reclaim left (`story:hand-item-dry-run`).
+    let dry_run = format!(
+        "measured: free disk is {short}G short of the floor; the refused build asked {}G; \
+         reclaim left {}",
+        gib(shortfall.bytes),
+        left_measured(shortfall, &left)
+    );
+    crate::decide::escalate_request_measured(
         Some(state),
         EscalateRequestArgs {
             request_id: Some(request_id.clone()),
@@ -794,12 +802,30 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
                 "free disk is {short}G short of the floor and only a person may remove what is \
                  left"
             )),
+            dry_run: None,
+            no_dry_run: None,
             input_json: None,
         },
+        dry_run,
     )?;
     fs::write(&marker, format!("{request_id}\n"))
         .with_context(|| format!("write {}", marker.display()))?;
     Ok(Some(request_id))
+}
+
+/// What reclaim left, as a disk item's dry run names it: each row with its size, largest first,
+/// or `nothing` (`story:hand-item-dry-run`).
+fn left_measured(shortfall: &Shortfall<'_>, left: &Left) -> String {
+    let rows: Vec<String> = left
+        .by_size(shortfall)
+        .into_iter()
+        .map(|(path, bytes)| format!("{path} ({}G)", gib(bytes)))
+        .collect();
+    if rows.is_empty() {
+        "nothing".to_owned()
+    } else {
+        rows.join("; ")
+    }
 }
 
 /// What only a person does: review what is left, largest first, enough to cover the shortfall, and

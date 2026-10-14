@@ -167,6 +167,8 @@ fn encode_request(request: &DecisionRequestSnapshot) -> Value {
         "blocker": data.blocker,
         "escalation_class": data.escalation_class.map(class_name),
         "escalation_reason": data.escalation_reason,
+        "dry_run": data.dry_run,
+        "no_dry_run": data.no_dry_run,
         "decision_id": data.decision_id.as_ref().map(|id| &id.0),
     })
 }
@@ -188,6 +190,9 @@ fn decode_request(body: &Value) -> Result<DecisionRequestSnapshot, String> {
                 })
                 .transpose()?,
             escalation_reason: optional_text(body, "escalation_reason")?,
+            // Added by `story:hand-item-dry-run`: a request escalated before it carries neither.
+            dry_run: added_text(body, "dry_run")?,
+            no_dry_run: added_text(body, "no_dry_run")?,
             decision_id: optional_text(body, "decision_id")?.map(DecisionId),
         },
     })

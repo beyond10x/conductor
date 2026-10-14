@@ -16,6 +16,7 @@ scenarios:
   - scenarios/adv-dispatch-waits-on-itself.yaml
   - scenarios/adv-add-serving-dropped-goal.yaml
   - scenarios/adv-class-h-answered-by-conductor.yaml
+  - scenarios/hand-item-dry-run.yaml
   - scenarios/adv-grant-granted-build-slot-under-floor.yaml
   - scenarios/precedence-route-handled-report.yaml
   - scenarios/precedence-handle-routed-need.yaml

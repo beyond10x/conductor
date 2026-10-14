@@ -427,6 +427,16 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
         "the item names what a person reviews, and no removal command to paste: {:?}",
         request.recommendation
     );
+    // `story:hand-item-dry-run`: the class-H item carries its dry run, the numbers conductor
+    // measured with no credential.
+    let dry_run = request.dry_run.as_deref().unwrap_or_default();
+    assert!(
+        dry_run.contains("3G short")
+            && dry_run.contains("asked 4G")
+            && dry_run.contains("/example/trees/live/target (2G)"),
+        "the item's dry run is its numbers: {request:?}"
+    );
+    assert_eq!(request.no_dry_run, None, "{request:?}");
 
     // A second refusal in the same fall records none.
     let again = build::run(

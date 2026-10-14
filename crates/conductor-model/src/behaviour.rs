@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest 7fd530d18e536436e00fd6831889497791ff8dccca6a54be89642900c2d1b982
+// contract digest ddd111c119c3f1c1b2bfddb761ccd256e712e25029d39f82115c4ccb2737aa01
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -696,6 +696,10 @@ where
         if decided(equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("C".to_owned())), "conductor.decision.EscalateRequest")? {
             return Ok(crate::decision::EscalateRequestOutcome::ClassC { error: crate::decision::NotEscalatable { request_id: input.request_id.clone() } });
         }
+        // `untested`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), (Some(Some(&input.dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.no_dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value)]), "conductor.decision.EscalateRequest")? {
+            return Ok(crate::decision::EscalateRequestOutcome::Untested { error: crate::decision::DryRunMissing { request_id: input.request_id.clone() } });
+        }
         // `escalated`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
             return Ok(crate::decision::EscalateRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
@@ -708,6 +712,8 @@ where
         let mut next = moved.snapshot();
         next.data.escalation_class = Some(input.escalation_class.clone());
         next.data.escalation_reason = Some(input.reason.clone());
+        next.data.dry_run = input.dry_run.clone();
+        next.data.no_dry_run = input.no_dry_run.clone();
         let answer = crate::decision::EscalateRequestOutcome::Escalated { request_escalated: crate::decision::RequestEscalated { request_id: input.request_id.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -737,6 +743,8 @@ where
             blocker: input.blocker.clone(),
             escalation_class: None,
             escalation_reason: None,
+            dry_run: None,
+            no_dry_run: None,
             decision_id: None,
         };
         let answer = crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested: crate::decision::DecisionRequested { request_id: identity.clone(), repository: input.repository.clone() } };
@@ -2775,6 +2783,8 @@ where
                 recommendation: held.data.recommendation,
                 raised_at: held.data.raised_at,
                 blocker: held.data.blocker,
+                dry_run: held.data.dry_run,
+                no_dry_run: held.data.no_dry_run,
             })
             .collect())
     }
