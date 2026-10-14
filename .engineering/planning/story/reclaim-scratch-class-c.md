@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:reclaim-scratch-class-c
 kind: story
-status: active
+status: implemented
 title: host reclaim frees stale scratch and caches itself
 relations:
 - decomposes: epic:disk-protocol
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-14T17:07:18Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-14T17:07:18Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-14T18:23:31Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

@@ -21,6 +21,10 @@ and pull requests reported red without the names of their failing checks.
   record, so the store-migration fixture held no rows for them. The committed fixture store is
   inside the Gates baseline and a new line in it trips the secret scan, so the test appends one
   observation of each to a copy of it at run time instead.
+- The local gate took three runs: a lint in U4's test, and U4's leaves and observation missing
+  from the lists that name every implemented leaf and every observation kind, which U5 had joined.
 
 ## Outcome
+
+`task check` green on the integration head with the Gates scan, third local run. Target v0.14.0.
 
