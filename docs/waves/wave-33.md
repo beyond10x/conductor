@@ -24,4 +24,5 @@ in trees of their own, and land here as local commits; one full gate runs on the
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on the integration head of waves 27 and
+33 (https://github.com/beyond10x/conductor/actions/runs/38500142662), first run. Released as v0.11.0.
