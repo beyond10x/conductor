@@ -6,6 +6,7 @@ status: draft
 title: Harness sessions run in a box conductor controls
 relations:
 - implements: architecture-decision-record:external-confinement
+- decomposes: initiative:adoption
 revision: 7
 ---
 ## Outcome
