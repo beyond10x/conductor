@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-14T02:15:03Z",
+  "actor": "human:timo",
+  "artifact": "story:conductor-dev-report-form",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check green on wave/33 at c4c40b2b"
+  }
+}

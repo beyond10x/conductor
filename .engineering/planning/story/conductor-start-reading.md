@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:conductor-start-reading
 kind: story
-status: draft
+status: active
 title: Conductor restarts less often and starts on less reading
 relations:
 - decomposes: epic:loop-without-handwork
@@ -21,7 +21,10 @@ scope:
   path: docs/analysis/conductor-start-reading.md
 - confidence: cited
   path: docs/design/conductor.md
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-14T02:15:09Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-14T02:15:09Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

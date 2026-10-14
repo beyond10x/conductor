@@ -2,11 +2,15 @@
 format: aep.planning-md/3
 id: story:disk-item-per-fall
 kind: story
-status: draft
+status: implemented
 title: Refused builds in one fall of free disk share one operator item, withdrawn when disk recovers
 relations:
 - decomposes: epic:disk-protocol
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-14T02:14:58Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-14T02:14:58Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-14T02:15:04Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

@@ -2,15 +2,16 @@
 format: aep.planning-md/3
 id: story:dashboard-kpi-panels
 kind: story
-status: active
+status: implemented
 title: 'Every conductor KPI has a panel: value against target, trend and source, or not measured yet'
 relations:
 - decomposes: epic:dashboard-charts
 - depends_on: story:dashboard-series-api
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T19:52:27Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T19:52:27Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-14T02:15:05Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

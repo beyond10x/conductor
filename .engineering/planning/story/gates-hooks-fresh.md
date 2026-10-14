@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:gates-hooks-fresh
 kind: story
-status: draft
+status: implemented
 title: A checkout whose Gates hooks lag is flagged and can be refreshed
 relations:
 - decomposes: epic:loop-without-handwork
@@ -31,7 +31,11 @@ scope:
   path: spec/domains/observation.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-14T02:14:58Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-14T02:14:58Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-14T02:15:04Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

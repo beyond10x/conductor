@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:rules-show
 kind: story
-status: draft
+status: implemented
 title: conductor rules show prints rules.md items verbatim by number or section
 relations:
 - decomposes: epic:loop-without-handwork
@@ -33,7 +33,11 @@ scope:
   path: spec/domains/direction.yaml
 - confidence: cited
   path: website/docs/reference/cli.md
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-14T02:14:57Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-14T02:14:57Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-14T02:15:03Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
