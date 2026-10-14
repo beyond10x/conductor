@@ -615,6 +615,9 @@ fn a_controller_runs_wide_concurrent_waves() {
         "The next wave is planned and started while a gate or a CI run runs.",
         "Adversary and security reviews run alongside the building units, not after them.",
     ] {
-        assert!(text.contains(sentence), "repo-controller.md: holds {sentence:?}");
+        assert!(
+            text.contains(sentence),
+            "repo-controller.md: holds {sentence:?}"
+        );
     }
 }
