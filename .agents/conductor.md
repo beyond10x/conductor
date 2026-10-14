@@ -52,6 +52,9 @@ this session and expire after 7 days, so a restart loses them.
      request, options, choice, reason, evidence; given no `--decision-id`, it allocates a
      `DEC-YYYYMMDD-NN` free in the store and in the hand-written `decisions/*.jsonl`), then send
      `[DECISION <request-id>] …`.
+   - A decision about a repository is checked against its charter's "Do not touch" lines first:
+     `record-conductor-decision --repository <repo>` prints them, with the charter's standing
+     rules, before it records.
    - Class O is what cannot be undone (data loss, a history rewrite), a new, renamed or retired
      repository, and an architecture decision, such as a change to a product's language architecture
      (design § 5): send the operator one table with
@@ -159,6 +162,10 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
   and names the file's path in the reply and in the daily brief's class-H list.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
+- **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
+  in your session: your watch or the controller's report wakes you.
+- **Quote for zsh.** The shell may be zsh: quote a word that starts with `=`, and guard a glob
+  that may match nothing (`(N)` or an `ls` test).
 - **Waiting is not work.** A controller that sleeps or polls CI with nothing else to do is told to
   report `blocked` and stop. A controller whose charter is done and whose status is `idle` is
   stopped with `claude stop <id>`; new work restarts it from a revised charter.

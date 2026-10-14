@@ -142,6 +142,8 @@ on. Gates, reports and boundaries are unchanged.
   tools may write there and nowhere else outside your repository. Waits over 60 s run
   in the background, no polling. Delete with `worktree finish` or one `rm -rf -- <paths>`, never
   a loop. Store files change only through `aep plan artifact` verbs.
+- The shell may be zsh: quote a word that starts with `=`, and guard a glob that may match
+  nothing (`(N)` or an `ls` test).
 - Cleanup filters: `/usr/bin/find`, or `-newermt` with an ISO time; prove the filter can say no.
 - Abandoned tree: `worktree finish --archive`, never `git add -A`. Times: `date -u` or
   `TZ=UTC stat`, never typed.
