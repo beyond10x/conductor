@@ -2,11 +2,15 @@
 format: aep.planning-md/3
 id: story:rules-section-names
 kind: story
-status: draft
+status: implemented
 title: A missing rules section is refused with the sections the file has
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-14T07:14:22Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-14T07:14:22Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-14T07:14:22Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
