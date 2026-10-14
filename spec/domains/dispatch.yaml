@@ -275,8 +275,10 @@ entities:
         - name: unblock
           from: [Blocked]
           to: Started
+        # A controller that never reported `started`, or that finished while blocked, reports
+        # `done`; a done report needs no started or unblocked report recorded first.
         - name: finish
-          from: [Started]
+          from: [Sent, Started, Blocked]
           to: Done
         - name: fail
           from: [Started, Blocked]
@@ -934,7 +936,7 @@ commands:
         payload:
           conductor.dispatch.DispatchStateConflict:
             dispatch_id: input.dispatch_id
-        summary: Only a started dispatch is done.
+        summary: Only a sent, started or blocked dispatch is done.
 
   # Records line (`DispatchLogLine`): `failed`, with `id` and `reason`.
   - name: conductor.dispatch.ReportFailed

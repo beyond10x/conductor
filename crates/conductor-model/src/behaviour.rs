@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest a7f9871bdabc63897967bf2cd72fe7f3e4a6232eafb0109d0e08d01c54c699d0
-// contract digest 4f558702eb89a37a651256cf70ff0e0c742b1cc51d7ccbc88d2be22a2fe9b0a4
+// model digest 7f575c9a64964a341dc9edb3f508702af94c43ec898f43522baf6563167f85f0
+// contract digest 4825d701d1ce6fe0ab8f2f811ce63910fc6a1a6aa7a1a741ab7042c9ae36239f
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -1458,6 +1458,8 @@ where
         };
         let _ = &held;
         let moved = match held.refine() {
+            crate::dispatch::AnyDispatch::Blocked(instance) => crate::dispatch::AnyDispatch::Done(instance.finish()),
+            crate::dispatch::AnyDispatch::Sent(instance) => crate::dispatch::AnyDispatch::Done(instance.finish()),
             crate::dispatch::AnyDispatch::Started(instance) => crate::dispatch::AnyDispatch::Done(instance.finish()),
             _ => return Ok(crate::dispatch::ReportDoneOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
         };

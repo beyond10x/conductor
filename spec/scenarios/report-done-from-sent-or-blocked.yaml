@@ -1,0 +1,126 @@
+# A controller that never reported `started`, or that finished while its dispatch was blocked,
+# reports `done`: `ReportDone` moves the dispatch to `Done` from `Sent` and from `Blocked`, as it
+# does from `Started`. A dispatch that is already done, or was cancelled, is still refused.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: report-done-from-sent-or-blocked
+summary: A done report closes a sent or a blocked dispatch; a done or cancelled one is refused.
+
+timeline:
+  - at: 2026-10-14T09:00:00Z
+    command: conductor.direction.ProposeGoal
+    actor: conductor.direction.Conductor
+    input:
+      goal_id: G-done-early
+      title: Ship the pilot
+      exit_evidence: the pilot runs
+    outcome: proposed
+
+  - at: 2026-10-14T09:00:01Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-done-sent
+      repository: cortex
+      goal_id: G-done-early
+      brief: Expose the store id
+      sent_at: 2026-10-14T09:00:01Z
+      priority: 1
+    outcome: sent
+
+  - at: 2026-10-14T09:00:02Z
+    command: conductor.dispatch.ReportDone
+    actor: conductor.dispatch.RepositoryController
+    input:
+      dispatch_id: DSP-done-sent
+      evidence: origin/main 0123abc
+    outcome: done
+
+  - at: 2026-10-14T09:00:03Z
+    command: conductor.dispatch.ReportDone
+    actor: conductor.dispatch.RepositoryController
+    input:
+      dispatch_id: DSP-done-sent
+      evidence: origin/main 0123abc
+    outcome: wrong-state
+    error:
+      name: conductor.dispatch.DispatchStateConflict
+
+  - at: 2026-10-14T09:00:04Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-done-blocked
+      repository: cortex
+      goal_id: G-done-early
+      brief: Split the reader
+      sent_at: 2026-10-14T09:00:04Z
+      priority: 1
+    outcome: sent
+
+  - at: 2026-10-14T09:00:05Z
+    command: conductor.dispatch.ReportStarted
+    actor: conductor.dispatch.RepositoryController
+    input:
+      dispatch_id: DSP-done-blocked
+    outcome: started
+
+  - at: 2026-10-14T09:00:06Z
+    command: conductor.dispatch.ReportBlocked
+    actor: conductor.dispatch.RepositoryController
+    input:
+      dispatch_id: DSP-done-blocked
+      reason: waits on a decision
+    outcome: blocked
+
+  - at: 2026-10-14T09:00:07Z
+    command: conductor.dispatch.ReportDone
+    actor: conductor.dispatch.RepositoryController
+    input:
+      dispatch_id: DSP-done-blocked
+      evidence: origin/main 4567def
+    outcome: done
+
+  - at: 2026-10-14T09:00:08Z
+    command: conductor.dispatch.SendDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-done-cancelled
+      repository: cortex
+      goal_id: G-done-early
+      brief: Rename the flag
+      sent_at: 2026-10-14T09:00:08Z
+      priority: 1
+    outcome: sent
+
+  - at: 2026-10-14T09:00:09Z
+    command: conductor.dispatch.CancelDispatch
+    actor: conductor.dispatch.Conductor
+    input:
+      dispatch_id: DSP-done-cancelled
+      reason: superseded
+    outcome: cancelled
+
+  - at: 2026-10-14T09:00:10Z
+    command: conductor.dispatch.ReportDone
+    actor: conductor.dispatch.RepositoryController
+    input:
+      dispatch_id: DSP-done-cancelled
+      evidence: origin/main 89abcde
+    outcome: wrong-state
+    error:
+      name: conductor.dispatch.DispatchStateConflict
+
+assert:
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-done-sent
+      state: Done
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-done-blocked
+      state: Done
+  - view: conductor.dispatch.Dispatches
+    contains:
+      dispatch_id: DSP-done-cancelled
+      state: Cancelled
