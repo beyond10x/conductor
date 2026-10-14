@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   CONDUCTOR_PROMPT: 'Start of session. After the session-start reading and the lease check of your profile, arm what wakes you; the hand-over does not list it. Run CronList, then CronCreate each recurring job it does not show: one every cadence.cycle, one at cadence.daily (UTC) for the daily cycle, both values from conductor config show, with the prompts your profile gives. Start the watch once with the Monitor tool: conductor watch run --follow. Then read the hand-over committed last (git log -1 --name-only --format= -- docs/handoff/), act on its first task, then run one cycle.'
-  DEV_PROMPT: Start of session. Read the newest docs/waves/handoff-conductor-dev-*.md, the plan it names, the hand-over committed last in docs/handoff/ of the instance's records directory (conductor config show) and docs/design/conductor.md section 12, then begin.
+  DEV_PROMPT: Start of session. Read your profile's start-of-session list in its order, beginning with the newest hand-over in the conductor-dev handoff directory of the instance's state directory (conductor config show prints state), then begin.
   SESSION_ID: claude agents --json | jq -r '.[] | select(.kind=="background" and .name==$n and .pid != null) | .id'
   SESSION_COUNT: claude agents --json | jq '[.[] | select(.kind=="background" and .name==$n and .pid != null)] | length'
 

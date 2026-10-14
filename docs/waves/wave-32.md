@@ -8,6 +8,7 @@ Source: conductor's report of live 0.10.5 waiters refused by the 0.10.6 sweep.
 | unit | story |
 |---|---|
 | A | sweep-legacy-waiters |
+| B | the conductor-dev start prompt in `Taskfile.yml` names the hand-over directory the profile names |
 
 ## Outcome
 
