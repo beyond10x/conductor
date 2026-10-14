@@ -4,6 +4,8 @@ id: epic:measured-self-improvement
 kind: epic
 status: draft
 title: Conductor measures its KPIs and improves itself from what it measures
+relations:
+- decomposes: initiative:self-improvement
 revision: 1
 ---
 ## Why

@@ -4,6 +4,8 @@ id: epic:red-ci-ownership
 kind: epic
 status: draft
 title: Every red pipeline and pull request has an owner and a clock
+relations:
+- decomposes: initiative:self-improvement
 revision: 1
 ---
 ## Why
