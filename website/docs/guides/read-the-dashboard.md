@@ -101,6 +101,26 @@ $ curl -s http://127.0.0.1:7399/data.json | jq -c '.decisions[]'
 `red_ci` is `null` because no watch has run yet; the app says "no watch state". The build slot is
 not recorded by any command yet.
 
+### Series and KPIs
+
+The charts read `/api/series`, and the KPI panels `/api/kpis`. Both read the daily rollups: each
+snapshot that completes adds what it saw (pull requests, runs, releases) and what the dispatch,
+decision and guard records and the host ledger hold to one rollup per series, day and group, kept
+under the state directory's `series/`, whatever `retention.snapshots` drops.
+
+```console
+$ curl -s http://127.0.0.1:7399/api/series | jq -c '.[0]'
+$ curl -s 'http://127.0.0.1:7399/api/series?series=prs_merged&by=repository&days=30' | jq -c '.rows[0]'
+$ curl -s http://127.0.0.1:7399/api/kpis | jq -c '.[] | {id, value, measured}'
+```
+
+`/api/series` without a query lists every series with its unit, the groups it is split `by` and
+its source. With `series`, it answers rows of `day` (UTC), `key` (the group, or `total` without
+`by`) and `value` for the last `days` (30 by default, at most 365); a day without data is absent.
+A series with no source yet answers 404 with the story that adds it, an unknown series or `by`
+400 with the allowed values. `/api/kpis` answers each KPI's value over the last 7 days against
+its target, or `measured: false` and the story that measures it.
+
 ## 4. What it does not do
 
 The dashboard writes nothing and changes nothing: no button cleans up a tree or answers a

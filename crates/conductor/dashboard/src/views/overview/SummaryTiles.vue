@@ -18,15 +18,15 @@ defineProps<{ tiles: Tile[] }>();
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .tile .val {
-  font-size: 26px;
+  font-size: var(--text-2xl);
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 .tile .sub {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
   margin-top: 2px;
 }

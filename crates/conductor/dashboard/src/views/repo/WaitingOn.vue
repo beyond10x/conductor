@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { Cause } from '../../api/repo';
 
-defineProps<{ causes: Cause[] }>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(defineProps<{ causes: Cause[]; error?: string | null }>(), {
+  error: null,
+});
 
 /** How the page names a cause. */
 const LABEL: Record<Cause['cause'], string> = {
@@ -21,7 +24,8 @@ function label(cause: Cause): string {
 <template>
   <div class="card waiting" :class="{ warn: causes.length > 0 }">
     <div class="small muted">waiting on</div>
-    <p v-if="causes.length === 0" class="big muted">nothing</p>
+    <PanelState v-if="error !== null" state="error">{{ error }}</PanelState>
+    <p v-else-if="causes.length === 0" class="big muted state state-empty">nothing</p>
     <ul v-else class="causes">
       <li v-for="(cause, at) in causes" :key="at" :data-cause="cause.cause">
         <span class="big c-amber">{{ label(cause) }}</span>
@@ -34,20 +38,20 @@ function label(cause: Cause): string {
 <style scoped>
 .causes {
   list-style: none;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .big {
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
 }
 .note {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--soft);
 }
 </style>

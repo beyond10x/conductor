@@ -85,6 +85,7 @@ mod marks;
 pub mod migrate;
 pub mod observations;
 mod reclaim;
+pub mod series;
 mod serving;
 mod session;
 mod snapshot;
@@ -94,6 +95,9 @@ const TREE_DIR: &str = "tree";
 
 /// The directory under `state/` the observations live in, one tenant per snapshot.
 const OBSERVATIONS_DIR: &str = "observations";
+
+/// The directory under `state/` the daily rollups live in ([`series`], `story:dashboard-history`).
+const SERIES_DIR: &str = "series";
 
 /// The directory under `state/` the File provider's store lived in, before `conductor store
 /// migrate`.
@@ -358,6 +362,9 @@ pub struct Store {
     tree: Tree,
     /// `state/observations/`: the observations, one tenant per snapshot; opened at its first use.
     observations: Tree,
+    /// `state/series/`: the daily rollups ([`series`]), in the tenant [`Store::tenant`]; opened at
+    /// its first use, so no other command reads it.
+    series: Tree,
     /// The one tenant of `tree`.
     tenant: TenantId,
     /// The stream version this handle last read or wrote, per `(entity, identity)`; `0` is a
@@ -520,6 +527,7 @@ impl Store {
                 seen: RefCell::new(Some(seen)),
             },
             observations: Tree::unopened(state.join(OBSERVATIONS_DIR)),
+            series: Tree::unopened(state.join(SERIES_DIR)),
             tenant: TenantId::new(CONDUCTOR)?,
             versions: RefCell::default(),
             failures: RefCell::default(),
@@ -576,6 +584,16 @@ impl Store {
             })?;
         drop(lock);
         Ok((log, seen))
+    }
+
+    /// The tree `entity`'s records are kept in, of those kept in the tenant [`Store::tenant`]:
+    /// `series/` for the daily rollups, `tree/` for every other.
+    fn tree_of(&self, entity: &str) -> &Tree {
+        if entity == series::DAILY_SERIES {
+            &self.series
+        } else {
+            &self.tree
+        }
     }
 
     /// Whether every read and write on this handle since it was opened succeeded.
@@ -640,9 +658,10 @@ impl Store {
                 .map(|found| found.map_or((0, None), |(_, version, body)| (version, body)))
         } else {
             let stream = Self::stream(&self.tenant, entity, identity).ok()?;
-            self.fresh(&self.tree, false)
+            let tree = self.tree_of(entity);
+            self.fresh(tree, false)
                 .map_err(|source| log_error(entity, Some(identity), source))
-                .and_then(|_| self.latest(&self.tree, entity, identity, &stream))
+                .and_then(|_| self.latest(tree, entity, identity, &stream))
         };
         match held {
             Ok((version, body)) => {
@@ -723,9 +742,10 @@ impl Store {
         let folded = if observations::holds(entity) {
             self.fold_observations(entity)
         } else {
-            self.fresh(&self.tree, false)
+            let tree = self.tree_of(entity);
+            self.fresh(tree, false)
                 .map_err(|source| log_error(entity, None, source))
-                .and_then(|_| self.fold(&self.tree, &self.tenant, entity))
+                .and_then(|_| self.fold(tree, &self.tenant, entity))
         };
         match folded {
             Ok(streams) => streams
@@ -819,7 +839,14 @@ impl Store {
         let written = if observations::holds(entity) {
             self.append_observation(entity, identity, name, body)
         } else {
-            self.append(&self.tree, &self.tenant, entity, identity, name, body)
+            self.append(
+                self.tree_of(entity),
+                &self.tenant,
+                entity,
+                identity,
+                name,
+                body,
+            )
         };
         if let Err(failure) = written {
             self.fail(failure);

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 28067fcad842068129f731728df7b815d475fd9879595aa982215219d50e6b13
-// contract digest faaf71b91cc30baf3a852a651199b7088e75a13e90f0beabeab1584291b172c9
+// model digest 6226ef1b625b88bce44065a5b6313e70ea6605bae111eb1c93d9e7cff3ed8d08
+// contract digest b7469f2cf745398ea45d13856f361e36621d049aab6cd4819ea48b4e89f5dba5
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -288,6 +288,20 @@ pub trait CollectorRunObservationStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::observation::CollectorRunObservationSnapshot>;
+}
+
+/// Where `conductor.observation.DailySeries` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `daily_series_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait DailySeriesStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::observation::DailySeriesId) -> Option<crate::observation::DailySeriesSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::observation::DailySeriesSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::observation::DailySeriesId);
 }
 
 /// Where `conductor.observation.MemberFailureObservation` is stored — a port the implementor provides.
@@ -2237,6 +2251,35 @@ where
     }
 }
 
+/// `conductor.observation.RecordDailySeries`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::RecordDailySeriesBehavior for Generated<P>
+where
+    P: DailySeriesStorage,
+{
+    fn record_daily_series(&mut self, input: crate::observation::RecordDailySeries) -> Result<crate::observation::RecordDailySeriesOutcome, UnmetObligation> {
+        let _ = &input;
+        // `already-recorded`: an identity a record already carries, before any branch is taken.
+        if DailySeriesStorage::get(&self.ports, &input.daily_series_id).is_some() {
+            return Ok(crate::observation::RecordDailySeriesOutcome::AlreadyRecorded { error: crate::observation::DailySeriesExists { daily_series_id: input.daily_series_id.clone() } });
+        }
+        // `recorded`: the default.
+        let identity: crate::observation::DailySeriesId = input.daily_series_id.clone();
+        let data = crate::observation::DailySeriesData {
+            daily_series_id: identity.clone(),
+            series: input.series.clone(),
+            day: input.day.clone(),
+            by: input.by.clone(),
+            key: input.key.clone(),
+            value: input.value.clone(),
+            items: input.items.clone(),
+            snapshot_id: input.snapshot_id.clone(),
+        };
+        let answer = crate::observation::RecordDailySeriesOutcome::Recorded { daily_series_recorded: crate::observation::DailySeriesRecorded { daily_series_id: identity.clone(), snapshot_id: input.snapshot_id.clone() } };
+        DailySeriesStorage::put(&mut self.ports, crate::observation::AnyDailySeries::Recorded(crate::observation::DailySeries::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.observation.RecordMemberFailure`, generated: every outcome is one the specification fully determines.
 impl<P> crate::observation::obligations::RecordMemberFailureBehavior for Generated<P>
 where
@@ -2601,6 +2644,37 @@ where
         let answer = crate::observation::RecordWorkflowRunOutcome::Recorded { workflow_run_recorded: crate::observation::WorkflowRunRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), workflow: input.workflow.clone() } };
         WorkflowRunObservationStorage::put(&mut self.ports, crate::observation::AnyWorkflowRunObservation::Recorded(crate::observation::WorkflowRunObservation::new(data)).snapshot());
         return Ok(answer);
+    }
+}
+
+/// `conductor.observation.ReviseDailySeries`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::ReviseDailySeriesBehavior for Generated<P>
+where
+    P: DailySeriesStorage,
+{
+    fn revise_daily_series(&mut self, input: crate::observation::ReviseDailySeries) -> Result<crate::observation::ReviseDailySeriesOutcome, UnmetObligation> {
+        let _ = &input;
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = DailySeriesStorage::get(&self.ports, &input.daily_series_id) else {
+            return Ok(crate::observation::ReviseDailySeriesOutcome::NoSuchRollup { error: crate::observation::DailySeriesNotFound { daily_series_id: input.daily_series_id.clone() } });
+        };
+        let _ = &held;
+        // `revised`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::observation::DailySeriesState::Recorded)), "conductor.observation.ReviseDailySeries")? {
+            let Some(held) = DailySeriesStorage::get(&self.ports, &input.daily_series_id) else {
+                return Ok(crate::observation::ReviseDailySeriesOutcome::NoSuchRollup { error: crate::observation::DailySeriesNotFound { daily_series_id: input.daily_series_id.clone() } });
+            };
+            let _ = &held;
+            let mut next = held;
+            next.data.value = input.value.clone();
+            next.data.items = input.items.clone();
+            next.data.snapshot_id = input.snapshot_id.clone();
+            let answer = crate::observation::ReviseDailySeriesOutcome::Revised { daily_series_revised: crate::observation::DailySeriesRevised { daily_series_id: input.daily_series_id.clone(), snapshot_id: input.snapshot_id.clone() } };
+            DailySeriesStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // No declared branch answers this request.
+        Err(undeclared("conductor.observation.ReviseDailySeries"))
     }
 }
 

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { pipeline, type PullRequestRow } from '../../api/repo';
 
-defineProps<{ rows: PullRequestRow[] }>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(defineProps<{ rows: PullRequestRow[]; error?: string | null }>(), {
+  error: null,
+});
 
 const TONE = { failing: 'pill-red', passing: 'pill-green' } as const;
 </script>
@@ -9,7 +12,8 @@ const TONE = { failing: 'pill-red', passing: 'pill-green' } as const;
 <template>
   <section class="col" aria-labelledby="mrs">
     <h2 id="mrs">Merge and pull requests</h2>
-    <p v-if="rows.length === 0" class="muted">none open</p>
+    <PanelState v-if="error !== null" state="error" card>{{ error }}</PanelState>
+    <PanelState v-else-if="rows.length === 0" state="empty">none open</PanelState>
     <div v-else class="mrs">
       <div v-for="row in rows" :key="row.number" class="mr">
         <span class="id mono">#{{ row.number }}</span>
@@ -27,22 +31,22 @@ const TONE = { failing: 'pill-red', passing: 'pill-green' } as const;
 <style scoped>
 .mrs {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 .mr {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
   border-top: 1px solid var(--row-border);
 }
 .mr:first-child {
   border-top: 0;
 }
 .mr .id {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
   width: 48px;
 }
@@ -52,9 +56,9 @@ const TONE = { failing: 'pill-red', passing: 'pill-green' } as const;
   min-width: 0;
 }
 .pill12 {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 99px;
+  font-size: var(--text-sm);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
 }
 .pill-red {
   background: var(--red-bg);

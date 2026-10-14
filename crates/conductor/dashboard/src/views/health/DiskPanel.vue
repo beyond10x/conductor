@@ -47,22 +47,22 @@ const pill = computed(() => {
         <table aria-label="Disk waste">
           <thead>
             <tr>
-              <th scope="col">size</th>
+              <th scope="col" class="num">size</th>
               <th scope="col">repository</th>
               <th scope="col">what</th>
               <th scope="col">path</th>
-              <th scope="col">trees or entries</th>
+              <th scope="col" class="num">trees or entries</th>
               <th scope="col">state</th>
               <th scope="col">conductor gc</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, at) in disk.rows" :key="at">
-              <td class="mono small">{{ size(row.bytes) }}</td>
+              <td class="num mono small">{{ size(row.bytes) }}</td>
               <td>{{ cell(row.repository) }}</td>
               <td>{{ row.what }}</td>
               <td class="mono small">{{ cell(row.path) }}</td>
-              <td>{{ cell(row.count) }}</td>
+              <td class="num">{{ cell(row.count) }}</td>
               <td>{{ row.state }}</td>
               <td class="mono small">{{ row.gc }}</td>
             </tr>
@@ -77,22 +77,22 @@ const pill = computed(() => {
 .part {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: baseline;
 }
 .free {
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 .pill {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 99px;
+  font-size: var(--text-sm);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
   border: 1px solid currentColor;
 }
 .pill-green {

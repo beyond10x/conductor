@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "28067fcad842068129f731728df7b815d475fd9879595aa982215219d50e6b13",
-    "contract_digest": "faaf71b91cc30baf3a852a651199b7088e75a13e90f0beabeab1584291b172c9"
+    "source_digest": "6226ef1b625b88bce44065a5b6313e70ea6605bae111eb1c93d9e7cff3ed8d08",
+    "contract_digest": "b7469f2cf745398ea45d13856f361e36621d049aab6cd4819ea48b4e89f5dba5"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -852,6 +852,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.observation.DailySeries.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.observation.DailySeriesId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.observation.DashboardServe",
       "disposition": {
         "disposition": "generated"
@@ -1168,6 +1182,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.observation.CollectorRunObservation",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.observation.DailySeries",
       "disposition": {
         "disposition": "generated"
       }
@@ -1963,6 +1984,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.observation.RecordDailySeries",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.observation.RecordDailySeries",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.observation.RecordMemberFailure",
       "disposition": {
         "disposition": "generated"
@@ -2069,6 +2104,20 @@
     {
       "kind": "command_behavior",
       "source": "conductor.observation.RecordWorkflowRun",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.observation.ReviseDailySeries",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.observation.ReviseDailySeries",
       "disposition": {
         "disposition": "generated"
       }
@@ -2438,6 +2487,20 @@
     {
       "kind": "event_type",
       "source": "conductor.observation.CollectorRunRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.observation.DailySeriesRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.observation.DailySeriesRevised",
       "disposition": {
         "disposition": "generated"
       }
@@ -2823,6 +2886,20 @@
     {
       "kind": "error_type",
       "source": "conductor.host.NotADiskGrant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.observation.DailySeriesExists",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.observation.DailySeriesNotFound",
       "disposition": {
         "disposition": "generated"
       }
@@ -3310,7 +3387,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordCollectorRun`, `conductor.observation.RecordMemberFailure`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordCollectorRun`, `conductor.observation.RecordDailySeries`, `conductor.observation.RecordMemberFailure`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.ReviseDailySeries`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {

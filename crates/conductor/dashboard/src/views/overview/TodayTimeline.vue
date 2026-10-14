@@ -2,7 +2,10 @@
 import { computed } from 'vue';
 import { clock, newestFirst, type EventRow } from '../../api/overview';
 
-const props = defineProps<{ events: EventRow[] }>();
+import PanelState from '../../components/PanelState.vue';
+const props = withDefaults(defineProps<{ events: EventRow[]; error?: string | null }>(), {
+  error: null,
+});
 
 const lines = computed(() => newestFirst(props.events));
 </script>
@@ -10,7 +13,8 @@ const lines = computed(() => newestFirst(props.events));
 <template>
   <section aria-labelledby="today" class="col">
     <h2 id="today">Today</h2>
-    <p v-if="lines.length === 0" class="card muted">nothing yet today</p>
+    <PanelState v-if="error !== null" state="error" card>{{ error }}</PanelState>
+    <PanelState v-else-if="lines.length === 0" state="empty" card>nothing yet today</PanelState>
     <ol v-else class="timeline">
       <li v-for="(event, at) in lines" :key="at" :class="`kind-${event.kind}`">
         <span class="tdot" aria-hidden="true"></span>
@@ -37,7 +41,7 @@ ol.timeline {
 }
 ol.timeline li {
   position: relative;
-  padding: 6px 0 12px 18px;
+  padding: var(--space-2) 0 var(--space-3) var(--space-4);
 }
 .tdot {
   position: absolute;
@@ -49,7 +53,7 @@ ol.timeline li {
   background: var(--dim);
 }
 .kind {
-  margin-left: 8px;
+  margin-left: var(--space-2);
 }
 .kind-release .tdot,
 .kind-merge .tdot {

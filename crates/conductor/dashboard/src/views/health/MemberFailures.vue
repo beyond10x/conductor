@@ -30,7 +30,7 @@ defineProps<{ failures: MemberFailure[] }>();
 .failure {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .warn {
   background: var(--warn-surface);
@@ -39,22 +39,22 @@ defineProps<{ failures: MemberFailure[] }>();
 .row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: baseline;
 }
 .pill {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 99px;
+  font-size: var(--text-xs);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
   border: 1px solid currentColor;
   color: var(--amber);
 }
 .line {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--dim);
   background: var(--header);
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
   display: block;
   overflow-x: auto;
   white-space: pre-wrap;

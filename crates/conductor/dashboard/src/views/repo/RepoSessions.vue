@@ -3,7 +3,10 @@ import { ref } from 'vue';
 import { cell } from '../../format';
 import { clock, type RepoSession, type SpendToday } from '../../api/repo';
 
-defineProps<{ rows: RepoSession[] }>();
+import PanelState from '../../components/PanelState.vue';
+withDefaults(defineProps<{ rows: RepoSession[]; error?: string | null }>(), {
+  error: null,
+});
 
 /** The transcript last copied, to say so beside its button. */
 const copied = ref<string | null>(null);
@@ -30,7 +33,8 @@ function spend(today: SpendToday | null): string {
 <template>
   <section class="col" aria-labelledby="sess">
     <h2 id="sess">Sessions</h2>
-    <p v-if="rows.length === 0" class="muted">no session works here</p>
+    <PanelState v-if="error !== null" state="error" card>{{ error }}</PanelState>
+    <PanelState v-else-if="rows.length === 0" state="empty">no session works here</PanelState>
     <div v-for="row in rows" :key="row.name ?? row.transcript ?? ''" class="card stack session">
       <div class="row">
         <span class="name">{{ cell(row.name) }}</span>
@@ -60,15 +64,15 @@ function spend(today: SpendToday | null): string {
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .s13 {
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .dim {
   color: var(--dim);
@@ -78,13 +82,13 @@ function spend(today: SpendToday | null): string {
   white-space: nowrap;
 }
 button.copy {
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--input-border);
   background: transparent;
   color: var(--dim);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 </style>

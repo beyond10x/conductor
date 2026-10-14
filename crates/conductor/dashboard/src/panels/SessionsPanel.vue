@@ -47,6 +47,9 @@ function lastEvent(session: Session): string {
           </tr>
         </thead>
         <tbody>
+          <tr v-if="data.sessions.length === 0">
+            <td colspan="9" class="empty state state-empty">no session</td>
+          </tr>
           <tr v-for="(session, at) in data.sessions" :key="at" :class="{ faint: session.exited }">
             <td>{{ cell(session.name) }}</td>
             <td>{{ cell(session.kind) }}</td>

@@ -2,7 +2,10 @@
 import { computed, ref } from 'vue';
 import { filtered, type Filter, type RepositoryLine } from '../../api/overview';
 
-const props = defineProps<{ rows: RepositoryLine[]; mine: string[] }>();
+const props = withDefaults(
+  defineProps<{ rows: RepositoryLine[]; mine: string[]; error?: string | null }>(),
+  { error: null },
+);
 
 const filter = ref<Filter>('all');
 
@@ -51,7 +54,8 @@ function page(name: string): string {
         </thead>
         <tbody aria-live="polite">
           <tr v-if="shown.length === 0">
-            <td colspan="7" class="empty">No repositories match this filter.</td>
+            <td v-if="error !== null" colspan="7" class="empty state state-error" role="alert">{{ error }}</td>
+            <td v-else colspan="7" class="empty state state-empty">No repositories match this filter.</td>
           </tr>
           <tr v-for="row in shown" :key="row.name">
             <td class="name">
@@ -82,22 +86,22 @@ function page(name: string): string {
 .filter-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 .chips {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .chips button {
-  padding: 4px 10px;
-  border-radius: 99px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
   border: 1px solid var(--input-border);
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 .chips button[aria-pressed='true'] {
@@ -106,10 +110,10 @@ function page(name: string): string {
 }
 .chip {
   display: inline-block;
-  font-size: 11px;
-  padding: 2px 8px;
-  margin: 0 4px 4px 0;
-  border-radius: 99px;
+  font-size: var(--text-xs);
+  padding: 2px var(--space-2);
+  margin: 0 var(--space-1) var(--space-1) 0;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--warn-border);
   color: var(--amber);
 }
@@ -122,7 +126,7 @@ function page(name: string): string {
   color: var(--green);
 }
 .empty {
-  padding: 16px 14px;
+  padding: var(--space-4) var(--space-3);
   color: var(--muted);
 }
 </style>

@@ -29,6 +29,7 @@ pub mod message;
 pub mod records;
 pub mod repository;
 pub mod resource;
+pub mod rollup;
 pub mod rules;
 pub mod session;
 pub mod setup;

@@ -19,6 +19,9 @@ defineProps<{ data: DashboardData }>();
           </tr>
         </thead>
         <tbody>
+          <tr v-if="data.decisions.length === 0">
+            <td colspan="4" class="empty state state-empty">no decision yet</td>
+          </tr>
           <tr v-for="(decision, at) in data.decisions" :key="at">
             <td class="mono small">{{ cell(decision.id) }}</td>
             <td>{{ cell(decision.class) }}</td>
