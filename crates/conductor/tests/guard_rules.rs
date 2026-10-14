@@ -1837,6 +1837,37 @@ fn a_controller_runs_rules_show() {
     );
 }
 
+/// `story:status-command`: `conductor status` is a view over the store, so a controller runs it,
+/// in its checkout and in a worker's tree, as conductor does.
+#[test]
+fn a_controller_runs_status() {
+    // Allowed as a declared read, not as words the guard does not know as a leaf.
+    let leaf = ["status".to_owned()];
+    assert!(
+        tree_leaves().iter().any(|(path, _)| *path == leaf),
+        "`conductor status` is a leaf of the tree"
+    );
+    assert_eq!(declared(&leaf), Some(Access::Reads), "`status` is a read");
+    let home = home("controller-status");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for command in [
+            "conductor status",
+            "conductor status --format json",
+            "conductor --config c.yaml status",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+    assert_verdict(
+        &bash(&home, CONDUCTOR, "conductor status"),
+        Verdict::Allow,
+        "",
+    );
+}
+
 /// A line that names `conductor` without running one of its leaves is no run of it: help, a
 /// lookup, a path, a quoted string, a crate name.
 #[test]

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest a7f9871bdabc63897967bf2cd72fe7f3e4a6232eafb0109d0e08d01c54c699d0
-// contract digest 4f558702eb89a37a651256cf70ff0e0c742b1cc51d7ccbc88d2be22a2fe9b0a4
+// model digest 54468fc4d040c20057d06b756280f9a5701e132bd68fa6fe160fddb617fc801d
+// contract digest b31d4151c2590a38684f774f23275554b16d990db78094d0451b603ccc9b190b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -377,6 +377,83 @@ pub enum SpecificationPresence {
     OptedOut,
     /// `Missing`.
     Missing,
+}
+
+/// Status — `conductor.observation.Status`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Status {
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
+
+/// StatusDispatch — `conductor.observation.StatusDispatch`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusDispatch {
+    /// `dispatch_id` — `String`.
+    pub dispatch_id: String,
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `state` — `String`.
+    pub state: String,
+    /// `sent_at` — `String`.
+    pub sent_at: String,
+    /// `waits_on` — `Optional<String>`.
+    pub waits_on: Option<String>,
+    /// `brief` — `String`.
+    pub brief: String,
+}
+
+/// StatusReport — `conductor.observation.StatusReport`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusReport {
+    /// `snapshot_id` — `Optional<String>`.
+    pub snapshot_id: Option<String>,
+    /// `snapshot_started_at` — `Optional<String>`.
+    pub snapshot_started_at: Option<String>,
+    /// `snapshot_age_seconds` — `Optional<Integer>`.
+    pub snapshot_age_seconds: Option<i64>,
+    /// `deviations` — `List<conductor.observation.RepositoryFigures>`.
+    pub deviations: Vec<RepositoryFigures>,
+    /// `sessions` — `List<conductor.observation.StatusSession>`.
+    pub sessions: Vec<StatusSession>,
+    /// `dispatches` — `List<conductor.observation.StatusDispatch>`.
+    pub dispatches: Vec<StatusDispatch>,
+    /// `waits` — `List<String>`.
+    pub waits: Vec<String>,
+    /// `requests` — `List<conductor.observation.StatusRequest>`.
+    pub requests: Vec<StatusRequest>,
+}
+
+/// StatusRequest — `conductor.observation.StatusRequest`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusRequest {
+    /// `kind` — `String`.
+    pub kind: String,
+    /// `request_id` — `String`.
+    pub request_id: String,
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `state` — `String`.
+    pub state: String,
+    /// `since` — `String`.
+    pub since: String,
+    /// `summary` — `String`.
+    pub summary: String,
+}
+
+/// StatusSession — `conductor.observation.StatusSession`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusSession {
+    /// `repository` — `Optional<String>`.
+    pub repository: Option<String>,
+    /// `session` — `String`.
+    pub session: String,
+    /// `harness` — `String`.
+    pub harness: String,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
+    /// `activity` — `String`.
+    pub activity: String,
 }
 
 /// StoreMigrate — `conductor.observation.StoreMigrate`.

@@ -38,6 +38,15 @@
 //! yet and answers [`NotImplemented`](crate::NotImplemented).
 //!
 //! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing.
+//!
+//! `conductor status` ([`status`], `story:status-command`) is the view `conductor.observation.Status`:
+//! the answer to "what is the status" in one call, read from the store alone, without starting a
+//! snapshot. Its six parts, in order: the newest complete snapshot's id, start and age; its
+//! deviations, worked out by the board's own [`figures`]; the sessions it observed; the open
+//! dispatches (`Sent`, `Started`, `Blocked`); the registered waits; and the pending requests
+//! (decision requests `Open` or `Escalated`, resource requests `Requested`). With no complete
+//! snapshot it says so and prints every other part. No wait is recorded in the store yet
+//! (`story:watch-waits`), so the waits part reads `None.` until that story's `Waits` view lands.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -48,28 +57,32 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
-    BlockerObservationStorage, BoardStorage, ControllerStorage, Generated,
-    PullRequestObservationStorage, RepositoryObservationStorage, SessionObservationStorage,
-    SnapshotStorage, SpecificationObservationStorage, TryContext, WorkflowRunObservationStorage,
-    unmet_context,
+    BlockerObservationStorage, BoardStorage, ControllerStorage, DecisionRequestStorage,
+    DispatchStorage, Generated, PullRequestObservationStorage, RepositoryObservationStorage,
+    ResourceRequestStorage, SessionObservationStorage, SnapshotStorage,
+    SpecificationObservationStorage, TryContext, WorkflowRunObservationStorage, unmet_context,
 };
+use conductor_model::decision::DecisionRequestState;
 use conductor_model::direction::ServingId;
-use conductor_model::dispatch::{ControllerState, GuardDecisionId, MessageId, ResourceRequestId};
+use conductor_model::dispatch::{
+    ControllerState, DispatchState, GuardDecisionId, MessageId, ResourceRequestId,
+    ResourceRequestState,
+};
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::obligations::{BoardsQuery, PublishBoardBehavior};
 use conductor_model::observation::{
     BlockerObservationData, BoardId, BoardSnapshot, ObservationId, PublishBoard,
     PublishBoardOutcome, PullRequestObservationData, RepositoryFigures, RepositoryObservationData,
     RunConclusion, SessionObservationData, SnapshotId, SnapshotSnapshot, SnapshotState,
-    SpecificationObservationData, SpecificationPresence, ValidationResult,
-    WorkflowRunObservationData,
+    SpecificationObservationData, SpecificationPresence, StatusDispatch, StatusReport,
+    StatusRequest, StatusSession, ValidationResult, WorkflowRunObservationData,
 };
 use conductor_model::primitives::Uuid;
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
-use crate::cli::{PublishBoardArgs, ViewArgs};
+use crate::cli::{PublishBoardArgs, StatusArgs, ViewArgs};
 use crate::not_implemented;
 use crate::snapshot::{
     harness_name, session_state_name, specification_presence_name, validation_result_name,
@@ -209,6 +222,317 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         })
         .collect();
     crate::store::show(&generated.ports, "boards", &view.render(&COLUMNS, &rows))
+}
+
+// ---------------------------------------------------------------------------------------------
+// conductor status (story:status-command)
+// ---------------------------------------------------------------------------------------------
+
+/// `conductor status`: the view `conductor.observation.Status`. Prints the [`StatusReport`] of
+/// the store, as text (six Markdown parts) or, with `--format json`, as one JSON object; starts
+/// no snapshot and creates nothing.
+///
+/// # Errors
+///
+/// `--format` is neither text nor json; there is no store; a read of it fails for a reason other
+/// than a record this build cannot read; or standard output cannot be written.
+pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
+    const WHAT: &str = "status";
+    let json = match args.format.as_deref() {
+        None | Some("text") => false,
+        Some("json") => true,
+        Some(other) => bail!("{WHAT}: --format {other:?} is not one of text, json"),
+    };
+    let store = crate::state::open_existing(state).context(WHAT)?;
+    let report = status_report(&store, OffsetDateTime::now_utc());
+    let rendered = if json {
+        format!("{}\n", status_json(&report))
+    } else {
+        status_text(&report)
+    };
+    crate::store::show(&store, WHAT, &rendered)
+}
+
+/// The [`StatusReport`] of `store` at `now`.
+fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
+    let snapshots = SnapshotStorage::list(store);
+    let newest = newest_complete(&snapshots, None).map(|held| observed(store, held));
+
+    let mut report = StatusReport {
+        snapshot_id: None,
+        snapshot_started_at: None,
+        snapshot_age_seconds: None,
+        deviations: Vec::new(),
+        sessions: Vec::new(),
+        dispatches: Vec::new(),
+        waits: Vec::new(),
+        requests: Vec::new(),
+    };
+    if let Some(snapshot) = &newest {
+        report.snapshot_id = Some(snapshot.snapshot_id.0.0.clone());
+        report.snapshot_started_at = Some(snapshot.started_at.clone());
+        report.snapshot_age_seconds =
+            instant(&snapshot.started_at).map(|started| (now - started).whole_seconds());
+        report.deviations = figures(snapshot)
+            .into_iter()
+            .filter(|(_, figures)| !figures.deviations.is_empty())
+            .map(|(repository, figures)| RepositoryFigures {
+                repository,
+                deviations: figures
+                    .deviations
+                    .iter()
+                    .map(|deviation| (*deviation).to_owned())
+                    .collect(),
+                open_prs: figures.counts.open_prs,
+                failing_prs: figures.counts.failing_prs,
+                non_green_workflows: figures.counts.non_green_workflows,
+                open_blockers: figures.counts.open_blockers,
+                specifications_present: figures.counts.specifications_present,
+            })
+            .collect();
+        report.sessions = snapshot
+            .sessions
+            .iter()
+            .map(|held| StatusSession {
+                repository: held.repository.as_ref().map(|name| name.0.clone()),
+                session: held
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| held.session_ref.clone()),
+                harness: harness_name(held.harness).to_owned(),
+                role: held.role.clone(),
+                activity: session_state_name(held.activity).to_owned(),
+            })
+            .collect();
+        report.sessions.sort_by(|left, right| {
+            (&left.repository, &left.session).cmp(&(&right.repository, &right.session))
+        });
+    }
+
+    report.dispatches = DispatchStorage::list(store)
+        .into_iter()
+        .filter(|held| {
+            matches!(
+                held.state,
+                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+            )
+        })
+        .map(|held| StatusDispatch {
+            dispatch_id: held.data.dispatch_id.0,
+            repository: held.data.repository.0,
+            state: format!("{:?}", held.state),
+            sent_at: held.data.sent_at.0,
+            waits_on: held.data.waits_on.map(|id| id.0),
+            brief: held.data.brief,
+        })
+        .collect();
+    report.dispatches.sort_by(|left, right| {
+        order(&left.sent_at, &right.sent_at).then_with(|| left.dispatch_id.cmp(&right.dispatch_id))
+    });
+
+    report.requests = DecisionRequestStorage::list(store)
+        .into_iter()
+        .filter(|held| {
+            matches!(
+                held.state,
+                DecisionRequestState::Open | DecisionRequestState::Escalated
+            )
+        })
+        .map(|held| StatusRequest {
+            kind: "decision".to_owned(),
+            request_id: held.data.request_id.0,
+            repository: held.data.repository.0,
+            state: format!("{:?}", held.state),
+            since: held.data.raised_at.0,
+            summary: held.data.question,
+        })
+        .chain(
+            ResourceRequestStorage::list(store)
+                .into_iter()
+                .filter(|held| held.state == ResourceRequestState::Requested)
+                .map(|held| StatusRequest {
+                    kind: "resource".to_owned(),
+                    request_id: held.data.resource_request_id.0.0,
+                    repository: held.data.repository.0,
+                    state: format!("{:?}", held.state),
+                    since: held.data.requested_at.0,
+                    summary: format!("{:?} {}", held.data.resource, held.data.amount),
+                }),
+        )
+        .collect();
+    report.requests.sort_by(|left, right| {
+        order(&left.since, &right.since).then_with(|| left.request_id.cmp(&right.request_id))
+    });
+    report
+}
+
+/// `report` as the text `conductor status` prints: its six parts, each under its heading.
+fn status_text(report: &StatusReport) -> String {
+    const NO_SNAPSHOT: &str = "None: no snapshot is complete.\n\n";
+    let mut out = String::from("# Status\n\n");
+    match (&report.snapshot_id, &report.snapshot_started_at) {
+        (Some(id), Some(started)) => {
+            let age = report
+                .snapshot_age_seconds
+                .map_or_else(|| "an unknown time".to_owned(), span);
+            out.push_str(&format!(
+                "Newest complete snapshot {id}, started {started}, {age} ago.\n\n"
+            ));
+        }
+        _ => out.push_str(
+            "No snapshot is complete; take one with `conductor snapshot start-snapshot`.\n\n",
+        ),
+    }
+
+    out.push_str("## Deviations\n\n");
+    if report.snapshot_id.is_none() {
+        out.push_str(NO_SNAPSHOT);
+    } else {
+        let rows: Vec<Vec<String>> = report
+            .deviations
+            .iter()
+            .map(|row| vec![row.repository.clone(), row.deviations.join(", ")])
+            .collect();
+        out.push_str(&table(&["repository", "deviations"], &rows));
+    }
+
+    out.push_str("## Sessions\n\n");
+    if report.snapshot_id.is_none() {
+        out.push_str(NO_SNAPSHOT);
+    } else {
+        let rows: Vec<Vec<String>> = report
+            .sessions
+            .iter()
+            .map(|row| {
+                vec![
+                    row.repository.clone().unwrap_or_default(),
+                    row.session.clone(),
+                    row.harness.clone(),
+                    row.role.clone().unwrap_or_default(),
+                    row.activity.clone(),
+                ]
+            })
+            .collect();
+        out.push_str(&table(
+            &["repository", "session", "harness", "role", "activity"],
+            &rows,
+        ));
+    }
+
+    out.push_str("## Open dispatches\n\n");
+    let rows: Vec<Vec<String>> = report
+        .dispatches
+        .iter()
+        .map(|row| {
+            vec![
+                row.dispatch_id.clone(),
+                row.repository.clone(),
+                row.state.clone(),
+                row.sent_at.clone(),
+                row.waits_on.clone().unwrap_or_default(),
+                row.brief.clone(),
+            ]
+        })
+        .collect();
+    out.push_str(&table(
+        &[
+            "dispatch",
+            "repository",
+            "state",
+            "sent",
+            "waits on",
+            "brief",
+        ],
+        &rows,
+    ));
+
+    out.push_str("## Waits\n\n");
+    if report.waits.is_empty() {
+        out.push_str("None.\n\n");
+    } else {
+        for wait in &report.waits {
+            out.push_str(&format!("- {}\n", wait.replace(['\n', '\r'], " ")));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## Pending requests\n\n");
+    let rows: Vec<Vec<String>> = report
+        .requests
+        .iter()
+        .map(|row| {
+            vec![
+                row.kind.clone(),
+                row.request_id.clone(),
+                row.repository.clone(),
+                row.state.clone(),
+                row.since.clone(),
+                row.summary.clone(),
+            ]
+        })
+        .collect();
+    out.push_str(&table(
+        &["kind", "request", "repository", "state", "since", "what"],
+        &rows,
+    ));
+    out
+}
+
+/// `report` as the one JSON object `conductor status --format json` prints, its fields named as
+/// the specification's `StatusReport` names them.
+fn status_json(report: &StatusReport) -> Value {
+    serde_json::json!({
+        "snapshot_id": report.snapshot_id,
+        "snapshot_started_at": report.snapshot_started_at,
+        "snapshot_age_seconds": report.snapshot_age_seconds,
+        "deviations": report.deviations.iter().map(|row| serde_json::json!({
+            "repository": row.repository,
+            "deviations": row.deviations,
+            "open_prs": row.open_prs,
+            "failing_prs": row.failing_prs,
+            "non_green_workflows": row.non_green_workflows,
+            "open_blockers": row.open_blockers,
+            "specifications_present": row.specifications_present,
+        })).collect::<Vec<Value>>(),
+        "sessions": report.sessions.iter().map(|row| serde_json::json!({
+            "repository": row.repository,
+            "session": row.session,
+            "harness": row.harness,
+            "role": row.role,
+            "activity": row.activity,
+        })).collect::<Vec<Value>>(),
+        "dispatches": report.dispatches.iter().map(|row| serde_json::json!({
+            "dispatch_id": row.dispatch_id,
+            "repository": row.repository,
+            "state": row.state,
+            "sent_at": row.sent_at,
+            "waits_on": row.waits_on,
+            "brief": row.brief,
+        })).collect::<Vec<Value>>(),
+        "waits": report.waits,
+        "requests": report.requests.iter().map(|row| serde_json::json!({
+            "kind": row.kind,
+            "request_id": row.request_id,
+            "repository": row.repository,
+            "state": row.state,
+            "since": row.since,
+            "summary": row.summary,
+        })).collect::<Vec<Value>>(),
+    })
+}
+
+/// A span of `seconds` in its largest whole unit: `2d`, `5h`, `40m`, `12s`.
+fn span(seconds: i64) -> String {
+    let seconds = seconds.max(0);
+    if seconds >= 86_400 {
+        format!("{}d", seconds / 86_400)
+    } else if seconds >= 3_600 {
+        format!("{}h", seconds / 3_600)
+    } else if seconds >= 60 {
+        format!("{}m", seconds / 60)
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
