@@ -610,7 +610,7 @@ fn a_controller_runs_wide_concurrent_waves() {
     let text = profile("repo-controller.md");
     for sentence in [
         "A wave takes every ready unit with disjoint scope, up to `controllers.max_subagents`; a \
-         narrower wave records its reason on its wave page.",
+         narrower wave records its reason on its wave page, as a line `Width: <reason>`.",
         "All of a wave's implementors start in one message, as background sub-agents,",
         "The next wave is planned and started while a gate or a CI run runs.",
         "Adversary and security reviews run alongside the building units, not after them.",
