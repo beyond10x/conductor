@@ -22,9 +22,10 @@ use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::{config, store};
 use conductor_model::observation::{
     CommitSha, Harness, Mergeability, RecordBlocker, RecordMemberFailure, RecordMergedPullRequest,
-    RecordPullRequest, RecordRelease, RecordRepository, RecordSession, RecordSpecification,
-    RecordWorkflowRun, RepositoryName, RunConclusion, SessionState, SnapshotId, SnapshotState,
-    SpecificationPresence, StartSnapshot, ValidationResult, Visibility,
+    RecordPullRequest, RecordRelease, RecordRepository, RecordSecretSync, RecordSession,
+    RecordSpecification, RecordUsage, RecordWorkflowRun, RepositoryName, RunConclusion,
+    SessionState, SnapshotId, SnapshotState, SpecificationPresence, StartSnapshot,
+    ValidationResult, Visibility,
 };
 use conductor_model::primitives::Timestamp;
 use eventlog_core::{
@@ -421,6 +422,26 @@ fn every_kind() -> Collector {
             member: alpha.clone(),
             collector: "every-kind".to_owned(),
             error_line: "fatal: could not read from remote repository".to_owned(),
+        })?;
+        record.secret_sync(RecordSecretSync {
+            snapshot_id: snapshot.clone(),
+            sync: "policy".to_owned(),
+            repository: alpha.clone(),
+            branch: "main".to_owned(),
+            path: "policy.json".to_owned(),
+            source_committed_at: Some(Timestamp("2026-10-01T00:00:00Z".to_owned())),
+            secrets_updated_at: Some(Timestamp("2026-09-30T00:00:00Z".to_owned())),
+            error_line: None,
+        })?;
+        record.usage(RecordUsage {
+            snapshot_id: snapshot.clone(),
+            read_at: Timestamp("2026-10-02T00:00:00Z".to_owned()),
+            account: "first".to_owned(),
+            active: true,
+            health: "ok".to_owned(),
+            window: "seven_day".to_owned(),
+            used_percent: 42,
+            resets_at: None,
         })?;
         record.merged_pull_request(RecordMergedPullRequest {
             snapshot_id: snapshot,
