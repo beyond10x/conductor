@@ -481,10 +481,15 @@ fn the_board_flags_a_secret_older_than_its_source() {
     assert_eq!(
         deviations,
         vec![
-            vec!["repository".to_owned(), "deviations".to_owned()],
+            vec![
+                "repository".to_owned(),
+                "deviations".to_owned(),
+                "failing checks".to_owned()
+            ],
             vec![
                 "policy".to_owned(),
-                "secret stale: ci-policy, secret unread: missing".to_owned()
+                "secret stale: ci-policy, secret unread: missing".to_owned(),
+                String::new()
             ],
         ],
         "{board}"

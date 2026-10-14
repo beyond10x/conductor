@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 761d8d1a401452b05530050e9769321d8211815ec199f91a7507adff77806d64
-// contract digest c696e3d0c098959dea35ec5286d2480ab3df7d9d5dfd2dcb53f0bc84b3a7bd7e
+// model digest d579d41cf28810ad06737965df70904ef620ffb53729bb4dbb8a2ffd28e6c7e2
+// contract digest 8a1b8540182a24c5b2d60ea9aee70cc29c3f7c6f0489e4c0a7937503417e8f9e
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -258,6 +258,8 @@ pub struct RepositoryFigures {
     pub open_prs: i64,
     /// `failing_prs` — `Integer`.
     pub failing_prs: i64,
+    /// `failing_checks` — `List<String>`.
+    pub failing_checks: Vec<String>,
     /// `non_green_workflows` — `Integer`.
     pub non_green_workflows: i64,
     /// `open_blockers` — `Integer`.
@@ -1439,6 +1441,8 @@ pub struct PullRequestObservationData {
     pub mergeability: Mergeability,
     /// `failing_checks` — `Integer`.
     pub failing_checks: i64,
+    /// `failing_check_names` — `List<String>`.
+    pub failing_check_names: Vec<String>,
     /// `opened_at` — `Timestamp`.
     pub opened_at: crate::primitives::Timestamp,
     /// `updated_at` — `Timestamp`.
@@ -3267,6 +3271,8 @@ pub struct RecordPullRequest {
     pub mergeability: Mergeability,
     /// `failing_checks` — `Integer`.
     pub failing_checks: i64,
+    /// `failing_check_names` — `List<String>`.
+    pub failing_check_names: Vec<String>,
     /// `opened_at` — `Timestamp`.
     pub opened_at: crate::primitives::Timestamp,
     /// `updated_at` — `Timestamp`.
@@ -4219,6 +4225,8 @@ pub struct PullRequests {
     pub mergeability: Mergeability,
     /// `failing_checks` — `Integer`.
     pub failing_checks: i64,
+    /// `failing_check_names` — `List<String>`.
+    pub failing_check_names: Vec<String>,
     /// `opened_at` — `Timestamp`.
     pub opened_at: crate::primitives::Timestamp,
     /// `updated_at` — `Timestamp`.

@@ -14,7 +14,9 @@
 //!    `controllers.max_open_reviews` of them (`0` is no limit), `<repo>: <k> wait for review
 //!    (limit <n>): no new dispatch`, the line conductor holds that repository's dispatch on;
 //! 3. **Deviations**, one row per repository that is not archived with at least one: a red `main`
-//!    workflow, a pull request with a failing check, one open more than 14 days, unreleased
+//!    workflow, a pull request with a failing check (each such pull request listed under
+//!    `failing checks` by number with every failing check named, `story:pr-check-names`), one
+//!    open more than 14 days, unreleased
 //!    commits, no checkout, a specification missing or refused, a Gates hook whose version
 //!    differs from the `b10x-gates` on `PATH` (`stale gates hooks`, `story:gates-hooks-fresh`),
 //!    a newest wave narrower than both the ready units its store offers and
@@ -293,6 +295,7 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
                     .collect(),
                 open_prs: figures.counts.open_prs,
                 failing_prs: figures.counts.failing_prs,
+                failing_checks: figures.failing_checks.clone(),
                 non_green_workflows: figures.counts.non_green_workflows,
                 open_blockers: figures.counts.open_blockers,
                 specifications_present: figures.counts.specifications_present,
@@ -399,9 +402,18 @@ fn status_text(report: &StatusReport) -> String {
         let rows: Vec<Vec<String>> = report
             .deviations
             .iter()
-            .map(|row| vec![row.repository.clone(), row.deviations.join(", ")])
+            .map(|row| {
+                vec![
+                    row.repository.clone(),
+                    row.deviations.join(", "),
+                    row.failing_checks.join("; "),
+                ]
+            })
             .collect();
-        out.push_str(&table(&["repository", "deviations"], &rows));
+        out.push_str(&table(
+            &["repository", "deviations", "failing checks"],
+            &rows,
+        ));
     }
 
     out.push_str("## Sessions\n\n");
@@ -504,6 +516,7 @@ fn status_json(report: &StatusReport) -> Value {
             "deviations": row.deviations,
             "open_prs": row.open_prs,
             "failing_prs": row.failing_prs,
+            "failing_checks": row.failing_checks,
             "non_green_workflows": row.non_green_workflows,
             "open_blockers": row.open_blockers,
             "specifications_present": row.specifications_present,
@@ -686,6 +699,8 @@ struct Counts {
 struct Figures {
     deviations: Vec<&'static str>,
     secrets: Vec<String>,
+    /// One entry per pull request with a failing check, by number ([`failing_checks`]).
+    failing_checks: Vec<String>,
     counts: Counts,
 }
 
@@ -700,6 +715,27 @@ impl Figures {
     }
 }
 
+/// The `failing checks` of `pulls` (`story:pr-check-names`): one entry per pull request with a
+/// failing check, in number order, `#<n> <name>, <name>` with every failing check named, or `#<n>`
+/// alone when its observation names none.
+fn failing_checks(pulls: &[&PullRequestObservationData]) -> Vec<String> {
+    let mut failing: Vec<&&PullRequestObservationData> = pulls
+        .iter()
+        .filter(|pull| pull.failing_checks > 0)
+        .collect();
+    failing.sort_by_key(|pull| pull.number);
+    failing
+        .into_iter()
+        .map(|pull| {
+            if pull.failing_check_names.is_empty() {
+                format!("#{}", pull.number)
+            } else {
+                format!("#{} {}", pull.number, pull.failing_check_names.join(", "))
+            }
+        })
+        .collect()
+}
+
 /// The figures of each repository of the snapshot `held` in `store` that is not archived, in name
 /// order, as `conductor.observation.RepositoryFigures`: the rows the dashboard's `/api/board`
 /// answers (`story:dashboard-overview`), worked out by the one [`figures`] the board's deviations
@@ -712,6 +748,7 @@ pub(crate) fn repository_figures(store: &Store, held: &SnapshotSnapshot) -> Vec<
             deviations: figures.flags(),
             open_prs: figures.counts.open_prs,
             failing_prs: figures.counts.failing_prs,
+            failing_checks: figures.failing_checks,
             non_green_workflows: figures.counts.non_green_workflows,
             open_blockers: figures.counts.open_blockers,
             specifications_present: figures.counts.specifications_present,
@@ -816,6 +853,7 @@ fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
             Figures {
                 deviations,
                 secrets: Vec::new(),
+                failing_checks: failing_checks(&pulls),
                 counts,
             },
         );
@@ -1005,10 +1043,19 @@ fn render(
     let deviations: Vec<Vec<String>> = current
         .iter()
         .filter(|(_, figures)| !figures.flags().is_empty())
-        .map(|(name, figures)| vec![name.clone(), figures.flags().join(", ")])
+        .map(|(name, figures)| {
+            vec![
+                name.clone(),
+                figures.flags().join(", "),
+                figures.failing_checks.join("; "),
+            ]
+        })
         .collect();
     let deviation_rows = count(deviations.len());
-    board.push_str(&table(&["repository", "deviations"], &deviations));
+    board.push_str(&table(
+        &["repository", "deviations", "failing checks"],
+        &deviations,
+    ));
 
     board.push_str("## Overview\n\n");
     let overview: Vec<Vec<String>> = now

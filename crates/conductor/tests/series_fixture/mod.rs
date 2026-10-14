@@ -368,6 +368,7 @@ pub fn collector(
                 draft: false,
                 mergeability: Mergeability::Mergeable,
                 failing_checks: 0,
+                failing_check_names: Vec::new(),
                 opened_at: at(opened_at),
                 updated_at: at(opened_at),
                 url: None,

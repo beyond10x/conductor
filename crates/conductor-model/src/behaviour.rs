@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 761d8d1a401452b05530050e9769321d8211815ec199f91a7507adff77806d64
-// contract digest c696e3d0c098959dea35ec5286d2480ab3df7d9d5dfd2dcb53f0bc84b3a7bd7e
+// model digest d579d41cf28810ad06737965df70904ef620ffb53729bb4dbb8a2ffd28e6c7e2
+// contract digest 8a1b8540182a24c5b2d60ea9aee70cc29c3f7c6f0489e4c0a7937503417e8f9e
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2455,6 +2455,7 @@ where
             draft: input.draft.clone(),
             mergeability: input.mergeability.clone(),
             failing_checks: input.failing_checks.clone(),
+            failing_check_names: input.failing_check_names.clone(),
             opened_at: input.opened_at.clone(),
             updated_at: input.updated_at.clone(),
             url: input.url.clone(),
@@ -3290,6 +3291,7 @@ where
                 draft: held.data.draft,
                 mergeability: held.data.mergeability,
                 failing_checks: held.data.failing_checks,
+                failing_check_names: held.data.failing_check_names,
                 opened_at: held.data.opened_at,
                 updated_at: held.data.updated_at,
                 url: held.data.url,

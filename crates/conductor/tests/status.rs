@@ -12,7 +12,9 @@
 //! with that pull request's check turned red, and nothing else changed. `reviews.json` holds four
 //! open pull requests of `alpha` (a draft, one with a failing check, and two waiting for review,
 //! opened on different days) and one of `beta` waiting; `reviews-three.json` three of `alpha`
-//! waiting (`story:review-limit`).
+//! waiting (`story:review-limit`). `checks.json` is `red.json` with four pull requests of `alpha`:
+//! one with three failing checks named, one with one, one failing with no name recorded (an
+//! observation from before the names), and a green one (`story:pr-check-names`).
 
 mod active;
 mod common;
@@ -186,6 +188,16 @@ fn from_fixture(name: &str) -> Collector {
                 draft: item["draft"].as_bool().unwrap_or(false),
                 mergeability: Mergeability::Mergeable,
                 failing_checks: number(item, "failing_checks"),
+                failing_check_names: item["failing_check_names"]
+                    .as_array()
+                    .map(|names| {
+                        names
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 opened_at: Timestamp(text(item, "opened_at")),
                 updated_at: Timestamp(text(item, "opened_at")),
                 url: optional_text(item, "url"),
@@ -1007,4 +1019,70 @@ fn status_creates_no_store() {
         "`conductor status` created a store: {}",
         describe(&output)
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:pr-check-names
+// ---------------------------------------------------------------------------------------------
+
+/// What `checks.json` reads in the `failing checks` column: one entry per failing pull request of
+/// `alpha`, by number, every failing check named; `#8` alone, whose observation names none.
+const CHECKS_ALPHA: [&str; 3] = ["#7 Security, test (shard 3), docs", "#8", "#9 lint"];
+
+/// The `failing checks` cell of `repository`'s row in the Deviations table of `text`.
+fn failing_checks_cell(text: &str, repository: &str) -> String {
+    let rows = table(&section(text, "## Deviations"));
+    let (header, body) = rows
+        .split_first()
+        .unwrap_or_else(|| panic!("the deviations hold no table:\n{text}"));
+    let at = column(header, "failing checks");
+    body.iter()
+        .find(|row| row[0] == repository)
+        .map(|row| row[at].clone())
+        .unwrap_or_else(|| panic!("no deviation row for {repository}:\n{text}"))
+}
+
+/// `conductor status` names every failing check of each pull request with one, in its text and
+/// in its JSON; a repository without a failing pull request names none.
+#[test]
+fn status_names_every_failing_check_of_a_pull_request() {
+    let root = case_dir("status-check-names");
+    complete(&root, EARLIER, "checks");
+
+    let status = status_of(&root, &[]);
+    assert_eq!(
+        failing_checks_cell(&status, "alpha"),
+        CHECKS_ALPHA.join("; "),
+        "{status}"
+    );
+    assert_eq!(failing_checks_cell(&status, "beta"), "", "{status}");
+
+    let json: Value =
+        serde_json::from_str(&status_of(&root, &["--format", "json"])).expect("the status is JSON");
+    let deviations = json["deviations"].as_array().expect("deviations");
+    let alpha = deviations
+        .iter()
+        .find(|row| row["repository"] == "alpha")
+        .unwrap_or_else(|| panic!("no alpha: {json}"));
+    assert_eq!(
+        alpha["failing_checks"],
+        serde_json::json!(CHECKS_ALPHA),
+        "{json}"
+    );
+    assert_eq!(alpha["failing_prs"], 3, "{json}");
+}
+
+/// The board names every failing check of each pull request with one in its Deviations table.
+#[test]
+fn the_board_names_every_failing_check_of_a_pull_request() {
+    let root = case_dir("board-check-names");
+    let snapshot = complete(&root, EARLIER, "checks");
+
+    let board = publish(&root, &snapshot);
+    assert_eq!(
+        failing_checks_cell(&board, "alpha"),
+        CHECKS_ALPHA.join("; "),
+        "{board}"
+    );
+    assert_eq!(failing_checks_cell(&board, "beta"), "", "{board}");
 }

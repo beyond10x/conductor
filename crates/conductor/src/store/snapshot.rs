@@ -394,6 +394,7 @@ fn encode_pull_request(observation: &PullRequestObservationSnapshot) -> Value {
         "draft": data.draft,
         "mergeability": mergeability_name(data.mergeability),
         "failing_checks": data.failing_checks,
+        "failing_check_names": data.failing_check_names,
         "opened_at": data.opened_at.0,
         "updated_at": data.updated_at.0,
         "url": data.url,
@@ -413,6 +414,8 @@ fn decode_pull_request(body: &Value) -> Result<PullRequestObservationSnapshot, S
             draft: boolean(body, "draft")?,
             mergeability: named(body, "mergeability", mergeability_named)?,
             failing_checks: integer(body, "failing_checks")?,
+            // Absent in an observation recorded before the collectors named the checks.
+            failing_check_names: optional_texts(body, "failing_check_names")?,
             opened_at: Timestamp(text(body, "opened_at")?),
             updated_at: Timestamp(text(body, "updated_at")?),
             // Absent in an observation recorded before the collectors filled it.
@@ -824,6 +827,22 @@ fn optional_text(body: &Value, field: &str) -> Result<Option<String>, String> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(text)) => Ok(Some(text.clone())),
         Some(_) => Err(format!("field {field:?} is neither text nor null")),
+    }
+}
+
+/// A list of texts: `null` or absent is empty.
+fn optional_texts(body: &Value, field: &str) -> Result<Vec<String>, String> {
+    match body.get(field) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("field {field:?} holds a value that is not text"))
+            })
+            .collect(),
+        Some(_) => Err(format!("field {field:?} is neither a list nor null")),
     }
 }
 

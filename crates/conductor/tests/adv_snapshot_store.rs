@@ -128,6 +128,7 @@ fn everything() -> Collector {
             draft: false,
             mergeability: Mergeability::Mergeable,
             failing_checks: 0,
+            failing_check_names: Vec::new(),
             opened_at: Timestamp("2026-09-01T00:00:00Z".to_owned()),
             updated_at: Timestamp("2026-10-01T00:00:00Z".to_owned()),
             url: None,

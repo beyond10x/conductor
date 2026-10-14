@@ -211,6 +211,7 @@ fn fixture() -> Collector {
             draft: false,
             mergeability: Mergeability::Mergeable,
             failing_checks: 1,
+            failing_check_names: Vec::new(),
             opened_at: Timestamp("2026-10-12T09:00:00Z".to_owned()),
             updated_at: Timestamp("2026-10-12T10:00:00Z".to_owned()),
             url: Some("https://github.com/example-org/alpha/pull/7".to_owned()),
@@ -840,6 +841,7 @@ fn reviews_fixture() -> Collector {
                 draft,
                 mergeability: Mergeability::Mergeable,
                 failing_checks,
+                failing_check_names: Vec::new(),
                 opened_at: Timestamp(opened_at.to_owned()),
                 updated_at: Timestamp(opened_at.to_owned()),
                 url: Some(format!(
