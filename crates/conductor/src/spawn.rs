@@ -6,9 +6,15 @@
 //! `conductor.dispatch.SpawnRefused`, named by its `conductor.dispatch.SpawnRefusal` on one line of
 //! standard error, exit 1.
 //!
-//! It runs the controller start form of the conductor profile (`.agents/conductor.md`), as one
-//! program with its arguments and never through a shell, with its working directory the checkout
-//! `<checkouts.root>/<repository>`:
+//! It starts the controller through the confinement provider the instance's `confinement` names
+//! ([`crate::confine`], `story:session-envelope-seam`), with the controller role's request: the
+//! checkout as its start directory, its limits, its `writable` places resolved to absolute paths
+//! ([`crate::confine::places`]), its network and its `forge_token_env`; the charter is the first
+//! prompt. Under `strict` a provider that is not available refuses before anything is recorded
+//! (`ProviderUnavailable`), and a box measured short of the request is stopped and the controller
+//! recorded stopped (`MeasurementShort`). Through the `none` provider, which `report` falls back
+//! to, the session is the controller start form below, one program with its arguments and never
+//! through a shell, with its working directory the checkout `<checkouts.root>/<repository>`:
 //!
 //! ```text
 //! claude --bg -n <session name> --append-system-prompt-file <profile> --model <model>
@@ -44,13 +50,9 @@
 //! ([`crate::records`]): the repository as `repo`, the controller's id, the session name as `to`,
 //! that session id and the charter revision 1.
 
-use std::fs::{self, File};
-use std::io::{self, Write as _};
-use std::os::unix::fs::OpenOptionsExt as _;
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Output, Stdio};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{CommandWord, Harness as RoleHarness, Instance, Role};
@@ -60,23 +62,21 @@ use conductor_model::dispatch::{
     StartController, StartControllerOutcome, StopController, StopControllerOutcome,
 };
 use conductor_model::observation::{Harness, RepositoryName};
+use conductor_model::session::SessionRequest;
 use serde_json::Value;
 
 use crate::cli::{SpawnArgs, StopControllerArgs};
 use crate::collect::{self, Under};
 use crate::config::{self, Environment};
+use crate::confine::places::{self, Placement};
+use crate::confine::{self, CLAUDE, Launch, Providers, Refusal, live_session};
 use crate::not_implemented;
 
 const COMMAND: &str = "spawn";
 
-/// The program `spawn` starts, found on `PATH`.
-const CLAUDE: &str = "claude";
-
-/// How long the session list and the launch may each take before they are stopped.
-const BOUND: Duration = Duration::from_secs(120);
-
-/// `conductor spawn`: starts the controller session of `--repository` and records the controller
-/// `Running`, as the module documentation says. Prints what `claude --bg` printed.
+/// `conductor spawn`: starts the controller session of `--repository` through the provider the
+/// instance's `confinement` names ([`confine`]) and records the controller `Running`, as the
+/// module documentation says. Prints what `claude --bg` printed.
 ///
 /// # Errors
 ///
@@ -86,6 +86,7 @@ pub fn spawn(
     config_flag: Option<&Path>,
     state: Option<&Path>,
     args: &SpawnArgs,
+    providers: &dyn Providers,
 ) -> Result<ExitCode> {
     let input = SpawnController {
         repository: args.repository.clone(),
@@ -109,7 +110,7 @@ pub fn spawn(
     if let Err(detail) = outside_records(instance, &checkout) {
         return refuse(SpawnRefusal::RecordsCheckout, detail);
     }
-    let (profile, settings, model) = match role(instance) {
+    let (controller, profile, settings, model) = match role(instance) {
         Ok(role) => role,
         Err((refusal, detail)) => return refuse(refusal, detail),
     };
@@ -126,6 +127,11 @@ pub fn spawn(
         Err(detail) => return refuse(SpawnRefusal::NoCharter, detail),
     };
     let session_name = config::session_name(instance, &repository);
+    // Under `strict`, a provider that is not available starts nothing and records nothing.
+    let chosen = match confine::choose(providers, &instance.confinement) {
+        Ok(chosen) => chosen,
+        Err(refusal) => return refuse_confined(&refuse, refusal),
+    };
     match live_session(&session_name.0) {
         Ok(None) => {}
         Ok(Some(id)) => {
@@ -171,42 +177,76 @@ pub fn spawn(
         }
     };
 
-    let mut launch = Command::new(CLAUDE);
-    launch
-        .arg("--bg")
-        .arg("-n")
-        .arg(&session_name.0)
-        .arg("--append-system-prompt-file")
-        .arg(profile)
-        .arg("--model")
-        .arg(model)
-        .args(["--permission-mode", "bypassPermissions"])
-        .args(["--setting-sources", "project,local"])
-        .arg("--settings")
-        .arg(settings)
-        .arg(&charter)
-        .current_dir(&checkout);
+    let request = SessionRequest {
+        role: config::CONTROLLER.to_owned(),
+        session_name: session_name.clone(),
+        cwd: checkout.display().to_string(),
+        limits: controller.limits.clone(),
+        writable: places::resolve(
+            &controller.writable,
+            &Placement {
+                home: home.to_owned(),
+                tmpdir: confine::tmpdir(),
+                start: checkout.clone(),
+                repository: Some(repository.clone()),
+                trees: PathBuf::from(&instance.checkouts.trees),
+                records: PathBuf::from(&instance.records),
+                harness: controller.harness,
+                controller: true,
+            },
+        ),
+        network: controller.network,
+        forge_token_env: controller.forge_token_env.clone(),
+    };
+    let mut env = Vec::new();
     if active.from_file {
         // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
         // path would name a file of the repository.
         let (file, _) = config::locate(config_flag, &environment).context(COMMAND)?;
-        launch
-            .env(config::INSTANCE_VARIABLE, &instance.name.0)
-            .env(config::CONFIG_VARIABLE, environment.cwd.join(file));
+        env.push((
+            config::INSTANCE_VARIABLE.to_owned(),
+            instance.name.0.clone(),
+        ));
+        env.push((
+            config::CONFIG_VARIABLE.to_owned(),
+            environment.cwd.join(file).display().to_string(),
+        ));
     }
-    let failure = match run_launch(&mut launch) {
-        Ok(output) if output.status.success() => {
-            let mut err = io::stderr().lock();
-            err.write_all(&output.stderr)
-                .context("write what claude said to standard error")?;
-            io::stdout()
-                .lock()
-                .write_all(&output.stdout)
-                .context("write the session id to standard output")?;
+    let launch = Launch {
+        request,
+        program: CLAUDE.to_owned(),
+        args: [
+            "-n",
+            &session_name.0,
+            "--append-system-prompt-file",
+            &profile,
+            "--model",
+            &model,
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "project,local",
+            "--settings",
+            &settings,
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        env,
+    };
+    // The none provider's launch is `claude --bg`; another provider's is its own start.
+    let launcher = if chosen.name() == "none" {
+        format!("{CLAUDE} --bg")
+    } else {
+        format!("the {} provider's start", chosen.name())
+    };
+    let state_dir = crate::state::dir(state)?;
+    let failure = match chosen.start(&launch, &charter, &state_dir) {
+        Ok(started) => {
+            confine::pass_through(&started.said)?;
             let mut line = crate::records::dispatch_line(DispatchLogEvent::Sent, &repository)?;
             line.controller_id = Some(controller_id.0.0.clone());
             line.to = Some(session_name.0.clone());
-            line.session_id = Some(session_id(&String::from_utf8_lossy(&output.stdout)));
+            line.session_id = started.session.session_id.clone();
             line.charter_revision = Some(1);
             crate::records::append_dispatch(&line).with_context(|| {
                 format!(
@@ -216,8 +256,21 @@ pub fn spawn(
             })?;
             return Ok(ExitCode::SUCCESS);
         }
-        Ok(output) => exited(&output),
-        Err(error) => format!("{error:#}"),
+        Err(Refusal::LaunchFailed { detail, .. }) => detail,
+        Err(Refusal::MeasurementShort(detail)) => {
+            record_stopped(
+                state,
+                controller_id,
+                format!("{COMMAND}: the box is short of the request: {detail}"),
+            )?;
+            return refuse(
+                SpawnRefusal::MeasurementShort,
+                format!("{detail}; the controller is recorded stopped"),
+            );
+        }
+        Err(refusal @ Refusal::ProviderUnavailable(_)) => {
+            return refuse_confined(&refuse, refusal);
+        }
     };
     // A launch can fail, or be stopped at the bound, after the session started: the session list,
     // read again, decides whether the controller is recorded stopped.
@@ -227,7 +280,7 @@ pub fn spawn(
             return refuse(
                 SpawnRefusal::LaunchFailed,
                 format!(
-                    "{CLAUDE} --bg {failure}; yet the live session {id} holds the session name \
+                    "{launcher} {failure}; yet the live session {id} holds the session name \
                      {}, so the controller {} stays recorded running",
                     session_name.0, controller_id.0.0
                 ),
@@ -237,7 +290,7 @@ pub fn spawn(
             return refuse(
                 SpawnRefusal::LaunchFailed,
                 format!(
-                    "{CLAUDE} --bg {failure}; the session list could not be read again \
+                    "{launcher} {failure}; the session list could not be read again \
                      ({error:#}), so the controller {} stays recorded running: stop it with \
                      conductor controller stop-controller once no session {} runs",
                     controller_id.0.0, session_name.0
@@ -245,7 +298,23 @@ pub fn spawn(
             );
         }
     }
-    let reason = format!("{COMMAND}: the session did not start: {failure}");
+    record_stopped(
+        state,
+        controller_id,
+        format!("{COMMAND}: the session did not start: {failure}"),
+    )?;
+    refuse(
+        SpawnRefusal::LaunchFailed,
+        format!("{launcher} {failure}; the controller is recorded stopped"),
+    )
+}
+
+/// Records the controller `controller_id` stopped for `reason`.
+fn record_stopped(
+    state: Option<&Path>,
+    controller_id: conductor_model::dispatch::ControllerId,
+    reason: String,
+) -> Result<()> {
     let mut generated = crate::controller::record(state)?;
     let outcome = generated
         .stop_controller(StopController {
@@ -255,16 +324,24 @@ pub fn spawn(
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     generated.ports.store.check().context("keep the stop")?;
     match outcome {
-        StopControllerOutcome::Stopped { .. } => {}
+        StopControllerOutcome::Stopped { .. } => Ok(()),
         StopControllerOutcome::NoSuchController { .. }
         | StopControllerOutcome::WrongState { .. } => {
             bail!("{COMMAND}: the controller it recorded could not be recorded stopped");
         }
     }
-    refuse(
-        SpawnRefusal::LaunchFailed,
-        format!("{CLAUDE} --bg {failure}; the controller is recorded stopped"),
-    )
+}
+
+/// Answers a refusal of the confinement ([`confine::Refusal`]) as its `SpawnRefusal`.
+fn refuse_confined(
+    refuse: &dyn Fn(SpawnRefusal, String) -> Result<ExitCode>,
+    refusal: Refusal,
+) -> Result<ExitCode> {
+    match refusal {
+        Refusal::ProviderUnavailable(detail) => refuse(SpawnRefusal::ProviderUnavailable, detail),
+        Refusal::MeasurementShort(detail) => refuse(SpawnRefusal::MeasurementShort, detail),
+        Refusal::LaunchFailed { detail, .. } => refuse(SpawnRefusal::LaunchFailed, detail),
+    }
 }
 
 /// Ends the controller session `args.controller_id` names.
@@ -302,6 +379,8 @@ const fn refusal_name(refusal: SpawnRefusal) -> &'static str {
         SpawnRefusal::UntrustedCheckout => "UntrustedCheckout",
         SpawnRefusal::NoCharter => "NoCharter",
         SpawnRefusal::LaunchFailed => "LaunchFailed",
+        SpawnRefusal::ProviderUnavailable => "ProviderUnavailable",
+        SpawnRefusal::MeasurementShort => "MeasurementShort",
     }
 }
 
@@ -375,8 +454,8 @@ fn outside_records(instance: &Instance, checkout: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The `controller` role's profile, settings and model, each file checked to be one.
-fn role(instance: &Instance) -> Result<(String, String, String), (SpawnRefusal, String)> {
+/// The `controller` role, with its profile, settings and model, each file checked to be one.
+fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRefusal, String)> {
     let Some(role) = instance
         .roles
         .iter()
@@ -415,7 +494,7 @@ fn role(instance: &Instance) -> Result<(String, String, String), (SpawnRefusal, 
     };
     let profile = file(profile, SpawnRefusal::NoProfile, "profile")?;
     let settings = file(settings, SpawnRefusal::NoSettings, "settings")?;
-    Ok((profile, settings, model.0.clone()))
+    Ok((role, profile, settings, model.0.clone()))
 }
 
 /// Whether `~/.claude.json` under `home` marks `checkout`, a physical path, trusted:
@@ -456,113 +535,6 @@ fn charter(file: &Path) -> Result<String, String> {
         ));
     }
     Ok(text)
-}
-
-/// The id of a live session the Claude session list (`claude agents --json`) names `name`: an
-/// entry with a `pid`, as the sessions collector counts one live, `id` else `sessionId`.
-fn live_session(name: &str) -> Result<Option<String>> {
-    let shown = format!("{CLAUDE} agents --json");
-    let output = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), BOUND)
-        .with_context(|| format!("read the Claude session list `{shown}`"))?;
-    if !output.status.success() {
-        bail!("`{shown}` {}", exited(&output));
-    }
-    let Value::Array(entries) = serde_json::from_slice(&output.stdout)
-        .with_context(|| format!("`{shown}` printed no JSON"))?
-    else {
-        bail!("`{shown}` printed no JSON array");
-    };
-    Ok(entries
-        .iter()
-        .find(|entry| !entry["pid"].is_null() && entry["name"].as_str() == Some(name))
-        .map(|entry| {
-            entry["id"]
-                .as_str()
-                .or_else(|| entry["sessionId"].as_str())
-                .unwrap_or("with no id")
-                .to_owned()
-        }))
-}
-
-/// Runs the launch `command` to its end within [`BOUND`], with no standard input, and answers its
-/// exit status and output. Its standard output and error go to files of this process's own, not
-/// to pipes: `claude --bg` leaves a session running, which may keep what it inherited open, and a
-/// pipe would not reach its end before that session does. The files are removed afterwards. A
-/// launch still running after the bound is killed, and the answer is an error.
-fn run_launch(command: &mut Command) -> Result<Output> {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos());
-    let base = format!("conductor-spawn.{}.{stamp}", std::process::id());
-    let files = ["out", "err"].map(|what| std::env::temp_dir().join(format!("{base}.{what}")));
-    let ran = (|| -> Result<Output> {
-        let mut streams = Vec::with_capacity(files.len());
-        for file in &files {
-            streams.push(
-                File::options()
-                    .write(true)
-                    .create_new(true)
-                    .mode(0o600)
-                    .open(file)
-                    .with_context(|| format!("create {}", file.display()))?,
-            );
-        }
-        let stderr = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
-        let stdout = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
-        let mut child = command
-            .stdin(Stdio::null())
-            .stdout(stdout)
-            .stderr(stderr)
-            .spawn()
-            .with_context(|| format!("start `{CLAUDE}`"))?;
-        let started = Instant::now();
-        let status = loop {
-            if let Some(status) = child
-                .try_wait()
-                .with_context(|| format!("wait for `{CLAUDE}`"))?
-            {
-                break status;
-            }
-            if started.elapsed() >= BOUND {
-                let _ = child.kill();
-                let _ = child.wait();
-                bail!(
-                    "gave no answer within {} s and was stopped",
-                    BOUND.as_secs()
-                );
-            }
-            thread::sleep(Duration::from_millis(20));
-        };
-        let [out, err] = &files;
-        Ok(Output {
-            status,
-            stdout: fs::read(out).with_context(|| format!("read {}", out.display()))?,
-            stderr: fs::read(err).with_context(|| format!("read {}", err.display()))?,
-        })
-    })();
-    for file in &files {
-        let _ = fs::remove_file(file);
-    }
-    ran
-}
-
-/// How a program that did not succeed ended, with what it wrote to standard error on one line.
-fn exited(output: &Output) -> String {
-    let said: Vec<&str> = std::str::from_utf8(&output.stderr)
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect();
-    let how = output.status.code().map_or_else(
-        || "was ended by a signal".to_owned(),
-        |code| format!("exited {code}"),
-    );
-    if said.is_empty() {
-        how
-    } else {
-        format!("{how}: {}", said.join("; "))
-    }
 }
 
 /// The session id `claude --bg` printed: the id of its `backgrounded · <id> · <name>` line, or the

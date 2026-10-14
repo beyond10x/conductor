@@ -538,7 +538,8 @@ because conductor-dev is unreachable, conductor writes its hand-over and runs `t
 conductor:restart` itself, from its records directory and detached from the session the task
 stops.
 
-Both sessions run in the background (`claude --bg`). A session whose permission mode holds
+Both sessions start in the background with `conductor session start`, in the box the instance's
+`confinement` asks for. A session whose permission mode holds
 incoming messages for approval stalls the loop, so both run in a mode that does not. The operator
 reaches them with `task conductor:attach` and `task dev:attach`.
 

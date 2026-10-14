@@ -101,8 +101,10 @@ task conductor:attach     # open it in this terminal
 task sessions             # list the conductor and conductor-dev sessions
 ```
 
-`task conductor:start` starts Claude Code in the background, in the instance's `records`
-directory, as:
+`task conductor:start` runs `conductor session start --role conductor`, which starts the session
+through the confinement provider the instance's `confinement` names and records its measurement
+(see [confinement](/docs/security/confinement#how-a-session-is-started)). Until conductor sets up a
+`systemd` box, that is Claude Code in the background, in the instance's `records` directory, as:
 
 ```text
 claude --bg -n <session name> --append-system-prompt-file <profile> --model <model>
@@ -139,7 +141,8 @@ records, schedules its cycles and starts `conductor watch run --follow`.
 
 ## 6. Controllers
 
-Conductor starts one controller per repository itself, in that repository's checkout:
+Conductor starts one controller per repository with `conductor spawn --repository <repo>`, in that
+repository's checkout, through the same provider as `conductor session start`:
 
 ```text
 cd <checkouts root>/<repo> && claude --bg -n <session name> --append-system-prompt-file <controller profile>
@@ -149,8 +152,8 @@ cd <checkouts root>/<repo> && claude --bg -n <session name> --append-system-prom
 
 The session name is `<session_prefix>-<repo>`, or `<repo>` without a prefix. The settings are the
 controller role's, such as this checkout's `.claude/controller-settings.json`, which wires the
-guard. Conductor records each controller with `conductor controller start-controller`, which
-refuses a second running controller for the same repository.
+guard. `conductor spawn` records each controller running, and refuses a second running
+controller for the same repository.
 
 **Who merges.** A charter merges by default with `merge: controller`: the controller merges its
 pull request once its full gate is green. Write the line `merge: human` in a repository's charter
@@ -163,9 +166,9 @@ profiles.
 
 :::caution[Planned]
 
-`conductor controller start-controller` records the controller only; the conductor session starts
-the harness session itself, as its profile instructs. That a controller always starts with the
-guard's settings is an instruction to conductor, not enforced by code.
+`conductor spawn` and `conductor session start` are the only start forms conductor's profile
+names, and each starts the session with its role's settings. A session someone starts by hand
+with `claude` is not one of them, and nothing in code prevents it.
 
 :::
 

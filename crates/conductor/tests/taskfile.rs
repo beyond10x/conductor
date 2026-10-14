@@ -73,9 +73,11 @@ fn each_conductor_task_changes_to_the_records_directory_config_show_names() {
         );
         let commands = shell_commands(task);
         assert!(!commands.is_empty(), "{name} runs no shell command");
+        // `conductor session start` and `session stop` run conductor's session in the records
+        // directory themselves (`story:session-envelope-seam`).
         for command in &commands {
             assert!(
-                command.starts_with(CD_RECORDS),
+                command.starts_with(CD_RECORDS) || command.starts_with("conductor session "),
                 "{name}: a command that does not start in the records directory: {command:?}"
             );
         }
@@ -123,28 +125,40 @@ fn conductor_starts_as_the_conductor_agent_with_the_role_settings_or_this_checko
         ),
         "{task:?}"
     );
-    let commands = shell_commands(task).join("\n");
-    for part in [
-        "if [ -n {{shellQuote .PROFILE}} ]; then flag=--append-system-prompt-file; \
-         who={{shellQuote .PROFILE}}; else flag=--agent; who={{shellQuote .AGENT}}; fi",
-        "claude --bg -n {{shellQuote .NAME}} \"$flag\" \"$who\" ",
-        "--model {{shellQuote .MODEL}}",
-        "--setting-sources project,local --settings {{shellQuote .SETTINGS}}",
-        "{{shellQuote .CONDUCTOR_PROMPT}}",
+    // The start itself is the binary's (`story:session-envelope-seam`): the role's settings,
+    // else this checkout's, which the task's working directory is.
+    assert_eq!(
+        shell_commands(task),
+        ["conductor session start --role conductor"],
+        "{task:?}"
+    );
+}
+
+/// `story:session-envelope-seam`: `conductor:start`, `conductor:restart` and `dev:start` start
+/// their session with `conductor session start --role …`, and `conductor:restart` stops the old
+/// one with `conductor session stop --role conductor`; no task starts or stops a session with
+/// `claude --bg`, `claude stop` or `claude rm` itself.
+#[test]
+fn the_session_tasks_start_and_stop_through_conductor_session() {
+    let taskfile = taskfile();
+    for (name, expected) in [
+        (
+            "conductor:start",
+            "conductor session start --role conductor",
+        ),
+        (
+            "conductor:restart",
+            "conductor session stop --role conductor",
+        ),
+        ("dev:start", "conductor session start --role conductor-dev"),
     ] {
-        assert!(commands.contains(part), "{part}: {commands}");
+        let task = &taskfile["tasks"][name];
+        assert_eq!(shell_commands(task), [expected], "{name}: {task:?}");
+        let text = serde_yaml::to_string(&task["cmds"]).expect("the commands as text");
+        for old in ["claude --bg", "claude stop", "claude rm"] {
+            assert!(!text.contains(old), "{name} runs {old}: {text}");
+        }
     }
-    assert!(
-        !commands.contains("--settings .claude/"),
-        "a relative settings path names the records directory's: {commands}"
-    );
-    let prompt = taskfile["vars"]["CONDUCTOR_PROMPT"]
-        .as_str()
-        .expect("a CONDUCTOR_PROMPT");
-    assert!(
-        prompt.contains("-- docs/handoff/") && !prompt.contains("ROOT_DIR"),
-        "the prompt reads docs/handoff/ of the directory conductor runs in: {prompt}"
-    );
 }
 
 #[test]
@@ -474,6 +488,10 @@ fn conductor_start_runs_claude_in_the_records_directory_with_this_checkouts_sett
             settings.display()
         )),
         "{args}"
+    );
+    assert!(
+        args.contains("-- docs/handoff/") && !args.contains("ROOT_DIR"),
+        "the prompt reads docs/handoff/ of the directory conductor runs in: {args}"
     );
 }
 
@@ -1072,50 +1090,6 @@ fn dev_start_refuses_a_role_profile_that_is_not_a_file() {
         shown(&output)
     );
     assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// Every session start command conductor's profile writes (a controller's start and its resume
-/// after a usage limit) runs without the user's settings and with the controller settings file,
-/// and names the profile form beside the agent form.
-#[test]
-fn the_conductor_profile_starts_and_resumes_controllers_without_user_settings() {
-    let text = fs::read_to_string(root().join(".agents/conductor.md")).expect("read the profile");
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let commands: Vec<&str> = flat
-        .match_indices("claude --bg")
-        .map(|(at, _)| {
-            let rest = &flat[at..];
-            &rest[..rest.find('`').unwrap_or(rest.len())]
-        })
-        .collect();
-    let starts = commands
-        .iter()
-        .filter(|command| !command.contains("--resume"))
-        .count();
-    let resumes = commands
-        .iter()
-        .filter(|command| command.contains("--resume"))
-        .count();
-    assert!(
-        starts >= 1 && resumes >= 1,
-        "a controller start and a resume command: {commands:#?}"
-    );
-    for command in &commands {
-        for part in [
-            "--setting-sources project,local --settings <controller settings>",
-            "--append-system-prompt-file <controller profile>",
-            "--permission-mode bypassPermissions",
-        ] {
-            assert!(command.contains(part), "{part}: {command}");
-        }
-        assert!(!command.contains("--agent"), "the profile form: {command}");
-    }
-    // `story:agent-needs-user-setting-source`: `--setting-sources project,local` loads no
-    // user-level agent, so the profile form is a controller's only start form.
-    assert!(
-        !flat.contains("<controller agent>"),
-        "no agent form for a controller: {flat}"
-    );
 }
 
 /// `conductor:start` now runs claude outside this checkout, where the project-level
@@ -2803,14 +2777,19 @@ fn the_restart_prompt_names_the_recurring_jobs_and_the_watch() {
         restart.contains("task: conductor:start"),
         "conductor:restart starts the new session through conductor:start: {restart}"
     );
-    let start = shell_commands(&taskfile["tasks"]["conductor:start"]).join("\n");
-    assert!(
-        start.contains("{{shellQuote .CONDUCTOR_PROMPT}}"),
-        "conductor:start passes CONDUCTOR_PROMPT: {start}"
-    );
-    let prompt = taskfile["vars"]["CONDUCTOR_PROMPT"]
-        .as_str()
-        .expect("a CONDUCTOR_PROMPT");
+    // The prompt is the one `conductor session start --role conductor` passes
+    // (`story:session-envelope-seam`): the last argument of the session it starts.
+    let Some(case) = Case::new("self-arming-prompt") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = case.config("opus", None);
+    let output = case.task("conductor:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let at = calls[0].1.find("Start of session.").expect("the prompt");
+    let prompt = &calls[0].1[at..];
     for part in [
         "CronList",
         "CronCreate",

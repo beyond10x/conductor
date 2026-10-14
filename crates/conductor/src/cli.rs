@@ -33,7 +33,8 @@
 //! (`story:repository-marks`), `repository refresh-hooks` (`story:gates-hooks-fresh`), `resource
 //! usage` (`story:token-spend`), `store migrate` (`story:store-on-eventlog-tree`), `records check`
 //! (`story:records-from-commands`) and `rules show` (`story:rules-show`).
-//! `host reclaim` (`story:disk-reclaim`) joins the `host` group; `build run` (`story:build-run`)
+//! `host reclaim` (`story:disk-reclaim`) joins the `host` group, and `session start` and `session
+//! stop` (`story:sandbox-spec`) the `session` group; `build run` (`story:build-run`)
 //! alone also takes the words after `--`, as written: the command it runs.
 //!
 //! `config validate` and `config show` (`story:config-file`) are such commands too, and the only
@@ -97,6 +98,16 @@ impl Cli {
     /// Whatever the handler answers: [`NotImplemented`](crate::NotImplemented) until the story
     /// that fills it lands.
     pub fn run(self) -> Result<ExitCode> {
+        self.run_with(&crate::confine::Host)
+    }
+
+    /// [`Cli::run`], with the sessions `spawn`, `session start` and `session stop` start and stop
+    /// going through `providers`, and `doctor` reporting them.
+    ///
+    /// # Errors
+    ///
+    /// What [`Cli::run`] answers.
+    pub fn run_with(self, providers: &dyn crate::confine::Providers) -> Result<ExitCode> {
         // The instance every handler reads (`crate::config::active`). The two config leaves read
         // the file themselves, to report each problem; the guard hook falls back to the built-in
         // instance rather than deny every tool call over a file that does not load.
@@ -258,6 +269,10 @@ impl Cli {
             Group::Session(command) => match command {
                 SessionCommand::Claim(args) => session::claim(state, args),
                 SessionCommand::Leases(view) => session::leases(state, view),
+                SessionCommand::Start(args) => {
+                    session::start(self.config.as_deref(), state, &args, providers)
+                }
+                SessionCommand::Stop(args) => session::stop(state, &args, providers),
             },
             Group::Host(command) => match command {
                 // `host reclaim` records its own runs (`crate::gc::reclaim`); the placed
@@ -290,7 +305,7 @@ impl Cli {
             Group::Dashboard(command) => match command {
                 DashboardCommand::Serve(args) => dashboard::dashboard_serve(&args),
             },
-            Group::Doctor => crate::doctor::doctor_with(self.config.as_deref()),
+            Group::Doctor => crate::doctor::doctor_with(self.config.as_deref(), providers),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
             Group::Records(command) => match command {
@@ -300,7 +315,9 @@ impl Cli {
                 RulesCommand::Show(args) => crate::rules::rules_show(&args),
             },
             Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
-            Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
+            Group::Spawn(args) => {
+                crate::spawn::spawn(self.config.as_deref(), state, &args, providers)
+            }
             Group::Status(args) => status::status(state, &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
             Group::Upgrade(args) => crate::upgrade::upgrade(&args),
@@ -553,6 +570,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // taken for the instance's conductor.
     (&["session", "claim"], Access::Writes),
     (&["session", "leases"], Access::Reads),
+    // Starts or stops the session of the role conductor or conductor-dev (story:sandbox-spec).
+    (&["session", "start"], Access::Writes),
+    (&["session", "stop"], Access::Writes),
     (&["host", "record-reclaim"], Access::Writes),
     (&["host", "record-peak"], Access::Writes),
     (&["host", "release-grant"], Access::Writes),
@@ -987,6 +1007,14 @@ pub enum SessionCommand {
     /// Conductor leases
     #[command(name = "leases")]
     Leases(ViewArgs),
+
+    /// Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    #[command(name = "start")]
+    Start(SessionRoleArgs),
+
+    /// Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+    #[command(name = "stop")]
+    Stop(SessionRoleArgs),
 }
 
 /// `conductor host`: the host ledger of slots and disk reservations every instance shares, and
@@ -1321,6 +1349,15 @@ pub struct SpawnArgs {
     /// `<repo>` or `<group>/<repo>`, and its charter `<records>/charters/<repo>.md`
     #[arg(long, value_name = "NAME")]
     pub repository: Option<String>,
+}
+
+/// The input of the binding's `session-start` and `session-stop` callables,
+/// `conductor.session.StartSession` and `conductor.session.StopSession`.
+#[derive(Debug, Clone, Args)]
+pub struct SessionRoleArgs {
+    /// The role whose session starts or stops: conductor or conductor-dev
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
 }
 
 /// The input of the binding's `upgrade` callable, `conductor.config.UpgradeBinary`.

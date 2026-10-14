@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a",
-    "contract_digest": "a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd"
+    "source_digest": "5ac19304a55db76dad0ff2a42d2a3ffb05bc81c9489e1f60807b2d7fd466e6fd",
+    "contract_digest": "5310a30006fd2021477d66df9e0483228093a679a53df34642b14fd755996bf2"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -202,6 +202,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.PrerequisiteState",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ProviderAvailability",
       "disposition": {
         "disposition": "generated"
       }
@@ -1125,6 +1132,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.EnvelopeMeasurement",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.Lease.State",
       "disposition": {
         "disposition": "generated"
@@ -1132,7 +1146,70 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.PlaceResolved",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.SessionId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStartRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStartRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStopRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStopRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.StartSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.StartedSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.StopSession",
       "disposition": {
         "disposition": "generated"
       }

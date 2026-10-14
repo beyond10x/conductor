@@ -539,8 +539,12 @@ entities:
       # write, absolute paths in the order applied, joined by `:` as `PATH` joins directories.
       # `envelope_unboxed` is the reason a session runs unboxed, such as a host without the
       # provider under `confinement.mode: report`; beside it every other envelope field is
-      # absent. A session with no envelope field at all was not measured: conductor did not start
-      # it in a box, or nothing measures it yet.
+      # absent. A partial box, under `report` only, has the provider, cgroup and limits and no
+      # `envelope_writable`: no write fence was set up, and its measurement record names why
+      # (`fence_missing` of `conductor.session.EnvelopeMeasurement`). The fields are read from
+      # that record, `<state>/sessions/<name>.envelope.json`, for the session of that name
+      # (story:session-envelope-seam). A session with no envelope field at all was not measured:
+      # conductor did not start it, or started it before it measured.
       - name: envelope_provider
         type: Optional<conductor.observation.EnvelopeProvider>
       - name: envelope_cgroup

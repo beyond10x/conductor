@@ -38,21 +38,29 @@
 //!
 //! `session leases` is the view `conductor.session.Leases`. Input through `--input-json -` is not
 //! written yet.
+//!
+//! `session start` and `session stop` (`story:session-envelope-seam`) start and stop the session
+//! of the role `conductor` or `conductor-dev` through the confinement provider ([`start`],
+//! [`stop`], [`crate::confine`]): with the role's harness arguments and first prompt, in the
+//! records directory for conductor and the working directory for conductor-dev.
 
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{Generated, LeaseStorage};
-use conductor_model::config::InstanceName;
+use conductor_model::config::{
+    ConfinementProvider, Harness, Instance, InstanceName, Role, SessionName,
+};
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::primitives::Timestamp;
 use conductor_model::session::obligations::{ClaimLeaseBehavior, LeasesQuery};
 use conductor_model::session::{
     ClaimLease, ClaimLeaseOutcome, LeaseData, LeaseHeld, LeaseSnapshot, LeaseState, LeaseTaken,
-    LeaseTakenOver, SessionId,
+    LeaseTakenOver, SessionId, SessionRequest, SessionStartRefusal, SessionStartRefused,
+    SessionStopRefusal, SessionStopRefused, StartSession, StartedSession, StopSession,
 };
 use nix::errno::Errno;
 use nix::sys::signal::kill;
@@ -61,7 +69,10 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::cli::{ClaimLeaseArgs, ViewArgs};
+use crate::cli::{ClaimLeaseArgs, SessionRoleArgs, ViewArgs};
+use crate::config::{self, Environment};
+use crate::confine::places::{self, Placement};
+use crate::confine::{self, Launch, Providers, Refusal};
 use crate::not_implemented;
 use crate::store::Store;
 
@@ -415,4 +426,352 @@ fn state_name(state: LeaseState) -> &'static str {
     match state {
         LeaseState::Held => "Held",
     }
+}
+
+/// The first prompt of conductor's session (`session start --role conductor`).
+pub const CONDUCTOR_PROMPT: &str = "Start of session. After the session-start reading and the \
+lease check of your profile, arm what wakes you; the hand-over does not list it. Run CronList, \
+then CronCreate each recurring job it does not show: one every cadence.cycle, one at \
+cadence.daily (UTC) for the daily cycle, both values from conductor config show, with the prompts \
+your profile gives. Start the watch once with the Monitor tool: conductor watch run --follow. \
+Then read the hand-over committed last (git log -1 --name-only --format= -- docs/handoff/), act \
+on its first task, then run one cycle.";
+
+/// The first prompt of conductor-dev's session (`session start --role conductor-dev`).
+pub const DEV_PROMPT: &str = "Start of session. Read your profile's start-of-session list in its \
+order, beginning with the newest hand-over in the conductor-dev handoff directory of the \
+instance's state directory (conductor config show prints state), then begin.";
+
+/// The roles `session start` and `session stop` act on.
+const SESSION_ROLES: [&str; 2] = ["conductor", "conductor-dev"];
+
+/// The settings file conductor starts with when its role names none, under the working
+/// directory: the product checkout `task conductor:start` runs in.
+const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
+
+/// The role `role` of the active instance, when it is one `session start` starts: `conductor` or
+/// `conductor-dev`, named by the instance, on `claude`.
+fn session_role<'i>(instance: &'i Instance, role: &str) -> Result<&'i Role, String> {
+    if !SESSION_ROLES.contains(&role) {
+        return Err(format!(
+            "{role:?} is not a role session start starts: write conductor or conductor-dev; a \
+             controller starts with conductor spawn"
+        ));
+    }
+    let found = instance
+        .roles
+        .iter()
+        .find(|named| named.role == role)
+        .ok_or_else(|| format!("the instance names no role {role} in conductor config show"))?;
+    if found.harness != Harness::Claude {
+        return Err(format!(
+            "the role {role} does not run on claude (conductor config show); session start \
+             starts claude only"
+        ));
+    }
+    Ok(found)
+}
+
+/// The session name of `role`: the role's, else the one derived for it.
+fn role_session_name(instance: &Instance, role: &Role) -> SessionName {
+    role.session_name
+        .clone()
+        .unwrap_or_else(|| config::session_name(instance, &role.role))
+}
+
+/// Where the session of `role` starts: conductor in the instance's records directory,
+/// conductor-dev in the working directory.
+fn start_directory(instance: &Instance, role: &Role, cwd: &Path) -> PathBuf {
+    if role.role == "conductor" {
+        PathBuf::from(&instance.records)
+    } else {
+        cwd.to_owned()
+    }
+}
+
+/// The request `role`'s session starts in, from `cwd`, with places resolved against `home`.
+fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> SessionRequest {
+    let start = start_directory(instance, role, cwd);
+    let root = Path::new(&instance.checkouts.root);
+    let repository = start
+        .strip_prefix(root)
+        .ok()
+        .map(|under| under.display().to_string())
+        .filter(|under| !under.is_empty());
+    SessionRequest {
+        role: role.role.clone(),
+        session_name: role_session_name(instance, role),
+        cwd: start.display().to_string(),
+        limits: role.limits.clone(),
+        writable: places::resolve(
+            &role.writable,
+            &Placement {
+                home: home.to_owned(),
+                tmpdir: confine::tmpdir(),
+                start: start.clone(),
+                repository,
+                trees: PathBuf::from(&instance.checkouts.trees),
+                records: PathBuf::from(&instance.records),
+                harness: role.harness,
+                controller: false,
+            },
+        ),
+        network: role.network,
+        forge_token_env: role.forge_token_env.clone(),
+    }
+}
+
+/// The arguments the harness of `role` starts with before its first prompt: its name, its profile
+/// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's own name),
+/// its model, bypass permissions, no user settings, and its settings file; conductor's defaults to
+/// [`CONDUCTOR_SETTINGS`] under `cwd`.
+fn harness_args(role: &Role, name: &SessionName, cwd: &Path) -> Vec<String> {
+    let mut args = vec!["-n".to_owned(), name.0.clone()];
+    match (&role.profile, &role.agent) {
+        (Some(profile), _) => {
+            args.extend(["--append-system-prompt-file".to_owned(), profile.0.clone()]);
+        }
+        (None, Some(agent)) => args.extend(["--agent".to_owned(), agent.0.clone()]),
+        (None, None) => args.extend(["--agent".to_owned(), role.role.clone()]),
+    }
+    args.extend(
+        [
+            "--model",
+            &role.model.0,
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "project,local",
+        ]
+        .map(str::to_owned),
+    );
+    let settings = role
+        .settings
+        .as_ref()
+        .map(|settings| settings.0.clone())
+        .or_else(|| {
+            (role.role == "conductor").then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
+        });
+    if let Some(settings) = settings {
+        args.extend(["--settings".to_owned(), settings]);
+    }
+    args
+}
+
+/// Answers a refusal of `session start`: one line naming its `SessionStartRefusal`, and exit 1.
+fn start_refused(answer: &SessionStartRefused) -> Result<ExitCode> {
+    let refusal = match answer.refusal {
+        SessionStartRefusal::ProviderUnavailable => "ProviderUnavailable",
+        SessionStartRefusal::MeasurementShort => "MeasurementShort",
+        SessionStartRefusal::UnknownRole => "UnknownRole",
+        SessionStartRefusal::SessionRunning => "SessionRunning",
+        SessionStartRefusal::LaunchFailed => "LaunchFailed",
+    };
+    bail!(
+        "session start: refused: {refusal}: role {:?}: {}",
+        answer.role,
+        answer.detail
+    )
+}
+
+/// Answers a refusal of `session stop`: one line naming its `SessionStopRefusal`, and exit 1.
+fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
+    let refusal = match answer.refusal {
+        SessionStopRefusal::UnknownRole => "UnknownRole",
+        SessionStopRefusal::NotRunning => "NotRunning",
+    };
+    bail!(
+        "session stop: refused: {refusal}: role {:?}: {}",
+        answer.role,
+        answer.detail
+    )
+}
+
+/// `conductor session start --role <role>`: starts the session of `conductor` or
+/// `conductor-dev` under its session name through the provider the instance's `confinement`
+/// names ([`confine`]), delivers its first prompt ([`CONDUCTOR_PROMPT`], [`DEV_PROMPT`]),
+/// measures its box and writes the measurement under the state directory. Prints what the
+/// harness printed, then one line naming the session started, its provider and its id.
+///
+/// In order, it refuses: a role that is not `conductor` or `conductor-dev`, not named by the
+/// instance, or not on `claude` (`UnknownRole`); a live session holding the session name
+/// (`SessionRunning`); under `strict` a provider not available (`ProviderUnavailable`); a start
+/// or first prompt that fails (`LaunchFailed`); under `strict` a box short of the request, which
+/// is stopped again (`MeasurementShort`).
+///
+/// # Errors
+///
+/// `--role` is missing, the environment or the session list cannot be read, or a refusal above.
+pub fn start(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    args: &SessionRoleArgs,
+    providers: &dyn Providers,
+) -> Result<ExitCode> {
+    let input = StartSession {
+        role: args.role.clone(),
+    };
+    let Some(role) = input.role else {
+        bail!("session start: --role is required");
+    };
+    let refuse = |refusal: SessionStartRefusal, detail: String| {
+        start_refused(&SessionStartRefused {
+            role: role.clone(),
+            refusal,
+            detail,
+        })
+    };
+    let active = config::active();
+    let instance = &active.instance;
+    let found = match session_role(instance, &role) {
+        Ok(found) => found,
+        Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
+    };
+    let name = role_session_name(instance, found);
+    if let Some(id) = confine::live_session(&name.0).context("session start")? {
+        return refuse(
+            SessionStartRefusal::SessionRunning,
+            format!("the live session {id} holds the session name {}", name.0),
+        );
+    }
+    let chosen = match confine::choose(providers, &instance.confinement) {
+        Ok(chosen) => chosen,
+        Err(refusal) => return refuse_start(&refuse, refusal),
+    };
+    let environment = Environment::from_process().context("session start")?;
+    let home = environment.home().context("session start")?;
+    let cwd = &environment.cwd;
+    let mut env = Vec::new();
+    if active.from_file {
+        let (file, _) = config::locate(config_flag, &environment).context("session start")?;
+        env.push((
+            config::INSTANCE_VARIABLE.to_owned(),
+            instance.name.0.clone(),
+        ));
+        env.push((
+            config::CONFIG_VARIABLE.to_owned(),
+            cwd.join(file).display().to_string(),
+        ));
+    }
+    let launch = Launch {
+        request: request(instance, found, cwd, home),
+        program: confine::CLAUDE.to_owned(),
+        args: harness_args(found, &name, cwd),
+        env,
+    };
+    let prompt = if found.role == "conductor" {
+        CONDUCTOR_PROMPT
+    } else {
+        DEV_PROMPT
+    };
+    let state_dir = crate::state::dir(state)?;
+    match chosen.start(&launch, prompt, &state_dir) {
+        Ok(started) => {
+            confine::pass_through(&started.said)?;
+            let StartedSession {
+                session_name,
+                provider,
+                unit,
+                session_id,
+                ..
+            } = &started.session;
+            let mut line = format!("started {}: provider {provider}", session_name.0);
+            if let Some(unit) = unit {
+                line.push_str(&format!(", unit {unit}"));
+            }
+            if let Some(id) = session_id {
+                line.push_str(&format!(", session {id}"));
+            }
+            if let Some(reason) = &started.measurement.unboxed {
+                line.push_str(&format!(", unboxed: {reason}"));
+            }
+            writeln!(io::stdout().lock(), "{line}").context("write the started session")?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(refusal) => refuse_start(&refuse, refusal),
+    }
+}
+
+/// Answers a refusal of the confinement ([`confine::Refusal`]) as its `SessionStartRefusal`.
+fn refuse_start(
+    refuse: &dyn Fn(SessionStartRefusal, String) -> Result<ExitCode>,
+    refusal: Refusal,
+) -> Result<ExitCode> {
+    match refusal {
+        Refusal::ProviderUnavailable(detail) => {
+            refuse(SessionStartRefusal::ProviderUnavailable, detail)
+        }
+        Refusal::MeasurementShort(detail) => refuse(SessionStartRefusal::MeasurementShort, detail),
+        Refusal::LaunchFailed { detail, .. } => refuse(SessionStartRefusal::LaunchFailed, detail),
+    }
+}
+
+/// `conductor session stop --role <role>`: stops the live session of `conductor` or
+/// `conductor-dev` through the provider its measurement names (the `none` provider when there is
+/// no measurement), and removes the measurement. Prints one line naming the session stopped.
+///
+/// It refuses a role `session start` does not start (`UnknownRole`) and a session name no live
+/// session holds (`NotRunning`).
+///
+/// # Errors
+///
+/// `--role` is missing, the session list cannot be read, the provider does not stop the session,
+/// or a refusal above.
+pub fn stop(
+    state: Option<&Path>,
+    args: &SessionRoleArgs,
+    providers: &dyn Providers,
+) -> Result<ExitCode> {
+    let input = StopSession {
+        role: args.role.clone(),
+    };
+    let Some(role) = input.role else {
+        bail!("session stop: --role is required");
+    };
+    let refuse = |refusal: SessionStopRefusal, detail: String| {
+        stop_refused(&SessionStopRefused {
+            role: role.clone(),
+            refusal,
+            detail,
+        })
+    };
+    let instance = &config::active().instance;
+    let found = match session_role(instance, &role) {
+        Ok(found) => found,
+        Err(detail) => return refuse(SessionStopRefusal::UnknownRole, detail),
+    };
+    let name = role_session_name(instance, found);
+    let Some(id) = confine::live_session(&name.0).context("session stop")? else {
+        return refuse(
+            SessionStopRefusal::NotRunning,
+            format!("no live session holds the session name {}", name.0),
+        );
+    };
+    let state_dir = crate::state::dir(state)?;
+    let measured = confine::read_measurement(&state_dir, &name).context("session stop")?;
+    let (provider, unit) = measured.map_or_else(
+        || ("none".to_owned(), None),
+        |measurement| (measurement.session.provider, measurement.session.unit),
+    );
+    let mut stopper = match provider.as_str() {
+        "systemd" => providers.provider(ConfinementProvider::Systemd),
+        _ => providers.provider(ConfinementProvider::None),
+    };
+    let environment = Environment::from_process().context("session stop")?;
+    let home = environment.home().context("session stop")?;
+    let request = request(instance, found, &environment.cwd, home);
+    let session = StartedSession {
+        role: role.clone(),
+        session_name: name.clone(),
+        provider,
+        unit,
+        session_id: Some(id.clone()),
+    };
+    stopper
+        .stop(&session, &request)
+        .with_context(|| format!("session stop: stop {} ({id})", name.0))?;
+    confine::remove_measurement(&state_dir, &name).context("session stop")?;
+    writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
+        .context("write the stopped session")?;
+    Ok(ExitCode::SUCCESS)
 }

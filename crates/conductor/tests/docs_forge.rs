@@ -197,3 +197,53 @@ fn the_getting_started_doctor_sample_ends_with_its_verdict() {
         );
     }
 }
+
+/// `story:session-envelope-seam`: the pages on confinement and on starting conductor name
+/// `conductor session start`, as do the `confinement.mode` and `confinement.provider` rows of
+/// `docs/config.md`; no hand-written page says nothing starts a session in a box yet, and the
+/// design no longer runs both sessions with `claude --bg`.
+#[test]
+fn the_confinement_pages_name_session_start() {
+    for page in [
+        "website/docs/security/confinement.md",
+        "website/docs/guides/start-conductor.md",
+        "docs/design/conductor.md",
+    ] {
+        assert!(
+            flattened(&read(page)).contains("conductor session start"),
+            "{page} does not name conductor session start"
+        );
+    }
+    let config = read("docs/config.md");
+    for key in ["`confinement.mode`", "`confinement.provider`"] {
+        let row = config
+            .lines()
+            .find(|line| line.starts_with(&format!("| {key} ")))
+            .unwrap_or_else(|| panic!("docs/config.md has no row {key}"));
+        assert!(
+            row.contains("conductor session start"),
+            "docs/config.md: the row {key} does not name conductor session start: {row}"
+        );
+    }
+    let root = workspace();
+    let mut files = vec![root.join("README.md")];
+    pages(&root.join("docs"), &root.join("docs/waves"), &mut files);
+    pages(
+        &root.join("website/docs"),
+        &root.join("website/docs/reference"),
+        &mut files,
+    );
+    for file in files {
+        let text = flattened(&fs::read_to_string(&file).expect("read a page"));
+        assert!(
+            !text.contains("nothing starts a session in a box yet"),
+            "{} says nothing starts a session in a box yet",
+            file.display()
+        );
+    }
+    assert!(
+        !flattened(&read("docs/design/conductor.md"))
+            .contains("both sessions run in the background (`claude --bg`)"),
+        "docs/design/conductor.md runs both sessions with claude --bg"
+    );
+}

@@ -245,7 +245,7 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 11] = [
+const ROLE_KEYS: [&str; 12] = [
     "role",
     "harness",
     "model",
@@ -257,6 +257,7 @@ const ROLE_KEYS: [&str; 11] = [
     "limits",
     "writable",
     "network",
+    "forge_token_env",
 ];
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
@@ -758,6 +759,7 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
             limits: no_limits(),
             writable: default_writable(role),
             network: Network::Open,
+            forge_token_env: Vec::new(),
         })
         .collect()
 }
@@ -2014,6 +2016,12 @@ impl Reader<'_> {
             Some(value) => self.word(value, &join(path, "network"), &NETWORKS),
             None => Some(Network::Open),
         };
+        // The environment variables that carry the forge tokens the role's sessions may use
+        // (`story:sandbox-spec`): each a variable name. Absent, none.
+        let forge_token_env = match Self::get(map, "forge_token_env") {
+            Some(value) => self.list(value, &join(path, "forge_token_env"), Self::variable_name),
+            None => Some(Vec::new()),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
@@ -2026,7 +2034,31 @@ impl Reader<'_> {
             limits: limits?,
             writable: writable?,
             network: network?,
+            forge_token_env: forge_token_env?,
         })
+    }
+
+    /// One entry of a role's `forge_token_env`: an environment variable name, capital letters,
+    /// digits and `_`, not starting with a digit.
+    fn variable_name(&mut self, value: &Value, path: &str) -> Option<String> {
+        let name = self.text(value, path)?;
+        let well_formed = name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            && !name.starts_with(|c: char| c.is_ascii_digit());
+        if well_formed {
+            Some(name)
+        } else {
+            self.problem(
+                path,
+                format!(
+                    "{} is not an environment variable name: write capital letters, digits and \
+                     `_`, not starting with a digit, such as GH_TOKEN",
+                    echo(value)
+                ),
+            );
+            None
+        }
     }
 
     /// One entry of a role's `writable`: a place's word ([`PLACES`]), kept as it is, or a path,
@@ -2553,6 +2585,10 @@ pub fn document(instance: &Instance) -> Yaml {
                     text(match role.network {
                         Network::Open => "open",
                     }),
+                ),
+                (
+                    "forge_token_env",
+                    Yaml::Sequence(role.forge_token_env.iter().map(|name| text(name)).collect()),
                 ),
             ])
         })

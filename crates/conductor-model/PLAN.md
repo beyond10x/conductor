@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-  contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+  model digest 5ac19304a55db76dad0ff2a42d2a3ffb05bc81c9489e1f60807b2d7fd466e6fd
+  contract digest 5310a30006fd2021477d66df9e0483228093a679a53df34642b14fd755996bf2
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-488 capabilities: **477 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+499 capabilities: **488 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -42,6 +42,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.Network` |
 | domain type | `conductor.config.Prerequisite` |
 | domain type | `conductor.config.PrerequisiteState` |
+| domain type | `conductor.config.ProviderAvailability` |
 | domain type | `conductor.config.Report` |
 | domain type | `conductor.config.RepositoryCheck` |
 | domain type | `conductor.config.RepositoryRule` |
@@ -173,8 +174,18 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.Visibility` |
 | domain type | `conductor.observation.WatchRun` |
 | domain type | `conductor.observation.WorkflowRunObservation.State` |
+| domain type | `conductor.session.EnvelopeMeasurement` |
 | domain type | `conductor.session.Lease.State` |
+| domain type | `conductor.session.PlaceResolved` |
 | domain type | `conductor.session.SessionId` |
+| domain type | `conductor.session.SessionRequest` |
+| domain type | `conductor.session.SessionStartRefusal` |
+| domain type | `conductor.session.SessionStartRefused` |
+| domain type | `conductor.session.SessionStopRefusal` |
+| domain type | `conductor.session.SessionStopRefused` |
+| domain type | `conductor.session.StartSession` |
+| domain type | `conductor.session.StartedSession` |
+| domain type | `conductor.session.StopSession` |
 | entity lifecycle | `conductor.decision.Decision` |
 | entity lifecycle | `conductor.decision.DecisionRequest` |
 | entity lifecycle | `conductor.direction.Goal` |

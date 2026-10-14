@@ -161,7 +161,11 @@ types:
   # things on purpose: the readable paths, since the box binds the root read-only and nothing
   # narrower is planned; the programs a session may run, since a program list belongs to the tool
   # server (story:substrate-tool-server); and a lifetime, since sessions are long-lived and
-  # conductor ends them.
+  # conductor ends them. `forge_token_env` (story:sandbox-spec) names the environment variables,
+  # such as `GH_TOKEN` or `GITLAB_TOKEN`, that carry the forge tokens a session of the role may
+  # use: each a name of capital letters, digits and `_`, not starting with a digit. It is carried
+  # on the session request a provider receives (`conductor.session.SessionRequest`); the variables'
+  # values are never part of the config. Absent, it is empty.
   - name: conductor.config.Role
     kind: struct
     fields:
@@ -176,6 +180,7 @@ types:
       - {name: limits, type: conductor.config.Limits}
       - {name: writable, type: List<conductor.config.Writable>}
       - {name: network, type: conductor.config.Network}
+      - {name: forge_token_env, type: List<String>}
 
   # The CPU, memory and process limits of a box (story:session-envelope-model), as systemd sets
   # them on a cgroup: `memory_max` its `MemoryMax`, in GiB, written as a size, `15G`;
@@ -517,8 +522,20 @@ types:
       - {name: state, type: conductor.config.ForgeLoginState}
       - {name: account, type: Optional<String>}
 
+  # Whether one confinement provider can set up a box on this host (story:sandbox-spec), as
+  # `conductor doctor` reports it after the program rows: the provider, as `confinement.provider`
+  # writes it, `available`, and when it is not, the reason. `none` is always available: it sets
+  # up no box.
+  - name: conductor.config.ProviderAvailability
+    kind: struct
+    fields:
+      - {name: provider, type: String}
+      - {name: available, type: Boolean}
+      - {name: reason, type: Optional<String>}
+
   # What `conductor doctor` reports (story:doctor-verdict, story:doctor-identity): the machine, one
-  # row per program conductor starts, one login per host of the config file's sources, and the
+  # row per program conductor starts, one login per host of the config file's sources, one row per
+  # confinement provider (story:sandbox-spec), which does not change the verdict, and the
   # verdict, its last line: `ready`, or `not ready: ` and each failure, comma-separated, in this
   # order: `config (unreadable)`; then each program, as `<program> (missing)`,
   # `<program> (too old)`, `<program> (pin unread)` or `<program> (version unread)`; then each
@@ -529,6 +546,7 @@ types:
       - {name: machine, type: conductor.config.Machine}
       - {name: prerequisites, type: List<conductor.config.Prerequisite>}
       - {name: logins, type: List<conductor.config.ForgeLogin>}
+      - {name: providers, type: List<conductor.config.ProviderAvailability>}
       - {name: verdict, type: String}
 
   # The input of `conductor setup` (story:setup-command), which checks one repository's

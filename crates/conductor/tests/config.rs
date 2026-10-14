@@ -2533,6 +2533,7 @@ fn with_envelope(mut role: Value) -> Value {
     map.insert("limits".to_owned(), no_limits());
     map.insert("writable".to_owned(), default_writable(&name));
     map.insert("network".to_owned(), Value::from("open"));
+    map.insert("forge_token_env".to_owned(), serde_json::json!([]));
     role
 }
 
@@ -2820,6 +2821,93 @@ fn a_role_limit_above_the_instance_s_is_refused_by_its_path() {
         ),
     ] {
         let file = case.write(&format!("{name}.yaml"), &role(keys));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
+    }
+}
+
+/// `story:sandbox-spec`: a role's `forge_token_env` names the environment variables that carry
+/// the forge tokens its sessions may use. Written, it is shown as written, as JSON, as text lines
+/// and through a YAML round trip; absent, it is empty. A name that is not an environment variable
+/// name (lower case, a leading digit, a `=`, empty) and a value that is not a list are each
+/// refused by their own path.
+#[test]
+fn a_role_s_forge_token_env_shows_as_written_and_refuses_a_bad_name_by_its_path() {
+    let case = Case::new("forge-token-env");
+    let file = case.write(
+        "tokens.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: controller, harness: claude, model: opus, forge_token_env: \
+             [GH_TOKEN, GITLAB_TOKEN_2]}\n\
+             \x20     - {role: conductor, harness: claude, model: opus}\n",
+        ),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    let shown = case.show(&file, &[]);
+    let one = instance(&shown);
+    assert_eq!(
+        one["roles"][0]["forge_token_env"],
+        serde_json::json!(["GH_TOKEN", "GITLAB_TOKEN_2"]),
+        "{shown:#}"
+    );
+    assert_eq!(
+        one["roles"][1]["forge_token_env"],
+        serde_json::json!([]),
+        "{shown:#}"
+    );
+    let text = case.with_file(&file, &["config", "show"]);
+    assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+    let text = String::from_utf8_lossy(&text.stdout);
+    for line in [
+        "instances[0].roles[0].forge_token_env[0]: GH_TOKEN",
+        "instances[0].roles[0].forge_token_env[1]: GITLAB_TOKEN_2",
+    ] {
+        assert!(
+            text.lines().any(|shown| shown == line),
+            "no line `{line}`: {text}"
+        );
+    }
+    let yaml = case.with_file(&file, &["config", "show", "--format", "yaml"]);
+    assert_eq!(yaml.status.code(), Some(0), "{}", describe(&yaml));
+    let written = case.write("shown.yaml", &String::from_utf8_lossy(&yaml.stdout));
+    assert_eq!(case.show(&written, &[]), shown, "the round trip");
+
+    for (name, value, path) in [
+        (
+            "lower",
+            "[gh_token]",
+            "instances[0].roles[0].forge_token_env[0]: ",
+        ),
+        (
+            "digit",
+            "[GH_TOKEN, 2TOKEN]",
+            "instances[0].roles[0].forge_token_env[1]: ",
+        ),
+        (
+            "equals",
+            "[GH_TOKEN=x]",
+            "instances[0].roles[0].forge_token_env[0]: ",
+        ),
+        (
+            "empty",
+            "['']",
+            "instances[0].roles[0].forge_token_env[0]: ",
+        ),
+        (
+            "not-a-list",
+            "GH_TOKEN",
+            "instances[0].roles[0].forge_token_env: ",
+        ),
+    ] {
+        let file = case.write(
+            &format!("{name}.yaml"),
+            &one_instance(&format!(
+                "\x20   roles: [{{role: controller, harness: claude, model: opus, \
+                 forge_token_env: {value}}}]\n"
+            )),
+        );
         let problems = refused(&case, &file);
         assert!(problems.contains(path), "{name}: {problems}");
     }

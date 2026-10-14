@@ -2807,9 +2807,11 @@ fn the_session_tasks_start_their_role_on_the_harness_and_model_config_show_names
                 "{name}"
             );
         }
+        // The start reads the role's model itself (`story:session-envelope-seam`): the same
+        // `conductor config show` role the variables read.
         let cmds = serde_yaml::to_string(&task["cmds"]).expect("cmds as text");
         assert!(
-            cmds.contains("--model {{shellQuote .MODEL}}"),
+            cmds.contains(&format!("conductor session start --role {role}")),
             "{name}: {cmds}"
         );
         assert!(!cmds.contains("--model opus"), "{name}: {cmds}");

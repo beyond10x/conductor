@@ -715,3 +715,21 @@ fn a_class_h_call_runs_only_under_a_named_grant() {
                     that command within that scope, nothing wider, and report only its failure.";
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
+
+/// `story:session-envelope-seam`: conductor's profile starts no session with `claude --bg`;
+/// `conductor spawn` and `conductor session start` are the only start forms it names.
+#[test]
+fn conductor_starts_sessions_only_through_spawn_and_session_start() {
+    let text = profile("conductor.md");
+    assert!(
+        !text.contains("claude --bg"),
+        "conductor.md: no session starts with claude --bg"
+    );
+    assert!(
+        text.contains(
+            "`conductor spawn --repository <repo>` and `conductor session start --role <role>` \
+             are the only start forms of a session"
+        ),
+        "conductor.md: spawn and session start are the only start forms"
+    );
+}

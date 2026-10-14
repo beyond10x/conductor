@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest 5ac19304a55db76dad0ff2a42d2a3ffb05bc81c9489e1f60807b2d7fd466e6fd
+// contract digest 5310a30006fd2021477d66df9e0483228093a679a53df34642b14fd755996bf2
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -145,6 +145,8 @@ pub struct DoctorReport {
     pub prerequisites: Vec<Prerequisite>,
     /// `logins` — `List<conductor.config.ForgeLogin>`.
     pub logins: Vec<ForgeLogin>,
+    /// `providers` — `List<conductor.config.ProviderAvailability>`.
+    pub providers: Vec<ProviderAvailability>,
     /// `verdict` — `String`.
     pub verdict: String,
 }
@@ -339,6 +341,17 @@ pub enum PrerequisiteState {
     NotNeeded,
 }
 
+/// ProviderAvailability — `conductor.config.ProviderAvailability`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAvailability {
+    /// `provider` — `String`.
+    pub provider: String,
+    /// `available` — `Boolean`.
+    pub available: bool,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+}
+
 /// Report — `conductor.config.Report`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
@@ -406,6 +419,8 @@ pub struct Role {
     pub writable: Vec<Writable>,
     /// `network` — `conductor.config.Network`.
     pub network: Network,
+    /// `forge_token_env` — `List<String>`.
+    pub forge_token_env: Vec<String>,
 }
 
 /// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.

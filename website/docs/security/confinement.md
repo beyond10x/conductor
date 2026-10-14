@@ -3,12 +3,23 @@ title: Confinement
 sidebar_position: 3
 description: How a conductor or controller session is started so that the guard runs, what bounds it, and the authority boundary the decision classes draw.
 lede: A session is confined by how it is started, by the place it runs in, and by the decisions it may take; only the first two reach the guard.
-source: Taskfile.yml (conductor:start, dev:start, trust); .agents/conductor.md; crates/conductor/src/config.rs; crates/conductor/src/guard/rules.rs; crates/conductor/src/controller.rs; crates/conductor/src/decide.rs; docs/design/conductor.md sections 5 and 7
+source: Taskfile.yml (conductor:start, dev:start, trust); .agents/conductor.md; crates/conductor/src/confine/mod.rs; crates/conductor/src/session.rs; crates/conductor/src/spawn.rs; crates/conductor/src/config.rs; crates/conductor/src/guard/rules.rs; crates/conductor/src/controller.rs; crates/conductor/src/decide.rs; docs/design/conductor.md sections 5 and 7
 ---
 
 ## How a session is started
 
-Conductor and each controller start as background Claude Code sessions:
+Every session conductor starts goes through one command: `conductor session start --role
+conductor` (`task conductor:start`) or `--role conductor-dev` (`task dev:start`), and `conductor
+spawn --repository <repo>` for a controller. Each hands the session to the confinement provider
+the instance's `confinement` names, with the role's request: its limits, its writable places
+resolved to absolute paths, its network and its `forge_token_env` names. Under `strict` a session
+whose provider is not available, or whose box measures short of the request, does not start;
+under `report` it starts unboxed and its measurement says why. The measurement is written to
+`<state>/sessions/<session name>.envelope.json` and read into the `envelope_*` columns of
+`conductor snapshot sessions`. `conductor doctor` prints whether each provider is available.
+
+Conductor does not set up a `systemd` box yet, so today every session starts through the `none`
+provider, as a background Claude Code session:
 
 ```console
 claude --bg -n <session name> \
@@ -20,9 +31,9 @@ claude --bg -n <session name> \
   "<first prompt>"
 ```
 
-`task conductor:start` runs this for conductor, in the instance's records directory, from the
-`conductor` role of `conductor config show`. A controller is started by conductor, in the
-repository's checkout, with the same form: the `controller` role's profile and settings, and the
+`conductor session start --role conductor` runs this for conductor, in the instance's records
+directory, from the `conductor` role of `conductor config show`. `conductor spawn` starts a
+controller in the repository's checkout with the same form: the `controller` role's profile and settings, and the
 repository's charter as the first prompt.
 
 ### Setting sources
@@ -36,8 +47,9 @@ project settings are loaded, hooks included ([limits](/docs/security/limits)).
 
 `--settings` names the role's settings file. The shipped files,
 `.claude/conductor-settings.json` and `.claude/controller-settings.json`, wire the guard on every
-tool and set `disableAllHooks` to false. `task conductor:start` uses the `conductor` role's
-`settings`, or this checkout's `.claude/conductor-settings.json` when the role names none. A
+tool and set `disableAllHooks` to false. `conductor session start --role conductor` uses the
+`conductor` role's `settings`, or `.claude/conductor-settings.json` of the directory it runs in,
+this checkout for `task conductor:start`, when the role names none. A
 controller's settings come from the `controller` role's `settings`: point it at
 `.claude/controller-settings.json` or a file that wires the same hook.
 

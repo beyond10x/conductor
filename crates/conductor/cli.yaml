@@ -108,6 +108,25 @@ callables:
       untrusted-checkout: conductor.dispatch.SpawnRefused
       no-charter: conductor.dispatch.SpawnRefused
       launch-failed: conductor.dispatch.SpawnRefused
+      provider-unavailable: conductor.dispatch.SpawnRefused
+      measurement-short: conductor.dispatch.SpawnRefused
+  session-start:
+    target: {kind: local, owner: conductor-cli, action: session_start}
+    input: conductor.session.StartSession
+    result: conductor.session.StartedSession
+    errors:
+      provider-unavailable: conductor.session.SessionStartRefused
+      measurement-short: conductor.session.SessionStartRefused
+      unknown-role: conductor.session.SessionStartRefused
+      session-running: conductor.session.SessionStartRefused
+      launch-failed: conductor.session.SessionStartRefused
+  session-stop:
+    target: {kind: local, owner: conductor-cli, action: session_stop}
+    input: conductor.session.StopSession
+    result: String
+    errors:
+      unknown-role: conductor.session.SessionStopRefused
+      not-running: conductor.session.SessionStopRefused
   records-check:
     target: {kind: local, owner: conductor-cli, action: records_check}
     input: conductor.dispatch.CheckRecords
@@ -279,6 +298,18 @@ commands:
     arguments:
       - field: repository
         source: {kind: option, long: repository}
+  - path: [session, start]
+    callable: session-start
+    about: Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    arguments:
+      - field: role
+        source: {kind: option, long: role}
+  - path: [session, stop]
+    callable: session-stop
+    about: Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+    arguments:
+      - field: role
+        source: {kind: option, long: role}
   - path: [records, check]
     callable: records-check
     about: Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log

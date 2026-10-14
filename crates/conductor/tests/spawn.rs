@@ -13,8 +13,14 @@
 //! any other call is a launch, which writes each argument to a file of its own under `launch/`
 //! (`1`, `2`, …), its physical working directory to `launch/cwd`, counts itself in `launches`,
 //! and prints a session id, or, when the case holds `fail`, exits 1. No real session starts.
+//!
+//! `story:session-envelope-seam`: spawn starts the controller through a confinement provider. The
+//! cases that name a fake provider run the command over it ([`fake_provider`]); the others run
+//! the built binary, whose `systemd` provider is not written yet, so the default `report` starts
+//! every controller through `none`, with the start form above.
 
 mod common;
+mod fake_provider;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
@@ -22,7 +28,21 @@ use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
 use conductor_cli::cli::{Access, LEAVES};
+use conductor_cli::config;
+use fake_provider::{Child, call_names, calls};
 use serde_json::{Value, json};
+
+/// The child run of this test binary ([`fake_provider::command`]); a plain run of the suite
+/// passes it at once.
+#[test]
+fn child() {
+    if let Some(run) = Child::from_env() {
+        if let Some(file) = run.config_file() {
+            config::set_active(Some(&file)).expect("the case's config loads");
+        }
+        run.exit();
+    }
+}
 
 /// The id the stand-in prints for a session it started.
 const SESSION_ID: &str = "bg-session-0001";
@@ -213,6 +233,37 @@ impl Case {
         self.run(&["spawn", "--repository", "alpha"])
     }
 
+    /// The fake provider's directory.
+    fn fake(&self) -> PathBuf {
+        self.dir.join("fake")
+    }
+
+    /// Adds `confinement` to the instance of the config file.
+    fn confine(&self, confinement: &str) {
+        let text = fs::read_to_string(self.config()).expect("read the config file");
+        write(
+            &self.config(),
+            &format!("{text}\x20   confinement: {confinement}\n"),
+        );
+    }
+
+    /// `conductor spawn --repository alpha` as [`Case::run`] runs it, over the fake providers.
+    fn spawn_fake(&self) -> Output {
+        fs::create_dir_all(self.fake()).expect("create the fake's directory");
+        let path = format!("{}:/usr/bin:/bin", self.dir.join("bin").display());
+        let output = fake_provider::command(
+            &self.home(),
+            &self.fake(),
+            &["spawn", "--repository", "alpha"],
+        )
+        .current_dir(self.records())
+        .env("CONDUCTOR_CONFIG", self.config())
+        .env("PATH", path)
+        .output()
+        .expect("the child runs");
+        fake_provider::without_harness(output)
+    }
+
     /// How many sessions the stand-in launched.
     fn launches(&self) -> usize {
         fs::read_to_string(self.dir.join("launches"))
@@ -265,7 +316,8 @@ fn describe(output: &Output) -> String {
     )
 }
 
-/// The controller start form of `.agents/conductor.md`, with the case's values.
+/// The controller start form the `none` provider launches (`story:session-envelope-seam`), with
+/// the case's values.
 fn start_form(case: &Case) -> Vec<String> {
     [
         "--bg",
@@ -688,4 +740,144 @@ fn a_failed_launch_whose_session_is_live_is_not_recorded_stopped() {
         "a live session ex-alpha runs, yet the controller is recorded stopped: {}",
         describe(&output)
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// story:session-envelope-seam: spawn starts the controller through the confinement provider.
+// ---------------------------------------------------------------------------------------------
+
+/// Through a fake provider, one spawn is one `start` with the controller role's request (the
+/// checkout, its places resolved to absolute paths) and its start form's arguments, and one
+/// `prompt` with the charter; `claude` launches nothing, and the controller is recorded running.
+#[test]
+fn spawn_starts_through_the_provider_with_one_start_and_one_prompt() {
+    let case = Case::new("provider");
+    let output = case.spawn_fake();
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(call_names(&case.fake()), ["start", "prompt", "measure"]);
+    let logged = calls(&case.fake());
+    let request = &logged[0]["request"];
+    let checkout = case.checkout().display().to_string();
+    assert_eq!(request["role"], "controller", "{request:#}");
+    assert_eq!(request["session_name"], "ex-alpha", "{request:#}");
+    assert_eq!(request["cwd"], checkout.as_str(), "{request:#}");
+    let places: Vec<(&str, &Value)> = request["writable"]
+        .as_array()
+        .expect("the places")
+        .iter()
+        .map(|place| (place["place"].as_str().unwrap_or_default(), &place["paths"]))
+        .collect();
+    assert_eq!(
+        places.iter().map(|(word, _)| *word).collect::<Vec<_>>(),
+        [
+            "checkout",
+            "trees",
+            "build-cache",
+            "scratch",
+            "harness-state"
+        ],
+        "{request:#}"
+    );
+    assert_eq!(places[0].1, &json!([checkout]), "{request:#}");
+    assert_eq!(
+        places[1].1,
+        &json!([case.dir.join("trees/alpha").display().to_string()]),
+        "{request:#}"
+    );
+    let mut form = start_form(&case);
+    form.remove(0);
+    form.pop();
+    assert_eq!(
+        logged[0]["args"],
+        json!(form),
+        "the start form but --bg and the charter"
+    );
+    assert_eq!(
+        logged[1]["prompt"], CHARTER,
+        "the charter is the first prompt"
+    );
+    assert_eq!(case.launches(), 0, "claude launched nothing");
+    let rows = case.controllers();
+    assert_eq!(rows.len(), 1, "{rows:#?}");
+    assert_eq!(rows[0]["state"], "Running", "{}", rows[0]);
+}
+
+/// With `confinement.provider: none`, spawn launches today's start form, and the measurement it
+/// writes says the controller runs unboxed.
+#[test]
+fn the_none_provider_keeps_the_start_form() {
+    let case = Case::new("provider-none");
+    case.confine("{provider: none}");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    assert_eq!(case.launches(), 1);
+    assert_eq!(case.argv(), start_form(&case), "the controller start form");
+    let record: Value = serde_json::from_str(
+        &fs::read_to_string(case.state().join("sessions/ex-alpha.envelope.json"))
+            .expect("the measurement is written"),
+    )
+    .expect("the measurement is JSON");
+    assert!(record["unboxed"].is_string(), "{record:#}");
+    assert_eq!(record["session"]["session_id"], SESSION_ID, "{record:#}");
+}
+
+/// Under `strict`, a provider that is not available refuses the spawn before anything is
+/// recorded or started.
+#[test]
+fn strict_spawn_is_refused_when_the_provider_is_not_available() {
+    let case = Case::new("strict-unavailable");
+    case.confine("{mode: strict, provider: systemd}");
+    fs::create_dir_all(case.fake()).expect("create the fake's directory");
+    write(
+        &case.fake().join("systemd.unavailable"),
+        "no cgroup delegation",
+    );
+    let output = case.spawn_fake();
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with("conductor: spawn: refused: ProviderUnavailable: ")
+            && stderr.contains("no cgroup delegation"),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        call_names(&case.fake()).is_empty(),
+        "{:?}",
+        calls(&case.fake())
+    );
+    assert!(!case.recorded(), "nothing is recorded");
+    assert_eq!(case.launches(), 0);
+}
+
+/// Under `strict`, a box short of the request is stopped, the controller recorded stopped, and
+/// the spawn refused as `MeasurementShort`.
+#[test]
+fn strict_spawn_is_refused_when_the_measurement_is_short() {
+    let case = Case::new("strict-short");
+    case.write_config(&format!(
+        "{{role: controller, harness: claude, model: sonnet, profile: {}, settings: {}, limits: \
+         {{tasks_max: 128}}}}",
+        case.profile().display(),
+        case.settings().display()
+    ));
+    case.confine("{mode: strict, provider: systemd}");
+    fs::create_dir_all(case.fake()).expect("create the fake's directory");
+    write(&case.fake().join("measure.json"), "{\"tasks_max\": null}");
+    let output = case.spawn_fake();
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with("conductor: spawn: refused: MeasurementShort: ")
+            && stderr.contains("tasks_max"),
+        "{}",
+        describe(&output)
+    );
+    assert_eq!(
+        call_names(&case.fake()),
+        ["start", "prompt", "measure", "stop"]
+    );
+    let rows = case.controllers();
+    assert_eq!(rows.len(), 1, "{rows:#?}");
+    assert_eq!(rows[0]["state"], "Stopped", "{}", rows[0]);
 }
