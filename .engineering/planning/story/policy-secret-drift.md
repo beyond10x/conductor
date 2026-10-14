@@ -22,10 +22,11 @@ with no operator step.
   default branch and the `updated_at` of the organization secret that carries it (read with the
   bot's API route); the board flags `policy secret stale` when the file is newer; a test over
   fixtures holds the flag.
-- `.agents/conductor.md` says a stale policy secret is dispatched to the policy repository's
-  controller as a request to make CI read the policy without a person (for example from the
-  repository through the bot App), and only reaches the operator if that needs a credential only
-  they hold; a profile test holds the sentence.
+- `.agents/conductor.md` says a stale policy secret is reported once per change with the policy
+  commits it lacks and is sent to the controller of the repository whose CI reads the secret (the
+  Gates scanner's), never to the operator as a routine step; how CI reads the policy without a
+  secret is a class-O change to a contract between repositories, decided by the operator, and is
+  not part of this story. A profile test holds the sentence.
 
 ## Scope
 
