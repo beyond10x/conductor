@@ -1781,6 +1781,42 @@ fn a_controller_runs_doctor_and_config_reads_but_not_trust_or_init() {
     }
 }
 
+/// `story:rules-show`: `conductor rules show` is a view over the instance's `rules.md`, so a
+/// controller runs it, in its checkout and in a worker's tree, to cite items in a brief.
+#[test]
+fn a_controller_runs_rules_show() {
+    // Allowed as a declared read, not as words the guard does not know as a leaf.
+    let leaf = ["rules".to_owned(), "show".to_owned()];
+    assert!(
+        tree_leaves().iter().any(|(path, _)| *path == leaf),
+        "`conductor rules show` is a leaf of the tree"
+    );
+    assert_eq!(
+        declared(&leaf),
+        Some(Access::Reads),
+        "`rules show` is a read"
+    );
+    let home = home("controller-rules-show");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for command in [
+            "conductor rules show --item 43,49,51",
+            "conductor rules show --section conductor",
+            "conductor rules show --item 4 --format json",
+            "conductor --config c.yaml rules show --section 'repository controller'",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+    assert_verdict(
+        &bash(&home, CONDUCTOR, "conductor rules show --section conductor"),
+        Verdict::Allow,
+        "",
+    );
+}
+
 /// A line that names `conductor` without running one of its leaves is no run of it: help, a
 /// lookup, a path, a quoted string, a crate name.
 #[test]

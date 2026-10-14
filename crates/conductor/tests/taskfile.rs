@@ -538,6 +538,43 @@ fn conductor_attach_and_restart_run_in_the_records_directory() {
     }
 }
 
+/// `story:conductor-start-reading`: when conductor-dev is unreachable, conductor restarts itself
+/// from its records directory, naming this checkout's `Taskfile.yml`, in the form its profile
+/// gives: the task stops the live conductor and starts the new one in the records directory.
+#[test]
+fn conductor_restart_runs_from_the_records_directory() {
+    let Some(case) = Case::new("restart-from-records") else {
+        return;
+    };
+    case.link_agent("conductor");
+    let config = case.config("opus", None);
+    fs::write(case.dir.join("claude/live"), "").expect("a live session");
+
+    let output = case
+        .command("conductor:restart", Some(&config))
+        .current_dir(case.records())
+        .output()
+        .expect("task runs");
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    let verbs: Vec<&str> = calls
+        .iter()
+        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
+        .collect();
+    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
+    for (cwd, args) in &calls {
+        assert_eq!(cwd, &case.records(), "{args}");
+    }
+
+    let conductor = fs::read_to_string(root().join(".agents/conductor.md"))
+        .expect("read the conductor profile");
+    let conductor = conductor.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        conductor.contains("task --taskfile <product checkout>/Taskfile.yml conductor:restart"),
+        "conductor.md names the form this case runs"
+    );
+}
+
 #[test]
 fn trust_marks_the_records_directory_and_each_checkout_trusted() {
     let Some(case) = Case::new("trust") else {

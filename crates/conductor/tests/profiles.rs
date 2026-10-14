@@ -504,3 +504,101 @@ fn every_build_runs_under_conductor_build_run_and_a_refusal_is_reported() {
         "repo-controller.md: the hand-written watchdog is gone"
     );
 }
+
+/// `story:rules-show`: a worker brief cites the `rules.md` items it carries with the output of
+/// `conductor rules show --item …`, never with an excerpt cut by hand from the file.
+#[test]
+fn a_worker_brief_cites_rules_items_through_rules_show() {
+    let text = profile("repo-controller.md");
+    let sentence = "A worker brief carries the `rules.md` items it cites as the output of \
+                    `conductor rules show --item <n>,<n>,…`, pasted whole, never an excerpt cut \
+                    from the file by hand (`awk`, `sed` or line numbers); after a `rules.md` \
+                    change, run it again for each running worker's items.";
+    assert!(
+        text.contains(sentence),
+        "repo-controller.md: holds {sentence:?}"
+    );
+}
+
+/// The design, `docs/design/conductor.md`, on single spaces.
+fn design() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/design/conductor.md");
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `story:conductor-start-reading`: a `rules.md` change reaches a running conductor as a relayed
+/// diff and no restart; a restart is for the profile, the adapter, the controller profile or the
+/// design, batched with the next wave and at most one an hour; conductor starts on design §§ 4-8
+/// and its own section of `rules.md` only; and when conductor-dev is unreachable, conductor
+/// restarts itself.
+#[test]
+fn conductor_restarts_rarely_and_starts_on_less_reading() {
+    let design = design();
+    for sentence in [
+        "A `rules.md` change reaches a running conductor as a relayed diff, like the \
+         controllers', and a restart is only for the profile, the adapter, the controller \
+         profile or the design.",
+        "Restarts are batched with the next wave, at most one an hour unless one corrects a \
+         live fault.",
+    ] {
+        assert!(design.contains(sentence), "design § 12: holds {sentence:?}");
+    }
+
+    let dev = profile("conductor-dev.md");
+    for sentence in [
+        "Restarts are batched with the next wave, at most one an hour unless one corrects a \
+         live fault.",
+        "A `rules.md` change reaches a running conductor as a relayed diff, like the \
+         controllers', and needs no restart:",
+    ] {
+        assert!(
+            dev.contains(sentence),
+            "conductor-dev.md: holds {sentence:?}"
+        );
+    }
+    assert!(
+        !dev.contains("`rules.md`, design §§ 2–12 or the conductor role's `settings`"),
+        "conductor-dev.md: a rules.md change no longer restarts conductor"
+    );
+
+    let conductor = profile("conductor.md");
+    for sentence in [
+        "At session start read, in this order: this profile; the rules for your role, through \
+         `conductor rules show --section conductor` and `conductor rules show --section \
+         \"all sessions\"` (the rules every session follows), not the whole `rules.md`;",
+        "§§ 4–8 of `docs/design/conductor.md` in the product repository, and no other section;",
+        "When a restart you need cannot be answered because conductor-dev is unreachable",
+        "write your hand-over as for `[RESTART conductor]`, commit it, and run `task \
+         conductor:restart` yourself",
+        "A `rules.md` change reaches you as a relayed diff, not a restart:",
+    ] {
+        assert!(
+            conductor.contains(sentence),
+            "conductor.md: holds {sentence:?}"
+        );
+    }
+    assert!(
+        !conductor.contains("§§ 2–12 of `docs/design/conductor.md`"),
+        "conductor.md: the start reads design §§ 4-8 only"
+    );
+}
+
+/// `story:conductor-dev-report-form`: conductor-dev answers a NEED in the report form conductor
+/// parses, the NEED's id in the line and `-` in the dispatch-id slot.
+#[test]
+fn conductor_dev_answers_a_need_in_the_report_form() {
+    let dev = profile("conductor-dev.md");
+    let sentence = "Answer each NEED as `[REPORT conductor -] \
+                    <started|progress|blocked|unblocked|done|failed> <need id>: <one line>`: the \
+                    dispatch-id slot is `-`, the NEED's id goes in the line.";
+    assert!(
+        dev.contains(sentence),
+        "conductor-dev.md: holds {sentence:?}"
+    );
+    assert!(
+        !dev.contains("[REPORT conductor-dev"),
+        "conductor-dev.md: no report names conductor-dev as its repository"
+    );
+}

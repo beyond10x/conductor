@@ -512,15 +512,25 @@ waves.
 **Rebuild.** After a wave merges and `task check` is green, conductor-dev runs `task install`. The
 CLI keeps no state outside the state directory, so a new binary needs no restart.
 
-**Restart.** Only when something conductor read at session start changed: its adapter, its
-profile, the controller profile, the instance's `rules.md`, this design, or the operator's harness
-instructions.
+**Restart.** A `rules.md` change reaches a running conductor as a relayed diff, like the
+controllers', and a restart is only for the profile, the adapter, the controller profile or the
+design. conductor-dev commits the change and sends `[REPORT conductor -] progress rules.md
+<commit> items <n>,…` with the diff; conductor reads the changed items with `conductor rules show
+--item <n>,…` and relays them to every running controller. Restarts are batched with the next
+wave, at most one an hour unless one corrects a live fault. A start reads little: conductor's
+profile, its own section of `rules.md` through `conductor rules show --section conductor`, §§ 4–8
+of this design, the north star and status, the tail of its logs and the newest hand-over.
 
 1. conductor-dev sends `[RESTART conductor] <reason>`.
 2. conductor ends its cycle, writes a hand-over in `docs/handoff/` (open dispatches, pending
    requests, waits) and answers `[REPORT conductor -] ready <path>`.
 3. conductor-dev runs `task conductor:restart`, which stops the background session and starts a
    new one that reads the hand-over first.
+
+When a restart conductor needs (its context over `thresholds.context_handover`) cannot be answered
+because conductor-dev is unreachable, conductor writes its hand-over and runs `task
+conductor:restart` itself, from its records directory and detached from the session the task
+stops.
 
 Both sessions run in the background (`claude --bg`). A session whose permission mode holds
 incoming messages for approval stalls the loop, so both run in a mode that does not. The operator

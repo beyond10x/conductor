@@ -30,6 +30,11 @@ implement against the generated code. What it cannot express goes to conductor a
 
 An ESS opt-out in `AGENTS.md` is followed and named in the brief instead.
 
+A worker brief carries the `rules.md` items it cites as the output of
+`conductor rules show --item <n>,<n>,…`, pasted whole, never an excerpt cut from the file by hand
+(`awk`, `sed` or line numbers); after a `rules.md` change, run it again for each running worker's
+items.
+
 ## What you do
 
 - **Plan** in the AEP store (`aep:planning`; `ess:specifying` for a new noun first). Next work

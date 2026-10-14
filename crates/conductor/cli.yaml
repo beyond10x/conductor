@@ -108,6 +108,13 @@ callables:
     input: conductor.dispatch.CheckRecords
     result: List<conductor.dispatch.RecordsFinding>
     errors: {}
+  rules-show:
+    target: {kind: local, owner: conductor-cli, action: rules_show}
+    input: conductor.direction.Rules
+    result: List<conductor.direction.RulesRow>
+    errors:
+      rule-item-not-found: conductor.direction.RulesRefused
+      rule-section-not-found: conductor.direction.RulesRefused
   upgrade:
     target: {kind: local, owner: conductor-cli, action: upgrade}
     input: conductor.config.UpgradeBinary
@@ -258,6 +265,16 @@ commands:
     callable: records-check
     about: Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log
     arguments:
+      - field: format
+        source: {kind: option, long: format}
+  - path: [rules, show]
+    callable: rules-show
+    about: Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold
+    arguments:
+      - field: item
+        source: {kind: option, long: item}
+      - field: section
+        source: {kind: option, long: section}
       - field: format
         source: {kind: option, long: format}
   - path: [upgrade]

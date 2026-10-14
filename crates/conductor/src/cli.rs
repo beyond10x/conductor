@@ -31,7 +31,8 @@
 //! serve` (`story:live-dashboard`), `decision show`, `watch run` (`story:watch-command`),
 //! `repository shipped` (`story:release-digest`), `repository activity`
 //! (`story:repository-marks`), `resource usage` (`story:token-spend`), `store migrate`
-//! (`story:store-on-eventlog-tree`) and `records check` (`story:records-from-commands`).
+//! (`story:store-on-eventlog-tree`), `records check` (`story:records-from-commands`) and `rules
+//! show` (`story:rules-show`).
 //! `host reclaim` (`story:disk-reclaim`) joins the `host` group; `build run` (`story:build-run`)
 //! alone also takes the words after `--`, as written: the command it runs.
 //!
@@ -291,6 +292,9 @@ impl Cli {
             Group::Records(command) => match command {
                 RecordsCommand::Check(args) => crate::records::records_check(state, &args),
             },
+            Group::Rules(command) => match command {
+                RulesCommand::Show(args) => crate::rules::rules_show(&args),
+            },
             Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
             Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
@@ -382,6 +386,11 @@ pub enum Group {
     // (`story:records-from-commands`).
     #[command(subcommand)]
     Records(RecordsCommand),
+
+    // No help, as for `dashboard`: the binding declares the group only through `rules show`
+    // (`story:rules-show`).
+    #[command(subcommand)]
+    Rules(RulesCommand),
 
     /// Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
     #[command(name = "setup")]
@@ -557,6 +566,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["init"], Access::Writes),
     // Reads conductor's records logs and the store's decisions (story:records-from-commands).
     (&["records", "check"], Access::ConductorReads),
+    // Reads the instance's rules.md and nothing else; a controller cites its items in a worker's
+    // brief (story:rules-show).
+    (&["rules", "show"], Access::Reads),
     // With --apply, writes the config file, the records and ~/.claude.json (story:setup-command).
     (&["setup"], Access::Writes),
     // Starts a controller's session and records the controller in the store.
@@ -1104,6 +1116,33 @@ pub enum RecordsCommand {
 #[derive(Debug, Clone, Args)]
 pub struct RecordsCheckArgs {
     /// How the findings are printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
+}
+
+// `conductor rules`: the command the binding declares over the `local` callable `rules-show`
+// (`story:rules-show`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum RulesCommand {
+    /// Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold
+    #[command(name = "show")]
+    Show(RulesShowArgs),
+}
+
+/// The input of the binding's `rules-show` callable, `conductor.direction.Rules`. Each field is
+/// text the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct RulesShowArgs {
+    /// The item numbers to print, comma-separated (43,49,51), in the order given
+    #[arg(long)]
+    pub item: Option<String>,
+
+    /// A heading of rules.md, any case: print every item under each heading of that text
+    #[arg(long)]
+    pub section: Option<String>,
+
+    /// How the items are printed: text (verbatim) or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
 }

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
-// contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
+// model digest 28067fcad842068129f731728df7b815d475fd9879595aa982215219d50e6b13
+// contract digest faaf71b91cc30baf3a852a651199b7088e75a13e90f0beabeab1584291b172c9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -104,6 +104,50 @@ pub enum RepositoryMarkState {
     Active,
     /// `Inactive`.
     Inactive,
+}
+
+/// Rules — `conductor.direction.Rules`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rules {
+    /// `item` — `Optional<String>`.
+    pub item: Option<String>,
+    /// `section` — `Optional<String>`.
+    pub section: Option<String>,
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
+
+/// RulesRefusal — `conductor.direction.RulesRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RulesRefusal {
+    /// `RuleItemNotFound`.
+    RuleItemNotFound,
+    /// `RuleSectionNotFound`.
+    RuleSectionNotFound,
+}
+
+/// RulesRefused — `conductor.direction.RulesRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RulesRefused {
+    /// `refusal` — `conductor.direction.RulesRefusal`.
+    pub refusal: RulesRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
+
+/// RulesRow — `conductor.direction.RulesRow`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RulesRow {
+    /// `item` — `Integer`.
+    pub item: i64,
+    /// `title` — `String`.
+    pub title: String,
+    /// `section` — `String`.
+    pub section: String,
+    /// `source` — `Optional<String>`.
+    pub source: Option<String>,
+    /// `text` — `String`.
+    pub text: String,
 }
 
 /// ServingId — `conductor.direction.ServingId`: a distinct wrapper around `Uuid`.

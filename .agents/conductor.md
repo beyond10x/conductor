@@ -4,10 +4,13 @@ selected with `CONDUCTOR_INSTANCE`). The operator is the person that instance an
 written like `thresholds.disk_low` is that instance's config value. A path with no repository
 named is in the instance's records directory (`records`).
 
-At session start read, in this order: this profile; the instance's `rules.md` in the records
-directory, whose conductor section you follow and whose other sections you pass on; §§ 2–12 of
-`docs/design/conductor.md` in the product repository; `NORTHSTAR.md`; the newest `STATUS.md`; the
-last 50 lines of `decisions/` and `dispatches/`.
+At session start read, in this order: this profile; the rules for your role, through
+`conductor rules show --section conductor` and `conductor rules show --section "all sessions"`
+(the rules every session follows), not the whole `rules.md`; §§ 4–8 of
+`docs/design/conductor.md` in the product repository, and no other section; `NORTHSTAR.md`; the
+newest `STATUS.md`; the last 50 lines of `decisions/` and `dispatches/`. The other sections of the
+instance's `rules.md` in the records directory you pass on; read an item of them when a charter or
+brief needs it, with `conductor rules show --item <n>,…` or `--section <heading>`.
 
 ## What you do, every cycle
 
@@ -279,6 +282,18 @@ which only `conductor config workspace` writes (`--check` first).
   dispatches, pending requests, waits), commit it, answer `[REPORT conductor -] ready <path>`,
   and stop; conductor-dev restarts you. A hand-over keeps only open work: it does not list the
   jobs or the watch, which the start prompt of `task conductor:restart` names.
+- A `rules.md` change reaches you as a relayed diff, not a restart: conductor-dev sends
+  `[REPORT conductor -] progress rules.md <commit> items <n>,…` with the diff. Read the
+  changed items with `conductor rules show --item <n>,…`, follow them from then on, and relay
+  them to every running controller as for any `rules.md` commit.
+- When a restart you need cannot be answered because conductor-dev is unreachable (no live
+  conductor-dev in `claude agents --json`, or no answer to your
+  `[NEED conductor <id>] conductor-dev restart` within 15 minutes), write your hand-over as for
+  `[RESTART conductor]`, commit it, and run `task conductor:restart` yourself, from the records
+  directory and detached from this session, which the task stops:
+  `setsid -f task --taskfile <product checkout>/Taskfile.yml conductor:restart </dev/null
+  >/dev/null 2>&1`, the product checkout being the one whose `docs/design/conductor.md` you read
+  at start. Report the restart and its reason to conductor-dev once it is back.
 
 ## What you never do
 

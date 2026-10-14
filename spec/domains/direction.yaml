@@ -58,6 +58,54 @@ types:
     fields:
       - {name: format, type: Optional<String>}
 
+  # One row of the `Rules` view (`conductor rules show`): one numbered item of the instance's
+  # `rules.md` in its records directory, read when it is asked for and never stored. An item is a
+  # line that opens with its number and `. ` at the start of the line, and every line after it up
+  # to the next such line, the next heading or the next line that starts at the margin; blank lines
+  # at its end are not part of it. `text` is the item byte for byte as the file holds it, ending in
+  # a newline. `title` is its bold lead without the asterisks, or else its first sentence, without
+  # a final full stop. `section` is the path of headings above it, outermost first, joined by
+  # ` / `; the file's title, its `#` heading, is no section. `source` is what follows its
+  # `Source:` line, on one line, when it has one.
+  - name: conductor.direction.RulesRow
+    kind: struct
+    fields:
+      - {name: item, type: Integer}
+      - {name: title, type: String}
+      - {name: section, type: String}
+      - {name: source, type: Optional<String>}
+      - {name: text, type: String}
+
+  # The input of the `Rules` view, `conductor rules show`. It reads `rules.md` only: it writes
+  # nothing and opens no store. `item` is a comma-separated list of item numbers, printed in the
+  # order given wherever they sit in the file; `section` is a heading, matched without regard to
+  # case, and prints every item under each heading of that text, its subsections' included, in
+  # file order; without either it prints every item, and both together are refused. `format` is
+  # text (the items verbatim, one blank line between two) or json (a list of `RulesRow`). A number
+  # no item holds, or a heading the file does not hold, is refused (`RulesRefused`) and nothing is
+  # printed.
+  - name: conductor.direction.Rules
+    kind: struct
+    fields:
+      - {name: item, type: Optional<String>}
+      - {name: section, type: Optional<String>}
+      - {name: format, type: Optional<String>}
+
+  # Why `conductor rules show` printed nothing and exited 1: `RuleItemNotFound`, no item of
+  # rules.md has a number it was given; `RuleSectionNotFound`, no heading has the text it was
+  # given.
+  - name: conductor.direction.RulesRefusal
+    kind: enum
+    variants: [RuleItemNotFound, RuleSectionNotFound]
+
+  # The refusal of `conductor rules show`: its kind, and what it names (the item number or the
+  # heading the file does not hold).
+  - name: conductor.direction.RulesRefused
+    kind: struct
+    fields:
+      - {name: refusal, type: conductor.direction.RulesRefusal}
+      - {name: detail, type: String}
+
 entities:
   # An override of whether conductor processes a repository's GitHub issues and pull requests
   # (design § 10). Without a mark, activity is computed from the newest
