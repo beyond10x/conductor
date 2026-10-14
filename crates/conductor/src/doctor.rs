@@ -925,7 +925,7 @@ fn read_config(
 ///
 /// What [`doctor_with`] answers.
 pub fn doctor() -> Result<ExitCode> {
-    doctor_with(None, &crate::confine::Host)
+    doctor_with(None, &crate::confine::Host::default())
 }
 
 /// What `conductor doctor` found, before it is printed ([`check`]).
@@ -1180,7 +1180,7 @@ pub fn check_in(
         workspaces,
         watchers,
         pin_file,
-        providers: crate::confine::availability(&crate::confine::Host),
+        providers: crate::confine::availability(&crate::confine::Host::default()),
         project,
         manager,
     })

@@ -1,0 +1,482 @@
+//! The `systemd` provider (`story:session-limits-systemd`): each session in a `systemd-run
+//! --user` unit inside its instance's slice, with the way the spike found working
+//! (`docs/analysis/session-box-spike.md`, way (a)).
+//!
+//! - The instance's slice is `conductor-<session_prefix>.slice`, or `conductor.slice` without a
+//!   prefix ([`slice_name`]). Before a unit starts in it, `systemctl --user set-property
+//!   --runtime <slice>` sets the instance's `confinement.limits` on it: `MemoryMax`, `CPUWeight`
+//!   and `TasksMax`, each reset (`infinity`, or an empty `CPUWeight=`) where the instance sets
+//!   none.
+//! - [`Provider::start`] runs the session in the unit `conductor-<session name>.service`
+//!   ([`unit_name`]): `systemd-run --user --unit <unit> --slice <slice> --collect`, `-p
+//!   MemoryMax=`, `-p CPUWeight=` and `-p TasksMax=` for each limit the role sets, its output to
+//!   nothing, in the session's start directory, with `TERM`, `SHELL=/bin/bash`, this process's
+//!   `PATH`, the launch's variables and, by name only, each `forge_token_env` variable this
+//!   process has. The unit runs the spike's launcher: `/bin/sh` opens the session's FIFO
+//!   read-write on fd 3, so it never reads an end, and runs `script` on it, which gives
+//!   `claude --session-id <id> <arguments>` a PTY and keeps a typescript. The id is chosen here.
+//!   The FIFO and the typescript are `<state>/sessions/<session name>.fifo` and `.typescript`.
+//! - [`Provider::prompt`] waits until the session list shows the session live, then types the
+//!   prompt into the FIFO as one bracketed paste, and Enter.
+//! - [`Provider::stop`] is `systemctl --user stop <unit>`; [`Provider::resume`] starts a new unit
+//!   of the same name running `claude --resume <id> <arguments>`.
+//! - [`Provider::measure`] asks systemd for the unit's cgroup (`systemctl --user show -p
+//!   ControlGroup --value <unit>`) and reads `memory.max`, `cpu.weight` and `pids.max` there,
+//!   each absent where the file reads `max` or is not there. The provider sets up no write fence
+//!   yet, so the measurement is a partial box: `writable` absent and `fence_missing` the reason.
+//! - [`Provider::available`] reads the user manager's delegated controllers from
+//!   `<cgroup root>/user.slice/user-<uid>.slice/user@<uid>.service/cgroup.controllers`
+//!   ([`controllers_file`]), not `systemctl --user show`, which reports `Delegate=no` where the
+//!   controllers are delegated all the same; it is available when `cpu`, `memory` and `pids` are
+//!   listed. `io` is not asked for.
+
+use std::fs::{self, File};
+use std::io::{ErrorKind, Write as _};
+use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context as _, Result, anyhow, bail};
+use conductor_model::config::{Limits, ProviderAvailability, SessionName};
+use conductor_model::observation::EnvelopeProvider;
+use conductor_model::session::{EnvelopeMeasurement, SessionRequest, StartedSession};
+use nix::errno::Errno;
+use nix::fcntl::OFlag;
+use nix::sys::stat::Mode;
+
+use super::{BOUND, Launch, Provider, Said, exited, live_session, now};
+use crate::collect;
+
+/// The cgroup root of this host.
+pub const CGROUP_ROOT: &str = "/sys/fs/cgroup";
+
+/// The program that starts a unit, found on `PATH`.
+pub const SYSTEMD_RUN: &str = "systemd-run";
+
+/// The program that sets a slice's limits, stops a unit and reads its cgroup, found on `PATH`.
+pub const SYSTEMCTL: &str = "systemctl";
+
+/// The controllers the user manager must delegate for a box.
+pub const DELEGATED: [&str; 3] = ["cpu", "memory", "pids"];
+
+/// The launcher the unit runs, through `/bin/sh -c <this> conductor-launch <fifo> <typescript>
+/// <command>`: the FIFO held read-write on fd 3, and `script` reading it as the PTY's input.
+pub const LAUNCHER: &str = r#"exec 3<>"$1" && exec script -qfec "$3" "$2" <&3"#;
+
+/// The PTY's size, set before the harness starts.
+const STTY: &str = "stty cols 160 rows 48";
+
+/// The record's reason for a box with no write fence.
+pub const NO_FENCE: &str = "the systemd provider sets up no write fence yet";
+
+/// How long the TUI is given between the pasted prompt and Enter.
+const PASTE_SETTLE: Duration = Duration::from_millis(500);
+
+/// The unit a session runs in: `conductor-<session name>.service`, every character but letters,
+/// digits, `:`, `_`, `.` and `-` written `\xNN` as `systemd-escape` writes it.
+#[must_use]
+pub fn unit_name(name: &SessionName) -> String {
+    let mut unit = String::from("conductor-");
+    for byte in name.0.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'.' | b'-') {
+            unit.push(char::from(byte));
+        } else {
+            unit.push_str(&format!("\\x{byte:02x}"));
+        }
+    }
+    unit.push_str(".service");
+    unit
+}
+
+/// The slice of an instance: `conductor-<prefix>.slice`, or `conductor.slice` without one.
+#[must_use]
+pub fn slice_name(prefix: Option<&str>) -> String {
+    prefix.map_or_else(
+        || "conductor.slice".to_owned(),
+        |prefix| format!("conductor-{prefix}.slice"),
+    )
+}
+
+/// The user manager's `cgroup.controllers` of the user `uid` under `root`.
+#[must_use]
+pub fn controllers_file(root: &Path, uid: u32) -> PathBuf {
+    root.join(format!(
+        "user.slice/user-{uid}.slice/user@{uid}.service/cgroup.controllers"
+    ))
+}
+
+/// The user id of this process.
+fn uid() -> Result<u32> {
+    Ok(fs::metadata("/proc/self")
+        .context("read the user id of this process from /proc/self")?
+        .uid())
+}
+
+/// A new session id, as the kernel makes a random UUID.
+fn session_id() -> Result<String> {
+    Ok(fs::read_to_string("/proc/sys/kernel/random/uuid")
+        .context("make a session id from /proc/sys/kernel/random/uuid")?
+        .trim()
+        .to_owned())
+}
+
+/// `word` quoted for a POSIX shell: in single quotes, a single quote written `'\''`.
+fn quoted(word: &str) -> String {
+    format!("'{}'", word.replace('\'', r"'\''"))
+}
+
+/// Runs `program <args>` within [`BOUND`] and fails naming how it ended when it did not succeed;
+/// answers its standard output.
+fn call(program: &str, args: &[String]) -> Result<String> {
+    let shown = format!("{program} {}", args.join(" "));
+    let output = collect::run(Command::new(program).args(args), BOUND)
+        .with_context(|| format!("run `{shown}`"))?;
+    if !output.status.success() {
+        bail!("`{shown}` {}", exited(&output));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// A file of the session `name` under `state`: `<state>/sessions/<name>.<what>`.
+fn session_file(state: &Path, name: &SessionName, what: &str) -> PathBuf {
+    state.join("sessions").join(format!("{}.{what}", name.0))
+}
+
+/// One limit file of a cgroup: its number, or `None` where it reads `max` or is not there.
+fn limit(dir: &Path, file: &str) -> Result<Option<i64>> {
+    let path = dir.join(file);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+    };
+    match text.trim() {
+        "max" => Ok(None),
+        value => value
+            .parse()
+            .map(Some)
+            .with_context(|| format!("{} reads {value:?}, no number", path.display())),
+    }
+}
+
+/// The `systemd` provider; see the module documentation.
+#[derive(Debug, Clone)]
+pub struct Systemd {
+    /// The cgroup root the provider reads, [`CGROUP_ROOT`] on this host.
+    cgroup_root: PathBuf,
+    /// The launch [`Provider::start`] kept for [`Provider::prompt`].
+    launch: Option<Launch>,
+}
+
+impl Systemd {
+    /// The provider reading the cgroups under `cgroup_root`.
+    #[must_use]
+    pub fn new(cgroup_root: PathBuf) -> Self {
+        Self {
+            cgroup_root,
+            launch: None,
+        }
+    }
+
+    /// Sets the instance's limits on its slice.
+    fn set_slice(slice: &str, limits: &Limits) -> Result<()> {
+        let mut args = ["--user", "set-property", "--runtime", slice]
+            .map(str::to_owned)
+            .to_vec();
+        args.extend([
+            format!(
+                "MemoryMax={}",
+                limits
+                    .memory_max
+                    .as_ref()
+                    .map_or_else(|| "infinity".to_owned(), |size| format!("{}G", size.0))
+            ),
+            format!(
+                "CPUWeight={}",
+                limits
+                    .cpu_weight
+                    .map_or_else(String::new, |weight| weight.to_string())
+            ),
+            format!(
+                "TasksMax={}",
+                limits
+                    .tasks_max
+                    .map_or_else(|| "infinity".to_owned(), |tasks| tasks.to_string())
+            ),
+        ]);
+        call(SYSTEMCTL, &args).with_context(|| format!("set the limits of the slice {slice}"))?;
+        Ok(())
+    }
+
+    /// Starts the unit of `launch`'s session in its instance's slice, running `claude
+    /// <harness>` through the launcher, and answers the unit's name.
+    fn run_unit(launch: &Launch, harness: &[String]) -> Result<String> {
+        let request = &launch.request;
+        let slice = slice_name(
+            launch
+                .session_prefix
+                .as_ref()
+                .map(|prefix| prefix.0.as_str()),
+        );
+        Self::set_slice(&slice, &launch.instance_limits)?;
+        let unit = unit_name(&request.session_name);
+        let fifo = session_file(&launch.state, &request.session_name, "fifo");
+        let typescript = session_file(&launch.state, &request.session_name, "typescript");
+        let dir = fifo.parent().unwrap_or(&launch.state);
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+        match fs::remove_file(&fifo) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("remove {}", fifo.display()));
+            }
+        }
+        nix::unistd::mkfifo(&fifo, Mode::S_IRUSR | Mode::S_IWUSR)
+            .with_context(|| format!("make the FIFO {}", fifo.display()))?;
+
+        let mut command = String::from(STTY);
+        command.push_str("; exec ");
+        let words: Vec<String> = std::iter::once(launch.program.as_str())
+            .chain(harness.iter().map(String::as_str))
+            .map(quoted)
+            .collect();
+        command.push_str(&words.join(" "));
+
+        let mut args: Vec<String> = ["--user", "--unit", &unit, "--slice", &slice, "--collect"]
+            .map(str::to_owned)
+            .to_vec();
+        let Limits {
+            memory_max,
+            cpu_weight,
+            tasks_max,
+        } = &request.limits;
+        let properties = [
+            memory_max
+                .as_ref()
+                .map(|size| format!("MemoryMax={}G", size.0)),
+            cpu_weight.map(|weight| format!("CPUWeight={weight}")),
+            tasks_max.map(|tasks| format!("TasksMax={tasks}")),
+            Some("StandardOutput=null".to_owned()),
+        ];
+        for property in properties.into_iter().flatten() {
+            args.extend(["-p".to_owned(), property]);
+        }
+        args.push(format!("--working-directory={}", request.cwd));
+        let mut set = vec![
+            "TERM=xterm-256color".to_owned(),
+            "SHELL=/bin/bash".to_owned(),
+        ];
+        if let Some(path) = std::env::var_os("PATH") {
+            set.push(format!("PATH={}", path.to_string_lossy()));
+        }
+        set.extend(
+            launch
+                .env
+                .iter()
+                .map(|(name, value)| format!("{name}={value}")),
+        );
+        set.extend(
+            request
+                .forge_token_env
+                .iter()
+                .filter(|name| std::env::var_os(name).is_some())
+                .cloned(),
+        );
+        for variable in set {
+            args.extend(["-E".to_owned(), variable]);
+        }
+        args.extend([
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            LAUNCHER.to_owned(),
+            "conductor-launch".to_owned(),
+            fifo.display().to_string(),
+            typescript.display().to_string(),
+            command,
+        ]);
+        call(SYSTEMD_RUN, &args).with_context(|| format!("start the unit {unit}"))?;
+        Ok(unit)
+    }
+
+    /// The unit `session` runs in.
+    fn unit_of(session: &StartedSession) -> String {
+        session
+            .unit
+            .clone()
+            .unwrap_or_else(|| unit_name(&session.session_name))
+    }
+}
+
+/// Opens `fifo` for writing once its launcher holds it, within [`BOUND`].
+fn open_fifo(fifo: &Path) -> Result<File> {
+    let started = Instant::now();
+    loop {
+        match File::options()
+            .write(true)
+            .custom_flags(OFlag::O_NONBLOCK.bits())
+            .open(fifo)
+        {
+            Ok(file) => return Ok(file),
+            Err(error)
+                if error.raw_os_error() == Some(Errno::ENXIO as i32)
+                    && started.elapsed() < BOUND =>
+            {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("open {} for the session's launcher", fifo.display())
+                });
+            }
+        }
+    }
+}
+
+/// Writes all of `bytes` to the FIFO `file`, waiting while its buffer is full, within [`BOUND`].
+fn type_into(file: &mut File, mut bytes: &[u8]) -> Result<()> {
+    let started = Instant::now();
+    while !bytes.is_empty() {
+        match file.write(bytes) {
+            Ok(written) => bytes = &bytes[written..],
+            Err(error) if error.kind() == ErrorKind::WouldBlock && started.elapsed() < BOUND => {
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => return Err(error).context("type into the session's FIFO"),
+        }
+    }
+    Ok(())
+}
+
+impl Provider for Systemd {
+    fn name(&self) -> String {
+        "systemd".to_owned()
+    }
+
+    fn available(&mut self) -> ProviderAvailability {
+        let reason = (|| -> Result<Option<String>> {
+            let file = controllers_file(&self.cgroup_root, uid()?);
+            let text = fs::read_to_string(&file).with_context(|| {
+                format!(
+                    "the user manager's delegated controllers cannot be read from {}",
+                    file.display()
+                )
+            })?;
+            let listed: Vec<&str> = text.split_whitespace().collect();
+            let missing: Vec<&str> = DELEGATED
+                .into_iter()
+                .filter(|controller| !listed.contains(controller))
+                .collect();
+            Ok((!missing.is_empty()).then(|| {
+                format!(
+                    "the user manager does not delegate {}: {} lists {:?}",
+                    missing.join(", "),
+                    file.display(),
+                    text.trim()
+                )
+            }))
+        })()
+        .unwrap_or_else(|error| Some(format!("{error:#}")));
+        ProviderAvailability {
+            provider: self.name(),
+            available: reason.is_none(),
+            reason,
+        }
+    }
+
+    fn start(&mut self, launch: &Launch) -> Result<StartedSession> {
+        let id = session_id()?;
+        let mut harness = vec!["--session-id".to_owned(), id.clone()];
+        harness.extend(launch.args.iter().cloned());
+        let unit = Self::run_unit(launch, &harness)?;
+        self.launch = Some(launch.clone());
+        Ok(StartedSession {
+            role: launch.request.role.clone(),
+            session_name: launch.request.session_name.clone(),
+            provider: self.name(),
+            unit: Some(unit),
+            session_id: Some(id),
+        })
+    }
+
+    fn prompt(&mut self, session: &mut StartedSession, prompt: &str) -> Result<Said> {
+        let launch = self
+            .launch
+            .as_ref()
+            .ok_or_else(|| anyhow!("no session was started to prompt"))?;
+        let name = &session.session_name;
+        let started = Instant::now();
+        while live_session(&name.0)?.is_none() {
+            if started.elapsed() >= BOUND {
+                bail!(
+                    "the session {} was not listed live within {} s of its unit's start",
+                    name.0,
+                    BOUND.as_secs()
+                );
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        let fifo = session_file(&launch.state, name, "fifo");
+        let mut file = open_fifo(&fifo)?;
+        type_into(&mut file, format!("\x1b[200~{prompt}\x1b[201~").as_bytes())?;
+        thread::sleep(PASTE_SETTLE);
+        type_into(&mut file, b"\r")?;
+        Ok(Said::default())
+    }
+
+    fn stop(&mut self, session: &StartedSession, _request: &SessionRequest) -> Result<()> {
+        let unit = Self::unit_of(session);
+        call(SYSTEMCTL, &["--user", "stop", &unit].map(str::to_owned))
+            .with_context(|| format!("stop the unit {unit}"))?;
+        Ok(())
+    }
+
+    fn resume(&mut self, session: &StartedSession, launch: &Launch) -> Result<StartedSession> {
+        let id = session
+            .session_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("the session {} has no id", session.session_name.0))?;
+        let mut harness = vec!["--resume".to_owned(), id.to_owned()];
+        harness.extend(launch.args.iter().cloned());
+        let unit = Self::run_unit(launch, &harness)?;
+        self.launch = Some(launch.clone());
+        Ok(StartedSession {
+            provider: self.name(),
+            unit: Some(unit),
+            ..session.clone()
+        })
+    }
+
+    fn measure(
+        &mut self,
+        session: &StartedSession,
+        request: &SessionRequest,
+    ) -> Result<EnvelopeMeasurement> {
+        let unit = Self::unit_of(session);
+        let cgroup = call(
+            SYSTEMCTL,
+            &["--user", "show", "-p", "ControlGroup", "--value", &unit].map(str::to_owned),
+        )
+        .with_context(|| format!("read the cgroup of the unit {unit}"))?
+        .trim()
+        .to_owned();
+        if cgroup.is_empty() {
+            bail!("the unit {unit} has no cgroup: it is not running");
+        }
+        let dir = self.cgroup_root.join(cgroup.trim_start_matches('/'));
+        Ok(EnvelopeMeasurement {
+            session: session.clone(),
+            measured_at: now(),
+            provider: Some(EnvelopeProvider::Systemd),
+            memory_max: limit(&dir, "memory.max")?,
+            cpu_weight: limit(&dir, "cpu.weight")?,
+            tasks_max: limit(&dir, "pids.max")?,
+            cgroup: Some(cgroup),
+            places: request.writable.clone(),
+            writable: None,
+            fence_missing: Some(NO_FENCE.to_owned()),
+            unboxed: None,
+        })
+    }
+}

@@ -653,18 +653,21 @@ pub fn start(
             cwd.join(file).display().to_string(),
         ));
     }
+    let state_dir = crate::state::dir(state)?;
     let launch = Launch {
         request: request(instance, found, cwd, home),
         program: confine::CLAUDE.to_owned(),
         args: harness_args(found, &name, cwd),
         env,
+        session_prefix: instance.session_prefix.clone(),
+        instance_limits: instance.confinement.limits.clone(),
+        state: state_dir.clone(),
     };
     let prompt = if found.role == "conductor" {
         CONDUCTOR_PROMPT
     } else {
         DEV_PROMPT
     };
-    let state_dir = crate::state::dir(state)?;
     match chosen.start(&launch, prompt, &state_dir) {
         Ok(started) => {
             confine::pass_through(&started.said)?;

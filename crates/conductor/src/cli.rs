@@ -98,7 +98,7 @@ impl Cli {
     /// Whatever the handler answers: [`NotImplemented`](crate::NotImplemented) until the story
     /// that fills it lands.
     pub fn run(self) -> Result<ExitCode> {
-        self.run_with(&crate::confine::Host)
+        self.run_with(&crate::confine::Host::default())
     }
 
     /// [`Cli::run`], with the sessions `spawn`, `session start` and `session stop` start and stop

@@ -212,8 +212,12 @@ pub fn spawn(
             environment.cwd.join(file).display().to_string(),
         ));
     }
+    let state_dir = crate::state::dir(state)?;
     let launch = Launch {
         request,
+        session_prefix: instance.session_prefix.clone(),
+        instance_limits: instance.confinement.limits.clone(),
+        state: state_dir.clone(),
         program: CLAUDE.to_owned(),
         args: [
             "-n",
@@ -239,7 +243,6 @@ pub fn spawn(
     } else {
         format!("the {} provider's start", chosen.name())
     };
-    let state_dir = crate::state::dir(state)?;
     let failure = match chosen.start(&launch, &charter, &state_dir) {
         Ok(started) => {
             confine::pass_through(&started.said)?;

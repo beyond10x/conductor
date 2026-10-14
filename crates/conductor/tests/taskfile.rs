@@ -34,6 +34,12 @@ fn taskfile() -> serde_yaml::Value {
     serde_yaml::from_str(&text).expect("Taskfile.yml is YAML")
 }
 
+/// The `confinement` every instance of a case writes: the `none` provider, so a task that starts
+/// a session through the built `conductor` launches the case's `claude` itself, and never reaches
+/// the host's `systemd-run` whatever cgroup controllers the host delegates
+/// (`story:session-limits-systemd`).
+const UNBOXED: &str = "\x20   confinement: {provider: none}\n";
+
 /// The tasks that run a conductor session.
 const CONDUCTOR_TASKS: [&str; 3] = ["conductor:start", "conductor:attach", "conductor:restart"];
 
@@ -359,7 +365,8 @@ impl Case {
              \x20   roles:\n\
              \x20     - {{role: conductor, harness: claude, model: {model}{settings}}}\n\
              \x20     - {{role: conductor-dev, harness: claude, model: opus}}\n\
-             \x20     - {{role: controller, harness: claude, model: opus}}\n",
+             \x20     - {{role: controller, harness: claude, model: opus}}\n\
+             {UNBOXED}",
             root = self.dir.join("checkouts").display(),
             trees = self.dir.join("trees").display(),
             records = self.records().display(),
@@ -770,7 +777,8 @@ fn adv_config(case: &Case, records: &str, role_extra: &str) -> PathBuf {
          \x20   roles:\n\
          \x20     - {{role: conductor, harness: claude, model: opus{role_extra}}}\n\
          \x20     - {{role: conductor-dev, harness: claude, model: opus}}\n\
-         \x20     - {{role: controller, harness: claude, model: opus}}\n",
+         \x20     - {{role: controller, harness: claude, model: opus}}\n\
+         {UNBOXED}",
         root = case.dir.join("checkouts").display(),
         trees = case.dir.join("trees").display(),
         records = serde_json::to_string(records).expect("records as a JSON string"),
@@ -860,7 +868,8 @@ fn w02_config(case: &Case, conductor: &str, dev: &str) -> PathBuf {
          \x20   roles:\n\
          \x20     - {{role: conductor, harness: claude, model: opus{conductor}}}\n\
          \x20     - {{role: conductor-dev, harness: claude, model: sonnet{dev}}}\n\
-         \x20     - {{role: controller, harness: claude, model: opus}}\n",
+         \x20     - {{role: controller, harness: claude, model: opus}}\n\
+         {UNBOXED}",
         root = case.dir.join("checkouts").display(),
         trees = case.dir.join("trees").display(),
         records = case.records().display(),
@@ -1209,7 +1218,8 @@ fn adv2_config(case: &Case, checkouts: &str, conductor: &str) -> PathBuf {
          \x20   roles:\n\
          \x20     - {{role: conductor, {conductor}}}\n\
          \x20     - {{role: conductor-dev, harness: claude, model: opus}}\n\
-         \x20     - {{role: controller, harness: claude, model: opus}}\n",
+         \x20     - {{role: controller, harness: claude, model: opus}}\n\
+         {UNBOXED}",
         checkouts = serde_json::to_string(checkouts).expect("checkouts as a JSON string"),
         trees = case.dir.join("trees").display(),
         records = case.records().display(),
@@ -1735,7 +1745,8 @@ fn named_config(case: &Case, prefix: Option<&str>) -> PathBuf {
          \x20   checkouts:\n\
          \x20     root: {root}\n\
          \x20     trees: {trees}\n\
-         \x20   records: {records}\n",
+         \x20   records: {records}\n\
+         {UNBOXED}",
         root = case.dir.join("checkouts").display(),
         trees = case.dir.join("trees").display(),
         records = case.records().display(),
@@ -2199,6 +2210,7 @@ fn two_instance_config(case: &Case) -> PathBuf {
          \x20     root: {root}\n\
          \x20     trees: {trees}\n\
          \x20   records: {records}\n\
+         {UNBOXED}\
          \x20 - name: beta\n\
          \x20   session_prefix: b\n\
          \x20   sources:\n\
@@ -2206,7 +2218,8 @@ fn two_instance_config(case: &Case) -> PathBuf {
          \x20   checkouts:\n\
          \x20     root: {root}-b\n\
          \x20     trees: {trees}-b\n\
-         \x20   records: {records}-b\n",
+         \x20   records: {records}-b\n\
+         {UNBOXED}",
         root = case.dir.join("checkouts").display(),
         trees = case.dir.join("trees").display(),
         records = case.records().display(),

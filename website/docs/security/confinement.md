@@ -3,7 +3,7 @@ title: Confinement
 sidebar_position: 3
 description: How a conductor or controller session is started so that the guard runs, what bounds it, and the authority boundary the decision classes draw.
 lede: A session is confined by how it is started, by the place it runs in, and by the decisions it may take; only the first two reach the guard.
-source: Taskfile.yml (conductor:start, dev:start, trust); .agents/conductor.md; crates/conductor/src/confine/mod.rs; crates/conductor/src/session.rs; crates/conductor/src/spawn.rs; crates/conductor/src/config.rs; crates/conductor/src/guard/rules.rs; crates/conductor/src/controller.rs; crates/conductor/src/decide.rs; docs/design/conductor.md sections 5 and 7
+source: Taskfile.yml (conductor:start, dev:start, trust); .agents/conductor.md; crates/conductor/src/confine/mod.rs; crates/conductor/src/confine/systemd.rs; crates/conductor/src/session.rs; crates/conductor/src/spawn.rs; crates/conductor/src/config.rs; crates/conductor/src/guard/rules.rs; crates/conductor/src/controller.rs; crates/conductor/src/decide.rs; docs/design/conductor.md sections 5 and 7
 ---
 
 ## How a session is started
@@ -18,8 +18,17 @@ under `report` it starts unboxed and its measurement says why. The measurement i
 `<state>/sessions/<session name>.envelope.json` and read into the `envelope_*` columns of
 `conductor snapshot sessions`. `conductor doctor` prints whether each provider is available.
 
-Conductor does not set up a `systemd` box yet, so today every session starts through the `none`
-provider, as a background Claude Code session:
+The `systemd` provider runs each session in a `systemd-run --user` unit,
+`conductor-<session name>.service`, inside the instance's slice, `conductor-<session_prefix>.slice`
+or `conductor.slice`. The slice carries the instance's `confinement.limits`; the unit the role's
+`limits` (`MemoryMax`, `CPUWeight`, `TasksMax`). The session runs in the foreground of the unit
+under `script`, which gives it a terminal, and its first prompt is typed into it; `conductor
+session stop` stops the unit. The provider reads the limits back from the unit's cgroup. It is
+available where the user manager delegates the `cpu`, `memory` and `pids` controllers, and it
+sets up no write fence yet, so its box is partial: `report` records that, `strict` stops the
+session.
+
+The `none` provider starts a session as a background Claude Code session:
 
 ```console
 claude --bg -n <session name> \

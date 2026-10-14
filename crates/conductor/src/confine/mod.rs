@@ -15,7 +15,8 @@
 //! argv, the prompt one argument, never through a shell), `stop` is `claude stop <id>`, a wait for
 //! the session list to show it gone, and `claude rm <id>`, `resume` is `claude --bg --resume <id>
 //! <arguments>`, and `measure` measures nothing: its record says the session runs unboxed. The
-//! `systemd` provider is not written yet; until it is, [`Host`] reports it not available.
+//! `systemd` provider ([`systemd::Systemd`], `story:session-limits-systemd`) runs each session in
+//! a `systemd-run --user` unit inside its instance's slice, with its role's limits.
 //!
 //! [`choose`] reads `confinement`: under `strict`, a provider that is not available starts
 //! nothing (`ProviderUnavailable`); under `report`, the session starts unboxed through `none`
@@ -26,6 +27,7 @@
 //! collector reads into the session's `envelope_*` fields ([`read_measurement`]).
 
 pub mod places;
+pub mod systemd;
 
 use std::fs::{self, File};
 use std::io::Write as _;
@@ -38,6 +40,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
     Confinement, ConfinementMode, ConfinementProvider, Limits, ProviderAvailability, SessionName,
+    SessionPrefix,
 };
 use conductor_model::observation::EnvelopeProvider;
 use conductor_model::primitives::Timestamp;
@@ -71,6 +74,12 @@ pub struct Launch {
     pub args: Vec<String>,
     /// Variables set for the session beside the inherited environment.
     pub env: Vec<(String, String)>,
+    /// The instance's `session_prefix`, which names its slice.
+    pub session_prefix: Option<SessionPrefix>,
+    /// The instance's `confinement.limits`, the limits of its slice.
+    pub instance_limits: Limits,
+    /// The state directory, under whose `sessions/` a provider keeps a session's files.
+    pub state: PathBuf,
 }
 
 /// What the harness wrote when the first prompt was delivered.
@@ -143,14 +152,27 @@ pub trait Providers {
     fn all(&self) -> Vec<Box<dyn Provider>>;
 }
 
-/// This host's providers: `systemd`, which is not written yet, and `none`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Host;
+/// This host's providers: `systemd`, reading the cgroups under `cgroup_root`, and `none`.
+#[derive(Debug, Clone)]
+pub struct Host {
+    /// The cgroup root the `systemd` provider reads: [`systemd::CGROUP_ROOT`] by default.
+    pub cgroup_root: PathBuf,
+}
+
+impl Default for Host {
+    fn default() -> Self {
+        Self {
+            cgroup_root: PathBuf::from(systemd::CGROUP_ROOT),
+        }
+    }
+}
 
 impl Providers for Host {
     fn provider(&self, name: ConfinementProvider) -> Box<dyn Provider> {
         match name {
-            ConfinementProvider::Systemd => Box::new(NotWritten("systemd")),
+            ConfinementProvider::Systemd => {
+                Box::new(systemd::Systemd::new(self.cgroup_root.clone()))
+            }
             ConfinementProvider::None => Box::new(Unboxed::default()),
         }
     }
@@ -172,53 +194,6 @@ pub fn availability(providers: &dyn Providers) -> Vec<ProviderAvailability> {
         .iter_mut()
         .map(|provider| provider.available())
         .collect()
-}
-
-/// A provider conductor does not have yet: never available.
-struct NotWritten(&'static str);
-
-impl NotWritten {
-    fn reason(&self) -> String {
-        format!("conductor does not set up a {} box yet", self.0)
-    }
-}
-
-impl Provider for NotWritten {
-    fn name(&self) -> String {
-        self.0.to_owned()
-    }
-
-    fn available(&mut self) -> ProviderAvailability {
-        ProviderAvailability {
-            provider: self.name(),
-            available: false,
-            reason: Some(self.reason()),
-        }
-    }
-
-    fn start(&mut self, _launch: &Launch) -> Result<StartedSession> {
-        bail!("{}", self.reason())
-    }
-
-    fn prompt(&mut self, _session: &mut StartedSession, _prompt: &str) -> Result<Said> {
-        bail!("{}", self.reason())
-    }
-
-    fn stop(&mut self, _session: &StartedSession, _request: &SessionRequest) -> Result<()> {
-        bail!("{}", self.reason())
-    }
-
-    fn resume(&mut self, _session: &StartedSession, _launch: &Launch) -> Result<StartedSession> {
-        bail!("{}", self.reason())
-    }
-
-    fn measure(
-        &mut self,
-        _session: &StartedSession,
-        _request: &SessionRequest,
-    ) -> Result<EnvelopeMeasurement> {
-        bail!("{}", self.reason())
-    }
 }
 
 /// The reason the `none` provider's record gives: it sets up no box.
@@ -393,7 +368,7 @@ pub enum Refusal {
         /// How it failed.
         detail: String,
         /// The session started before the prompt failed, if any.
-        session: Option<StartedSession>,
+        session: Option<Box<StartedSession>>,
     },
     /// `strict`, and the measured box is short of the request: the session was stopped.
     MeasurementShort(String),
@@ -496,7 +471,7 @@ impl Chosen {
             Err(error) => {
                 return Err(Refusal::LaunchFailed {
                     detail: format!("{error:#}"),
-                    session: Some(session),
+                    session: Some(Box::new(session)),
                 });
             }
         };
@@ -526,7 +501,7 @@ impl Chosen {
                 "the session {} started, and its measurement was not written: {error:#}",
                 session.session_name.0
             ),
-            session: Some(session.clone()),
+            session: Some(Box::new(session.clone())),
         })?;
         Ok(Started {
             session,

@@ -16,8 +16,8 @@
 //!
 //! `story:session-envelope-seam`: spawn starts the controller through a confinement provider. The
 //! cases that name a fake provider run the command over it ([`fake_provider`]); the others run
-//! the built binary, whose `systemd` provider is not written yet, so the default `report` starts
-//! every controller through `none`, with the start form above.
+//! the built binary with the instance's `confinement` the `none` provider ([`UNBOXED`]), which
+//! starts every controller with the start form above.
 
 mod common;
 mod fake_provider;
@@ -46,6 +46,12 @@ fn child() {
 
 /// The id the stand-in prints for a session it started.
 const SESSION_ID: &str = "bg-session-0001";
+
+/// The `confinement` the config file writes until a case sets its own ([`Case::confine`]): the
+/// `none` provider, so the built binary launches the case's `claude` itself and never reaches the
+/// host's `systemd-run`, whatever cgroup controllers the host delegates
+/// (`story:session-limits-systemd`).
+const UNBOXED: &str = "\x20   confinement: {provider: none}\n";
 
 /// A charter whose text a shell would expand: a `$(…)`, a backtick, both quotes and a line break.
 /// It reaches `claude` as one argument, byte for byte, and nothing in it runs.
@@ -142,7 +148,8 @@ impl Case {
                  \x20   state: {state}\n\
                  \x20   roles:\n\
                  \x20     - {{role: conductor, harness: claude, model: opus}}\n\
-                 \x20     - {controller}\n",
+                 \x20     - {controller}\n\
+                 {UNBOXED}",
                 root = self.root().display(),
                 trees = self.dir.join("trees").display(),
                 records = self.records().display(),
@@ -238,9 +245,11 @@ impl Case {
         self.dir.join("fake")
     }
 
-    /// Adds `confinement` to the instance of the config file.
+    /// Sets the instance's `confinement` in the config file, in place of [`UNBOXED`].
     fn confine(&self, confinement: &str) {
-        let text = fs::read_to_string(self.config()).expect("read the config file");
+        let text = fs::read_to_string(self.config())
+            .expect("read the config file")
+            .replace(UNBOXED, "");
         write(
             &self.config(),
             &format!("{text}\x20   confinement: {confinement}\n"),
