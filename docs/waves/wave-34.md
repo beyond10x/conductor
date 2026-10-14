@@ -23,4 +23,5 @@ implementors started in one message, each in its own tree.
 
 ## Outcome
 
-Pending.
+`task check`, documentation and the Gates job green in CI on the integration head
+(https://github.com/beyond10x/conductor/actions/runs/38512130171), first run. Released as v0.12.0.
