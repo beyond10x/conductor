@@ -1893,7 +1893,10 @@ fn an_agent_start_needs_the_adapter_in_the_start_directory() {
             !command.contains("cd "),
             "dev:start starts in this checkout: {command}"
         );
-        assert!(command.contains("who=conductor-dev"), "{command}");
+        assert!(
+            command.contains("conductor session start --role conductor-dev"),
+            "dev:start starts through the binary, which picks the adapter or the profile: {command}"
+        );
     }
     assert!(
         root().join(".claude/agents/conductor-dev.md").is_file(),
@@ -1938,38 +1941,27 @@ fn scalars(value: &serde_yaml::Value) -> Vec<String> {
     }
 }
 
-/// The controller start and resume commands of the conductor profile name the session
-/// `<controller session name>`, which the profile says comes from `conductor config show`; no
-/// command names it after the bare repository.
+/// The conductor profile starts sessions only through the binary (`story:session-envelope-seam`):
+/// `conductor spawn` for a controller, `conductor session start` for conductor and conductor-dev,
+/// so the session name comes from the instance's config inside the binary and no raw `claude --bg`
+/// form, which could name a session after the bare repository, is left in the profile.
 #[test]
 fn the_conductor_profile_names_controllers_by_their_session_name() {
     let text = fs::read_to_string(root().join(".agents/conductor.md")).expect("read the profile");
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let commands: Vec<&str> = flat
-        .match_indices("claude --bg")
-        .map(|(at, _)| {
-            let rest = &flat[at..];
-            &rest[..rest.find('`').unwrap_or(rest.len())]
-        })
-        .collect();
     assert!(
-        commands.len() >= 2,
-        "a start and a resume command: {commands:#?}"
+        !flat.contains("claude --bg"),
+        "the profile starts no session with a raw claude form"
     );
-    for command in &commands {
+    for form in [
+        "`conductor spawn --repository <repo>`",
+        "`conductor session start --role <role>`",
+    ] {
         assert!(
-            command.contains(" -n <controller session name> "),
-            "the session name: {command}"
-        );
-        assert!(
-            !command.contains("-n <repo>"),
-            "the bare repository: {command}"
+            flat.contains(form),
+            "the profile names the start form {form}"
         );
     }
-    assert!(
-        flat.contains("`<controller session name>` is `<session_prefix>-<repo>`, or `<repo>` when `session_prefix` is null in `conductor config show`"),
-        "the profile says where the name comes from: {flat}"
-    );
 }
 
 // ---------------------------------------------------------------------------------------------
