@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 2764625359a16169ce5c0fe898fec84fb849a766b3354792d6399b6345746de6
-// contract digest de22fe83d7bb2748cdad9a88059528eaa8d1f46b7316af48ee1271c035267b7c
+// model digest a7f9871bdabc63897967bf2cd72fe7f3e4a6232eafb0109d0e08d01c54c699d0
+// contract digest 4f558702eb89a37a651256cf70ff0e0c742b1cc51d7ccbc88d2be22a2fe9b0a4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -1673,6 +1673,12 @@ pub struct RepositoryObservationData {
     pub gates_hooks_version: Option<String>,
     /// `gates_version` — `Optional<String>`.
     pub gates_version: Option<String>,
+    /// `wave_width` — `Optional<Integer>`.
+    pub wave_width: Option<i64>,
+    /// `wave_ready` — `Optional<Integer>`.
+    pub wave_ready: Option<i64>,
+    /// `wave_reason` — `Optional<String>`.
+    pub wave_reason: Option<String>,
 }
 
 /// The states of `conductor.observation.RepositoryObservation`, at the type level.
@@ -3002,6 +3008,12 @@ pub struct RecordRepository {
     pub gates_hooks_version: Option<String>,
     /// `gates_version` — `Optional<String>`.
     pub gates_version: Option<String>,
+    /// `wave_width` — `Optional<Integer>`.
+    pub wave_width: Option<i64>,
+    /// `wave_ready` — `Optional<Integer>`.
+    pub wave_ready: Option<i64>,
+    /// `wave_reason` — `Optional<String>`.
+    pub wave_reason: Option<String>,
 }
 
 /// Everything `conductor.observation.RecordRepository` can result in — one variant per declared outcome.
@@ -3741,6 +3753,12 @@ pub struct Repositories {
     pub gates_hooks_version: Option<String>,
     /// `gates_version` — `Optional<String>`.
     pub gates_version: Option<String>,
+    /// `wave_width` — `Optional<Integer>`.
+    pub wave_width: Option<i64>,
+    /// `wave_ready` — `Optional<Integer>`.
+    pub wave_ready: Option<i64>,
+    /// `wave_reason` — `Optional<String>`.
+    pub wave_reason: Option<String>,
 }
 
 /// Sessions — one row of the view `conductor.observation.Sessions`.

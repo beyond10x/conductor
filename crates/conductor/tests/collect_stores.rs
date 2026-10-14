@@ -1674,6 +1674,7 @@ fn prompted_snapshots(name: &str, fake: &Path) {
         main_commits: vec!["false".to_owned()],
         commit: vec!["false".to_owned()],
         gates: vec!["false".to_owned()],
+        waves: repositories::waves_command(),
         width: 2,
         bound: Duration::from_secs(60),
     };
@@ -1897,6 +1898,7 @@ fn a_checkout_whose_gates_hook_lags_is_recorded_and_the_board_names_it_stale() {
         main_commits: vec!["false".to_owned()],
         commit: vec!["false".to_owned()],
         gates: vec!["echo".to_owned(), "b10x-gates 0.1.17".to_owned()],
+        waves: repositories::waves_command(),
         width: 2,
         bound: Duration::from_secs(60),
     };
@@ -1943,4 +1945,191 @@ fn a_checkout_whose_gates_hook_lags_is_recorded_and_the_board_names_it_stale() {
         .collect();
     assert_eq!(deviations.len(), 1, "{board}");
     assert!(deviations[0].starts_with("| alpha |"), "{board}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wave width (story:wave-width)
+// ---------------------------------------------------------------------------------------------
+
+/// One story of a planning store at its path: `status`, one `scope` path, `depends_on` entries,
+/// and one move to `active` at each of `active_at`.
+fn story(
+    slug: &str,
+    status: &str,
+    scope: &str,
+    depends_on: &[&str],
+    active_at: &[&str],
+) -> (String, String) {
+    let mut text = format!(
+        "---\nformat: aep.planning-md/3\nid: story:{slug}\nkind: story\nstatus: {status}\n\
+         title: {slug}\n"
+    );
+    if !depends_on.is_empty() {
+        text.push_str("relations:\n");
+        for target in depends_on {
+            text.push_str(&format!("- depends_on: story:{target}\n"));
+        }
+    }
+    text.push_str(&format!(
+        "scope:\n- confidence: cited\n  path: {scope}\nrevision: 2\n"
+    ));
+    if !active_at.is_empty() {
+        text.push_str("transitions:\n");
+        for at in active_at {
+            text.push_str(&format!(
+                "- {{from: \"proposed\", to: \"active\", at: \"{at}\", actor: \"human:fixture\", \
+                 revision: 2}}\n"
+            ));
+        }
+    }
+    text.push_str("---\n## Acceptance\n\n- It holds.\n");
+    (format!(".engineering/planning/story/{slug}.md"), text)
+}
+
+/// The store every case repository of the wave-width test holds on `origin/main`: two stories
+/// moved to `active` four minutes apart (the newest wave, width 2), one long before them, and
+/// drafts whose first derived wave is three (`d4` waits on `d1`, `d5` shares `d1`'s scope).
+fn wave_store(repo: &str) -> Vec<(String, String)> {
+    vec![
+        project(&member(repo)),
+        story(
+            "old",
+            "implemented",
+            "src/old.rs",
+            &[],
+            &["2026-10-01T08:00:00Z"],
+        ),
+        story("w1", "active", "src/w1.rs", &[], &["2026-10-02T10:00:00Z"]),
+        story("w2", "active", "src/w2.rs", &[], &["2026-10-02T10:04:00Z"]),
+        story("d1", "draft", "src/a.rs", &[], &[]),
+        story("d2", "draft", "src/b.rs", &[], &[]),
+        story("d3", "draft", "src/c.rs", &[], &[]),
+        story("d4", "draft", "src/d.rs", &["d1"], &[]),
+        story("d5", "draft", "src/a.rs", &[], &[]),
+    ]
+}
+
+/// The repositories collector records each repository's newest wave width, the ready units the
+/// store's first derived wave offers (`aep plan artifact waves --kind story --status draft`, the
+/// installed `aep`) and the reason its newest wave page gives, all read at `origin/main` after a
+/// fetch; the board names `narrow wave` for the repository whose width is under both the ready
+/// units and `controllers.max_subagents` (the built-in 4) with a page that gives no reason, and
+/// for none other.
+#[test]
+fn a_wave_narrower_than_its_ready_units_is_recorded_and_the_board_names_it_narrow() {
+    let case = Case::new("wave_width");
+    let repos = ["alpha", "beta.io", "gamma", "delta"];
+    // alpha: the newest page is wave-10 (not wave-9, which a text order would pick), and it gives
+    // no reason.
+    let mut alpha = wave_store("alpha");
+    alpha.push(file(
+        "docs/waves/wave-9.md",
+        "# Wave 9\n\nWidth: one unit, the rest collide.\n",
+    ));
+    alpha.push(file(
+        "docs/waves/wave-10.md",
+        "# Wave 10\n\n## Units\n\n| A | w1 |\n| B | w2 |\n",
+    ));
+    // beta.io: the same store, and its newest page gives a reason.
+    let mut beta = wave_store("beta.io");
+    beta.push(file(
+        "docs/waves/wave-10.md",
+        "# Wave 10\n\nWidth: two units share one crate with the drafts.\n",
+    ));
+    // gamma: two started together and one draft ready: not narrow.
+    let gamma = vec![
+        project(&member("gamma")),
+        story("w1", "active", "src/w1.rs", &[], &["2026-10-02T10:00:00Z"]),
+        story("w2", "active", "src/w2.rs", &[], &["2026-10-02T10:00:30Z"]),
+        story("d1", "draft", "src/a.rs", &[], &[]),
+    ];
+    // Each checkout's working tree holds an older store with no story: only `origin/main` counts.
+    for (repo, upstream) in [
+        ("alpha", alpha),
+        ("beta.io", beta),
+        ("gamma", gamma),
+        ("delta", vec![file("README.md", "# delta\n")]),
+    ] {
+        case.repository(repo, &[project(&member(repo))], &upstream);
+        case.origin(repo);
+    }
+    let listing = case.dir.join("listing.json");
+    let entries: Vec<String> = repos
+        .iter()
+        .map(|repo| {
+            format!(
+                r#"{{"name": "{repo}", "visibility": "PUBLIC", "isArchived": false, "hasIssuesEnabled": false}}"#
+            )
+        })
+        .collect();
+    write(&listing, &format!("[{}]", entries.join(",")));
+    let empty = case.dir.join("empty.json");
+    write(&empty, "[]");
+    let cat = |file: &Path| vec!["cat".to_owned(), path(file).to_owned()];
+    let sources = repositories::Sources {
+        organization: "example-org".to_owned(),
+        workspace: case.dir.join("example-org"),
+        catalog: None,
+        now: time::OffsetDateTime::now_utc(),
+        repository_list: cat(&listing),
+        open_issues: cat(&empty),
+        latest_release: cat(&empty),
+        main_commit: vec!["false".to_owned()],
+        main_commits: vec!["false".to_owned()],
+        commit: vec!["false".to_owned()],
+        gates: vec!["false".to_owned()],
+        waves: repositories::waves_command(),
+        width: 2,
+        bound: Duration::from_secs(60),
+    };
+
+    let taken = case.take("repositories", move |record| {
+        repositories::collect_from(&sources, record)
+    });
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+
+    let mut recorded: Vec<(Value, Value, Value, Value)> = case
+        .view("repositories")
+        .into_iter()
+        .map(|row| {
+            (
+                row["repository"].clone(),
+                row["wave_width"].clone(),
+                row["wave_ready"].clone(),
+                row["wave_reason"].clone(),
+            )
+        })
+        .collect();
+    recorded.sort_by_key(|row| row.0.to_string());
+    assert_eq!(
+        recorded,
+        [
+            (json!("alpha"), json!(2), json!(3), Value::Null),
+            (
+                json!("beta.io"),
+                json!(2),
+                json!(3),
+                json!("two units share one crate with the drafts.")
+            ),
+            (json!("delta"), Value::Null, Value::Null, Value::Null),
+            (json!("gamma"), json!(2), json!(1), Value::Null),
+        ]
+    );
+
+    let board = case.dir.join("STATUS.md");
+    let output = common::conductor(case.dir.join("home"))
+        .current_dir(case.dir.join("work"))
+        .args(["--state-dir", path(&case.state())])
+        .args(["snapshot", "publish-board", "--path", path(&board)])
+        .stdin(Stdio::null())
+        .output()
+        .expect("the conductor binary runs");
+    assert!(output.status.success(), "{}", describe(&output));
+    let board = fs::read_to_string(&board).expect("read the board");
+    let narrow: Vec<&str> = board
+        .lines()
+        .filter(|line| line.contains("narrow wave"))
+        .collect();
+    assert_eq!(narrow.len(), 1, "{board}");
+    assert!(narrow[0].starts_with("| alpha |"), "{board}");
 }

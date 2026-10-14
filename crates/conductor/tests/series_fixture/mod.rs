@@ -352,6 +352,9 @@ pub fn collector(
                 in_catalog: None,
                 gates_hooks_version: None,
                 gates_version: None,
+                wave_width: None,
+                wave_ready: None,
+                wave_reason: None,
             })?;
         }
         for (repository, number, opened_at) in &open {

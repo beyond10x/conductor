@@ -16,7 +16,10 @@
 //! 3. **Deviations**, one row per repository that is not archived with at least one: a red `main`
 //!    workflow, a pull request with a failing check, one open more than 14 days, unreleased
 //!    commits, no checkout, a specification missing or refused, a Gates hook whose version
-//!    differs from the `b10x-gates` on `PATH` (`stale gates hooks`, `story:gates-hooks-fresh`);
+//!    differs from the `b10x-gates` on `PATH` (`stale gates hooks`, `story:gates-hooks-fresh`),
+//!    a newest wave narrower than both the ready units its store offers and
+//!    `controllers.max_subagents` whose wave page gives no reason (`narrow wave`,
+//!    `story:wave-width`, [`narrow_wave`]);
 //! 4. **Overview**, one row per repository that is not archived, in name order;
 //! 5. **Specifications**, one row per repository with its specification's presence and
 //!    validation;
@@ -91,6 +94,7 @@ const NO_CHECKOUT: &str = "no checkout";
 const SPECIFICATION_MISSING: &str = "specification missing";
 const SPECIFICATION_REFUSED: &str = "specification refused";
 const STALE_GATES_HOOKS: &str = "stale gates hooks";
+const NARROW_WAVE: &str = "narrow wave";
 
 /// `conductor snapshot publish-board`: the command `conductor.observation.PublishBoard`. Writes
 /// the board and prints the id of the board it recorded.
@@ -375,6 +379,7 @@ pub(crate) fn stale_gates_hooks(store: &Store, held: &SnapshotSnapshot) -> usize
 /// deviations and delta, and [`repository_figures`].
 fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
     let started = instant(&observed.started_at);
+    let max_subagents = crate::config::active().instance.controllers.max_subagents;
     let mut out = BTreeMap::new();
     for repository in observed.repositories.iter().filter(|held| !held.archived) {
         let name = &repository.repository.0;
@@ -430,6 +435,9 @@ fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
         ) {
             deviations.push(STALE_GATES_HOOKS);
         }
+        if narrow_wave(repository, max_subagents) {
+            deviations.push(NARROW_WAVE);
+        }
 
         let counts = Counts {
             open_prs: count(pulls.len()),
@@ -453,6 +461,18 @@ fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
         out.insert(name.clone(), Figures { deviations, counts });
     }
     out
+}
+
+/// Whether `repository`'s newest wave is narrow (`story:wave-width`): its width is under both the
+/// ready units its store offered and `max_subagents`, and its wave page gives no reason. Never
+/// when the width or the ready units were not read.
+fn narrow_wave(repository: &RepositoryObservationData, max_subagents: i64) -> bool {
+    match (repository.wave_width, repository.wave_ready) {
+        (Some(width), Some(ready)) => {
+            width < ready && width < max_subagents && repository.wave_reason.is_none()
+        }
+        _ => false,
+    }
 }
 
 /// Whether a pull request opened at `opened_at` had been open longer than [`STALE_DAYS`] when the

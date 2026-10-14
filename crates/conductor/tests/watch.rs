@@ -1556,6 +1556,9 @@ fn observation(name: &str, real_commits_7d: i64, archived: bool) -> RecordReposi
         in_catalog: Some(true),
         gates_hooks_version: None,
         gates_version: None,
+        wave_width: None,
+        wave_ready: None,
+        wave_reason: None,
     }
 }
 

@@ -33,10 +33,30 @@
 //! | `planning_store_version` | `version` in `.engineering/project.yaml` on `origin/main` (YAML or JSON) |
 //! | `gates_hooks_version` | what `<checkout>/.git/b10x-gates-hooks/b10x-gates --version` prints, its last word ([`gates::installed`], `story:gates-hooks-fresh`); `unread` for a hook that prints none; absent without such a hook or without a checkout |
 //! | `gates_version` | what [`Sources::gates`] (`b10x-gates --version`) prints, its last word, read once per snapshot; absent when it prints none |
+//! | `wave_width`, `wave_ready`, `wave_reason` | the planning store and the wave pages on `origin/main` ([`wave`], `story:wave-width`): see *Wave width* below |
 //! | `in_catalog` | whether the instance's catalog ([`Sources::catalog`], `story:catalog-source`) names the repository: a `<stem>.json` entry of the catalog's directory on its repository's `origin/main`, never that checkout's working tree, whose stem spells the name as the catalog's `names` says; absent for every repository when the instance names no catalog or `<workspace>/<catalog repository>` is no checkout |
 //!
 //! A local source's repository reads `HEAD` where the table reads `origin/main`, its own branches
 //! and `HEAD` for `real_commits_7d`, and 0 for `behind_main`.
+//!
+//! # Wave width
+//!
+//! `story:wave-width`, for a repository with a checkout of an owner or a local source; none of
+//! the three is read for a `gitlab` source's project or a repository without a checkout.
+//!
+//! - `wave_width`: how many stories of `.engineering/planning/story/*.md` moved to `active` (a
+//!   `to: active` entry of the frontmatter's `transitions`) within [`WAVE_WINDOW`] before the
+//!   newest such move of any story, each story once: the units started together last. None when
+//!   the store has no story or no story ever moved to `active`.
+//! - `wave_ready`: the stories of the first wave [`Sources::waves`] (`aep plan artifact waves
+//!   --kind story --status draft`) derives over that store, 0 when it derives none: the ready
+//!   units with disjoint scope the store offers at the snapshot, not at the newest wave's start.
+//!   The store is exported from `origin/main` with `git archive` into a directory of its own
+//!   under the system's temporary directory, removed once read. None where `wave_width` is, and
+//!   when `aep` does not answer (a `depends_on` cycle exits 2), so one store `aep` refuses
+//!   leaves the other repositories' rows as they are.
+//! - `wave_reason`: on the highest-numbered `docs/waves/*.md`, the text after `Width:` on the
+//!   first line that starts with it; none without such a page or line.
 //!
 //! # Real activity
 //!
@@ -96,6 +116,24 @@ const CATALOG_ENTRY: &str = ".json";
 
 /// The planning store's project file.
 const PROJECT_FILE: &str = ".engineering/project.yaml";
+
+/// The planning store, as `git archive` exports it.
+const PLANNING: &str = ".engineering/planning";
+
+/// The planning store's stories.
+const STORIES: &str = ".engineering/planning/story";
+
+/// The wave pages.
+const WAVE_PAGES: &str = "docs/waves";
+
+/// How long before the newest move to `active` a story's move counts into the newest wave.
+const WAVE_WINDOW: time::Duration = time::Duration::minutes(10);
+
+/// The line of a wave page that gives its width's reason.
+const WIDTH_REASON: &str = "Width:";
+
+/// Tells apart the exports of the waves read at once in one process.
+static EXPORTS: AtomicUsize = AtomicUsize::new(0);
 
 /// Conventional-commit types whose commits are maintenance.
 const MAINTENANCE_KINDS: [&str; 12] = [
@@ -158,6 +196,9 @@ pub struct Sources {
     /// Prints the version of the `b10x-gates` on `PATH`, as `b10x-gates <version>`
     /// (`story:gates-hooks-fresh`); read once per snapshot.
     pub gates: Vec<String>,
+    /// Prints the waves a planning store derives as JSON, `{store}` filled with the store's
+    /// directory ([`waves_command`], `story:wave-width`); run only over a store that holds stories.
+    pub waves: Vec<String>,
     /// How many repositories are read at once.
     pub width: usize,
     /// How long one command may run before it is stopped.
@@ -232,10 +273,21 @@ impl Sources {
                 "repos/{organization}/{repository}/commits/{sha}",
             ]),
             gates: words(&[gates::PROGRAM, "--version"]),
+            waves: waves_command(),
             width: WIDTH,
             bound: collect::BOUND,
         }
     }
+}
+
+/// `aep plan artifact waves --kind story --status draft --format json --store {store}`: the waves
+/// of the draft stories of the planning store `{store}` (`story:wave-width`).
+#[must_use]
+pub fn waves_command() -> Vec<String> {
+    words(&[
+        "aep", "plan", "artifact", "waves", "--kind", "story", "--status", "draft", "--format",
+        "json", "--store", "{store}",
+    ])
 }
 
 /// Records one `RecordRepository` per repository of the instance the process runs, archived ones
@@ -318,8 +370,9 @@ pub fn collect_with_gitlab(
     })?;
     let cataloged = cataloged(sources, &listed)?;
     let gates_version = gates::version(&sources.gates, sources.bound)?;
+    let waves = each(&listed, sources.width, |listed| wave(sources, listed))?;
     let sweeps = sweeps(&listed, &read);
-    for (listed, read) in listed.iter().zip(read) {
+    for ((listed, read), wave) in listed.iter().zip(read).zip(waves) {
         let real = read
             .commits
             .iter()
@@ -348,6 +401,9 @@ pub fn collect_with_gitlab(
             in_catalog: cataloged.as_ref().map(|names| names.contains(&listed.name)),
             gates_hooks_version: gates::installed(&listed.checkout(sources), sources.bound)?,
             gates_version: gates_version.clone(),
+            wave_width: wave.width,
+            wave_ready: wave.ready,
+            wave_reason: wave.reason,
         })?;
     }
     Ok(())
@@ -1063,6 +1119,210 @@ fn release(
         at: Some(at),
         unreleased: Some(unreleased),
     })
+}
+
+/// A repository's newest wave, as its store and wave pages show it (`story:wave-width`).
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Wave {
+    width: Option<i64>,
+    ready: Option<i64>,
+    reason: Option<String>,
+}
+
+/// The frontmatter fields of a story that [`wave`] reads.
+#[derive(Deserialize)]
+struct StoryFront {
+    #[serde(default)]
+    transitions: Vec<Transition>,
+}
+
+#[derive(Deserialize)]
+struct Transition {
+    to: String,
+    at: String,
+}
+
+/// The waves `aep plan artifact waves --format json` prints, in the parts [`wave`] reads.
+#[derive(Deserialize)]
+struct Derived {
+    #[serde(default)]
+    waves: Vec<DerivedWave>,
+}
+
+#[derive(Deserialize)]
+struct DerivedWave {
+    #[serde(default)]
+    artifacts: Vec<Value>,
+}
+
+/// The newest wave of `listed`'s planning store on `origin/main` (`HEAD` for a local source),
+/// already fetched: see *Wave width* in the module's documentation. Nothing for a repository
+/// without a checkout or of a `gitlab` source.
+fn wave(sources: &Sources, listed: &Listed) -> Result<Wave> {
+    let main = match &listed.origin {
+        Origin::Owner(_) => Reading::Fetched.main(),
+        Origin::Local(_) => Reading::AsIs.main(),
+        Origin::GitLab(_) => return Ok(Wave::default()),
+    };
+    let dir = listed.checkout(sources);
+    if !dir.join(".git").exists() || !born(&dir) {
+        return Ok(Wave::default());
+    }
+    let what = format!("repository {}", listed.name);
+    let checkout = Checkout {
+        what: &what,
+        dir: &dir,
+        bound: sources.bound,
+    };
+    let reason = wave_reason(&checkout, main)?;
+    let has_stories = !checkout
+        .git(&["ls-tree", "--name-only", main, "--", STORIES])?
+        .trim()
+        .is_empty();
+    if !has_stories {
+        return Ok(Wave {
+            reason,
+            ..Wave::default()
+        });
+    }
+    let export = std::env::temp_dir().join(format!(
+        "conductor-waves-{}-{}",
+        std::process::id(),
+        EXPORTS.fetch_add(1, Ordering::SeqCst)
+    ));
+    let read = exported_wave(sources, &checkout, main, &export);
+    let removed = fs::remove_dir_all(&export);
+    let (width, ready) = read?;
+    removed.with_context(|| format!("{what}: remove {}", export.display()))?;
+    Ok(Wave {
+        width,
+        ready,
+        reason,
+    })
+}
+
+/// The width and the ready units of the planning store of `checkout` at `main`, exported into
+/// `export`, which this creates.
+fn exported_wave(
+    sources: &Sources,
+    checkout: &Checkout<'_>,
+    main: &str,
+    export: &Path,
+) -> Result<(Option<i64>, Option<i64>)> {
+    let what = checkout.what;
+    fs::create_dir_all(export).with_context(|| format!("{what}: create {}", export.display()))?;
+    let tar = export.join("planning.tar");
+    let tar_path = tar.to_string_lossy().into_owned();
+    checkout.git(&[
+        "archive",
+        "--format=tar",
+        "-o",
+        &tar_path,
+        main,
+        "--",
+        PLANNING,
+    ])?;
+    let export_path = export.to_string_lossy().into_owned();
+    answer(
+        what,
+        &words(&["tar", "-x", "-f", &tar_path, "-C", &export_path]),
+        None,
+        sources.bound,
+    )?;
+    let Some(width) = wave_width(&export.join(STORIES))? else {
+        return Ok((None, None));
+    };
+    let store = export.join(PLANNING).to_string_lossy().into_owned();
+    let command = filled(&sources.waves, &[("store", store.as_str())]);
+    let ready = match answer(what, &command, Some(export), sources.bound) {
+        Ok(text) => serde_json::from_str::<Derived>(&text).ok().map(|derived| {
+            number(
+                derived
+                    .waves
+                    .first()
+                    .map_or(0, |first| first.artifacts.len()),
+            )
+        }),
+        Err(error) if collect::is_over_budget(&error) => return Err(error),
+        Err(_) => None,
+    };
+    Ok((Some(width), ready))
+}
+
+/// How many stories under `stories` moved to `active` within [`WAVE_WINDOW`] before the newest
+/// such move, each once; none when no story did. A story whose frontmatter does not read is left
+/// out.
+fn wave_width(stories: &Path) -> Result<Option<i64>> {
+    let mut moves: Vec<Vec<OffsetDateTime>> = Vec::new();
+    for entry in fs::read_dir(stories).with_context(|| format!("read {}", stories.display()))? {
+        let path = entry
+            .with_context(|| format!("read {}", stories.display()))?
+            .path();
+        if path.extension() != Some(OsStr::new("md")) {
+            continue;
+        }
+        let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        let Some(front) =
+            frontmatter(&text).and_then(|front| serde_yaml::from_str::<StoryFront>(front).ok())
+        else {
+            continue;
+        };
+        moves.push(
+            front
+                .transitions
+                .iter()
+                .filter(|transition| transition.to == "active")
+                .filter_map(|transition| OffsetDateTime::parse(&transition.at, &Rfc3339).ok())
+                .collect(),
+        );
+    }
+    let Some(newest) = moves.iter().flatten().max().copied() else {
+        return Ok(None);
+    };
+    let started = moves
+        .iter()
+        .filter(|story| {
+            story
+                .iter()
+                .any(|at| *at <= newest && newest - *at <= WAVE_WINDOW)
+        })
+        .count();
+    Ok(Some(number(started)))
+}
+
+/// The YAML between a Markdown file's opening `---` line and the next.
+fn frontmatter(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix("---\n")?;
+    let end = rest.find("\n---")?;
+    Some(&rest[..=end])
+}
+
+/// The reason the highest-numbered wave page of `checkout` at `main` gives for its width.
+fn wave_reason(checkout: &Checkout<'_>, main: &str) -> Result<Option<String>> {
+    let listed = checkout.git(&["ls-tree", "--name-only", main, &format!("{WAVE_PAGES}/")])?;
+    let newest = listed
+        .lines()
+        .filter(|page| page.ends_with(".md"))
+        .filter_map(|page| {
+            let digits: String = Path::new(page)
+                .file_stem()?
+                .to_str()?
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect();
+            Some((digits.parse::<u64>().ok()?, page))
+        })
+        .max();
+    let Some((_, page)) = newest else {
+        return Ok(None);
+    };
+    let text = checkout.git(&["show", &format!("{main}:{page}")])?;
+    Ok(text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(WIDTH_REASON))
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(str::to_owned))
 }
 
 /// `version` in a planning store's project file, YAML or JSON; none when it names none.

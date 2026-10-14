@@ -178,6 +178,9 @@ fn repository(snapshot: &SnapshotId, name: &str) -> RecordRepository {
         in_catalog: Some(true),
         gates_hooks_version: None,
         gates_version: None,
+        wave_width: None,
+        wave_ready: None,
+        wave_reason: None,
     }
 }
 
@@ -205,6 +208,9 @@ fn repository_row(snapshot: &SnapshotId, name: &str) -> Value {
         "in_catalog": true,
         "gates_hooks_version": null,
         "gates_version": null,
+        "wave_width": null,
+        "wave_ready": null,
+        "wave_reason": null,
     })
 }
 

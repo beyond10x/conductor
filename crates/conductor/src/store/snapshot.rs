@@ -315,6 +315,9 @@ fn encode_repository(observation: &RepositoryObservationSnapshot) -> Value {
         "in_catalog": data.in_catalog,
         "gates_hooks_version": data.gates_hooks_version,
         "gates_version": data.gates_version,
+        "wave_width": data.wave_width,
+        "wave_ready": data.wave_ready,
+        "wave_reason": data.wave_reason,
     })
 }
 
@@ -345,6 +348,9 @@ fn decode_repository(body: &Value) -> Result<RepositoryObservationSnapshot, Stri
             in_catalog: in_catalog(body)?,
             gates_hooks_version: optional_text(body, "gates_hooks_version")?,
             gates_version: optional_text(body, "gates_version")?,
+            wave_width: optional_integer(body, "wave_width")?,
+            wave_ready: optional_integer(body, "wave_ready")?,
+            wave_reason: optional_text(body, "wave_reason")?,
         },
     })
 }
