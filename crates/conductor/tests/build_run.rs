@@ -9,6 +9,7 @@
 //! `work/` of the case, so pausing it with `SIGSTOP` is seen as its `ticks` file stopping. The
 //! home directory and `/var/tmp` a disk item is written against are `home/example-user/` and
 //! `var-tmp/` of the case (`Sources::home`, `Sources::var_tmp`); nothing reads the real ones.
+//! What a run writes to standard error goes to `stderr.txt` of the case (`Sources::say`).
 
 mod active;
 mod common;
@@ -75,7 +76,13 @@ impl Case {
             every: Duration::from_millis(50),
             home: Some(self.home()),
             var_tmp: self.var_tmp(),
+            say: said_to_file,
         }
+    }
+
+    /// What the runs of the case wrote to standard error (`Sources::say`).
+    fn said(&self) -> String {
+        fs::read_to_string(self.dir.join("stderr.txt")).unwrap_or_default()
     }
 
     /// The case's home directory, named after its user.
@@ -153,6 +160,17 @@ fn settings() -> Settings {
 
 fn written_bytes(file: &Path) -> anyhow::Result<u64> {
     Ok(fs::read_to_string(file)?.trim().parse()?)
+}
+
+/// Appends `line` to `stderr.txt` of the case.
+fn said_to_file(state: &Path, line: &str) {
+    use std::io::Write as _;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(case_of(state).join("stderr.txt"))
+        .expect("open the case's stderr.txt");
+    writeln!(file, "{line}").expect("write the case's stderr.txt");
 }
 
 fn replace(file: &Path, text: &str) {
@@ -698,6 +716,211 @@ fn a_disk_item_names_no_var_tmp_entry_and_writes_the_home_as_tilde() {
         logged >= 2,
         "the item's requested and escalated lines are logged"
     );
+}
+
+/// `story:build-run-stderr-redacted`: a refused `build run` names the `/var/tmp` entries outside the
+/// instance on standard error only as a count and a total size, and the home directory as `~`, as
+/// the disk item does.
+#[test]
+fn a_refused_build_run_names_no_personal_path_on_standard_error() {
+    let case = Case::new("stderr-redacted");
+    for entry in ["example-user", "example-project", "small"] {
+        fs::create_dir_all(case.var_tmp().join(entry)).expect("create a /var/tmp entry");
+    }
+    fs::create_dir_all(case.home().join(".cache/sccache")).expect("create the home's cache");
+    let home = case.home().display().to_string();
+    case.free(10 * GIB);
+    let outcome = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_leaves_personal_paths),
+        &case.request(4 * GIB, &format!("touch {home}/ran")),
+    )
+    .expect("the run answers");
+    assert!(
+        matches!(outcome, Outcome::Refused { .. }),
+        "refused: {outcome:?}"
+    );
+    let said = case.said();
+    assert!(said.contains("refused: 4G asked"), "{said}");
+    for named in ["example-user", "example-project", home.as_str()] {
+        assert!(
+            !said.contains(named),
+            "standard error names {named:?}: {said}"
+        );
+    }
+    assert!(
+        said.contains("3 entries outside the instance (6G)"),
+        "the /var/tmp entries as a count and a total size: {said}"
+    );
+    assert!(
+        said.contains("left: ~/.cache/sccache (8G)"),
+        "a path under the home directory is written with ~/: {said}"
+    );
+}
+
+/// Writes each of its stop files when dropped, so a failing case leaves no command running.
+struct Stops(Vec<PathBuf>);
+
+impl Drop for Stops {
+    fn drop(&mut self) {
+        for file in &self.0 {
+            let _ = fs::write(file, "");
+        }
+    }
+}
+
+/// The states of the case's grants whose command is `sh -c <script>`, by script.
+fn state_of(case: &Case, script: &str) -> Option<HostGrantState> {
+    let command = format!("sh -c {script}");
+    case.grants()
+        .into_iter()
+        .find(|row| row.command.as_deref() == Some(command.as_str()))
+        .map(|row| row.state)
+}
+
+/// Starts `build run` of `script` reserving `reserve` in a thread, and waits until its request is
+/// on the ledger, so the next one arrives after it.
+fn arrive(
+    case: &Case,
+    settings: &Settings,
+    reserve: u64,
+    script: &str,
+) -> thread::JoinHandle<anyhow::Result<Outcome>> {
+    let state = case.state();
+    let sources = case.sources(reclaim_nothing);
+    let request = case.request(reserve, script);
+    let settings = settings.clone();
+    let runner = thread::spawn(move || build::run(&state, &settings, &sources, &request));
+    wait_until("the request is on the ledger", || {
+        host::rows(&case.state()).is_ok_and(|rows| {
+            rows.iter()
+                .any(|row| row.command.as_deref() == Some(format!("sh -c {script}").as_str()))
+        })
+    });
+    runner
+}
+
+/// `story:build-run-queue`: requests are granted in arrival order. A 6G request made before two
+/// 2G requests is granted first when 6G frees; the 2G requests, which alone would fit, wait behind
+/// it while it does not, and each names its position in the queue on standard error once it has
+/// waited longer than `thresholds.watchdog_every`.
+#[test]
+fn requests_are_granted_in_arrival_order_and_a_later_small_one_does_not_overtake() {
+    let case = Case::new("queue");
+    let _stops = Stops(vec![
+        case.work().join("stop-first"),
+        case.work().join("stop-head"),
+    ]);
+    // 20G free over a 10G floor: 10G to reserve.
+    case.free(20 * GIB);
+    let waiting = Settings {
+        wait: Duration::from_secs(30),
+        ..settings()
+    };
+    // A 6G run holds 6G: 4G is left to reserve.
+    let first_script = "while [ ! -e stop-first ]; do sleep 0.05; done";
+    let first = arrive(&case, &waiting, 6 * GIB, first_script);
+    wait_until("the first run is running", || {
+        state_of(&case, first_script) == Some(HostGrantState::Running)
+    });
+    // The head asks 6G: 2G short while the first holds 6G, so it waits for the first.
+    let head_script = "while [ ! -e stop-head ]; do sleep 0.05; done";
+    let head = arrive(&case, &waiting, 6 * GIB, head_script);
+    // Two 2G requests after it: each alone fits in the 4G left.
+    let small_a = arrive(&case, &waiting, 2 * GIB, "touch small-a");
+    let small_b = arrive(&case, &waiting, 2 * GIB, "touch small-b");
+
+    thread::sleep(Duration::from_millis(600));
+    for script in [head_script, "touch small-a", "touch small-b"] {
+        assert_eq!(
+            state_of(&case, script),
+            Some(HostGrantState::Requested),
+            "{script:?} waits: nothing overtakes the head"
+        );
+    }
+    assert!(!case.work().join("small-a").exists());
+    assert!(!case.work().join("small-b").exists());
+    wait_until("each waiter names its position in the queue", || {
+        let said = case.said();
+        said.contains("position 2 in the queue") && said.contains("position 3 in the queue")
+    });
+
+    // The first ends: 10G to reserve. The head is granted first; the 2G requests then fit beside
+    // it.
+    fs::write(case.work().join("stop-first"), "").expect("stop the first command");
+    wait_until("both 2G runs ran", || {
+        let small = [
+            state_of(&case, "touch small-a"),
+            state_of(&case, "touch small-b"),
+        ];
+        let head = state_of(&case, head_script);
+        assert!(
+            small
+                .iter()
+                .all(|state| *state == Some(HostGrantState::Requested))
+                || head != Some(HostGrantState::Requested),
+            "a 2G request was answered before the head: {small:?}, head {head:?}"
+        );
+        small
+            .iter()
+            .all(|state| *state == Some(HostGrantState::Released))
+    });
+    assert_eq!(state_of(&case, head_script), Some(HostGrantState::Running));
+    fs::write(case.work().join("stop-head"), "").expect("stop the head's command");
+    for runner in [first, head, small_a, small_b] {
+        let outcome = runner
+            .join()
+            .expect("the runner ends")
+            .expect("the run ends");
+        assert!(
+            matches!(outcome, Outcome::Ran { code: 0, .. }),
+            "{outcome:?}"
+        );
+    }
+}
+
+/// `story:build-run-queue`: the head of the queue waits for live reservations at most
+/// `Settings::wait`; then it is refused and leaves the queue, and the request behind it is
+/// answered.
+#[test]
+fn a_head_that_waits_past_its_bound_is_refused_and_the_next_request_runs() {
+    let case = Case::new("queue-head-bound");
+    let _stops = Stops(vec![case.work().join("stop-first")]);
+    case.free(20 * GIB);
+    let waiting = Settings {
+        wait: Duration::from_secs(30),
+        ..settings()
+    };
+    let first_script = "while [ ! -e stop-first ]; do sleep 0.05; done";
+    let first = arrive(&case, &waiting, 6 * GIB, first_script);
+    wait_until("the first run is running", || {
+        state_of(&case, first_script) == Some(HostGrantState::Running)
+    });
+    let bounded = Settings {
+        wait: Duration::from_millis(500),
+        ..settings()
+    };
+    let head = arrive(&case, &bounded, 6 * GIB, "touch head");
+    let small = arrive(&case, &waiting, 2 * GIB, "touch small");
+    let head = head
+        .join()
+        .expect("the head's runner ends")
+        .expect("the head answers");
+    assert!(
+        matches!(head, Outcome::Refused { item: None, .. }),
+        "the head waited its bound and was refused, with no operator item: {head:?}"
+    );
+    let small = small
+        .join()
+        .expect("the small runner ends")
+        .expect("the small run ends");
+    assert!(matches!(small, Outcome::Ran { code: 0, .. }), "{small:?}");
+    fs::write(case.work().join("stop-first"), "").expect("stop the first command");
+    first
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
 }
 
 #[test]

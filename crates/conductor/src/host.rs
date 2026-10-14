@@ -16,6 +16,9 @@
 //! reads the ledger it first releases, with `ProcessGroupGone`, every running grant whose process
 //! group is gone ([`Ledger::sweep`]).
 //!
+//! **Queue.** Disk requests are answered in arrival order (`story:build-run-queue`): a request
+//! with a waiting request made before it ([`Ledger::ahead`]) waits, even when it alone would fit.
+//!
 //! **Escalation.** A refused reservation records one operator item ([`escalate`]): a decision
 //! request raised and escalated as class H, so `decision hands-todo` lists it, naming the
 //! shortfall, what reclaim left by path and size, and the one command only a person runs. One item
@@ -372,6 +375,34 @@ impl Ledger {
         }
     }
 
+    /// How many requests of the host's queue are ahead of `grant` (`story:build-run-queue`): disk
+    /// requests still `Requested` whose `build run` holds its run lock ([`hold_run`]), made before
+    /// it, by `requested_at` and then by `grant_id`. The head of the queue has none ahead. A
+    /// request no run holds is not waiting: the next sweep closes it, or it is a waiter of a binary
+    /// before 0.10.6, which does not queue.
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn ahead(&self, grant: &GrantId) -> Result<usize> {
+        let grants = HostGrantStorage::list(&self.generated.ports);
+        kept("host ledger", &self.generated.ports.store)?;
+        let Some(own) = grants.iter().find(|row| row.data.grant_id == *grant) else {
+            return Ok(0);
+        };
+        let mine = arrival(own);
+        Ok(grants
+            .iter()
+            .filter(|row| {
+                row.state == HostGrantState::Requested
+                    && row.data.kind == GrantKind::Disk
+                    && row.data.grant_id != *grant
+                    && arrival(row) < mine
+                    && run_lock(&self.state, &row.data.grant_id) == RunLock::Held
+            })
+            .count())
+    }
+
     /// `ReserveDisk`: answers the request `grant` with what the disk lacks for it and what a
     /// reclaim run freed first.
     ///
@@ -392,6 +423,15 @@ impl Ledger {
         kept(COMMAND, &self.generated.ports.store)?;
         reserve_answer(COMMAND, outcome)
     }
+}
+
+/// Where `grant` stands in arrival order: its `requested_at` as an instant (an instant that does
+/// not parse stands first), then its id, a UUIDv7, which orders requests made in one millisecond.
+fn arrival(grant: &HostGrantSnapshot) -> (Option<OffsetDateTime>, &str) {
+    (
+        OffsetDateTime::parse(&grant.data.requested_at.0, &Rfc3339).ok(),
+        &grant.data.grant_id.0,
+    )
 }
 
 /// The live grants of `grants`: granted, or running.
@@ -668,6 +708,15 @@ impl Left {
         all.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         all
     }
+}
+
+/// What `shortfall` left as a refused `build run` names it on standard error
+/// (`story:build-run-stderr-redacted`), largest first, each with its size: each path outside
+/// `/var/tmp` with the home directory written `~`, and the entries of `/var/tmp` as one row,
+/// `/var/tmp: 4 entries outside the instance`, as the operator item names them.
+#[must_use]
+pub fn left_redacted(shortfall: &Shortfall<'_>) -> Vec<(String, u64)> {
+    Left::of(shortfall).by_size(shortfall)
 }
 
 /// The `/var/tmp` entries as an item names them: `/var/tmp: 4 entries outside the instance`.
