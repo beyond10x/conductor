@@ -40,11 +40,12 @@
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
 //!
-//! Seven such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
+//! Eight such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
 //! (`story:first-run-seed`), which read the config file themselves as `config show` does,
 //! `doctor` (`story:install-prerequisites`) and `setup` (`story:setup-command`), which read it
 //! for what they report and stop on no problem of it, `gc` (`story:conductor-gc`), `spawn`
-//! (`story:spawn`) and `upgrade` (`story:conductor-upgrade`), which reads no config file.
+//! (`story:spawn`), `status` (`story:status-command`), a view over the store, and `upgrade`
+//! (`story:conductor-upgrade`), which reads no config file.
 //!
 //! [`LEAVES`] declares of every leaf whether it writes, and so whether a controller's session may
 //! run it ([`Access`]); the guard reads that declaration, not a list of its own
@@ -300,6 +301,7 @@ impl Cli {
             },
             Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
             Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
+            Group::Status(args) => status::status(state, &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
             Group::Upgrade(args) => crate::upgrade::upgrade(&args),
             Group::Store(command) => match command {
@@ -402,6 +404,10 @@ pub enum Group {
     /// Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs
     #[command(name = "spawn")]
     Spawn(SpawnArgs),
+
+    /// Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+    #[command(name = "status")]
+    Status(StatusArgs),
 
     // No help, as for `dashboard`: the binding declares the group only through `store migrate`.
     #[command(subcommand)]
@@ -578,6 +584,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["setup"], Access::Writes),
     // Starts a controller's session and records the controller in the store.
     (&["spawn"], Access::Writes),
+    // A view over the store: starts no snapshot and creates nothing (story:status-command).
+    (&["status"], Access::Reads),
     // Copies the store into the tree layout under the state directory.
     (&["store", "migrate"], Access::Writes),
     (&["trust"], Access::Writes),
@@ -1118,6 +1126,16 @@ pub enum RecordsCommand {
     /// Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log
     #[command(name = "check")]
     Check(RecordsCheckArgs),
+}
+
+/// The input of the binding's `status` callable, `conductor.observation.Status`
+/// (`story:status-command`). The format is text the handler reads, so a value it refuses is named
+/// there.
+#[derive(Debug, Clone, Args)]
+pub struct StatusArgs {
+    /// How the status is printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
 }
 
 /// The input of the binding's `records-check` callable, `conductor.dispatch.CheckRecords`. The
@@ -2173,8 +2191,11 @@ pub struct MarkRepositoryArgs {
     #[arg(long, value_parser = ["Active", "Inactive"])]
     pub activity: Option<String>,
     /// MarkedBy
-    #[arg(long, value_parser = ["Conductor", "Operator"])]
+    #[arg(long, value_parser = ["Conductor", "Operator", "Controller"])]
     pub marked_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub session: Option<String>,
     /// string
     #[arg(long)]
     pub reason: Option<String>,
@@ -2190,8 +2211,11 @@ pub struct ActivateRepositoryArgs {
     #[arg(long)]
     pub repository: Option<String>,
     /// MarkedBy
-    #[arg(long, value_parser = ["Conductor", "Operator"])]
+    #[arg(long, value_parser = ["Conductor", "Operator", "Controller"])]
     pub marked_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub session: Option<String>,
     /// string
     #[arg(long)]
     pub reason: Option<String>,
@@ -2207,8 +2231,11 @@ pub struct DeactivateRepositoryArgs {
     #[arg(long)]
     pub repository: Option<String>,
     /// MarkedBy
-    #[arg(long, value_parser = ["Conductor", "Operator"])]
+    #[arg(long, value_parser = ["Conductor", "Operator", "Controller"])]
     pub marked_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub session: Option<String>,
     /// string
     #[arg(long)]
     pub reason: Option<String>,

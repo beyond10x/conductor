@@ -476,6 +476,97 @@ fn each_command_that_records_a_decision_or_request_appends_one_line_to_the_decis
     );
 }
 
+/// The arguments of `dispatch report-done` for `dispatch`, with fixed evidence.
+fn done(dispatch: &str) -> [&str; 6] {
+    [
+        "dispatch",
+        "report-done",
+        "--dispatch-id",
+        dispatch,
+        "--evidence",
+        "CI green on main",
+    ]
+}
+
+/// `story:dispatch-done-from-blocked`: a done report on a sent and on a blocked dispatch appends
+/// its `done` line to the dispatch log; one on a done or cancelled dispatch is refused and appends
+/// nothing.
+#[test]
+fn a_done_report_on_a_sent_or_blocked_dispatch_appends_its_done_line() {
+    let case = Case::new("done-from-sent-or-blocked");
+    case.ok(&[
+        "goal",
+        "propose-goal",
+        "--goal-id",
+        "G1",
+        "--title",
+        "Ship the pilot",
+        "--exit-evidence",
+        "G1 is listed as met",
+    ]);
+    let send = || {
+        case.ok(&[
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            "alpha",
+            "--goal-id",
+            "G1",
+            "--brief",
+            "Expose the store id",
+            "--sent-at",
+            AT,
+            "--priority",
+            "2",
+        ])
+    };
+
+    let sent = send();
+    let (_, line) = case.appends("dispatches", &done(&sent));
+    holds(
+        &line,
+        &json!({"event": "done", "repo": "alpha", "id": sent, "evidence": "CI green on main"}),
+    );
+
+    let blocked = send();
+    case.ok(&["dispatch", "report-started", "--dispatch-id", &blocked]);
+    case.ok(&[
+        "dispatch",
+        "report-blocked",
+        "--dispatch-id",
+        &blocked,
+        "--reason",
+        "waits on beta",
+    ]);
+    let (_, line) = case.appends("dispatches", &done(&blocked));
+    holds(
+        &line,
+        &json!({"event": "done", "repo": "alpha", "id": blocked, "evidence": "CI green on main"}),
+    );
+
+    let cancelled = send();
+    case.ok(&[
+        "dispatch",
+        "cancel-dispatch",
+        "--dispatch-id",
+        &cancelled,
+        "--reason",
+        "superseded",
+    ]);
+    let before = lines(&case.records().join("dispatches"));
+    for refused in [&sent, &cancelled] {
+        let output = case.run(&done(refused));
+        assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    }
+    assert_eq!(
+        lines(&case.records().join("dispatches")),
+        before,
+        "a refused done report writes no line"
+    );
+    let output = case.run(&["records", "check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}
+
 #[test]
 fn a_refused_command_appends_nothing() {
     let case = Case::new("refused");

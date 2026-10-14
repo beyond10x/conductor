@@ -368,6 +368,78 @@ fn a_dispatch_against_g9_moves_sent_started_blocked_started_done_and_another_is_
     case.kept_under_the_state_dir();
 }
 
+/// The arguments of `dispatch report-done` for `dispatch`, with fixed evidence.
+fn done(dispatch: &str) -> [&str; 6] {
+    [
+        "dispatch",
+        "report-done",
+        "--dispatch-id",
+        dispatch,
+        "--evidence",
+        "origin/main 0123abc",
+    ]
+}
+
+/// `story:dispatch-done-from-blocked`: a done report closes a dispatch that was only sent, and one
+/// that is blocked, without a `report-started` or `report-unblocked` recorded by hand first. A
+/// dispatch that is already done, or was cancelled, is still refused, and the refusal writes
+/// nothing.
+#[test]
+fn report_done_closes_a_sent_and_a_blocked_dispatch_and_refuses_a_done_or_cancelled_one() {
+    let case = Case::new("done-from-sent-or-blocked");
+    case.propose("G9");
+
+    let sent = case.send("cortex", "G9", SENT_AT, &[]);
+    assert_eq!(case.dispatch(&sent)["state"], "Sent");
+    case.ok(&done(&sent));
+    assert_eq!(
+        case.dispatch(&sent)["state"],
+        "Done",
+        "a done report closes a sent dispatch"
+    );
+
+    let blocked = case.send("cortex", "G9", SENT_AT, &[]);
+    case.ok(&["dispatch", "report-started", "--dispatch-id", &blocked]);
+    case.ok(&[
+        "dispatch",
+        "report-blocked",
+        "--dispatch-id",
+        &blocked,
+        "--reason",
+        "waits on a decision",
+    ]);
+    assert_eq!(case.dispatch(&blocked)["state"], "Blocked");
+    case.ok(&done(&blocked));
+    assert_eq!(
+        case.dispatch(&blocked)["state"],
+        "Done",
+        "a done report closes a blocked dispatch"
+    );
+
+    let cancelled = case.send("cortex", "G9", SENT_AT, &[]);
+    case.ok(&[
+        "dispatch",
+        "cancel-dispatch",
+        "--dispatch-id",
+        &cancelled,
+        "--reason",
+        "superseded",
+    ]);
+    let before = case.rows("dispatch", "dispatches");
+    case.declined(&done(&sent), "DispatchStateConflict");
+    case.declined(&done(&cancelled), "DispatchStateConflict");
+    case.refused(
+        &done(&cancelled),
+        "only a sent, started or blocked dispatch is done",
+    );
+    assert_eq!(
+        case.rows("dispatch", "dispatches"),
+        before,
+        "the refused done reports wrote nothing"
+    );
+    case.kept_under_the_state_dir();
+}
+
 /// The specification's other refusals of `send-dispatch`: a negative priority, a dispatch that
 /// waits on itself, and a goal that is met.
 #[test]

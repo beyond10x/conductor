@@ -199,6 +199,72 @@ types:
       - {name: open_blockers, type: Integer}
       - {name: specifications_present, type: Integer}
 
+  # The input of the `Status` view, `conductor status` (story:status-command): the answer to
+  # "what is the status" in one call. It reads the store alone: it starts no snapshot, runs no
+  # collector, and opens only an existing store, creating nothing. `format` is text or json, read
+  # by the handler.
+  - name: conductor.observation.Status
+    kind: struct
+    fields:
+      - {name: format, type: Optional<String>}
+
+  # One live session of the `Status` view: a session the newest complete snapshot observed, by
+  # its repository (absent outside the checkouts), its name (else its reference), harness, role
+  # and activity.
+  - name: conductor.observation.StatusSession
+    kind: struct
+    fields:
+      - {name: repository, type: Optional<String>}
+      - {name: session, type: String}
+      - {name: harness, type: String}
+      - {name: role, type: Optional<String>}
+      - {name: activity, type: String}
+
+  # One open dispatch of the `Status` view: a dispatch that is `Sent`, `Started` or `Blocked`,
+  # with the dispatch it waits on when it names one.
+  - name: conductor.observation.StatusDispatch
+    kind: struct
+    fields:
+      - {name: dispatch_id, type: String}
+      - {name: repository, type: String}
+      - {name: state, type: String}
+      - {name: sent_at, type: String}
+      - {name: waits_on, type: Optional<String>}
+      - {name: brief, type: String}
+
+  # One pending request of the `Status` view: a decision request that is `Open` or `Escalated`
+  # (`kind` decision, `summary` its question), or a resource request still `Requested` (`kind`
+  # resource, `summary` the resource and the amount).
+  - name: conductor.observation.StatusRequest
+    kind: struct
+    fields:
+      - {name: kind, type: String}
+      - {name: request_id, type: String}
+      - {name: repository, type: String}
+      - {name: state, type: String}
+      - {name: since, type: String}
+      - {name: summary, type: String}
+
+  # What `conductor status` answers, its six parts in order: the newest complete snapshot's id,
+  # start and age in seconds (all absent when no snapshot is complete); that snapshot's
+  # deviations, one `RepositoryFigures` per repository with at least one, worked out as the board
+  # works them out; the sessions it observed; the open dispatches; the registered waits, one line
+  # each; and the pending requests. The parts after the first are printed whether or not a
+  # snapshot is complete; the deviations and sessions are empty when none is. Ids and times are
+  # text (a snapshot id as its UUID, a time as RFC 3339), because a result the `ess-cli/1`
+  # binding returns holds no `Uuid` or `Timestamp`.
+  - name: conductor.observation.StatusReport
+    kind: struct
+    fields:
+      - {name: snapshot_id, type: Optional<String>}
+      - {name: snapshot_started_at, type: Optional<String>}
+      - {name: snapshot_age_seconds, type: Optional<Integer>}
+      - {name: deviations, type: List<conductor.observation.RepositoryFigures>}
+      - {name: sessions, type: List<conductor.observation.StatusSession>}
+      - {name: dispatches, type: List<conductor.observation.StatusDispatch>}
+      - {name: waits, type: List<String>}
+      - {name: requests, type: List<conductor.observation.StatusRequest>}
+
 entities:
   - name: conductor.observation.Snapshot
     identity:

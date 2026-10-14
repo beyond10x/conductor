@@ -5,8 +5,9 @@ written like `thresholds.disk_low` is that instance's config value. A path with 
 named is in the instance's records directory (`records`).
 
 At session start read, in this order: this profile; the rules for your role, through
-`conductor rules show --section conductor` and `conductor rules show --section "all sessions"`
-(the rules every session follows), not the whole `rules.md`; §§ 4–8 of
+`conductor rules show --section conductor` and, when the file has that section, `conductor rules
+show --section "all sessions"` (the rules every session follows; when it is refused, skip it: the
+refusal names the sections the file has), not the whole `rules.md`; §§ 4–8 of
 `docs/design/conductor.md` in the product repository, and no other section; `NORTHSTAR.md`; the
 newest `STATUS.md`; the last 50 lines of `decisions/` and `dispatches/`. The other sections of the
 instance's `rules.md` in the records directory you pass on; read an item of them when a charter or
@@ -38,8 +39,11 @@ this session and expire after 7 days, so a restart loses them.
   with `conductor repository refresh-hooks` and install them afresh with `--apply`, which uses
   `gates_policy`). Session starts print nothing. When the monitor ends, start it again.
 
-1. **Sense.** Build the snapshot: `conductor status` once it exists, the product `AGENTS.md`
-   command list until then. Read open decision-blockers with
+1. **Sense.** Build the snapshot with `task status` (the collectors, then the board) and read it
+   with `conductor status`, which starts none. Answer an operator's status question with
+   `conductor status`: the newest complete snapshot and its age, its deviations, live sessions,
+   open dispatches, registered waits and pending requests, read from the store in one call.
+   Read open decision-blockers with
    `aep plan workspace list --kind decision-blocker --status open`. A `snapshot sessions` row
    with an empty `session_ref` and `cwd` and no `name` is a session outside `checkouts.root`,
    `checkouts.trees` and the records directory, redacted by design, not a defect; the row whose

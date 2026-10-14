@@ -148,6 +148,7 @@ Every command takes these, before or after its name.
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
+| [`conductor status`](#conductor-status) | Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
@@ -710,7 +711,8 @@ Usage: conductor repository activate-repository [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--repository <REPOSITORY>` | no | none | MarkedRepository |
-| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`. |
+| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
+| `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -725,7 +727,8 @@ Usage: conductor repository deactivate-repository [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--repository <REPOSITORY>` | no | none | MarkedRepository |
-| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`. |
+| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
+| `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -741,7 +744,8 @@ Usage: conductor repository mark-repository [OPTIONS]
 |---|---|---|---|
 | `--repository <REPOSITORY>` | no | none | MarkedRepository |
 | `--activity <ACTIVITY>` | no | none | Activity One of `Active`, `Inactive`. |
-| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`. |
+| `--marked-by <MARKED_BY>` | no | none | MarkedBy One of `Conductor`, `Operator`, `Controller`. |
+| `--session <SESSION>` | no | none | string |
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -1793,6 +1797,18 @@ Usage: conductor spawn [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--repository <NAME>` | no | none | The repository whose controller starts: its checkout under the instance's checkouts root, `<repo>` or `<group>/<repo>`, and its charter `<records>/charters/<repo>.md` |
+
+## `conductor status`
+
+Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+
+```text
+Usage: conductor status [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | none | How the status is printed: text or json. Default: text |
 
 ## `conductor store`
 

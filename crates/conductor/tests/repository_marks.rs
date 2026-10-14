@@ -253,12 +253,25 @@ fn files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     found
 }
 
-/// A `RepositoryMarks` row.
+/// A `RepositoryMarks` row of a mark that names no session.
 fn row(repository: &str, state: &str, by: &str, reason: &str) -> Value {
+    session_row(repository, state, by, None, reason)
+}
+
+/// A `RepositoryMarks` row, with the session that made the mark when it names one
+/// (`story:marked-by-session`).
+fn session_row(
+    repository: &str,
+    state: &str,
+    by: &str,
+    session: Option<&str>,
+    reason: &str,
+) -> Value {
     json!({
         "repository": repository,
         "state": state,
         "marked_by": by,
+        "session": session,
         "reason": reason,
     })
 }
@@ -804,5 +817,106 @@ fn repository_activity_refuses_a_missing_store_and_an_unknown_format() {
             && stderr.contains("--format \"yaml\""),
         "an unknown format is named: {}",
         describe(&output)
+    );
+}
+
+/// `story:marked-by-session`: a controller marks a repository and names its session; the mark
+/// records both, and `repository-marks` shows them in every format. A mark without `--session`
+/// names none, and a later activation or deactivation records the session that made it, or none,
+/// so a mark never keeps the session of an earlier one.
+#[test]
+fn a_mark_names_the_controller_session_that_made_it() {
+    let case = Case::new("marked_by_session");
+    quiet(
+        &case.run(&[
+            "repository",
+            "mark-repository",
+            "--repository",
+            "x",
+            "--activity",
+            "Inactive",
+            "--marked-by",
+            "Controller",
+            "--session",
+            "example-org-x-controller",
+            "--reason",
+            SUPERSEDED,
+        ]),
+        "a controller marks x inactive, naming its session",
+    );
+    quiet(
+        &case.mark("w", "Active", "Operator", "the operator names it"),
+        "the operator marks w active, naming no session",
+    );
+    assert_eq!(
+        case.marks(),
+        json!([
+            session_row(
+                "x",
+                "Inactive",
+                "Controller",
+                Some("example-org-x-controller"),
+                SUPERSEDED
+            ),
+            row("w", "Active", "Operator", "the operator names it"),
+        ])
+    );
+    assert_eq!(
+        case.activity()[1],
+        marked("x", Activity::Inactive, MarkedBy::Controller, SUPERSEDED),
+        "the controller's mark decides x's activity"
+    );
+
+    let text = case.run(&["repository", "repository-marks"]);
+    let text = succeeded(&text, "`repository repository-marks`");
+    assert!(
+        text.lines()
+            .next()
+            .is_some_and(|header| { header.contains("marked_by") && header.contains("session") })
+            && text.contains("example-org-x-controller"),
+        "the text view has a session column and shows the session: {text:?}"
+    );
+
+    quiet(
+        &case.run(&[
+            "repository",
+            "activate-repository",
+            "--repository",
+            "x",
+            "--marked-by",
+            "Controller",
+            "--session",
+            "example-org-x-controller-2",
+            "--reason",
+            "x is not superseded",
+        ]),
+        "another controller session activates x",
+    );
+    assert_eq!(
+        case.marks()[0],
+        session_row(
+            "x",
+            "Active",
+            "Controller",
+            Some("example-org-x-controller-2"),
+            "x is not superseded"
+        ),
+        "the activation records the session that made it"
+    );
+    quiet(
+        &case.steer("deactivate-repository", "w", "Operator", "w is superseded"),
+        "the operator deactivates w, naming no session",
+    );
+    quiet(
+        &case.steer("deactivate-repository", "x", "Conductor", "x is superseded"),
+        "conductor deactivates x, naming no session",
+    );
+    assert_eq!(
+        case.marks(),
+        json!([
+            row("x", "Inactive", "Conductor", "x is superseded"),
+            row("w", "Inactive", "Operator", "w is superseded"),
+        ]),
+        "a mark changed without --session names no session"
     );
 }

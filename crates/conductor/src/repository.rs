@@ -3,8 +3,9 @@
 //!
 //! A repository's activity is computed when it is read, from the newest complete snapshot: Active
 //! when its observation there has at least one real commit in 7 days and it is not archived,
-//! Inactive otherwise. A `RepositoryMark`, set by the operator or by conductor with a reason,
-//! overrides that computation. [`activity`] answers both, as
+//! Inactive otherwise. A `RepositoryMark`, set by the operator, by conductor or by a controller
+//! with a reason, and naming the session that set it when the command names one
+//! (`story:marked-by-session`), overrides that computation. [`activity`] answers both, as
 //! `conductor.direction.RepositoryActivityRow` rows, and writes nothing: no computed activity is
 //! ever stored, so none can overwrite a mark.
 //!
@@ -149,6 +150,7 @@ pub fn mark_repository(state: Option<&Path>, args: MarkRepositoryArgs) -> Result
             repository: MarkedRepository(repository),
             activity,
             marked_by,
+            session: args.session,
             reason,
         })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
@@ -190,6 +192,7 @@ pub fn activate_repository(state: Option<&Path>, args: ActivateRepositoryArgs) -
         .activate_repository(ActivateRepository {
             repository: MarkedRepository(repository),
             marked_by,
+            session: args.session,
             reason,
         })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
@@ -232,6 +235,7 @@ pub fn deactivate_repository(
         .deactivate_repository(DeactivateRepository {
             repository: MarkedRepository(repository),
             marked_by,
+            session: args.session,
             reason,
         })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
@@ -254,7 +258,8 @@ pub fn deactivate_repository(
 /// (`--state-dir`, else `state/`; [`crate::state::dir`]) and rendered as `--format` asks. A view
 /// creates no store.
 ///
-/// Lists every mark it can read, with who set it and why, and names each record it cannot on
+/// Lists every mark it can read, with who set it, the session that did when the command named one,
+/// and why, and names each record it cannot on
 /// standard error, after them, exiting 1 ([`crate::store::show`]). The view declares the marks
 /// only: a repository without a mark, whose activity is computed, has no row.
 ///
@@ -265,7 +270,7 @@ pub fn deactivate_repository(
 /// output.
 pub fn repository_marks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/direction.yaml`).
-    const COLUMNS: [&str; 4] = ["repository", "state", "marked_by", "reason"];
+    const COLUMNS: [&str; 5] = ["repository", "state", "marked_by", "session", "reason"];
 
     let generated = Generated::new(crate::state::open_existing(state)?);
     let rows = generated
@@ -278,6 +283,7 @@ pub fn repository_marks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode
                 Value::from(row.repository.0),
                 Value::from(state_name(row.state)),
                 Value::from(marked_by_name(row.marked_by)),
+                row.session.map_or(Value::Null, Value::from),
                 Value::from(row.reason),
             ]
         })
@@ -647,6 +653,6 @@ macro_rules! names {
 
 names! {
     RepositoryMarkState: state_name, state_named = [Active, Inactive];
-    MarkedBy: marked_by_name, marked_by_named = [Conductor, Operator];
+    MarkedBy: marked_by_name, marked_by_named = [Conductor, Operator, Controller];
     Activity: activity_name, activity_named = [Active, Inactive];
 }

@@ -203,7 +203,9 @@ conductor records every message it receives (`message receive-message`), and rej
 first line does not parse (`message reject-message`) by answering with the format.
 
 Each REPORT verb but one moves the dispatch through its `dispatch report-*` command: `started`,
-`blocked`, `unblocked`, `done`, `failed`. A `progress` report is a message only.
+`blocked`, `unblocked`, `done`, `failed`. A `progress` report is a message only. A `done` closes a
+dispatch that is sent, started or blocked: a controller that never reported `started`, or finished
+while blocked, needs no `started` or `unblocked` recorded first.
 
 A decision request also lands in the controller's own planning store as a `decision-blocker`, where
 the repository has one. The controller clears the blocker stating what was decided, with no

@@ -109,6 +109,8 @@ on. Gates, reports and boundaries are unchanged.
 
 - Edit only in the repository and its managed trees under the instance's trees root. Another
   repository's problem is a `[NEED …]`; never `cd` or `git -C` into it.
+- Work in a managed tree by its absolute path, never through `EnterWorktree`, which the guard
+  denies: file tools name `<tree>/…`, and commands run as `cd <tree> && …` or `git -C <tree> …`.
 - When `worktree create` refuses with `workspace-not-activated`, report `[NEED conductor] worktree
   workspace not activated: <root>` and, until it is answered, work in a plain
   `git worktree add <trees>/<repo>/<name>` tree, which you remove when done.

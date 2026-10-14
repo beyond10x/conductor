@@ -1175,6 +1175,29 @@ fn a_tool_without_a_rule_is_allowed() {
     assert_verdict(&guard::decide(&raw, &home), Verdict::Allow, "no rule");
 }
 
+/// `story:controller-trees-by-path`: `EnterWorktree` is no ruled tool and on no read-only
+/// allowlist, so a controller is denied it in its checkout and in its managed trees alike; the
+/// controller profile tells it to work in a tree by its absolute path instead.
+#[test]
+fn a_controller_is_denied_enter_worktree() {
+    let home = home("enter-worktree");
+    for cwd in [
+        "~/example-org/widget",
+        "~/.local/state/worktree/trees/example-org/widget/widget-w1",
+    ] {
+        let mut raw = payload("write", &home, cwd, &[]);
+        raw["tool_name"] = Value::String("EnterWorktree".to_owned());
+        raw["tool_input"] = serde_json::json!({ "name": "widget-w1" });
+        let decision = guard::decide(&raw, &home);
+        assert_verdict(
+            &decision,
+            Verdict::Deny,
+            "EnterWorktree has no rule and is on no read-only allowlist",
+        );
+        assert_eq!(decision.repository, "widget", "{cwd}: {decision:#?}");
+    }
+}
+
 #[test]
 fn a_payload_without_a_tool_or_a_cwd_is_denied() {
     let home = home("malformed");
@@ -1832,6 +1855,37 @@ fn a_controller_runs_rules_show() {
     }
     assert_verdict(
         &bash(&home, CONDUCTOR, "conductor rules show --section conductor"),
+        Verdict::Allow,
+        "",
+    );
+}
+
+/// `story:status-command`: `conductor status` is a view over the store, so a controller runs it,
+/// in its checkout and in a worker's tree, as conductor does.
+#[test]
+fn a_controller_runs_status() {
+    // Allowed as a declared read, not as words the guard does not know as a leaf.
+    let leaf = ["status".to_owned()];
+    assert!(
+        tree_leaves().iter().any(|(path, _)| *path == leaf),
+        "`conductor status` is a leaf of the tree"
+    );
+    assert_eq!(declared(&leaf), Some(Access::Reads), "`status` is a read");
+    let home = home("controller-status");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for command in [
+            "conductor status",
+            "conductor status --format json",
+            "conductor --config c.yaml status",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+    assert_verdict(
+        &bash(&home, CONDUCTOR, "conductor status"),
         Verdict::Allow,
         "",
     );

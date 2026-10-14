@@ -706,3 +706,304 @@ fn without_flags_the_newest_complete_snapshot_goes_to_the_records_status_file() 
         "the board names the failed snapshot:\n{board}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// `conductor status` (story:status-command)
+// ---------------------------------------------------------------------------------------------
+
+/// The parts `conductor status` prints, in order: the header names the newest complete snapshot
+/// and its age, then its deviations, the live sessions, the open dispatches, the registered waits
+/// and the pending requests.
+const STATUS_PARTS: [&str; 6] = [
+    "# Status",
+    "## Deviations",
+    "## Sessions",
+    "## Open dispatches",
+    "## Waits",
+    "## Pending requests",
+];
+
+/// How long `conductor status` may take on a fixture store.
+const STATUS_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Runs `args` and answers what it printed, asserting it succeeded.
+fn printed(root: &Path, args: &[&str]) -> String {
+    let output = conductor(root, args);
+    assert!(
+        output.status.success(),
+        "`{}`: {}",
+        args.join(" "),
+        describe(&output)
+    );
+    String::from_utf8(output.stdout).expect("the output is UTF-8")
+}
+
+/// How many snapshots `root`'s store holds, read through `snapshot snapshots`.
+fn snapshot_count(root: &Path) -> usize {
+    let text = printed(root, &["snapshot", "snapshots", "--format", "json"]);
+    match serde_json::from_str(&text) {
+        Ok(Value::Array(rows)) => rows.len(),
+        other => panic!("`snapshot snapshots` printed {other:?}"),
+    }
+}
+
+/// Proposes the goal `G1`, which [`dispatch_to`] sends against.
+fn propose_goal(root: &Path) {
+    printed(
+        root,
+        &[
+            "goal",
+            "propose-goal",
+            "--goal-id",
+            "G1",
+            "--title",
+            "Ship the pilot",
+            "--exit-evidence",
+            "G1 is listed as met in NORTHSTAR.md",
+        ],
+    );
+}
+
+/// Sends one dispatch for `repository` against the goal `G1`; its id.
+fn dispatch_to(root: &Path, repository: &str) -> String {
+    printed(
+        root,
+        &[
+            "dispatch",
+            "send-dispatch",
+            "--repository",
+            repository,
+            "--goal-id",
+            "G1",
+            "--brief",
+            &format!("Ship the board of {repository}"),
+            "--sent-at",
+            LATER,
+            "--priority",
+            "1",
+        ],
+    )
+    .trim()
+    .to_owned()
+}
+
+/// Runs `conductor status` with `args` over `root`'s store; what it printed, and asserts it
+/// succeeded within [`STATUS_WITHIN`].
+fn status_of(root: &Path, args: &[&str]) -> String {
+    let mut argv = vec!["status"];
+    argv.extend_from_slice(args);
+    let started = std::time::Instant::now();
+    let output = conductor(root, &argv);
+    let took = started.elapsed();
+    assert!(output.status.success(), "{}", describe(&output));
+    assert!(
+        took < STATUS_WITHIN,
+        "`conductor status` took {took:?}, more than {STATUS_WITHIN:?}"
+    );
+    String::from_utf8(output.stdout).expect("the output is UTF-8")
+}
+
+/// Acceptance 2: `conductor status` prints its six parts from the store: the newest complete
+/// snapshot's id and age, its deviations, the sessions it observed, the open dispatches (a done
+/// one is not), the registered waits and the pending requests (a decision request and a resource
+/// request); within 2 s, and without starting a snapshot.
+#[test]
+fn status_prints_its_six_parts_from_the_store_and_starts_no_snapshot() {
+    let root = case_dir("status-parts");
+    let snapshot = complete(&root, EARLIER, "red");
+    propose_goal(&root);
+    let open = dispatch_to(&root, "alpha");
+    let done = dispatch_to(&root, "beta");
+    printed(
+        &root,
+        &["dispatch", "report-started", "--dispatch-id", &done],
+    );
+    printed(
+        &root,
+        &[
+            "dispatch",
+            "report-done",
+            "--dispatch-id",
+            &done,
+            "--evidence",
+            "origin/main 0123abc",
+        ],
+    );
+    printed(
+        &root,
+        &[
+            "decision",
+            "raise-decision-request",
+            "--request-id",
+            "REQ-1",
+            "--repository",
+            "alpha",
+            "--question",
+            "which token scope?",
+            "--options",
+            "A: read; B: write",
+            "--recommendation",
+            "A",
+            "--raised-at",
+            LATER,
+        ],
+    );
+    let resource = printed(
+        &root,
+        &[
+            "resource",
+            "request-resource",
+            "--repository",
+            "beta",
+            "--resource",
+            "Disk",
+            "--amount",
+            "4",
+            "--requested-at",
+            LATER,
+        ],
+    )
+    .trim()
+    .to_owned();
+    let snapshots = snapshot_count(&root);
+
+    let status = status_of(&root, &[]);
+
+    assert_eq!(headings(&status), STATUS_PARTS, "{status}");
+    let header = section(&status, "# Status");
+    for named in [snapshot.as_str(), EARLIER, " ago"] {
+        assert!(
+            header.contains(named),
+            "the header names no {named:?}:\n{status}"
+        );
+    }
+
+    let deviations = table(&section(&status, "## Deviations"));
+    let rows: Vec<(String, String)> = deviations
+        .iter()
+        .skip(1)
+        .map(|row| (row[0].clone(), row[1].clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("alpha".to_owned(), "failing PR".to_owned()),
+            ("beta".to_owned(), "no checkout".to_owned()),
+        ],
+        "{status}"
+    );
+
+    let sessions = section(&status, "## Sessions");
+    assert!(
+        sessions.contains("alpha") && sessions.contains("Busy"),
+        "the sessions part lists no session `alpha`:\n{status}"
+    );
+
+    let dispatches = section(&status, "## Open dispatches");
+    assert!(
+        dispatches.contains(&open),
+        "the open dispatch {open} is not listed:\n{status}"
+    );
+    assert!(
+        !dispatches.contains(&done),
+        "the done dispatch {done} is listed:\n{status}"
+    );
+
+    assert_eq!(section(&status, "## Waits").trim(), "None.", "{status}");
+
+    let requests = section(&status, "## Pending requests");
+    for named in ["REQ-1", "which token scope?", resource.as_str()] {
+        assert!(
+            requests.contains(named),
+            "the pending requests name no {named:?}:\n{status}"
+        );
+    }
+
+    assert_eq!(
+        snapshot_count(&root),
+        snapshots,
+        "`conductor status` started a snapshot"
+    );
+}
+
+/// Acceptance 2: with no complete snapshot, `conductor status` says so and still prints every
+/// other part.
+#[test]
+fn status_without_a_complete_snapshot_says_so_and_prints_the_rest() {
+    let root = case_dir("status-no-snapshot");
+    let failed = take(&root, EARLIER, &[fails()]);
+    assert_eq!(failed.state, SnapshotState::Failed, "{failed:?}");
+    propose_goal(&root);
+    let open = dispatch_to(&root, "alpha");
+
+    let status = status_of(&root, &[]);
+
+    assert_eq!(headings(&status), STATUS_PARTS, "{status}");
+    assert!(
+        section(&status, "# Status").contains("No snapshot is complete"),
+        "the header does not say no snapshot is complete:\n{status}"
+    );
+    assert!(
+        !status.contains(&failed.snapshot_id.0.0),
+        "the status names the failed snapshot:\n{status}"
+    );
+    assert!(
+        section(&status, "## Open dispatches").contains(&open),
+        "the open dispatch {open} is not listed:\n{status}"
+    );
+    assert_eq!(
+        snapshot_count(&root),
+        1,
+        "`conductor status` started a snapshot"
+    );
+}
+
+/// `conductor status --format json` prints the same parts as one object.
+#[test]
+fn status_prints_its_parts_as_json() {
+    let root = case_dir("status-json");
+    let snapshot = complete(&root, EARLIER, "base");
+
+    let text = status_of(&root, &["--format", "json"]);
+    let status: Value = serde_json::from_str(&text).expect("the status is JSON");
+
+    assert_eq!(
+        status["snapshot_id"],
+        Value::from(snapshot.as_str()),
+        "{status}"
+    );
+    assert_eq!(
+        status["snapshot_started_at"],
+        Value::from(EARLIER),
+        "{status}"
+    );
+    assert!(
+        status["snapshot_age_seconds"].as_i64().is_some(),
+        "{status}"
+    );
+    let deviations = status["deviations"].as_array().expect("deviations");
+    assert_eq!(deviations.len(), 1, "{status}");
+    assert_eq!(deviations[0]["repository"], "beta", "{status}");
+    assert_eq!(deviations[0]["deviations"][0], "no checkout", "{status}");
+    assert_eq!(
+        status["sessions"].as_array().map(Vec::len),
+        Some(1),
+        "{status}"
+    );
+    for part in ["dispatches", "waits", "requests"] {
+        assert_eq!(status[part], Value::Array(Vec::new()), "{part}: {status}");
+    }
+}
+
+/// Rule 7: `conductor status` is a view; it opens only an existing store and creates none.
+#[test]
+fn status_creates_no_store() {
+    let root = case_dir("status-no-store");
+    let output = conductor(&root, &["status"]);
+    assert!(!output.status.success(), "{}", describe(&output));
+    assert!(
+        !root.join("state").exists(),
+        "`conductor status` created a store: {}",
+        describe(&output)
+    );
+}

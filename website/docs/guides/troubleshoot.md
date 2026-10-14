@@ -14,7 +14,7 @@ conductor config validate
 conductor doctor
 ```
 
-`conductor --version` names the installed release, `conductor 0.12.0`; quote it when you report a
+`conductor --version` names the installed release, `conductor 0.13.0`; quote it when you report a
 problem.
 
 Every command resolves the instance first and stops on a config problem, named by its YAML path.
