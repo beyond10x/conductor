@@ -1,0 +1,19 @@
+[
+  {
+    "createdAt": "2026-10-10T09:00:00Z",
+    "isDraft": false,
+    "mergeable": "MERGEABLE",
+    "number": 21,
+    "statusCheckRollup": [
+      {"__typename": "CheckRun", "conclusion": "SUCCESS", "name": "fmt", "status": "COMPLETED", "workflowName": "CI"},
+      {"__typename": "CheckRun", "conclusion": "FAILURE", "name": "Security", "status": "COMPLETED", "workflowName": "Gates"},
+      {"__typename": "CheckRun", "conclusion": "TIMED_OUT", "name": "test (shard 3)", "status": "COMPLETED", "workflowName": "CI"},
+      {"__typename": "CheckRun", "conclusion": "", "name": "build", "status": "IN_PROGRESS", "workflowName": "CI"},
+      {"__typename": "CheckRun", "conclusion": "ACTION_REQUIRED", "name": "docs", "status": "COMPLETED", "workflowName": "Pages"},
+      {"__typename": "StatusContext", "context": "external/review", "state": "FAILURE"}
+    ],
+    "title": "fix: name the red checks",
+    "updatedAt": "2026-10-12T10:00:00Z",
+    "url": "https://github.com/example-org/alpha/pull/21"
+  }
+]

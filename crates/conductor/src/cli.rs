@@ -1806,6 +1806,9 @@ pub struct RecordPullRequestArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub failing_checks: Option<i64>,
+    /// list of string, a JSON array
+    #[arg(long, value_parser = json_list)]
+    pub failing_check_names: Option<String>,
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub opened_at: Option<String>,

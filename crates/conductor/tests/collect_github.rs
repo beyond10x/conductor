@@ -1114,6 +1114,36 @@ fn pull_requests_and_latest_main_runs_match_the_reference_counts() {
     assert_eq!((open, failing, red), (4, 2, 5));
 }
 
+/// `story:pr-check-names`: a pull request with three failing rollup entries (`FAILURE`,
+/// `TIMED_OUT`, `ACTION_REQUIRED`) beside a green one, a pending one and a red status context
+/// records all three by name, in the order GitHub answers them, and counts the same three.
+#[test]
+fn a_pull_request_records_every_failing_check_by_name() {
+    let world = World::new("check-names");
+    let taken = take_github(&world, github_sources("checks"));
+    complete(&taken);
+
+    let pulls: Vec<_> = generated(&world)
+        .pull_requests()
+        .expect("the pull-requests view answers")
+        .into_iter()
+        .filter(|row| row.snapshot_id == taken.snapshot_id)
+        .map(|row| (row.number, row.failing_checks, row.failing_check_names))
+        .collect();
+    assert_eq!(
+        pulls,
+        [(
+            21,
+            3,
+            vec![
+                "Security".to_owned(),
+                "test (shard 3)".to_owned(),
+                "docs".to_owned()
+            ]
+        )]
+    );
+}
+
 /// A run list that does not answer fails the snapshot naming the collector, the repository and
 /// the command.
 #[test]

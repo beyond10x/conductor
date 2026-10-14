@@ -23,6 +23,9 @@
 //! session written without them. `story:marked-by-session` added the repository marks view's
 //! `session` column after `marked_by`: `repository-repository-marks.json` holds it as `null` in
 //! every row, which is what this build reads from a mark written without one.
+//! `story:pr-check-names` added the pull-requests view's `failing_check_names` column after
+//! `failing_checks`: `snapshot-pull-requests.json` holds it as `[]` in every row, which is what
+//! this build reads from an observation recorded without one.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not

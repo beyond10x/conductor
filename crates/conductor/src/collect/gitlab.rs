@@ -30,7 +30,8 @@
 //! - One `RecordPullRequest` per open merge request (`merge_requests?state=opened`), by its `iid`:
 //!   a draft when GitLab marks it one; `Conflicting` when it has conflicts or cannot be merged,
 //!   `Mergeable` when it can, else `Unknown`; and one failing check when its head pipeline
-//!   (`merge_requests/<iid>`) concluded a `Failure` ([`conclusion`]), else none; with its page
+//!   (`merge_requests/<iid>`) concluded a `Failure` ([`conclusion`]), named `pipeline <id>`
+//!   (`story:pr-check-names`), else none; with its page
 //!   (`web_url`) as its link (`story:dashboard-overview`).
 //! - One `RecordMergedPullRequest` per merge request merged at or after the window's start
 //!   (`merge_requests?state=merged&updated_after=<start>`), with its page as its link.
@@ -246,9 +247,14 @@ fn observe(
             what,
             &format!("projects/{id}/merge_requests/{}", request.iid),
         )?;
-        let failing = detail
+        // A failed head pipeline is the one failing check, named for its id
+        // (`story:pr-check-names`).
+        let failing_check_names: Vec<String> = detail
             .head_pipeline
-            .is_some_and(|pipeline| conclusion(&pipeline.status) == Some(RunConclusion::Failure));
+            .filter(|pipeline| conclusion(&pipeline.status) == Some(RunConclusion::Failure))
+            .map(|pipeline| format!("pipeline {}", pipeline.id))
+            .into_iter()
+            .collect();
         let mergeability = if request.has_conflicts {
             Mergeability::Conflicting
         } else {
@@ -265,7 +271,8 @@ fn observe(
             title: request.title,
             draft: request.draft || request.work_in_progress,
             mergeability,
-            failing_checks: i64::from(failing),
+            failing_checks: i64::try_from(failing_check_names.len()).unwrap_or(i64::MAX),
+            failing_check_names,
             opened_at: Timestamp(utc(what, &request.created_at)?),
             updated_at: Timestamp(utc(what, &request.updated_at)?),
             url: request.web_url,

@@ -815,6 +815,7 @@ pub fn record_pull_request(state: Option<&Path>, args: RecordPullRequestArgs) ->
             draft: given(args.draft, "draft")?,
             mergeability: given_named(args.mergeability, "mergeability", mergeability_named)?,
             failing_checks: given(args.failing_checks, "failing-checks")?,
+            failing_check_names: names(args.failing_check_names, "failing-check-names")?,
             opened_at: Timestamp(given(args.opened_at, "opened-at")?),
             updated_at: Timestamp(given(args.updated_at, "updated-at")?),
             url: args.url,
@@ -1287,7 +1288,7 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 11] = [
+    const COLUMNS: [&str; 12] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1296,6 +1297,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "draft",
         "mergeability",
         "failing_checks",
+        "failing_check_names",
         "opened_at",
         "updated_at",
         "url",
@@ -1316,6 +1318,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.draft),
                 Value::from(mergeability_name(row.mergeability)),
                 Value::from(row.failing_checks),
+                Value::from(row.failing_check_names),
                 Value::from(row.opened_at.0),
                 Value::from(row.updated_at.0),
                 Value::from(row.url),
@@ -1757,6 +1760,17 @@ fn no_input_json(input_json: Option<JsonInput>, what: &'static str) -> Result<()
 /// The value of the flag `--<flag>`, which this command needs.
 fn given<T>(value: Option<T>, flag: &str) -> Result<T> {
     value.ok_or_else(|| anyhow!("--{flag} is missing"))
+}
+
+/// The texts of the JSON array `--<flag>` holds; none when the flag is not given.
+fn names(value: Option<String>, flag: &str) -> Result<Vec<String>> {
+    value.map_or_else(
+        || Ok(Vec::new()),
+        |text| {
+            serde_json::from_str(&text)
+                .map_err(|error| anyhow!("--{flag} is not a JSON array of texts: {error}"))
+        },
+    )
 }
 
 /// The enum value `--<flag>` names, by the specification's spelling.

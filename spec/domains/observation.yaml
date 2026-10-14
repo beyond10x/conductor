@@ -195,6 +195,9 @@ types:
       - {name: deviations, type: List<String>}
       - {name: open_prs, type: Integer}
       - {name: failing_prs, type: Integer}
+      # One line per pull request with a failing check, by number: `#<n> <name>, <name>`, every
+      # failing check named (story:pr-check-names); `#<n>` alone when the observation names none.
+      - {name: failing_checks, type: List<String>}
       - {name: non_green_workflows, type: Integer}
       - {name: open_blockers, type: Integer}
       - {name: specifications_present, type: Integer}
@@ -420,6 +423,12 @@ entities:
         type: conductor.observation.Mergeability
       - name: failing_checks
         type: Integer
+      # The names of the checks `failing_checks` counts, in the order the forge answers them
+      # (story:pr-check-names): on GitHub each counted rollup entry's `name`, on GitLab
+      # `pipeline <id>` for a failed head pipeline. Empty in an observation recorded before the
+      # collectors filled it.
+      - name: failing_check_names
+        type: List<String>
       - name: opened_at
         type: Timestamp
       - name: updated_at
@@ -1030,6 +1039,9 @@ commands:
       - name: failing_checks
         type: Integer
         example: 3
+      # The names of the failing checks, as on `PullRequestObservation` (story:pr-check-names).
+      - name: failing_check_names
+        type: List<String>
       - name: opened_at
         type: Timestamp
         example: "2026-09-01T00:00:00Z"
@@ -1079,6 +1091,7 @@ commands:
           draft: input.draft
           mergeability: input.mergeability
           failing_checks: input.failing_checks
+          failing_check_names: input.failing_check_names
           opened_at: input.opened_at
           updated_at: input.updated_at
           url: input.url
@@ -2040,6 +2053,8 @@ views:
         type: conductor.observation.Mergeability
       - name: failing_checks
         type: Integer
+      - name: failing_check_names
+        type: List<String>
       - name: opened_at
         type: Timestamp
       - name: updated_at

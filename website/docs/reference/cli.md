@@ -292,6 +292,7 @@ Usage: conductor snapshot record-pull-request [OPTIONS]
 | `--draft <DRAFT>` | no | none | boolean One of `true`, `false`. |
 | `--mergeability <MERGEABILITY>` | no | none | Mergeability One of `Mergeable`, `Conflicting`, `Unknown`. |
 | `--failing-checks <FAILING_CHECKS>` | no | none | integer |
+| `--failing-check-names <FAILING_CHECK_NAMES>` | no | none | list of string, a JSON array |
 | `--opened-at <OPENED_AT>` | no | none | timestamp, RFC 3339 |
 | `--updated-at <UPDATED_AT>` | no | none | timestamp, RFC 3339 |
 | `--url <URL>` | no | none | string, optional |

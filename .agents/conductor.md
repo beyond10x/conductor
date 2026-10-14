@@ -210,6 +210,8 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   `conductor repository shipped --since <RFC 3339>` lists, from the newest complete snapshot, each
   release since then with its pull requests and what is merged and not released; take a snapshot
   first when the newest is older than the claim.
+- **A report on a pull request names every red check, as `conductor status` and the board list
+  them under `failing checks`, never one of them for all.**
 
 ## Usage limits and context
 

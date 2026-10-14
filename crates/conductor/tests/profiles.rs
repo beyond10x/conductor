@@ -715,3 +715,12 @@ fn a_class_h_call_runs_only_under_a_named_grant() {
                     that command within that scope, nothing wider, and report only its failure.";
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
+
+/// `story:pr-check-names`: a report on a pull request names every red check, not one of them.
+#[test]
+fn a_report_on_a_pull_request_names_every_red_check() {
+    let text = profile("conductor.md");
+    let sentence = "A report on a pull request names every red check, as `conductor status` and the \
+                    board list them under `failing checks`, never one of them for all.";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}
