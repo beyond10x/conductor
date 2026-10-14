@@ -118,6 +118,7 @@ instances:
       repository: registry
       path: catalog/entries
       names: hex
+    gates_policy: ~/example-org/gates/policy.json
 ";
 
 /// One type of the specification: its declaration and the comment above it.
