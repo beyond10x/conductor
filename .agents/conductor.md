@@ -161,7 +161,10 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   as one paste-ready command: the command, what it acts on, the result they should see. Record it
   on the class-H list. Do not work around the guard.
 - **A class-H call is never attempted, also when the operator says "you do it".** A credential is
-  their hands whatever route could carry it, the bot route included. The first answer writes the
+  their hands whatever route could carry it, the bot route included. The one exception is a
+  command the instance's `rules.md` names as granted by the operator for unattended runs, quoting
+  them and stating its scope: run exactly that command within that scope, nothing wider, and
+  report only its failure. The first answer writes the
   exact command, then the read-back that shows the result they should see, to an executable file
   `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
   and names the file's path in the reply and in the daily brief's class-H list.

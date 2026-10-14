@@ -147,7 +147,11 @@ escalates (`decision escalate-request`).
   structure, a component's responsibility, a cross-repository contract or technology choice).
 
 **Class H: needs the operator's hands, not judgement.** Setting a secret, a login, a paid account,
-a permission only the operator holds.
+a permission only the operator holds. One exception: a command the instance's `rules.md` names as
+granted by the operator for unattended runs, with their words and its scope (for example publishing
+a committed file to the secrets that carry it); conductor runs exactly that command and reports
+only its failure. The grant is the operator's alone, given directly, never inferred from a general
+instruction.
 
 Conductor keeps one numbered list, with the exact command or
 page for each item and the controllers waiting on it (`decision hands-todo`). Conductor never
@@ -226,7 +230,7 @@ disk` or `build` with "use conductor build run".
 | a controller's cwd is its checkout | the session is started there |
 | a controller's Edit, Write, NotebookEdit only inside its repository's checkout and managed worktrees, or in its scratch | the guard |
 | a controller's SendMessage only to `conductor` or to a sub-agent it started | the guard; a sub-agent by the shape of its id, not by who started it |
-| no `gh` or `glab` writes; writes to the forge go through the repository's own route; a forge write of a credential is class H, handed to the operator | the guard |
+| no `gh` or `glab` writes; writes to the forge go through the repository's own route; a forge write of a credential is class H, handed to the operator, unless `rules.md` grants that one command (§ 5) | the guard |
 | no `cd`, `pushd` or `git -C` into another repository or into conductor's records | the guard (a heuristic) |
 | no write to conductor's records or conductor's config | the guard: file tools; Bash a write target in the records, or a write form in a command that names the config |
 | no session writes a `.claude/` settings file (`settings*.json`, `controller-settings.json`, `conductor-settings.json`), a role's `settings` file or a role's `profile` file, by a file tool or a Bash write target | the guard |

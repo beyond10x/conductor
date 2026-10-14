@@ -705,3 +705,13 @@ fn conductor_answers_a_status_question_with_conductor_status() {
         "conductor.md: `conductor status` exists"
     );
 }
+
+/// A class-H call runs unattended only when `rules.md` names it as the operator's grant.
+#[test]
+fn a_class_h_call_runs_only_under_a_named_grant() {
+    let text = profile("conductor.md");
+    let sentence = "The one exception is a command the instance's `rules.md` names as granted by the \
+                    operator for unattended runs, quoting them and stating its scope: run exactly \
+                    that command within that scope, nothing wider, and report only its failure.";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}

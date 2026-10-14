@@ -2,11 +2,13 @@
 format: aep.planning-md/3
 id: story:gates-sync-policy
 kind: story
-status: draft
+status: archived
 title: conductor publishes the committed Gates policy to CI's secrets
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 1
+revision: 2
+transitions:
+- {from: "draft", to: "archived", at: "2026-10-14T08:12:18Z", actor: "human:timo", revision: 2}
 ---
 ## Why
 
