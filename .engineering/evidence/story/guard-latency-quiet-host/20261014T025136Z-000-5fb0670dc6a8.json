@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-14T02:51:36Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-latency-quiet-host",
+  "kind": "story",
+  "revision": 7,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "https://github.com/beyond10x/conductor/actions/runs/38501293066: before p50 2052.6us p95 2140.6us unrecorded 50/50; after p50 2264.6us p95 2356.2us unrecorded 50/50; p50 +10.3%; fix drafted as story:guard-latency-findings"
+  }
+}
