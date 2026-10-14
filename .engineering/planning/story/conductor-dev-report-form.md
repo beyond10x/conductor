@@ -16,9 +16,10 @@ had no verb and was recorded as rejected, another used the prefix `[REPORT condu
 
 ## Acceptance
 
-- `.agents/conductor-dev.md` gives the reply to a `[NEED conductor <id>]` as `[REPORT conductor
-  <id>] <started|progress|blocked|unblocked|done|failed> <line>`, with the verbs of design § 6;
-  `crates/conductor/tests/profiles.rs` holds it.
+- `.agents/conductor-dev.md` gives the reply to a `[NEED conductor <id>]` as `[REPORT conductor -]
+  <started|progress|blocked|unblocked|done|failed> <id>: <line>`: the dispatch-id slot is `-`, the
+  NEED id goes in the line (conductor's correction, 2026-10-14); `crates/conductor/tests/profiles.rs`
+  holds it.
 
 ## Scope
 
