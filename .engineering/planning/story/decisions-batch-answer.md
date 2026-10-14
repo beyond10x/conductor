@@ -15,7 +15,7 @@ The operator wants to "easily make decissions by clicking options and then sendi
 
 ## Acceptance
 
-- On the Decisions page the operator picks one option per open request, may add his words to each, and sends the batch; one POST records each answer as `record-operator-decision` with the option, his words (or "chosen on the Decisions page" when none) and the recording session `dashboard`, and answers the batch row by row: recorded, or the refusal; a request answered meanwhile is refused, not recorded twice.
+- On the Decisions page the operator answers each open request by its kind (Yes or No; one option; or several options), may add his words to each, and sends the batch; one POST records each answer as `record-operator-decision` with the chosen option or options, his words (or "chosen on the Decisions page" when none) and the recording session `dashboard`, and answers the batch row by row: recorded, or the refusal; a request answered meanwhile is refused, not recorded twice.
 - The endpoint takes only answers to open escalated requests, and only with the token the page was served with; the guard refuses a tool call of conductor or a controller that names the endpoint; tests hold each refusal.
 - Each recorded answer prints one watch line `answered <request-id> <option>` at once, so conductor relays it within one watch interval.
 - The website's security pages state the boundary and its residual risk (a local process outside the guard).
