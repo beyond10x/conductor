@@ -113,6 +113,9 @@ instances:
     authority:
       class_c: operator
       class_o: conductor
+    usage:
+      probe: usage-probe --json
+      watcher: usage-rotator.service
     operator: the operator
     catalog:
       repository: registry

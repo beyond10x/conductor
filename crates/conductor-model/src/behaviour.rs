@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest da2650ca246276e52671fae1b8f0cb94808d7ac6df9237ba08bb0953984621f7
-// contract digest 40f96bb6aa267ca9c7e4701e8fd647464238ddcc0603cc26e1357adc1d4f1e9b
+// model digest 94c243e41a5eecaf30f3e973693876f90eae09b9ef7792a84a4cad78f7fd93d4
+// contract digest 5c02298efda5d4aa65c01b03ee8446dd7c1b88faf63ea928d5d408d54191365d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -464,6 +464,24 @@ pub trait SpecificationObservationStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::observation::SpecificationObservationSnapshot>;
+}
+
+/// Where `conductor.observation.UsageObservation` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait UsageObservationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::UsageObservationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::observation::UsageObservationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::observation::ObservationId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::observation::UsageObservationSnapshot>;
 }
 
 /// Where `conductor.observation.WorkflowRunObservation` is stored — a port the implementor provides.
@@ -2679,6 +2697,55 @@ where
     }
 }
 
+/// `conductor.observation.RecordUsage`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::RecordUsageBehavior for Generated<P>
+where
+    P: TryContext + SnapshotStorage + UsageObservationStorage,
+{
+    fn record_usage(&mut self, input: crate::observation::RecordUsage) -> Result<crate::observation::RecordUsageOutcome, UnmetObligation> {
+        let _ = &input;
+        // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.snapshot_id);
+        let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
+        // `no-such-snapshot`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::observation::RecordUsageOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+        }
+        let _ = &related;
+        // `negative-percent`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(compare_numbers(Some(&input.used_percent).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.RecordUsage")? {
+            return Ok(crate::observation::RecordUsageOutcome::NegativePercent { error: crate::observation::InvalidCount { count: input.used_percent.clone() } });
+        }
+        // `closed`: selected by the present related row, in declaration order.
+        if let Some(related) = &related {
+        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordUsage")? {
+            return Ok(crate::observation::RecordUsageOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
+        }
+        }
+        // `recorded`: the default.
+        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let data = crate::observation::UsageObservationData {
+            observation_id: identity.clone(),
+            snapshot_id: input.snapshot_id.clone(),
+            read_at: input.read_at.clone(),
+            account: input.account.clone(),
+            active: input.active.clone(),
+            health: input.health.clone(),
+            window: input.window.clone(),
+            used_percent: input.used_percent.clone(),
+            resets_at: input.resets_at.clone(),
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::observation::RecordUsageOutcome::Recorded { usage_recorded: crate::observation::UsageRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), account: input.account.clone(), window: input.window.clone(), used_percent: input.used_percent.clone() } };
+        UsageObservationStorage::put(&mut self.ports, crate::observation::AnyUsageObservation::Recorded(crate::observation::UsageObservation::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.observation.RecordWorkflowRun`, generated: every outcome is one the specification fully determines.
 impl<P> crate::observation::obligations::RecordWorkflowRunBehavior for Generated<P>
 where
@@ -3379,6 +3446,30 @@ where
                 scenarios: held.data.scenarios,
                 synthesis_refusals: held.data.synthesis_refusals,
                 conformance_status: held.data.conformance_status,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.observation.UsageReadings`, generated: every row is one the specification fully determines from the stored `conductor.observation.UsageObservation`s.
+impl<P> crate::observation::obligations::UsageReadingsQuery for Generated<P>
+where
+    P: UsageObservationStorage,
+{
+    fn usage_readings(&self) -> Result<Vec<crate::observation::UsageReadings>, UnmetObligation> {
+        let admitted = UsageObservationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::observation::UsageReadings {
+                observation_id: held.data.observation_id,
+                snapshot_id: held.data.snapshot_id,
+                read_at: held.data.read_at,
+                account: held.data.account,
+                active: held.data.active,
+                health: held.data.health,
+                window: held.data.window,
+                used_percent: held.data.used_percent,
+                resets_at: held.data.resets_at,
             })
             .collect())
     }

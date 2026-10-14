@@ -93,6 +93,8 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `reports[].when` | list of string | required |  |
 | `authority.class_c` | `conductor` \| `operator` | `conductor` |  |
 | `authority.class_o` | `conductor` \| `operator` | `operator` |  |
+| `usage.probe` | string | none |  |
+| `usage.watcher` | string | none |  |
 | `operator` | string | none |  |
 | `catalog` | [Catalog](#catalog) | none |  |
 | `catalog.repository` | string | required |  |
@@ -312,6 +314,12 @@ Keys: `repository`, `branch`, `path`. Specified as `conductor.config.SecretSourc
 One GitHub Actions secret a sync feeds, by its `name`: the organization `owner`'s secret, or, when `repository` is given, that repository's of the owner. It is read with `gh api` (`GET /orgs/<owner>/actions/secrets/<name>`, `GET /repos/<owner>/<repository>/actions/secrets/ <name>`), which answers the secret's `updated_at` and never its value.
 
 Keys: `owner`, `repository`, `name`. Specified as `conductor.config.ForgeSecret`.
+
+### Usage
+
+How the instance reads its harness accounts' usage. `probe` is a command, run with `sh -c` on each snapshot, that prints the accounts as one JSON object: `accounts`, a list, each with `id` (the account; conductor keeps nothing else of it, never an e-mail address or a name), `active` (whether it is the account in use), `health` (`exhausted` for one with nothing left) and `usage.windows`, a list of `{name, used_percent, resets_at}`; every other key is ignored. `watcher` is the systemd user unit that rotates the accounts, which `conductor doctor` reports running or not. Conductor names no tool: both are the operator's. Absent, neither is set: no probe runs and doctor reports no watcher.
+
+Keys: `probe`, `watcher`. Specified as `conductor.config.Usage`.
 
 ### Activity
 

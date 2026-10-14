@@ -41,6 +41,7 @@ Every command takes these, before or after its name.
 | [`conductor snapshot record-secret-sync`](#conductor-snapshot-record-secret-sync) | Record a secret sync |
 | [`conductor snapshot record-session`](#conductor-snapshot-record-session) | Record a session |
 | [`conductor snapshot record-specification`](#conductor-snapshot-record-specification) | Record a specification status |
+| [`conductor snapshot record-usage`](#conductor-snapshot-record-usage) | Record one window of an account's usage |
 | [`conductor snapshot record-workflow-run`](#conductor-snapshot-record-workflow-run) | Record a workflow run |
 | [`conductor snapshot start-snapshot`](#conductor-snapshot-start-snapshot) | Start a snapshot |
 | [`conductor snapshot blockers`](#conductor-snapshot-blockers) | Blockers |
@@ -55,6 +56,7 @@ Every command takes these, before or after its name.
 | [`conductor snapshot sessions`](#conductor-snapshot-sessions) | Sessions |
 | [`conductor snapshot snapshots`](#conductor-snapshot-snapshots) | Snapshots |
 | [`conductor snapshot specifications`](#conductor-snapshot-specifications) | Specifications |
+| [`conductor snapshot usage-readings`](#conductor-snapshot-usage-readings) | Usage readings |
 | [`conductor snapshot workflow-runs`](#conductor-snapshot-workflow-runs) | Workflow runs |
 | [`conductor goal`](#conductor-goal) | The goals dispatches serve |
 | [`conductor goal add-serving`](#conductor-goal-add-serving) | Add a serving repository to a goal |
@@ -422,6 +424,26 @@ Usage: conductor snapshot record-specification [OPTIONS]
 | `--conformance-status <CONFORMANCE_STATUS>` | no | none | string, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor snapshot record-usage`
+
+Record one window of an account's usage
+
+```text
+Usage: conductor snapshot record-usage [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
+| `--read-at <READ_AT>` | no | none | timestamp, RFC 3339 |
+| `--account <ACCOUNT>` | no | none | string |
+| `--active <ACTIVE>` | no | none | boolean One of `true`, `false`. |
+| `--health <HEALTH>` | no | none | string |
+| `--window <WINDOW>` | no | none | string |
+| `--used-percent <USED_PERCENT>` | no | none | integer |
+| `--resets-at <RESETS_AT>` | no | none | timestamp, RFC 3339, optional |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
 ## `conductor snapshot record-workflow-run`
 
 Record a workflow run
@@ -592,6 +614,18 @@ Specifications
 
 ```text
 Usage: conductor snapshot specifications [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor snapshot usage-readings`
+
+Usage readings
+
+```text
+Usage: conductor snapshot usage-readings [OPTIONS]
 ```
 
 | Argument | Required | Default | Meaning |

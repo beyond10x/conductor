@@ -56,7 +56,8 @@ use conductor_model::behaviour::{
     MemberFailureObservationStorage, MergedPullRequestObservationStorage,
     PullRequestObservationStorage, ReleaseObservationStorage, RepositoryObservationStorage,
     SecretSyncObservationStorage, SessionObservationStorage, SnapshotStorage,
-    SpecificationObservationStorage, TryContext, WorkflowRunObservationStorage, unmet_context,
+    SpecificationObservationStorage, TryContext, UsageObservationStorage,
+    WorkflowRunObservationStorage, unmet_context,
 };
 use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{GuardDecisionId, MessageId, ResourceRequestId};
@@ -67,8 +68,9 @@ use conductor_model::observation::obligations::{
     RecordCollectorRunBehavior, RecordMemberFailureBehavior, RecordMergedPullRequestBehavior,
     RecordPullRequestBehavior, RecordReleaseBehavior, RecordRepositoryBehavior,
     RecordSecretSyncBehavior, RecordSessionBehavior, RecordSpecificationBehavior,
-    RecordWorkflowRunBehavior, ReleasesQuery, RepositoriesQuery, SecretSyncsQuery, SessionsQuery,
-    SnapshotsQuery, SpecificationsQuery, StartSnapshotBehavior, WorkflowRunsQuery,
+    RecordUsageBehavior, RecordWorkflowRunBehavior, ReleasesQuery, RepositoriesQuery,
+    SecretSyncsQuery, SessionsQuery, SnapshotsQuery, SpecificationsQuery, StartSnapshotBehavior,
+    UsageReadingsQuery, WorkflowRunsQuery,
 };
 use conductor_model::observation::{
     BlockerObservationSnapshot, BoardId, CollectorRunObservationSnapshot, CollectorRunOutcome,
@@ -80,12 +82,12 @@ use conductor_model::observation::{
     RecordMergedPullRequestOutcome, RecordPullRequest, RecordPullRequestOutcome, RecordRelease,
     RecordReleaseOutcome, RecordRepository, RecordRepositoryOutcome, RecordSecretSync,
     RecordSecretSyncOutcome, RecordSession, RecordSessionOutcome, RecordSpecification,
-    RecordSpecificationOutcome, RecordWorkflowRun, RecordWorkflowRunOutcome,
-    ReleaseObservationSnapshot, RepositoryName, RepositoryObservationSnapshot, RunConclusion,
-    SecretSyncObservationSnapshot, SessionObservationSnapshot, SessionState, SnapshotId,
-    SnapshotSnapshot, SnapshotState, SpecificationObservationSnapshot, SpecificationPresence,
-    StartSnapshot, StartSnapshotOutcome, ValidationResult, Visibility,
-    WorkflowRunObservationSnapshot,
+    RecordSpecificationOutcome, RecordUsage, RecordUsageOutcome, RecordWorkflowRun,
+    RecordWorkflowRunOutcome, ReleaseObservationSnapshot, RepositoryName,
+    RepositoryObservationSnapshot, RunConclusion, SecretSyncObservationSnapshot,
+    SessionObservationSnapshot, SessionState, SnapshotId, SnapshotSnapshot, SnapshotState,
+    SpecificationObservationSnapshot, SpecificationPresence, StartSnapshot, StartSnapshotOutcome,
+    UsageObservationSnapshot, ValidationResult, Visibility, WorkflowRunObservationSnapshot,
 };
 use conductor_model::primitives::{Timestamp, Uuid};
 use serde_json::Value;
@@ -96,7 +98,7 @@ use crate::cli::{
     CompleteSnapshotArgs, FailSnapshotArgs, JsonInput, RecordBlockerArgs, RecordCollectorRunArgs,
     RecordMemberFailureArgs, RecordMergedPullRequestArgs, RecordPullRequestArgs, RecordReleaseArgs,
     RecordRepositoryArgs, RecordSecretSyncArgs, RecordSessionArgs, RecordSpecificationArgs,
-    RecordWorkflowRunArgs, StartSnapshotArgs, ViewArgs,
+    RecordUsageArgs, RecordWorkflowRunArgs, StartSnapshotArgs, ViewArgs,
 };
 use crate::collect::{self, Collector};
 use crate::not_implemented;
@@ -617,6 +619,30 @@ impl Recorder<'_> {
             }
             RecordSecretSyncOutcome::Closed { error } => {
                 return Err(not_collecting(&error.snapshot_id));
+            }
+        };
+        self.kept(recorded)
+    }
+
+    /// `RecordUsage`: one window of one account's usage, as the usage probe printed it
+    /// (`story:usage-probe`).
+    ///
+    /// # Errors
+    ///
+    /// `InvalidCount`, `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
+    pub fn usage(&mut self, mut input: RecordUsage) -> Result<ObservationId> {
+        collect::spent()?;
+        input.snapshot_id = self.snapshot.clone();
+        let recorded = match self.generated.record_usage(input).map_err(unmet)? {
+            RecordUsageOutcome::Recorded { usage_recorded } => usage_recorded.observation_id,
+            RecordUsageOutcome::NoSuchSnapshot { error } => {
+                return Err(not_found(&error.snapshot_id));
+            }
+            RecordUsageOutcome::Closed { error } => {
+                return Err(not_collecting(&error.snapshot_id));
+            }
+            RecordUsageOutcome::NegativePercent { error } => {
+                return Err(invalid_count(error.count));
             }
         };
         self.kept(recorded)
@@ -1182,6 +1208,52 @@ pub fn record_collector_run(
     })
 }
 
+/// `conductor snapshot record-usage`: the command `conductor.observation.RecordUsage`, one window
+/// of one account's usage (`story:usage-probe`). Prints the new observation's id.
+///
+/// # Errors
+///
+/// A required flag is missing, or the command is refused.
+pub fn record_usage(state: Option<&Path>, args: RecordUsageArgs) -> Result<ExitCode> {
+    no_input_json(args.input_json, "snapshot record-usage --input-json")?;
+    run("snapshot record-usage", || {
+        let snapshot = snapshot_id(args.snapshot_id)?;
+        let input = RecordUsage {
+            snapshot_id: snapshot.clone(),
+            read_at: Timestamp(given(args.read_at, "read-at")?),
+            account: given(args.account, "account")?,
+            active: given(args.active, "active")?,
+            health: given(args.health, "health")?,
+            window: given(args.window, "window")?,
+            used_percent: given(args.used_percent, "used-percent")?,
+            resets_at: args.resets_at.map(Timestamp),
+        };
+        let dir = absolute(&crate::state::dir(state)?)?;
+        let mut generated = Generated::new(Ports {
+            store: crate::store::open(&dir)?,
+        });
+        let recorded = match generated.record_usage(input).map_err(unmet)? {
+            RecordUsageOutcome::Recorded { usage_recorded } => usage_recorded.observation_id,
+            RecordUsageOutcome::NoSuchSnapshot { error } => {
+                return Err(not_found(&error.snapshot_id));
+            }
+            RecordUsageOutcome::Closed { error } => {
+                return Err(not_collecting(&error.snapshot_id));
+            }
+            RecordUsageOutcome::NegativePercent { error } => {
+                return Err(invalid_count(error.count));
+            }
+        };
+        generated
+            .ports
+            .store
+            .check()
+            .context("keep the observation")?;
+        line(&recorded.0.0)?;
+        Ok(ExitCode::SUCCESS)
+    })
+}
+
 /// `conductor snapshot complete-snapshot`: the command `conductor.observation.CompleteSnapshot`.
 ///
 /// # Errors
@@ -1661,6 +1733,49 @@ pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     show(&generated, "secret syncs", view, &COLUMNS, rows)
 }
 
+/// `conductor snapshot usage-readings`: the view `conductor.observation.UsageReadings`, each
+/// window of each account's usage the probe printed, of every kept snapshot, with the instant it
+/// was read (`story:usage-probe`); a row's `snapshot_id` names its snapshot.
+///
+/// # Errors
+///
+/// There is no store, a read of it fails for a reason other than a record this build cannot read,
+/// or the rows cannot be written to standard output.
+pub fn usage_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
+    const COLUMNS: [&str; 9] = [
+        "observation_id",
+        "snapshot_id",
+        "read_at",
+        "account",
+        "active",
+        "health",
+        "window",
+        "used_percent",
+        "resets_at",
+    ];
+    let generated = Generated::new(crate::state::open_existing(state)?);
+    let rows = generated
+        .usage_readings()
+        .map_err(|unmet| anyhow!("snapshot usage-readings: {unmet}"))?;
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            vec![
+                Value::from(row.observation_id.0.0),
+                Value::from(row.snapshot_id.0.0),
+                Value::from(row.read_at.0),
+                Value::from(row.account),
+                Value::from(row.active),
+                Value::from(row.health),
+                Value::from(row.window),
+                Value::from(row.used_percent),
+                row.resets_at.map_or(Value::Null, |at| Value::from(at.0)),
+            ]
+        })
+        .collect();
+    show(&generated, "usage readings", view, &COLUMNS, rows)
+}
+
 /// Answers a view: its `rows`, rendered as `--format` asks, through [`crate::store::show`]. Its
 /// `columns` are the view's fields in the specification's order (`spec/domains/observation.yaml`).
 fn show(
@@ -1714,6 +1829,7 @@ delegate! {
     MemberFailureObservationStorage: ObservationId => MemberFailureObservationSnapshot;
     CollectorRunObservationStorage: ObservationId => CollectorRunObservationSnapshot;
     SecretSyncObservationStorage: ObservationId => SecretSyncObservationSnapshot;
+    UsageObservationStorage: ObservationId => UsageObservationSnapshot;
 }
 
 impl TryContext for Ports {

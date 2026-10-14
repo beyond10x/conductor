@@ -241,8 +241,9 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// (`story:single-conductor-lease`). `snapshot publish-board` and `snapshot boards` are decided by
 /// `tests/status.rs` (`story:status-board`); the member-failure and collector-run leaves by
 /// `tests/snapshot.rs` (`story:snapshot-member-failures`, `story:snapshot-duration`); the `host`
-/// ledger leaves by `tests/build_run.rs` (`story:build-run`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 84] = [
+/// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
+/// `tests/usage_probe.rs` (`story:usage-probe`). In the order the leaves are placed.
+const IMPLEMENTED: [&str; 86] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -255,6 +256,7 @@ const IMPLEMENTED: [&str; 84] = [
     "snapshot record-repository",
     "snapshot record-session",
     "snapshot record-specification",
+    "snapshot record-usage",
     "snapshot record-workflow-run",
     "snapshot start-snapshot",
     "snapshot blockers",
@@ -268,6 +270,7 @@ const IMPLEMENTED: [&str; 84] = [
     "snapshot sessions",
     "snapshot snapshots",
     "snapshot specifications",
+    "snapshot usage-readings",
     "snapshot workflow-runs",
     "goal add-serving",
     "goal confirm-goal",

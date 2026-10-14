@@ -18,7 +18,7 @@ does not validate stops the command.
 `conductor config validate` checks the file and names each problem by its YAML path, such as
 `instances[0].cadence.watch`. `conductor config show --format text|json|yaml` prints the effective
 instance after defaults, with every path absolute. It writes an absent optional value (`operator`,
-`catalog`, `gates_policy`, `session_prefix`, a secret sync's `dry_run` and a secret's `repository`, a role's `agent`, `settings` and `profile`, the controller role's
+`catalog`, `gates_policy`, `usage.probe`, `usage.watcher`, `session_prefix`, a secret sync's `dry_run` and a secret's `repository`, a role's `agent`, `settings` and `profile`, the controller role's
 `session_name`, `conductor.served_by` of an instance with its own conductor, a limit not set) as
 `null`.
 
@@ -123,6 +123,8 @@ accepted, defaulted and shown by `config show`.
 | `reports[].when` | list of string | required | | the occasions a report is sent on |
 | `authority.class_c` | `conductor` \| `operator` | `conductor` | conductor profile | who decides class-C decisions |
 | `authority.class_o` | `conductor` \| `operator` | `operator` | nothing yet | who decides class-O decisions |
+| `usage.probe` | string | none | `usage` collector, watch, `conductor status` | a command, run with `sh -c` on each snapshot, that prints the harness accounts' usage as JSON (below); without it no usage is read |
+| `usage.watcher` | systemd unit name | none | `conductor doctor` | the systemd user unit that rotates the accounts; doctor reports it running or not (`systemctl --user is-active`) |
 | `operator` | string | none | nothing yet | how sessions name the person who decides class O |
 | `catalog` | catalog | none | repositories collector | the instance's catalog of repositories (below) |
 | `secret_syncs` | list of secret sync | `[]` | secrets collector, board, conductor profile | the files the organization's own tool publishes into GitHub Actions secrets, whose drift the snapshot reads (below) |
@@ -131,6 +133,35 @@ accepted, defaulted and shown by `config show`.
 An instance may leave out every key but `name`, `sources` and `checkouts`. Inside `controllers`,
 `cadence`, `thresholds`, `retention`, `authority`, `confinement` and each `limits`, each absent
 key takes its own default.
+
+## Usage
+
+`usage.probe` is any command that prints the accounts of the instance's harness subscriptions
+as one JSON object; conductor names no tool. Each snapshot runs it once and records one reading
+per window of each account (`conductor snapshot usage-readings`). Only these keys are read:
+
+```json
+{"accounts": [
+  {"id": "account-a", "active": true, "health": "ready",
+   "usage": {"windows": [{"name": "seven_day", "used_percent": 40.0,
+                          "resets_at": "2026-10-16T11:00:00Z"}]}}
+]}
+```
+
+An account is its `id`: every other key of it (an e-mail address, a name, a plan) is never read
+or kept. `active` is the account in use; `health` is `exhausted` for an account with nothing left;
+an account whose `usage` is `null` is not recorded. A percent is kept as a whole percent, 0 to
+100; `resets_at` is RFC 3339 or `null`. An id, a health or a window name holds letters, digits,
+`.`, `_`, `:` and `-` only; a probe that prints another value there, exits unsuccessfully or prints
+another shape records no reading but one member failure `usage`, whose line never repeats what the
+probe printed.
+
+From the newest two complete snapshots that hold readings, the watch and `conductor status` print
+`usage: pool runs out ~<hour>, next reset <minute>`: per window, the headroom is the percent left
+summed over the accounts that are not `exhausted`, the burn rate what every account used between
+the two readings per hour; the pool runs out when its first window does. The watch prints the line
+once per change of that hour. `usage.watcher` names the systemd user unit that rotates the
+accounts; `conductor doctor` prints `usage watcher: <unit> running`, or `not running (<state>)`.
 
 ## Confinement
 

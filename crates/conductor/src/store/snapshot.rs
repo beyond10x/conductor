@@ -21,7 +21,8 @@ use conductor_model::behaviour::{
     BlockerObservationStorage, CollectorRunObservationStorage, MemberFailureObservationStorage,
     MergedPullRequestObservationStorage, PullRequestObservationStorage, ReleaseObservationStorage,
     RepositoryObservationStorage, SecretSyncObservationStorage, SessionObservationStorage,
-    SnapshotStorage, SpecificationObservationStorage, WorkflowRunObservationStorage,
+    SnapshotStorage, SpecificationObservationStorage, UsageObservationStorage,
+    WorkflowRunObservationStorage,
 };
 use conductor_model::observation::{
     BlockerObservationData, BlockerObservationSnapshot, BlockerObservationState,
@@ -35,7 +36,8 @@ use conductor_model::observation::{
     SecretSyncObservationData, SecretSyncObservationSnapshot, SecretSyncObservationState,
     SessionObservationData, SessionObservationSnapshot, SessionObservationState, SnapshotData,
     SnapshotId, SnapshotSnapshot, SpecificationObservationData, SpecificationObservationSnapshot,
-    SpecificationObservationState, WorkflowRunObservationData, WorkflowRunObservationSnapshot,
+    SpecificationObservationState, UsageObservationData, UsageObservationSnapshot,
+    UsageObservationState, WorkflowRunObservationData, WorkflowRunObservationSnapshot,
     WorkflowRunObservationState,
 };
 use conductor_model::primitives::{Timestamp, Uuid};
@@ -86,6 +88,8 @@ pub(super) const COLLECTOR_RUN: &str = "conductor.observation.CollectorRunObserv
 
 /// `conductor.observation.SecretSyncObservation` (`story:policy-secret-drift`).
 pub(super) const SECRET_SYNC: &str = "conductor.observation.SecretSyncObservation";
+/// `conductor.observation.UsageObservation` (`story:usage-probe`).
+pub(super) const USAGE: &str = "conductor.observation.UsageObservation";
 
 /// The one state of every observation, as the specification spells it.
 const RECORDED: &str = "Recorded";
@@ -234,6 +238,15 @@ storage!(
     observation_id,
     encode_secret_sync,
     decode_secret_sync
+);
+storage!(
+    UsageObservationStorage,
+    USAGE,
+    ObservationId,
+    UsageObservationSnapshot,
+    observation_id,
+    encode_usage,
+    decode_usage
 );
 
 /// The instance `key` of `entity`, decoded; `None` when absent, or when the read or the decoding
@@ -705,6 +718,41 @@ fn decode_secret_sync(body: &Value) -> Result<SecretSyncObservationSnapshot, Str
             source_committed_at: optional_text(body, "source_committed_at")?.map(Timestamp),
             secrets_updated_at: optional_text(body, "secrets_updated_at")?.map(Timestamp),
             error_line: optional_text(body, "error_line")?,
+        },
+    })
+}
+
+fn encode_usage(observation: &UsageObservationSnapshot) -> Value {
+    let UsageObservationState::Recorded = observation.state;
+    let data = &observation.data;
+    json!({
+        "state": RECORDED,
+        "observation_id": data.observation_id.0.0,
+        "snapshot_id": data.snapshot_id.0.0,
+        "read_at": data.read_at.0,
+        "account": data.account,
+        "active": data.active,
+        "health": data.health,
+        "window": data.window,
+        "used_percent": data.used_percent,
+        "resets_at": data.resets_at.as_ref().map(|at| &at.0),
+    })
+}
+
+fn decode_usage(body: &Value) -> Result<UsageObservationSnapshot, String> {
+    recorded(body)?;
+    Ok(UsageObservationSnapshot {
+        state: UsageObservationState::Recorded,
+        data: UsageObservationData {
+            observation_id: observation_id(body)?,
+            snapshot_id: snapshot_id(body)?,
+            read_at: Timestamp(text(body, "read_at")?),
+            account: text(body, "account")?,
+            active: boolean(body, "active")?,
+            health: text(body, "health")?,
+            window: text(body, "window")?,
+            used_percent: integer(body, "used_percent")?,
+            resets_at: optional_text(body, "resets_at")?.map(Timestamp),
         },
     })
 }

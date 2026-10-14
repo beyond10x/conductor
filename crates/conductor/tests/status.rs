@@ -713,14 +713,15 @@ fn without_flags_the_newest_complete_snapshot_goes_to_the_records_status_file() 
 
 /// The parts `conductor status` prints, in order: the header names the newest complete snapshot
 /// and its age, then its deviations, the live sessions, the open dispatches, the registered waits
-/// and the pending requests.
-const STATUS_PARTS: [&str; 6] = [
+/// and the pending requests; and last the usage line (`story:usage-probe`).
+const STATUS_PARTS: [&str; 7] = [
     "# Status",
     "## Deviations",
     "## Sessions",
     "## Open dispatches",
     "## Waits",
     "## Pending requests",
+    "## Usage",
 ];
 
 /// How long `conductor status` may take on a fixture store.

@@ -535,7 +535,9 @@ fn adv_the_registered_collectors_run_in_the_documented_order() {
             "gitlab",
             "blockers",
             "specifications",
-            "sessions"
+            "sessions",
+            "secrets",
+            "usage"
         ],
         "the blockers run before the specifications, whose status reads the blockers' listing"
     );

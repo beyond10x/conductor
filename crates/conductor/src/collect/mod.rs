@@ -35,6 +35,7 @@ pub mod repositories;
 pub mod secrets;
 pub mod sessions;
 pub mod specifications;
+pub mod usage;
 
 /// What a collector runs: it records into the snapshot `Recorder` holds, which replaces whatever
 /// snapshot an input names, and answers an error when its source did not answer or an observation
@@ -88,8 +89,9 @@ impl fmt::Debug for Collector {
 /// each owner's list and each GitLab group's projects), GitHub's pull requests and `main` runs,
 /// GitLab's merge requests and default-branch pipelines (`story:gitlab-merge-requests`), the
 /// planning stores' blockers, the specifications (whose conformance status reads the blockers'
-/// workspace listing), the live sessions, and the secret syncs' drift
-/// (`story:policy-secret-drift`).
+/// workspace listing), the live sessions, the secret syncs' drift (`story:policy-secret-drift`),
+/// and the harness accounts' usage through the instance's `usage.probe`, when it names one
+/// (`story:usage-probe`).
 #[must_use]
 pub fn registered() -> Vec<Collector> {
     vec![
@@ -100,6 +102,7 @@ pub fn registered() -> Vec<Collector> {
         Collector::new("specifications", specifications::collect),
         Collector::new("sessions", sessions::collect),
         Collector::new("secrets", secrets::collect),
+        Collector::new(usage::COLLECTOR, usage::collect),
     ]
 }
 

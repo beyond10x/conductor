@@ -378,6 +378,20 @@ types:
       - {name: repository, type: Optional<String>}
       - {name: name, type: String}
 
+  # How the instance reads its harness accounts' usage (story:usage-probe). `probe` is a command,
+  # run with `sh -c` on each snapshot, that prints the accounts as one JSON object: `accounts`, a
+  # list, each with `id` (the account; conductor keeps nothing else of it, never an e-mail
+  # address or a name), `active` (whether it is the account in use), `health` (`exhausted` for one
+  # with nothing left) and `usage.windows`, a list of `{name, used_percent, resets_at}`; every
+  # other key is ignored. `watcher` is the systemd user unit that rotates the accounts, which
+  # `conductor doctor` reports running or not. Conductor names no tool: both are the operator's.
+  # Absent, neither is set: no probe runs and doctor reports no watcher.
+  - name: conductor.config.Usage
+    kind: struct
+    fields:
+      - {name: probe, type: Optional<String>}
+      - {name: watcher, type: Optional<String>}
+
   # One instance. A path is written absolute or under `~`, which is the home directory; the
   # effective path is absolute. `operator` is how sessions name the person who decides class O.
   # `session_prefix` is the prefix of every session the instance starts; without one its sessions
@@ -409,6 +423,7 @@ types:
       - {name: retention, type: conductor.config.Retention}
       - {name: reports, type: List<conductor.config.Report>}
       - {name: authority, type: conductor.config.Authority}
+      - {name: usage, type: conductor.config.Usage}
       - {name: operator, type: Optional<String>}
       - {name: catalog, type: Optional<conductor.config.Catalog>}
       # The secret syncs whose drift the snapshot reads (story:policy-secret-drift); absent, none.
