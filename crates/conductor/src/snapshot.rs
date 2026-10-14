@@ -55,8 +55,8 @@ use conductor_model::behaviour::{
     BlockerObservationStorage, CollectorRunObservationStorage, Generated,
     MemberFailureObservationStorage, MergedPullRequestObservationStorage,
     PullRequestObservationStorage, ReleaseObservationStorage, RepositoryObservationStorage,
-    SessionObservationStorage, SnapshotStorage, SpecificationObservationStorage, TryContext,
-    WorkflowRunObservationStorage, unmet_context,
+    SecretSyncObservationStorage, SessionObservationStorage, SnapshotStorage,
+    SpecificationObservationStorage, TryContext, WorkflowRunObservationStorage, unmet_context,
 };
 use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{GuardDecisionId, MessageId, ResourceRequestId};
@@ -66,9 +66,9 @@ use conductor_model::observation::obligations::{
     MemberFailuresQuery, MergedPullRequestsQuery, PullRequestsQuery, RecordBlockerBehavior,
     RecordCollectorRunBehavior, RecordMemberFailureBehavior, RecordMergedPullRequestBehavior,
     RecordPullRequestBehavior, RecordReleaseBehavior, RecordRepositoryBehavior,
-    RecordSessionBehavior, RecordSpecificationBehavior, RecordWorkflowRunBehavior, ReleasesQuery,
-    RepositoriesQuery, SessionsQuery, SnapshotsQuery, SpecificationsQuery, StartSnapshotBehavior,
-    WorkflowRunsQuery,
+    RecordSecretSyncBehavior, RecordSessionBehavior, RecordSpecificationBehavior,
+    RecordWorkflowRunBehavior, ReleasesQuery, RepositoriesQuery, SecretSyncsQuery, SessionsQuery,
+    SnapshotsQuery, SpecificationsQuery, StartSnapshotBehavior, WorkflowRunsQuery,
 };
 use conductor_model::observation::{
     BlockerObservationSnapshot, BoardId, CollectorRunObservationSnapshot, CollectorRunOutcome,
@@ -78,12 +78,13 @@ use conductor_model::observation::{
     RecordBlocker, RecordBlockerOutcome, RecordCollectorRun, RecordCollectorRunOutcome,
     RecordMemberFailure, RecordMemberFailureOutcome, RecordMergedPullRequest,
     RecordMergedPullRequestOutcome, RecordPullRequest, RecordPullRequestOutcome, RecordRelease,
-    RecordReleaseOutcome, RecordRepository, RecordRepositoryOutcome, RecordSession,
-    RecordSessionOutcome, RecordSpecification, RecordSpecificationOutcome, RecordWorkflowRun,
-    RecordWorkflowRunOutcome, ReleaseObservationSnapshot, RepositoryName,
-    RepositoryObservationSnapshot, RunConclusion, SessionObservationSnapshot, SessionState,
-    SnapshotId, SnapshotSnapshot, SnapshotState, SpecificationObservationSnapshot,
-    SpecificationPresence, StartSnapshot, StartSnapshotOutcome, ValidationResult, Visibility,
+    RecordReleaseOutcome, RecordRepository, RecordRepositoryOutcome, RecordSecretSync,
+    RecordSecretSyncOutcome, RecordSession, RecordSessionOutcome, RecordSpecification,
+    RecordSpecificationOutcome, RecordWorkflowRun, RecordWorkflowRunOutcome,
+    ReleaseObservationSnapshot, RepositoryName, RepositoryObservationSnapshot, RunConclusion,
+    SecretSyncObservationSnapshot, SessionObservationSnapshot, SessionState, SnapshotId,
+    SnapshotSnapshot, SnapshotState, SpecificationObservationSnapshot, SpecificationPresence,
+    StartSnapshot, StartSnapshotOutcome, ValidationResult, Visibility,
     WorkflowRunObservationSnapshot,
 };
 use conductor_model::primitives::{Timestamp, Uuid};
@@ -94,8 +95,8 @@ use time::format_description::well_known::Rfc3339;
 use crate::cli::{
     CompleteSnapshotArgs, FailSnapshotArgs, JsonInput, RecordBlockerArgs, RecordCollectorRunArgs,
     RecordMemberFailureArgs, RecordMergedPullRequestArgs, RecordPullRequestArgs, RecordReleaseArgs,
-    RecordRepositoryArgs, RecordSessionArgs, RecordSpecificationArgs, RecordWorkflowRunArgs,
-    StartSnapshotArgs, ViewArgs,
+    RecordRepositoryArgs, RecordSecretSyncArgs, RecordSessionArgs, RecordSpecificationArgs,
+    RecordWorkflowRunArgs, StartSnapshotArgs, ViewArgs,
 };
 use crate::collect::{self, Collector};
 use crate::not_implemented;
@@ -598,6 +599,29 @@ impl Recorder<'_> {
         self.kept(recorded)
     }
 
+    /// `RecordSecretSync`: one secret sync's source commit and its secrets' oldest write
+    /// (`story:policy-secret-drift`).
+    ///
+    /// # Errors
+    ///
+    /// `SnapshotNotFound`, `SnapshotNotCollecting`, or the store did not keep it.
+    pub fn secret_sync(&mut self, mut input: RecordSecretSync) -> Result<ObservationId> {
+        collect::spent()?;
+        input.snapshot_id = self.snapshot.clone();
+        let recorded = match self.generated.record_secret_sync(input).map_err(unmet)? {
+            RecordSecretSyncOutcome::Recorded {
+                secret_sync_recorded,
+            } => secret_sync_recorded.observation_id,
+            RecordSecretSyncOutcome::NoSuchSnapshot { error } => {
+                return Err(not_found(&error.snapshot_id));
+            }
+            RecordSecretSyncOutcome::Closed { error } => {
+                return Err(not_collecting(&error.snapshot_id));
+            }
+        };
+        self.kept(recorded)
+    }
+
     /// When the snapshot being collected started, as it is stored: the clock of a collector whose
     /// window is the snapshot's (`github`'s releases and merged pull requests).
     ///
@@ -1079,6 +1103,31 @@ pub fn record_member_failure(
             error_line: given(args.error_line, "error-line")?,
         };
         record(state, &snapshot, |recorder| recorder.member_failure(input))
+    })
+}
+
+/// `conductor snapshot record-secret-sync`: the command
+/// `conductor.observation.RecordSecretSync` (`story:policy-secret-drift`). Prints the
+/// observation's id.
+///
+/// # Errors
+///
+/// A field is missing, or the command is refused.
+pub fn record_secret_sync(state: Option<&Path>, args: RecordSecretSyncArgs) -> Result<ExitCode> {
+    no_input_json(args.input_json, "snapshot record-secret-sync --input-json")?;
+    run("snapshot record-secret-sync", || {
+        let snapshot = snapshot_id(args.snapshot_id)?;
+        let input = RecordSecretSync {
+            snapshot_id: snapshot.clone(),
+            sync: given(args.sync, "sync")?,
+            repository: RepositoryName(given(args.repository, "repository")?),
+            branch: given(args.branch, "branch")?,
+            path: given(args.path, "path")?,
+            source_committed_at: args.source_committed_at.map(Timestamp),
+            secrets_updated_at: args.secrets_updated_at.map(Timestamp),
+            error_line: args.error_line,
+        };
+        record(state, &snapshot, |recorder| recorder.secret_sync(input))
     })
 }
 
@@ -1569,6 +1618,49 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
     show(&generated, "collector runs", view, &COLUMNS, rows)
 }
 
+/// `conductor snapshot secret-syncs`: the view `conductor.observation.SecretSyncs`, each secret
+/// sync of every kept snapshot, with its source's last commit and its secrets' oldest write
+/// (`story:policy-secret-drift`); a row's `snapshot_id` names its snapshot.
+///
+/// # Errors
+///
+/// There is no store, a read of it fails for a reason other than a record this build cannot read,
+/// or the rows cannot be written to standard output.
+pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
+    const COLUMNS: [&str; 9] = [
+        "observation_id",
+        "snapshot_id",
+        "sync",
+        "repository",
+        "branch",
+        "path",
+        "source_committed_at",
+        "secrets_updated_at",
+        "error_line",
+    ];
+    let generated = Generated::new(crate::state::open_existing(state)?);
+    let rows = generated
+        .secret_syncs()
+        .map_err(|unmet| anyhow!("snapshot secret-syncs: {unmet}"))?;
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            vec![
+                Value::from(row.observation_id.0.0),
+                Value::from(row.snapshot_id.0.0),
+                Value::from(row.sync),
+                Value::from(row.repository.0),
+                Value::from(row.branch),
+                Value::from(row.path),
+                Value::from(row.source_committed_at.map(|at| at.0)),
+                Value::from(row.secrets_updated_at.map(|at| at.0)),
+                Value::from(row.error_line),
+            ]
+        })
+        .collect();
+    show(&generated, "secret syncs", view, &COLUMNS, rows)
+}
+
 /// Answers a view: its `rows`, rendered as `--format` asks, through [`crate::store::show`]. Its
 /// `columns` are the view's fields in the specification's order (`spec/domains/observation.yaml`).
 fn show(
@@ -1621,6 +1713,7 @@ delegate! {
     SpecificationObservationStorage: ObservationId => SpecificationObservationSnapshot;
     MemberFailureObservationStorage: ObservationId => MemberFailureObservationSnapshot;
     CollectorRunObservationStorage: ObservationId => CollectorRunObservationSnapshot;
+    SecretSyncObservationStorage: ObservationId => SecretSyncObservationSnapshot;
 }
 
 impl TryContext for Ports {

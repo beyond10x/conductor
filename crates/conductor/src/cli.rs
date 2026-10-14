@@ -138,6 +138,9 @@ impl Cli {
                 SnapshotCommand::RecordMemberFailure(args) => {
                     snapshot::record_member_failure(state, args)
                 }
+                SnapshotCommand::RecordSecretSync(args) => {
+                    snapshot::record_secret_sync(state, args)
+                }
                 SnapshotCommand::PublishBoard(args) => status::publish_board(state, args),
                 SnapshotCommand::CompleteSnapshot(args) => snapshot::complete_snapshot(state, args),
                 SnapshotCommand::FailSnapshot(args) => snapshot::fail_snapshot(state, args),
@@ -154,6 +157,7 @@ impl Cli {
                 SnapshotCommand::Specifications(view) => snapshot::specifications(state, view),
                 SnapshotCommand::MemberFailures(view) => snapshot::member_failures(state, view),
                 SnapshotCommand::CollectorRuns(view) => snapshot::collector_runs(state, view),
+                SnapshotCommand::SecretSyncs(view) => snapshot::secret_syncs(state, view),
                 SnapshotCommand::Boards(view) => status::boards(state, view),
             },
             Group::Goal(command) => match command {
@@ -477,6 +481,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["snapshot", "record-pull-request"], Access::Writes),
     (&["snapshot", "record-release"], Access::Writes),
     (&["snapshot", "record-repository"], Access::Writes),
+    (&["snapshot", "record-secret-sync"], Access::Writes),
     (&["snapshot", "record-session"], Access::Writes),
     (&["snapshot", "record-specification"], Access::Writes),
     (&["snapshot", "record-workflow-run"], Access::Writes),
@@ -489,6 +494,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["snapshot", "pull-requests"], Access::Reads),
     (&["snapshot", "releases"], Access::Reads),
     (&["snapshot", "repositories"], Access::Reads),
+    (&["snapshot", "secret-syncs"], Access::Reads),
     (&["snapshot", "sessions"], Access::Reads),
     (&["snapshot", "snapshots"], Access::Reads),
     (&["snapshot", "specifications"], Access::Reads),
@@ -637,6 +643,10 @@ pub enum SnapshotCommand {
     #[command(name = "record-repository")]
     RecordRepository(RecordRepositoryArgs),
 
+    /// Record a secret sync
+    #[command(name = "record-secret-sync")]
+    RecordSecretSync(RecordSecretSyncArgs),
+
     /// Record a session
     #[command(name = "record-session")]
     RecordSession(RecordSessionArgs),
@@ -684,6 +694,10 @@ pub enum SnapshotCommand {
     /// Repositories
     #[command(name = "repositories")]
     Repositories(ViewArgs),
+
+    /// Secret syncs
+    #[command(name = "secret-syncs")]
+    SecretSyncs(ViewArgs),
 
     /// Sessions
     #[command(name = "sessions")]
@@ -1887,6 +1901,38 @@ pub struct RecordWorkflowRunArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub run_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.observation.RecordSecretSync`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordSecretSyncArgs {
+    /// SnapshotId
+    #[arg(long, value_parser = uuid)]
+    pub snapshot_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub sync: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub repository: Option<String>,
+    /// string
+    #[arg(long)]
+    pub branch: Option<String>,
+    /// string
+    #[arg(long)]
+    pub path: Option<String>,
+    /// timestamp, RFC 3339, optional
+    #[arg(long, value_parser = timestamp)]
+    pub source_committed_at: Option<String>,
+    /// timestamp, RFC 3339, optional
+    #[arg(long, value_parser = timestamp)]
+    pub secrets_updated_at: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub error_line: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

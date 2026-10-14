@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 100ed8d56c5922025d5d70ebccab135f3b8c86caff9dbf53c5f083b6149f305a
-// contract digest a0210e39ab02483810bb14bd75f2f584f8a602338cf2d44808ae60384452c5fd
+// model digest da2650ca246276e52671fae1b8f0cb94808d7ac6df9237ba08bb0953984621f7
+// contract digest 40f96bb6aa267ca9c7e4701e8fd647464238ddcc0603cc26e1357adc1d4f1e9b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -313,6 +313,16 @@ pub enum RunConclusion {
     Neutral,
     /// `Pending`.
     Pending,
+}
+
+/// The states of `conductor.observation.SecretSyncObservation`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `SecretSyncObservation<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretSyncObservationState {
+    /// `Recorded`.
+    Recorded,
 }
 
 /// The states of `conductor.observation.SessionObservation`, as runtime values.
@@ -1874,6 +1884,150 @@ impl AnyRepositoryObservation {
     }
 }
 
+/// What SecretSyncObservation — `conductor.observation.SecretSyncObservation` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`SecretSyncObservation<S>`], and at a boundary by [`SecretSyncObservationSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSyncObservationData {
+    /// The identity: `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    ///
+    /// Carries `snapshot`: `conductor.observation.SecretSyncObservation` references one `conductor.observation.Snapshot`.
+    pub snapshot_id: SnapshotId,
+    /// `sync` — `String`.
+    pub sync: String,
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: RepositoryName,
+    /// `branch` — `String`.
+    pub branch: String,
+    /// `path` — `String`.
+    pub path: String,
+    /// `source_committed_at` — `Optional<Timestamp>`.
+    pub source_committed_at: Option<crate::primitives::Timestamp>,
+    /// `secrets_updated_at` — `Optional<Timestamp>`.
+    pub secrets_updated_at: Option<crate::primitives::Timestamp>,
+    /// `error_line` — `Optional<String>`.
+    pub error_line: Option<String>,
+}
+
+/// The states of `conductor.observation.SecretSyncObservation`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](secret_sync_observation_state::Marker), so [`SecretSyncObservation<S>`](SecretSyncObservation) can only ever rest in a real state.
+pub mod secret_sync_observation_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Recorded {}
+    }
+
+    /// A declared state of `SecretSyncObservation`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::SecretSyncObservationState;
+    }
+
+    /// `Recorded`. Where a new instance starts.
+    pub struct Recorded;
+
+    impl Marker for Recorded {
+        const STATE: super::SecretSyncObservationState = super::SecretSyncObservationState::Recorded;
+    }
+}
+
+/// SecretSyncObservation — `conductor.observation.SecretSyncObservation` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Recorded`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`SecretSyncObservationSnapshot`]
+/// and [`SecretSyncObservationSnapshot::refine`].
+pub struct SecretSyncObservation<S: secret_sync_observation_state::Marker> {
+    data: SecretSyncObservationData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: secret_sync_observation_state::Marker> SecretSyncObservation<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> SecretSyncObservationState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &SecretSyncObservationData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> SecretSyncObservationData {
+        self.data
+    }
+}
+
+impl SecretSyncObservation<secret_sync_observation_state::Recorded> {
+    /// A new instance, resting in `Recorded` — the only state the lifecycle starts one in.
+    pub fn new(data: SecretSyncObservationData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.observation.SecretSyncObservation` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`SecretSyncObservationSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSyncObservationSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: SecretSyncObservationState,
+    /// What it holds.
+    pub data: SecretSyncObservationData,
+}
+
+/// An `SecretSyncObservation` in whichever declared state it was found.
+pub enum AnySecretSyncObservation {
+    /// Resting in `Recorded`.
+    Recorded(SecretSyncObservation<secret_sync_observation_state::Recorded>),
+}
+
+impl SecretSyncObservationSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `SecretSyncObservationState` cannot spell one.
+    pub fn refine(self) -> AnySecretSyncObservation {
+        match self.state {
+            SecretSyncObservationState::Recorded => AnySecretSyncObservation::Recorded(SecretSyncObservation {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnySecretSyncObservation {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> SecretSyncObservationState {
+        match self {
+            Self::Recorded(_) => SecretSyncObservationState::Recorded,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> SecretSyncObservationSnapshot {
+        match self {
+            Self::Recorded(instance) => SecretSyncObservationSnapshot {
+                state: SecretSyncObservationState::Recorded,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
 /// What SessionObservation — `conductor.observation.SessionObservation` — holds, apart from where it is in its lifecycle.
 ///
 /// The identity and every declared field. The state is deliberately not one: inside the domain it
@@ -3123,6 +3277,59 @@ pub enum RecordRepositoryOutcome {
     },
 }
 
+/// Record a secret sync — the input of `conductor.observation.RecordSecretSync`.
+///
+/// Everything it can result in is [`RecordSecretSyncOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordSecretSync {
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `sync` — `String`.
+    pub sync: String,
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: RepositoryName,
+    /// `branch` — `String`.
+    pub branch: String,
+    /// `path` — `String`.
+    pub path: String,
+    /// `source_committed_at` — `Optional<Timestamp>`.
+    pub source_committed_at: Option<crate::primitives::Timestamp>,
+    /// `secrets_updated_at` — `Optional<Timestamp>`.
+    pub secrets_updated_at: Option<crate::primitives::Timestamp>,
+    /// `error_line` — `Optional<String>`.
+    pub error_line: Option<String>,
+}
+
+/// Everything `conductor.observation.RecordSecretSync` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordSecretSyncOutcome {
+    /// `no-such-snapshot` — when no `conductor.observation.Snapshot` carries the identity `input.snapshot_id` names.
+    ///
+    /// No snapshot has this id, and nothing was recorded.
+    NoSuchSnapshot {
+        /// Why it was refused: `conductor.observation.SnapshotNotFound`.
+        error: SnapshotNotFound,
+    },
+    /// `closed` — when the `conductor.observation.Snapshot` that `input.snapshot_id` names satisfies `state != Collecting`.
+    ///
+    /// The snapshot is not collecting, and nothing was recorded.
+    Closed {
+        /// Why it was refused: `conductor.observation.SnapshotNotCollecting`.
+        error: SnapshotNotCollecting,
+    },
+    /// `recorded` — otherwise.
+    ///
+    /// The sync's source commit and its secrets' oldest write are recorded.
+    Recorded {
+        /// The `conductor.observation.SecretSyncRecorded` this outcome publishes.
+        secret_sync_recorded: SecretSyncRecorded,
+    },
+}
+
 /// Record a session — the input of `conductor.observation.RecordSession`.
 ///
 /// Everything it can result in is [`RecordSessionOutcome`].
@@ -3495,6 +3702,19 @@ pub struct RepositoryRecorded {
     pub repository: RepositoryName,
 }
 
+/// SecretSyncRecorded — the event `conductor.observation.SecretSyncRecorded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSyncRecorded {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `sync` — `String`.
+    pub sync: String,
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: RepositoryName,
+}
+
 /// SessionRecorded — the event `conductor.observation.SessionRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRecorded {
@@ -3838,6 +4058,33 @@ pub struct Repositories {
     pub wave_reason: Option<String>,
 }
 
+/// Secret syncs — one row of the view `conductor.observation.SecretSyncs`.
+///
+/// Projects `conductor.observation.SecretSyncObservation` at `read_your_writes` consistency.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSyncs {
+    /// `observation_id` — `conductor.observation.ObservationId`.
+    pub observation_id: ObservationId,
+    /// `snapshot_id` — `conductor.observation.SnapshotId`.
+    pub snapshot_id: SnapshotId,
+    /// `sync` — `String`.
+    pub sync: String,
+    /// `repository` — `conductor.observation.RepositoryName`.
+    pub repository: RepositoryName,
+    /// `branch` — `String`.
+    pub branch: String,
+    /// `path` — `String`.
+    pub path: String,
+    /// `source_committed_at` — `Optional<Timestamp>`.
+    pub source_committed_at: Option<crate::primitives::Timestamp>,
+    /// `secrets_updated_at` — `Optional<Timestamp>`.
+    pub secrets_updated_at: Option<crate::primitives::Timestamp>,
+    /// `error_line` — `Optional<String>`.
+    pub error_line: Option<String>,
+}
+
 /// Sessions — one row of the view `conductor.observation.Sessions`.
 ///
 /// Projects `conductor.observation.SessionObservation` at `read_your_writes` consistency.
@@ -4078,6 +4325,17 @@ pub mod obligations {
         fn record_repository(&mut self, input: super::RecordRepository) -> Result<super::RecordRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.observation.RecordSecretSync` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait RecordSecretSyncBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordSecretSync`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn record_secret_sync(&mut self, input: super::RecordSecretSync) -> Result<super::RecordSecretSyncOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.observation.RecordSession` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -4219,6 +4477,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn repositories(&self) -> Result<Vec<super::Repositories>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.observation.SecretSyncs` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait SecretSyncsQuery {
+        /// Serves `conductor.observation.SecretSyncs` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn secret_syncs(&self) -> Result<Vec<super::SecretSyncs>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.Sessions` — generated.

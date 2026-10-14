@@ -25,6 +25,13 @@ instances:
       repository: registry
       path: catalog/entries
       names: plain
+    secret_syncs:
+      - name: ci-policy
+        source: {repository: policies, branch: main, path: ci/policy.json}
+        secrets:
+          - {owner: example-org, name: CI_POLICY}
+        command: example-sync publish ci/policy.json
+        dry_run: example-sync publish ci/policy.json --dry-run
     cadence:
       cycle: 2h
       daily: 08:07

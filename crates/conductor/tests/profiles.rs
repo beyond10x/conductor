@@ -715,3 +715,14 @@ fn a_class_h_call_runs_only_under_a_named_grant() {
                     that command within that scope, nothing wider, and report only its failure.";
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
+
+/// `story:policy-secret-drift`: a stale secret is published by its sync's own command only under
+/// a grant in `rules.md`; otherwise it is the operator's hands, handed over with the dry run.
+#[test]
+fn conductor_publishes_a_stale_secret_only_under_a_grant_or_hands_it_over() {
+    let text = profile("conductor.md");
+    let sentence = "On a board row `secret stale: <sync>`, run that `secret_syncs` entry's \
+                    `command` when `rules.md` grants it; else hand it over as class H with the \
+                    output of its dry run (`dry_run`)";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}

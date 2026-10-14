@@ -38,6 +38,7 @@ Every command takes these, before or after its name.
 | [`conductor snapshot record-pull-request`](#conductor-snapshot-record-pull-request) | Record a pull request |
 | [`conductor snapshot record-release`](#conductor-snapshot-record-release) | Record a release |
 | [`conductor snapshot record-repository`](#conductor-snapshot-record-repository) | Record a repository |
+| [`conductor snapshot record-secret-sync`](#conductor-snapshot-record-secret-sync) | Record a secret sync |
 | [`conductor snapshot record-session`](#conductor-snapshot-record-session) | Record a session |
 | [`conductor snapshot record-specification`](#conductor-snapshot-record-specification) | Record a specification status |
 | [`conductor snapshot record-workflow-run`](#conductor-snapshot-record-workflow-run) | Record a workflow run |
@@ -50,6 +51,7 @@ Every command takes these, before or after its name.
 | [`conductor snapshot pull-requests`](#conductor-snapshot-pull-requests) | Pull requests |
 | [`conductor snapshot releases`](#conductor-snapshot-releases) | Releases |
 | [`conductor snapshot repositories`](#conductor-snapshot-repositories) | Repositories |
+| [`conductor snapshot secret-syncs`](#conductor-snapshot-secret-syncs) | Secret syncs |
 | [`conductor snapshot sessions`](#conductor-snapshot-sessions) | Sessions |
 | [`conductor snapshot snapshots`](#conductor-snapshot-snapshots) | Snapshots |
 | [`conductor snapshot specifications`](#conductor-snapshot-specifications) | Specifications |
@@ -350,6 +352,26 @@ Usage: conductor snapshot record-repository [OPTIONS]
 | `--wave-reason <WAVE_REASON>` | no | none | string, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor snapshot record-secret-sync`
+
+Record a secret sync
+
+```text
+Usage: conductor snapshot record-secret-sync [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
+| `--sync <SYNC>` | no | none | string |
+| `--repository <REPOSITORY>` | no | none | RepositoryName |
+| `--branch <BRANCH>` | no | none | string |
+| `--path <PATH>` | no | none | string |
+| `--source-committed-at <SOURCE_COMMITTED_AT>` | no | none | timestamp, RFC 3339, optional |
+| `--secrets-updated-at <SECRETS_UPDATED_AT>` | no | none | timestamp, RFC 3339, optional |
+| `--error-line <ERROR_LINE>` | no | none | string, optional |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
 ## `conductor snapshot record-session`
 
 Record a session
@@ -522,6 +544,18 @@ Repositories
 
 ```text
 Usage: conductor snapshot repositories [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor snapshot secret-syncs`
+
+Secret syncs
+
+```text
+Usage: conductor snapshot secret-syncs [OPTIONS]
 ```
 
 | Argument | Required | Default | Meaning |

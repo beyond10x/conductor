@@ -522,6 +522,7 @@ fn show_without_a_file_prints_todays_constants() {
         "reports",
         "retention",
         "roles",
+        "secret_syncs",
         "sources",
         "state",
         "thresholds",
