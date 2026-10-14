@@ -109,13 +109,13 @@ types:
 
 entities:
   # One grant on the host ledger. A disk reservation is asked for with the bytes of its expected
-  # peak and the command it covers, and is answered at once: granted (after a reclaim run when it
-  # did not fit) or refused with the shortfall. A granted reservation runs its command in its own
-  # process group, records the peak the run measured, and is released when the command exits or
-  # is killed. Nothing expires by time: a live grant whose process group is gone is released, with
-  # `ProcessGroupGone`, by the next command that reads the ledger, before that command answers.
-  # The ledger's state names map onto the lifecycle as written (`Requested`, `Granted`, `Running`,
-  # `Released`, `Refused`).
+  # peak and the command it covers, and is answered in arrival order (story:build-run-queue):
+  # granted (after a reclaim run when it did not fit) or refused with the shortfall. A granted
+  # reservation runs its command in its own process group, records the peak the run measured, and is
+  # released when the command exits or is killed. Nothing expires by time: a live grant whose
+  # process group is gone is released, with `ProcessGroupGone`, by the next command that reads the
+  # ledger, before that command answers. The ledger's state names map onto the lifecycle as written
+  # (`Requested`, `Granted`, `Running`, `Released`, `Refused`).
   - name: conductor.host.HostGrant
     identity:
       name: grant_id
@@ -368,8 +368,17 @@ commands:
         summary: The slot counts against the host until it is released.
 
   # `conductor build run --reserve <size>`, first step: the request is written to the ledger under
-  # its lock, so a second run reserving at the same time counts it. The ledger answers it at once
-  # with ReserveDisk; nobody is asked.
+  # its lock, so a second run reserving at the same time counts it. The ledger answers it with
+  # ReserveDisk; nobody is asked.
+  #
+  # The requests in `Requested` whose run still waits form the host's queue, in arrival order
+  # (`requested_at`, then `grant_id`) (story:build-run-queue). Only the head is answered: a later
+  # request waits behind it even when it alone would fit, so a small build never overtakes a large
+  # one made before it. The head is answered once it fits, once what it lacks exceeds what the
+  # live reservations hold (refused: their release cannot cover it), or once it has waited the
+  # run's bound for them (refused); since nothing behind it is granted meanwhile, the live
+  # reservations only shrink while it waits. A request that has waited longer than
+  # `thresholds.watchdog_every` names its position in the queue on standard error.
   - name: conductor.host.RequestDisk
     naming:
       wire: request-disk
@@ -416,10 +425,10 @@ commands:
             bytes: input.bytes
         summary: The request counts against the host while the ledger answers it.
 
-  # The ledger's answer to a disk request. The binary computes, under the ledger's lock, what the
-  # disk lacks for the requested bytes once free disk, the live reservations of every instance and
-  # the floor are counted (`shortfall_bytes`, 0 when it fits). When it does not fit it runs a
-  # reclaim run first (`Reclaim`), counts again, and passes what that run freed as
+  # The ledger's answer to the head of the queue (RequestDisk). The binary computes, under the
+  # ledger's lock, what the disk lacks for the requested bytes once free disk, the live reservations
+  # of every instance and the floor are counted (`shortfall_bytes`, 0 when it fits). When it does
+  # not fit it runs a reclaim run first (`Reclaim`), counts again, and passes what that run freed as
   # `reclaimed_bytes`.
   - name: conductor.host.ReserveDisk
     naming:

@@ -7,12 +7,19 @@
 //!    the floor (`thresholds.disk_admit` and the margin `conductor host reclaim` keeps,
 //!    [`crate::gc::reclaim::floor_bytes`]). Free disk is read as the watch and reclaim read it,
 //!    through [`crate::gc::reclaim::free_bytes`] on `thresholds.disk_path` ([`Sources::free_bytes`]).
+//!    Requests are answered in arrival order (`story:build-run-queue`): while a request made
+//!    before it still waits ([`host::Ledger::ahead`]), a run waits behind it, even when it alone
+//!    would fit, and names its position in the queue on standard error once it has waited
+//!    `thresholds.watchdog_every`. The head waits for live reservations at most
+//!    [`Settings::wait`], then is refused; one whose shortfall they do not cover is answered at
+//!    once.
 //! 2. **Reclaim.** When it does not fit, one reclaim run frees what needs no decision
 //!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The answer (`ReserveDisk`) is
 //!    granted, granted after reclaim, or refused with the shortfall: the command never runs, the
-//!    shortfall and what is left are printed on standard error, one operator item is recorded for
-//!    the fall of free disk ([`host::escalate`]), and the exit is 2. The fall, and its item, end
-//!    when free disk is back at `thresholds.disk_clear`: each run reads it first
+//!    shortfall and what is left are printed on standard error as the operator item names them
+//!    (`/var/tmp` entries as a count and a size, the home as `~`), one operator item is recorded
+//!    for the fall of free disk ([`host::escalate`]), and the exit is 2. The fall, and its item,
+//!    end when free disk is back at `thresholds.disk_clear`: each run reads it first
 //!    ([`host::Ledger::clear_fall`]), not when a reservation fits.
 //! 3. **Run under the watchdog.** The command runs in its own process group (`StartRun`). Every
 //!    `thresholds.watchdog_every` a watchdog reads free disk: under `thresholds.gate_stop` it
@@ -109,6 +116,14 @@ pub struct Sources {
     pub home: Option<PathBuf>,
     /// `/var/tmp`, whose entries an operator item names only as a count and a total size.
     pub var_tmp: PathBuf,
+    /// Writes one line of standard error, given the state directory: [`stderr`]. A case gives its
+    /// own.
+    pub say: fn(&Path, &str),
+}
+
+/// Writes `line` to standard error.
+pub fn stderr(_state: &Path, line: &str) {
+    let _ = writeln!(std::io::stderr().lock(), "{line}");
 }
 
 impl Sources {
@@ -129,6 +144,7 @@ impl Sources {
                 .map(PathBuf::from)
                 .filter(|home| home.is_absolute()),
             var_tmp: PathBuf::from("/var/tmp"),
+            say: stderr,
         }
     }
 }
@@ -245,7 +261,10 @@ pub fn run(
     // Free disk back at `disk_clear` ends the fall: its operator item is withdrawn.
     let clear = settings.clear.max(settings.floor);
     if let Err(error) = ledger.clear_fall(free_bytes(sources)?, clear) {
-        eprintln!("conductor: build run: the fall's operator item was not withdrawn: {error:#}");
+        (sources.say)(
+            state,
+            &format!("conductor: build run: the fall's operator item was not withdrawn: {error:#}"),
+        );
     }
     let grant = ledger.request(
         &settings.instance,
@@ -266,40 +285,67 @@ pub fn run(
             settings.floor,
         ))
     };
-    let mut short = lacking(&ledger)?;
+    let say = |line: &str| (sources.say)(state, line);
+    let mut short;
     let mut reclaimed = 0;
     let mut left = Vec::new();
-    if short > 0 {
-        // Reclaim frees until this many bytes are free: where the request fits beside the floor
-        // and every live reservation.
-        let fits = settings
-            .floor
-            .saturating_add(ledger.reserved(Some(&grant))?)
-            .saturating_add(request.reserve);
-        let report = reclaim(sources, state, fits);
-        reclaimed = report.reclaimed_bytes;
-        left = report.left;
-        short = lacking(&ledger)?;
-    }
-    // A shortfall live reservations cover is a wait: they release as their runs end. Wait for
-    // them, without the lock, rather than refuse.
-    let mut waited = Duration::ZERO;
+    let mut reclaim_ran = false;
+    // The queue (`story:build-run-queue`): only its head is answered, so a request made later never
+    // takes the space an earlier one waits for. The head waits for live reservations at most
+    // `settings.wait` (`held`); since nothing behind it is granted meanwhile, they only shrink.
+    let mut held = Duration::ZERO;
+    let mut queued = Duration::ZERO;
+    let mut told = None;
     let pause = sources.every.max(Duration::from_millis(10));
-    while short > 0 && short <= ledger.reserved(Some(&grant))? && waited < settings.wait {
-        if waited.is_zero() {
-            eprintln!(
-                "conductor: build run: waiting: {}G short while live reservations hold {}G; \
-                 they release as their runs end",
-                short.div_ceil(GIB),
-                ledger.reserved(Some(&grant))?.div_ceil(GIB)
-            );
+    loop {
+        let ahead = ledger.ahead(&grant)?;
+        if ahead == 0 {
+            short = lacking(&ledger)?;
+            if short > 0 && !reclaim_ran {
+                reclaim_ran = true;
+                // Reclaim frees until this many bytes are free: where the request fits beside the
+                // floor and every live reservation.
+                let fits = settings
+                    .floor
+                    .saturating_add(ledger.reserved(Some(&grant))?)
+                    .saturating_add(request.reserve);
+                let report = reclaim(sources, state, fits);
+                reclaimed = report.reclaimed_bytes;
+                left = report.left;
+                short = lacking(&ledger)?;
+            }
+            // A shortfall live reservations cover is a wait: they release as their runs end. Wait
+            // for them, without the lock, rather than refuse; any other is answered now.
+            let holding = ledger.reserved(Some(&grant))?;
+            if short == 0 || short > holding || held >= settings.wait {
+                break;
+            }
+            if held.is_zero() {
+                say(&format!(
+                    "conductor: build run: waiting: {}G short while live reservations hold {}G; \
+                     they release as their runs end",
+                    short.div_ceil(GIB),
+                    holding.div_ceil(GIB)
+                ));
+            }
+            held += pause;
+        }
+        // Waiting longer than `thresholds.watchdog_every` names the position, and again when it
+        // moves.
+        if queued >= sources.every && told != Some(ahead) {
+            say(&format!(
+                "conductor: build run: queued: position {} in the queue of disk requests, {ahead} \
+                 ahead; waited {}s",
+                ahead + 1,
+                queued.as_secs()
+            ));
+            told = Some(ahead);
         }
         drop(ledger);
         thread::sleep(pause);
-        waited += pause;
+        queued += pause;
         ledger = Ledger::lock(state)?;
         ledger.sweep(&host::now((sources.clock)()))?;
-        short = lacking(&ledger)?;
     }
     // Only a shortfall live reservations do not cover needs a person.
     let beyond_reservations = short > ledger.reserved(Some(&grant))?;
@@ -312,7 +358,7 @@ pub fn run(
                 Ok(None)
             }
         };
-        let item = escalate(&Shortfall {
+        let shortfall = Shortfall {
             instance: &settings.instance,
             repository: request.repository.as_deref(),
             command: &command,
@@ -323,12 +369,23 @@ pub fn run(
             home: sources.home.as_deref(),
             var_tmp: &sources.var_tmp,
             at: &at,
-        })
-        .unwrap_or_else(|error| {
-            eprintln!("conductor: build run: the operator item was not recorded: {error:#}");
+        };
+        let item = escalate(&shortfall).unwrap_or_else(|error| {
+            (sources.say)(
+                state,
+                &format!("conductor: build run: the operator item was not recorded: {error:#}"),
+            );
             None
         });
         host::end_run(state, &grant, run_lock);
+        say_refused(
+            sources,
+            state,
+            &grant,
+            &shortfall,
+            reclaimed,
+            item.as_deref(),
+        );
         return Ok(Outcome::Refused {
             grant,
             bytes: request.reserve,
@@ -396,7 +453,10 @@ pub fn run(
         .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
         .saturating_sub(watched.start);
     if let Err(error) = host::record_peak_of(state, &grant, peak) {
-        eprintln!("conductor: build run: the peak was not recorded: {error:#}");
+        (sources.say)(
+            state,
+            &format!("conductor: build run: the peak was not recorded: {error:#}"),
+        );
     }
     let reason = if killed {
         ReleaseReason::Killed
@@ -404,7 +464,10 @@ pub fn run(
         ReleaseReason::Exited
     };
     if let Err(error) = host::release(state, &grant, Some(reason), &host::now((sources.clock)())) {
-        eprintln!("conductor: build run: the grant was not released: {error:#}");
+        (sources.say)(
+            state,
+            &format!("conductor: build run: the grant was not released: {error:#}"),
+        );
     }
     host::end_run(state, &grant, run_lock);
     Ok(Outcome::Ran {
@@ -419,7 +482,7 @@ pub fn run(
 }
 
 /// `conductor build run`: [`run`] for the active instance, in the working directory. Exits with
-/// the command's status, or 2 naming the shortfall on standard error when it was refused.
+/// the command's status, or 2 when it was refused ([`run`] names the shortfall on standard error).
 ///
 /// # Errors
 ///
@@ -446,36 +509,38 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
         &Sources::of(instance),
         &request,
     )?;
-    if let Outcome::Refused {
-        grant,
-        bytes,
-        shortfall,
-        reclaimed,
-        left,
-        item,
-    } = &outcome
-    {
-        let mut err = std::io::stderr().lock();
-        let _ = writeln!(
-            err,
-            "conductor: {COMMAND}: refused: {}G asked, {}G short after reclaim freed {}G; the \
-             command did not run (grant {})",
-            gib(*bytes),
-            gib(*shortfall),
-            gib(*reclaimed),
-            grant.0
-        );
-        for (path, bytes) in left {
-            let _ = writeln!(err, "  left: {path} ({}G)", gib(*bytes));
-        }
-        if let Some(item) = item {
-            let _ = writeln!(
-                err,
-                "  operator item {item}: `conductor decision hands-todo` lists it"
-            );
-        }
-    }
     Ok(ExitCode::from(outcome.exit_code()))
+}
+
+/// Names a refusal on standard error: the size, the shortfall and what reclaim freed, what reclaim
+/// left as the operator item names it ([`host::left_redacted`]: the `/var/tmp` entries as a count
+/// and a total size, the home directory as `~`), and the operator item when this refusal recorded
+/// it (`story:build-run-stderr-redacted`).
+fn say_refused(
+    sources: &Sources,
+    state: &Path,
+    grant: &GrantId,
+    shortfall: &Shortfall<'_>,
+    reclaimed: u64,
+    item: Option<&str>,
+) {
+    let say = |line: &str| (sources.say)(state, line);
+    say(&format!(
+        "conductor: build run: refused: {}G asked, {}G short after reclaim freed {}G; the command \
+         did not run (grant {})",
+        gib(shortfall.bytes),
+        gib(shortfall.shortfall),
+        gib(reclaimed),
+        grant.0
+    ));
+    for (path, bytes) in host::left_redacted(shortfall) {
+        say(&format!("  left: {path} ({}G)", gib(bytes)));
+    }
+    if let Some(item) = item {
+        say(&format!(
+            "  operator item {item}: `conductor decision hands-todo` lists it"
+        ));
+    }
 }
 
 /// What the watchdog saw of one run.
@@ -516,11 +581,14 @@ impl Watchdog {
                     signal(self.group, Signal::SIGSTOP);
                     stopped = true;
                     watched.paused += 1;
-                    eprintln!(
-                        "conductor: build run: paused: {}G free is under gate_stop {}G; \
+                    (self.sources.say)(
+                        &self.state,
+                        &format!(
+                            "conductor: build run: paused: {}G free is under gate_stop {}G; \
                          reclaiming",
-                        free / GIB,
-                        gib(self.settings.gate_stop)
+                            free / GIB,
+                            gib(self.settings.gate_stop)
+                        ),
                     );
                     let need = self.settings.gate_resume;
                     reclaim(&self.sources, &self.state, need);
@@ -529,14 +597,19 @@ impl Watchdog {
                     signal(self.group, Signal::SIGCONT);
                     stopped = false;
                     watched.resumed += 1;
-                    eprintln!(
-                        "conductor: build run: resumed: {}G free is over gate_resume {}G",
-                        free / GIB,
-                        gib(self.settings.gate_resume)
+                    (self.sources.say)(
+                        &self.state,
+                        &format!(
+                            "conductor: build run: resumed: {}G free is over gate_resume {}G",
+                            free / GIB,
+                            gib(self.settings.gate_resume)
+                        ),
                     );
                 }
                 Ok(_) => {}
-                Err(error) => eprintln!("conductor: build run: {error:#}"),
+                Err(error) => {
+                    (self.sources.say)(&self.state, &format!("conductor: build run: {error:#}"))
+                }
             }
             if let Some(bytes) = size(&self.measured, self.sources.every) {
                 watched.peak = watched.peak.max(bytes);
@@ -548,7 +621,9 @@ impl Watchdog {
                 match host::record_peak_now(&self.state, &self.grant, grown) {
                     Ok(true) => recorded = grown,
                     Ok(false) => {}
-                    Err(error) => eprintln!("conductor: build run: {error:#}"),
+                    Err(error) => {
+                        (self.sources.say)(&self.state, &format!("conductor: build run: {error:#}"))
+                    }
                 }
             }
         }
@@ -590,7 +665,7 @@ fn free_bytes(sources: &Sources) -> Result<u64> {
 /// One reclaim run for `need` bytes; a failing one is named on standard error and frees nothing.
 fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
     (sources.reclaim)(state, need).unwrap_or_else(|error| {
-        eprintln!("conductor: build run: reclaim: {error:#}");
+        (sources.say)(state, &format!("conductor: build run: reclaim: {error:#}"));
         ReclaimReport {
             reclaimed_bytes: 0,
             steps: Vec::new(),
