@@ -1,0 +1,144 @@
+# Measures the guard's latency before and after a change on one runner, for
+# `story:guard-latency-quiet-host`: the hook's allowed Write p50 and p95 and how many denials were
+# not recorded within `RECORD_DEADLINE`, from `crates/conductor/tests/guard_latency.rs`.
+#
+# Both trees are built in release first and measured afterwards, one after the other, so neither
+# measurement shares the runner with a compile. Each tree runs its own `guard_latency` test against
+# its own binary, with a store seeded fresh in its own `target/`.
+#
+# Dispatch it on `main`; `before` is the revision to compare against, by default the commit before
+# `1f8bd04` (`story:guard-all-tools`).
+name: Guard latency
+
+on:
+  workflow_dispatch:
+    inputs:
+      before:
+        description: The revision measured as "before", for example 1f8bd04^.
+        required: true
+        default: 1f8bd04^
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guard-latency-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  measure:
+    name: guard_latency, before and after
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: after
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out the "before" revision beside it
+        env:
+          BEFORE: ${{ inputs.before }}
+        run: |
+          set -euo pipefail
+          commit=$(git -C after rev-parse --verify --end-of-options "$BEFORE^{commit}")
+          git -C after worktree add --detach "$GITHUB_WORKSPACE/before" "$commit"
+          echo "before: $BEFORE = $commit"
+          echo "after:  $GITHUB_REF = $(git -C after rev-parse HEAD)"
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        id: toolchain
+        with:
+          toolchain: stable
+      # actions/cache v4. The key moves with both lock files and the resolved toolchain; the
+      # seeded stores under target/tmp are removed before each measurement.
+      - name: Restore the cargo cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            after/target
+            before/target
+          key: guard-latency-${{ runner.os }}-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('after/Cargo.lock', 'before/Cargo.lock') }}
+          restore-keys: |
+            guard-latency-${{ runner.os }}-${{ steps.toolchain.outputs.cachekey }}-
+      - name: Build both in release
+        run: |
+          set -euo pipefail
+          for side in before after; do
+            (cd "$side" && cargo test --locked --release -p conductor-cli --test guard_latency --no-run)
+          done
+      - name: The runner
+        run: |
+          nproc
+          cat /proc/loadavg
+          uptime
+      - name: Measure before, then after
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/guard-latency"
+          for side in before after; do
+            echo "::group::$side"
+            rm -rf "$side/target/tmp/guard_latency"
+            echo "load before $side: $(cat /proc/loadavg)" | tee -a "$RUNNER_TEMP/guard-latency/load.txt"
+            (cd "$side" && cargo test --locked --release -p conductor-cli --test guard_latency \
+              -- --ignored --nocapture) 2>&1 | tee "$RUNNER_TEMP/guard-latency/$side.log"
+            echo "::endgroup::"
+          done
+          echo "load after both: $(cat /proc/loadavg)" | tee -a "$RUNNER_TEMP/guard-latency/load.txt"
+      # One line per side, `side=<s> allowed_write_p50_us=<n> allowed_write_p95_us=<n>
+      # denied_unrecorded=<n> runs=<n>`, then the comparison the story's acceptance names: the
+      # allow path more than 10 % slower at p50, or more than 5 of 50 denials unrecorded.
+      - name: Summary
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/guard-latency"
+          # A Debug-formatted Duration (812.5µs, 1.238ms, 1.002s, 950ns) in microseconds.
+          to_us() {
+            awk -v d="$1" 'BEGIN {
+              n = d; sub(/[^0-9.].*$/, "", n); u = substr(d, length(n) + 1)
+              if (u == "ns") v = n / 1000; else if (u == "ms") v = n * 1000
+              else if (u == "s") v = n * 1000000; else v = n
+              printf "%.1f", v }'
+          }
+          for side in before after; do
+            allowed=$(grep -m1 'hook, allowed Write:' "$dir/$side.log")
+            denied=$(grep -m1 'hook, denied SendMessage:' "$dir/$side.log")
+            p50=$(to_us "$(sed -nE 's/.* p50 ([^,]+),.*/\1/p' <<< "$allowed")")
+            p95=$(to_us "$(sed -nE 's/.* p95 ([^,]+),.*/\1/p' <<< "$allowed")")
+            unrecorded=$(sed -nE 's/.*not recorded within the deadline: ([0-9]+) of ([0-9]+)$/\1/p' <<< "$denied")
+            runs=$(sed -nE 's/.*not recorded within the deadline: ([0-9]+) of ([0-9]+)$/\2/p' <<< "$denied")
+            echo "side=$side allowed_write_p50_us=$p50 allowed_write_p95_us=$p95 denied_unrecorded=$unrecorded runs=$runs" \
+              | tee -a "$dir/summary.txt"
+            declare "p50_$side=$p50" "p95_$side=$p95" "unrecorded_$side=$unrecorded" "runs_$side=$runs"
+          done
+          change=$(awk -v b="$p50_before" -v a="$p50_after" 'BEGIN { printf "%+.1f", (a - b) * 100 / b }')
+          slower=$(awk -v c="$change" 'BEGIN { print (c > 10) ? "yes" : "no" }')
+          lost=$([ "$unrecorded_after" -gt 5 ] && echo yes || echo no)
+          echo "allowed_write_p50_change_percent=$change slower_than_10_percent=$slower more_than_5_unrecorded=$lost" \
+            | tee -a "$dir/summary.txt"
+          {
+            echo "## Guard latency"
+            echo
+            echo "| side | revision | allowed Write p50 (µs) | allowed Write p95 (µs) | denials not recorded |"
+            echo "|---|---|---|---|---|"
+            echo "| before | $(git -C before rev-parse --short HEAD) | $p50_before | $p95_before | $unrecorded_before of $runs_before |"
+            echo "| after | $(git -C after rev-parse --short HEAD) | $p50_after | $p95_after | $unrecorded_after of $runs_after |"
+            echo
+            echo "Allowed Write p50 change: $change %. More than 10 % slower: $slower. More than 5 of 50 denials unrecorded after: $lost."
+            echo
+            echo '```'
+            cat "$dir/load.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: guard-latency
+          path: ${{ runner.temp }}/guard-latency
+          if-no-files-found: warn
+          retention-days: 30
