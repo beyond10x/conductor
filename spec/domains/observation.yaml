@@ -195,6 +195,9 @@ types:
       - {name: deviations, type: List<String>}
       - {name: open_prs, type: Integer}
       - {name: failing_prs, type: Integer}
+      # One line per pull request with a failing check, by number: `#<n> <name>, <name>`, every
+      # failing check named (story:pr-check-names); `#<n>` alone when the observation names none.
+      - {name: failing_checks, type: List<String>}
       - {name: non_green_workflows, type: Integer}
       - {name: open_blockers, type: Integer}
       - {name: specifications_present, type: Integer}
@@ -252,7 +255,9 @@ types:
   # each; and the pending requests. The parts after the first are printed whether or not a
   # snapshot is complete; the deviations and sessions are empty when none is. Ids and times are
   # text (a snapshot id as its UUID, a time as RFC 3339), because a result the `ess-cli/1`
-  # binding returns holds no `Uuid` or `Timestamp`.
+  # binding returns holds no `Uuid` or `Timestamp`. `usage` is the usage line the watch prints,
+  # `usage: pool runs out ~<time>, next reset <time>`, from the newest usage readings of the
+  # complete snapshots (story:usage-probe); absent when no complete snapshot holds one.
   - name: conductor.observation.StatusReport
     kind: struct
     fields:
@@ -264,6 +269,7 @@ types:
       - {name: dispatches, type: List<conductor.observation.StatusDispatch>}
       - {name: waits, type: List<String>}
       - {name: requests, type: List<conductor.observation.StatusRequest>}
+      - {name: usage, type: Optional<String>}
 
 entities:
   - name: conductor.observation.Snapshot
@@ -420,6 +426,12 @@ entities:
         type: conductor.observation.Mergeability
       - name: failing_checks
         type: Integer
+      # The names of the checks `failing_checks` counts, in the order the forge answers them
+      # (story:pr-check-names): on GitHub each counted rollup entry's `name`, on GitLab
+      # `pipeline <id>` for a failed head pipeline. Empty in an observation recorded before the
+      # collectors filled it.
+      - name: failing_check_names
+        type: List<String>
       - name: opened_at
         type: Timestamp
       - name: updated_at
@@ -644,6 +656,47 @@ entities:
       states: [Recorded]
       terminal: [Recorded]
 
+  # One window of one account's usage, as the instance's usage probe (`usage.probe`) printed it
+  # in one snapshot (story:usage-probe): when the probe was read, the account by its id and
+  # nothing else (never an e-mail address or a name), whether it is the account in use, its
+  # health as the probe names it (`exhausted` is an account with nothing left), the window's
+  # name (such as `five_hour` or `seven_day`), the whole percent of it used, and when it resets,
+  # absent when the probe names no time. An account the probe prints without a window is not
+  # recorded.
+  - name: conductor.observation.UsageObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: read_at
+        type: Timestamp
+      - name: account
+        type: String
+      - name: active
+        type: Boolean
+      - name: health
+        type: String
+      - name: window
+        type: String
+      - name: used_percent
+        type: Integer
+      - name: resets_at
+        type: Optional<Timestamp>
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
+    invariants:
+      - used_percent >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
   # One workspace member a collector could not read in one snapshot (story:snapshot-member-failures):
   # its fetch, its export or a command over its specification failed twice, or did not answer in
   # time. The collector records it here and goes on with the other members, so the snapshot
@@ -700,6 +753,46 @@ entities:
         via: snapshot_id
     invariants:
       - duration_ms >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+  # One secret sync of the instance in one snapshot (story:policy-secret-drift), as the config's
+  # `secret_syncs` names it: `sync` is its name; `repository`, `branch` and `path` its source;
+  # `source_committed_at` the committer time of the last commit on `origin/<branch>` that touched
+  # the path, in the source's checkout under `checkouts.root`; `secrets_updated_at` the oldest
+  # `updated_at` of the secrets it feeds, as GitHub answers it; `error_line` the first line of the
+  # first read that failed, which leaves the time it would have read absent. The board names the
+  # sync `secret stale: <sync>` on its repository's row when the source was committed after the
+  # oldest secret was written, and `secret unread: <sync>` when a read failed.
+  - name: conductor.observation.SecretSyncObservation
+    identity:
+      name: observation_id
+      type: conductor.observation.ObservationId
+    fields:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: branch
+        type: String
+      - name: path
+        type: String
+      - name: source_committed_at
+        type: Optional<Timestamp>
+      - name: secrets_updated_at
+        type: Optional<Timestamp>
+      - name: error_line
+        type: Optional<String>
+    relations:
+      - name: snapshot
+        kind: references
+        target: conductor.observation.Snapshot
+        cardinality: one
+        via: snapshot_id
     lifecycle:
       initial: Recorded
       states: [Recorded]
@@ -1034,6 +1127,9 @@ commands:
       - name: failing_checks
         type: Integer
         example: 3
+      # The names of the failing checks, as on `PullRequestObservation` (story:pr-check-names).
+      - name: failing_check_names
+        type: List<String>
       - name: opened_at
         type: Timestamp
         example: "2026-09-01T00:00:00Z"
@@ -1083,6 +1179,7 @@ commands:
           draft: input.draft
           mergeability: input.mergeability
           failing_checks: input.failing_checks
+          failing_check_names: input.failing_check_names
           opened_at: input.opened_at
           updated_at: input.updated_at
           url: input.url
@@ -1476,6 +1573,78 @@ commands:
             validation: input.validation
         summary: The repository's specification status at this snapshot is recorded.
 
+  - name: conductor.observation.RecordUsage
+    naming:
+      wire: record-usage
+      display: Record one window of an account's usage
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: read_at
+        type: Timestamp
+        example: "2026-10-14T10:00:00Z"
+      - name: account
+        type: String
+        example: "account-a"
+      - name: active
+        type: Boolean
+      - name: health
+        type: String
+        example: "ready"
+      - name: window
+        type: String
+        example: "seven_day"
+      - name: used_percent
+        type: Integer
+        example: 40
+      - name: resets_at
+        type: Optional<Timestamp>
+        example: "2026-10-16T11:00:00Z"
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: negative-percent
+        when: used_percent < 0
+        error: conductor.observation.InvalidCount
+        payload:
+          conductor.observation.InvalidCount:
+            count: input.used_percent
+        summary: A percent used is never negative; nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.UsageObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          read_at: input.read_at
+          account: input.account
+          active: input.active
+          health: input.health
+          window: input.window
+          used_percent: input.used_percent
+          resets_at: input.resets_at
+        emits:
+          - conductor.observation.UsageRecorded
+        payload:
+          conductor.observation.UsageRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            account: input.account
+            window: input.window
+            used_percent: input.used_percent
+        summary: The window of the account's usage, as the probe read it, is recorded.
+
   - name: conductor.observation.RecordMemberFailure
     naming:
       wire: record-member-failure
@@ -1583,6 +1752,69 @@ commands:
             duration_ms: input.duration_ms
             outcome: input.outcome
         summary: The collector's run, its start, duration and outcome, is recorded.
+
+  - name: conductor.observation.RecordSecretSync
+    naming:
+      wire: record-secret-sync
+      display: Record a secret sync
+    input:
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+        example: "ci-policy"
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: branch
+        type: String
+        example: "main"
+      - name: path
+        type: String
+        example: "policy/ci.json"
+      - name: source_committed_at
+        type: Optional<Timestamp>
+        example: "2026-10-13T10:03:00Z"
+      - name: secrets_updated_at
+        type: Optional<Timestamp>
+        example: "2026-10-12T08:00:00Z"
+      - name: error_line
+        type: Optional<String>
+    outcomes:
+      - name: no-such-snapshot
+        when_related: {via: input.snapshot_id, exists: false}
+        error: conductor.observation.SnapshotNotFound
+        payload:
+          conductor.observation.SnapshotNotFound:
+            snapshot_id: input.snapshot_id
+        summary: No snapshot has this id, and nothing was recorded.
+      - name: closed
+        when_related: {via: input.snapshot_id, predicate: state != Collecting}
+        error: conductor.observation.SnapshotNotCollecting
+        payload:
+          conductor.observation.SnapshotNotCollecting:
+            snapshot_id: input.snapshot_id
+        summary: The snapshot is not collecting, and nothing was recorded.
+      - name: recorded
+        creates: conductor.observation.SecretSyncObservation
+        instance: observation_id
+        sets:
+          snapshot_id: input.snapshot_id
+          sync: input.sync
+          repository: input.repository
+          branch: input.branch
+          path: input.path
+          source_committed_at: input.source_committed_at
+          secrets_updated_at: input.secrets_updated_at
+          error_line: input.error_line
+        emits:
+          - conductor.observation.SecretSyncRecorded
+        payload:
+          conductor.observation.SecretSyncRecorded:
+            observation_id: {generated: true}
+            snapshot_id: input.snapshot_id
+            sync: input.sync
+            repository: input.repository
+        summary: The sync's source commit and its secrets' oldest write are recorded.
 
   - name: conductor.observation.PublishBoard
     naming:
@@ -1902,6 +2134,19 @@ events:
       - name: validation
         type: conductor.observation.ValidationResult
 
+  - name: conductor.observation.UsageRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: account
+        type: String
+      - name: window
+        type: String
+      - name: used_percent
+        type: Integer
+
   - name: conductor.observation.MemberFailureRecorded
     fields:
       - name: observation_id
@@ -1925,6 +2170,17 @@ events:
         type: Integer
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
+
+  - name: conductor.observation.SecretSyncRecorded
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+      - name: repository
+        type: conductor.observation.RepositoryName
 
   - name: conductor.observation.BoardPublished
     fields:
@@ -2044,6 +2300,8 @@ views:
         type: conductor.observation.Mergeability
       - name: failing_checks
         type: Integer
+      - name: failing_check_names
+        type: List<String>
       - name: opened_at
         type: Timestamp
       - name: updated_at
@@ -2168,6 +2426,34 @@ views:
       wire: specifications
       display: Specifications
 
+  # Each window of each account's usage the probe printed, one row per window per snapshot
+  # (story:usage-probe).
+  - name: conductor.observation.UsageReadings
+    source: conductor.observation.UsageObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: read_at
+        type: Timestamp
+      - name: account
+        type: String
+      - name: active
+        type: Boolean
+      - name: health
+        type: String
+      - name: window
+        type: String
+      - name: used_percent
+        type: Integer
+      - name: resets_at
+        type: Optional<Timestamp>
+    naming:
+      wire: usage-readings
+      display: Usage readings
+
   # The members a collector could not read, one row per failure recorded, each with its snapshot,
   # member, collector and the error's first line (story:snapshot-member-failures).
   - name: conductor.observation.MemberFailures
@@ -2209,6 +2495,34 @@ views:
     naming:
       wire: collector-runs
       display: Collector runs
+
+  # Each secret sync of every kept snapshot, with its source's last commit and its secrets'
+  # oldest write (story:policy-secret-drift).
+  - name: conductor.observation.SecretSyncs
+    source: conductor.observation.SecretSyncObservation
+    consistency: read_your_writes
+    fields:
+      - name: observation_id
+        type: conductor.observation.ObservationId
+      - name: snapshot_id
+        type: conductor.observation.SnapshotId
+      - name: sync
+        type: String
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: branch
+        type: String
+      - name: path
+        type: String
+      - name: source_committed_at
+        type: Optional<Timestamp>
+      - name: secrets_updated_at
+        type: Optional<Timestamp>
+      - name: error_line
+        type: Optional<String>
+    naming:
+      wire: secret-syncs
+      display: Secret syncs
 
   - name: conductor.observation.Boards
     source: conductor.observation.Board

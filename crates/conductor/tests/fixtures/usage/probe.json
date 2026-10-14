@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "accounts": [
+    {
+      "id": "account-a",
+      "email": "account-a@example.org",
+      "provider": "claude",
+      "active": true,
+      "health": "ready",
+      "pending_login": false,
+      "score": null,
+      "message": null,
+      "check_after": "2026-10-14T12:30:00Z",
+      "usage": {
+        "plan": "team",
+        "checked_at": "2026-10-14T11:59:01.783263862Z",
+        "limit_reached": false,
+        "windows": [
+          {"name": "five_hour", "used_percent": 20.0, "resets_at": "2026-10-14T13:00:00Z", "model": null},
+          {"name": "seven_day", "used_percent": 40.0, "resets_at": "2026-10-16T11:00:00.254181Z", "model": null}
+        ]
+      }
+    },
+    {
+      "id": "account-b",
+      "email": "account-b@example.org",
+      "provider": "claude",
+      "active": false,
+      "health": "exhausted",
+      "pending_login": false,
+      "score": null,
+      "message": null,
+      "check_after": "2026-10-14T12:30:00Z",
+      "usage": {
+        "plan": "max",
+        "checked_at": "2026-10-14T11:50:50.083128081Z",
+        "limit_reached": false,
+        "windows": [
+          {"name": "five_hour", "used_percent": 5.0, "resets_at": "2026-10-14T15:59:59.953471Z", "model": null},
+          {"name": "seven_day", "used_percent": 100.0, "resets_at": "2026-10-15T01:59:59.953491Z", "model": null}
+        ]
+      }
+    },
+    {
+      "id": "account-c",
+      "email": "account-c@example.org",
+      "provider": "codex",
+      "active": false,
+      "health": "login_required",
+      "pending_login": false,
+      "score": null,
+      "message": null,
+      "check_after": "2026-10-14T12:30:00Z",
+      "usage": null
+    }
+  ],
+  "recommendations": {"claude": "account-a", "codex": "account-c"}
+}

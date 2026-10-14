@@ -13,7 +13,9 @@
 //! - One `RecordPullRequest` per open pull request ([`Sources::pull_requests`]), with GitHub's
 //!   link (`story:dashboard-overview`). Its `failing_checks` counts the rollup entries whose `conclusion` is `FAILURE`, `TIMED_OUT` or
 //!   `ACTION_REQUIRED`; a status context, which carries a `state` and no `conclusion`, is not
-//!   counted, as the reference loop in `docs/analysis/check-prs-ci.md` does not count it.
+//!   counted, as the reference loop in `docs/analysis/check-prs-ci.md` does not count it. Its
+//!   `failing_check_names` are the `name`s of the entries counted, in the order GitHub answers
+//!   them (`story:pr-check-names`).
 //! - One `RecordWorkflowRun` per workflow: the latest by `createdAt` of the last 20 `main` runs
 //!   ([`Sources::workflow_runs`]) over [`ANSWERS`] answers of that list. Its `conclusion` is
 //!   GitHub's, `Pending` when it is empty; `timed_out` and `startup_failure` are a `Failure`,
@@ -626,10 +628,12 @@ struct Pull {
     url: Option<String>,
 }
 
-/// One entry of a pull request's check rollup: a check run's conclusion, or none for a status
-/// context.
+/// One entry of a pull request's check rollup: a check run's name and conclusion, or none for a
+/// status context.
 #[derive(Deserialize)]
 struct Check {
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     conclusion: Option<String>,
 }
@@ -859,17 +863,19 @@ impl Observed<'_> {
                 pull.number
             ),
         };
-        let failing_checks = pull
+        let failing_check_names: Vec<String> = pull
             .status_check_rollup
             .unwrap_or_default()
-            .iter()
+            .into_iter()
             .filter(|check| {
                 check
                     .conclusion
                     .as_deref()
                     .is_some_and(|conclusion| FAILING.contains(&conclusion))
             })
-            .count();
+            .map(|check| check.name.unwrap_or_default())
+            .collect();
+        let failing_checks = failing_check_names.len();
         Ok(RecordPullRequest {
             snapshot_id: self.snapshot.clone(),
             repository: RepositoryName(self.name.to_owned()),
@@ -878,6 +884,7 @@ impl Observed<'_> {
             draft: pull.is_draft,
             mergeability,
             failing_checks: i64::try_from(failing_checks).unwrap_or(i64::MAX),
+            failing_check_names,
             opened_at: Timestamp(utc(what, &pull.created_at)?),
             updated_at: Timestamp(utc(what, &pull.updated_at)?),
             url: pull.url,

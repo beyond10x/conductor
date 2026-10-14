@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-14T18:23:31Z",
+  "actor": "human:timo",
+  "artifact": "story:usage-probe",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check green on wave/36 at 3c4244ff"
+  }
+}

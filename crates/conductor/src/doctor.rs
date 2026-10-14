@@ -25,6 +25,12 @@
 //! doctor never runs; a root not activated makes the run not ready
 //! (`story:worktree-activation`, [`activation_of`]).
 //!
+//! After the workspaces, for each `usage.watcher` of the config file's instances, the systemd user
+//! unit that rotates the harness accounts, whether it runs, as `systemctl --user is-active` on the
+//! `PATH` answers: `usage watcher: <unit> running`, or `… not running (<state>)`
+//! (`story:usage-probe`, [`watcher_line`]). A watcher not running is reported, not a failure:
+//! the rotation is the operator's own tool.
+//!
 //! [`check`] computes every row, [`Doctor::failures`] what is not ready and [`verdict_of`] the
 //! last line, so `conductor setup` prints the same rows and adds its own failures to the same
 //! verdict (`story:setup-command`).
@@ -763,6 +769,71 @@ fn activation(program: &Path, root: &Path) -> Activation {
     }
 }
 
+/// How long `systemctl --user is-active` may take to answer (`story:usage-probe`).
+const WATCHER_BOUND: Duration = Duration::from_secs(10);
+
+/// A `usage.watcher`, the systemd user unit that rotates the harness accounts, and whether it
+/// runs (`story:usage-probe`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Watcher {
+    /// The unit's name.
+    pub unit: String,
+    /// `None` when it runs; otherwise why not: the state `systemctl` names, or why it was not
+    /// asked or did not answer.
+    pub not_running: Option<String>,
+}
+
+/// Whether `unit` runs, asked of the `systemctl` at `program` as `systemctl --user is-active
+/// <unit>`: running when it exits 0, otherwise not, with the first line it printed (such as
+/// `inactive` or `failed`). Without a `systemctl` it is not running, `systemctl not found`.
+fn watcher(program: Option<&Path>, unit: String) -> Watcher {
+    let Some(program) = program else {
+        return Watcher {
+            unit,
+            not_running: Some("systemctl not found".to_owned()),
+        };
+    };
+    let answered = collect::run(
+        Command::new(program).args(["--user", "is-active", &unit]),
+        WATCHER_BOUND,
+    );
+    let not_running = match answered {
+        Ok(output) if output.status.success() => None,
+        Ok(output) => Some(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map_or_else(
+                    || {
+                        output.status.code().map_or_else(
+                            || "ended by a signal".to_owned(),
+                            |code| format!("exit {code}"),
+                        )
+                    },
+                    str::to_owned,
+                ),
+        ),
+        Err(error) => Some(one_line(&format!("{error:#}"))),
+    };
+    Watcher { unit, not_running }
+}
+
+/// The first line of `text`.
+fn one_line(text: &str) -> String {
+    text.lines().next().unwrap_or_default().to_owned()
+}
+
+/// The line `conductor doctor` prints for `watcher`: `usage watcher: <unit> running`, or `…
+/// not running (<why>)` (`story:usage-probe`).
+#[must_use]
+pub fn watcher_line(watcher: &Watcher) -> String {
+    match &watcher.not_running {
+        None => format!("usage watcher: {} running", watcher.unit),
+        Some(why) => format!("usage watcher: {} not running ({why})", watcher.unit),
+    }
+}
+
 /// The line `conductor doctor` prints for `workspace`.
 #[must_use]
 pub fn workspace_line(workspace: &Workspace) -> String {
@@ -774,9 +845,15 @@ pub fn workspace_line(workspace: &Workspace) -> String {
     }
 }
 
-/// The forge CLIs a config needs, the hosts of its file's sources with the CLI of each, and the
-/// checkouts root of each instance of the file, each once ([`read_config`]).
-type Forges = (Vec<&'static str>, Vec<(&'static str, String)>, Vec<PathBuf>);
+/// The forge CLIs a config needs, the hosts of its file's sources with the CLI of each, the
+/// checkouts root of each instance of the file, each once, and the `usage.watcher` of each
+/// instance that names one, each once ([`read_config`]).
+type Forges = (
+    Vec<&'static str>,
+    Vec<(&'static str, String)>,
+    Vec<PathBuf>,
+    Vec<String>,
+);
 
 /// What doctor reads of the config `flag` (the global `--config`) and the environment name: the
 /// forge CLIs of [`FORGES`] that any of its instances starts ([`forges`]), in [`FORGES`]' order,
@@ -797,7 +874,7 @@ fn read_config(
     match loaded {
         // Without a config file no source is named, so no forge CLI is needed: the built-in
         // instance's placeholder GitHub source is no source of the user's.
-        Ok(loaded) if !loaded.read => Ok((Vec::new(), Vec::new(), Vec::new())),
+        Ok(loaded) if !loaded.read => Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new())),
         Ok(loaded) => Ok((
             FORGES
                 .into_iter()
@@ -820,6 +897,17 @@ fn read_config(
                         roots.push(root);
                     }
                     roots
+                }),
+            loaded
+                .config
+                .instances
+                .iter()
+                .filter_map(|instance| instance.usage.watcher.clone())
+                .fold(Vec::new(), |mut units, unit| {
+                    if !units.contains(&unit) {
+                        units.push(unit);
+                    }
+                    units
                 }),
         )),
         Err(error) => Err(format!("{error:#}")
@@ -854,6 +942,8 @@ pub struct Doctor {
     /// One per checkouts root of the config file's instances, when `worktree` is there
     /// (`story:worktree-activation`).
     pub workspaces: Vec<Workspace>,
+    /// One per `usage.watcher` of the config file's instances (`story:usage-probe`).
+    pub watchers: Vec<Watcher>,
     /// The `b10x.toml` read, if any.
     pub pin_file: Option<PathBuf>,
     /// One row per confinement provider (`story:session-envelope-seam`), which does not change
@@ -912,6 +1002,7 @@ impl Doctor {
                 out.push(format!("  activate: {}", activate_command(&workspace.root)));
             }
         }
+        out.extend(self.watchers.iter().map(watcher_line));
         match &self.pin_file {
             Some(file) => out.push(format!("pins: {}", file.display())),
             None => out.push("pins: none".to_owned()),
@@ -1041,9 +1132,9 @@ pub fn check_in(
     // The build's own pins stay the minimum for each program the file does not pin
     // (story:doctor-minimum-versions).
     let pins = merge_pins(&project, &build_pins());
-    let (needed, hosts, roots, config_problems) = match read_config(flag, environment) {
-        Ok((needed, hosts, roots)) => (needed, hosts, roots, Vec::new()),
-        Err(why) => (FORGES.to_vec(), Vec::new(), Vec::new(), why),
+    let (needed, hosts, roots, units, config_problems) = match read_config(flag, environment) {
+        Ok((needed, hosts, roots, units)) => (needed, hosts, roots, units, Vec::new()),
+        Err(why) => (FORGES.to_vec(), Vec::new(), Vec::new(), Vec::new(), why),
     };
     let rows = examine(&pins, &needed, search);
     // A login is read only for a CLI that is there (story:doctor-identity).
@@ -1073,6 +1164,12 @@ pub fn check_in(
             .collect(),
         None => Vec::new(),
     };
+    // The watcher is asked of the `systemctl` on the search path (story:usage-probe).
+    let systemctl = search.and_then(|search| find_in("systemctl", search));
+    let watchers = units
+        .into_iter()
+        .map(|unit| watcher(systemctl.as_deref(), unit))
+        .collect();
     let machine = machine();
     let manager = manager(&machine.system, search);
     Ok(Doctor {
@@ -1081,6 +1178,7 @@ pub fn check_in(
         rows,
         logins,
         workspaces,
+        watchers,
         pin_file,
         providers: crate::confine::availability(&crate::confine::Host),
         project,

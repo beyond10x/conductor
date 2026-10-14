@@ -14,12 +14,19 @@
 //!    [`Settings::wait`], then is refused; one whose shortfall they do not cover is answered at
 //!    once.
 //! 2. **Reclaim.** When it does not fit, one reclaim run frees what needs no decision
-//!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The answer (`ReserveDisk`) is
+//!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The reclaim never runs under
+//!    the ledger's lock: the run lets it go, reclaims, takes it again and counts from the start,
+//!    so the queue never waits on one run's walk of the disk; the requests behind it stay behind
+//!    it meanwhile. One reclaim walks the disk at a time (`host.reclaim.lock` in the state
+//!    directory), and a run that finds one started within [`RECLAIM_REUSE`] (`host.reclaim`: when
+//!    it started and ended, what it was asked to reach, freed and left, or why it failed) reuses
+//!    its result instead of walking again ([`shared_reclaim`]). The answer (`ReserveDisk`) is
 //!    granted, granted after reclaim, or refused with the shortfall: the command never runs, the
 //!    shortfall and what is left are printed on standard error as the operator item names them
 //!    (`/var/tmp` entries as a count and a size, the home as `~`), one operator item is recorded
-//!    for the fall of free disk ([`host::escalate`]), and the exit is 2. The fall, and its item,
-//!    end when free disk is back at `thresholds.disk_clear`: each run reads it first
+//!    for the fall of free disk ([`host::escalate`]) unless only scratch and caches are left
+//!    ([`host::needs_person`], `story:reclaim-scratch-class-c`), and the exit is 2. The fall, and
+//!    its item, end when free disk is back at `thresholds.disk_clear`: each run reads it first
 //!    ([`host::Ledger::clear_fall`]), not when a reservation fits.
 //! 3. **Run under the watchdog.** The command runs in its own process group (`StartRun`). Every
 //!    `thresholds.watchdog_every` a watchdog reads free disk: under `thresholds.gate_stop` it
@@ -30,6 +37,7 @@
 //!    released (`ReleaseGrant`: `Exited`, or `Killed` by a signal), and `build run` exits with the
 //!    command's status, 128 + the signal for a killed one.
 
+use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::{Path, PathBuf};
@@ -44,6 +52,7 @@ use conductor_model::config::Instance;
 use conductor_model::host::{GrantId, ReleaseReason};
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
+use serde_json::{Value, json};
 use time::OffsetDateTime;
 
 use crate::cli::BuildRunArgs;
@@ -97,6 +106,18 @@ impl Settings {
 
 /// How long a reservation waits for live reservations to release: an hour, a long gate's length.
 pub const WAIT_FOR_RESERVATIONS: Duration = Duration::from_secs(3600);
+
+/// How long the result of a reclaim run is reused by the next run that needs one, instead of
+/// walking the disk again: five minutes. Several runs short in a row then walk the disk once, not
+/// once each; a walk of a full disk takes minutes.
+pub const RECLAIM_REUSE: Duration = Duration::from_secs(5 * 60);
+
+/// The lock one reclaim run holds while it walks the disk, in the state directory.
+const RECLAIM_LOCK: &str = "host.reclaim.lock";
+
+/// The last reclaim run of the host, in the state directory: when it started and ended, the bytes
+/// it was asked to reach, whether it reached them, what it freed and left, or why it failed.
+const RECLAIM_RECORD: &str = "host.reclaim";
 
 /// Where a run reads what it decides by. A case gives its own.
 #[derive(Debug, Clone)]
@@ -309,10 +330,16 @@ pub fn run(
                     .floor
                     .saturating_add(ledger.reserved(Some(&grant))?)
                     .saturating_add(request.reserve);
+                // Never under the ledger's lock: every other run would wait on this walk. The
+                // requests behind this one stay behind it meanwhile, as its request is held.
+                drop(ledger);
                 let report = reclaim(sources, state, fits);
                 reclaimed = report.reclaimed_bytes;
                 left = report.left;
-                short = lacking(&ledger)?;
+                ledger = Ledger::lock(state)?;
+                ledger.sweep(&host::now((sources.clock)()))?;
+                // Count again from the start, under the lock.
+                continue;
             }
             // A shortfall live reservations cover is a wait: they release as their runs end. Wait
             // for them, without the lock, rather than refuse; any other is answered now.
@@ -352,11 +379,17 @@ pub fn run(
     let answer = ledger.reserve(&grant, short, reclaimed)?;
     if answer == Answer::Refused {
         let escalate = |shortfall: &Shortfall<'_>| {
-            if beyond_reservations {
-                host::escalate(state, shortfall)
-            } else {
-                Ok(None)
+            if !beyond_reservations {
+                return Ok(None);
             }
+            if !host::needs_person(shortfall) {
+                say(
+                    "conductor: build run: no operator item: only scratch and caches are left, \
+                     which reclaim deletes once each is stale and nothing holds it",
+                );
+                return Ok(None);
+            }
+            host::escalate(state, shortfall)
         };
         let shortfall = Shortfall {
             instance: &settings.instance,
@@ -662,9 +695,10 @@ fn free_bytes(sources: &Sources) -> Result<u64> {
         .with_context(|| format!("read free disk on {}", sources.disk.display()))
 }
 
-/// One reclaim run for `need` bytes; a failing one is named on standard error and frees nothing.
+/// One reclaim for `need` bytes, shared by the host ([`shared_reclaim`]); a failing one is named
+/// on standard error and frees nothing. The caller holds no ledger lock.
 fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
-    (sources.reclaim)(state, need).unwrap_or_else(|error| {
+    shared_reclaim(sources, state, need).unwrap_or_else(|error| {
         (sources.say)(state, &format!("conductor: build run: reclaim: {error:#}"));
         ReclaimReport {
             reclaimed_bytes: 0,
@@ -673,6 +707,105 @@ fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
             reached: false,
         }
     })
+}
+
+/// A reclaim for `need` bytes, one at a time on the host: waits while another run walks the disk
+/// (`host.reclaim.lock`), then reuses the last run's result when it started within
+/// [`RECLAIM_REUSE`] and ended: its failure, or what it left and nothing freed by this run, when
+/// it did not reach what it was asked (it freed all it could) or was asked at least `need`.
+/// Otherwise it records its start in `host.reclaim`, runs [`Sources::reclaim`] and records its
+/// end and result, or its failure, there. A run that started and never ended died in its walk,
+/// and is not reused.
+///
+/// # Errors
+///
+/// The lock or the record cannot be written, the reclaim fails, or the reused one failed.
+fn shared_reclaim(sources: &Sources, state: &Path, need: u64) -> Result<ReclaimReport> {
+    fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
+    let path = state.join(RECLAIM_LOCK);
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open {}", path.display()))?;
+    lock.lock()
+        .with_context(|| format!("lock {}", path.display()))?;
+    let record = state.join(RECLAIM_RECORD);
+    let now = (sources.clock)().unix_timestamp();
+    if let Some(last) = fs::read_to_string(&record)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+    {
+        let started = last["started"].as_i64();
+        let ended = last["finished"].as_i64().is_some();
+        let age = started.and_then(|started| u64::try_from(now.saturating_sub(started)).ok());
+        let recent = age.is_some_and(|age| age < RECLAIM_REUSE.as_secs());
+        let asked = last["need"].as_u64().unwrap_or(0);
+        let reached = last["reached"].as_bool().unwrap_or(false);
+        if recent && ended {
+            let age = age.unwrap_or(0);
+            if let Some(error) = last["error"].as_str() {
+                bail!(
+                    "the reclaim run started {age}s ago failed, and the next runs once it is {}s \
+                     old: {error}",
+                    RECLAIM_REUSE.as_secs()
+                );
+            }
+            if !reached || asked >= need {
+                (sources.say)(
+                    state,
+                    &format!(
+                        "conductor: build run: reclaim: the run started {age}s ago is reused; \
+                         one reclaim walks the disk every {}s at most",
+                        RECLAIM_REUSE.as_secs()
+                    ),
+                );
+                let left = last["left"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|row| Some((row[0].as_str()?.to_owned(), row[1].as_u64()?)))
+                    .collect();
+                return Ok(ReclaimReport {
+                    reclaimed_bytes: 0,
+                    steps: Vec::new(),
+                    left,
+                    reached,
+                });
+            }
+        }
+    }
+    let write = |value: &Value| -> Result<()> {
+        let next = record.with_extension("next");
+        fs::write(&next, value.to_string()).with_context(|| format!("write {}", next.display()))?;
+        fs::rename(&next, &record).with_context(|| format!("replace {}", record.display()))
+    };
+    write(&json!({"started": now, "finished": null, "need": need}))?;
+    let ran = (sources.reclaim)(state, need);
+    let finished = (sources.clock)().unix_timestamp();
+    match &ran {
+        Ok(report) => write(&json!({
+            "started": now,
+            "finished": finished,
+            "need": need,
+            "reached": report.reached,
+            "reclaimed": report.reclaimed_bytes,
+            "left": report
+                .left
+                .iter()
+                .map(|(path, bytes)| json!([path, bytes]))
+                .collect::<Vec<_>>(),
+        }))?,
+        Err(error) => write(&json!({
+            "started": now,
+            "finished": finished,
+            "need": need,
+            "error": format!("{error:#}"),
+        }))?,
+    }
+    drop(lock);
+    ran
 }
 
 /// What a run in `cwd` writes: its `target/` when `cwd` is a Cargo project or holds one, else

@@ -522,9 +522,11 @@ fn show_without_a_file_prints_todays_constants() {
         "reports",
         "retention",
         "roles",
+        "secret_syncs",
         "sources",
         "state",
         "thresholds",
+        "usage",
     ];
     let mut sorted = keys.clone();
     sorted.sort_unstable();

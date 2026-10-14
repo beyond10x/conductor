@@ -14,12 +14,17 @@
 //!    `controllers.max_open_reviews` of them (`0` is no limit), `<repo>: <k> wait for review
 //!    (limit <n>): no new dispatch`, the line conductor holds that repository's dispatch on;
 //! 3. **Deviations**, one row per repository that is not archived with at least one: a red `main`
-//!    workflow, a pull request with a failing check, one open more than 14 days, unreleased
+//!    workflow, a pull request with a failing check (each such pull request listed under
+//!    `failing checks` by number with every failing check named, `story:pr-check-names`), one
+//!    open more than 14 days, unreleased
 //!    commits, no checkout, a specification missing or refused, a Gates hook whose version
 //!    differs from the `b10x-gates` on `PATH` (`stale gates hooks`, `story:gates-hooks-fresh`),
 //!    a newest wave narrower than both the ready units its store offers and
 //!    `controllers.max_subagents` whose wave page gives no reason (`narrow wave`,
-//!    `story:wave-width`, [`narrow_wave`]);
+//!    `story:wave-width`, [`narrow_wave`]); and, on the row of a secret sync's source repository,
+//!    `secret stale: <sync>` when the source was committed after the oldest secret it feeds was
+//!    written, or `secret unread: <sync>` when either could not be read
+//!    (`story:policy-secret-drift`, [`secret_flags`]);
 //! 4. **Overview**, one row per repository that is not archived, in name order;
 //! 5. **Specifications**, one row per repository with its specification's presence and
 //!    validation;
@@ -41,10 +46,13 @@
 //!
 //! `conductor status` ([`status`], `story:status-command`) is the view `conductor.observation.Status`:
 //! the answer to "what is the status" in one call, read from the store alone, without starting a
-//! snapshot. Its six parts, in order: the newest complete snapshot's id, start and age; its
+//! snapshot. Its seven parts, in order: the newest complete snapshot's id, start and age; its
 //! deviations, worked out by the board's own [`figures`]; the sessions it observed; the open
-//! dispatches (`Sent`, `Started`, `Blocked`); the registered waits; and the pending requests
-//! (decision requests `Open` or `Escalated`, resource requests `Requested`). With no complete
+//! dispatches (`Sent`, `Started`, `Blocked`); the registered waits; the pending requests
+//! (decision requests `Open` or `Escalated`, resource requests `Requested`); and the usage line
+//! the watch prints, `usage: pool runs out ~<hour>, next reset <minute>`, of the newest usage
+//! readings of the complete snapshots ([`crate::collect::usage::Forecast`],
+//! `story:usage-probe`), or `None: no usage reading.`. With no complete
 //! snapshot it says so and prints every other part. No wait is recorded in the store yet
 //! (`story:watch-waits`), so the waits part reads `None.` until that story's `Waits` view lands.
 
@@ -59,8 +67,9 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{
     BlockerObservationStorage, BoardStorage, ControllerStorage, DecisionRequestStorage,
     DispatchStorage, Generated, PullRequestObservationStorage, RepositoryObservationStorage,
-    ResourceRequestStorage, SessionObservationStorage, SnapshotStorage,
-    SpecificationObservationStorage, TryContext, WorkflowRunObservationStorage, unmet_context,
+    ResourceRequestStorage, SecretSyncObservationStorage, SessionObservationStorage,
+    SnapshotStorage, SpecificationObservationStorage, TryContext, WorkflowRunObservationStorage,
+    unmet_context,
 };
 use conductor_model::decision::DecisionRequestState;
 use conductor_model::direction::ServingId;
@@ -73,9 +82,9 @@ use conductor_model::observation::obligations::{BoardsQuery, PublishBoardBehavio
 use conductor_model::observation::{
     BlockerObservationData, BoardId, BoardSnapshot, ObservationId, PublishBoard,
     PublishBoardOutcome, PullRequestObservationData, RepositoryFigures, RepositoryObservationData,
-    RunConclusion, SessionObservationData, SnapshotId, SnapshotSnapshot, SnapshotState,
-    SpecificationObservationData, SpecificationPresence, StatusDispatch, StatusReport,
-    StatusRequest, StatusSession, ValidationResult, WorkflowRunObservationData,
+    RunConclusion, SecretSyncObservationData, SessionObservationData, SnapshotId, SnapshotSnapshot,
+    SnapshotState, SpecificationObservationData, SpecificationPresence, StatusDispatch,
+    StatusReport, StatusRequest, StatusSession, ValidationResult, WorkflowRunObservationData,
 };
 use conductor_model::primitives::Uuid;
 use serde_json::Value;
@@ -267,6 +276,7 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
         dispatches: Vec::new(),
         waits: Vec::new(),
         requests: Vec::new(),
+        usage: crate::collect::usage::Forecast::of(store).map(|forecast| forecast.line()),
     };
     if let Some(snapshot) = &newest {
         report.snapshot_id = Some(snapshot.snapshot_id.0.0.clone());
@@ -285,6 +295,7 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
                     .collect(),
                 open_prs: figures.counts.open_prs,
                 failing_prs: figures.counts.failing_prs,
+                failing_checks: figures.failing_checks.clone(),
                 non_green_workflows: figures.counts.non_green_workflows,
                 open_blockers: figures.counts.open_blockers,
                 specifications_present: figures.counts.specifications_present,
@@ -366,7 +377,7 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
     report
 }
 
-/// `report` as the text `conductor status` prints: its six parts, each under its heading.
+/// `report` as the text `conductor status` prints: its seven parts, each under its heading.
 fn status_text(report: &StatusReport) -> String {
     const NO_SNAPSHOT: &str = "None: no snapshot is complete.\n\n";
     let mut out = String::from("# Status\n\n");
@@ -391,9 +402,18 @@ fn status_text(report: &StatusReport) -> String {
         let rows: Vec<Vec<String>> = report
             .deviations
             .iter()
-            .map(|row| vec![row.repository.clone(), row.deviations.join(", ")])
+            .map(|row| {
+                vec![
+                    row.repository.clone(),
+                    row.deviations.join(", "),
+                    row.failing_checks.join("; "),
+                ]
+            })
             .collect();
-        out.push_str(&table(&["repository", "deviations"], &rows));
+        out.push_str(&table(
+            &["repository", "deviations", "failing checks"],
+            &rows,
+        ));
     }
 
     out.push_str("## Sessions\n\n");
@@ -475,6 +495,12 @@ fn status_text(report: &StatusReport) -> String {
         &["kind", "request", "repository", "state", "since", "what"],
         &rows,
     ));
+
+    out.push_str("## Usage\n\n");
+    match &report.usage {
+        Some(line) => out.push_str(&format!("{}\n", line.replace(['\n', '\r'], " "))),
+        None => out.push_str("None: no usage reading.\n"),
+    }
     out
 }
 
@@ -490,6 +516,7 @@ fn status_json(report: &StatusReport) -> Value {
             "deviations": row.deviations,
             "open_prs": row.open_prs,
             "failing_prs": row.failing_prs,
+            "failing_checks": row.failing_checks,
             "non_green_workflows": row.non_green_workflows,
             "open_blockers": row.open_blockers,
             "specifications_present": row.specifications_present,
@@ -518,6 +545,7 @@ fn status_json(report: &StatusReport) -> Value {
             "since": row.since,
             "summary": row.summary,
         })).collect::<Vec<Value>>(),
+        "usage": report.usage,
     })
 }
 
@@ -599,6 +627,7 @@ struct Observed {
     specifications: Vec<SpecificationObservationData>,
     blockers: Vec<BlockerObservationData>,
     sessions: Vec<SessionObservationData>,
+    secret_syncs: Vec<SecretSyncObservationData>,
 }
 
 /// What `store` holds of the snapshot `held`.
@@ -637,6 +666,11 @@ fn observed(store: &Store, held: &SnapshotSnapshot) -> Observed {
             .map(|held| held.data)
             .filter(|data| data.snapshot_id == *id)
             .collect(),
+        secret_syncs: SecretSyncObservationStorage::list(store)
+            .into_iter()
+            .map(|held| held.data)
+            .filter(|data| data.snapshot_id == *id)
+            .collect(),
     }
 }
 
@@ -659,12 +693,47 @@ struct Counts {
     specifications_present: i64,
 }
 
-/// One repository as the board shows it: its deviations, in the order the board lists them, and
-/// its counts.
+/// One repository as the board shows it: its deviations, in the order the board lists them, its
+/// secret syncs' flags ([`secret_flags`]), and its counts.
 #[derive(Debug, Clone, Default)]
 struct Figures {
     deviations: Vec<&'static str>,
+    secrets: Vec<String>,
+    /// One entry per pull request with a failing check, by number ([`failing_checks`]).
+    failing_checks: Vec<String>,
     counts: Counts,
+}
+
+impl Figures {
+    /// Every deviation the board names for the repository: its own, then its secret syncs'.
+    fn flags(&self) -> Vec<String> {
+        self.deviations
+            .iter()
+            .map(|deviation| (*deviation).to_owned())
+            .chain(self.secrets.iter().cloned())
+            .collect()
+    }
+}
+
+/// The `failing checks` of `pulls` (`story:pr-check-names`): one entry per pull request with a
+/// failing check, in number order, `#<n> <name>, <name>` with every failing check named, or `#<n>`
+/// alone when its observation names none.
+fn failing_checks(pulls: &[&PullRequestObservationData]) -> Vec<String> {
+    let mut failing: Vec<&&PullRequestObservationData> = pulls
+        .iter()
+        .filter(|pull| pull.failing_checks > 0)
+        .collect();
+    failing.sort_by_key(|pull| pull.number);
+    failing
+        .into_iter()
+        .map(|pull| {
+            if pull.failing_check_names.is_empty() {
+                format!("#{}", pull.number)
+            } else {
+                format!("#{} {}", pull.number, pull.failing_check_names.join(", "))
+            }
+        })
+        .collect()
 }
 
 /// The figures of each repository of the snapshot `held` in `store` that is not archived, in name
@@ -676,13 +745,10 @@ pub(crate) fn repository_figures(store: &Store, held: &SnapshotSnapshot) -> Vec<
         .into_iter()
         .map(|(repository, figures)| RepositoryFigures {
             repository,
-            deviations: figures
-                .deviations
-                .iter()
-                .map(|deviation| (*deviation).to_owned())
-                .collect(),
+            deviations: figures.flags(),
             open_prs: figures.counts.open_prs,
             failing_prs: figures.counts.failing_prs,
+            failing_checks: figures.failing_checks,
             non_green_workflows: figures.counts.non_green_workflows,
             open_blockers: figures.counts.open_blockers,
             specifications_present: figures.counts.specifications_present,
@@ -782,9 +848,47 @@ fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
                 specification.is_some_and(|held| held.presence == SpecificationPresence::Present),
             ),
         };
-        out.insert(name.clone(), Figures { deviations, counts });
+        out.insert(
+            name.clone(),
+            Figures {
+                deviations,
+                secrets: Vec::new(),
+                failing_checks: failing_checks(&pulls),
+                counts,
+            },
+        );
+    }
+    for (repository, flag) in secret_flags(&observed.secret_syncs) {
+        out.entry(repository).or_default().secrets.push(flag);
     }
     out
+}
+
+/// The board's flag of each secret sync of `syncs` that needs one, by sync name, with its source
+/// repository (`story:policy-secret-drift`): `secret stale: <sync>` when its source was committed
+/// after the oldest secret it feeds was written, `secret unread: <sync>` when a read failed.
+fn secret_flags(syncs: &[SecretSyncObservationData]) -> Vec<(String, String)> {
+    let mut syncs: Vec<&SecretSyncObservationData> = syncs.iter().collect();
+    syncs.sort_by(|left, right| left.sync.cmp(&right.sync));
+    syncs
+        .into_iter()
+        .filter_map(|sync| {
+            let committed = sync
+                .source_committed_at
+                .as_ref()
+                .and_then(|at| instant(&at.0));
+            let written = sync
+                .secrets_updated_at
+                .as_ref()
+                .and_then(|at| instant(&at.0));
+            let flag = match (committed, written) {
+                (Some(committed), Some(written)) if committed > written => "secret stale",
+                (Some(_), Some(_)) => return None,
+                _ => "secret unread",
+            };
+            Some((sync.repository.0.clone(), format!("{flag}: {}", sync.sync)))
+        })
+        .collect()
 }
 
 /// Whether `repository`'s newest wave is narrow (`story:wave-width`): its width is under both the
@@ -938,11 +1042,20 @@ fn render(
     board.push_str("## Deviations\n\n");
     let deviations: Vec<Vec<String>> = current
         .iter()
-        .filter(|(_, figures)| !figures.deviations.is_empty())
-        .map(|(name, figures)| vec![name.clone(), figures.deviations.join(", ")])
+        .filter(|(_, figures)| !figures.flags().is_empty())
+        .map(|(name, figures)| {
+            vec![
+                name.clone(),
+                figures.flags().join(", "),
+                figures.failing_checks.join("; "),
+            ]
+        })
         .collect();
     let deviation_rows = count(deviations.len());
-    board.push_str(&table(&["repository", "deviations"], &deviations));
+    board.push_str(&table(
+        &["repository", "deviations", "failing checks"],
+        &deviations,
+    ));
 
     board.push_str("## Overview\n\n");
     let overview: Vec<Vec<String>> = now
@@ -1105,16 +1218,15 @@ fn delta(current: &BTreeMap<String, Figures>, before: Option<&Observed>) -> Stri
     for name in names {
         let now = current.get(name).unwrap_or(&empty);
         let then = previous.get(name).unwrap_or(&empty);
-        let added: Vec<String> = now
-            .deviations
+        let (now_flags, then_flags) = (now.flags(), then.flags());
+        let added: Vec<String> = now_flags
             .iter()
-            .filter(|deviation| !then.deviations.contains(*deviation))
+            .filter(|deviation| !then_flags.contains(*deviation))
             .map(|deviation| format!("+{deviation}"))
             .collect();
-        let removed: Vec<String> = then
-            .deviations
+        let removed: Vec<String> = then_flags
             .iter()
-            .filter(|deviation| !now.deviations.contains(*deviation))
+            .filter(|deviation| !now_flags.contains(*deviation))
             .map(|deviation| format!("-{deviation}"))
             .collect();
         if added.is_empty() && removed.is_empty() {

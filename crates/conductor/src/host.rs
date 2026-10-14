@@ -29,7 +29,9 @@
 //! ([`clear_fall`]), which withdraws the item (`WithdrawRequest`) and removes the marker. The item
 //! is the instance's, not one repository's. It names no personal path
 //! (`story:disk-item-redacted`): the entries of `/var/tmp` only as a count and a total size, and
-//! the home directory as `~` wherever it appears.
+//! the home directory as `~` wherever it appears. A shortfall left only by scratch and caches
+//! records none ([`needs_person`], `story:reclaim-scratch-class-c`): freeing them is class C, and
+//! reclaim deletes each entry once it is stale and nothing holds it.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
@@ -719,6 +721,21 @@ pub fn left_redacted(shortfall: &Shortfall<'_>) -> Vec<(String, u64)> {
     Left::of(shortfall).by_size(shortfall)
 }
 
+/// Whether only a person may free what `shortfall` left, so it becomes an operator item: reclaim
+/// left nothing (the disk must be freed by hand), or it left something that is no scratch or
+/// cache, neither a root [`crate::gc::reclaim::scratch_roots`] names nor under one. Freeing
+/// scratch and caches is class C (`story:reclaim-scratch-class-c`): reclaim deletes each entry
+/// once it is stale and nothing holds it, and no person is asked to decide it.
+#[must_use]
+pub fn needs_person(shortfall: &Shortfall<'_>) -> bool {
+    let roots = crate::gc::reclaim::scratch_roots(shortfall.home, shortfall.var_tmp);
+    shortfall.left.is_empty()
+        || shortfall
+            .left
+            .iter()
+            .any(|(path, _)| !roots.iter().any(|root| Path::new(path).starts_with(root)))
+}
+
 /// The `/var/tmp` entries as an item names them: `/var/tmp: 4 entries outside the instance`.
 fn outside(count: usize, shortfall: &Shortfall<'_>) -> String {
     let entries = if count == 1 { "entry" } else { "entries" };
@@ -785,7 +802,15 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
             input_json: None,
         },
     )?;
-    crate::decide::escalate_request(
+    // The item's dry run is what conductor measured with no credential: the shortfall, the ask,
+    // and what reclaim left (`story:hand-item-dry-run`).
+    let dry_run = format!(
+        "measured: free disk is {short}G short of the floor; the refused build asked {}G; \
+         reclaim left {}",
+        gib(shortfall.bytes),
+        left_measured(shortfall, &left)
+    );
+    crate::decide::escalate_request_measured(
         Some(state),
         EscalateRequestArgs {
             request_id: Some(request_id.clone()),
@@ -794,12 +819,30 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
                 "free disk is {short}G short of the floor and only a person may remove what is \
                  left"
             )),
+            dry_run: None,
+            no_dry_run: None,
             input_json: None,
         },
+        dry_run,
     )?;
     fs::write(&marker, format!("{request_id}\n"))
         .with_context(|| format!("write {}", marker.display()))?;
     Ok(Some(request_id))
+}
+
+/// What reclaim left, as a disk item's dry run names it: each row with its size, largest first,
+/// or `nothing` (`story:hand-item-dry-run`).
+fn left_measured(shortfall: &Shortfall<'_>, left: &Left) -> String {
+    let rows: Vec<String> = left
+        .by_size(shortfall)
+        .into_iter()
+        .map(|(path, bytes)| format!("{path} ({}G)", gib(bytes)))
+        .collect();
+    if rows.is_empty() {
+        "nothing".to_owned()
+    } else {
+        rows.join("; ")
+    }
 }
 
 /// What only a person does: review what is left, largest first, enough to cover the shortfall, and

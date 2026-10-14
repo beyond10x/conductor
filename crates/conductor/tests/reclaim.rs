@@ -12,8 +12,9 @@
 //! The binary runs with `HOME` naming the fixture home, `PATH` led by fake `claude` and
 //! `worktree` programs (the session list; the `worktree` dry runs print fixture JSON, and
 //! `discard-cache` and `prune-archives --apply` remove what they name, as the real ones would;
-//! every call is logged), and `CONDUCTOR_DISK_READINGS` naming a file of free-disk readings, one
-//! taken at the start and one after each step.
+//! every call is logged), `CONDUCTOR_DISK_READINGS` naming a file of free-disk readings, one
+//! taken at the start and one after each step, and `CONDUCTOR_RECLAIM_VAR_TMP` naming the case's
+//! `var-tmp/`, read instead of `/var/tmp`: nothing reads or deletes the real one.
 
 mod active;
 mod common;
@@ -21,10 +22,10 @@ mod common;
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
-use conductor_cli::gc::reclaim::{READINGS_VARIABLE, floor_bytes};
+use conductor_cli::gc::reclaim::{READINGS_VARIABLE, VAR_TMP_VARIABLE, floor_bytes};
 use conductor_cli::store;
 use conductor_model::behaviour::Generated;
 use conductor_model::host::obligations::ReclaimRunsQuery as _;
@@ -74,14 +75,20 @@ fn program(bin: &Path, name: &str, script: &str) {
 /// Sets the modification time of `path` and of everything under it to an hour ago, the entries
 /// before the directories that hold them.
 fn age(path: &Path) {
-    let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+    age_by(path, Duration::from_secs(3600));
+}
+
+/// Sets the modification time of `path` and of everything under it to `ago` ago, the entries
+/// before the directories that hold them.
+fn age_by(path: &Path, ago: Duration) {
+    let then = SystemTime::now() - ago;
     if path.is_dir() {
         for entry in fs::read_dir(path).expect("list a case directory") {
-            age(&entry.expect("an entry").path());
+            age_by(&entry.expect("an entry").path(), ago);
         }
     }
     File::open(path)
-        .and_then(|file| file.set_modified(hour_ago))
+        .and_then(|file| file.set_modified(then))
         .expect("set a modification time");
 }
 
@@ -116,6 +123,11 @@ impl Case {
 
     fn state(&self) -> PathBuf {
         self.dir.join("state")
+    }
+
+    /// The case's `/var/tmp`.
+    fn var_tmp(&self) -> PathBuf {
+        self.dir.join("var-tmp")
     }
 
     fn checkout(&self, name: &str) -> PathBuf {
@@ -260,6 +272,7 @@ impl Case {
             .current_dir(self.records())
             .env("PATH", path)
             .env(READINGS_VARIABLE, self.dir.join("free.txt"))
+            .env(VAR_TMP_VARIABLE, self.var_tmp())
             .stdin(Stdio::null())
             .output()
             .expect("conductor runs")
@@ -499,4 +512,174 @@ fn reclaim_short_of_the_floor_lists_what_is_left_and_exits_1() {
     assert_eq!(runs[0].result, ReclaimResult::FloorNotReached);
     assert_eq!(runs[0].shortfall_bytes, i64::try_from(short).ok());
     assert!(!runs[0].left.is_empty());
+}
+
+/// Past the staleness age after which a scratch directory or a cache no process holds is deleted
+/// (a day, `conductor_cli::gc::reclaim::STALE`).
+const TWO_DAYS: Duration = Duration::from_secs(2 * 24 * 3600);
+
+/// The processes a case starts, killed when it ends, passed or not.
+struct Held(Vec<Child>);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        for child in &mut self.0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// `git <args>` in `dir`, under the case's home.
+fn git(dir: &Path, home: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("HOME", home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("git runs");
+    assert!(status.success(), "git {args:?} in {}", dir.display());
+}
+
+/// `story:reclaim-scratch-class-c`: freeing disk is class C, stale scratch and caches included.
+/// Reclaim deletes an entry of the agents' scratch, of a cache and of `/var/tmp` untouched for
+/// longer than the staleness age, and prints one line for each with its bytes. It keeps one that
+/// was written lately, one a process holds a file open in, one a process works in, one a live
+/// session works in, one holding a git repository with uncommitted work, one that is a git
+/// worktree (a tree a session may hold a lease on) and one holding a `target/` directory. A git
+/// repository with nothing uncommitted is no reason to keep.
+#[test]
+fn reclaim_deletes_stale_scratch_and_caches_and_never_what_is_held_dirty_a_tree_or_a_target() {
+    let case = Case::new("scratch");
+    let home = case.home();
+    let scratch = home.join(".cache/claude-tmp");
+    let cache = home.join(".cache/go-build");
+    let var_tmp = case.var_tmp();
+
+    // Deleted: stale, and nothing holds them.
+    let stale = scratch.join("stale");
+    fill(&stale.join("out/data.bin"), 64 * KIB);
+    let clean = scratch.join("clean-repo");
+    fill(&clean.join("build.bin"), 64 * KIB);
+    git(&clean, &home, &["init", "-q"]);
+    write(&clean.join(".git/info/exclude"), "*.bin\n");
+    let cached = cache.join("00");
+    fill(&cached.join("0011-d"), 64 * KIB);
+    let var_stale = var_tmp.join("stale-entry");
+    fill(&var_stale.join("dump.bin"), 64 * KIB);
+
+    // Kept although stale.
+    let open = scratch.join("open-file");
+    fill(&open.join("log.txt"), 64 * KIB);
+    let working = scratch.join("working-dir");
+    fill(&working.join("data.bin"), 64 * KIB);
+    let session = scratch.join("session");
+    fill(&session.join("data.bin"), 64 * KIB);
+    let dirty = scratch.join("dirty-repo");
+    fill(&dirty.join("notes.txt"), 64 * KIB);
+    git(&dirty, &home, &["init", "-q"]);
+    let tree = scratch.join("leased-tree");
+    write(&tree.join(".git"), "gitdir: elsewhere\n");
+    fill(&tree.join("src/lib.rs"), 64 * KIB);
+    let built = scratch.join("built");
+    fill(&built.join("target/debug/out.bin"), 64 * KIB);
+    age_by(&home.join(".cache"), TWO_DAYS);
+    age_by(&var_tmp, TWO_DAYS);
+
+    // Kept: written lately.
+    let fresh = scratch.join("fresh");
+    fill(&fresh.join("data.bin"), 64 * KIB);
+    let var_fresh = var_tmp.join("fresh-entry");
+    fill(&var_fresh.join("data.bin"), 64 * KIB);
+
+    let sessions = json!([
+        {"id": "s-live", "name": "live", "cwd": case.tree("live").join("src"), "pid": 102,
+         "status": "busy"},
+        {"id": "s-scratch", "name": "scratch", "cwd": session, "pid": 103, "status": "busy"}
+    ]);
+    write(&case.dir.join("agents.json"), &sessions.to_string());
+    let holds_open = Command::new("sleep")
+        .arg("300")
+        .stdin(File::open(open.join("log.txt")).expect("open the held file"))
+        .current_dir(&case.dir)
+        .spawn()
+        .expect("a process holds a file open");
+    let works = Command::new("sleep")
+        .arg("300")
+        .stdin(Stdio::null())
+        .current_dir(&working)
+        .spawn()
+        .expect("a process works in the scratch");
+    let _held = Held(vec![holds_open, works]);
+
+    // Never over the floor: every step is taken.
+    case.readings(&[10]);
+    let output = case.reclaim(&[]);
+    assert_eq!(output.status.code(), Some(1), "{}", shown(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let text = |path: &Path| path.display().to_string();
+    let mut deleted: Vec<(String, u64)> = steps(&stdout)
+        .into_iter()
+        .filter(|(_, kind, _)| kind == "cache")
+        .map(|(bytes, _, path)| (path, bytes))
+        .collect();
+    deleted.sort();
+    let mut expected = vec![text(&stale), text(&clean), text(&cached), text(&var_stale)];
+    expected.sort();
+    assert_eq!(
+        deleted
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>(),
+        expected,
+        "one line for each stale entry deleted: {}",
+        shown(&output)
+    );
+    assert!(
+        deleted.iter().all(|(_, bytes)| *bytes >= 64 * KIB),
+        "each deletion prints its bytes: {}",
+        shown(&output)
+    );
+    for gone in [&stale, &clean, &cached, &var_stale] {
+        assert!(!gone.exists(), "{} is deleted", gone.display());
+    }
+    for (kept, file) in [
+        (&open, "log.txt"),
+        (&working, "data.bin"),
+        (&session, "data.bin"),
+        (&dirty, "notes.txt"),
+        (&tree, "src/lib.rs"),
+        (&built, "target/debug/out.bin"),
+        (&fresh, "data.bin"),
+        (&var_fresh, "data.bin"),
+    ] {
+        assert!(
+            kept.join(file).is_file(),
+            "{} is kept: {}",
+            kept.display(),
+            shown(&output)
+        );
+    }
+    assert!(
+        scratch.is_dir() && cache.is_dir() && var_tmp.is_dir(),
+        "the roots stay"
+    );
+
+    let runs = case.runs();
+    assert_eq!(runs.len(), 1);
+    let caches = runs[0]
+        .steps
+        .iter()
+        .filter(|step| step.kind == ReclaimKind::Cache)
+        .count();
+    assert_eq!(
+        caches, 4,
+        "each deletion is a step of the run: {:?}",
+        runs[0]
+    );
 }

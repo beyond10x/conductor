@@ -93,11 +93,24 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `reports[].when` | list of string | required |  |
 | `authority.class_c` | `conductor` \| `operator` | `conductor` |  |
 | `authority.class_o` | `conductor` \| `operator` | `operator` |  |
+| `usage.probe` | string | none |  |
+| `usage.watcher` | string | none |  |
 | `operator` | string | none |  |
 | `catalog` | [Catalog](#catalog) | none |  |
 | `catalog.repository` | string | required |  |
 | `catalog.path` | string | required |  |
 | `catalog.names` | `plain` \| `hex` | `plain` |  |
+| `secret_syncs` | list of [SecretSync](#secretsync) | `[]` |  |
+| `secret_syncs[].name` | string | required |  |
+| `secret_syncs[].source.repository` | string | required |  |
+| `secret_syncs[].source.branch` | string | `main` |  |
+| `secret_syncs[].source.path` | string | required |  |
+| `secret_syncs[].secrets` | list of [ForgeSecret](#forgesecret) | required |  |
+| `secret_syncs[].secrets[].owner` | string | required |  |
+| `secret_syncs[].secrets[].repository` | string | none |  |
+| `secret_syncs[].secrets[].name` | string | required |  |
+| `secret_syncs[].command` | string | required |  |
+| `secret_syncs[].dry_run` | string | none |  |
 | `gates_policy` | string | none |  |
 | `conductor.served_by` | [InstanceName](#instancename) | derived |  |
 | `conductor.session_name` | [SessionName](#sessionname) | derived |  |
@@ -283,6 +296,30 @@ Keys: `channel`, `as`, `when`. Specified as `conductor.config.Report`.
 Who decides a class-C and a class-O decision. The file writes `conductor` or `operator`.
 
 Keys: `class_c`, `class_o`. Specified as `conductor.config.Authority`.
+
+### SecretSync
+
+One secret sync of the instance: a file on a branch of one of its repositories that the organization's own tool publishes into GitHub Actions secrets, which its CI reads. `name` names the sync on the board; `source` is the file; `secrets` are the secrets it feeds, one or more; `command` is the command line that publishes it, and `dry_run`, when given, the one that shows what `command` would publish without publishing it. Conductor runs neither: the snapshot reads the source's last commit and each secret's `updated_at`, and the board flags `secret stale: <name>` when the source changed after a secret was written. The conductor session runs `command` only where the instance's `rules.md` grants it. No two syncs of an instance share a name.
+
+Keys: `name`, `source`, `secrets`, `command`, `dry_run`. Specified as `conductor.config.SecretSync`.
+
+### SecretSource
+
+The file a secret sync publishes: `repository` names a repository whose checkout lies under `checkouts.root`, written as its path under the root; `path` is the file, written relative to that repository's top; `branch` is the branch its last commit is read on, as `origin/<branch>`, `main` when absent. Neither path takes `.` or `..` steps.
+
+Keys: `repository`, `branch`, `path`. Specified as `conductor.config.SecretSource`.
+
+### ForgeSecret
+
+One GitHub Actions secret a sync feeds, by its `name`: the organization `owner`'s secret, or, when `repository` is given, that repository's of the owner. It is read with `gh api` (`GET /orgs/<owner>/actions/secrets/<name>`, `GET /repos/<owner>/<repository>/actions/secrets/ <name>`), which answers the secret's `updated_at` and never its value.
+
+Keys: `owner`, `repository`, `name`. Specified as `conductor.config.ForgeSecret`.
+
+### Usage
+
+How the instance reads its harness accounts' usage. `probe` is a command, run with `sh -c` on each snapshot, that prints the accounts as one JSON object: `accounts`, a list, each with `id` (the account; conductor keeps nothing else of it, never an e-mail address or a name), `active` (whether it is the account in use), `health` (`exhausted` for one with nothing left) and `usage.windows`, a list of `{name, used_percent, resets_at}`; every other key is ignored. `watcher` is the systemd user unit that rotates the accounts, which `conductor doctor` reports running or not. Conductor names no tool: both are the operator's. Absent, neither is set: no probe runs and doctor reports no watcher.
+
+Keys: `probe`, `watcher`. Specified as `conductor.config.Usage`.
 
 ### Activity
 

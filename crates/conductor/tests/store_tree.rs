@@ -23,6 +23,14 @@
 //! session written without them. `story:marked-by-session` added the repository marks view's
 //! `session` column after `marked_by`: `repository-repository-marks.json` holds it as `null` in
 //! every row, which is what this build reads from a mark written without one.
+//! `story:pr-check-names` added the pull-requests view's `failing_check_names` column after
+//! `failing_checks`: `snapshot-pull-requests.json` holds it as `[]` in every row, which is what
+//! this build reads from an observation recorded without one.
+//! `story:policy-secret-drift` and `story:usage-probe` added the secret-syncs and usage-readings
+//! views, which no build before them could record. The committed store stays as it was;
+//! [`fixture_store`] appends one observation of each to a copy of it, in the first snapshot,
+//! through eventlog's File provider, and every case reads that copy. `snapshot-secret-syncs.json`
+//! and `snapshot-usage-readings.json` hold this build's answer over them.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not
@@ -45,6 +53,7 @@ use std::fs::{self, File};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -66,7 +75,7 @@ fn fixture() -> PathBuf {
 
 /// Every view the fixture holds the answer of, by its file under `views/`, with the arguments
 /// before `--format json`.
-const VIEWS: [(&str, &[&str]); 23] = [
+const VIEWS: [(&str, &[&str]); 25] = [
     ("snapshot-snapshots", &["snapshot", "snapshots"]),
     ("snapshot-repositories", &["snapshot", "repositories"]),
     ("snapshot-pull-requests", &["snapshot", "pull-requests"]),
@@ -79,6 +88,8 @@ const VIEWS: [(&str, &[&str]); 23] = [
     ("snapshot-sessions", &["snapshot", "sessions"]),
     ("snapshot-blockers", &["snapshot", "blockers"]),
     ("snapshot-specifications", &["snapshot", "specifications"]),
+    ("snapshot-secret-syncs", &["snapshot", "secret-syncs"]),
+    ("snapshot-usage-readings", &["snapshot", "usage-readings"]),
     ("goal-goals", &["goal", "goals"]),
     ("goal-servings", &["goal", "servings"]),
     (
@@ -138,7 +149,7 @@ impl Case {
     /// `state/store/`, and nothing else.
     fn with_file_store(name: &str) -> Self {
         let case = Self::new(name);
-        copy_dir(&fixture().join("store"), &case.state.join("store"));
+        copy_dir(fixture_store(), &case.state.join("store"));
         case
     }
 
@@ -195,6 +206,85 @@ fn describe(output: &Output) -> String {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     )
+}
+
+/// The fixture's eventlog-file store with one observation of each kind no build before the views
+/// that read them could record, appended in the first snapshot: a secret sync
+/// (`story:policy-secret-drift`) and a usage reading (`story:usage-probe`). Built once per run
+/// under this test target's temporary directory; the committed store is never written.
+fn fixture_store() -> &'static Path {
+    static STORE: OnceLock<PathBuf> = OnceLock::new();
+    STORE.get_or_init(|| {
+        let store = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join("store_tree")
+            .join("fixture-store");
+        if store.exists() {
+            fs::remove_dir_all(&store).expect("clear the fixture store's copy");
+        }
+        copy_dir(&fixture().join("store"), &store);
+        let observations = [
+            (
+                "conductor.observation.SecretSyncObservation",
+                "01a117f9-6a01-7a01-8a01-0a0000000001",
+                json!({
+                    "sync": "gates-policy",
+                    "repository": "alpha",
+                    "branch": "main",
+                    "path": "policy.json",
+                    "source_committed_at": "2026-10-01T00:00:00Z",
+                    "secrets_updated_at": "2026-09-30T00:00:00Z",
+                    "error_line": null,
+                }),
+            ),
+            (
+                "conductor.observation.UsageObservation",
+                "01a117f9-6a02-7a02-8a02-0a0000000002",
+                json!({
+                    "read_at": "2026-10-07T20:06:22Z",
+                    "account": "first",
+                    "active": true,
+                    "health": "ok",
+                    "window": "seven_day",
+                    "used_percent": 42,
+                    "resets_at": "2026-10-10T00:00:00Z",
+                }),
+            ),
+        ];
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a runtime");
+        runtime.block_on(async {
+            let log = FileEventStore::open_existing(&store)
+                .await
+                .expect("open the copy of the fixture's eventlog-file store");
+            for (stream_type, observation, mut body) in observations {
+                body["state"] = json!("Recorded");
+                body["observation_id"] = json!(observation);
+                body["snapshot_id"] = json!("01a117f9-62e1-7681-b694-cec57cddaf22");
+                let tenant = TenantId::new("conductor").expect("the tenant");
+                let stream = StreamId::new(tenant, stream_type, observation)
+                    .expect("the observation's stream");
+                let events = [NewEvent::new("stored", 1, body).expect("an event")];
+                let id = new_event_id();
+                let meta = CommandMeta {
+                    idempotency_key: id.clone(),
+                    request_hash: request_hash(&events).expect("a hash"),
+                    subject: "conductor".to_owned(),
+                    actor: "conductor".to_owned(),
+                    request_id: id.clone(),
+                    trace_id: id,
+                    causation_id: None,
+                    causation_depth: 0,
+                    occurred_at: OffsetDateTime::now_utc(),
+                    claim: None,
+                };
+                log.append(&stream, Expected::NoStream, &events, &meta)
+                    .await
+                    .expect("append the observation");
+            }
+        });
+        store
+    })
 }
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -760,7 +850,7 @@ fn a_migration_finishes_what_an_interrupted_one_left() {
 fn with_observations_in_the_tree(name: &str) -> Case {
     let case = Case::new(name);
     let source = case.state.join("source");
-    copy_dir(&fixture().join("store"), &source);
+    copy_dir(fixture_store(), &source);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("a runtime");
@@ -848,11 +938,11 @@ fn a_tree_that_holds_observations_is_split_and_answers_every_view_as_before() {
             format!(
                 "moved {} events in {} streams from {} to {} and {}; the tree before the split \
                  is kept at {}",
-                file_store_counts(&fixture().join("store"))
+                file_store_counts(fixture_store())
                     .values()
                     .map(|(_, events)| events)
                     .sum::<usize>(),
-                file_store_counts(&fixture().join("store"))
+                file_store_counts(fixture_store())
                     .values()
                     .map(|(streams, _)| streams)
                     .sum::<usize>(),

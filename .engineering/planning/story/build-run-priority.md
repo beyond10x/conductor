@@ -20,6 +20,11 @@ of 28 while the disk admitted one build at a time (conductor's NEED, 10:3xZ).
   the grant; `conductor build run --red-ci <pr|main>` sets it. The queue orders red-CI requests
   before all others, arrival order within each class; tests in `crates/conductor/tests/build_run.rs`
   hold a red-CI request made last being granted first, and the reason in `host grants`.
+- A request may also carry `release` (`conductor build run --release <repo> <version>`): the last
+  gate or build before a release or a merge. Order: red-CI, then release, then everything else,
+  arrival order within each; a test holds a release request made after unit builds granted before
+  them (conductor's report, 2026-10-14 16:14Z: a release's last 6G lane was refused while unit
+  builds waited ahead of it).
 - The watch prints `red-ci priority used: <repo> <target>` once per grant, so its use can be
   audited; a test holds the line.
 - `.agents/repo-controller.md` says a red-CI fix's gate passes `--red-ci <target>` and nothing

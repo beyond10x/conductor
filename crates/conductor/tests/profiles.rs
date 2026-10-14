@@ -203,6 +203,21 @@ fn an_old_operator_item_is_re_sent_with_a_default_and_a_deadline() {
     );
 }
 
+/// `story:hand-item-dry-run`: an operator script is dry-run before it is handed over, and the
+/// class-H item carries what the dry run printed or why there is none.
+#[test]
+fn an_operator_script_is_dry_run_before_it_is_handed_over() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains("An operator script is dry-run before it is handed over."),
+        "conductor.md: an operator script is dry-run first"
+    );
+    assert!(
+        text.contains("`--dry-run <file>`") && text.contains("`--no-dry-run <reason>`"),
+        "conductor.md: the item carries the dry run or why there is none"
+    );
+}
+
 /// `story:gc-before-pause`: conductor runs `conductor gc`, which removes, before it pauses work
 /// for disk.
 #[test]
@@ -732,4 +747,24 @@ fn conductor_starts_sessions_only_through_spawn_and_session_start() {
         ),
         "conductor.md: spawn and session start are the only start forms"
     );
+}
+
+/// `story:policy-secret-drift`: a stale secret is published by its sync's own command only under
+/// a grant in `rules.md`; otherwise it is the operator's hands, handed over with the dry run.
+#[test]
+fn conductor_publishes_a_stale_secret_only_under_a_grant_or_hands_it_over() {
+    let text = profile("conductor.md");
+    let sentence = "On a board row `secret stale: <sync>`, run that `secret_syncs` entry's \
+                    `command` when `rules.md` grants it; else hand it over as class H with the \
+                    output of its dry run (`dry_run`)";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}
+
+/// `story:pr-check-names`: a report on a pull request names every red check, not one of them.
+#[test]
+fn a_report_on_a_pull_request_names_every_red_check() {
+    let text = profile("conductor.md");
+    let sentence = "A report on a pull request names every red check, as `conductor status` and the \
+                    board list them under `failing checks`, never one of them for all.";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }

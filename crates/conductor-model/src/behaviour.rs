@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5ac19304a55db76dad0ff2a42d2a3ffb05bc81c9489e1f60807b2d7fd466e6fd
-// contract digest 5310a30006fd2021477d66df9e0483228093a679a53df34642b14fd755996bf2
+// model digest 6d1f95b4254f69133b76f164601756738633e1e76503801d2e3c7a6c88f59ccd
+// contract digest 9d0a3362ebc5c84fb2bdbbe4560f82b4d3cd628c59b7729905a74c87f253b5d4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -394,6 +394,24 @@ pub trait RepositoryObservationStorage {
     fn list(&self) -> Vec<crate::observation::RepositoryObservationSnapshot>;
 }
 
+/// Where `conductor.observation.SecretSyncObservation` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait SecretSyncObservationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SecretSyncObservationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::observation::SecretSyncObservationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::observation::ObservationId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::observation::SecretSyncObservationSnapshot>;
+}
+
 /// Where `conductor.observation.SessionObservation` is stored — a port the implementor provides.
 ///
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
@@ -446,6 +464,24 @@ pub trait SpecificationObservationStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::observation::SpecificationObservationSnapshot>;
+}
+
+/// Where `conductor.observation.UsageObservation` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait UsageObservationStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::UsageObservationSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::observation::UsageObservationSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::observation::ObservationId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::observation::UsageObservationSnapshot>;
 }
 
 /// Where `conductor.observation.WorkflowRunObservation` is stored — a port the implementor provides.
@@ -696,6 +732,10 @@ where
         if decided(equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("C".to_owned())), "conductor.decision.EscalateRequest")? {
             return Ok(crate::decision::EscalateRequestOutcome::ClassC { error: crate::decision::NotEscalatable { request_id: input.request_id.clone() } });
         }
+        // `untested`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), (Some(Some(&input.dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.no_dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value)]), "conductor.decision.EscalateRequest")? {
+            return Ok(crate::decision::EscalateRequestOutcome::Untested { error: crate::decision::DryRunMissing { request_id: input.request_id.clone() } });
+        }
         // `escalated`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
             return Ok(crate::decision::EscalateRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
@@ -708,6 +748,8 @@ where
         let mut next = moved.snapshot();
         next.data.escalation_class = Some(input.escalation_class.clone());
         next.data.escalation_reason = Some(input.reason.clone());
+        next.data.dry_run = input.dry_run.clone();
+        next.data.no_dry_run = input.no_dry_run.clone();
         let answer = crate::decision::EscalateRequestOutcome::Escalated { request_escalated: crate::decision::RequestEscalated { request_id: input.request_id.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -737,6 +779,8 @@ where
             blocker: input.blocker.clone(),
             escalation_class: None,
             escalation_reason: None,
+            dry_run: None,
+            no_dry_run: None,
             decision_id: None,
         };
         let answer = crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested: crate::decision::DecisionRequested { request_id: identity.clone(), repository: input.repository.clone() } };
@@ -2411,6 +2455,7 @@ where
             draft: input.draft.clone(),
             mergeability: input.mergeability.clone(),
             failing_checks: input.failing_checks.clone(),
+            failing_check_names: input.failing_check_names.clone(),
             opened_at: input.opened_at.clone(),
             updated_at: input.updated_at.clone(),
             url: input.url.clone(),
@@ -2520,6 +2565,47 @@ where
     }
 }
 
+/// `conductor.observation.RecordSecretSync`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::RecordSecretSyncBehavior for Generated<P>
+where
+    P: TryContext + SecretSyncObservationStorage + SnapshotStorage,
+{
+    fn record_secret_sync(&mut self, input: crate::observation::RecordSecretSync) -> Result<crate::observation::RecordSecretSyncOutcome, UnmetObligation> {
+        let _ = &input;
+        // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.snapshot_id);
+        let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
+        // `no-such-snapshot`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::observation::RecordSecretSyncOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+        }
+        let _ = &related;
+        // `closed`: selected by the present related row, in declaration order.
+        if let Some(related) = &related {
+        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordSecretSync")? {
+            return Ok(crate::observation::RecordSecretSyncOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
+        }
+        }
+        // `recorded`: the default.
+        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let data = crate::observation::SecretSyncObservationData {
+            observation_id: identity.clone(),
+            snapshot_id: input.snapshot_id.clone(),
+            sync: input.sync.clone(),
+            repository: input.repository.clone(),
+            branch: input.branch.clone(),
+            path: input.path.clone(),
+            source_committed_at: input.source_committed_at.clone(),
+            secrets_updated_at: input.secrets_updated_at.clone(),
+            error_line: input.error_line.clone(),
+        };
+        let answer = crate::observation::RecordSecretSyncOutcome::Recorded { secret_sync_recorded: crate::observation::SecretSyncRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), sync: input.sync.clone(), repository: input.repository.clone() } };
+        SecretSyncObservationStorage::put(&mut self.ports, crate::observation::AnySecretSyncObservation::Recorded(crate::observation::SecretSyncObservation::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.observation.RecordSession`, generated: every outcome is one the specification fully determines.
 impl<P> crate::observation::obligations::RecordSessionBehavior for Generated<P>
 where
@@ -2616,6 +2702,55 @@ where
         }
         let answer = crate::observation::RecordSpecificationOutcome::Recorded { specification_recorded: crate::observation::SpecificationRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), presence: input.presence.clone(), validation: input.validation.clone() } };
         SpecificationObservationStorage::put(&mut self.ports, crate::observation::AnySpecificationObservation::Recorded(crate::observation::SpecificationObservation::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.observation.RecordUsage`, generated: every outcome is one the specification fully determines.
+impl<P> crate::observation::obligations::RecordUsageBehavior for Generated<P>
+where
+    P: TryContext + SnapshotStorage + UsageObservationStorage,
+{
+    fn record_usage(&mut self, input: crate::observation::RecordUsage) -> Result<crate::observation::RecordUsageOutcome, UnmetObligation> {
+        let _ = &input;
+        // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.snapshot_id);
+        let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
+        // `no-such-snapshot`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::observation::RecordUsageOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+        }
+        let _ = &related;
+        // `negative-percent`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(compare_numbers(Some(&input.used_percent).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.RecordUsage")? {
+            return Ok(crate::observation::RecordUsageOutcome::NegativePercent { error: crate::observation::InvalidCount { count: input.used_percent.clone() } });
+        }
+        // `closed`: selected by the present related row, in declaration order.
+        if let Some(related) = &related {
+        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordUsage")? {
+            return Ok(crate::observation::RecordUsageOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
+        }
+        }
+        // `recorded`: the default.
+        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let data = crate::observation::UsageObservationData {
+            observation_id: identity.clone(),
+            snapshot_id: input.snapshot_id.clone(),
+            read_at: input.read_at.clone(),
+            account: input.account.clone(),
+            active: input.active.clone(),
+            health: input.health.clone(),
+            window: input.window.clone(),
+            used_percent: input.used_percent.clone(),
+            resets_at: input.resets_at.clone(),
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::observation::RecordUsageOutcome::Recorded { usage_recorded: crate::observation::UsageRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), account: input.account.clone(), window: input.window.clone(), used_percent: input.used_percent.clone() } };
+        UsageObservationStorage::put(&mut self.ports, crate::observation::AnyUsageObservation::Recorded(crate::observation::UsageObservation::new(data)).snapshot());
         return Ok(answer);
     }
 }
@@ -2775,6 +2910,8 @@ where
                 recommendation: held.data.recommendation,
                 raised_at: held.data.raised_at,
                 blocker: held.data.blocker,
+                dry_run: held.data.dry_run,
+                no_dry_run: held.data.no_dry_run,
             })
             .collect())
     }
@@ -3154,6 +3291,7 @@ where
                 draft: held.data.draft,
                 mergeability: held.data.mergeability,
                 failing_checks: held.data.failing_checks,
+                failing_check_names: held.data.failing_check_names,
                 opened_at: held.data.opened_at,
                 updated_at: held.data.updated_at,
                 url: held.data.url,
@@ -3218,6 +3356,30 @@ where
                 wave_width: held.data.wave_width,
                 wave_ready: held.data.wave_ready,
                 wave_reason: held.data.wave_reason,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.observation.SecretSyncs`, generated: every row is one the specification fully determines from the stored `conductor.observation.SecretSyncObservation`s.
+impl<P> crate::observation::obligations::SecretSyncsQuery for Generated<P>
+where
+    P: SecretSyncObservationStorage,
+{
+    fn secret_syncs(&self) -> Result<Vec<crate::observation::SecretSyncs>, UnmetObligation> {
+        let admitted = SecretSyncObservationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::observation::SecretSyncs {
+                observation_id: held.data.observation_id,
+                snapshot_id: held.data.snapshot_id,
+                sync: held.data.sync,
+                repository: held.data.repository,
+                branch: held.data.branch,
+                path: held.data.path,
+                source_committed_at: held.data.source_committed_at,
+                secrets_updated_at: held.data.secrets_updated_at,
+                error_line: held.data.error_line,
             })
             .collect())
     }
@@ -3296,6 +3458,30 @@ where
                 scenarios: held.data.scenarios,
                 synthesis_refusals: held.data.synthesis_refusals,
                 conformance_status: held.data.conformance_status,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.observation.UsageReadings`, generated: every row is one the specification fully determines from the stored `conductor.observation.UsageObservation`s.
+impl<P> crate::observation::obligations::UsageReadingsQuery for Generated<P>
+where
+    P: UsageObservationStorage,
+{
+    fn usage_readings(&self) -> Result<Vec<crate::observation::UsageReadings>, UnmetObligation> {
+        let admitted = UsageObservationStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::observation::UsageReadings {
+                observation_id: held.data.observation_id,
+                snapshot_id: held.data.snapshot_id,
+                read_at: held.data.read_at,
+                account: held.data.account,
+                active: held.data.active,
+                health: held.data.health,
+                window: held.data.window,
+                used_percent: held.data.used_percent,
+                resets_at: held.data.resets_at,
             })
             .collect())
     }

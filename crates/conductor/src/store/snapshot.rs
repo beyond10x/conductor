@@ -2,7 +2,7 @@
 //! `story:snapshot-driver`: one for the snapshot and one for each observation a collector records,
 //! `SpecificationObservation` included, so a collector story writes no storage of its own. The
 //! release and merged-pull-request observations are `story:release-digest`'s, the member failures
-//! `story:snapshot-member-failures`'s.
+//! `story:snapshot-member-failures`'s, the secret syncs `story:policy-secret-drift`'s.
 //!
 //! Each instance is one stream, as in `store.rs`: the snapshot's in `state/tree/`, an
 //! observation's in its snapshot's tenant of `state/observations/` ([`super::observations`]),
@@ -20,8 +20,9 @@
 use conductor_model::behaviour::{
     BlockerObservationStorage, CollectorRunObservationStorage, MemberFailureObservationStorage,
     MergedPullRequestObservationStorage, PullRequestObservationStorage, ReleaseObservationStorage,
-    RepositoryObservationStorage, SessionObservationStorage, SnapshotStorage,
-    SpecificationObservationStorage, WorkflowRunObservationStorage,
+    RepositoryObservationStorage, SecretSyncObservationStorage, SessionObservationStorage,
+    SnapshotStorage, SpecificationObservationStorage, UsageObservationStorage,
+    WorkflowRunObservationStorage,
 };
 use conductor_model::observation::{
     BlockerObservationData, BlockerObservationSnapshot, BlockerObservationState,
@@ -32,9 +33,11 @@ use conductor_model::observation::{
     PullRequestObservationData, PullRequestObservationSnapshot, PullRequestObservationState,
     ReleaseObservationData, ReleaseObservationSnapshot, ReleaseObservationState, RepositoryName,
     RepositoryObservationData, RepositoryObservationSnapshot, RepositoryObservationState,
+    SecretSyncObservationData, SecretSyncObservationSnapshot, SecretSyncObservationState,
     SessionObservationData, SessionObservationSnapshot, SessionObservationState, SnapshotData,
     SnapshotId, SnapshotSnapshot, SpecificationObservationData, SpecificationObservationSnapshot,
-    SpecificationObservationState, WorkflowRunObservationData, WorkflowRunObservationSnapshot,
+    SpecificationObservationState, UsageObservationData, UsageObservationSnapshot,
+    UsageObservationState, WorkflowRunObservationData, WorkflowRunObservationSnapshot,
     WorkflowRunObservationState,
 };
 use conductor_model::primitives::{Timestamp, Uuid};
@@ -82,6 +85,11 @@ pub(super) const MEMBER_FAILURE: &str = "conductor.observation.MemberFailureObse
 
 /// `conductor.observation.CollectorRunObservation`.
 pub(super) const COLLECTOR_RUN: &str = "conductor.observation.CollectorRunObservation";
+
+/// `conductor.observation.SecretSyncObservation` (`story:policy-secret-drift`).
+pub(super) const SECRET_SYNC: &str = "conductor.observation.SecretSyncObservation";
+/// `conductor.observation.UsageObservation` (`story:usage-probe`).
+pub(super) const USAGE: &str = "conductor.observation.UsageObservation";
 
 /// The one state of every observation, as the specification spells it.
 const RECORDED: &str = "Recorded";
@@ -221,6 +229,24 @@ storage!(
     observation_id,
     encode_collector_run,
     decode_collector_run
+);
+storage!(
+    SecretSyncObservationStorage,
+    SECRET_SYNC,
+    ObservationId,
+    SecretSyncObservationSnapshot,
+    observation_id,
+    encode_secret_sync,
+    decode_secret_sync
+);
+storage!(
+    UsageObservationStorage,
+    USAGE,
+    ObservationId,
+    UsageObservationSnapshot,
+    observation_id,
+    encode_usage,
+    decode_usage
 );
 
 /// The instance `key` of `entity`, decoded; `None` when absent, or when the read or the decoding
@@ -368,6 +394,7 @@ fn encode_pull_request(observation: &PullRequestObservationSnapshot) -> Value {
         "draft": data.draft,
         "mergeability": mergeability_name(data.mergeability),
         "failing_checks": data.failing_checks,
+        "failing_check_names": data.failing_check_names,
         "opened_at": data.opened_at.0,
         "updated_at": data.updated_at.0,
         "url": data.url,
@@ -387,6 +414,8 @@ fn decode_pull_request(body: &Value) -> Result<PullRequestObservationSnapshot, S
             draft: boolean(body, "draft")?,
             mergeability: named(body, "mergeability", mergeability_named)?,
             failing_checks: integer(body, "failing_checks")?,
+            // Absent in an observation recorded before the collectors named the checks.
+            failing_check_names: optional_texts(body, "failing_check_names")?,
             opened_at: Timestamp(text(body, "opened_at")?),
             updated_at: Timestamp(text(body, "updated_at")?),
             // Absent in an observation recorded before the collectors filled it.
@@ -661,6 +690,76 @@ fn decode_collector_run(body: &Value) -> Result<CollectorRunObservationSnapshot,
     })
 }
 
+fn encode_secret_sync(observation: &SecretSyncObservationSnapshot) -> Value {
+    let SecretSyncObservationState::Recorded = observation.state;
+    let data = &observation.data;
+    json!({
+        "state": RECORDED,
+        "observation_id": data.observation_id.0.0,
+        "snapshot_id": data.snapshot_id.0.0,
+        "sync": data.sync,
+        "repository": data.repository.0,
+        "branch": data.branch,
+        "path": data.path,
+        "source_committed_at": data.source_committed_at.as_ref().map(|at| &at.0),
+        "secrets_updated_at": data.secrets_updated_at.as_ref().map(|at| &at.0),
+        "error_line": data.error_line,
+    })
+}
+
+fn decode_secret_sync(body: &Value) -> Result<SecretSyncObservationSnapshot, String> {
+    recorded(body)?;
+    Ok(SecretSyncObservationSnapshot {
+        state: SecretSyncObservationState::Recorded,
+        data: SecretSyncObservationData {
+            observation_id: observation_id(body)?,
+            snapshot_id: snapshot_id(body)?,
+            sync: text(body, "sync")?,
+            repository: RepositoryName(text(body, "repository")?),
+            branch: text(body, "branch")?,
+            path: text(body, "path")?,
+            source_committed_at: optional_text(body, "source_committed_at")?.map(Timestamp),
+            secrets_updated_at: optional_text(body, "secrets_updated_at")?.map(Timestamp),
+            error_line: optional_text(body, "error_line")?,
+        },
+    })
+}
+
+fn encode_usage(observation: &UsageObservationSnapshot) -> Value {
+    let UsageObservationState::Recorded = observation.state;
+    let data = &observation.data;
+    json!({
+        "state": RECORDED,
+        "observation_id": data.observation_id.0.0,
+        "snapshot_id": data.snapshot_id.0.0,
+        "read_at": data.read_at.0,
+        "account": data.account,
+        "active": data.active,
+        "health": data.health,
+        "window": data.window,
+        "used_percent": data.used_percent,
+        "resets_at": data.resets_at.as_ref().map(|at| &at.0),
+    })
+}
+
+fn decode_usage(body: &Value) -> Result<UsageObservationSnapshot, String> {
+    recorded(body)?;
+    Ok(UsageObservationSnapshot {
+        state: UsageObservationState::Recorded,
+        data: UsageObservationData {
+            observation_id: observation_id(body)?,
+            snapshot_id: snapshot_id(body)?,
+            read_at: Timestamp(text(body, "read_at")?),
+            account: text(body, "account")?,
+            active: boolean(body, "active")?,
+            health: text(body, "health")?,
+            window: text(body, "window")?,
+            used_percent: integer(body, "used_percent")?,
+            resets_at: optional_text(body, "resets_at")?.map(Timestamp),
+        },
+    })
+}
+
 /// The name the builds before `story:catalog-source` wrote a repository observation's catalog
 /// membership under, a Boolean that the store's records still hold.
 const EARLIER_IN_CATALOG: &str = "in_atlas_catalog";
@@ -728,6 +827,22 @@ fn optional_text(body: &Value, field: &str) -> Result<Option<String>, String> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(text)) => Ok(Some(text.clone())),
         Some(_) => Err(format!("field {field:?} is neither text nor null")),
+    }
+}
+
+/// A list of texts: `null` or absent is empty.
+fn optional_texts(body: &Value, field: &str) -> Result<Vec<String>, String> {
+    match body.get(field) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("field {field:?} holds a value that is not text"))
+            })
+            .collect(),
+        Some(_) => Err(format!("field {field:?} is neither a list nor null")),
     }
 }
 

@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "5ac19304a55db76dad0ff2a42d2a3ffb05bc81c9489e1f60807b2d7fd466e6fd",
-    "contract_digest": "5310a30006fd2021477d66df9e0483228093a679a53df34642b14fd755996bf2"
+    "source_digest": "6d1f95b4254f69133b76f164601756738633e1e76503801d2e3c7a6c88f59ccd",
+    "contract_digest": "9d0a3362ebc5c84fb2bdbbe4560f82b4d3cd628c59b7729905a74c87f253b5d4"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -111,6 +111,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.ForgeLoginState",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ForgeSecret",
       "disposition": {
         "disposition": "generated"
       }
@@ -250,6 +257,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.SecretSource",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SecretSync",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.SessionName",
       "disposition": {
         "disposition": "generated"
@@ -349,6 +370,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.UpgradeReport",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.Usage",
       "disposition": {
         "disposition": "generated"
       }
@@ -1020,6 +1048,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.observation.SecretSyncObservation.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.observation.SessionObservation.State",
       "disposition": {
         "disposition": "generated"
@@ -1098,6 +1133,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.observation.StoreMigrate",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.observation.UsageObservation.State",
       "disposition": {
         "disposition": "generated"
       }
@@ -1363,6 +1405,13 @@
     },
     {
       "kind": "entity_lifecycle",
+      "source": "conductor.observation.SecretSyncObservation",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
       "source": "conductor.observation.SessionObservation",
       "disposition": {
         "disposition": "generated"
@@ -1378,6 +1427,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.observation.SpecificationObservation",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.observation.UsageObservation",
       "disposition": {
         "disposition": "generated"
       }
@@ -2201,6 +2257,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.observation.RecordSecretSync",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.observation.RecordSecretSync",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.observation.RecordSession",
       "disposition": {
         "disposition": "generated"
@@ -2223,6 +2293,20 @@
     {
       "kind": "command_behavior",
       "source": "conductor.observation.RecordSpecification",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.observation.RecordUsage",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.observation.RecordUsage",
       "disposition": {
         "disposition": "generated"
       }
@@ -2675,6 +2759,13 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.observation.SecretSyncRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.observation.SessionRecorded",
       "disposition": {
         "disposition": "generated"
@@ -2704,6 +2795,13 @@
     {
       "kind": "event_type",
       "source": "conductor.observation.SpecificationRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.observation.UsageRecorded",
       "disposition": {
         "disposition": "generated"
       }
@@ -2753,6 +2851,13 @@
     {
       "kind": "error_type",
       "source": "conductor.decision.DecisionStateConflict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.decision.DryRunMissing",
       "disposition": {
         "disposition": "generated"
       }
@@ -3375,6 +3480,20 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.observation.SecretSyncs",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.observation.SecretSyncs",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.observation.Sessions",
       "disposition": {
         "disposition": "generated"
@@ -3411,6 +3530,20 @@
     {
       "kind": "view_query",
       "source": "conductor.observation.Specifications",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.observation.UsageReadings",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.observation.UsageReadings",
       "disposition": {
         "disposition": "generated"
       }

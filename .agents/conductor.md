@@ -168,6 +168,16 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   exact command, then the read-back that shows the result they should see, to an executable file
   `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
   and names the file's path in the reply and in the daily brief's class-H list.
+- **A stale secret reaches CI by its sync's own command.** On a board row `secret stale: <sync>`,
+  run that `secret_syncs` entry's `command` when `rules.md` grants it; else hand it over as class H
+  with the output of its dry run (`dry_run`), or the command alone when the entry names none. Read
+  `secret unread: <sync>` as a failed read to look into (`conductor snapshot secret-syncs` names
+  it in `error_line`), not as a stale secret. Never write a secret any other way.
+- **An operator script is dry-run before it is handed over.** Run every step of it that needs no
+  credential (a size check, a lookup, a read-back) and keep what they print in a file; record the
+  class-H item with `conductor decision escalate-request` and `--dry-run <file>`, or with
+  `--no-dry-run <reason>` when no step runs without the credential. A class-H escalation with
+  neither is refused, and `decision hands-todo` shows each item's dry run.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.
@@ -210,6 +220,8 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   `conductor repository shipped --since <RFC 3339>` lists, from the newest complete snapshot, each
   release since then with its pull requests and what is merged and not released; take a snapshot
   first when the newest is older than the claim.
+- **A report on a pull request names every red check, as `conductor status` and the board list
+  them under `failing checks`, never one of them for all.**
 
 ## Usage limits and context
 

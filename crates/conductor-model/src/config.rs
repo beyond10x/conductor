@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5ac19304a55db76dad0ff2a42d2a3ffb05bc81c9489e1f60807b2d7fd466e6fd
-// contract digest 5310a30006fd2021477d66df9e0483228093a679a53df34642b14fd755996bf2
+// model digest 6d1f95b4254f69133b76f164601756738633e1e76503801d2e3c7a6c88f59ccd
+// contract digest 9d0a3362ebc5c84fb2bdbbe4560f82b4d3cd628c59b7729905a74c87f253b5d4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -173,6 +173,17 @@ pub enum ForgeLoginState {
     NotLoggedIn,
 }
 
+/// ForgeSecret — `conductor.config.ForgeSecret`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgeSecret {
+    /// `owner` — `String`.
+    pub owner: String,
+    /// `repository` — `Optional<String>`.
+    pub repository: Option<String>,
+    /// `name` — `String`.
+    pub name: String,
+}
+
 /// Gibibytes — `conductor.config.Gibibytes`: a distinct wrapper around `Integer`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gibibytes(pub i64);
@@ -251,10 +262,14 @@ pub struct Instance {
     pub reports: Vec<Report>,
     /// `authority` — `conductor.config.Authority`.
     pub authority: Authority,
+    /// `usage` — `conductor.config.Usage`.
+    pub usage: Usage,
     /// `operator` — `Optional<String>`.
     pub operator: Option<String>,
     /// `catalog` — `Optional<conductor.config.Catalog>`.
     pub catalog: Option<Catalog>,
+    /// `secret_syncs` — `List<conductor.config.SecretSync>`.
+    pub secret_syncs: Vec<SecretSync>,
     /// `gates_policy` — `Optional<String>`.
     pub gates_policy: Option<String>,
     /// `conductor` — `conductor.config.ConductorSession`.
@@ -423,6 +438,32 @@ pub struct Role {
     pub forge_token_env: Vec<String>,
 }
 
+/// SecretSource — `conductor.config.SecretSource`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSource {
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `branch` — `String`.
+    pub branch: String,
+    /// `path` — `String`.
+    pub path: String,
+}
+
+/// SecretSync — `conductor.config.SecretSync`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSync {
+    /// `name` — `String`.
+    pub name: String,
+    /// `source` — `conductor.config.SecretSource`.
+    pub source: SecretSource,
+    /// `secrets` — `List<conductor.config.ForgeSecret>`.
+    pub secrets: Vec<ForgeSecret>,
+    /// `command` — `String`.
+    pub command: String,
+    /// `dry_run` — `Optional<String>`.
+    pub dry_run: Option<String>,
+}
+
 /// SessionName — `conductor.config.SessionName`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionName(pub String);
@@ -580,6 +621,15 @@ pub struct UpgradeReport {
     pub outcome: UpgradeOutcome,
     /// `binary` — `String`.
     pub binary: String,
+}
+
+/// Usage — `conductor.config.Usage`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Usage {
+    /// `probe` — `Optional<String>`.
+    pub probe: Option<String>,
+    /// `watcher` — `Optional<String>`.
+    pub watcher: Option<String>,
 }
 
 /// ValidateConfig — `conductor.config.ValidateConfig`.

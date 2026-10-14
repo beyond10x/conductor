@@ -143,11 +143,15 @@ impl Cli {
                 SnapshotCommand::RecordSpecification(args) => {
                     snapshot::record_specification(state, args)
                 }
+                SnapshotCommand::RecordUsage(args) => snapshot::record_usage(state, args),
                 SnapshotCommand::RecordCollectorRun(args) => {
                     snapshot::record_collector_run(state, args)
                 }
                 SnapshotCommand::RecordMemberFailure(args) => {
                     snapshot::record_member_failure(state, args)
+                }
+                SnapshotCommand::RecordSecretSync(args) => {
+                    snapshot::record_secret_sync(state, args)
                 }
                 SnapshotCommand::PublishBoard(args) => status::publish_board(state, args),
                 SnapshotCommand::CompleteSnapshot(args) => snapshot::complete_snapshot(state, args),
@@ -165,6 +169,8 @@ impl Cli {
                 SnapshotCommand::Specifications(view) => snapshot::specifications(state, view),
                 SnapshotCommand::MemberFailures(view) => snapshot::member_failures(state, view),
                 SnapshotCommand::CollectorRuns(view) => snapshot::collector_runs(state, view),
+                SnapshotCommand::SecretSyncs(view) => snapshot::secret_syncs(state, view),
+                SnapshotCommand::UsageReadings(view) => snapshot::usage_readings(state, view),
                 SnapshotCommand::Boards(view) => status::boards(state, view),
             },
             Group::Goal(command) => match command {
@@ -494,8 +500,10 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["snapshot", "record-pull-request"], Access::Writes),
     (&["snapshot", "record-release"], Access::Writes),
     (&["snapshot", "record-repository"], Access::Writes),
+    (&["snapshot", "record-secret-sync"], Access::Writes),
     (&["snapshot", "record-session"], Access::Writes),
     (&["snapshot", "record-specification"], Access::Writes),
+    (&["snapshot", "record-usage"], Access::Writes),
     (&["snapshot", "record-workflow-run"], Access::Writes),
     (&["snapshot", "start-snapshot"], Access::Writes),
     (&["snapshot", "blockers"], Access::Reads),
@@ -506,9 +514,11 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["snapshot", "pull-requests"], Access::Reads),
     (&["snapshot", "releases"], Access::Reads),
     (&["snapshot", "repositories"], Access::Reads),
+    (&["snapshot", "secret-syncs"], Access::Reads),
     (&["snapshot", "sessions"], Access::Reads),
     (&["snapshot", "snapshots"], Access::Reads),
     (&["snapshot", "specifications"], Access::Reads),
+    (&["snapshot", "usage-readings"], Access::Reads),
     (&["snapshot", "workflow-runs"], Access::Reads),
     (&["goal", "add-serving"], Access::Writes),
     (&["goal", "confirm-goal"], Access::Writes),
@@ -657,6 +667,10 @@ pub enum SnapshotCommand {
     #[command(name = "record-repository")]
     RecordRepository(RecordRepositoryArgs),
 
+    /// Record a secret sync
+    #[command(name = "record-secret-sync")]
+    RecordSecretSync(RecordSecretSyncArgs),
+
     /// Record a session
     #[command(name = "record-session")]
     RecordSession(RecordSessionArgs),
@@ -664,6 +678,10 @@ pub enum SnapshotCommand {
     /// Record a specification status
     #[command(name = "record-specification")]
     RecordSpecification(RecordSpecificationArgs),
+
+    /// Record one window of an account's usage
+    #[command(name = "record-usage")]
+    RecordUsage(RecordUsageArgs),
 
     /// Record a workflow run
     #[command(name = "record-workflow-run")]
@@ -705,6 +723,10 @@ pub enum SnapshotCommand {
     #[command(name = "repositories")]
     Repositories(ViewArgs),
 
+    /// Secret syncs
+    #[command(name = "secret-syncs")]
+    SecretSyncs(ViewArgs),
+
     /// Sessions
     #[command(name = "sessions")]
     Sessions(ViewArgs),
@@ -716,6 +738,10 @@ pub enum SnapshotCommand {
     /// Specifications
     #[command(name = "specifications")]
     Specifications(ViewArgs),
+
+    /// Usage readings
+    #[command(name = "usage-readings")]
+    UsageReadings(ViewArgs),
 
     /// Workflow runs
     #[command(name = "workflow-runs")]
@@ -1843,6 +1869,9 @@ pub struct RecordPullRequestArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub failing_checks: Option<i64>,
+    /// list of string, a JSON array
+    #[arg(long, value_parser = json_list)]
+    pub failing_check_names: Option<String>,
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub opened_at: Option<String>,
@@ -1924,6 +1953,38 @@ pub struct RecordWorkflowRunArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub run_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.observation.RecordSecretSync`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordSecretSyncArgs {
+    /// SnapshotId
+    #[arg(long, value_parser = uuid)]
+    pub snapshot_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub sync: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub repository: Option<String>,
+    /// string
+    #[arg(long)]
+    pub branch: Option<String>,
+    /// string
+    #[arg(long)]
+    pub path: Option<String>,
+    /// timestamp, RFC 3339, optional
+    #[arg(long, value_parser = timestamp)]
+    pub source_committed_at: Option<String>,
+    /// timestamp, RFC 3339, optional
+    #[arg(long, value_parser = timestamp)]
+    pub secrets_updated_at: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub error_line: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2023,6 +2084,38 @@ pub struct RecordCollectorRunArgs {
     /// CollectorRunOutcome
     #[arg(long, value_parser = ["Completed", "Failed", "OverBudget"])]
     pub outcome: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.observation.RecordUsage`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordUsageArgs {
+    /// SnapshotId
+    #[arg(long, value_parser = uuid)]
+    pub snapshot_id: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub read_at: Option<String>,
+    /// string
+    #[arg(long)]
+    pub account: Option<String>,
+    /// boolean
+    #[arg(long)]
+    pub active: Option<bool>,
+    /// string
+    #[arg(long)]
+    pub health: Option<String>,
+    /// string
+    #[arg(long)]
+    pub window: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub used_percent: Option<i64>,
+    /// timestamp, RFC 3339, optional
+    #[arg(long, value_parser = timestamp)]
+    pub resets_at: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2426,6 +2519,13 @@ pub struct EscalateRequestArgs {
     /// string
     #[arg(long)]
     pub reason: Option<String>,
+    /// The file holding the dry run: what every step of the operator's script that needs no
+    /// credential printed. A class-H escalation carries this or `--no-dry-run`
+    #[arg(long, value_name = "FILE")]
+    pub dry_run: Option<String>,
+    /// Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run`
+    #[arg(long, value_name = "REASON")]
+    pub no_dry_run: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

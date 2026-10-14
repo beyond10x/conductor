@@ -32,8 +32,10 @@ pub mod blockers;
 pub mod github;
 pub mod gitlab;
 pub mod repositories;
+pub mod secrets;
 pub mod sessions;
 pub mod specifications;
+pub mod usage;
 
 /// What a collector runs: it records into the snapshot `Recorder` holds, which replaces whatever
 /// snapshot an input names, and answers an error when its source did not answer or an observation
@@ -87,7 +89,9 @@ impl fmt::Debug for Collector {
 /// each owner's list and each GitLab group's projects), GitHub's pull requests and `main` runs,
 /// GitLab's merge requests and default-branch pipelines (`story:gitlab-merge-requests`), the
 /// planning stores' blockers, the specifications (whose conformance status reads the blockers'
-/// workspace listing), and the live sessions.
+/// workspace listing), the live sessions, the secret syncs' drift (`story:policy-secret-drift`),
+/// and the harness accounts' usage through the instance's `usage.probe`, when it names one
+/// (`story:usage-probe`).
 #[must_use]
 pub fn registered() -> Vec<Collector> {
     vec![
@@ -97,11 +101,14 @@ pub fn registered() -> Vec<Collector> {
         Collector::new("blockers", blockers::collect),
         Collector::new("specifications", specifications::collect),
         Collector::new("sessions", sessions::collect),
+        Collector::new("secrets", secrets::collect),
+        Collector::new(usage::COLLECTOR, usage::collect),
     ]
 }
 
 /// The programs the [`registered`] collectors start on every run for `instance`
-/// (`story:install-prerequisites`): `gh` when it has a `github` source, `glab` when it has a
+/// (`story:install-prerequisites`): `gh` when it has a `github` source or a secret sync
+/// (`story:policy-secret-drift`), `glab` when it has a
 /// `gitlab` source (`story:gh-optional`), `git` when its checkouts root or a `local` source holds
 /// a repository (a directory holding `.git`, at depth 1 or in a group at depth 2), and `aep` and
 /// `claude` always. `ess` is not among them: the `specifications` collector starts it only for a
@@ -110,7 +117,7 @@ pub fn registered() -> Vec<Collector> {
 pub fn programs(instance: &Instance) -> Vec<&'static str> {
     let origins = Origins::of(instance);
     let mut programs = Vec::new();
-    if !origins.owners.is_empty() {
+    if !origins.owners.is_empty() || !instance.secret_syncs.is_empty() {
         programs.push("gh");
     }
     if instance

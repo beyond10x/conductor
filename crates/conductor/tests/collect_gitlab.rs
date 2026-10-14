@@ -454,7 +454,8 @@ fn a_snapshot_records_one_specification_row_per_project_of_the_group() {
 // ---------------------------------------------------------------------------------------------
 
 /// Acceptance 1: each open merge request of a project that is not archived is a pull request
-/// row, failing when its head pipeline failed: `alpha`'s `!1` passes, its `!2` fails. The
+/// row, failing when its head pipeline failed: `alpha`'s `!1` passes, its `!2` fails, its one
+/// failing check named for its head pipeline (`story:pr-check-names`). The
 /// archived `beta` is asked nothing (the fake `glab` holds no answer for it).
 #[test]
 fn an_open_merge_request_is_a_pull_request_row_failing_when_its_head_pipeline_failed() {
@@ -473,6 +474,7 @@ fn an_open_merge_request_is_a_pull_request_row_failing_when_its_head_pipeline_fa
                 "draft": false,
                 "mergeability": "Mergeable",
                 "failing_checks": 0,
+                "failing_check_names": [],
                 "opened_at": "2026-10-05T09:00:00Z",
                 "updated_at": "2026-10-06T09:00:00Z",
                 "url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/1",
@@ -484,6 +486,7 @@ fn an_open_merge_request_is_a_pull_request_row_failing_when_its_head_pipeline_fa
                 "draft": true,
                 "mergeability": "Conflicting",
                 "failing_checks": 1,
+                "failing_check_names": ["pipeline 502"],
                 "opened_at": "2026-10-04T09:00:00Z",
                 "updated_at": "2026-10-06T11:00:00Z",
                 "url": "https://gitlab.example.com/example-org/alpha/-/merge_requests/2",

@@ -38,8 +38,10 @@ Every command takes these, before or after its name.
 | [`conductor snapshot record-pull-request`](#conductor-snapshot-record-pull-request) | Record a pull request |
 | [`conductor snapshot record-release`](#conductor-snapshot-record-release) | Record a release |
 | [`conductor snapshot record-repository`](#conductor-snapshot-record-repository) | Record a repository |
+| [`conductor snapshot record-secret-sync`](#conductor-snapshot-record-secret-sync) | Record a secret sync |
 | [`conductor snapshot record-session`](#conductor-snapshot-record-session) | Record a session |
 | [`conductor snapshot record-specification`](#conductor-snapshot-record-specification) | Record a specification status |
+| [`conductor snapshot record-usage`](#conductor-snapshot-record-usage) | Record one window of an account's usage |
 | [`conductor snapshot record-workflow-run`](#conductor-snapshot-record-workflow-run) | Record a workflow run |
 | [`conductor snapshot start-snapshot`](#conductor-snapshot-start-snapshot) | Start a snapshot |
 | [`conductor snapshot blockers`](#conductor-snapshot-blockers) | Blockers |
@@ -50,9 +52,11 @@ Every command takes these, before or after its name.
 | [`conductor snapshot pull-requests`](#conductor-snapshot-pull-requests) | Pull requests |
 | [`conductor snapshot releases`](#conductor-snapshot-releases) | Releases |
 | [`conductor snapshot repositories`](#conductor-snapshot-repositories) | Repositories |
+| [`conductor snapshot secret-syncs`](#conductor-snapshot-secret-syncs) | Secret syncs |
 | [`conductor snapshot sessions`](#conductor-snapshot-sessions) | Sessions |
 | [`conductor snapshot snapshots`](#conductor-snapshot-snapshots) | Snapshots |
 | [`conductor snapshot specifications`](#conductor-snapshot-specifications) | Specifications |
+| [`conductor snapshot usage-readings`](#conductor-snapshot-usage-readings) | Usage readings |
 | [`conductor snapshot workflow-runs`](#conductor-snapshot-workflow-runs) | Workflow runs |
 | [`conductor goal`](#conductor-goal) | The goals dispatches serve |
 | [`conductor goal add-serving`](#conductor-goal-add-serving) | Add a serving repository to a goal |
@@ -292,6 +296,7 @@ Usage: conductor snapshot record-pull-request [OPTIONS]
 | `--draft <DRAFT>` | no | none | boolean One of `true`, `false`. |
 | `--mergeability <MERGEABILITY>` | no | none | Mergeability One of `Mergeable`, `Conflicting`, `Unknown`. |
 | `--failing-checks <FAILING_CHECKS>` | no | none | integer |
+| `--failing-check-names <FAILING_CHECK_NAMES>` | no | none | list of string, a JSON array |
 | `--opened-at <OPENED_AT>` | no | none | timestamp, RFC 3339 |
 | `--updated-at <UPDATED_AT>` | no | none | timestamp, RFC 3339 |
 | `--url <URL>` | no | none | string, optional |
@@ -350,6 +355,26 @@ Usage: conductor snapshot record-repository [OPTIONS]
 | `--wave-reason <WAVE_REASON>` | no | none | string, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor snapshot record-secret-sync`
+
+Record a secret sync
+
+```text
+Usage: conductor snapshot record-secret-sync [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
+| `--sync <SYNC>` | no | none | string |
+| `--repository <REPOSITORY>` | no | none | RepositoryName |
+| `--branch <BRANCH>` | no | none | string |
+| `--path <PATH>` | no | none | string |
+| `--source-committed-at <SOURCE_COMMITTED_AT>` | no | none | timestamp, RFC 3339, optional |
+| `--secrets-updated-at <SECRETS_UPDATED_AT>` | no | none | timestamp, RFC 3339, optional |
+| `--error-line <ERROR_LINE>` | no | none | string, optional |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
 ## `conductor snapshot record-session`
 
 Record a session
@@ -398,6 +423,26 @@ Usage: conductor snapshot record-specification [OPTIONS]
 | `--scenarios <SCENARIOS>` | no | none | integer, optional |
 | `--synthesis-refusals <SYNTHESIS_REFUSALS>` | no | none | integer, optional |
 | `--conformance-status <CONFORMANCE_STATUS>` | no | none | string, optional |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor snapshot record-usage`
+
+Record one window of an account's usage
+
+```text
+Usage: conductor snapshot record-usage [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
+| `--read-at <READ_AT>` | no | none | timestamp, RFC 3339 |
+| `--account <ACCOUNT>` | no | none | string |
+| `--active <ACTIVE>` | no | none | boolean One of `true`, `false`. |
+| `--health <HEALTH>` | no | none | string |
+| `--window <WINDOW>` | no | none | string |
+| `--used-percent <USED_PERCENT>` | no | none | integer |
+| `--resets-at <RESETS_AT>` | no | none | timestamp, RFC 3339, optional |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-workflow-run`
@@ -528,6 +573,18 @@ Usage: conductor snapshot repositories [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
+## `conductor snapshot secret-syncs`
+
+Secret syncs
+
+```text
+Usage: conductor snapshot secret-syncs [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
 ## `conductor snapshot sessions`
 
 Sessions
@@ -558,6 +615,18 @@ Specifications
 
 ```text
 Usage: conductor snapshot specifications [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor snapshot usage-readings`
+
+Usage readings
+
+```text
+Usage: conductor snapshot usage-readings [OPTIONS]
 ```
 
 | Argument | Required | Default | Meaning |
@@ -848,6 +917,8 @@ Usage: conductor decision escalate-request [OPTIONS]
 | `--request-id <REQUEST_ID>` | no | none | RequestId |
 | `--escalation-class <ESCALATION_CLASS>` | no | none | DecisionClass One of `C`, `O`, `H`. |
 | `--reason <REASON>` | no | none | string |
+| `--dry-run <FILE>` | no | none | The file holding the dry run: what every step of the operator's script that needs no credential printed. A class-H escalation carries this or `--no-dry-run` |
+| `--no-dry-run <REASON>` | no | none | Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run` |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision raise-decision-request`

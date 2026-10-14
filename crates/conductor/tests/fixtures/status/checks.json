@@ -1,0 +1,105 @@
+{
+  "repositories": [
+    {
+      "repository": "alpha",
+      "archived": false,
+      "local_checkout": true,
+      "open_issues": 3,
+      "latest_release": "v1.2.0",
+      "latest_release_at": "2026-10-01T09:00:00Z",
+      "unreleased_commits": 0
+    },
+    {
+      "repository": "beta",
+      "archived": false,
+      "local_checkout": false,
+      "open_issues": 1,
+      "latest_release": null,
+      "latest_release_at": null,
+      "unreleased_commits": null
+    },
+    {
+      "repository": "gamma",
+      "archived": true,
+      "local_checkout": false,
+      "open_issues": 0,
+      "latest_release": null,
+      "latest_release_at": null,
+      "unreleased_commits": null
+    }
+  ],
+  "pull_requests": [
+    {
+      "repository": "alpha",
+      "number": 9,
+      "title": "Lint the board",
+      "failing_checks": 1,
+      "failing_check_names": [
+        "lint"
+      ],
+      "opened_at": "2026-10-10T09:00:00Z"
+    },
+    {
+      "repository": "alpha",
+      "number": 7,
+      "title": "Add the board",
+      "failing_checks": 3,
+      "failing_check_names": [
+        "Security",
+        "test (shard 3)",
+        "docs"
+      ],
+      "opened_at": "2026-10-10T08:00:00Z"
+    },
+    {
+      "repository": "alpha",
+      "number": 8,
+      "title": "Recorded before the names",
+      "failing_checks": 1,
+      "opened_at": "2026-10-10T08:30:00Z"
+    },
+    {
+      "repository": "alpha",
+      "number": 10,
+      "title": "Green",
+      "failing_checks": 0,
+      "failing_check_names": [],
+      "opened_at": "2026-10-10T10:00:00Z"
+    }
+  ],
+  "workflow_runs": [
+    {
+      "repository": "alpha",
+      "workflow": "check",
+      "conclusion": "Success"
+    }
+  ],
+  "specifications": [
+    {
+      "repository": "alpha",
+      "presence": "Present",
+      "validation": "Valid"
+    },
+    {
+      "repository": "beta",
+      "presence": "OptedOut",
+      "validation": "NotRun"
+    }
+  ],
+  "blockers": [
+    {
+      "repository": "alpha",
+      "reference": "blocker:token-scope",
+      "blocker_kind": "decision",
+      "title": "Which token scope the release job gets"
+    }
+  ],
+  "sessions": [
+    {
+      "session_ref": "s-alpha",
+      "name": "alpha",
+      "repository": "alpha",
+      "activity": "Busy"
+    }
+  ]
+}

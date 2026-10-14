@@ -29,6 +29,11 @@
 //! - a `catalog` (`story:catalog-source`) names its `repository`, a path under the checkouts
 //!   root, and its `path`, a directory relative to that repository's top, each without `.` or
 //!   `..` steps;
+//! - each of `secret_syncs` (`story:policy-secret-drift`) names its `name`, no two alike, its
+//!   `source` (a `repository` under the checkouts root and a file `path` of it, each without `.`
+//!   or `..` steps, and a `branch`, `main` when absent), one or more `secrets` (each an `owner`,
+//!   a `name` and, for a repository's secret, its `repository`), and its `command`, and may name
+//!   a `dry_run`;
 //! - the most controllers working at once and the most sub-agents one controller runs at once are
 //!   each a whole number of 1 or more (`Controllers`'s invariants), and so is the number of
 //!   snapshots whose observations are kept (`Retention`'s);
@@ -54,6 +59,8 @@
 //!   more (`Limits`'s invariants), and a role's limit lies at or under the instance's of the same
 //!   key, where the instance sets one; a role's `writable` entry is a place's word
 //!   ([`PLACES`]) or a path, and its `network` is `open`;
+//! - `usage.probe` (`story:usage-probe`) is a command, not empty, and `usage.watcher` a systemd
+//!   unit name ([`unit_name`]);
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
 //!   `github_pat_`, `glpat-` or `xox<letter>-`) is refused by its path, and never printed.
 //!
@@ -62,7 +69,8 @@
 //! and `~/.cache/b10x/conductor/<name>`; `roles`, `controllers`, `cadence`, `thresholds`,
 //! `retention` and `authority`, and each key of the last five, are the built-in defaults;
 //! `dashboard_port` is 7313 plus the instance's index in the file ([`dashboard_port`]);
-//! `repositories` and `reports` are empty; `operator`, `catalog`, `gates_policy`, `session_prefix`, and a role's
+//! `repositories`, `reports` and `secret_syncs` are empty; `operator`, `catalog`, `gates_policy`,
+//! `usage.probe`, `usage.watcher`, `session_prefix`, and a role's
 //! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
 //! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
 //! `confinement` is `report` through `systemd` with no limit; a role sets no limit, writes its
@@ -87,10 +95,10 @@ use std::sync::OnceLock;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
-    Confinement, ConfinementMode, ConfinementProvider, Controllers, Gibibytes, GitHubSource,
-    GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network, Report,
-    RepositoryRule, Retention, Role, SessionName, SessionPrefix, Source, Thresholds, TimeOfDay,
-    Tokens, WorkspaceMember, Writable,
+    Confinement, ConfinementMode, ConfinementProvider, Controllers, ForgeSecret, Gibibytes,
+    GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network,
+    Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SessionName, SessionPrefix,
+    Source, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -217,7 +225,7 @@ pub const SILENT_SESSION_MINUTES: u64 = 30;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 21] = [
+const INSTANCE_KEYS: [&str; 23] = [
     "name",
     "session_prefix",
     "dashboard_port",
@@ -235,8 +243,10 @@ const INSTANCE_KEYS: [&str; 21] = [
     "retention",
     "reports",
     "authority",
+    "usage",
     "operator",
     "catalog",
+    "secret_syncs",
     "gates_policy",
     "conductor",
 ];
@@ -281,6 +291,28 @@ const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
 const AUTHORITY_KEYS: [&str; 2] = ["class_c", "class_o"];
 const CATALOG_KEYS: [&str; 3] = ["repository", "path", "names"];
+const SECRET_SYNC_KEYS: [&str; 5] = ["name", "source", "secrets", "command", "dry_run"];
+const SECRET_SOURCE_KEYS: [&str; 3] = ["repository", "branch", "path"];
+const FORGE_SECRET_KEYS: [&str; 3] = ["owner", "repository", "name"];
+/// A secret sync's `source.branch` when the file leaves it out (`story:policy-secret-drift`).
+const SECRET_SOURCE_BRANCH: &str = "main";
+
+const USAGE_KEYS: [&str; 2] = ["probe", "watcher"];
+
+/// The suffixes of a systemd unit name: what `usage.watcher` ends with (`story:usage-probe`).
+const UNIT_TYPES: [&str; 11] = [
+    "service",
+    "socket",
+    "target",
+    "timer",
+    "path",
+    "scope",
+    "slice",
+    "mount",
+    "automount",
+    "swap",
+    "device",
+];
 
 /// How the file writes each `conductor.config.CatalogNames`.
 const CATALOG_NAMES: [(&str, CatalogNames); 2] =
@@ -683,10 +715,14 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         retention: default_retention(),
         reports: Vec::new(),
         authority: default_authority(),
+        // A usage probe and watcher are named only by a user (story:usage-probe).
+        usage: no_usage(),
         // The operator is named only by a user.
         operator: None,
         // A catalog is named only by a user (story:catalog-source).
         catalog: None,
+        // A secret sync is named only by a user (story:policy-secret-drift).
+        secret_syncs: Vec::new(),
         // A Gates policy is named only by a user (story:gates-hooks-fresh).
         gates_policy: None,
         // Its own conductor, `conductor` (story:instance-session-names).
@@ -885,6 +921,25 @@ fn default_thresholds() -> Thresholds {
         gate_resume: Gibibytes(GATE_RESUME_GIB),
         watchdog_every: Duration(format!("PT{WATCHDOG_EVERY}S")),
         silent_session: Duration(format!("PT{SILENT_SESSION_MINUTES}M")),
+    }
+}
+
+/// Whether `unit` is a systemd unit name: letters, digits, `:`, `_`, `.`, `@` and `-`, ending
+/// in `.` and one of [`UNIT_TYPES`] after a name of its own (`story:usage-probe`).
+#[must_use]
+pub fn unit_name(unit: &str) -> bool {
+    unit.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '.' | '@' | '-'))
+        && unit.rsplit_once('.').is_some_and(|(name, kind)| {
+            !name.is_empty() && !name.starts_with('-') && UNIT_TYPES.contains(&kind)
+        })
+}
+
+/// No usage probe and no watcher: what an instance that names neither has (`story:usage-probe`).
+fn no_usage() -> Usage {
+    Usage {
+        probe: None,
+        watcher: None,
     }
 }
 
@@ -1694,6 +1749,10 @@ impl Reader<'_> {
             Some(value) => self.authority(value, &join(path, "authority")),
             None => Some(default_authority()),
         };
+        let usage = match Self::get(map, "usage") {
+            Some(value) => self.usage(value, &join(path, "usage")),
+            None => Some(no_usage()),
+        };
         let operator = match Self::get(map, "operator") {
             Some(value) => self.text(value, &join(path, "operator")).map(Some),
             None => Some(None),
@@ -1701,6 +1760,10 @@ impl Reader<'_> {
         let catalog = match Self::get(map, "catalog") {
             Some(value) => self.catalog(value, &join(path, "catalog")).map(Some),
             None => Some(None),
+        };
+        let secret_syncs = match Self::get(map, "secret_syncs") {
+            Some(value) => self.secret_syncs(value, &join(path, "secret_syncs")),
+            None => Some(Vec::new()),
         };
         let gates_policy = match Self::get(map, "gates_policy") {
             Some(value) => self.path(value, &join(path, "gates_policy")).map(Some),
@@ -1731,8 +1794,10 @@ impl Reader<'_> {
             retention: retention?,
             reports: reports?,
             authority: authority?,
+            usage: usage?,
             operator: operator?,
             catalog: catalog?,
+            secret_syncs: secret_syncs?,
             gates_policy: gates_policy?,
         })
     }
@@ -1903,6 +1968,115 @@ impl Reader<'_> {
             repository: repository?,
             path: directory?,
             names: names?,
+        })
+    }
+
+    /// The instance's `secret_syncs` (`story:policy-secret-drift`): each a
+    /// `conductor.config.SecretSync`, no two of one name.
+    fn secret_syncs(&mut self, value: &Value, path: &str) -> Option<Vec<SecretSync>> {
+        // Two syncs of one name are named whether or not either converts.
+        let mut named: Vec<&str> = Vec::new();
+        let mut distinct = true;
+        for (index, item) in value.as_array().into_iter().flatten().enumerate() {
+            let Some(name) = item.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            if named.contains(&name) {
+                self.problem(
+                    &join(&format!("{path}[{index}]"), "name"),
+                    format!("{name:?} names an earlier sync too; give each sync its own name"),
+                );
+                distinct = false;
+            }
+            named.push(name);
+        }
+        let syncs = self.list(value, path, Self::secret_sync)?;
+        distinct.then_some(syncs)
+    }
+
+    /// `conductor.config.SecretSync`: a name, a source, one or more secrets, the command that
+    /// publishes the source, and the one that shows what it would publish, when given.
+    fn secret_sync(&mut self, value: &Value, path: &str) -> Option<SecretSync> {
+        let map = self.mapping(value, path, &SECRET_SYNC_KEYS)?;
+        let name = self
+            .required(map, path, "name")
+            .and_then(|value| self.text(value, &join(path, "name")));
+        let source = self
+            .required(map, path, "source")
+            .and_then(|value| self.secret_source(value, &join(path, "source")));
+        let secrets = self.required(map, path, "secrets").and_then(|value| {
+            let at = join(path, "secrets");
+            let secrets = self.list(value, &at, Self::forge_secret)?;
+            if secrets.is_empty() {
+                self.problem(&at, "names no secret; a sync feeds one or more");
+                return None;
+            }
+            Some(secrets)
+        });
+        let command = self
+            .required(map, path, "command")
+            .and_then(|value| self.text(value, &join(path, "command")));
+        let dry_run = match Self::get(map, "dry_run") {
+            Some(value) => self.text(value, &join(path, "dry_run")).map(Some),
+            None => Some(None),
+        };
+        Some(SecretSync {
+            name: name?,
+            source: source?,
+            secrets: secrets?,
+            command: command?,
+            dry_run: dry_run?,
+        })
+    }
+
+    /// `conductor.config.SecretSource`: a repository under the checkouts root and a file of it,
+    /// each a relative path, and the branch, [`SECRET_SOURCE_BRANCH`] when absent.
+    fn secret_source(&mut self, value: &Value, path: &str) -> Option<SecretSource> {
+        let map = self.mapping(value, path, &SECRET_SOURCE_KEYS)?;
+        let repository = self.required(map, path, "repository").and_then(|value| {
+            self.relative(
+                value,
+                &join(path, "repository"),
+                "is not a repository under the checkouts root: write its path under the root, \
+                 such as policies or group/policies, without `.` or `..`",
+            )
+        });
+        let file = self.required(map, path, "path").and_then(|value| {
+            self.relative(
+                value,
+                &join(path, "path"),
+                "is not a file of the source repository: write it relative to the repository's \
+                 top, such as ci/policy.json, without `.` or `..`",
+            )
+        });
+        let branch = match Self::get(map, "branch") {
+            Some(value) => self.text(value, &join(path, "branch")),
+            None => Some(SECRET_SOURCE_BRANCH.to_owned()),
+        };
+        Some(SecretSource {
+            repository: repository?,
+            branch: branch?,
+            path: file?,
+        })
+    }
+
+    /// `conductor.config.ForgeSecret`: an owner's secret, or its repository's when one is named.
+    fn forge_secret(&mut self, value: &Value, path: &str) -> Option<ForgeSecret> {
+        let map = self.mapping(value, path, &FORGE_SECRET_KEYS)?;
+        let owner = self
+            .required(map, path, "owner")
+            .and_then(|value| self.text(value, &join(path, "owner")));
+        let repository = match Self::get(map, "repository") {
+            Some(value) => self.text(value, &join(path, "repository")).map(Some),
+            None => Some(None),
+        };
+        let name = self
+            .required(map, path, "name")
+            .and_then(|value| self.text(value, &join(path, "name")));
+        Some(ForgeSecret {
+            owner: owner?,
+            repository: repository?,
+            name: name?,
         })
     }
 
@@ -2380,6 +2554,41 @@ impl Reader<'_> {
         })
     }
 
+    /// `conductor.config.Usage` (`story:usage-probe`): `probe`, a command, and `watcher`, a
+    /// systemd unit name ([`unit_name`]); each absent when not written.
+    fn usage(&mut self, value: &Value, path: &str) -> Option<Usage> {
+        let map = self.mapping(value, path, &USAGE_KEYS)?;
+        let probe = match Self::get(map, "probe") {
+            Some(value) => self.text(value, &join(path, "probe")).map(Some),
+            None => Some(None),
+        };
+        let watcher = match Self::get(map, "watcher") {
+            Some(value) => {
+                let at = join(path, "watcher");
+                self.text(value, &at).and_then(|unit| {
+                    if unit_name(&unit) {
+                        Some(Some(unit))
+                    } else {
+                        self.problem(
+                            &at,
+                            format!(
+                                "{} is not a systemd unit name: letters, digits, ':', '_', '.', \
+                                 '@' and '-', ending in a unit type such as .service",
+                                echo(value)
+                            ),
+                        );
+                        None
+                    }
+                })
+            }
+            None => Some(None),
+        };
+        Some(Usage {
+            probe: probe?,
+            watcher: watcher?,
+        })
+    }
+
     fn authority(&mut self, value: &Value, path: &str) -> Option<Authority> {
         let map = self.mapping(value, path, &AUTHORITY_KEYS)?;
         let defaults = default_authority();
@@ -2731,6 +2940,13 @@ pub fn document(instance: &Instance) -> Yaml {
                 ("class_o", text(decider(instance.authority.class_o))),
             ]),
         ),
+        (
+            "usage",
+            mapping([
+                ("probe", optional(instance.usage.probe.as_ref())),
+                ("watcher", optional(instance.usage.watcher.as_ref())),
+            ]),
+        ),
         ("operator", optional(instance.operator.as_ref())),
         (
             "catalog",
@@ -2745,6 +2961,48 @@ pub fn document(instance: &Instance) -> Yaml {
                     ("names", text(names)),
                 ])
             }),
+        ),
+        (
+            "secret_syncs",
+            Yaml::Sequence(
+                instance
+                    .secret_syncs
+                    .iter()
+                    .map(|sync| {
+                        mapping([
+                            ("name", text(&sync.name)),
+                            (
+                                "source",
+                                mapping([
+                                    ("repository", text(&sync.source.repository)),
+                                    ("branch", text(&sync.source.branch)),
+                                    ("path", text(&sync.source.path)),
+                                ]),
+                            ),
+                            (
+                                "secrets",
+                                Yaml::Sequence(
+                                    sync.secrets
+                                        .iter()
+                                        .map(|secret| {
+                                            mapping([
+                                                ("owner", text(&secret.owner)),
+                                                (
+                                                    "repository",
+                                                    optional(secret.repository.as_ref()),
+                                                ),
+                                                ("name", text(&secret.name)),
+                                            ])
+                                        })
+                                        .collect(),
+                                ),
+                            ),
+                            ("command", text(&sync.command)),
+                            ("dry_run", optional(sync.dry_run.as_ref())),
+                        ])
+                    })
+                    .collect(),
+            ),
         ),
         ("gates_policy", optional(instance.gates_policy.as_ref())),
         (

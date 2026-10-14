@@ -25,6 +25,13 @@ instances:
       repository: registry
       path: catalog/entries
       names: plain
+    secret_syncs:
+      - name: ci-policy
+        source: {repository: policies, branch: main, path: ci/policy.json}
+        secrets:
+          - {owner: example-org, name: CI_POLICY}
+        command: example-sync publish ci/policy.json
+        dry_run: example-sync publish ci/policy.json --dry-run
     cadence:
       cycle: 2h
       daily: 08:07
@@ -39,6 +46,11 @@ instances:
     authority:
       class_c: conductor
       class_o: operator
+    # The command that prints the harness accounts' usage as JSON, and the systemd user unit that
+    # rotates them (docs/config.md, Usage). Both are the operator's tools; conductor names none.
+    usage:
+      probe: usage-probe --json
+      watcher: usage-rotator.service
 
   - name: work
     session_prefix: work

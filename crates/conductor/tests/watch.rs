@@ -1704,6 +1704,7 @@ fn take_reviews(state: &Path, started_at: &str, waiting: i64) {
                 draft,
                 mergeability: Mergeability::Mergeable,
                 failing_checks,
+                failing_check_names: Vec::new(),
                 opened_at: Timestamp(format!("2026-10-0{}T09:00:00Z", 1 + number % 6)),
                 updated_at: Timestamp("2026-10-07T09:00:00Z".to_owned()),
                 url: None,
