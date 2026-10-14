@@ -6,7 +6,9 @@
 //! cases use (`Sources::free_bytes`, a `fn(&Path) -> Result<u64>` over `Sources::disk`), and a
 //! fake reclaim (`Sources::reclaim`) that rewrites `free.txt` as freeing space would, and counts
 //! its calls in `reclaims.txt`. The command is a real `sh -c` in its own process group, run in
-//! `work/` of the case, so pausing it with `SIGSTOP` is seen as its `ticks` file stopping.
+//! `work/` of the case, so pausing it with `SIGSTOP` is seen as its `ticks` file stopping. The
+//! home directory and `/var/tmp` a disk item is written against are `home/example-user/` and
+//! `var-tmp/` of the case (`Sources::home`, `Sources::var_tmp`); nothing reads the real ones.
 
 mod active;
 mod common;
@@ -71,7 +73,36 @@ impl Case {
             reclaim,
             clock: OffsetDateTime::now_utc,
             every: Duration::from_millis(50),
+            home: Some(self.home()),
+            var_tmp: self.var_tmp(),
         }
+    }
+
+    /// The case's home directory, named after its user.
+    fn home(&self) -> PathBuf {
+        self.dir.join("home").join("example-user")
+    }
+
+    /// The case's `/var/tmp`.
+    fn var_tmp(&self) -> PathBuf {
+        self.dir.join("var-tmp")
+    }
+
+    fn request_in(&self, repository: &str, reserve: u64, script: &str) -> Request {
+        Request {
+            repository: Some(repository.to_owned()),
+            ..self.request(reserve, script)
+        }
+    }
+
+    /// Every disk request of the store, in any state, with its state.
+    fn disk_items(&self) -> Vec<conductor_model::decision::DecisionRequestSnapshot> {
+        let store = conductor_cli::store::open(&self.state()).expect("the store opens");
+        store
+            .list()
+            .into_iter()
+            .filter(|request| request.data.request_id.0.starts_with("disk-"))
+            .collect()
     }
 
     fn request(&self, reserve: u64, script: &str) -> Request {
@@ -107,12 +138,13 @@ impl Case {
     }
 }
 
-/// The thresholds of every case: the floor (`thresholds.disk_admit`) 10G, `gate_stop` 5G and
-/// `gate_resume` 8G.
+/// The thresholds of every case: the floor (`thresholds.disk_admit`) 10G, `disk_clear` 20G,
+/// `gate_stop` 5G and `gate_resume` 8G.
 fn settings() -> Settings {
     Settings {
         instance: "example-org".to_owned(),
         floor: 10 * GIB,
+        clear: 20 * GIB,
         gate_stop: 5 * GIB,
         gate_resume: 8 * GIB,
         wait: Duration::ZERO,
@@ -356,7 +388,10 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
     assert_eq!(todo.len(), 1, "one operator item: {todo:?}");
     let request = &todo[0].data;
     assert_eq!(item.as_ref(), Some(&request.request_id.0), "{outcome:?}");
-    assert_eq!(request.repository.0, "example-repo");
+    assert_eq!(
+        request.repository.0, "example-org",
+        "the item is the fall's, of the instance, not one repository's"
+    );
     assert!(
         request.question.contains("3G short") && request.question.contains("sh -c touch ran"),
         "the item names the shortfall and the command: {:?}",
@@ -389,7 +424,8 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
     );
     assert_eq!(case.hands_todo().len(), 1, "still one item in this fall");
 
-    // Once a reservation fits again the fall is over, and the next shortfall is a new item.
+    // Once free disk is back at `disk_clear` the fall is over, and the next shortfall is a new item.
+    let first = item.clone().expect("the first refusal recorded the item");
     case.free(100 * GIB);
     let fits = build::run(
         &case.state(),
@@ -407,11 +443,261 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
         &case.request(4 * GIB, "touch ran"),
     )
     .expect("the next run answers");
-    assert!(
-        matches!(next, Outcome::Refused { item: Some(_), .. }),
-        "{next:?}"
+    let Outcome::Refused {
+        item: Some(second), ..
+    } = &next
+    else {
+        panic!("a new fall, a new item: {next:?}");
+    };
+    assert_ne!(second, &first, "a new fall, a new item");
+    let todo: Vec<String> = case
+        .hands_todo()
+        .into_iter()
+        .map(|request| request.data.request_id.0)
+        .collect();
+    assert_eq!(
+        todo,
+        vec![second.clone()],
+        "the first fall's item was withdrawn"
     );
-    assert_eq!(case.hands_todo().len(), 2, "a new fall, a new item");
+}
+
+/// `story:disk-item-per-fall`: refusals for different commands and repositories in one fall of
+/// free disk share one item, even when a smaller reservation fits between them while free disk
+/// stays under `disk_clear`.
+#[test]
+fn refusals_in_one_fall_for_different_commands_and_repositories_record_one_item() {
+    let case = Case::new("one-item-per-fall");
+    case.free(10 * GIB);
+    let first = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_frees_1g),
+        &case.request_in("example-repo", 4 * GIB, "touch first"),
+    )
+    .expect("the first run answers");
+    assert!(
+        matches!(first, Outcome::Refused { item: Some(_), .. }),
+        "{first:?}"
+    );
+
+    // 11G free over a 10G floor: a 1G build fits, and free disk is still under `disk_clear`.
+    let small = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request_in("example-small", GIB, "true"),
+    )
+    .expect("the small run ends");
+    assert_eq!(small.exit_code(), 0, "{small:?}");
+
+    let second = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request_in("example-other", 6 * GIB, "touch second"),
+    )
+    .expect("the second run answers");
+    assert!(
+        matches!(second, Outcome::Refused { item: None, .. }),
+        "the fall has its item already: {second:?}"
+    );
+    let todo = case.hands_todo();
+    assert_eq!(todo.len(), 1, "one item for the fall: {todo:?}");
+    assert_eq!(case.disk_items().len(), 1, "{:?}", case.disk_items());
+}
+
+/// `story:disk-item-per-fall`: the fall's item is withdrawn on its own once free disk is back at
+/// `disk_clear`: by the next `build run`, or by the watch's pass ([`host::clear_fall`]), with no
+/// refusal or person in between; under `disk_clear` it stays.
+#[test]
+fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
+    let case = Case::new("withdrawn-at-disk-clear");
+    case.free(10 * GIB);
+    let refused = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(4 * GIB, "touch ran"),
+    )
+    .expect("the run answers");
+    let Outcome::Refused {
+        item: Some(item), ..
+    } = refused
+    else {
+        panic!("refused with an item: {refused:?}");
+    };
+    let state_of = |id: &str| {
+        case.disk_items()
+            .into_iter()
+            .find(|request| request.data.request_id.0 == id)
+            .map(|request| request.state)
+    };
+
+    // 15G free: over the floor, under `disk_clear` (20G): a build fits, the item stays.
+    case.free(15 * GIB);
+    let fits = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, "true"),
+    )
+    .expect("the run ends");
+    assert_eq!(fits.exit_code(), 0, "{fits:?}");
+    assert_eq!(
+        state_of(&item),
+        Some(DecisionRequestState::Escalated),
+        "under disk_clear the fall goes on"
+    );
+
+    // 20G free: back at `disk_clear`; the next run withdraws the item before it reserves.
+    case.free(20 * GIB);
+    let fits = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, "true"),
+    )
+    .expect("the run ends");
+    assert_eq!(fits.exit_code(), 0, "{fits:?}");
+    assert_eq!(state_of(&item), Some(DecisionRequestState::Withdrawn));
+    assert!(case.hands_todo().is_empty(), "{:?}", case.hands_todo());
+    assert!(!case.state().join("host.fall").exists());
+
+    // A new fall, cleared by the watch's pass alone: no build runs in between.
+    case.free(10 * GIB);
+    let refused = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(4 * GIB, "touch ran"),
+    )
+    .expect("the run answers");
+    let Outcome::Refused {
+        item: Some(next), ..
+    } = refused
+    else {
+        panic!("a new fall, a new item: {refused:?}");
+    };
+    assert_eq!(
+        host::clear_fall(&case.state(), 19 * GIB, 20 * GIB).expect("the pass reads"),
+        None,
+        "under disk_clear nothing is withdrawn"
+    );
+    assert_eq!(state_of(&next), Some(DecisionRequestState::Escalated));
+    assert_eq!(
+        host::clear_fall(&case.state(), 30 * GIB, 20 * GIB).expect("the pass withdraws"),
+        Some(next.clone())
+    );
+    assert_eq!(state_of(&next), Some(DecisionRequestState::Withdrawn));
+    assert_eq!(
+        host::clear_fall(&case.state(), 30 * GIB, 20 * GIB).expect("a second pass reads"),
+        None,
+        "withdrawn once"
+    );
+}
+
+/// A reclaim that frees 1G and leaves, only a person may remove, an 8G cache under the case's
+/// home and three `/var/tmp` entries of the case: one named after the user (3G), one after a
+/// third party's project (2G), and the smaller ones in one row.
+fn reclaim_leaves_personal_paths(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
+    count_reclaim(state);
+    let case = case_of(state);
+    let free = case.join("free.txt");
+    let now = written_bytes(&free)?;
+    replace(&free, &(now + GIB).to_string());
+    let var_tmp = case.join("var-tmp");
+    let home = case.join("home").join("example-user");
+    Ok(ReclaimReport {
+        reclaimed_bytes: GIB,
+        steps: Vec::new(),
+        left: vec![
+            (home.join(".cache/sccache").display().to_string(), 8 * GIB),
+            (var_tmp.join("example-user").display().to_string(), 3 * GIB),
+            (
+                var_tmp.join("example-project").display().to_string(),
+                2 * GIB,
+            ),
+            (var_tmp.display().to_string(), GIB / 4),
+        ],
+        reached: false,
+    })
+}
+
+/// `story:disk-item-redacted`: a disk item names the `/var/tmp` entries outside the instance only
+/// as a count and a total size, and every path under the home directory with `~/`, in the store
+/// and in the records' decisions log.
+#[test]
+fn a_disk_item_names_no_var_tmp_entry_and_writes_the_home_as_tilde() {
+    let case = Case::new("redacted");
+    for entry in ["example-user", "example-project", "small"] {
+        fs::create_dir_all(case.var_tmp().join(entry)).expect("create a /var/tmp entry");
+    }
+    fs::create_dir_all(case.home().join(".cache/sccache")).expect("create the home's cache");
+    let home = case.home().display().to_string();
+    case.free(10 * GIB);
+    let outcome = build::run(
+        &case.state(),
+        &settings(),
+        &case.sources(reclaim_leaves_personal_paths),
+        &case.request(4 * GIB, &format!("touch {home}/ran")),
+    )
+    .expect("the run answers");
+    let Outcome::Refused {
+        item: Some(item), ..
+    } = &outcome
+    else {
+        panic!("refused with an item: {outcome:?}");
+    };
+    let todo = case.hands_todo();
+    assert_eq!(todo.len(), 1, "{todo:?}");
+    let request = &todo[0].data;
+    let texts = [&request.question, &request.options, &request.recommendation];
+    for text in texts {
+        for named in ["example-user", "example-project", home.as_str()] {
+            assert!(!text.contains(named), "the item names {named:?}: {text:?}");
+        }
+    }
+    assert!(
+        request
+            .options
+            .contains("3 entries outside the instance, 6G"),
+        "the /var/tmp entries as a count and a total size: {:?}",
+        request.options
+    );
+    assert!(
+        request.options.contains("~/.cache/sccache (8G)"),
+        "a path under the home directory is written with ~/: {:?}",
+        request.options
+    );
+    assert!(
+        request.question.contains("touch ~/ran"),
+        "the command's home path is written with ~/: {:?}",
+        request.question
+    );
+    assert!(
+        request.recommendation.contains("~/.cache/sccache"),
+        "{:?}",
+        request.recommendation
+    );
+
+    // The decisions log of the records holds the same text.
+    let records =
+        PathBuf::from(&conductor_cli::config::active().instance.records).join("decisions");
+    let mut logged = 0;
+    for file in fs::read_dir(&records).expect("the decisions log exists") {
+        let text = fs::read_to_string(file.expect("a log file").path()).expect("a log reads");
+        for line in text.lines().filter(|line| line.contains(item.as_str())) {
+            logged += 1;
+            for named in ["example-user", "example-project", home.as_str()] {
+                assert!(!line.contains(named), "the log names {named:?}: {line}");
+            }
+        }
+    }
+    assert!(
+        logged >= 2,
+        "the item's requested and escalated lines are logged"
+    );
 }
 
 #[test]
