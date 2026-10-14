@@ -148,6 +148,35 @@ types:
       - {name: outcome, type: conductor.observation.GarbageOutcome}
       - {name: detail, type: Optional<String>}
 
+  # The input of `conductor repository refresh-hooks` (story:gates-hooks-fresh), which lists each
+  # checkout of the instance whose Gates hook (`.git/b10x-gates-hooks/b10x-gates`) lags the
+  # `b10x-gates` on `PATH` or is absent. `apply` runs `b10x-gates install` in each of them with
+  # the instance's `gates_policy`; `format` is text or json, read by the handler.
+  - name: conductor.observation.RefreshHooks
+    kind: struct
+    fields:
+      - {name: apply, type: Optional<Boolean>}
+      - {name: format, type: Optional<String>}
+
+  # What became of one checkout `refresh-hooks` names: listed, its hook lagging or absent;
+  # refreshed by `b10x-gates install`; or refused, the install failed or left the hook lagging.
+  - name: conductor.observation.HooksOutcome
+    kind: enum
+    variants: [Lagging, Absent, Refreshed, Refused]
+
+  # One checkout `refresh-hooks` names: the repository as `<owner>/<name>`, read from its `origin`;
+  # its directory; the hook's version before (absent when it had none) and after an install; the
+  # outcome, and the reason for a refusal.
+  - name: conductor.observation.HooksRow
+    kind: struct
+    fields:
+      - {name: repository, type: String}
+      - {name: checkout, type: String}
+      - {name: before, type: Optional<String>}
+      - {name: after, type: Optional<String>}
+      - {name: outcome, type: conductor.observation.HooksOutcome}
+      - {name: detail, type: Optional<String>}
+
   # One repository that is not archived, as the board compares it (story:dashboard-overview):
   # its deviations, in the order `STATUS.md` lists them, and the five counts its delta compares.
   # `conductor snapshot publish-board` and the dashboard's `/api/board` compute it in one place
@@ -268,6 +297,15 @@ entities:
       # checkout under the checkouts root.
       - name: in_catalog
         type: Optional<Boolean>
+      # The Gates hook installed in the repository's checkout (story:gates-hooks-fresh): the
+      # version `<checkout>/.git/b10x-gates-hooks/b10x-gates --version` prints, `unread` when it
+      # prints none; absent when the checkout has no such hook, or there is no checkout.
+      - name: gates_hooks_version
+        type: Optional<String>
+      # The version `b10x-gates --version` on `PATH` printed when the repository was observed;
+      # absent when none is on `PATH`. A hook whose version differs from it is stale.
+      - name: gates_version
+        type: Optional<String>
     lifecycle:
       initial: Recorded
       states: [Recorded]
@@ -753,6 +791,12 @@ commands:
       - name: in_catalog
         type: Optional<Boolean>
         example: true
+      - name: gates_hooks_version
+        type: Optional<String>
+        example: "0.1.14"
+      - name: gates_version
+        type: Optional<String>
+        example: "0.1.17"
     outcomes:
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
@@ -791,6 +835,8 @@ commands:
           unreleased_commits: input.unreleased_commits
           planning_store_version: input.planning_store_version
           in_catalog: input.in_catalog
+          gates_hooks_version: input.gates_hooks_version
+          gates_version: input.gates_version
         emits:
           - conductor.observation.RepositoryRecorded
         payload:
@@ -1694,6 +1740,10 @@ views:
         type: Optional<String>
       - name: in_catalog
         type: Optional<Boolean>
+      - name: gates_hooks_version
+        type: Optional<String>
+      - name: gates_version
+        type: Optional<String>
     naming:
       wire: repositories
       display: Repositories

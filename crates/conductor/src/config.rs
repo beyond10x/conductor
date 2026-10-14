@@ -62,7 +62,7 @@
 //! and `~/.cache/b10x/conductor/<name>`; `roles`, `controllers`, `cadence`, `thresholds`,
 //! `retention` and `authority`, and each key of the last five, are the built-in defaults;
 //! `dashboard_port` is 7313 plus the instance's index in the file ([`dashboard_port`]);
-//! `repositories` and `reports` are empty; `operator`, `catalog`, `session_prefix`, and a role's
+//! `repositories` and `reports` are empty; `operator`, `catalog`, `gates_policy`, `session_prefix`, and a role's
 //! `agent`, `settings` and `profile`, are absent, and `config show` writes an absent one as null;
 //! a catalog's `names` is `plain`. The built-in instance names no catalog and no session prefix.
 //! `confinement` is `report` through `systemd` with no limit; a role sets no limit, writes its
@@ -217,7 +217,7 @@ pub const SILENT_SESSION_MINUTES: u64 = 30;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 20] = [
+const INSTANCE_KEYS: [&str; 21] = [
     "name",
     "session_prefix",
     "dashboard_port",
@@ -237,6 +237,7 @@ const INSTANCE_KEYS: [&str; 20] = [
     "authority",
     "operator",
     "catalog",
+    "gates_policy",
     "conductor",
 ];
 const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
@@ -685,6 +686,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         operator: None,
         // A catalog is named only by a user (story:catalog-source).
         catalog: None,
+        // A Gates policy is named only by a user (story:gates-hooks-fresh).
+        gates_policy: None,
         // Its own conductor, `conductor` (story:instance-session-names).
         conductor: ConductorSession {
             served_by: None,
@@ -1697,6 +1700,10 @@ impl Reader<'_> {
             Some(value) => self.catalog(value, &join(path, "catalog")).map(Some),
             None => Some(None),
         };
+        let gates_policy = match Self::get(map, "gates_policy") {
+            Some(value) => self.path(value, &join(path, "gates_policy")).map(Some),
+            None => Some(None),
+        };
         // The conductor that serves the instance is derived once every instance is read
         // (`Reader::conductors`); until then, its own.
         let conductor = ConductorSession {
@@ -1724,6 +1731,7 @@ impl Reader<'_> {
             authority: authority?,
             operator: operator?,
             catalog: catalog?,
+            gates_policy: gates_policy?,
         })
     }
 
@@ -2702,6 +2710,7 @@ pub fn document(instance: &Instance) -> Yaml {
                 ])
             }),
         ),
+        ("gates_policy", optional(instance.gates_policy.as_ref())),
         (
             "conductor",
             mapping([
@@ -3024,40 +3033,9 @@ pub fn workspace_members(instance: &Instance, index: usize) -> Result<Vec<Worksp
         base: physical(&records.join(".engineering")),
         members: BTreeMap::new(),
     };
-    let root = Path::new(&instance.checkouts.root);
-    for (place, source) in instance.sources.iter().enumerate() {
-        let yaml = format!("instances[{index}].sources[{place}]");
-        match source {
-            Source::GitHub(_) => {
-                let at = format!("instances[{index}].checkouts.root");
-                for name in checkouts_under(root, &at)? {
-                    found.add(&name, &root.join(&name), &yaml)?;
-                }
-            }
-            Source::Local(local) => {
-                let dir = Path::new(&local.path);
-                for name in checkouts_under(dir, &join(&yaml, "local"))? {
-                    let excluded = local
-                        .exclude
-                        .iter()
-                        .any(|entry| Path::new(entry) == Path::new(&name));
-                    if !excluded {
-                        found.add(&name, &dir.join(&name), &yaml)?;
-                    }
-                }
-            }
-            Source::GitLab(gitlab) => {
-                for checkout in crate::collect::gitlab::checkouts(
-                    root,
-                    &gitlab.host,
-                    &gitlab.group,
-                    &gitlab.exclude,
-                ) {
-                    found.add(&checkout.path, &checkout.dir, &yaml)?;
-                }
-            }
-        }
-    }
+    each_checkout(instance, index, |name, dir, yaml| {
+        found.add(name, dir, yaml)
+    })?;
     let yaml = format!("instances[{index}].records");
     let name = physical(records)
         .file_name()
@@ -3070,6 +3048,71 @@ pub fn workspace_members(instance: &Instance, index: usize) -> Result<Vec<Worksp
         .into_iter()
         .map(|(name, (source, _))| WorkspaceMember { name, source })
         .collect())
+}
+
+/// Every checkout of `instance`, the instance at `index` of its config file, each once, in path
+/// order (`story:gates-hooks-fresh`): the members [`workspace_members`] writes, without the
+/// records directory ([`each_checkout`]).
+///
+/// # Errors
+///
+/// A directory cannot be read, named by its YAML path.
+pub fn instance_checkouts(instance: &Instance, index: usize) -> Result<Vec<PathBuf>> {
+    let mut found = std::collections::BTreeSet::new();
+    each_checkout(instance, index, |_, dir, _| {
+        found.insert(dir.to_path_buf());
+        Ok(())
+    })?;
+    Ok(found.into_iter().collect())
+}
+
+/// Calls `add` with the directory name (for a `gitlab` source, the path under the checkouts
+/// root), the directory and the YAML path of the source of each checkout of `instance`, the
+/// instance at `index` of its config file: each git checkout with an `origin` directly under
+/// `checkouts.root` for a `github` source; each one directly under its `path`, but its `exclude`
+/// entries, for a `local` source; and each one under `checkouts.root` whose `origin` is on a
+/// `gitlab` source's host and under its group, but its `exclude` entries. A checkout two sources
+/// name is given twice.
+fn each_checkout(
+    instance: &Instance,
+    index: usize,
+    mut add: impl FnMut(&str, &Path, &str) -> Result<()>,
+) -> Result<()> {
+    let root = Path::new(&instance.checkouts.root);
+    for (place, source) in instance.sources.iter().enumerate() {
+        let yaml = format!("instances[{index}].sources[{place}]");
+        match source {
+            Source::GitHub(_) => {
+                let at = format!("instances[{index}].checkouts.root");
+                for name in checkouts_under(root, &at)? {
+                    add(&name, &root.join(&name), &yaml)?;
+                }
+            }
+            Source::Local(local) => {
+                let dir = Path::new(&local.path);
+                for name in checkouts_under(dir, &join(&yaml, "local"))? {
+                    let excluded = local
+                        .exclude
+                        .iter()
+                        .any(|entry| Path::new(entry) == Path::new(&name));
+                    if !excluded {
+                        add(&name, &dir.join(&name), &yaml)?;
+                    }
+                }
+            }
+            Source::GitLab(gitlab) => {
+                for checkout in crate::collect::gitlab::checkouts(
+                    root,
+                    &gitlab.host,
+                    &gitlab.group,
+                    &gitlab.exclude,
+                ) {
+                    add(&checkout.path, &checkout.dir, &yaml)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One YAML scalar, quoted only where YAML needs it.

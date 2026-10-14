@@ -770,6 +770,8 @@ pub fn record_repository(state: Option<&Path>, args: RecordRepositoryArgs) -> Re
             unreleased_commits: args.unreleased_commits,
             planning_store_version: args.planning_store_version,
             in_catalog: args.in_catalog,
+            gates_hooks_version: args.gates_hooks_version,
+            gates_version: args.gates_version,
         };
         record(state, &snapshot, |recorder| recorder.repository(input))
     })
@@ -1191,7 +1193,7 @@ pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 20] = [
+    const COLUMNS: [&str; 22] = [
         "observation_id",
         "snapshot_id",
         "repository",
@@ -1212,6 +1214,8 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "unreleased_commits",
         "planning_store_version",
         "in_catalog",
+        "gates_hooks_version",
+        "gates_version",
     ];
     let generated = Generated::new(crate::state::open_existing(state)?);
     let rows = generated
@@ -1241,6 +1245,8 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.unreleased_commits),
                 Value::from(row.planning_store_version),
                 Value::from(row.in_catalog),
+                Value::from(row.gates_hooks_version),
+                Value::from(row.gates_version),
             ]
         })
         .collect();

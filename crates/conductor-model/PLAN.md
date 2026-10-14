@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
-  contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
+  model digest 05f93c828432a41a286312a5a65d4f6d32a0dd0bc1b9e98c52d85aa6850de2c0
+  contract digest f333b90124a79bfaf580f3d0b8e7e705416bbc5494abfcd08c16de9ac13549f7
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-465 capabilities: **454 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+468 capabilities: **457 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -136,11 +136,14 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.GarbageOutcome` |
 | domain type | `conductor.observation.GarbageRow` |
 | domain type | `conductor.observation.Harness` |
+| domain type | `conductor.observation.HooksOutcome` |
+| domain type | `conductor.observation.HooksRow` |
 | domain type | `conductor.observation.MemberFailureObservation.State` |
 | domain type | `conductor.observation.Mergeability` |
 | domain type | `conductor.observation.MergedPullRequestObservation.State` |
 | domain type | `conductor.observation.ObservationId` |
 | domain type | `conductor.observation.PullRequestObservation.State` |
+| domain type | `conductor.observation.RefreshHooks` |
 | domain type | `conductor.observation.ReleaseObservation.State` |
 | domain type | `conductor.observation.RepositoryFigures` |
 | domain type | `conductor.observation.RepositoryName` |

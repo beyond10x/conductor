@@ -181,6 +181,8 @@ fn observation(name: &str, real_commits_7d: i64, archived: bool) -> RecordReposi
         unreleased_commits: None,
         planning_store_version: None,
         in_catalog: Some(true),
+        gates_hooks_version: None,
+        gates_version: None,
     }
 }
 
@@ -515,6 +517,8 @@ fn stored(case: &Case, id: &str, state: SnapshotState, started_at: &str, real_co
                 unreleased_commits: input.unreleased_commits,
                 planning_store_version: input.planning_store_version,
                 in_catalog: input.in_catalog,
+                gates_hooks_version: input.gates_hooks_version,
+                gates_version: input.gates_version,
             },
         },
     );

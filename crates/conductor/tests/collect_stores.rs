@@ -1682,6 +1682,7 @@ fn prompted_snapshots(name: &str, fake: &Path) {
         main_commit: vec!["false".to_owned()],
         main_commits: vec!["false".to_owned()],
         commit: vec!["false".to_owned()],
+        gates: vec!["false".to_owned()],
         width: 2,
         bound: Duration::from_secs(60),
     };
@@ -1861,4 +1862,94 @@ fn a_member_whose_fetch_is_refused_is_read_as_last_fetched() {
     ];
     expected.sort_by_key(Value::to_string);
     assert_eq!(case.blockers(), expected);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Gates hooks (story:gates-hooks-fresh)
+// ---------------------------------------------------------------------------------------------
+
+/// The repositories collector records the version a checkout's Gates hook prints
+/// (`.git/b10x-gates-hooks/b10x-gates --version`) and the one `b10x-gates --version` on `PATH`
+/// prints; the board's deviations name `stale gates hooks` for the checkout whose hook prints an
+/// older version, and not for the one without a hook. Both fakes are written by this test.
+#[test]
+fn a_checkout_whose_gates_hook_lags_is_recorded_and_the_board_names_it_stale() {
+    let case = Case::new("gates_hooks");
+    let repos = ["alpha", "beta.io"];
+    for repo in repos {
+        case.repository(repo, &[project(&member(repo))], &[project(&member(repo))]);
+        case.origin(repo);
+    }
+    let hooks = case.checkout("alpha").join(".git/b10x-gates-hooks");
+    fs::create_dir_all(&hooks).expect("create the hooks directory");
+    let hook = hooks.join("b10x-gates");
+    write(&hook, "#!/bin/sh\necho 'b10x-gates 0.1.14'\n");
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).expect("make the hook run");
+    let listing = case.dir.join("listing.json");
+    write(
+        &listing,
+        r#"[{"name": "alpha", "visibility": "PUBLIC", "isArchived": false, "hasIssuesEnabled": false},
+            {"name": "beta.io", "visibility": "PUBLIC", "isArchived": false, "hasIssuesEnabled": false}]"#,
+    );
+    let empty = case.dir.join("empty.json");
+    write(&empty, "[]");
+    let cat = |file: &Path| vec!["cat".to_owned(), path(file).to_owned()];
+    let sources = repositories::Sources {
+        organization: "example-org".to_owned(),
+        workspace: case.dir.join("example-org"),
+        catalog: None,
+        now: time::OffsetDateTime::now_utc(),
+        repository_list: cat(&listing),
+        open_issues: cat(&empty),
+        latest_release: cat(&empty),
+        main_commit: vec!["false".to_owned()],
+        main_commits: vec!["false".to_owned()],
+        commit: vec!["false".to_owned()],
+        gates: vec!["echo".to_owned(), "b10x-gates 0.1.17".to_owned()],
+        width: 2,
+        bound: Duration::from_secs(60),
+    };
+
+    let taken = case.take("repositories", move |record| {
+        repositories::collect_from(&sources, record)
+    });
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+
+    let mut recorded: Vec<(Value, Value, Value)> = case
+        .view("repositories")
+        .into_iter()
+        .map(|row| {
+            (
+                row["repository"].clone(),
+                row["gates_hooks_version"].clone(),
+                row["gates_version"].clone(),
+            )
+        })
+        .collect();
+    recorded.sort_by_key(|row| row.0.to_string());
+    assert_eq!(
+        recorded,
+        [
+            (json!("alpha"), json!("0.1.14"), json!("0.1.17")),
+            (json!("beta.io"), Value::Null, json!("0.1.17")),
+        ]
+    );
+
+    let board = case.dir.join("STATUS.md");
+    let output = common::conductor(case.dir.join("home"))
+        .current_dir(case.dir.join("work"))
+        .args(["--state-dir", path(&case.state())])
+        .args(["snapshot", "publish-board", "--path", path(&board)])
+        .stdin(Stdio::null())
+        .output()
+        .expect("the conductor binary runs");
+    assert!(output.status.success(), "{}", describe(&output));
+    let board = fs::read_to_string(&board).expect("read the board");
+    let deviations: Vec<&str> = board
+        .lines()
+        .filter(|line| line.starts_with("| alpha |") || line.starts_with("| beta.io |"))
+        .filter(|line| line.contains("stale gates hooks"))
+        .collect();
+    assert_eq!(deviations.len(), 1, "{board}");
+    assert!(deviations[0].starts_with("| alpha |"), "{board}");
 }

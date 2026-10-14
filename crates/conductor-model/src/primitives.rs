@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
-// contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
+// model digest 05f93c828432a41a286312a5a65d4f6d32a0dd0bc1b9e98c52d85aa6850de2c0
+// contract digest f333b90124a79bfaf580f3d0b8e7e705416bbc5494abfcd08c16de9ac13549f7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! How the specification's primitives are spelled in this workspace.

@@ -17,8 +17,9 @@
 //! activity. Input through `--input-json -` is not read yet.
 
 use std::collections::BTreeMap;
+use std::io::{self, Write as _};
 use std::path::Path;
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::ValueEnum as _;
@@ -35,17 +36,21 @@ use conductor_model::direction::{
     MarkedRepository, RepositoryActivityRow, RepositoryMarkConflict, RepositoryMarkNotFound,
     RepositoryMarkSnapshot, RepositoryMarkState,
 };
-use conductor_model::observation::{SnapshotId, SnapshotSnapshot, SnapshotState};
+use conductor_model::observation::{
+    HooksOutcome, HooksRow, SnapshotId, SnapshotSnapshot, SnapshotState,
+};
 use serde_json::Value;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::{
     ActivateRepositoryArgs, DeactivateRepositoryArgs, Format, JsonInput, MarkRepositoryArgs,
-    RepositoryActivityArgs, ViewArgs,
+    RefreshHooksArgs, RepositoryActivityArgs, ViewArgs,
 };
+use crate::collect::gitlab;
 use crate::not_implemented;
 use crate::store::Store;
+use crate::{config, gates};
 
 /// Every repository's effective activity, by repository name: each repository the newest complete
 /// snapshot observed, and each repository that holds a mark. A mark decides its repository's
@@ -334,6 +339,203 @@ pub fn repository_activity(
         })
         .collect();
     crate::store::show(&store, WHAT, &view.render(&COLUMNS, &rows))
+}
+
+/// `conductor repository refresh-hooks [--apply] [--format text|json]`: the binding's
+/// `repository-refresh-hooks` callable, whose result is a list of
+/// `conductor.observation.HooksRow` (`story:gates-hooks-fresh`).
+///
+/// Reads the version of the `b10x-gates` on `PATH`, then each checkout of the instance the global
+/// `--config` selects ([`config::instance_checkouts`]): one whose Gates hook
+/// ([`gates::installed`]) prints another version, or that has none, is listed, by the
+/// `<owner>/<name>` its `origin` names ([`gitlab::origin`]), else its directory's name. With
+/// `--apply` each listed checkout gets `b10x-gates install --repo <checkout> --repository
+/// <owner>/<name> --policy <gates_policy>`, run in it, and the hook's version is read again: the
+/// row is `Refreshed` when it now prints the version on `PATH`, else `Refused` with the reason.
+///
+/// Text prints one line per row, by repository: `<repository>: <before>` when listed,
+/// `<repository>: <before> -> <after>` when refreshed, `<repository>: <before> -> refused:
+/// <reason>`, where a hook that was not there is `absent`. Exits 1 when a row is refused.
+///
+/// # Errors
+///
+/// `--format` is not text or json; the config does not load or names no such instance; no
+/// `b10x-gates` on `PATH` prints a version; `--apply` is given and the instance names no
+/// `gates_policy`; a checkout directory cannot be read; or the rows cannot be written.
+pub fn repository_refresh_hooks(
+    config: Option<&Path>,
+    args: &RefreshHooksArgs,
+) -> Result<ExitCode> {
+    const WHAT: &str = "repository refresh-hooks";
+    let json = match args.format.as_deref() {
+        None | Some("text") => false,
+        Some("json") => true,
+        Some(other) => bail!("{WHAT}: --format {other:?} is not one of text, json"),
+    };
+    let environment = config::Environment::from_process().context(WHAT)?;
+    let loaded = config::load(config, &environment).context(WHAT)?;
+    let instance = config::select(&loaded, None, &environment).context(WHAT)?;
+    let index = loaded
+        .config
+        .instances
+        .iter()
+        .position(|other| other.name == instance.name)
+        .unwrap_or_default();
+    let on_path = [gates::PROGRAM.to_owned(), "--version".to_owned()];
+    let current = gates::version(&on_path, gates::BOUND)?.ok_or_else(|| {
+        anyhow!(
+            "{WHAT}: `{} --version` printed no version; no hook can be compared with it",
+            gates::PROGRAM
+        )
+    })?;
+    let policy = if args.apply.unwrap_or(false) {
+        Some(instance.gates_policy.clone().ok_or_else(|| {
+            anyhow!(
+                "{WHAT}: instances[{index}].gates_policy is not set; --apply installs each \
+                 checkout's hooks with the instance's Gates policy"
+            )
+        })?)
+    } else {
+        None
+    };
+    let mut rows = Vec::new();
+    for dir in config::instance_checkouts(instance, index).context(WHAT)? {
+        let before = gates::installed(&dir, gates::BOUND)?;
+        if before.as_deref() == Some(current.as_str()) {
+            continue;
+        }
+        let repository = gitlab::origin(&dir).map_or_else(
+            || {
+                dir.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            },
+            |(_, path)| path,
+        );
+        let mut row = HooksRow {
+            outcome: if before.is_some() {
+                HooksOutcome::Lagging
+            } else {
+                HooksOutcome::Absent
+            },
+            repository,
+            checkout: dir.display().to_string(),
+            before,
+            after: None,
+            detail: None,
+        };
+        if let Some(policy) = &policy {
+            install(&dir, policy, &current, &mut row)?;
+        }
+        rows.push(row);
+    }
+    rows.sort_by(|a, b| a.repository.cmp(&b.repository));
+    let mut out = String::new();
+    if json {
+        let rows: Vec<Value> = rows
+            .iter()
+            .map(|row| {
+                serde_json::json!({
+                    "repository": row.repository,
+                    "checkout": row.checkout,
+                    "before": row.before,
+                    "after": row.after,
+                    "outcome": hooks_outcome_name(row.outcome),
+                    "detail": row.detail,
+                })
+            })
+            .collect();
+        out.push_str(&Value::from(rows).to_string());
+        out.push('\n');
+    } else {
+        for row in &rows {
+            let before = row.before.as_deref().unwrap_or(ABSENT);
+            let line = match row.outcome {
+                HooksOutcome::Lagging | HooksOutcome::Absent => {
+                    format!("{}: {before}", row.repository)
+                }
+                HooksOutcome::Refreshed => format!(
+                    "{}: {before} -> {}",
+                    row.repository,
+                    row.after.as_deref().unwrap_or(ABSENT)
+                ),
+                HooksOutcome::Refused => format!(
+                    "{}: {before} -> refused: {}",
+                    row.repository,
+                    row.detail.as_deref().unwrap_or_default()
+                ),
+            };
+            out.push_str(&line);
+            out.push('\n');
+        }
+    }
+    io::stdout()
+        .write_all(out.as_bytes())
+        .with_context(|| format!("{WHAT}: write the rows"))?;
+    if rows.iter().any(|row| row.outcome == HooksOutcome::Refused) {
+        Ok(ExitCode::FAILURE)
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
+/// How a hook that is not there is printed.
+const ABSENT: &str = "absent";
+
+/// Runs `b10x-gates install` in the checkout `dir` of `row` with `policy`, and records on `row`
+/// the hook's version after it and whether it is `current` now.
+fn install(dir: &Path, policy: &str, current: &str, row: &mut HooksRow) -> Result<()> {
+    let mut command = Command::new(gates::PROGRAM);
+    command
+        .arg("install")
+        .arg("--repo")
+        .arg(dir)
+        .args(["--repository", &row.repository, "--policy", policy])
+        .current_dir(dir);
+    let refused = match crate::collect::run(&mut command, crate::collect::BOUND) {
+        Ok(output) if output.status.success() => None,
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let first = stderr.lines().find(|line| !line.trim().is_empty());
+            Some(format!(
+                "`{} install` {}{}",
+                gates::PROGRAM,
+                output.status.code().map_or_else(
+                    || "was stopped by a signal".to_owned(),
+                    |code| format!("exited {code}")
+                ),
+                first
+                    .map(|line| format!(": {}", line.trim()))
+                    .unwrap_or_default()
+            ))
+        }
+        Err(error) => Some(format!("{error:#}")),
+    };
+    row.after = gates::installed(dir, gates::BOUND)?;
+    row.detail = refused.or_else(|| {
+        (row.after.as_deref() != Some(current)).then(|| {
+            format!(
+                "the hook prints {} after the install, not {current}",
+                row.after.as_deref().unwrap_or(ABSENT)
+            )
+        })
+    });
+    row.outcome = if row.detail.is_some() {
+        HooksOutcome::Refused
+    } else {
+        HooksOutcome::Refreshed
+    };
+    Ok(())
+}
+
+/// A row's outcome, by the specification's name for it.
+fn hooks_outcome_name(outcome: HooksOutcome) -> &'static str {
+    match outcome {
+        HooksOutcome::Lagging => "Lagging",
+        HooksOutcome::Absent => "Absent",
+        HooksOutcome::Refreshed => "Refreshed",
+        HooksOutcome::Refused => "Refused",
+    }
 }
 
 /// What decided a repository's activity, by the specification's name for it.

@@ -114,6 +114,8 @@ fn everything() -> Collector {
             unreleased_commits: None,
             planning_store_version: None,
             in_catalog: Some(true),
+            gates_hooks_version: None,
+            gates_version: None,
         })?;
         record.pull_request(RecordPullRequest {
             snapshot_id: snapshot.clone(),

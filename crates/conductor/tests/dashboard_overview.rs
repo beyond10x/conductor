@@ -196,6 +196,8 @@ fn fixture() -> Collector {
                 unreleased_commits: Some(0),
                 planning_store_version: None,
                 in_catalog: None,
+                gates_hooks_version: None,
+                gates_version: None,
             })?;
         }
         record.pull_request(RecordPullRequest {
@@ -424,6 +426,8 @@ fn asks_while_collecting(port: u16, seen: Arc<Mutex<Vec<(String, Value)>>>) -> C
             unreleased_commits: None,
             planning_store_version: None,
             in_catalog: None,
+            gates_hooks_version: None,
+            gates_version: None,
         })?;
         let mut seen = seen.lock().expect("the answers");
         for path in &ENDPOINTS[..5] {
@@ -808,6 +812,8 @@ fn reviews_fixture() -> Collector {
                 unreleased_commits: None,
                 planning_store_version: None,
                 in_catalog: None,
+                gates_hooks_version: None,
+                gates_version: None,
             })?;
         }
         for (repository, number, draft, failing_checks, opened_at) in [

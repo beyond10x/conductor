@@ -31,6 +31,11 @@ callables:
     input: conductor.direction.RepositoryActivity
     result: List<conductor.direction.RepositoryActivityRow>
     errors: {}
+  repository-refresh-hooks:
+    target: {kind: local, owner: conductor-cli, action: repository_refresh_hooks}
+    input: conductor.observation.RefreshHooks
+    result: List<conductor.observation.HooksRow>
+    errors: {}
   resource-usage:
     target: {kind: local, owner: conductor-cli, action: resource_usage}
     input: conductor.observation.ResourceUsage
@@ -170,6 +175,14 @@ commands:
     callable: repository-activity
     about: Every repository's effective activity, decided by its mark or computed from the newest complete snapshot
     arguments:
+      - field: format
+        source: {kind: option, long: format}
+  - path: [repository, refresh-hooks]
+    callable: repository-refresh-hooks
+    about: List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after
+    arguments:
+      - field: apply
+        source: {kind: option, long: apply}
       - field: format
         source: {kind: option, long: format}
   - path: [resource, usage]

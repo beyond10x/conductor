@@ -371,6 +371,10 @@ types:
       - {name: authority, type: conductor.config.Authority}
       - {name: operator, type: Optional<String>}
       - {name: catalog, type: Optional<conductor.config.Catalog>}
+      # The Gates policy file `conductor repository refresh-hooks --apply` installs each
+      # checkout's hooks with (`b10x-gates install --policy`); absent, it installs none
+      # (story:gates-hooks-fresh).
+      - {name: gates_policy, type: Optional<String>}
       - {name: conductor, type: conductor.config.ConductorSession}
     invariants:
       - dashboard_port >= 1

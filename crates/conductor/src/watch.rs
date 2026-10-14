@@ -24,6 +24,7 @@
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
 //! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
+//! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
@@ -90,7 +91,8 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
-//! `review.full` (the repositories last reported full, one per line),
+//! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
+//! (the id of the snapshot the Gates hooks probe read last),
 //! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
 //! `disk-admit`, `gate-stop`, `disk.free` (the bytes free the last pass read), and, in the
 //! formats of the stopgap, `limit.new` (`<text>\t<name>`), `limit.seen` (`YYYY-MM-DD <text>`),
@@ -185,6 +187,9 @@ const DISK_FREE: &str = "disk.free";
 const CONDUCTORS_REPORTED: &str = "conductors.reported";
 const SILENT_REPORTED: &str = "silent.reported";
 const REVIEW_FULL: &str = "review.full";
+
+/// The id of the last complete snapshot the Gates hooks probe read.
+const GATES_HOOKS_READ: &str = "gates-hooks.snapshot";
 
 /// The states of the session list in which a live controller is expected to write to its
 /// transcripts.
@@ -644,6 +649,7 @@ impl Watch {
         if ci {
             self.ci(&mut lines, notes)?;
             self.reviews(&mut lines)?;
+            self.gates_hooks(&mut lines)?;
         }
         self.disk(&mut lines, notes)?;
         Ok(lines)
@@ -1303,6 +1309,38 @@ impl Watch {
             replace(&file, &text)?;
         }
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Gates hooks
+    // -----------------------------------------------------------------------------------------
+
+    /// `gates hooks stale: <n> checkouts` once per new complete snapshot of the store in which
+    /// the board names `n` repositories `stale gates hooks` ([`crate::status::stale_gates_hooks`],
+    /// `story:gates-hooks-fresh`), and nothing for one that names none. The snapshot read last is
+    /// kept in `gates-hooks.snapshot`; without a store or a complete snapshot, which the CI probe
+    /// names, nothing is read or changed.
+    fn gates_hooks(&self, lines: &mut Vec<String>) -> Result<()> {
+        let Some(state) = &self.sources.store else {
+            return Ok(());
+        };
+        let Ok(store) = state::open_existing(Some(state)) else {
+            return Ok(());
+        };
+        let snapshots = SnapshotStorage::list(&store);
+        let Some(held) = crate::status::newest_complete(&snapshots, None) else {
+            return Ok(());
+        };
+        let id = &held.data.snapshot_id.0.0;
+        let file = self.state(GATES_HOOKS_READ);
+        if read_optional(&file)?.is_some_and(|kept| kept.trim() == id.as_str()) {
+            return Ok(());
+        }
+        let stale = crate::status::stale_gates_hooks(&store, held);
+        if stale > 0 {
+            lines.push(format!("gates hooks stale: {stale} checkouts"));
+        }
+        replace(&file, &format!("{id}\n"))
     }
 
     // -----------------------------------------------------------------------------------------

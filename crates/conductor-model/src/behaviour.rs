@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest c20ebcd5a05be1f7c4b00953d21036d0c3300e15aba992cae240df21facc0275
-// contract digest bb5d67bd458868e20678eb38be2e18ccc4e3deab303a78d3e0327ab2e8211a35
+// model digest 05f93c828432a41a286312a5a65d4f6d32a0dd0bc1b9e98c52d85aa6850de2c0
+// contract digest f333b90124a79bfaf580f3d0b8e7e705416bbc5494abfcd08c16de9ac13549f7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2459,6 +2459,8 @@ where
             unreleased_commits: input.unreleased_commits.clone(),
             planning_store_version: input.planning_store_version.clone(),
             in_catalog: input.in_catalog.clone(),
+            gates_hooks_version: input.gates_hooks_version.clone(),
+            gates_version: input.gates_version.clone(),
         };
         let answer = crate::observation::RecordRepositoryOutcome::Recorded { repository_recorded: crate::observation::RepositoryRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone() } };
         RepositoryObservationStorage::put(&mut self.ports, crate::observation::AnyRepositoryObservation::Recorded(crate::observation::RepositoryObservation::new(data)).snapshot());
@@ -3127,6 +3129,8 @@ where
                 unreleased_commits: held.data.unreleased_commits,
                 planning_store_version: held.data.planning_store_version,
                 in_catalog: held.data.in_catalog,
+                gates_hooks_version: held.data.gates_hooks_version,
+                gates_version: held.data.gates_version,
             })
             .collect())
     }

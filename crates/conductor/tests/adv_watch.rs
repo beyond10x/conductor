@@ -281,6 +281,8 @@ fn active_snapshot(state: &Path, repository: &'static str) {
             unreleased_commits: None,
             planning_store_version: None,
             in_catalog: Some(true),
+            gates_hooks_version: None,
+            gates_version: None,
         })?;
         Ok(())
     });
