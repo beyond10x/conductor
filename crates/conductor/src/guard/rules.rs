@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -660,8 +660,14 @@ const GH_NOT_RUN: [&str; 6] = [BOT_ROUTE, "which", "type", "whereis", "man", "ha
 /// The program of the bot route, which a `gh` call is left to ([`bot_route`]).
 const BOT_ROUTE: &str = "b10x-gates";
 
-/// The `gh release` verbs the bot route carries, for the session's own repository only.
-const ROUTE_RELEASE_VERBS: [&str; 4] = ["create", "upload", "edit", "view"];
+/// The `gh` calls the bot route carries, each group with its verbs, for the session's own
+/// repository only: its release (the operator's decision of 2026-10-15) and a re-run of its CI
+/// (the coordinator's decision the same day: a controller re-runs failed CI through the route).
+const ROUTE_CARRIES: [(&str, &[&str]); 3] = [
+    ("release", &["create", "upload", "edit", "view"]),
+    ("run", &["rerun"]),
+    ("workflow", &["run"]),
+];
 
 /// The options of `b10x-gates gh` that take the next word as their value.
 const ROUTE_VALUES: [&str; 5] = ["--repo", "--repository", "--policy", "--key", "--gitleaks"];
@@ -1516,8 +1522,8 @@ impl Session<'_> {
     }
 
     /// Why a run of the bot route, `b10x-gates gh`, is denied, if it is (the operator's decision
-    /// of 2026-10-15): the route carries only `release create|upload|edit|view`
-    /// ([`ROUTE_RELEASE_VERBS`]) of the session's own repository, the `<owner>/<name>` the
+    /// of 2026-10-15): the route carries only `release create|upload|edit|view`, `run rerun` and
+    /// `workflow run` ([`ROUTE_CARRIES`]) of the session's own repository, the `<owner>/<name>` the
     /// `origin` of its checkout names (conductor's: of its records), which `--repository` names
     /// and any `-R`/`--repo` among the `gh` arguments names too. A credential group is class H,
     /// as a bare `gh` write of one is. No `gh` arguments, or a help request, runs nothing on the
@@ -1527,6 +1533,9 @@ impl Session<'_> {
         let mut operands: Vec<&str> = Vec::new();
         let mut repos: Vec<&str> = Vec::new();
         let mut help = gh.help;
+        // A flag between the group and the verb may take the verb's place as its value, as in
+        // [`forge_write`]: the verb read would not be the one that runs.
+        let mut flag_before_verb = false;
         let mut next = 0;
         while let Some(word) = gh.args.get(next) {
             next += 1;
@@ -1537,7 +1546,9 @@ impl Session<'_> {
                 repos.push(repo);
             } else if word == "--help" {
                 help = true;
-            } else if !(word.starts_with('-') && word.len() > 1) {
+            } else if word.starts_with('-') && word.len() > 1 {
+                flag_before_verb |= operands.len() == 1;
+            } else {
                 operands.push(word);
             }
         }
@@ -1552,14 +1563,21 @@ impl Session<'_> {
                  operator's hands, whoever authorized it; no session runs it by any route"
             ));
         }
+        let calls: Vec<String> = ROUTE_CARRIES
+            .iter()
+            .map(|(group, verbs)| format!("`{group} {}`", verbs.join("|")))
+            .collect();
         let carried = format!(
-            "the bot route carries only `release {}` of the session's own repository",
-            ROUTE_RELEASE_VERBS.join("|")
+            "the bot route carries only {} of the session's own repository",
+            calls.join(", ")
         );
-        if group != "release" || !ROUTE_RELEASE_VERBS.contains(&verb) {
+        let carries = ROUTE_CARRIES
+            .iter()
+            .any(|(name, verbs)| *name == group && verbs.contains(&verb));
+        if !carries || flag_before_verb {
             return Some(format!(
-                "`gh {group} {verb}` through the bot route is denied: {carried}",
-                verb = verb
+                "`gh {group} {verb}` through the bot route is denied: {carried}, written with \
+                 no flag between the group and the verb"
             ));
         }
         let checkout = match self.rules {

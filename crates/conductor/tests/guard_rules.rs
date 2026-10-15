@@ -1302,7 +1302,7 @@ fn a_controller_s_bash_writes_no_project_settings() {
 // -------------------------------------------------------------------------------------------------
 // Correction 2, decision 2: `gh` reads are allowed, everything else from `gh` is a GitHub write.
 // The bot route, `b10x-gates gh`, was left alone there; since the operator's decision of
-// 2026-10-15 it carries only the session's own release (the cases after these).
+// 2026-10-15 it carries only the session's own release and CI re-runs (the cases after these).
 // -------------------------------------------------------------------------------------------------
 
 #[test]
@@ -1354,7 +1354,8 @@ fn everything_else_from_gh_is_a_github_write() {
 // -------------------------------------------------------------------------------------------------
 // The operator's decision of 2026-10-15: the bot route, `b10x-gates gh [opts] -- <gh args>`,
 // carries a controller's release of its own repository, `release create|upload|edit|view` with
-// `--repository` naming the repository its checkout's `origin` names, and nothing else.
+// `--repository` naming the repository its checkout's `origin` names; and, by the coordinator's
+// decision the same day, a re-run of its CI, `run rerun` and `workflow run`; nothing else.
 // -------------------------------------------------------------------------------------------------
 
 /// A controller's checkout, `~/example-org/widget`, whose `origin` is
@@ -1422,7 +1423,50 @@ fn the_bot_route_denies_every_other_gh_subcommand() {
         "b10x-gates gh --repository example-org/widget -- pr create --fill",
         "b10x-gates gh --repository example-org/widget -- repo delete example-org/widget --yes",
         "b10x-gates gh --repository example-org/widget -- release delete v1.0.0 --yes",
+        "b10x-gates gh --repository example-org/widget -- run cancel 1",
+        "b10x-gates gh --repository example-org/widget -- workflow disable ci.yml",
+        "b10x-gates gh --repository example-org/widget -- secret set TOKEN --body x",
+        "b10x-gates gh --repository example-org/widget -- run --flag rerun 1",
+    ] {
+        assert_verdict(
+            &bash(&home, widget, command),
+            Verdict::Deny,
+            "the bot route",
+        );
+    }
+}
+
+/// The coordinator's decision of 2026-10-15: a controller re-runs its own repository's CI
+/// through the bot route, so `run rerun` and `workflow run` are carried as its release is.
+#[test]
+fn the_bot_route_admits_a_rerun_of_the_controllers_own_ci() {
+    let (home, widget) = release_home("bot-route-own-rerun");
+    for command in [
         "b10x-gates gh --repository example-org/widget -- run rerun 1 --failed",
+        "b10x-gates gh --repository example-org/widget -- run rerun 1 --repo example-org/widget",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Allow, "");
+    }
+}
+
+#[test]
+fn the_bot_route_admits_a_workflow_run_of_the_controllers_own_repository() {
+    let (home, widget) = release_home("bot-route-own-workflow-run");
+    for command in [
+        "b10x-gates gh --repository example-org/widget -- workflow run ci.yml --ref main",
+        "b10x-gates gh --repository=example-org/widget -- workflow run release.yml -f tag=v1.0.0",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Allow, "");
+    }
+}
+
+#[test]
+fn the_bot_route_denies_a_rerun_naming_another_repository() {
+    let (home, widget) = release_home("bot-route-other-rerun");
+    for command in [
+        "b10x-gates gh --repository example-org/other -- run rerun 1 --failed",
+        "b10x-gates gh --repository example-org/widget -- run rerun 1 -R example-org/other",
+        "b10x-gates gh -- run rerun 1 --failed",
     ] {
         assert_verdict(
             &bash(&home, widget, command),
@@ -3671,7 +3715,7 @@ fn the_guard_s_code_names_no_organization() {
         "the guard's code names the organization:\n  - {}",
         named.join("\n  - ")
     );
-    assert_eq!(still, 1, "{STILL_NAMED} is named once, in GH_NOT_RUN");
+    assert_eq!(still, 1, "{STILL_NAMED} is named once, in BOT_ROUTE");
 }
 
 // -------------------------------------------------------------------------------------------------
