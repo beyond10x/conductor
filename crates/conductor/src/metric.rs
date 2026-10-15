@@ -10,18 +10,21 @@
 //! line on standard error: the command, the error the specification declares, and what it
 //! means. `--input-json` is not read yet, and answers [`NotImplemented`](crate::NotImplemented).
 //!
-//! A view opens only an existing store and creates nothing. Decimals are printed as the text
-//! they were given in, so a value reads back exactly. `metric kpis` prints the view's fields and,
-//! after them, `day`, `value` and `met` of the KPI's newest reading for the scope `instance` (the
-//! latest day, then the latest recorded): the specification says that reading's `met` is whether
-//! the KPI meets its target now; all three are null while it has none.
+//! A view opens only an existing store, creates nothing, and prints exactly the fields its
+//! specification declares. Decimals are printed as the text they were given in, so a value reads
+//! back exactly. `metric kpis` lists the KPIs with their targets; `metric kpi-readings` lists
+//! each KPI's newest instance-wide reading, the target it was judged against and whether it met
+//! it.
 //!
 //! **`metric compute --day <YYYY-MM-DD>`** reads the UTC day `[day, day + 1)` and records one
 //! reading per metric and scope through `RecordMetricReading`, with the reading id
 //! `<metric>|<scope>|<day>`. It first defines each metric of [`METRICS`] that is absent, without a
-//! target. A metric that has a target judges each reading against it when it is recorded (`met`);
-//! one without leaves `met` absent. A reading the store already holds is kept as it is, so a
-//! second run for a day records nothing new. A metric with nothing to measure on the day (no
+//! target. A metric that has a target judges each reading against it when it is recorded: the
+//! reading carries that `target` and whether it was `met`; one without leaves both absent. A
+//! reading the store already holds is kept as it is, so a second run for a day records nothing
+//! new. After recording, each metric and scope it touched keeps one `Recorded` reading, the
+//! newest (the latest day, then the latest recorded); compute supersedes every other one through
+//! `SupersedeMetricReading`, so computing an older day supersedes only the new older reading. A metric with nothing to measure on the day (no
 //! complete snapshot, no pull request merged, no item closed, no dispatch done) records no
 //! reading and is named on standard output. The metrics, each in the unit its definition says:
 //!
@@ -55,14 +58,14 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{Generated, MetricReadingStorage, MetricStorage};
 use conductor_model::improvement::obligations::{
-    DefineMetricBehavior, KpisQuery, MetricReadingsQuery, MetricsQuery,
-    RecordMetricReadingBehavior, SetMetricTargetBehavior,
+    DefineMetricBehavior, KpiReadingsQuery, KpisQuery, MetricReadingsQuery, MetricsQuery,
+    RecordMetricReadingBehavior, SetMetricTargetBehavior, SupersedeMetricReadingBehavior,
 };
 use conductor_model::improvement::{
     AnyMetric, DefineMetric, DefineMetricOutcome, MetricId, MetricNotFound, MetricReadingId,
     MetricReadingSnapshot, MetricReadingState, MetricSnapshot, MetricState, MetricTargetSet,
     RecordMetricReading, RecordMetricReadingOutcome, SetMetricTarget, SetMetricTargetOutcome,
-    TargetDirection,
+    SupersedeMetricReading, SupersedeMetricReadingOutcome, TargetDirection,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::SnapshotState;
@@ -76,7 +79,7 @@ use time::{Duration, OffsetDateTime};
 
 use crate::cli::{
     DefineMetricArgs, JsonInput, MetricComputeArgs, RecordMetricReadingArgs, SetMetricTargetArgs,
-    ViewArgs,
+    SupersedeMetricReadingArgs, ViewArgs,
 };
 use crate::not_implemented;
 use crate::store::Store;
@@ -180,6 +183,7 @@ pub fn record_metric_reading(
         scope: flag(COMMAND, "--scope", args.scope)?,
         value: Decimal(flag(COMMAND, "--value", args.value)?),
         sources,
+        target: args.target.map(Decimal),
         met: args.met,
         recorded_at: Timestamp(flag(COMMAND, "--recorded-at", args.recorded_at)?),
     };
@@ -197,6 +201,50 @@ pub fn record_metric_reading(
             COMMAND,
             "MetricReadingExists",
             &already_recorded(&error.reading_id),
+        ),
+    }
+}
+
+/// `conductor metric supersede-metric-reading`: the command
+/// `conductor.improvement.SupersedeMetricReading`.
+///
+/// # Errors
+///
+/// A flag is missing, `--input-json` is given, the store does not open or keep the move, or the
+/// specification refuses it: `MetricReadingNotFound`, `MetricReadingStateConflict`.
+pub fn supersede_metric_reading(
+    state: Option<&Path>,
+    args: SupersedeMetricReadingArgs,
+) -> Result<ExitCode> {
+    const COMMAND: &str = "metric supersede-metric-reading";
+    flags_only(
+        args.input_json,
+        "metric supersede-metric-reading --input-json",
+    )?;
+    let input = SupersedeMetricReading {
+        reading_id: MetricReadingId(flag(COMMAND, "--reading-id", args.reading_id)?),
+        by: MetricReadingId(flag(COMMAND, "--by", args.by)?),
+    };
+    let mut generated = Generated::new(Ports::open(state)?);
+    let outcome = generated
+        .supersede_metric_reading(input)
+        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+    kept(COMMAND, &generated.ports.store)?;
+    superseded(COMMAND, outcome).map(|()| ExitCode::SUCCESS)
+}
+
+/// `Ok` when the reading was superseded, else the refusal the specification declares.
+fn superseded(command: &str, outcome: SupersedeMetricReadingOutcome) -> Result<()> {
+    match outcome {
+        SupersedeMetricReadingOutcome::Superseded { .. } => Ok(()),
+        SupersedeMetricReadingOutcome::NoSuchReading { error } => bail!(
+            "{command}: MetricReadingNotFound: no reading has the id {:?}",
+            error.reading_id.0
+        ),
+        SupersedeMetricReadingOutcome::WrongState { error } => bail!(
+            "{command}: MetricReadingStateConflict: the reading {:?} is superseded already, and \
+             nothing moved",
+            error.reading_id.0
         ),
     }
 }
@@ -253,14 +301,13 @@ pub fn metrics(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     crate::store::show(&generated.ports, "metrics", &view.render(&COLUMNS, &rows))
 }
 
-/// `conductor metric kpis`: the view `conductor.improvement.Kpis`, the metrics with a target,
-/// each followed by the `day`, `value` and `met` of its newest `instance` reading.
+/// `conductor metric kpis`: the view `conductor.improvement.Kpis`, the metrics with a target.
 ///
 /// # Errors
 ///
 /// There is no store, it does not open, or the rows cannot be written.
 pub fn kpis(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 13] = [
+    const COLUMNS: [&str; 10] = [
         "metric_id",
         "state",
         "name",
@@ -271,29 +318,15 @@ pub fn kpis(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "direction",
         "target_owner",
         "target_set_at",
-        "day",
-        "value",
-        "met",
     ];
     let generated = Generated::new(crate::state::open_existing(state)?);
     let mut rows = generated
         .kpis()
         .map_err(|unmet| anyhow!("metric kpis: {unmet}"))?;
     rows.sort_by(|one, other| one.metric_id.0.cmp(&other.metric_id.0));
-    let readings = generated
-        .metric_readings()
-        .map_err(|unmet| anyhow!("metric kpis: {unmet}"))?;
     let rows: Vec<Vec<Value>> = rows
         .into_iter()
         .map(|row| {
-            let newest = readings
-                .iter()
-                .filter(|reading| reading.metric_id == row.metric_id && reading.scope == INSTANCE)
-                .max_by(|one, other| {
-                    one.day
-                        .cmp(&other.day)
-                        .then_with(|| one.recorded_at.cmp(&other.recorded_at))
-                });
             vec![
                 Value::from(row.metric_id.0),
                 Value::from(metric_state_name(row.state)),
@@ -305,13 +338,52 @@ pub fn kpis(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.direction.map(direction_name)),
                 Value::from(row.target_owner),
                 Value::from(row.target_set_at.map(|at| at.0)),
-                Value::from(newest.map(|reading| reading.day.clone())),
-                decimal(newest.map(|reading| &reading.value)),
-                Value::from(newest.and_then(|reading| reading.met)),
             ]
         })
         .collect();
     crate::store::show(&generated.ports, "KPIs", &view.render(&COLUMNS, &rows))
+}
+
+/// `conductor metric kpi-readings`: the view `conductor.improvement.KpiReadings`, each KPI's
+/// newest instance-wide reading with the target it was judged against and whether it met it.
+///
+/// # Errors
+///
+/// There is no store, it does not open, or the rows cannot be written.
+pub fn kpi_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
+    const COLUMNS: [&str; 7] = [
+        "metric_id",
+        "scope",
+        "day",
+        "value",
+        "target",
+        "met",
+        "reading_id",
+    ];
+    let generated = Generated::new(crate::state::open_existing(state)?);
+    let mut rows = generated
+        .kpi_readings()
+        .map_err(|unmet| anyhow!("metric kpi-readings: {unmet}"))?;
+    rows.sort_by(|one, other| one.metric_id.0.cmp(&other.metric_id.0));
+    let rows: Vec<Vec<Value>> = rows
+        .into_iter()
+        .map(|row| {
+            vec![
+                Value::from(row.metric_id.0),
+                Value::from(row.scope),
+                Value::from(row.day),
+                Value::from(row.value.0),
+                decimal(row.target.as_ref()),
+                Value::from(row.met),
+                Value::from(row.reading_id.0),
+            ]
+        })
+        .collect();
+    crate::store::show(
+        &generated.ports,
+        "KPI readings",
+        &view.render(&COLUMNS, &rows),
+    )
 }
 
 /// `conductor metric metric-readings`: the view `conductor.improvement.MetricReadings`, every
@@ -321,7 +393,7 @@ pub fn kpis(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 ///
 /// There is no store, it does not open, or the rows cannot be written.
 pub fn metric_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 9] = [
+    const COLUMNS: [&str; 10] = [
         "reading_id",
         "state",
         "metric_id",
@@ -329,6 +401,7 @@ pub fn metric_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
         "scope",
         "value",
         "sources",
+        "target",
         "met",
         "recorded_at",
     ];
@@ -354,6 +427,7 @@ pub fn metric_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
                 Value::from(row.scope),
                 Value::from(row.value.0),
                 Value::from(row.sources),
+                decimal(row.target.as_ref()),
                 Value::from(row.met),
                 Value::from(row.recorded_at.0),
             ]
@@ -580,6 +654,7 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
 
     let recorded_at = crate::records::now()?;
     let mut out = String::new();
+    let mut touched: BTreeSet<(&'static str, String)> = BTreeSet::new();
     for reading in measured {
         let id = format!("{}|{}|{}", reading.metric, reading.scope, day.text);
         let value = match reading.value {
@@ -590,8 +665,12 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
             }
         };
         let metric_id = MetricId(reading.metric.to_owned());
-        let met = MetricStorage::get(&generated.ports.store, &metric_id)
-            .and_then(|metric| meets(&metric, value));
+        touched.insert((reading.metric, reading.scope.clone()));
+        let held = MetricStorage::get(&generated.ports.store, &metric_id);
+        let met = held.as_ref().and_then(|metric| meets(metric, value));
+        let target = held
+            .and_then(|metric| metric.data.target)
+            .filter(|_| met.is_some());
         let text = rendered(value);
         let outcome = generated
             .record_metric_reading(RecordMetricReading {
@@ -601,6 +680,7 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
                 scope: reading.scope,
                 value: Decimal(text.clone()),
                 sources: reading.sources,
+                target,
                 met,
                 recorded_at: recorded_at.clone(),
             })
@@ -621,6 +701,41 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
             RecordMetricReadingOutcome::NoSuchMetric { error } => {
                 bail!("{COMMAND}: MetricNotFound: {}", no_metric(&error.metric_id));
             }
+        }
+    }
+
+    // Each metric and scope touched keeps one `Recorded` reading, its newest.
+    let held = MetricReadingStorage::list(&generated.ports.store);
+    kept(COMMAND, &generated.ports.store)?;
+    for (metric, scope) in touched {
+        let mut current: Vec<&MetricReadingSnapshot> = held
+            .iter()
+            .filter(|reading| {
+                reading.state == MetricReadingState::Recorded
+                    && reading.data.metric_id.0 == metric
+                    && reading.data.scope == scope
+            })
+            .collect();
+        current.sort_by(|one, other| {
+            (&one.data.day, &one.data.recorded_at).cmp(&(&other.data.day, &other.data.recorded_at))
+        });
+        let Some((newest, older)) = current.split_last() else {
+            continue;
+        };
+        for reading in older {
+            let outcome = generated
+                .supersede_metric_reading(SupersedeMetricReading {
+                    reading_id: reading.data.reading_id.clone(),
+                    by: newest.data.reading_id.clone(),
+                })
+                .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+            kept(COMMAND, &generated.ports.store)?;
+            superseded(COMMAND, outcome)?;
+            let _ = writeln!(
+                out,
+                "{}: superseded by {}",
+                reading.data.reading_id.0, newest.data.reading_id.0
+            );
         }
     }
     std::io::stdout()
@@ -1117,6 +1232,7 @@ pub fn metric_state_named(name: &str) -> Option<MetricState> {
 pub const fn reading_state_name(state: MetricReadingState) -> &'static str {
     match state {
         MetricReadingState::Recorded => "Recorded",
+        MetricReadingState::Superseded => "Superseded",
     }
 }
 
@@ -1125,6 +1241,7 @@ pub const fn reading_state_name(state: MetricReadingState) -> &'static str {
 pub fn reading_state_named(name: &str) -> Option<MetricReadingState> {
     match name {
         "Recorded" => Some(MetricReadingState::Recorded),
+        "Superseded" => Some(MetricReadingState::Superseded),
         _ => None,
     }
 }

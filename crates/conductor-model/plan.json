@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "3cec5d42862cad2b6c07a7e108435103c91eca3e80cc2611aced34c5acba954a",
-    "contract_digest": "cf990a5ce0cc5b4847b4ebc4ea063087896846e554baa25e0278d674530442a7"
+    "source_digest": "bd374d05aebdad9cfd84e358bc50cdd3b8070f4db77ae34b48568c0946ac9a17",
+    "contract_digest": "a7fdf8006d631e5e44d566ce1e1544c42d1efc547026550b51eaa0b490dafefd"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -2255,6 +2255,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.improvement.SupersedeMetricReading",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.improvement.SupersedeMetricReading",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.improvement.VerifyFinding",
       "disposition": {
         "disposition": "generated"
@@ -2897,6 +2911,13 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.improvement.MetricReadingSuperseded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.improvement.MetricTargetSet",
       "disposition": {
         "disposition": "generated"
@@ -3387,6 +3408,20 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.improvement.MetricReadingNotFound",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.improvement.MetricReadingStateConflict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.observation.DailySeriesExists",
       "disposition": {
         "disposition": "generated"
@@ -3633,6 +3668,20 @@
     {
       "kind": "view_query",
       "source": "conductor.improvement.Findings",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.improvement.KpiReadings",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.improvement.KpiReadings",
       "disposition": {
         "disposition": "generated"
       }
@@ -3966,7 +4015,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.improvement.RaiseFinding`, `conductor.improvement.RecordMetricReading`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.improvement.RaiseFinding`, `conductor.improvement.RecordMetricReading`, `conductor.improvement.SupersedeMetricReading`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {

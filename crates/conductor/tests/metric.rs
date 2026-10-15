@@ -490,9 +490,54 @@ fn compute_refuses_a_day_that_is_no_date() {
 // KPIs: a metric with a target.
 // ---------------------------------------------------------------------------------------------
 
+/// The fields of the view `Kpis`, and nothing else, in the specification's order.
+const KPI_FIELDS: [&str; 10] = [
+    "metric_id",
+    "state",
+    "name",
+    "unit",
+    "instrument",
+    "baseline",
+    "target",
+    "direction",
+    "target_owner",
+    "target_set_at",
+];
+
+/// The fields of the view `KpiReadings`, in the specification's order.
+const KPI_READING_FIELDS: [&str; 7] = [
+    "metric_id",
+    "scope",
+    "day",
+    "value",
+    "target",
+    "met",
+    "reading_id",
+];
+
+/// The keys of a JSON row, sorted: the parsed object does not keep the printed order.
+fn keys(row: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = row
+        .as_object()
+        .expect("a row is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// `fields`, sorted, to compare with [`keys`].
+fn sorted<const N: usize>(mut fields: [&'static str; N]) -> Vec<&'static str> {
+    fields.sort_unstable();
+    fields.to_vec()
+}
+
 /// A metric the operator set a target for is a KPI: `metric kpis` lists it with its target and
-/// whether its newest instance reading meets it, judged when the reading was recorded. K1 ≤ 0.10
-/// is missed by 0.75; K4.median ≤ 3 is met by 2.75; K4.p90 has no target and is no KPI.
+/// no more than its view declares, and `metric kpi-readings` lists its newest instance-wide
+/// reading with the target it was judged against and whether it met it. K1 ≤ 0.10 is missed by
+/// 0.75; K4.median ≤ 3 is met by 2.75; K4.p90 has no target and is no KPI. The reading of
+/// 2026-10-13 is superseded by the day's.
 #[test]
 fn a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_target() {
     let case = Case::fixture("kpis");
@@ -529,21 +574,59 @@ fn a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_t
             .expect("the KPI")
             .clone()
     };
+    for row in &kpis {
+        assert_eq!(
+            keys(row),
+            sorted(KPI_FIELDS),
+            "`metric kpis` prints its view's fields only"
+        );
+    }
     let k1 = kpi("K1");
     assert_eq!(k1["state"], "Targeted", "{k1}");
     close(value(&k1["target"]), 0.1, "K1's target");
     assert_eq!(k1["direction"], "AtMost", "{k1}");
     assert_eq!(k1["target_owner"], "operator", "{k1}");
+
+    let readings = case.rows("metric", "kpi-readings");
+    for row in &readings {
+        assert_eq!(keys(row), sorted(KPI_READING_FIELDS), "{row}");
+    }
+    let mut ids: Vec<&str> = readings
+        .iter()
+        .map(|row| row["metric_id"].as_str().expect("an id"))
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, ["K1", "K4.median"], "one row per KPI: {readings:#?}");
+    let reading = |id: &str| {
+        readings
+            .iter()
+            .find(|row| row["metric_id"] == id)
+            .expect("the KPI's reading")
+            .clone()
+    };
+    let k1 = reading("K1");
+    assert_eq!(k1["scope"], "instance", "{k1}");
     assert_eq!(k1["day"], DAY, "{k1}");
+    assert_eq!(k1["reading_id"], format!("K1|instance|{DAY}"), "{k1}");
     close(value(&k1["value"]), 0.75, "K1's newest value");
+    close(
+        value(&k1["target"]),
+        0.1,
+        "the target K1's reading was judged against",
+    );
     assert_eq!(k1["met"], false, "{k1}");
-    let k4 = kpi("K4.median");
+    let k4 = reading("K4.median");
     assert_eq!(k4["day"], DAY, "{k4}");
     close(value(&k4["value"]), 2.75, "K4.median's newest value");
+    close(
+        value(&k4["target"]),
+        3.0,
+        "the target K4.median's reading was judged against",
+    );
     assert_eq!(k4["met"], true, "{k4}");
 
-    // The readings recorded before the target keep no verdict: K1 on 2026-10-13 is REQ-3 and
-    // REQ-5 escalated over alpha#1 and beta#6 merged, 2 / 2 = 1.
+    // The reading recorded before the target keeps no verdict and is superseded by the day's:
+    // K1 on 2026-10-13 is REQ-3 and REQ-5 escalated over alpha#1 and beta#6 merged, 2 / 2 = 1.
     let earlier = case
         .all()
         .into_iter()
@@ -551,6 +634,18 @@ fn a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_t
         .expect("the earlier K1 reading");
     close(value(&earlier["value"]), 1.0, "K1 on 2026-10-13");
     assert!(earlier["met"].is_null(), "{earlier}");
+    assert!(earlier["target"].is_null(), "{earlier}");
+    assert_eq!(earlier["state"], "Superseded", "{earlier}");
+    let newest = case
+        .all()
+        .into_iter()
+        .find(|row| row["reading_id"] == format!("K1|instance|{DAY}"))
+        .expect("the day's K1 reading");
+    assert_eq!(newest["state"], "Recorded", "{newest}");
+
+    // Computing the earlier day again records nothing and supersedes nothing newer.
+    case.ok(&["metric", "compute", "--day", "2026-10-13"]);
+    assert_eq!(case.rows("metric", "kpi-readings"), readings);
 
     // A second target replaces the first: the KPI stays one.
     case.ok(&[
@@ -628,8 +723,22 @@ fn the_metric_commands_answer_their_declared_refusals() {
             "2",
             "--sources",
             r#"["a"]"#,
+            "--target",
+            "1",
+            "--met",
+            "true",
             "--recorded-at",
             "2026-10-15T00:00:00Z",
+        ])
+    };
+    let supersede = |reading: &str| {
+        case.run(&[
+            "metric",
+            "supersede-metric-reading",
+            "--reading-id",
+            reading,
+            "--by",
+            "X1|instance|2026-10-15",
         ])
     };
     let target = |metric: &str| {
@@ -670,11 +779,32 @@ fn the_metric_commands_answer_their_declared_refusals() {
     assert_eq!(rows[0]["direction"], "AtLeast", "{rows:#?}");
     let kpis = case.rows("metric", "kpis");
     assert_eq!(kpis.len(), 1, "{kpis:#?}");
-    assert_eq!(kpis[0]["value"], json!("2"), "{kpis:#?}");
-    assert!(
-        kpis[0]["met"].is_null(),
-        "recorded by hand, with no verdict: {kpis:#?}"
+    assert_eq!(keys(&kpis[0]), sorted(KPI_FIELDS), "{kpis:#?}");
+    assert_eq!(kpis[0]["target"], json!("1"), "{kpis:#?}");
+
+    let readings = case.rows("metric", "kpi-readings");
+    assert_eq!(readings.len(), 1, "{readings:#?}");
+    assert_eq!(readings[0]["value"], json!("2"), "{readings:#?}");
+    assert_eq!(readings[0]["target"], json!("1"), "{readings:#?}");
+    assert_eq!(readings[0]["met"], true, "{readings:#?}");
+
+    refused(
+        &supersede("X1|instance|2026-10-01"),
+        "MetricReadingNotFound",
+        "superseding no reading",
     );
+    assert!(supersede("X1|instance|2026-10-14").status.success());
+    refused(
+        &supersede("X1|instance|2026-10-14"),
+        "MetricReadingStateConflict",
+        "superseding a superseded reading",
+    );
+    assert_eq!(
+        case.rows("metric", "kpi-readings"),
+        Vec::<Value>::new(),
+        "a superseded reading is no KPI's newest"
+    );
+    assert_eq!(case.all()[0]["state"], "Superseded", "{:#?}", case.all());
 }
 
 /// The views create nothing: without a store each answers an error and leaves no `state/`.
@@ -682,7 +812,7 @@ fn the_metric_commands_answer_their_declared_refusals() {
 fn the_metric_views_create_no_store() {
     let case = Case::empty("views");
     fs::remove_dir_all(case.state()).expect("remove state/");
-    for view in ["metrics", "kpis", "metric-readings"] {
+    for view in ["metrics", "kpis", "metric-readings", "kpi-readings"] {
         let output = case.run(&["metric", view]);
         assert!(!output.status.success(), "{view}: {}", describe(&output));
         assert!(!case.state().exists(), "`metric {view}` created the store");

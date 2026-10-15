@@ -109,9 +109,15 @@ entities:
   # measured over, `instance` for the whole instance, else a repository name or one task, a
   # merged PR (`alpha#12`, the per-task metrics T1-T4); `value` in the metric's unit; `sources`
   # the evidence ids it was computed from (decision ids, PR and run ids, session ids), counts and
-  # ids only, never message text. `met` is whether the value meets the target the metric held
-  # when it was recorded, and is absent when it held none; `recorded_at` when the instrument
-  # recorded it. A reading has no meaning without its metric, which owns it.
+  # ids only, never message text. `target` is the target the metric held when the reading was
+  # recorded and `met` whether the value meets it; both are absent when it held none.
+  # `recorded_at` is when the instrument recorded it. A reading has no meaning without its metric,
+  # which owns it.
+  #
+  # A reading is `Recorded` while it is its metric's newest for its scope (the latest day, then
+  # the latest recorded), and `Superseded` once a newer one of the same metric and scope is
+  # recorded (story:kpi-records): the instrument supersedes the older one, so each metric and scope
+  # has one `Recorded` reading, its value now.
   - name: conductor.improvement.MetricReading
     identity:
       name: reading_id
@@ -127,14 +133,20 @@ entities:
         type: Decimal
       - name: sources
         type: List<String>
+      - name: target
+        type: Optional<Decimal>
       - name: met
         type: Optional<Boolean>
       - name: recorded_at
         type: Timestamp
     lifecycle:
       initial: Recorded
-      states: [Recorded]
-      terminal: [Recorded]
+      states: [Recorded, Superseded]
+      terminal: [Superseded]
+      transitions:
+        - name: supersede
+          from: [Recorded]
+          to: Superseded
 
   # One friction the loop detected (design § 3, § 5 steps 2-5): a KPI past its target for two
   # days, or a friction signature repeated (a guard denial repeated by three sessions, an
@@ -203,6 +215,7 @@ actors:
   - name: conductor.improvement.Collector
     may:
       - conductor.improvement.RecordMetricReading
+      - conductor.improvement.SupersedeMetricReading
       - conductor.improvement.RaiseFinding
     naming:
       display: Collector
@@ -231,6 +244,18 @@ errors:
     summary: >
       The metric already has a reading for this scope and day, so nothing was recorded; the held
       reading is unchanged.
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+
+  - name: conductor.improvement.MetricReadingNotFound
+    summary: No reading has this id.
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+
+  - name: conductor.improvement.MetricReadingStateConflict
+    summary: The reading is not in a state this command acts from, so nothing moved.
     fields:
       - name: reading_id
         type: conductor.improvement.MetricReadingId
@@ -399,6 +424,8 @@ commands:
         example: 0.245
       - name: sources
         type: List<String>
+      - name: target
+        type: Optional<Decimal>
       - name: met
         type: Optional<Boolean>
       - name: recorded_at
@@ -428,6 +455,7 @@ commands:
           scope: input.scope
           value: input.value
           sources: input.sources
+          target: input.target
           met: input.met
           recorded_at: input.recorded_at
         emits:
@@ -440,6 +468,45 @@ commands:
             scope: input.scope
             value: input.value
         summary: The metric's value for the scope and day is kept in its series.
+
+  # The instrument's mark that a reading is no longer its metric's newest for its scope, once a
+  # newer one of the same metric and scope is recorded (story:kpi-records). The superseded reading
+  # keeps its value and stays in the series.
+  - name: conductor.improvement.SupersedeMetricReading
+    naming:
+      wire: supersede-metric-reading
+      display: Supersede a metric's reading
+    input:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+        example: "K1|instance|2026-10-13"
+      - name: by
+        type: conductor.improvement.MetricReadingId
+        example: "K1|instance|2026-10-14"
+    outcomes:
+      - name: superseded
+        moves: conductor.improvement.MetricReading.supersede
+        instance: reading_id
+        emits:
+          - conductor.improvement.MetricReadingSuperseded
+        payload:
+          conductor.improvement.MetricReadingSuperseded:
+            reading_id: input.reading_id
+            by: input.by
+        summary: The reading is no longer its metric's newest for its scope.
+      - name: no-such-reading
+        unknown_instance: true
+        error: conductor.improvement.MetricReadingNotFound
+        payload:
+          conductor.improvement.MetricReadingNotFound:
+            reading_id: input.reading_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.improvement.MetricReadingStateConflict
+        payload:
+          conductor.improvement.MetricReadingStateConflict:
+            reading_id: input.reading_id
+        summary: The reading is superseded already, and nothing moved.
 
   # A detected friction (design § 5, step 2), with the evidence ids it rests on and the metric it
   # should move. Raising does not deduplicate: a signature already open or filed is matched when
@@ -625,6 +692,13 @@ events:
       - name: value
         type: Decimal
 
+  - name: conductor.improvement.MetricReadingSuperseded
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+      - name: by
+        type: conductor.improvement.MetricReadingId
+
   - name: conductor.improvement.FindingRaised
     fields:
       - name: finding_id
@@ -694,7 +768,7 @@ views:
   # The KPIs: the metrics the operator set a target for (story:metrics-naming), each with its
   # target. Whether a KPI meets it is a reading's fact (`met` in `MetricReadings`), judged
   # against the target held when the reading was recorded; the newest reading's `met` is whether
-  # the KPI meets its target now.
+  # the KPI meets its target now, which `KpiReadings` lists.
   - name: conductor.improvement.Kpis
     source: conductor.improvement.Metric
     consistency: read_your_writes
@@ -744,6 +818,8 @@ views:
         type: Decimal
       - name: sources
         type: List<String>
+      - name: target
+        type: Optional<Decimal>
       - name: met
         type: Optional<Boolean>
       - name: recorded_at
@@ -751,6 +827,37 @@ views:
     naming:
       wire: metric-readings
       display: Metric readings
+
+  # Each KPI's newest instance-wide reading (story:kpi-records, story:metrics-naming): the
+  # `Recorded` reading of scope `instance` that was judged against a target, with that target and
+  # whether it met it. A KPI whose newest reading was recorded before its target was set has no
+  # row until its next reading.
+  - name: conductor.improvement.KpiReadings
+    source: conductor.improvement.MetricReading
+    consistency: read_your_writes
+    filter:
+      all:
+        - state == Recorded
+        - scope == "instance"
+        - defined(target)
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: scope
+        type: String
+      - name: day
+        type: String
+      - name: value
+        type: Decimal
+      - name: target
+        type: Optional<Decimal>
+      - name: met
+        type: Optional<Boolean>
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+    naming:
+      wire: kpi-readings
+      display: KPI readings
 
   # Every friction finding with its state, evidence, metric and story.
   - name: conductor.improvement.Findings

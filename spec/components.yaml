@@ -90,6 +90,7 @@ components:
         - conductor.improvement.DefineMetric
         - conductor.improvement.SetMetricTarget
         - conductor.improvement.RecordMetricReading
+        - conductor.improvement.SupersedeMetricReading
         - conductor.improvement.RaiseFinding
         - conductor.improvement.FileFinding
         - conductor.improvement.VerifyFinding
@@ -161,6 +162,7 @@ components:
         - conductor.improvement.MetricDefined
         - conductor.improvement.MetricTargetSet
         - conductor.improvement.MetricReadingRecorded
+        - conductor.improvement.MetricReadingSuperseded
         - conductor.improvement.FindingRaised
         - conductor.improvement.FindingFiled
         - conductor.improvement.FindingVerified
@@ -312,10 +314,12 @@ components:
             - conductor.improvement.DefineMetric
             - conductor.improvement.SetMetricTarget
             - conductor.improvement.RecordMetricReading
+            - conductor.improvement.SupersedeMetricReading
           views:
             - conductor.improvement.Metrics
             - conductor.improvement.Kpis
             - conductor.improvement.MetricReadings
+            - conductor.improvement.KpiReadings
         - name: finding
           summary: Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move
           commands:

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 3cec5d42862cad2b6c07a7e108435103c91eca3e80cc2611aced34c5acba954a
-// contract digest cf990a5ce0cc5b4847b4ebc4ea063087896846e554baa25e0278d674530442a7
+// model digest bd374d05aebdad9cfd84e358bc50cdd3b8070f4db77ae34b48568c0946ac9a17
+// contract digest a7fdf8006d631e5e44d566ce1e1544c42d1efc547026550b51eaa0b490dafefd
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2293,6 +2293,7 @@ where
             scope: input.scope.clone(),
             value: input.value.clone(),
             sources: input.sources.clone(),
+            target: input.target.clone(),
             met: input.met.clone(),
             recorded_at: input.recorded_at.clone(),
         };
@@ -2305,6 +2306,29 @@ where
 impl<P: crate::improvement::obligations::SetMetricTargetBehavior> crate::improvement::obligations::SetMetricTargetBehavior for Generated<P> {
     fn set_metric_target(&mut self, input: crate::improvement::SetMetricTarget) -> Result<crate::improvement::SetMetricTargetOutcome, UnmetObligation> {
         crate::improvement::obligations::SetMetricTargetBehavior::set_metric_target(&mut self.ports, input)
+    }
+}
+
+/// `conductor.improvement.SupersedeMetricReading`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::SupersedeMetricReadingBehavior for Generated<P>
+where
+    P: MetricReadingStorage,
+{
+    fn supersede_metric_reading(&mut self, input: crate::improvement::SupersedeMetricReading) -> Result<crate::improvement::SupersedeMetricReadingOutcome, UnmetObligation> {
+        let _ = &input;
+        // `superseded`: the default.
+        let Some(held) = MetricReadingStorage::get(&self.ports, &input.reading_id) else {
+            return Ok(crate::improvement::SupersedeMetricReadingOutcome::NoSuchReading { error: crate::improvement::MetricReadingNotFound { reading_id: input.reading_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::improvement::AnyMetricReading::Recorded(instance) => crate::improvement::AnyMetricReading::Superseded(instance.supersede()),
+            _ => return Ok(crate::improvement::SupersedeMetricReadingOutcome::WrongState { error: crate::improvement::MetricReadingStateConflict { reading_id: input.reading_id.clone() } }),
+        };
+        let next = moved.snapshot();
+        let answer = crate::improvement::SupersedeMetricReadingOutcome::Superseded { metric_reading_superseded: crate::improvement::MetricReadingSuperseded { reading_id: input.reading_id.clone(), by: input.by.clone() } };
+        MetricReadingStorage::put(&mut self.ports, next);
+        return Ok(answer);
     }
 }
 
@@ -3423,6 +3447,30 @@ where
     }
 }
 
+/// `conductor.improvement.KpiReadings`, generated: every row is one the specification fully determines from the stored `conductor.improvement.MetricReading`s.
+impl<P> crate::improvement::obligations::KpiReadingsQuery for Generated<P>
+where
+    P: MetricReadingStorage,
+{
+    fn kpi_readings(&self) -> Result<Vec<crate::improvement::KpiReadings>, UnmetObligation> {
+        let mut admitted = MetricReadingStorage::list(&self.ports);
+        // `filter:` shows a row where it holds; false or unknown hides it.
+        admitted.retain(|held| all(&[equal(Some(&held.state).map(|value| match value { crate::improvement::MetricReadingState::Recorded => "Recorded", crate::improvement::MetricReadingState::Superseded => "Superseded" }.to_owned()), Some("Recorded".to_owned())), equal(Some(&held.data.scope).map(|value| value.clone()), Some("instance".to_owned())), Some(Some(&held.data.target).and_then(|value| value.as_ref()).is_some())]) == Some(true));
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::improvement::KpiReadings {
+                metric_id: held.data.metric_id,
+                scope: held.data.scope,
+                day: held.data.day,
+                value: held.data.value,
+                target: held.data.target,
+                met: held.data.met,
+                reading_id: held.data.reading_id,
+            })
+            .collect())
+    }
+}
+
 /// `conductor.improvement.Kpis`, generated: every row is one the specification fully determines from the stored `conductor.improvement.Metric`s.
 impl<P> crate::improvement::obligations::KpisQuery for Generated<P>
 where
@@ -3467,6 +3515,7 @@ where
                 scope: held.data.scope,
                 value: held.data.value,
                 sources: held.data.sources,
+                target: held.data.target,
                 met: held.data.met,
                 recorded_at: held.data.recorded_at,
             })

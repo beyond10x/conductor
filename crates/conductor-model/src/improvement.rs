@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 3cec5d42862cad2b6c07a7e108435103c91eca3e80cc2611aced34c5acba954a
-// contract digest cf990a5ce0cc5b4847b4ebc4ea063087896846e554baa25e0278d674530442a7
+// model digest bd374d05aebdad9cfd84e358bc50cdd3b8070f4db77ae34b48568c0946ac9a17
+// contract digest a7fdf8006d631e5e44d566ce1e1544c42d1efc547026550b51eaa0b490dafefd
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Improvement — `conductor.improvement`.
@@ -60,6 +60,8 @@ pub struct MetricId(pub String);
 pub enum MetricReadingState {
     /// `Recorded`.
     Recorded,
+    /// `Superseded`.
+    Superseded,
 }
 
 /// MetricReadingId — `conductor.improvement.MetricReadingId`: a distinct wrapper around `String`.
@@ -495,6 +497,8 @@ pub struct MetricReadingData {
     pub value: crate::primitives::Decimal,
     /// `sources` — `List<String>`.
     pub sources: Vec<String>,
+    /// `target` — `Optional<Decimal>`.
+    pub target: Option<crate::primitives::Decimal>,
     /// `met` — `Optional<Boolean>`.
     pub met: Option<bool>,
     /// `recorded_at` — `Timestamp`.
@@ -511,6 +515,7 @@ pub mod metric_reading_state {
         /// Implemented only by the marker types beside this module.
         pub trait Sealed {}
         impl Sealed for super::Recorded {}
+        impl Sealed for super::Superseded {}
     }
 
     /// A declared state of `MetricReading`, as a type.
@@ -524,6 +529,13 @@ pub mod metric_reading_state {
 
     impl Marker for Recorded {
         const STATE: super::MetricReadingState = super::MetricReadingState::Recorded;
+    }
+
+    /// `Superseded`. Terminal: an instance may rest here forever.
+    pub struct Superseded;
+
+    impl Marker for Superseded {
+        const STATE: super::MetricReadingState = super::MetricReadingState::Superseded;
     }
 }
 
@@ -565,6 +577,16 @@ impl MetricReading<metric_reading_state::Recorded> {
     }
 }
 
+impl MetricReading<metric_reading_state::Recorded> {
+    /// `supersede` — `Recorded` → `Superseded`. Taken by the `superseded` outcome of `conductor.improvement.SupersedeMetricReading`.
+    pub fn supersede(self) -> MetricReading<metric_reading_state::Superseded> {
+        MetricReading {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
 /// `conductor.improvement.MetricReading` as it crosses a boundary: the state as a value beside the data.
 ///
 /// Wire and storage know states only at runtime; [`MetricReadingSnapshot::refine`] is the one door back
@@ -581,6 +603,8 @@ pub struct MetricReadingSnapshot {
 pub enum AnyMetricReading {
     /// Resting in `Recorded`.
     Recorded(MetricReading<metric_reading_state::Recorded>),
+    /// Resting in `Superseded`.
+    Superseded(MetricReading<metric_reading_state::Superseded>),
 }
 
 impl MetricReadingSnapshot {
@@ -594,6 +618,10 @@ impl MetricReadingSnapshot {
                 data: self.data,
                 state: core::marker::PhantomData,
             }),
+            MetricReadingState::Superseded => AnyMetricReading::Superseded(MetricReading {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
         }
     }
 }
@@ -603,6 +631,7 @@ impl AnyMetricReading {
     pub fn state(&self) -> MetricReadingState {
         match self {
             Self::Recorded(_) => MetricReadingState::Recorded,
+            Self::Superseded(_) => MetricReadingState::Superseded,
         }
     }
 
@@ -611,6 +640,10 @@ impl AnyMetricReading {
         match self {
             Self::Recorded(instance) => MetricReadingSnapshot {
                 state: MetricReadingState::Recorded,
+                data: instance.into_data(),
+            },
+            Self::Superseded(instance) => MetricReadingSnapshot {
+                state: MetricReadingState::Superseded,
                 data: instance.into_data(),
             },
         }
@@ -764,6 +797,8 @@ pub struct RecordMetricReading {
     pub value: crate::primitives::Decimal,
     /// `sources` — `List<String>`.
     pub sources: Vec<String>,
+    /// `target` — `Optional<Decimal>`.
+    pub target: Option<crate::primitives::Decimal>,
     /// `met` — `Optional<Boolean>`.
     pub met: Option<bool>,
     /// `recorded_at` — `Timestamp`.
@@ -842,6 +877,45 @@ pub enum SetMetricTargetOutcome {
     NoSuchMetric {
         /// Why it was refused: `conductor.improvement.MetricNotFound`.
         error: MetricNotFound,
+    },
+}
+
+/// Supersede a metric's reading — the input of `conductor.improvement.SupersedeMetricReading`.
+///
+/// Everything it can result in is [`SupersedeMetricReadingOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SupersedeMetricReading {
+    /// `reading_id` — `conductor.improvement.MetricReadingId`.
+    pub reading_id: MetricReadingId,
+    /// `by` — `conductor.improvement.MetricReadingId`.
+    pub by: MetricReadingId,
+}
+
+/// Everything `conductor.improvement.SupersedeMetricReading` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SupersedeMetricReadingOutcome {
+    /// `superseded` — otherwise.
+    ///
+    /// The reading is no longer its metric's newest for its scope.
+    Superseded {
+        /// The `conductor.improvement.MetricReadingSuperseded` this outcome publishes.
+        metric_reading_superseded: MetricReadingSuperseded,
+    },
+    /// `no-such-reading` — for an identity no record carries.
+    NoSuchReading {
+        /// Why it was refused: `conductor.improvement.MetricReadingNotFound`.
+        error: MetricReadingNotFound,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// The reading is superseded already, and nothing moved.
+    WrongState {
+        /// Why it was refused: `conductor.improvement.MetricReadingStateConflict`.
+        error: MetricReadingStateConflict,
     },
 }
 
@@ -959,6 +1033,15 @@ pub struct MetricReadingRecorded {
     pub value: crate::primitives::Decimal,
 }
 
+/// MetricReadingSuperseded — the event `conductor.improvement.MetricReadingSuperseded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricReadingSuperseded {
+    /// `reading_id` — `conductor.improvement.MetricReadingId`.
+    pub reading_id: MetricReadingId,
+    /// `by` — `conductor.improvement.MetricReadingId`.
+    pub by: MetricReadingId,
+}
+
 /// MetricTargetSet — the event `conductor.improvement.MetricTargetSet`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricTargetSet {
@@ -1026,6 +1109,24 @@ pub struct MetricReadingExists {
     pub reading_id: MetricReadingId,
 }
 
+/// The declared error `conductor.improvement.MetricReadingNotFound`.
+///
+/// No reading has this id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricReadingNotFound {
+    /// `reading_id` — `conductor.improvement.MetricReadingId`.
+    pub reading_id: MetricReadingId,
+}
+
+/// The declared error `conductor.improvement.MetricReadingStateConflict`.
+///
+/// The reading is not in a state this command acts from, so nothing moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricReadingStateConflict {
+    /// `reading_id` — `conductor.improvement.MetricReadingId`.
+    pub reading_id: MetricReadingId,
+}
+
 /// Friction findings — one row of the view `conductor.improvement.Findings`.
 ///
 /// Projects `conductor.improvement.FrictionFinding` at `read_your_writes` consistency.
@@ -1049,6 +1150,29 @@ pub struct Findings {
     pub story: Option<String>,
     /// `verdict` — `Optional<String>`.
     pub verdict: Option<String>,
+}
+
+/// KPI readings — one row of the view `conductor.improvement.KpiReadings`.
+///
+/// Projects `conductor.improvement.MetricReading` at `read_your_writes` consistency, containing instances where `(state == Recorded and scope == instance and defined(target))`.
+/// The specification fully determines every row, so its query is generated over the storage port —
+/// see the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KpiReadings {
+    /// `metric_id` — `conductor.improvement.MetricId`.
+    pub metric_id: MetricId,
+    /// `scope` — `String`.
+    pub scope: String,
+    /// `day` — `String`.
+    pub day: String,
+    /// `value` — `Decimal`.
+    pub value: crate::primitives::Decimal,
+    /// `target` — `Optional<Decimal>`.
+    pub target: Option<crate::primitives::Decimal>,
+    /// `met` — `Optional<Boolean>`.
+    pub met: Option<bool>,
+    /// `reading_id` — `conductor.improvement.MetricReadingId`.
+    pub reading_id: MetricReadingId,
 }
 
 /// KPIs — one row of the view `conductor.improvement.Kpis`.
@@ -1101,6 +1225,8 @@ pub struct MetricReadings {
     pub value: crate::primitives::Decimal,
     /// `sources` — `List<String>`.
     pub sources: Vec<String>,
+    /// `target` — `Optional<Decimal>`.
+    pub target: Option<crate::primitives::Decimal>,
     /// `met` — `Optional<Boolean>`.
     pub met: Option<bool>,
     /// `recorded_at` — `Timestamp`.
@@ -1203,6 +1329,17 @@ pub mod obligations {
         fn set_metric_target(&mut self, input: super::SetMetricTarget) -> Result<super::SetMetricTargetOutcome, crate::obligation::UnmetObligation>;
     }
 
+    /// The behaviour `conductor.improvement.SupersedeMetricReading` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait SupersedeMetricReadingBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.improvement.SupersedeMetricReading`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn supersede_metric_reading(&mut self, input: super::SupersedeMetricReading) -> Result<super::SupersedeMetricReadingOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.improvement.VerifyFinding` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
@@ -1223,6 +1360,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn findings(&self) -> Result<Vec<super::Findings>, crate::obligation::UnmetObligation>;
+    }
+
+    /// The query `conductor.improvement.KpiReadings` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage port. Implement it yourself to replace that query.
+    pub trait KpiReadingsQuery {
+        /// Serves `conductor.improvement.KpiReadings` rows at the view's declared consistency.
+        ///
+        /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
+        fn kpi_readings(&self) -> Result<Vec<super::KpiReadings>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.improvement.Kpis` — generated.

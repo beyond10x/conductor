@@ -244,7 +244,7 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
 /// `tests/usage_probe.rs` (`story:usage-probe`); the `metric` leaves by `tests/metric.rs`
 /// (`story:kpi-records`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 94] = [
+const IMPLEMENTED: [&str; 96] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -336,6 +336,8 @@ const IMPLEMENTED: [&str; 94] = [
     "metric define-metric",
     "metric record-metric-reading",
     "metric set-metric-target",
+    "metric supersede-metric-reading",
+    "metric kpi-readings",
     "metric kpis",
     "metric metric-readings",
     "metric metrics",

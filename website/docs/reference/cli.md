@@ -141,6 +141,8 @@ Every command takes these, before or after its name.
 | [`conductor metric define-metric`](#conductor-metric-define-metric) | Define a metric |
 | [`conductor metric record-metric-reading`](#conductor-metric-record-metric-reading) | Record a metric's reading |
 | [`conductor metric set-metric-target`](#conductor-metric-set-metric-target) | Set a metric's target |
+| [`conductor metric supersede-metric-reading`](#conductor-metric-supersede-metric-reading) | Supersede a metric's reading |
+| [`conductor metric kpi-readings`](#conductor-metric-kpi-readings) | KPI readings |
 | [`conductor metric kpis`](#conductor-metric-kpis) | KPIs |
 | [`conductor metric metric-readings`](#conductor-metric-metric-readings) | Metric readings |
 | [`conductor metric metrics`](#conductor-metric-metrics) | Metrics |
@@ -1772,6 +1774,7 @@ Usage: conductor metric record-metric-reading [OPTIONS]
 | `--scope <SCOPE>` | no | none | string |
 | `--value <VALUE>` | no | none | decimal |
 | `--sources <SOURCES>` | no | none | list of string, a JSON array |
+| `--target <TARGET>` | no | none | decimal, optional |
 | `--met <MET>` | no | none | boolean, optional One of `true`, `false`. |
 | `--recorded-at <RECORDED_AT>` | no | none | timestamp, RFC 3339 |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
@@ -1792,6 +1795,32 @@ Usage: conductor metric set-metric-target [OPTIONS]
 | `--target-owner <TARGET_OWNER>` | no | none | string |
 | `--target-set-at <TARGET_SET_AT>` | no | none | timestamp, RFC 3339 |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor metric supersede-metric-reading`
+
+Supersede a metric's reading
+
+```text
+Usage: conductor metric supersede-metric-reading [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--reading-id <READING_ID>` | no | none | MetricReadingId |
+| `--by <BY>` | no | none | MetricReadingId |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor metric kpi-readings`
+
+KPI readings
+
+```text
+Usage: conductor metric kpi-readings [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
 ## `conductor metric kpis`
 

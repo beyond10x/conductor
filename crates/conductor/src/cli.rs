@@ -303,6 +303,10 @@ impl Cli {
                     metric::record_metric_reading(state, args)
                 }
                 MetricCommand::SetMetricTarget(args) => metric::set_metric_target(state, args),
+                MetricCommand::SupersedeMetricReading(args) => {
+                    metric::supersede_metric_reading(state, args)
+                }
+                MetricCommand::KpiReadings(view) => metric::kpi_readings(state, view),
                 MetricCommand::Kpis(view) => metric::kpis(state, view),
                 MetricCommand::MetricReadings(view) => metric::metric_readings(state, view),
                 MetricCommand::Metrics(view) => metric::metrics(state, view),
@@ -626,6 +630,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["metric", "define-metric"], Access::Writes),
     (&["metric", "record-metric-reading"], Access::Writes),
     (&["metric", "set-metric-target"], Access::Writes),
+    (&["metric", "supersede-metric-reading"], Access::Writes),
+    (&["metric", "kpi-readings"], Access::Reads),
     (&["metric", "kpis"], Access::Reads),
     (&["metric", "metric-readings"], Access::Reads),
     (&["metric", "metrics"], Access::Reads),
@@ -1145,6 +1151,14 @@ pub enum MetricCommand {
     /// Set a metric's target
     #[command(name = "set-metric-target")]
     SetMetricTarget(SetMetricTargetArgs),
+
+    /// Supersede a metric's reading
+    #[command(name = "supersede-metric-reading")]
+    SupersedeMetricReading(SupersedeMetricReadingArgs),
+
+    /// KPI readings
+    #[command(name = "kpi-readings")]
+    KpiReadings(ViewArgs),
 
     /// KPIs
     #[command(name = "kpis")]
@@ -1913,12 +1927,29 @@ pub struct RecordMetricReadingArgs {
     /// list of string, a JSON array
     #[arg(long, value_parser = json_list)]
     pub sources: Option<String>,
+    /// decimal, optional
+    #[arg(long, allow_negative_numbers = true, value_parser = decimal)]
+    pub target: Option<String>,
     /// boolean, optional
     #[arg(long)]
     pub met: Option<bool>,
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub recorded_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.SupersedeMetricReading`.
+#[derive(Debug, Clone, Args)]
+pub struct SupersedeMetricReadingArgs {
+    /// MetricReadingId
+    #[arg(long)]
+    pub reading_id: Option<String>,
+    /// MetricReadingId
+    #[arg(long)]
+    pub by: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

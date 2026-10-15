@@ -174,6 +174,7 @@ fn encode_reading(reading: &MetricReadingSnapshot) -> Value {
         "scope": data.scope,
         "value": data.value.0,
         "sources": data.sources,
+        "target": data.target.as_ref().map(|value| &value.0),
         "met": data.met,
         "recorded_at": data.recorded_at.0,
     })
@@ -207,6 +208,7 @@ fn decode_reading(body: &Value) -> Result<MetricReadingSnapshot, String> {
             scope: text(body, "scope")?,
             value: Decimal(text(body, "value")?),
             sources,
+            target: optional_text(body, "target")?.map(Decimal),
             met,
             recorded_at: Timestamp(text(body, "recorded_at")?),
         },
