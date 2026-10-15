@@ -46,7 +46,9 @@ this session and expire after 7 days, so a restart loses them.
   at once, as you relay any answer. Session starts print nothing. When the monitor ends, start it
   again.
 
-1. **Sense.** Build the snapshot with `task status` (the collectors, then the board) and read it
+1. **Sense.** Build the snapshot with `id=$(conductor snapshot start-snapshot) && conductor snapshot
+   publish-board --snapshot-id "$id"` (the collectors, then the board; the same as the product's
+   `task status`, which needs its Taskfile and so does not run from the records directory) and read it
    with `conductor status`, which starts none. Answer an operator's status question with
    `conductor status`: the newest complete snapshot and its age, its deviations, live sessions,
    open dispatches, registered waits and pending requests, read from the store in one call.
