@@ -190,8 +190,12 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   them and stating its scope: run exactly that command within that scope, nothing wider, and
   report only its failure. The first answer writes the
   exact command, then the read-back that shows the result they should see, to an executable file
-  `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
-  and names the file's path in the reply and in the daily brief's class-H list.
+  `$TMPDIR/conductor-h/<H-id>.sh` they can run in any terminal; puts the command on their clipboard;
+  and prints the file's full path in the reply to them only. Anything written to the records (the
+  request's question, a decision, the daily brief's class-H list, a hand-over) names it with `~/`
+  in place of the home directory, never the full path. Run the Gates scan before a push as its own
+  command and push only on its exit 0 (`if b10x-gates scan-text …; then … push; fi`), never through
+  a pipe that hides its status.
 - **A stale secret reaches CI by its sync's own command.** On a board row `secret stale: <sync>`,
   run that `secret_syncs` entry's `command` when `rules.md` grants it; else hand it over as class H
   with the output of its dry run (`dry_run`), or the command alone when the entry names none. Read
