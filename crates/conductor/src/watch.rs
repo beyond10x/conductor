@@ -27,6 +27,7 @@
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //! | usage | the usage readings of the complete snapshots of the store under the state directory ([`crate::collect::usage::Forecast`], [`Watch::with_usage`]) | `usage: pool runs out ~<hour>, next reset <minute>`, once per change of the forecast hour (`usage.hour`; `story:usage-probe`) |
+//! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`). The store records no deadline, so no line is printed at one |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
@@ -93,7 +94,8 @@
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
-//! (the id of the snapshot the Gates hooks probe read last), `usage.hour` (the forecast hour the
+//! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
+//! request printed, when, and whether its unanswered line was), `usage.hour` (the forecast hour the
 //! usage line was last printed for),
 //! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
 //! `disk-admit`, `gate-stop`, `disk.free` (the bytes free the last pass read), and, in the
@@ -195,6 +197,15 @@ const GATES_HOOKS_READ: &str = "gates-hooks.snapshot";
 
 /// The forecast hour the usage line was last printed for (`story:usage-probe`).
 const USAGE_HOUR: &str = "usage.hour";
+
+/// The escalated requests the watch has printed, one per line: `<request-id>\t<instant of the
+/// pass that printed its escalation, RFC 3339>\t<1 once its unanswered line was printed, else 0>`
+/// (`story:decisions-notify`).
+const ESCALATED_SEEN: &str = "escalated.seen";
+
+/// How long an escalated request waits from the pass that printed its escalation before it is
+/// printed unanswered (`story:decisions-notify`).
+pub const UNANSWERED_AFTER: Duration = Duration::from_secs(30 * 60);
 
 /// The states of the session list in which a live controller is expected to write to its
 /// transcripts.
@@ -451,6 +462,7 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
     .with_settings(Settings::of(&active.instance))
     .with_gitlab(Forge::all(&active.instance))
     .with_usage(state.clone())
+    .with_decisions(state.clone())
     .with_reclaim(state, crate::gc::reclaim::reclaim);
     watch.run(&options, &mut io::stdout().lock(), &mut io::stderr().lock())?;
     Ok(ExitCode::SUCCESS)
@@ -472,6 +484,9 @@ pub struct Watch {
     /// The state directory whose store's usage readings the usage probe reads; none: no usage
     /// line (`story:usage-probe`).
     usage: Option<PathBuf>,
+    /// The state directory whose store's escalated decision requests the decisions probe reads;
+    /// none: no `escalated` or `unanswered` line (`story:decisions-notify`).
+    decisions: Option<PathBuf>,
 }
 
 /// A reclaim run to a floor, recorded under a state directory: [`crate::gc::reclaim::reclaim`],
@@ -571,7 +586,16 @@ impl Watch {
             failing: BTreeSet::new(),
             reclaim: None,
             usage: None,
+            decisions: None,
         }
+    }
+
+    /// This watch printing the `escalated` and `unanswered` lines of the decision requests of the
+    /// store under the state directory `state` (`story:decisions-notify`).
+    #[must_use]
+    pub fn with_decisions(mut self, state: PathBuf) -> Self {
+        self.decisions = Some(state);
+        self
     }
 
     /// This watch running `reclaim` once per fall under `disk_admit`, to the instance's floor
@@ -671,6 +695,7 @@ impl Watch {
         }
         self.disk(&mut lines, notes)?;
         self.usage(&mut lines)?;
+        self.decisions(now, &mut lines)?;
         Ok(lines)
     }
 
@@ -1387,6 +1412,68 @@ impl Watch {
         }
         lines.push(forecast.line());
         replace(&file, &format!("{hour}\n"))
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Escalated decision requests
+    // -----------------------------------------------------------------------------------------
+
+    /// The decision requests escalated as class O or H and not answered or withdrawn
+    /// ([`crate::status::unanswered`], `story:decisions-notify`): `escalated <O|H> <request-id>
+    /// <question>` in the first pass that finds one, and `unanswered <O|H> <request-id>
+    /// <minutes>` once, in the first pass [`UNANSWERED_AFTER`] or more after it. A request that
+    /// leaves `Escalated` is forgotten. Without a store nothing is printed.
+    fn decisions(&self, now: OffsetDateTime, lines: &mut Vec<String>) -> Result<()> {
+        let Some(state) = &self.decisions else {
+            return Ok(());
+        };
+        let Ok(store) = state::open_existing(Some(state)) else {
+            return Ok(());
+        };
+        let items = crate::status::unanswered(&store);
+        let file = self.state(ESCALATED_SEEN);
+        let before = read_optional(&file)?.unwrap_or_default();
+        let kept: BTreeMap<&str, (&str, bool)> = before
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split('\t');
+                let id = fields.next()?;
+                let seen = fields.next()?;
+                let reported = fields.next()? == "1";
+                Some((id, (seen, reported)))
+            })
+            .collect();
+        let after = i64::try_from(UNANSWERED_AFTER.as_secs() / 60).unwrap_or(i64::MAX);
+        let mut next = String::new();
+        for item in &items {
+            let id = one_line(&item.request_id);
+            let (seen, reported) = match kept.get(id.as_str()) {
+                Some(&(seen, reported)) => (seen.to_owned(), reported),
+                None => {
+                    lines.push(format!(
+                        "escalated {} {id} {}",
+                        item.class,
+                        one_line(&item.question)
+                    ));
+                    (now.format(&Rfc3339)?, false)
+                }
+            };
+            let waited = OffsetDateTime::parse(&seen, &Rfc3339)
+                .ok()
+                .map(|at| (now - at).whole_minutes());
+            let due = !reported && waited.is_some_and(|minutes| minutes >= after);
+            if let (true, Some(minutes)) = (due, waited) {
+                lines.push(format!("unanswered {} {id} {minutes}", item.class));
+            }
+            next.push_str(&format!(
+                "{id}\t{seen}\t{}\n",
+                if reported || due { "1" } else { "0" }
+            ));
+        }
+        if next != before {
+            replace(&file, &next)?;
+        }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------------------------

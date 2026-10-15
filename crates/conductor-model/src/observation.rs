@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6d1f95b4254f69133b76f164601756738633e1e76503801d2e3c7a6c88f59ccd
-// contract digest 9d0a3362ebc5c84fb2bdbbe4560f82b4d3cd628c59b7729905a74c87f253b5d4
+// model digest ab9ef9807c45deaa3915150a17cb8f2fc31c7db15e16b117315ad296619eb893
+// contract digest 42e3bc90d997096584e69b1c3ec4beb69b42fd2d3e16bf4a04a793844b195a9d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -436,6 +436,12 @@ pub struct StatusReport {
     pub requests: Vec<StatusRequest>,
     /// `usage` — `Optional<String>`.
     pub usage: Option<String>,
+    /// `unanswered_operator_items` — `Integer`.
+    pub unanswered_operator_items: i64,
+    /// `oldest_unanswered_request_id` — `Optional<String>`.
+    pub oldest_unanswered_request_id: Option<String>,
+    /// `oldest_unanswered_age_seconds` — `Optional<Integer>`.
+    pub oldest_unanswered_age_seconds: Option<i64>,
 }
 
 /// StatusRequest — `conductor.observation.StatusRequest`.

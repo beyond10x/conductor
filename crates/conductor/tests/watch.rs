@@ -2941,3 +2941,138 @@ fn no_organization_literal_is_left_in_the_watch_or_the_session_tasks() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Escalated decision requests (story:decisions-notify)
+// ---------------------------------------------------------------------------------------------
+
+/// 29 minutes after [`noon`]: an escalation seen at noon is not yet 30 minutes unanswered.
+fn twelve_twenty_nine() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T12:29:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+/// 30 minutes after [`noon`]: an escalation seen at noon is 30 minutes unanswered.
+fn twelve_thirty() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T12:30:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+impl Case {
+    /// Runs the built binary with `args` over the case's store, `state/`, with `HOME` the case's
+    /// `home/`; asserts it succeeded.
+    fn decide(&self, args: &[&str]) {
+        let home = self.dir.join("home");
+        fs::create_dir_all(&home).expect("create home/");
+        let output = common::conductor(&home)
+            .current_dir(&self.dir)
+            .arg("--state-dir")
+            .arg(self.dir.join("state"))
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the conductor binary runs");
+        assert!(
+            output.status.success(),
+            "`{}`: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Raises the decision request `id` of `alpha` asking `question`, raised at 11:00.
+    fn raise(&self, id: &str, question: &str) {
+        self.decide(&[
+            "decision",
+            "raise-decision-request",
+            "--request-id",
+            id,
+            "--repository",
+            "alpha",
+            "--question",
+            question,
+            "--options",
+            "A: now; B: later",
+            "--recommendation",
+            "A",
+            "--raised-at",
+            "2026-10-07T11:00:00Z",
+        ]);
+    }
+
+    /// Escalates the request `id` as `class` (`O` or `H`; an `H` item carries why it has no dry
+    /// run).
+    fn escalate(&self, id: &str, class: &str) {
+        let mut args = vec![
+            "decision",
+            "escalate-request",
+            "--request-id",
+            id,
+            "--escalation-class",
+            class,
+            "--reason",
+            "the operator's call",
+        ];
+        if class == "H" {
+            args.extend(["--no-dry-run", "the step needs the operator's login"]);
+        }
+        self.decide(&args);
+    }
+
+    /// A watch of this case reading the escalated requests of its store, at `clock`.
+    fn decisions_watch(&self, clock: fn() -> OffsetDateTime) -> Watch {
+        let mut sources = self.sources(None);
+        sources.clock = clock;
+        Watch::new(sources, self.state()).with_decisions(self.dir.join("state"))
+    }
+}
+
+/// Acceptance 1: `decision escalate-request` makes the next pass print `escalated <O|H>
+/// <request-id> <question>`, once; a request that is only open prints nothing.
+#[test]
+fn an_escalated_request_is_printed_at_once_and_once_only() {
+    let case = Case::new("decisions-escalated");
+    case.sessions(&[]);
+    case.raise("REQ-1", "Release the pilot now?");
+    case.raise("REQ-2", "Rotate the deploy key?");
+    case.raise("REQ-3", "Which token scope?");
+    assert_eq!(pass(&mut case.decisions_watch(noon)), NOTHING);
+
+    case.escalate("REQ-1", "O");
+    case.escalate("REQ-2", "H");
+    assert_eq!(
+        pass(&mut case.decisions_watch(noon)),
+        [
+            "escalated O REQ-1 Release the pilot now?",
+            "escalated H REQ-2 Rotate the deploy key?",
+        ]
+    );
+    assert_eq!(pass(&mut case.decisions_watch(noon)), NOTHING);
+}
+
+/// Acceptance 1: an escalated request is printed `unanswered <O|H> <request-id> <minutes>` once
+/// it has waited 30 minutes from the pass that printed its escalation, and once only; a request
+/// withdrawn before then prints nothing more.
+#[test]
+fn an_escalated_request_unanswered_for_30_minutes_is_printed_once() {
+    let case = Case::new("decisions-unanswered");
+    case.sessions(&[]);
+    case.raise("REQ-1", "Release the pilot now?");
+    case.raise("REQ-2", "Rotate the deploy key?");
+    case.escalate("REQ-1", "O");
+    case.escalate("REQ-2", "H");
+    assert_eq!(pass(&mut case.decisions_watch(noon)).len(), 2);
+
+    assert_eq!(pass(&mut case.decisions_watch(twelve_twenty_nine)), NOTHING);
+    case.decide(&[
+        "decision",
+        "withdraw-request",
+        "--request-id",
+        "REQ-2",
+        "--reason",
+        "the controller found another way",
+    ]);
+    assert_eq!(
+        pass(&mut case.decisions_watch(twelve_thirty)),
+        ["unanswered O REQ-1 30"]
+    );
+    assert_eq!(pass(&mut case.decisions_watch(one_pm)), NOTHING);
+}

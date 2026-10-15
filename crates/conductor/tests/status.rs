@@ -1008,6 +1008,113 @@ fn status_prints_its_parts_as_json() {
     }
 }
 
+/// Raises the decision request `id` of `alpha` at `raised_at`.
+fn raise_at(root: &Path, id: &str, raised_at: &str) {
+    printed(
+        root,
+        &[
+            "decision",
+            "raise-decision-request",
+            "--request-id",
+            id,
+            "--repository",
+            "alpha",
+            "--question",
+            "which token scope?",
+            "--options",
+            "A: read; B: write",
+            "--recommendation",
+            "A",
+            "--raised-at",
+            raised_at,
+        ],
+    );
+}
+
+/// `story:decisions-notify`, acceptance 2: `conductor status` counts the requests escalated as
+/// class O or H and not answered, and names the oldest with its age, in text and in JSON; an open
+/// request and a withdrawn escalation are not counted.
+#[test]
+fn status_counts_the_unanswered_operator_items_and_the_oldest_one_s_age() {
+    let root = case_dir("status-unanswered");
+    complete(&root, EARLIER, "base");
+    raise_at(&root, "REQ-OLD", EARLIER);
+    raise_at(&root, "REQ-NEW", LATER);
+    raise_at(&root, "REQ-OPEN", EARLIER);
+    raise_at(&root, "REQ-GONE", "2026-10-11T08:00:00Z");
+    for (id, class) in [("REQ-NEW", "O"), ("REQ-OLD", "H"), ("REQ-GONE", "O")] {
+        let mut args = vec![
+            "decision",
+            "escalate-request",
+            "--request-id",
+            id,
+            "--escalation-class",
+            class,
+            "--reason",
+            "the operator's call",
+        ];
+        if class == "H" {
+            args.extend(["--no-dry-run", "the step needs the operator's login"]);
+        }
+        printed(&root, &args);
+    }
+    printed(
+        &root,
+        &[
+            "decision",
+            "withdraw-request",
+            "--request-id",
+            "REQ-GONE",
+            "--reason",
+            "no longer needed",
+        ],
+    );
+    let raised =
+        time::OffsetDateTime::parse(EARLIER, &time::format_description::well_known::Rfc3339)
+            .expect("a fixed instant");
+
+    let before = (time::OffsetDateTime::now_utc() - raised).whole_seconds();
+    let text = status_of(&root, &[]);
+    let json: Value =
+        serde_json::from_str(&status_of(&root, &["--format", "json"])).expect("the status is JSON");
+    let after = (time::OffsetDateTime::now_utc() - raised).whole_seconds();
+
+    assert!(
+        section(&text, "# Status")
+            .contains("Unanswered O/H items: 2; the oldest, REQ-OLD, was raised "),
+        "the header gives no count of unanswered O/H items:\n{text}"
+    );
+    assert_eq!(json["unanswered_operator_items"], 2, "{json}");
+    assert_eq!(json["oldest_unanswered_request_id"], "REQ-OLD", "{json}");
+    let age = json["oldest_unanswered_age_seconds"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("no age of the oldest item: {json}"));
+    assert!(
+        (before..=after).contains(&age),
+        "the oldest item's age {age} is not between {before} and {after}"
+    );
+}
+
+/// `story:decisions-notify`: with no unanswered O/H item the count is 0 and no oldest is named.
+#[test]
+fn status_without_an_unanswered_operator_item_counts_none() {
+    let root = case_dir("status-unanswered-none");
+    complete(&root, EARLIER, "base");
+    raise_at(&root, "REQ-OPEN", EARLIER);
+
+    let text = status_of(&root, &[]);
+    let json: Value =
+        serde_json::from_str(&status_of(&root, &["--format", "json"])).expect("the status is JSON");
+
+    assert!(
+        section(&text, "# Status").contains("Unanswered O/H items: 0."),
+        "{text}"
+    );
+    assert_eq!(json["unanswered_operator_items"], 0, "{json}");
+    assert_eq!(json["oldest_unanswered_request_id"], Value::Null, "{json}");
+    assert_eq!(json["oldest_unanswered_age_seconds"], Value::Null, "{json}");
+}
+
 /// Rule 7: `conductor status` is a view; it opens only an existing store and creates none.
 #[test]
 fn status_creates_no_store() {

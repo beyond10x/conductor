@@ -7,6 +7,9 @@
 // - `/api/events?since=<rfc3339>`: `{rows}`, the day's events;
 // - `/api/reviews`: `{snapshot, rows}`, the pull requests that wait for review, oldest first, as
 //   `STATUS.md`'s "Waiting for review" lists them (story:review-limit);
+// - `/api/unanswered`: `{count, oldest}`, the requests escalated as class O or H and not answered,
+//   and the one raised first with its age, as `conductor status` counts them
+//   (story:decisions-notify);
 // - `/data.json`: crates/conductor/src/dashboard.rs.
 // The fixtures src/views/__tests__/fixtures/overview-*.json carry these keys, and
 // crates/conductor/tests/dashboard_overview.rs holds them to the ones the server answers.
@@ -113,6 +116,24 @@ export interface EventRow {
   link: string | null;
 }
 
+/** The oldest unanswered operator item: a request escalated as class O or H. */
+export interface UnansweredItem {
+  request_id: string;
+  class: string;
+  raised_at: string;
+  /** How long ago it was raised when the server answered; null when its time does not read. */
+  age_seconds: number | null;
+}
+
+/**
+ * `/api/unanswered`: the count of decision requests escalated as class O or H and not answered,
+ * and the one raised first (story:decisions-notify).
+ */
+export interface Unanswered {
+  count: number;
+  oldest: UnansweredItem | null;
+}
+
 /** Everything the overview reads, each endpoint that could not be read named in `errors`. */
 export interface OverviewData {
   data: DashboardData | null;
@@ -122,6 +143,8 @@ export interface OverviewData {
   workflowRuns: FromSnapshot<WorkflowRunRow>;
   releases: FromSnapshot<ReleaseRow>;
   reviews: FromSnapshot<ReviewRow>;
+  /** Null when `/api/unanswered` could not be read. */
+  unanswered: Unanswered | null;
   events: EventRow[];
   /** The `since` the events were asked with: 00:00 UTC of the day. */
   since: string;
@@ -161,17 +184,27 @@ async function read<T>(fetcher: Fetch, path: string): Promise<T | string> {
 export async function loadOverview(now: Date, fetcher: Fetch = fetch): Promise<OverviewData> {
   const since = startOfDayUtc(now);
   const none = { snapshot: null, rows: [] };
-  const [data, board, repositories, pullRequests, workflowRuns, releases, events, reviews] =
-    await Promise.all([
-      read<DashboardData>(fetcher, '/data.json'),
-      read<FromSnapshot<BoardRow>>(fetcher, '/api/board'),
-      read<FromSnapshot<RepositoryRow>>(fetcher, '/api/repositories'),
-      read<FromSnapshot<PullRequestRow>>(fetcher, '/api/pull-requests'),
-      read<FromSnapshot<WorkflowRunRow>>(fetcher, '/api/workflow-runs'),
-      read<FromSnapshot<ReleaseRow>>(fetcher, '/api/releases'),
-      read<{ rows: EventRow[] }>(fetcher, `/api/events?since=${encodeURIComponent(since)}`),
-      read<FromSnapshot<ReviewRow>>(fetcher, '/api/reviews'),
-    ]);
+  const [
+    data,
+    board,
+    repositories,
+    pullRequests,
+    workflowRuns,
+    releases,
+    events,
+    reviews,
+    unanswered,
+  ] = await Promise.all([
+    read<DashboardData>(fetcher, '/data.json'),
+    read<FromSnapshot<BoardRow>>(fetcher, '/api/board'),
+    read<FromSnapshot<RepositoryRow>>(fetcher, '/api/repositories'),
+    read<FromSnapshot<PullRequestRow>>(fetcher, '/api/pull-requests'),
+    read<FromSnapshot<WorkflowRunRow>>(fetcher, '/api/workflow-runs'),
+    read<FromSnapshot<ReleaseRow>>(fetcher, '/api/releases'),
+    read<{ rows: EventRow[] }>(fetcher, `/api/events?since=${encodeURIComponent(since)}`),
+    read<FromSnapshot<ReviewRow>>(fetcher, '/api/reviews'),
+    read<Unanswered>(fetcher, '/api/unanswered'),
+  ]);
   const errors: string[] = [];
   function part<T>(answer: T | string, empty: T): T {
     if (typeof answer === 'string') {
@@ -188,6 +221,7 @@ export async function loadOverview(now: Date, fetcher: Fetch = fetch): Promise<O
     workflowRuns: part(workflowRuns, none),
     releases: part(releases, none),
     reviews: part(reviews, none),
+    unanswered: part<Unanswered | null>(unanswered, null),
     events: part(events, { rows: [] }).rows,
     since,
     errors,
@@ -215,6 +249,21 @@ export function age(openedAt: string, at: string | null): string {
     return openedAt;
   }
   const minutes = Math.max(0, Math.floor(open / 60_000));
+  if (minutes >= 24 * 60) {
+    return `${Math.floor(minutes / (24 * 60))}d`;
+  }
+  if (minutes >= 60) {
+    return `${Math.floor(minutes / 60)}h`;
+  }
+  return `${minutes}m`;
+}
+
+/** A span of `seconds` in its largest whole unit, `2d`, `18h`, `40m`; `?` when unknown. */
+export function span(seconds: number | null): string {
+  if (seconds === null) {
+    return '?';
+  }
+  const minutes = Math.max(0, Math.floor(seconds / 60));
   if (minutes >= 24 * 60) {
     return `${Math.floor(minutes / (24 * 60))}d`;
   }
@@ -324,7 +373,20 @@ export function summary(view: OverviewData): Tile[] {
   const merges = view.events.filter((event) => event.kind === 'merge').length;
   const context = data?.watch.context ?? null;
   const spent = spentToday(data);
+  const unanswered = view.unanswered;
+  const oldest = unanswered?.oldest ?? null;
   return [
+    {
+      label: 'unanswered O/H',
+      value: unanswered === null ? '—' : String(unanswered.count),
+      sub:
+        oldest === null
+          ? unanswered === null
+            ? ''
+            : 'none'
+          : `oldest ${span(oldest.age_seconds)} · ${oldest.request_id}`,
+      tone: unanswered === null ? 'text' : unanswered.count > 0 ? 'amber' : 'green',
+    },
     {
       label: 'needs you',
       value: String(awaiting + red.length),

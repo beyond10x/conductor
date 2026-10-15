@@ -898,6 +898,108 @@ fn the_reviews_endpoint_answers_what_waits_for_review_oldest_first() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Unanswered operator items (story:decisions-notify)
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// Runs the built binary with `args` over the case's store; asserts it succeeded.
+    fn decide(&self, args: &[&str]) {
+        let output = common::conductor(self.home())
+            .current_dir(self.dir.join("work"))
+            .arg("--state-dir")
+            .arg(self.state())
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the conductor binary runs");
+        assert!(
+            output.status.success(),
+            "`{}`: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Raises the decision request `id` at `raised_at` and escalates it as `class` when given.
+    fn request(&self, id: &str, raised_at: &str, class: Option<&str>) {
+        self.decide(&[
+            "decision",
+            "raise-decision-request",
+            "--request-id",
+            id,
+            "--repository",
+            "alpha",
+            "--question",
+            "Release now?",
+            "--options",
+            "A: now; B: later",
+            "--recommendation",
+            "A",
+            "--raised-at",
+            raised_at,
+        ]);
+        if let Some(class) = class {
+            let mut args = vec![
+                "decision",
+                "escalate-request",
+                "--request-id",
+                id,
+                "--escalation-class",
+                class,
+                "--reason",
+                "the operator's call",
+            ];
+            if class == "H" {
+                args.extend(["--no-dry-run", "the step needs the operator's login"]);
+            }
+            self.decide(&args);
+        }
+    }
+}
+
+/// `/api/unanswered` answers the count of the requests escalated as class O or H and not
+/// answered, and the oldest of them with its age in seconds; `{count: 0, oldest: null}` without a
+/// store or such a request; 405 to a POST. The overview's fixture has the keys it answers.
+#[test]
+fn the_unanswered_endpoint_counts_the_operator_items_and_ages_the_oldest() {
+    let case = Case::new("unanswered");
+    let port = case.start();
+    assert_eq!(
+        get(port, overview::UNANSWERED_PATH),
+        json!({"count": 0, "oldest": null})
+    );
+
+    case.request("REQ-OPEN", EARLIER, None);
+    case.request("REQ-NEW", LATER, Some("O"));
+    case.request("REQ-OLD", EARLIER, Some("H"));
+    let raised = OffsetDateTime::parse(EARLIER, &Rfc3339).expect("a fixed instant");
+    let before = (OffsetDateTime::now_utc() - raised).whole_seconds();
+    let answer = get(port, overview::UNANSWERED_PATH);
+    let after = (OffsetDateTime::now_utc() - raised).whole_seconds();
+
+    assert_eq!(answer["count"], 2, "{answer:#}");
+    let oldest = &answer["oldest"];
+    assert_eq!(oldest["request_id"], "REQ-OLD", "{answer:#}");
+    assert_eq!(oldest["class"], "H", "{answer:#}");
+    assert_eq!(oldest["raised_at"], EARLIER, "{answer:#}");
+    let age = oldest["age_seconds"].as_i64().expect("an age in seconds");
+    assert!(
+        (before..=after).contains(&age),
+        "{age} not in {before}..={after}"
+    );
+    let (status, body) = request(port, "POST", overview::UNANSWERED_PATH);
+    assert_eq!(status, 405, "{body}");
+
+    let fixture = app_fixture("overview-unanswered.json");
+    assert_eq!(keys(&fixture), keys(&answer), "the answer's keys");
+    assert_eq!(
+        keys(&fixture["oldest"]),
+        keys(&answer["oldest"]),
+        "the oldest item's keys"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
 // The app's fixtures
 // ---------------------------------------------------------------------------------------------
 

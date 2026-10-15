@@ -21,7 +21,8 @@
 //! `/api/reviews` (what waits for review, `story:review-limit`) answer
 //! the newest complete snapshot of the store under the instance's state directory, opened only
 //! when it is there ([`serve_over`] names another); `/api/events?since=<rfc3339>` the events since
-//! then, 00:00 UTC of the day without `since`.
+//! then, 00:00 UTC of the day without `since`; `/api/unanswered` the count of unanswered class-O
+//! and class-H items and the oldest one's age (`story:decisions-notify`).
 //!
 //! The charts' series and the KPIs ([`series`]): `/api/series` lists the series and, with
 //! `?series=<name>&by=<dimension>&days=<n>`, answers one by day and group; `/api/kpis` answers
@@ -451,6 +452,8 @@ enum Resource {
     Snapshot(&'static str),
     /// [`overview::EVENTS_PATH`].
     Events,
+    /// [`overview::UNANSWERED_PATH`] (`story:decisions-notify`).
+    Unanswered,
     /// [`HEALTH_PATH`].
     Health,
     /// One of [`repo::PATHS`], by its path (`story:dashboard-repo-view`).
@@ -539,6 +542,7 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
         (HEALTH_PATH, _) => Resource::Health,
         (_, Some(known)) => Resource::Snapshot(known),
         (overview::EVENTS_PATH, _) => Resource::Events,
+        (overview::UNANSWERED_PATH, _) => Resource::Unanswered,
         (series::SERIES_PATH, _) => Resource::Series,
         (series::KPIS_PATH, _) => Resource::Kpis,
         _ if repo::PATHS.contains(&path) => Resource::Repo(
@@ -587,6 +591,13 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
             Ok(store) => json_answer(
                 &overview::snapshot_endpoint(path, store.as_ref()).unwrap_or(Value::Null),
             ),
+            Err(error) => store_failure(&error),
+        },
+        Resource::Unanswered => match open_store(server.state.as_deref()) {
+            Ok(store) => json_answer(&overview::unanswered(
+                store.as_ref(),
+                OffsetDateTime::now_utc(),
+            )),
             Err(error) => store_failure(&error),
         },
         Resource::Events => {

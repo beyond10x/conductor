@@ -263,6 +263,29 @@ fn conductor_acts_on_each_disk_floor_the_watch_reports() {
     );
 }
 
+/// `story:decisions-notify`: conductor sends the operator a push notification on each escalation
+/// line and each unanswered line the watch prints.
+#[test]
+fn conductor_pushes_a_notification_on_each_escalated_and_unanswered_line() {
+    let text = profile("conductor.md");
+    for line in [
+        "`escalated <O|H> <request-id> <question>`",
+        "`unanswered <O|H> <request-id> <minutes>`",
+    ] {
+        assert!(
+            text.contains(line),
+            "conductor.md: names the watch line {line}"
+        );
+    }
+    assert!(
+        text.contains(
+            "On each `escalated` or `unanswered` line, send the operator a `PushNotification` \
+             naming the request id, its class and its question or how long it has waited."
+        ),
+        "conductor.md: each escalated and unanswered line is pushed to the operator"
+    );
+}
+
 /// `story:self-arming-restart`: the restart prompt arms the jobs and the watch, so a hand-over
 /// keeps only open work.
 #[test]

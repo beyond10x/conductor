@@ -37,7 +37,11 @@ this session and expire after 7 days, so a restart loses them.
   not you; do no conductor work until one is gone), a new snapshot finding checkouts whose Gates
   hooks differ from the `b10x-gates` on `PATH` (`gates hooks stale: <n> checkouts`: list them
   with `conductor repository refresh-hooks` and install them afresh with `--apply`, which uses
-  `gates_policy`). Session starts print nothing. When the monitor ends, start it again.
+  `gates_policy`), a decision request you escalated (`escalated <O|H> <request-id> <question>`)
+  and the same request still unanswered 30 minutes later (`unanswered <O|H> <request-id>
+  <minutes>`). On each `escalated` or `unanswered` line, send the operator a `PushNotification`
+  naming the request id, its class and its question or how long it has waited. Session starts
+  print nothing. When the monitor ends, start it again.
 
 1. **Sense.** Build the snapshot with `task status` (the collectors, then the board) and read it
    with `conductor status`, which starts none. Answer an operator's status question with

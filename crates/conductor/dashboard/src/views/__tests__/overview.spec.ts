@@ -40,9 +40,19 @@ describe('loadOverview', () => {
       '/api/pull-requests',
       '/api/workflow-runs',
       '/api/releases',
+      '/api/unanswered',
     ]) {
       expect(asked).toContain(path);
     }
+    expect(view.unanswered).toEqual({
+      count: 2,
+      oldest: {
+        request_id: 'REQ-OLD',
+        class: 'H',
+        raised_at: '2026-10-13T06:00:00Z',
+        age_seconds: 7200,
+      },
+    });
     expect(view.since).toBe(SINCE);
     expect(view.board.rows).toHaveLength(4);
     expect(view.events).toHaveLength(5);
@@ -75,7 +85,7 @@ describe('Overview', () => {
     await flushPromises();
 
     expect(asked).toContain('/api/events?since=2026-10-13T00%3A00%3A00Z');
-    expect(wrapper.findAll('.tiles .tile')).toHaveLength(8);
+    expect(wrapper.findAll('.tiles .tile')).toHaveLength(9);
     expect(wrapper.findAll('.needs .card')).toHaveLength(3);
     expect(wrapper.findAll('table tbody tr')).toHaveLength(4);
     expect(wrapper.findAll('ol.timeline li')).toHaveLength(5);

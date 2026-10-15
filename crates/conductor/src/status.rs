@@ -52,7 +52,10 @@
 //! (decision requests `Open` or `Escalated`, resource requests `Requested`); and the usage line
 //! the watch prints, `usage: pool runs out ~<hour>, next reset <minute>`, of the newest usage
 //! readings of the complete snapshots ([`crate::collect::usage::Forecast`],
-//! `story:usage-probe`), or `None: no usage reading.`. With no complete
+//! `story:usage-probe`), or `None: no usage reading.`. Its header also counts the unanswered
+//! operator items, the decision requests escalated as class O or H and not answered or withdrawn
+//! ([`unanswered`]), and names the one raised first with its age (`story:decisions-notify`):
+//! `Unanswered O/H items: <n>; the oldest, <id>, was raised <age> ago.`. With no complete
 //! snapshot it says so and prints every other part. No wait is recorded in the store yet
 //! (`story:watch-waits`), so the waits part reads `None.` until that story's `Waits` view lands.
 
@@ -262,8 +265,56 @@ pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
     crate::store::show(&store, WHAT, &rendered)
 }
 
+/// One decision request escalated as class O or H and not answered or withdrawn yet: an
+/// unanswered operator item (`story:decisions-notify`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperatorItem {
+    /// The request's id.
+    pub request_id: String,
+    /// `O` or `H`.
+    pub class: &'static str,
+    /// Its question.
+    pub question: String,
+    /// When it was raised, RFC 3339, as the store holds it.
+    pub raised_at: String,
+}
+
+/// The unanswered operator items of `store` (decision requests in state `Escalated`), the one
+/// raised first first, then by id. `conductor status`, the dashboard's `/api/unanswered` and the
+/// watch's `escalated`/`unanswered` lines read them here (`story:decisions-notify`).
+#[must_use]
+pub fn unanswered(store: &Store) -> Vec<OperatorItem> {
+    let mut items: Vec<OperatorItem> = DecisionRequestStorage::list(store)
+        .into_iter()
+        .filter(|held| held.state == DecisionRequestState::Escalated)
+        .map(|held| OperatorItem {
+            request_id: held.data.request_id.0,
+            class: held
+                .data
+                .escalation_class
+                .map_or("O", crate::decide::class_name),
+            question: held.data.question,
+            raised_at: held.data.raised_at.0,
+        })
+        .collect();
+    items.sort_by(|left, right| {
+        order(&left.raised_at, &right.raised_at)
+            .then_with(|| left.request_id.cmp(&right.request_id))
+    });
+    items
+}
+
+/// How long before `now` the item raised at `raised_at` was raised, in whole seconds; none when
+/// `raised_at` does not read.
+#[must_use]
+pub fn age_seconds(raised_at: &str, now: OffsetDateTime) -> Option<i64> {
+    instant(raised_at).map(|raised| (now - raised).whole_seconds())
+}
+
 /// The [`StatusReport`] of `store` at `now`.
 fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
+    let items = unanswered(store);
+    let oldest = items.first();
     let snapshots = SnapshotStorage::list(store);
     let newest = newest_complete(&snapshots, None).map(|held| observed(store, held));
 
@@ -277,6 +328,9 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
         waits: Vec::new(),
         requests: Vec::new(),
         usage: crate::collect::usage::Forecast::of(store).map(|forecast| forecast.line()),
+        unanswered_operator_items: count(items.len()),
+        oldest_unanswered_request_id: oldest.map(|item| item.request_id.clone()),
+        oldest_unanswered_age_seconds: oldest.and_then(|item| age_seconds(&item.raised_at, now)),
     };
     if let Some(snapshot) = &newest {
         report.snapshot_id = Some(snapshot.snapshot_id.0.0.clone());
@@ -393,6 +447,19 @@ fn status_text(report: &StatusReport) -> String {
         _ => out.push_str(
             "No snapshot is complete; take one with `conductor snapshot start-snapshot`.\n\n",
         ),
+    }
+    out.push_str(&format!(
+        "Unanswered O/H items: {}",
+        report.unanswered_operator_items
+    ));
+    match &report.oldest_unanswered_request_id {
+        Some(id) => {
+            let age = report
+                .oldest_unanswered_age_seconds
+                .map_or_else(|| "an unknown time".to_owned(), span);
+            out.push_str(&format!("; the oldest, {id}, was raised {age} ago.\n\n"));
+        }
+        None => out.push_str(".\n\n"),
     }
 
     out.push_str("## Deviations\n\n");
@@ -546,6 +613,9 @@ fn status_json(report: &StatusReport) -> Value {
             "summary": row.summary,
         })).collect::<Vec<Value>>(),
         "usage": report.usage,
+        "unanswered_operator_items": report.unanswered_operator_items,
+        "oldest_unanswered_request_id": report.oldest_unanswered_request_id,
+        "oldest_unanswered_age_seconds": report.oldest_unanswered_age_seconds,
     })
 }
 

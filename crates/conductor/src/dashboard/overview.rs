@@ -12,6 +12,9 @@
 //! [`crate::status::waiting_in`], oldest first, each `{repository, number, title, opened_at, url}`:
 //! the pull requests `STATUS.md`'s **Waiting for review** lists.
 //!
+//! `/api/unanswered` answers `{count, oldest}`: the unanswered operator items, read as `conductor
+//! status` reads them ([`unanswered`], `story:decisions-notify`).
+//!
 //! `/api/events` answers `{rows: [...]}`, one row per event at or after `since`, newest first, each
 //! `{at, repository, kind, text, link}` (`repository` and `link` null where there is none), of
 //! five kinds:
@@ -54,6 +57,28 @@ pub const SNAPSHOT_PATHS: [&str; 6] = [
 
 /// The path of the day's events.
 pub const EVENTS_PATH: &str = "/api/events";
+
+/// The path of the unanswered operator items (`story:decisions-notify`).
+pub const UNANSWERED_PATH: &str = "/api/unanswered";
+
+/// `/api/unanswered`: `{count, oldest}`, the number of decision requests escalated as class O or
+/// H and not answered or withdrawn, and the one raised first as `{request_id, class, raised_at,
+/// age_seconds}` at `now`, or null; `{count: 0, oldest: null}` without a store
+/// (`story:decisions-notify`). The same reading as `conductor status`'s
+/// ([`crate::status::unanswered`]).
+#[must_use]
+pub fn unanswered(store: Option<&Store>, now: OffsetDateTime) -> Value {
+    let items = store.map(crate::status::unanswered).unwrap_or_default();
+    let oldest = items.first().map(|item| {
+        json!({
+            "request_id": item.request_id,
+            "class": item.class,
+            "raised_at": item.raised_at,
+            "age_seconds": crate::status::age_seconds(&item.raised_at, now),
+        })
+    });
+    json!({"count": items.len(), "oldest": oldest})
+}
 
 /// The kinds of event `/api/events` answers, in the order the table above lists them.
 pub const KINDS: [&str; 5] = ["dispatch", "report", "decision", "release", "merge"];
