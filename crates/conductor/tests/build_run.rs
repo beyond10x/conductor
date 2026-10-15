@@ -1245,8 +1245,7 @@ fn a_run_waiting_on_the_stores_tree_lock_does_not_hold_host_lock() {
     let (state, host) = (case.state(), case.host());
     let sources = case.sources(reclaim_nothing);
     let request = case.request(GIB, "touch ran");
-    let runner =
-        thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
     // Long enough for the run to reach the tree lock; then `host.lock` is read for half a second.
     thread::sleep(Duration::from_millis(500));
     let mut held = 0;
@@ -1269,7 +1268,10 @@ fn a_run_waiting_on_the_stores_tree_lock_does_not_hold_host_lock() {
         "build run held host.lock in {held} of 10 reads while it waited on the tree lock"
     );
     assert!(waiting, "the run did not wait on the tree lock");
-    assert!(matches!(outcome, Outcome::Ran { code: 0, .. }), "{outcome:?}");
+    assert!(
+        matches!(outcome, Outcome::Ran { code: 0, .. }),
+        "{outcome:?}"
+    );
     assert!(case.work().join("ran").exists(), "the command ran");
 }
 
@@ -1301,8 +1303,7 @@ fn a_run_under_host_lock_never_waits_on_the_instance_stores_tree_lock() {
     let (state, host) = (case.state(), case.host());
     let sources = case.sources(reclaim_nothing);
     let request = case.request(GIB, "touch ran");
-    let runner =
-        thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
     let started = Instant::now();
     while !runner.is_finished() && started.elapsed() < Duration::from_secs(10) {
         thread::sleep(Duration::from_millis(50));
@@ -1317,7 +1318,10 @@ fn a_run_under_host_lock_never_waits_on_the_instance_stores_tree_lock() {
         finished,
         "the run waited over 10 s, under host.lock, on the instance store's tree lock"
     );
-    assert!(matches!(outcome, Outcome::Ran { code: 0, .. }), "{outcome:?}");
+    assert!(
+        matches!(outcome, Outcome::Ran { code: 0, .. }),
+        "{outcome:?}"
+    );
     let state_of = |id: &str| {
         case.disk_items()
             .into_iter()

@@ -471,6 +471,21 @@ pub fn run(
     let beyond_reservations = short > ledger.reserved(Some(&grant))?;
     let answer = ledger.reserve(&grant, short, reclaimed)?;
     if answer == Answer::Refused {
+        // The operator item goes into the instance's store, under `host.lock`, which keeps one
+        // item per fall. Its writer lock is never waited for under `host.lock`
+        // (`story:store-readers-hold-no-writer-lock`): while another writer holds it, the run lets
+        // `host.lock` go, waits, and takes it again.
+        let _ledger = if beyond_reservations && crate::store::tree_held(state).unwrap_or(false) {
+            drop(ledger);
+            if let Err(error) = crate::store::wait_for_tree(state) {
+                say(&format!(
+                    "conductor: build run: wait for the store's writer lock: {error}"
+                ));
+            }
+            Ledger::lock(host)?
+        } else {
+            ledger
+        };
         let escalate = |shortfall: &Shortfall<'_>| {
             if !beyond_reservations {
                 return Ok(None);

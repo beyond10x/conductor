@@ -1190,6 +1190,12 @@ impl Ledger {
         {
             return Ok(None);
         }
+        // The item is in the instance's store; under `host.lock` its writer lock is never waited
+        // for (`story:store-readers-hold-no-writer-lock`): while another writer holds it, the fall
+        // is left to the next run or pass.
+        if !item.is_empty() && crate::store::tree_held(state).unwrap_or(true) {
+            return Ok(None);
+        }
         let open = !item.is_empty()
             && DecisionRequestStorage::get(&crate::store::open(state)?, &RequestId(item.clone()))
                 .is_some_and(|request| {
