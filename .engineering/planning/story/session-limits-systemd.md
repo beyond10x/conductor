@@ -34,8 +34,8 @@ spike used (`docs/analysis/session-box-spike.md`).
 ## Acceptance
 
 - The `systemd` provider implements `story:session-envelope-seam`'s trait: each instance has a user
-  slice `conductor-<prefix>.slice`, or `conductor.slice` without a prefix, carrying the instance's
-  `limits`; `start` runs the session in a unit `conductor-<session name>.service` inside it, through
+  slice `conductor_<prefix>.slice` (no `-`, so instances are siblings; the live run of 2026-10-15 found `-` nests them), or `conductor.slice` without a prefix, carrying the instance's
+  `limits`; `start` runs the session in a unit `conductor_<session name>.service` inside it, through
   `systemd-run --user --unit … --slice … -p MemoryMax= -p CPUWeight= -p TasksMax=` from the role's
   `limits`, with the spike's PTY and FIFO launcher; `prompt` writes to the FIFO; `stop` is
   `systemctl --user stop`; `resume` starts a new unit running `claude --resume <id>`. Tests in
