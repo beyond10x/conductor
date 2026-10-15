@@ -274,3 +274,163 @@ spawn's second). Before it was stopped, it held only `conductor-lrun.slice` and 
 Not a fault of the provider: the `pong` of check 3 was denied by the guard's controller message
 rule. The story's "answers a SendMessage from another session" needs that other session to be
 the instance's conductor.
+
+## Second run, Thu Oct 15 01:26:47 AM UTC 2026
+
+The checks that did not pass in the first run, re-run on commit `82508c0c`, which fixes faults 1
+to 4. Same host and the same scratch instance. The only change to the config is that the
+controller's `settings` and `profile` now name the second run's tree, `conductor-w37-liverun2`.
+The first run's state directory was moved to `~/.cache/conductor-liverun/state-run1`, so the
+store starts with no controller. The binary was built in the tree with
+`conductor build run --reserve 4G -- cargo build -p conductor-cli`. Every call passed
+`CONDUCTOR_CONFIG=~/.cache/conductor-liverun/conductor.yaml CONDUCTOR_INSTANCE=lrun`.
+The run ended at `01:27:39 AM UTC`.
+
+| # | check | result |
+|---|---|---|
+| 1 | spawn prints the session id; unit `conductor_lrun-lrunrepo.service` in `conductor_lrun.slice`, a sibling slice and not under `conductor.slice`; limits as before | **pass** |
+| 2 | `controller pause-controller` stops the unit, records `Paused`, and the session leaves `claude agents` | **pass** |
+| 3 | `controller resume-controller` starts a new unit running `claude --resume <id>` and records `Running`. The same session id is listed again, and the session answers a SendMessage | **pass** |
+| 4 | `controller stop-controller` stops the unit and records `Stopped` | **pass** |
+| 5 | cleanup: no `conductor_lrun*`/`conductor-lrun*` unit, no `conductor.slice` or `conductor_lrun.slice` | **pass** |
+
+### 1. Spawn, unit, slice
+
+```
+$ conductor spawn --repository lrunrepo; echo "spawn exit $?"
+ba51cb9a-cd71-4073-aa88-b3b393db7017
+spawn exit 0
+$ systemctl --user list-units 'conductor_lrun*' 'conductor-lrun*' --all --no-pager
+  conductor_lrun-lrunrepo.service loaded active running [systemd-run] /bin/sh -c "…" conductor-launch ~/.cache/conductor-liverun/state/sessions/lrun-lrunrepo.fifo … "stty cols 160 rows 48; exec 'claude' '--session-id' 'ba51cb9a-cd71-4073-aa88-b3b393db7017' '-n' 'lrun-lrunrepo' … '--model' 'sonnet' …"
+  conductor_lrun.slice            loaded active active  Slice /conductor_lrun
+$ systemctl --user show conductor_lrun-lrunrepo.service -p Slice -p ControlGroup -p MemoryMax -p CPUWeight -p TasksMax
+Slice=conductor_lrun.slice
+ControlGroup=/user.slice/user-1000.slice/user@1000.service/conductor_lrun.slice/conductor_lrun-lrunrepo.service
+CPUWeight=50
+MemoryMax=3221225472
+TasksMax=1024
+$ systemctl --user show conductor_lrun.slice -p Slice -p ControlGroup -p MemoryMax -p CPUWeight -p TasksMax
+Slice=-.slice
+ControlGroup=/user.slice/user-1000.slice/user@1000.service/conductor_lrun.slice
+CPUWeight=[not set]
+MemoryMax=6442450944
+TasksMax=infinity
+$ systemctl --user list-units conductor.slice --all --no-pager --no-legend
+(nothing)
+$ cat /proc/761219/cgroup      # the claude process
+0::/user.slice/user-1000.slice/user@1000.service/conductor_lrun.slice/conductor_lrun-lrunrepo.service
+```
+
+The cgroup files read `memory.max` 3221225472, `cpu.weight` 50 and `pids.max` 1024 for the
+unit, and `memory.max` 6442450944 for the slice. The slice's parent is `-.slice`, the user
+manager's root. No `conductor.slice` was created (fault 1 fixed). `conductor controller
+controllers` shows `01a13d2b-41bd-75a7-8fdc-3a239f354e44  Running  lrunrepo  Claude
+lrun-lrunrepo  1`. The dispatch log's `sent` line has the same `session_id`, and `claude
+agents --json` lists `{"name":"lrun-lrunrepo","pid":761219,"status":"idle","sessionId":"ba51cb9a-…"}`.
+
+### 2. Pause
+
+```
+$ conductor controller pause-controller --controller-id 01a13d2b-41bd-75a7-8fdc-3a239f354e44; echo "pause exit $?"
+stopped lrun-lrunrepo (ba51cb9a-cd71-4073-aa88-b3b393db7017)
+pause exit 0
+$ conductor controller controllers
+01a13d2b-41bd-75a7-8fdc-3a239f354e44  Paused  lrunrepo    Claude   lrun-lrunrepo  1
+$ systemctl --user show conductor_lrun-lrunrepo.service -p LoadState -p ActiveState -p Result
+LoadState=not-found
+ActiveState=inactive
+Result=success
+$ kill -0 761219
+kill 761219 failed: no such process
+$ claude agents --json | jq -c '[.[] | select(.name | startswith("lrun"))]'
+[]
+```
+
+The command took 3 s (01:27:02 to 01:27:05 UTC).
+
+### 3. Resume and SendMessage
+
+```
+$ conductor controller resume-controller --controller-id 01a13d2b-41bd-75a7-8fdc-3a239f354e44; echo "resume exit $?"
+resumed lrun-lrunrepo (ba51cb9a-cd71-4073-aa88-b3b393db7017) in conductor_lrun-lrunrepo.service
+resume exit 0
+$ conductor controller controllers
+01a13d2b-41bd-75a7-8fdc-3a239f354e44  Running  lrunrepo    Claude   lrun-lrunrepo  1
+$ systemctl --user list-units 'conductor_lrun*' --all --no-pager --no-legend
+  conductor_lrun-lrunrepo.service loaded active running [systemd-run] … "stty cols 160 rows 48; exec 'claude' '--resume' 'ba51cb9a-cd71-4073-aa88-b3b393db7017' '-n' 'lrun-lrunrepo' … '--model' 'sonnet' …"
+  conductor_lrun.slice            loaded active active  Slice /conductor_lrun
+$ systemctl --user show conductor_lrun-lrunrepo.service -p ControlGroup -p MemoryMax -p CPUWeight -p TasksMax
+ControlGroup=/user.slice/user-1000.slice/user@1000.service/conductor_lrun.slice/conductor_lrun-lrunrepo.service
+CPUWeight=50
+MemoryMax=3221225472
+TasksMax=1024
+$ claude agents --json | jq -c '.[] | select(.name | startswith("lrun")) | {name,pid,status,sessionId,cwd}'
+{"name":"lrun-lrunrepo","pid":767613,"status":"idle","sessionId":"ba51cb9a-cd71-4073-aa88-b3b393db7017","cwd":"~/.cache/conductor-liverun/checkouts/lrunrepo"}
+```
+
+The resume finished within the same second, 01:27:10 UTC. The envelope record was written
+again at `2026-10-15T01:27:10.708Z`, with the same cgroup, the same limits, and `unit`
+`conductor_lrun-lrunrepo.service`.
+
+A guard rule lets a controller message only its conductor. So the SendMessage to
+`lrun-lrunrepo` (between 01:27:10 and 01:27:20 UTC) asked the session to write the word `pong` to `pong.txt` in its
+repository, with no reply by message. The sender's result was `{"success":true, … → lrun-lrunrepo …}`.
+
+```
+$ date -u; ls -l ~/.cache/conductor-liverun/checkouts/lrunrepo/; cat …/pong.txt
+Thu Oct 15 01:27:21 AM UTC 2026
+-rw-r--r-- 1 timo timo  5 03:27:20 pong.txt          # local time, 01:27:20 UTC
+-rw-r--r-- 1 timo timo 40 02:05:35 README.md
+pong
+```
+
+The transcript of the resumed session,
+`~/.claude/projects/-home-timo--cache-conductor-liverun-checkouts-lrunrepo/ba51cb9a-cd71-4073-aa88-b3b393db7017.jsonl`,
+is the same file as before the pause. It holds the `cross-session-message` and the tool call
+`"name":"Write","input":{"file_path":"~/.cache/conductor-liverun/checkouts/lrunrepo/pong.txt","content":"pong\n"}`.
+
+### 4. Stop
+
+```
+$ conductor controller stop-controller --controller-id 01a13d2b-41bd-75a7-8fdc-3a239f354e44 --reason "live run done"; echo "stop exit $?"
+stopped lrun-lrunrepo (ba51cb9a-cd71-4073-aa88-b3b393db7017)
+stop exit 0
+$ conductor controller controllers
+01a13d2b-41bd-75a7-8fdc-3a239f354e44  Stopped  lrunrepo    Claude   lrun-lrunrepo  1
+$ systemctl --user show conductor_lrun-lrunrepo.service -p LoadState -p ActiveState
+LoadState=not-found
+ActiveState=inactive
+$ kill -0 767613
+kill 767613 failed: no such process
+$ claude agents --json | jq -c '[.[] | select(.name | startswith("lrun"))]'
+[]
+```
+
+### 5. Cleanup
+
+No conductor command stops an instance's slice, so the empty `conductor_lrun.slice` was stopped
+with systemctl. No other unit was touched.
+
+```
+$ systemctl --user stop conductor_lrun.slice; echo "slice stop exit $?"
+slice stop exit 0
+$ systemctl --user list-units 'conductor_lrun*' 'conductor-lrun*' --all --no-pager
+  UNIT LOAD ACTIVE SUB DESCRIPTION
+
+0 loaded units listed.
+$ systemctl --user list-units conductor.slice conductor_lrun.slice --all --no-pager
+  UNIT LOAD ACTIVE SUB DESCRIPTION
+
+0 loaded units listed.
+$ claude agents --json | jq -c '[.[] | select(.name | test("lrun"))]'
+[]
+```
+
+### Observations
+
+- Faults 1, 2 and 3 of the first run are fixed live. Fault 4 (`wait_gone`) was exercised only in
+  its easy case: after the pause, the old unit was already `not-found`.
+- An instance's slice stays after its last session stops, and no conductor command removes it.
+  This is not a fault for the run, but a scratch instance needs a `systemctl --user stop
+  conductor_<prefix>.slice` by hand.
+- Conductor's own role (`session start --role conductor`) is still not run under the provider.
