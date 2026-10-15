@@ -164,6 +164,59 @@ pub fn open_existing(state: &Path) -> Result<Store> {
     Store::at(state)
 }
 
+/// [`open_existing`] for a handle that only reads, as the dashboard's does: it never takes a tree's
+/// writer lock ([`read_unlocked`]), so it neither waits on a writer nor keeps one waiting, however
+/// long it reads. It never writes.
+///
+/// # Errors
+///
+/// As [`open_existing`].
+pub fn open_reader(state: &Path) -> Result<Store> {
+    let root = state.join(TREE_DIR);
+    unmigrated(state, &root)?;
+    if !is_file(&root.join(TREE_MANIFEST)) {
+        bail!("no store at {}", root.display());
+    }
+    Store::opened(state, true)
+}
+
+/// How often a reader tries an open that fails beside a writer before it answers the failure.
+const READER_TRIES: usize = 3;
+
+/// The tree at `root`, which holds a store, opened without its writer lock, with the [`Mark`] taken
+/// before the open: eventlog-tree lists a tree's commit files before its event files, and a commit
+/// writes its events before its commit file, so an open beside a writer serves every commit it
+/// listed and none half written, and a commit after the mark is read again at the next read. An
+/// open that fails beside a writer (a tenant erased while it was read) is tried again, up to
+/// [`READER_TRIES`] times, never under the lock. Nothing is created: a tree without its
+/// description is an error.
+fn read_unlocked(runtime: &Engine, root: &Path) -> Result<(TreeEventStore, Mark), EventLogError> {
+    let mut last = None;
+    for _ in 0..READER_TRIES {
+        if !is_file(&root.join(TREE_MANIFEST)) {
+            return Err(EventLogError::Backend(format!(
+                "no store at {}",
+                root.display()
+            )));
+        }
+        let opened = mark(root)
+            .map_err(|error| backend(&error))
+            .and_then(|seen| {
+                let log = runtime.block_on(TreeEventStore::open(root))?;
+                Ok((log, seen))
+            });
+        match opened {
+            Ok(opened) => return Ok(opened),
+            Err(error) => last = Some(error),
+        }
+    }
+    let error = last.map_or_else(String::new, |error| error.to_string());
+    Err(EventLogError::Backend(format!(
+        "open the store at {}: {error}",
+        root.display()
+    )))
+}
+
 /// Refuses a state directory whose `tree/` holds no tree store while `store/` holds a File
 /// provider's store, whose records would otherwise be left behind unread; or while `tree.next/`
 /// is there, which `conductor store migrate` renames to `tree/` and which a new `tree/` would
@@ -373,6 +426,9 @@ pub struct Store {
     /// Every read or write that failed on this handle, in the order they failed; a record that
     /// does not decode is kept once however often it is read.
     failures: RefCell<Vec<StoreError>>,
+    /// Whether this handle opens a tree that holds a store without its writer lock
+    /// ([`open_reader`]).
+    reader: bool,
 }
 
 /// One of a handle's tree stores.
@@ -509,16 +565,26 @@ impl Store {
     /// Opens the stores under `state`: `tree/`, which holds one or is to be created, now, and
     /// `observations/` at its first use.
     fn at(state: &Path) -> Result<Self> {
+        Self::opened(state, false)
+    }
+
+    /// [`Store::at`], as a reader ([`open_reader`]) when `reader` says so.
+    fn opened(state: &Path, reader: bool) -> Result<Self> {
         let root = state.join(TREE_DIR);
         let runtime = Engine::start()?;
-        // Under the tree's writer lock, as in `reopened`.
-        let lock = hold(&root.join(TREE_LOCK))
-            .with_context(|| format!("hold the writer lock of {}", root.display()))?;
-        let seen = mark(&root).with_context(|| format!("read {}", root.display()))?;
-        let log = runtime
-            .block_on(TreeEventStore::open(&root))
-            .with_context(|| format!("open the store at {}", root.display()))?;
-        drop(lock);
+        let (log, seen) = if reader {
+            read_unlocked(&runtime, &root)?
+        } else {
+            // Under the tree's writer lock, as in `reopened`.
+            let lock = hold(&root.join(TREE_LOCK))
+                .with_context(|| format!("hold the writer lock of {}", root.display()))?;
+            let seen = mark(&root).with_context(|| format!("read {}", root.display()))?;
+            let log = runtime
+                .block_on(TreeEventStore::open(&root))
+                .with_context(|| format!("open the store at {}", root.display()))?;
+            drop(lock);
+            (log, seen)
+        };
         Ok(Self {
             runtime,
             tree: Tree {
@@ -531,6 +597,7 @@ impl Store {
             tenant: TenantId::new(CONDUCTOR)?,
             versions: RefCell::default(),
             failures: RefCell::default(),
+            reader,
         })
     }
 
@@ -560,15 +627,20 @@ impl Store {
     /// `tree` opened afresh from its files, with the [`Mark`] of the files it was opened from; a
     /// failure names its directory, since a handle opens two.
     ///
-    /// The open holds the tree's writer lock from start to end. eventlog's open lists the tree's
-    /// event files and then its commit files, so a commit landing between the two passes would
-    /// read as a commit whose event is missing: a corrupt store. Holding the lock keeps every
-    /// writer out until the open is done, and makes the second of two first writers wait while
-    /// the first writes the tree's description, then find it written. The lock is released before
-    /// this answers: every commit takes it again itself, and a second hold of the lock file from
-    /// this process would wait on the first.
+    /// The open holds the tree's writer lock from start to end. It makes the second of two first
+    /// writers wait while the first writes the tree's description, then find it written, and keeps
+    /// a tenant from being erased while the open reads it. (eventlog-tree 0.8 lists the commit
+    /// files before the event files, so a commit landing during the open is not read, rather than
+    /// read as a commit whose event is missing.) The lock is released before this answers: every
+    /// commit takes it again itself, and a second hold of the lock file from this process would
+    /// wait on the first.
+    ///
+    /// A reader ([`open_reader`]) never takes the lock ([`read_unlocked`]).
     fn reopened(&self, tree: &Tree) -> Result<(TreeEventStore, Mark), EventLogError> {
         let root = &tree.root;
+        if self.reader {
+            return read_unlocked(&self.runtime, root);
+        }
         let lock = hold(&root.join(TREE_LOCK)).map_err(|error| {
             EventLogError::Backend(format!(
                 "hold the writer lock of {}: {error}",

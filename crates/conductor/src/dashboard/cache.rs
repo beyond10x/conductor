@@ -9,22 +9,28 @@
 //! - [`Stores`] keeps one handle per state directory for the server's life, and every
 //!   computation takes it under one lock: the handle reopens a tree only when another writer
 //!   committed to it since ([`crate::store`]'s `Mark`), and two computations never replay the
-//!   same files side by side.
+//!   same files side by side. The handle is a reader ([`store::open_reader`]): it never waits on
+//!   the store's writer lock, which a writer holds for as long as it commits.
 //! - [`Memo`] keeps each answer that reads the store with the [`fingerprint`] of the store it was
-//!   computed from. A request whose fingerprint is the one kept is answered from memory; one whose
-//!   fingerprint moved, because something was written, computes the answer once and keeps it.
+//!   computed from. A request whose fingerprint is the one kept is answered from memory. One whose
+//!   fingerprint moved, because something was written, is answered from memory too, at once and
+//!   marked stale (`X-Conductor-Age`), while one computation of the answer runs on a thread of its
+//!   own: never two of one answer at once, and for an answer kept, at most one started per
+//!   [`DEBOUNCE`], since the store is written almost constantly. Only a request for an answer never
+//!   computed waits, up to [`COLD_WAIT`], and is answered `503` with `Retry-After` after that.
 //! - [`Body`] is an answer as it is sent, with its `ETag`; a request whose `If-None-Match` names
 //!   it is answered `304 Not Modified` without a body ([`send`]).
 //! - The session list (`claude agents --json`), the one command a request ran, is read on a thread
 //!   of its own every [`SESSIONS_EVERY`] ([`SessionList`]); a request takes the last list, with
 //!   when it was read.
 //!
-//! The server's warmer ([`super::serve_over`]) looks at every kept answer every [`WARM_EVERY`]
-//! and computes again those whose fingerprint moved, so the request after a write mostly finds
-//! the new answer already computed.
+//! The server's warmer ([`super::serve_over`]) computes every answer once at start, and looks at
+//! every kept answer every [`WARM_EVERY`] and starts a computation of those whose fingerprint
+//! moved, as the debounce lets it, so the request after a write mostly finds the new answer
+//! already computed.
 
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -54,8 +60,107 @@ const SETTLED: Duration = Duration::from_secs(2);
 /// `observations/` and `series/`).
 const TREES: [&str; 3] = ["tree", "observations", "series"];
 
+/// How long after a recompute of an answer started the next one may start: a store written
+/// almost constantly (the guard's hooks, messages, a snapshot's collectors) does not cause
+/// recomputes back to back.
+pub const DEBOUNCE: Duration = Duration::from_secs(15);
+
+/// How long a request for an answer that was never computed waits for it before it is answered
+/// `503` with `Retry-After`.
+pub const COLD_WAIT: Duration = Duration::from_secs(5);
+
+/// The `Retry-After` of a `503` answered before an answer was first computed, in seconds.
+pub(super) const RETRY_AFTER: u64 = 5;
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The tuning and the probe
+// ---------------------------------------------------------------------------------------------
+
+/// How the server keeps its answers: [`Tuning::default`] is what `dashboard serve` runs with; a
+/// test shortens the waits and sets a [`Probe`].
+#[derive(Debug, Clone)]
+pub struct Tuning {
+    /// [`DEBOUNCE`].
+    pub debounce: Duration,
+    /// [`COLD_WAIT`].
+    pub cold_wait: Duration,
+    /// What a test watches the computations with; none in `dashboard serve`.
+    pub probe: Option<Arc<Probe>>,
+}
+
+impl Default for Tuning {
+    fn default() -> Self {
+        Self {
+            debounce: DEBOUNCE,
+            cold_wait: COLD_WAIT,
+            probe: None,
+        }
+    }
+}
+
+/// A test's view of the computations: a delay each one waits before it computes, standing in for
+/// a slow store, and when each computation of each key started and how many ran at once.
+#[derive(Debug, Default)]
+pub struct Probe(Mutex<Probed>);
+
+#[derive(Debug, Default)]
+struct Probed {
+    delay: Duration,
+    started: HashMap<String, Vec<Instant>>,
+    running: HashMap<String, usize>,
+    peak: HashMap<String, usize>,
+}
+
+impl Probe {
+    /// Every computation started from now on first waits `delay`.
+    pub fn set_delay(&self, delay: Duration) {
+        lock(&self.0).delay = delay;
+    }
+
+    /// How many computations of `key` started.
+    #[must_use]
+    pub fn starts(&self, key: &str) -> usize {
+        self.started(key).len()
+    }
+
+    /// When each computation of `key` started, in order.
+    #[must_use]
+    pub fn started(&self, key: &str) -> Vec<Instant> {
+        lock(&self.0).started.get(key).cloned().unwrap_or_default()
+    }
+
+    /// The most computations of `key` that ran at once.
+    #[must_use]
+    pub fn peak(&self, key: &str) -> usize {
+        lock(&self.0).peak.get(key).copied().unwrap_or_default()
+    }
+
+    /// A computation of `key` starts; its delay.
+    fn start(&self, key: &str) -> Duration {
+        let mut probed = lock(&self.0);
+        probed
+            .started
+            .entry(key.to_owned())
+            .or_default()
+            .push(Instant::now());
+        let running = probed.running.entry(key.to_owned()).or_default();
+        *running += 1;
+        let running = *running;
+        let peak = probed.peak.entry(key.to_owned()).or_default();
+        *peak = (*peak).max(running);
+        probed.delay
+    }
+
+    /// A computation of `key` ends.
+    fn end(&self, key: &str) {
+        if let Some(running) = lock(&self.0).running.get_mut(key) {
+            *running = running.saturating_sub(1);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -138,19 +243,25 @@ pub(super) fn hasher() -> DefaultHasher {
 // ---------------------------------------------------------------------------------------------
 
 /// One store handle per state directory, kept for the server's life, behind the one lock every
-/// computation over a store takes.
+/// computation over a store takes; with the probe of a test.
 #[derive(Default)]
-pub(super) struct Stores(Mutex<HashMap<PathBuf, Store>>);
+pub(super) struct Stores(Mutex<HashMap<PathBuf, Store>>, Option<Arc<Probe>>);
 
 /// What a computation is given: the store, none where there is none to read, or why it does not
 /// open.
 pub(super) type Held<'a> = Result<Option<&'a Store>, &'a anyhow::Error>;
 
 impl Stores {
-    /// Runs `compute` with the store under `state`, opened read-only the first time
-    /// ([`store::open_existing`]) and kept; none without a `state`; `Err` with why when it does
-    /// not open, and nothing is kept then. A handle on which a read failed is dropped after
-    /// `compute`, so the next computation opens the store afresh.
+    /// The handles, none opened yet, watched by `probe`.
+    pub(super) fn new(probe: Option<Arc<Probe>>) -> Self {
+        Self(Mutex::default(), probe)
+    }
+
+    /// Runs `compute` with the store under `state`, opened the first time as a reader
+    /// ([`store::open_reader`], which does not wait on the store's writer lock) and kept; none
+    /// without a `state`; `Err` with why when it does not open, and nothing is kept then. A
+    /// handle on which a read failed is dropped after `compute`, so the next computation opens
+    /// the store afresh.
     fn with_held<R>(
         stores: &mut HashMap<PathBuf, Store>,
         state: Option<&Path>,
@@ -160,7 +271,7 @@ impl Stores {
             return compute(Ok(None));
         };
         if !stores.contains_key(state) {
-            match store::open_existing(state) {
+            match store::open_reader(state) {
                 Ok(opened) => {
                     stores.insert(state.to_path_buf(), opened);
                 }
@@ -175,29 +286,24 @@ impl Stores {
         answer
     }
 
-    /// [`Memo::get`] of `key` at `fingerprint`, with when it was computed; else `compute` with the
-    /// store under `state` as [`Stores::with_held`] gives it, kept in `memo` at `fingerprint`.
-    /// Two requests for one answer compute it once: the second waits for the lock and then finds
-    /// it kept.
-    pub(super) fn memoized<T: Clone>(
+    /// `compute`, the computation of `key`, with the store under `state` as
+    /// [`Stores::with_held`] gives it, under the one lock: a store handle reads on one thread at
+    /// a time. A test's probe delays it first, outside the lock.
+    pub(super) fn compute<R>(
         &self,
-        memo: &Memo<T>,
         key: &str,
-        fingerprint: u64,
-        asked: bool,
         state: Option<&Path>,
-        compute: impl FnOnce(Held<'_>) -> T,
-    ) -> (T, Instant) {
-        if let Some(kept) = memo.get(key, fingerprint, asked) {
-            return kept;
+        compute: impl FnOnce(Held<'_>) -> R,
+    ) -> R {
+        let delay = self.1.as_ref().map(|probe| probe.start(key));
+        if let Some(delay) = delay.filter(|delay| !delay.is_zero()) {
+            std::thread::sleep(delay);
         }
-        let mut stores = lock(&self.0);
-        if let Some(kept) = memo.get(key, fingerprint, asked) {
-            return kept;
+        let answer = Self::with_held(&mut lock(&self.0), state, compute);
+        if let Some(probe) = &self.1 {
+            probe.end(key);
         }
-        let value = Self::with_held(&mut stores, state, compute);
-        memo.put(key, fingerprint, asked, value.clone());
-        (value, Instant::now())
+        answer
     }
 }
 
@@ -219,34 +325,121 @@ struct Kept<T> {
     value: T,
 }
 
+/// The kept answers, and the computations of them.
+struct Entries<T> {
+    kept: HashMap<String, Kept<T>>,
+    /// The keys a computation runs for: at most one per key.
+    running: HashSet<String>,
+    /// When the last computation of each key started, which the debounce counts from.
+    started: HashMap<String, Instant>,
+    /// Moved by [`Memo::clear`]: a computation started before it keeps nothing.
+    generation: u64,
+}
+
+/// An answer as a request finds it.
+pub(super) enum Served<T> {
+    /// Computed at the store's fingerprint now, at the instant given.
+    Fresh(T, Instant),
+    /// Computed at the instant given, at a fingerprint the store has moved from since: a
+    /// computation of it runs, or the debounce holds one back.
+    Stale(T, Instant),
+    /// Never computed yet.
+    Cold,
+}
+
 /// Answers by key, each with the fingerprint it was computed at, when, and when it was last
-/// asked.
-pub(super) struct Memo<T>(Mutex<HashMap<String, Kept<T>>>);
+/// asked; at most one computation per key at a time, and for a key with an answer kept at most
+/// one started per debounce.
+pub(super) struct Memo<T>(Mutex<Entries<T>>, Condvar);
 
 impl<T> Default for Memo<T> {
     fn default() -> Self {
-        Self(Mutex::new(HashMap::new()))
+        Self(
+            Mutex::new(Entries {
+                kept: HashMap::new(),
+                running: HashSet::new(),
+                started: HashMap::new(),
+                generation: 0,
+            }),
+            Condvar::new(),
+        )
     }
 }
 
+/// A computation of one key [`Memo::claim`] started: the generation its answer is kept under.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Claim(u64);
+
 impl<T: Clone> Memo<T> {
-    /// The answer kept for `key`, with when it was computed, when it was computed at
-    /// `fingerprint`; `asked` says a request asks, which keeps the answer warm.
-    fn get(&self, key: &str, fingerprint: u64, asked: bool) -> Option<(T, Instant)> {
-        let mut kept = lock(&self.0);
-        let entry = kept.get_mut(key)?;
+    /// The answer kept for `key`: fresh when it was computed at `fingerprint`, else stale; cold
+    /// when none is kept. `asked` says a request asks, which keeps the answer warm.
+    pub(super) fn look(&self, key: &str, fingerprint: u64, asked: bool) -> Served<T> {
+        let mut entries = lock(&self.0);
+        let Some(entry) = entries.kept.get_mut(key) else {
+            return Served::Cold;
+        };
         if asked {
             entry.asked = Instant::now();
         }
-        (entry.fingerprint == fingerprint).then(|| (entry.value.clone(), entry.computed))
+        let value = entry.value.clone();
+        if entry.fingerprint == fingerprint {
+            Served::Fresh(value, entry.computed)
+        } else {
+            Served::Stale(value, entry.computed)
+        }
     }
 
-    fn put(&self, key: &str, fingerprint: u64, asked: bool, value: T) {
-        let mut kept = lock(&self.0);
+    /// Starts a computation of `key` when none runs and, for a key with an answer kept, the last
+    /// one started `debounce` ago or longer; none otherwise. [`Memo::finish`] ends it.
+    pub(super) fn claim(&self, key: &str, debounce: Duration) -> Option<Claim> {
+        let mut entries = lock(&self.0);
+        if entries.running.contains(key) {
+            return None;
+        }
+        let held_back = entries.kept.contains_key(key)
+            && entries
+                .started
+                .get(key)
+                .is_some_and(|started| started.elapsed() < debounce);
+        if held_back {
+            return None;
+        }
+        entries.running.insert(key.to_owned());
+        entries.started.insert(key.to_owned(), Instant::now());
+        Some(Claim(entries.generation))
+    }
+
+    /// Ends the computation `claim` of `key`, keeping its answer computed at a fingerprint, when
+    /// it has one, unless the answers were cleared since it started; wakes every request waiting
+    /// for it.
+    pub(super) fn finish(&self, key: &str, claim: Claim, computed: Option<(u64, T)>) {
+        let mut entries = lock(&self.0);
+        entries.running.remove(key);
+        if let Some((fingerprint, value)) = computed
+            && claim.0 == entries.generation
+        {
+            Self::put(&mut entries.kept, key, fingerprint, value);
+        }
+        drop(entries);
+        self.1.notify_all();
+    }
+
+    /// Waits until an answer for `key` is kept or no computation of it runs, up to `deadline`.
+    pub(super) fn wait(&self, key: &str, deadline: Instant) {
+        let entries = lock(&self.0);
+        let left = deadline.saturating_duration_since(Instant::now());
+        drop(
+            self.1
+                .wait_timeout_while(entries, left, |entries| {
+                    !entries.kept.contains_key(key) && entries.running.contains(key)
+                })
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+    }
+
+    fn put(kept: &mut HashMap<String, Kept<T>>, key: &str, fingerprint: u64, value: T) {
         let now = Instant::now();
-        let last_asked = kept
-            .get(key)
-            .map_or(now, |entry| if asked { now } else { entry.asked });
+        let last_asked = kept.get(key).map_or(now, |entry| entry.asked);
         if kept.len() >= KEPT && !kept.contains_key(key) {
             let oldest = kept
                 .iter()
@@ -267,16 +460,21 @@ impl<T: Clone> Memo<T> {
         );
     }
 
-    /// Forgets every kept answer, so the next request computes it afresh: the server's own write
-    /// to the store (`story:decisions-batch-answer`) does not wait for the fingerprint to move.
+    /// Forgets every kept answer and every debounce, so the next request computes it afresh: the
+    /// server's own write to the store (`story:decisions-batch-answer`) does not wait for the
+    /// fingerprint to move. A computation started before keeps nothing.
     pub(super) fn clear(&self) {
-        lock(&self.0).clear();
+        let mut entries = lock(&self.0);
+        entries.kept.clear();
+        entries.started.clear();
+        entries.generation += 1;
     }
 
     /// The keys asked within [`WARM_FOR`], which the warmer computes again when their store
     /// moved.
     pub(super) fn keys(&self) -> Vec<String> {
         lock(&self.0)
+            .kept
             .iter()
             .filter(|(_, entry)| entry.asked.elapsed() < WARM_FOR)
             .map(|(key, _)| key.clone())
@@ -334,11 +532,21 @@ pub(super) fn matches(condition: &str, etag: &str) -> bool {
 /// `body` as an HTTP answer to a request whose `If-None-Match` is `condition`: `304` without a
 /// body when it names the body's `ETag`, else the body. Either carries the `ETag`, `Cache-Control:
 /// no-cache` (a client keeps the answer and asks again with its `ETag`) and, for an answer kept
-/// since `computed`, its `Age` in seconds.
-pub(super) fn send(body: &Body, condition: Option<&str>, computed: Option<Instant>) -> Vec<u8> {
+/// since `computed`, its `Age` in seconds; a `stale` one, whose store moved since, its age in
+/// `X-Conductor-Age` as well.
+pub(super) fn send(
+    body: &Body,
+    condition: Option<&str>,
+    computed: Option<Instant>,
+    stale: bool,
+) -> Vec<u8> {
     let mut extra = format!("ETag: {}\r\n", body.etag);
     if let Some(computed) = computed {
-        extra.push_str(&format!("Age: {}\r\n", computed.elapsed().as_secs()));
+        let age = computed.elapsed().as_secs();
+        extra.push_str(&format!("Age: {age}\r\n"));
+        if stale {
+            extra.push_str(&format!("X-Conductor-Age: {age}\r\n"));
+        }
     }
     if condition.is_some_and(|condition| matches(condition, &body.etag)) {
         return super::response_with(
