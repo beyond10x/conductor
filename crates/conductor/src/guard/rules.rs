@@ -254,7 +254,7 @@ impl Places {
     /// Whether the Bash `command` answers for the operator through the dashboard
     /// (`story:decisions-batch-answer`): it names the answers endpoint, `/api/answers`, or names the
     /// instance's dashboard port as `:<port>` (whatever spells the loopback address before it:
-    /// `127.0.0.1`, `localhost`, `[::1]`, `0x7f000001`, none) and holds a POST or a body
+    /// `127.0.0.1`, `localhost`, `[::1]`, `0x7f000001`, none) and sends a POST or a body by any client
     /// ([`posts`]). A substring test, a speed bump and not a boundary: a script the command runs, a
     /// port or path a variable holds, or a percent-encoded path is not caught.
     fn posts_to_dashboard(&self, command: &str) -> bool {
@@ -2445,17 +2445,46 @@ fn names_path(command: &str, spelling: &str, under: bool) -> bool {
     })
 }
 
-/// Whether `text` holds `word` with no letter, digit, `_`, `-` or `.` on either side.
-/// Whether the Bash `command` holds an HTTP POST or a request body, as a word between white
-/// space, quotes and the shell's separators: `POST` (`-X POST`, `--request POST`, httpie's
-/// `http POST`), `-XPOST`, `--request=POST` or `--method=POST`; or a body flag of curl or wget,
-/// `-d…`, `--data…`, `--json`, `-F`, `--form…`, `-T`, `--upload-file`, `--post-data`,
-/// `--post-file`.
+/// The programs whose own words a POST or a body is read from: curl, wget and the httpie family.
+const HTTP_CLIENTS: [&str; 6] = ["curl", "wget", "wget2", "http", "https", "xh"];
+
+/// Text that sends a body or a POST from an interpreter's client, compared without case: Python's
+/// urllib (`data=`) and requests (`.post(`, `json=`), and a `fetch` or an axios call
+/// (`method: 'POST'`, `body:`).
+const INTERPRETER_POSTS: [&str; 8] = [
+    "data=",
+    "json=",
+    ".post(",
+    "'post'",
+    "\"post\"",
+    "body:",
+    "body=",
+    "method=post",
+];
+
+/// Whether the Bash `command` sends an HTTP POST or a request body
+/// (`story:decisions-batch-answer`): an HTTP client's own simple command ([`HTTP_CLIENTS`], after
+/// any launcher such as `timeout` or `env`) holds `POST` (`-X POST`, `--request POST`, httpie's
+/// `http POST`), `-XPOST`, `--request=POST` or `--method=POST`, a body flag (`-d…`, `--data…`,
+/// `--json`, `-F`, `--form…`, `-T`, `--upload-file`, `--post-data`, `--post-file`), or, for the
+/// httpie family, a request item (`name=value`, `name:=json`); or the line holds an interpreter's
+/// POST or body ([`INTERPRETER_POSTS`]). A flag of another program (`tr -d`, `cut -d`, `date -d`,
+/// `sort -d`) is no body.
 fn posts(command: &str) -> bool {
-    command
-        .split(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | ';' | '|' | '&' | '(' | ')'))
-        .filter(|word| !word.is_empty())
-        .any(|word| {
+    let lower = command.to_ascii_lowercase();
+    if INTERPRETER_POSTS.iter().any(|post| lower.contains(post)) {
+        return true;
+    }
+    shell::commands(command).iter().any(|words| {
+        let words = command_words(words);
+        let Some(at) = words
+            .iter()
+            .position(|word| HTTP_CLIENTS.contains(&shell::program(word)))
+        else {
+            return false;
+        };
+        let httpie = !matches!(shell::program(&words[at]), "curl" | "wget" | "wget2");
+        words[at + 1..].iter().any(|word| {
             let upper = word.to_ascii_uppercase();
             upper == "POST"
                 || upper == "-XPOST"
@@ -2471,10 +2500,13 @@ fn posts(command: &str) -> bool {
                 ]
                 .iter()
                 .any(|flag| word.starts_with(flag))
-                || matches!(word, "-F" | "-T")
+                || matches!(word.as_str(), "-F" | "-T")
+                || (httpie && !word.starts_with('-') && !word.contains("://") && word.contains('='))
         })
+    })
 }
 
+/// Whether `text` holds `word` with no letter, digit, `_`, `-` or `.` on either side.
 fn contains_word(text: &str, word: &str) -> bool {
     let joins = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.');
     text.match_indices(word).any(|(at, _)| {

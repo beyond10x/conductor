@@ -595,7 +595,10 @@ pub fn answer_escalated_as_operator(
 /// `AnswerEscalatedRequest` over the same handle, appending the `decided` and `answered` lines.
 /// The store commits each write on its own: should another process answer or withdraw the
 /// request between the two, the decision just recorded is reversed as the operator's, with that
-/// reason, and the answer is refused `RequestStateConflict`, so no decision answers no request.
+/// reason, and the answer is refused `RequestStateConflict`; should anything else fail between
+/// them (the records line, the move, a full disk), the decision is reversed too and the failure
+/// answered. So no decision in force answers no request, unless its reversal fails as well, which
+/// the error then names.
 ///
 /// # Errors
 ///
@@ -749,66 +752,105 @@ pub fn answer_as_operator(
             );
         }
     };
-    decided(
-        COMMAND,
-        &fields,
-        &decision_id,
-        Some((answer.recorded_by.as_str(), words.as_str())),
-    )?;
-    let outcome = generated
-        .answer_escalated_request(AnswerEscalatedRequest {
-            request_id: request.clone(),
-            decision_id: decision_id.clone(),
-        })
-        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
-    let moved = match (generated.ports.store.check(), outcome) {
-        (Ok(()), AnswerEscalatedRequestOutcome::Answered { .. }) => true,
-        (Ok(()), _) | (Err(StoreError::Moved { .. }), _) => false,
-        (Err(failure), _) => {
-            return Err(anyhow::Error::new(failure))
-                .with_context(|| format!("{COMMAND}: the store did not keep the answer"));
-        }
-    };
-    if moved {
-        request_logged(
+    // Everything after the decision is recorded, up to the request's move, either moves the
+    // request (true), finds it moved by another writer (false), or fails; only a kept move leaves
+    // the decision in force.
+    let moved = (|| -> Result<bool> {
+        decided(
             COMMAND,
-            &generated.ports,
-            &request,
-            DecisionLogEvent::Answered,
-            |line| line.decision_id = Some(decision_id.clone()),
+            &fields,
+            &decision_id,
+            Some((answer.recorded_by.as_str(), words.as_str())),
         )?;
-        return Ok(OperatorAnswered::Recorded(decision_id.0));
+        let outcome = generated
+            .answer_escalated_request(AnswerEscalatedRequest {
+                request_id: request.clone(),
+                decision_id: decision_id.clone(),
+            })
+            .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+        match (generated.ports.store.check(), outcome) {
+            (Ok(()), AnswerEscalatedRequestOutcome::Answered { .. }) => Ok(true),
+            (Ok(()), _) | (Err(StoreError::Moved { .. }), _) => Ok(false),
+            (Err(failure), _) => Err(anyhow::Error::new(failure))
+                .with_context(|| format!("{COMMAND}: the store did not keep the request's move")),
+        }
+    })();
+    match moved {
+        Ok(true) => {
+            request_logged(
+                COMMAND,
+                &generated.ports,
+                &request,
+                DecisionLogEvent::Answered,
+                |line| line.decision_id = Some(decision_id.clone()),
+            )?;
+            Ok(OperatorAnswered::Recorded(decision_id.0))
+        }
+        // Another process moved the request between the two writes: the decision answers
+        // nothing, so it does not stay in force.
+        Ok(false) => {
+            let reason = format!(
+                "request {:?} was answered or withdrawn while this answer was recorded",
+                request.0
+            );
+            withdraw_decision(COMMAND, state, &decision_id, &reason)?;
+            refusal(
+                "RequestStateConflict",
+                format!("{reason}; decision {} was reversed", decision_id.0),
+            )
+        }
+        // The request did not move (a write failed, the disk is full): the decision answers
+        // nothing either, and is reversed before the failure is answered.
+        Err(failure) => {
+            let reason = format!(
+                "request {:?} did not move to Answered: {failure:#}",
+                request.0
+            );
+            match withdraw_decision(COMMAND, state, &decision_id, &reason) {
+                Ok(()) => Err(failure.context(format!(
+                    "decision {} was reversed, and request {:?} is still escalated",
+                    decision_id.0, request.0
+                ))),
+                Err(reversal) => Err(failure.context(format!(
+                    "decision {} could not be reversed ({reversal:#}): it is in force and \
+                     answers no request; reverse it with `conductor decision \
+                     reverse-operator-decision`",
+                    decision_id.0
+                ))),
+            }
+        }
     }
-    // Another process moved the request between the two writes: the decision answers nothing,
-    // so it does not stay in force.
-    let reason = format!(
-        "request {:?} was answered or withdrawn while this answer was recorded",
-        request.0
-    );
-    let mut fresh = record(COMMAND, state)?;
+}
+
+/// Reverses the operator's decision `decision_id`, which answers no request, for `reason`, over
+/// a fresh handle, and appends its `reversed` line.
+fn withdraw_decision(
+    command: &str,
+    state: Option<&Path>,
+    decision_id: &DecisionId,
+    reason: &str,
+) -> Result<()> {
+    let mut fresh = record(command, state)?;
     let reversed = fresh
         .reverse_operator_decision(ReverseOperatorDecision {
             decision_id: decision_id.clone(),
-            reason: reason.clone(),
+            reason: reason.to_owned(),
         })
-        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
-    kept(COMMAND, &fresh.ports.store)?;
+        .map_err(|unmet| anyhow!("{command}: {unmet}"))?;
+    kept(command, &fresh.ports.store)?;
     if let ReverseOperatorDecisionOutcome::Reversed { .. } = reversed {
         decision_logged(
-            COMMAND,
+            command,
             &fresh.ports,
-            &decision_id,
+            decision_id,
             DecisionLogEvent::Reversed,
             |line| {
                 line.decided_by = Some(Decider::Operator);
-                line.reason = Some(reason.clone());
+                line.reason = Some(reason.to_owned());
             },
         )?;
     }
-    refusal(
-        "RequestStateConflict",
-        format!("{reason}; decision {} was reversed", decision_id.0),
-    )
+    Ok(())
 }
 
 /// The choice `given` records for a request of `class` holding `data`, joined by `,` in the order

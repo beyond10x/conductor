@@ -788,3 +788,105 @@ fn the_answers_path_takes_post_alone() {
     assert_eq!(exchange(port, &raw).status, 405);
     assert!(case.decisions().is_empty());
 }
+
+// ---------------------------------------------------------------------------------------------
+// Adversary (story:decisions-batch-answer): the two writes of one answer
+// ---------------------------------------------------------------------------------------------
+
+/// The decisions of the case's store in force, each with the request it answers, when any.
+fn in_force_unanswering(case: &Case) -> Vec<Value> {
+    let answering: Vec<Value> = case
+        .view("requests")
+        .into_iter()
+        .filter(|request| request["state"] == "Answered")
+        .map(|request| request["decision_id"].clone())
+        .collect();
+    case.decisions()
+        .into_iter()
+        .filter(|decision| decision["state"] == "InForce")
+        .filter(|decision| !answering.contains(&decision["decision_id"]))
+        .collect()
+}
+
+/// Risk 1: the page and conductor's relay answer the same request at once, several times over.
+/// One answer wins: exactly one decision is in force, the request is Answered with it, and every
+/// other attempt is refused or reversed, so no decision in force answers no request.
+#[test]
+fn adv_concurrent_page_and_cli_answers_leave_one_decision_in_force() {
+    let case = Case::new("adv-concurrent");
+    let port = case.start();
+    let token = token(port);
+    let body = serde_json::to_vec(&json!({"answers": one_answer()})).expect("a JSON body");
+    std::thread::scope(|scope| {
+        for round in 0..4 {
+            let (case, body, token) = (&case, &body, token.clone());
+            scope.spawn(move || {
+                post_with(port, body, &[("X-Conductor-Token", Some(token))]);
+            });
+            scope.spawn(move || {
+                case.run(&[
+                    "decision",
+                    "answer-escalated-as-operator",
+                    "--request-id",
+                    YES_NO,
+                    "--choice",
+                    if round % 2 == 0 { "N" } else { "Y" },
+                    "--recorded-by",
+                    "conductor",
+                    "--operator-words",
+                    "relayed",
+                ]);
+            });
+        }
+    });
+    let request = case.request(YES_NO);
+    assert_eq!(request["state"], "Answered", "{request}");
+    let in_force: Vec<Value> = case
+        .decisions()
+        .into_iter()
+        .filter(|decision| decision["state"] == "InForce")
+        .collect();
+    assert_eq!(in_force.len(), 1, "one decision in force: {in_force:#?}");
+    assert_eq!(
+        request["decision_id"], in_force[0]["decision_id"],
+        "{request}"
+    );
+    let orphans = in_force_unanswering(&case);
+    assert!(orphans.is_empty(), "orphan decisions: {orphans:#?}");
+}
+
+/// Risk 1: the second of the two writes (the request's move to Answered) fails for a reason other
+/// than another writer (here its stream cannot be written, as on a full disk). The doc of
+/// `answer_as_operator` promises "no decision answers no request": the decision just recorded
+/// is not to stay in force while its request is still Escalated.
+#[cfg(unix)]
+#[test]
+fn adv_a_failed_move_of_the_request_leaves_no_decision_in_force() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let case = Case::new("adv-failed-move");
+    let port = case.start();
+    let token = token(port);
+    let stream = fs::read_dir(case.state().join("tree/tenants"))
+        .expect("the store's tenants")
+        .filter_map(Result::ok)
+        .map(|tenant| {
+            tenant
+                .path()
+                .join("streams/conductor.decision.DecisionRequest")
+                .join(YES_NO)
+        })
+        .find(|stream| stream.is_dir())
+        .expect("the yes-no request's stream directory");
+    fs::set_permissions(&stream, fs::Permissions::from_mode(0o555)).expect("make it read-only");
+    let body = serde_json::to_vec(&json!({"answers": one_answer()})).expect("a JSON body");
+    let answer = post_with(port, &body, &[("X-Conductor-Token", Some(token))]);
+    fs::set_permissions(&stream, fs::Permissions::from_mode(0o755)).expect("make it writable");
+    let row = result(&answer, YES_NO);
+    assert_ne!(row["outcome"], "recorded", "the move failed: {row}");
+    assert_eq!(case.request(YES_NO)["state"], "Escalated");
+    let orphans = in_force_unanswering(&case);
+    assert!(
+        orphans.is_empty(),
+        "the answer was {row}, and these decisions are in force answering no request: {orphans:#?}"
+    );
+}

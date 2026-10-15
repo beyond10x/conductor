@@ -5783,3 +5783,41 @@ fn a_session_still_reads_the_dashboard() {
         }
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// Adversary, story:decisions-batch-answer: the rule against posting to the dashboard.
+// -------------------------------------------------------------------------------------------------
+
+/// A read of the dashboard piped through a filter whose flag starts `-d` (`tr -d`, `cut -d`,
+/// `date -d`) is still a read: it posts nothing, and the rule is to leave it allowed.
+#[test]
+fn adv_a_dashboard_read_piped_through_tr_or_cut_is_allowed() {
+    let home = home("adv-dashboard-read-filters");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "curl -s http://127.0.0.1:7313/api/decisions | tr -d '\\n'",
+            "curl -s http://localhost:7313/api/unanswered | cut -d' ' -f1",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+/// A Python one-liner that names the dashboard's port and sends a body (`data=`, which urllib
+/// sends as a POST; `requests.post`) holds a POST or a body, which the rule's doc says is denied.
+#[test]
+fn adv_a_python_one_liner_posting_a_body_to_the_port_is_denied() {
+    let home = home("adv-dashboard-python");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "python3 -c \"import urllib.request as r; r.urlopen(r.Request('http://127.0.0.1:7313/api/answer' 's', data=open('a.json','rb').read(), headers={'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'X-Conductor-Token': open('t').read()}))\"",
+            "python3 -c \"import requests; requests.post('http://localhost:7313/api/answer' 's', json={'answers': []})\"",
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                "the operator's answers",
+            );
+        }
+    }
+}
