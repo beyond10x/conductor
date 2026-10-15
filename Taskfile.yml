@@ -341,6 +341,12 @@ tasks:
       - npm ci
       - npm run build
 
+  ui:dev:
+    desc: Serve the dashboard app from source with hot reload on http://127.0.0.1:5173/ (Vite dev mode); its data and answers come from the running dashboard, CONDUCTOR_DASHBOARD (default http://127.0.0.1:7313), so start that first with task dashboard
+    dir: crates/conductor/dashboard
+    cmds:
+      - npm run dev
+
   check:
     desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, test the dashboard app and hold crates/conductor/dashboard/dist to a fresh build, then format, lint and test
     cmds:
