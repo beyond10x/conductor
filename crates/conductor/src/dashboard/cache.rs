@@ -267,6 +267,12 @@ impl<T: Clone> Memo<T> {
         );
     }
 
+    /// Forgets every kept answer, so the next request computes it afresh: the server's own write
+    /// to the store (`story:decisions-batch-answer`) does not wait for the fingerprint to move.
+    pub(super) fn clear(&self) {
+        lock(&self.0).clear();
+    }
+
     /// The keys asked within [`WARM_FOR`], which the warmer computes again when their store
     /// moved.
     pub(super) fn keys(&self) -> Vec<String> {

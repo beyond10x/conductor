@@ -1,5 +1,5 @@
 format: ess-inputs/2
-requires: ess 0.59
+requires: ess 0.60
 specification:
   - system.yaml
   - components.yaml
@@ -32,3 +32,4 @@ scenarios:
   - scenarios/receive-message-unknown-kind.yaml
   - scenarios/claim-lease.yaml
   - scenarios/escalate-o-with-options.yaml
+  - scenarios/answer-escalated-as-operator.yaml

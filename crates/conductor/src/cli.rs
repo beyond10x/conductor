@@ -211,6 +211,9 @@ impl Cli {
                 DecisionCommand::RecordOperatorDecision(args) => {
                     decide::record_operator_decision(state, args)
                 }
+                DecisionCommand::AnswerEscalatedAsOperator(args) => {
+                    decide::answer_escalated_as_operator(state, args)
+                }
                 DecisionCommand::AnswerRequest(args) => decide::answer_request(state, args),
                 DecisionCommand::AnswerEscalatedRequest(args) => {
                     decide::answer_escalated_request(state, args)
@@ -540,6 +543,10 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Installs the Gates hooks of the instance's checkouts with --apply (story:gates-hooks-fresh).
     (&["repository", "refresh-hooks"], Access::Writes),
     (&["decision", "answer-escalated-request"], Access::Writes),
+    (
+        &["decision", "answer-escalated-as-operator"],
+        Access::Writes,
+    ),
     (&["decision", "answer-request"], Access::Writes),
     (&["decision", "escalate-request"], Access::Writes),
     (&["decision", "raise-decision-request"], Access::Writes),
@@ -845,6 +852,10 @@ pub enum DecisionCommand {
     /// Record a decision taken by the operator
     #[command(name = "record-operator-decision")]
     RecordOperatorDecision(RecordOperatorDecisionArgs),
+
+    /// Answer an escalated request as the operator
+    #[command(name = "answer-escalated-as-operator")]
+    AnswerEscalatedAsOperator(RecordOperatorDecisionForRequestArgs),
 
     /// Reverse a decision taken by conductor
     #[command(name = "reverse-conductor-decision")]
@@ -2444,6 +2455,53 @@ pub struct RecordConductorDecisionArgs {
 /// The input of `conductor.decision.RecordOperatorDecision`.
 #[derive(Debug, Clone, Args)]
 pub struct RecordOperatorDecisionArgs {
+    /// DecisionId, starting with `DEC-`
+    #[arg(long, value_parser = prefixed("DEC-"))]
+    pub decision_id: Option<String>,
+    /// DecisionClass
+    #[arg(long, value_parser = ["C", "O", "H"])]
+    pub decision_class: Option<String>,
+    /// string
+    #[arg(long)]
+    pub question: Option<String>,
+    /// string
+    #[arg(long)]
+    pub options: Option<String>,
+    /// string
+    #[arg(long)]
+    pub choice: Option<String>,
+    /// string
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// string
+    #[arg(long)]
+    pub evidence: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub decided_at: Option<String>,
+    /// string
+    #[arg(long)]
+    pub recorded_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub operator_words: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub repository: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.decision.RecordOperatorDecisionForRequest` (`story:decisions-batch-answer`):
+/// the operator's answer to an escalated request. `--request-id`, `--choice` (the letters, joined
+/// by `,`; `done` for class H), `--recorded-by` and `--operator-words` are required; the rest
+/// default to the request's, or now, or are allocated.
+#[derive(Debug, Clone, Args)]
+pub struct RecordOperatorDecisionForRequestArgs {
+    /// RequestId
+    #[arg(long)]
+    pub request_id: Option<String>,
     /// DecisionId, starting with `DEC-`
     #[arg(long, value_parser = prefixed("DEC-"))]
     pub decision_id: Option<String>,

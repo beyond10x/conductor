@@ -13,7 +13,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
 <main id="main" tabindex="-1">
   <div data-v-88790c7d="" class="decisions">
     <h1 data-v-88790c7d="" class="page">Decisions</h1>
-    <p data-v-88790c7d="" class="read-only-note small muted"> Each open class-O and class-H request, with its options, their cost, the recommendation and the default. The controls are read-only: Answering from this page comes next; until then answer in conductor's session. </p>
+    <p data-v-88790c7d="" class="answer-note small muted"> Each open class-O and class-H request, with its options, their cost, the recommendation and the default. Choose on each one you answer, add your words if you like, and send them together: each answer is recorded as your decision, and conductor relays it. </p>
     <!--v-if-->
     <section data-v-88790c7d="" aria-labelledby="open-decisions" class="col">
       <h2 data-v-88790c7d="" id="open-decisions">Open · 4</h2>
@@ -27,48 +27,68 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
           <p data-v-7718db06="" class="options-text">A: renew it; B: drop the job</p>
           <p data-v-7718db06="" class="recommendation-text small">recommended: A</p>
         </div>
+        <fieldset data-v-7718db06="" class="choices">
+          <legend data-v-7718db06="" class="kind small muted">the operator acts; say when it is done</legend>
+          <div data-v-7718db06="" class="buttons"><button data-v-7718db06="" type="button" class="choice" aria-pressed="false">Done</button></div>
+        </fieldset>
+        <div data-v-7718db06="" class="your-words"><label data-v-7718db06="" class="small muted" for="words-REQ-legacy">Your words (optional)</label><textarea data-v-7718db06="" id="words-REQ-legacy" class="words-input" rows="2" value=""></textarea></div>
+        <!--v-if-->
       </article>
       <article data-v-7718db06="" data-v-88790c7d="" class="decision card kind-yes-no class-o" data-request="REQ-release">
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-release</span><span data-v-7718db06="" class="repository">alpha</span><span data-v-7718db06="" class="age muted">raised 2h ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-13 18:00Z</span></div>
         <h3 data-v-7718db06="">Release v2.0 today?</h3>
         <p data-v-7718db06="" class="reason small muted">a release cannot be undone</p>
-        <fieldset data-v-7718db06="" class="choices" disabled="">
+        <!--v-if-->
+        <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">yes or no</legend>
-          <div data-v-7718db06="" class="buttons"><button data-v-7718db06="" type="button" class="choice recommended" disabled=""><span data-v-7718db06="" class="answer">Yes</span><span data-v-7718db06="" class="label small">release today</span><span data-v-7718db06="" class="cost small muted">an hour of one controller</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
+          <div data-v-7718db06="" class="buttons"><button data-v-7718db06="" type="button" class="choice recommended" aria-pressed="false"><span data-v-7718db06="" class="answer">Yes</span><span data-v-7718db06="" class="label small">release today</span><span data-v-7718db06="" class="cost small muted">an hour of one controller</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
               <!--v-if-->
-            </button><button data-v-7718db06="" type="button" class="choice" disabled=""><span data-v-7718db06="" class="answer">No</span><span data-v-7718db06="" class="label small">wait for the next wave</span><span data-v-7718db06="" class="cost small muted">a day later for users</span>
+            </button><button data-v-7718db06="" type="button" class="choice" aria-pressed="false"><span data-v-7718db06="" class="answer">No</span><span data-v-7718db06="" class="label small">wait for the next wave</span><span data-v-7718db06="" class="cost small muted">a day later for users</span>
               <!--v-if--><span data-v-7718db06="" class="mark mark-default">default</span>
             </button></div>
         </fieldset>
+        <div data-v-7718db06="" class="your-words"><label data-v-7718db06="" class="small muted" for="words-REQ-release">Your words (optional)</label><textarea data-v-7718db06="" id="words-REQ-release" class="words-input" rows="2" value=""></textarea></div>
+        <!--v-if-->
       </article>
       <article data-v-7718db06="" data-v-88790c7d="" class="decision card kind-one-of class-o" data-request="REQ-store">
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-store</span><span data-v-7718db06="" class="repository">alpha</span><span data-v-7718db06="" class="age muted">raised 1h ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-14 09:00Z</span></div>
         <h3 data-v-7718db06="">Which store backs the cache?</h3>
         <p data-v-7718db06="" class="reason small muted">an architecture choice</p>
-        <fieldset data-v-7718db06="" class="choices" disabled="">
-          <legend data-v-7718db06="" class="kind small muted">choose one</legend><label data-v-7718db06="" class="option" for="choice-REQ-store-A"><input data-v-7718db06="" id="choice-REQ-store-A" type="radio" name="choice-REQ-store" disabled="" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">keep the file store</span><span data-v-7718db06="" class="cost small muted">nothing now</span>
+        <!--v-if-->
+        <fieldset data-v-7718db06="" class="choices">
+          <legend data-v-7718db06="" class="kind small muted">choose one</legend><label data-v-7718db06="" class="option" for="choice-REQ-store-A"><input data-v-7718db06="" id="choice-REQ-store-A" type="radio" name="choice-REQ-store" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">keep the file store</span><span data-v-7718db06="" class="cost small muted">nothing now</span>
             <!--v-if--><span data-v-7718db06="" class="mark mark-default">default</span>
-          </label><label data-v-7718db06="" class="option recommended" for="choice-REQ-store-B"><input data-v-7718db06="" id="choice-REQ-store-B" type="radio" name="choice-REQ-store" disabled="" value="B"><span data-v-7718db06="" class="letter mono">B</span><span data-v-7718db06="" class="label">move to the tree store</span><span data-v-7718db06="" class="cost small muted">half a day of one controller</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
+          </label><label data-v-7718db06="" class="option recommended" for="choice-REQ-store-B"><input data-v-7718db06="" id="choice-REQ-store-B" type="radio" name="choice-REQ-store" value="B"><span data-v-7718db06="" class="letter mono">B</span><span data-v-7718db06="" class="label">move to the tree store</span><span data-v-7718db06="" class="cost small muted">half a day of one controller</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
             <!--v-if-->
-          </label><label data-v-7718db06="" class="option" for="choice-REQ-store-C"><input data-v-7718db06="" id="choice-REQ-store-C" type="radio" name="choice-REQ-store" disabled="" value="C"><span data-v-7718db06="" class="letter mono">C</span><span data-v-7718db06="" class="label">drop the cache</span><span data-v-7718db06="" class="cost small muted">slower snapshots</span>
+          </label><label data-v-7718db06="" class="option" for="choice-REQ-store-C"><input data-v-7718db06="" id="choice-REQ-store-C" type="radio" name="choice-REQ-store" value="C"><span data-v-7718db06="" class="letter mono">C</span><span data-v-7718db06="" class="label">drop the cache</span><span data-v-7718db06="" class="cost small muted">slower snapshots</span>
             <!--v-if-->
             <!--v-if-->
           </label>
         </fieldset>
+        <div data-v-7718db06="" class="your-words"><label data-v-7718db06="" class="small muted" for="words-REQ-store">Your words (optional)</label><textarea data-v-7718db06="" id="words-REQ-store" class="words-input" rows="2" value=""></textarea></div>
+        <!--v-if-->
       </article>
       <article data-v-7718db06="" data-v-88790c7d="" class="decision card kind-several-of class-o" data-request="REQ-checks">
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-checks</span><span data-v-7718db06="" class="repository">gamma</span><span data-v-7718db06="" class="age muted">raised 30m ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-14 12:00Z</span></div>
         <h3 data-v-7718db06="">Which checks gate a merge?</h3>
         <p data-v-7718db06="" class="reason small muted">it changes what every pull request waits for</p>
-        <fieldset data-v-7718db06="" class="choices" disabled="">
-          <legend data-v-7718db06="" class="kind small muted">choose any, at least one</legend><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-A"><input data-v-7718db06="" id="choice-REQ-checks-A" type="checkbox" name="choice-REQ-checks" disabled="" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">unit tests</span><span data-v-7718db06="" class="cost small muted">4 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span><span data-v-7718db06="" class="mark mark-default">default</span></label><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-B"><input data-v-7718db06="" id="choice-REQ-checks-B" type="checkbox" name="choice-REQ-checks" disabled="" value="B"><span data-v-7718db06="" class="letter mono">B</span><span data-v-7718db06="" class="label">integration tests</span><span data-v-7718db06="" class="cost small muted">12 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
+        <!--v-if-->
+        <fieldset data-v-7718db06="" class="choices">
+          <legend data-v-7718db06="" class="kind small muted">choose any, at least one</legend><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-A"><input data-v-7718db06="" id="choice-REQ-checks-A" type="checkbox" name="choice-REQ-checks" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">unit tests</span><span data-v-7718db06="" class="cost small muted">4 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span><span data-v-7718db06="" class="mark mark-default">default</span></label><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-B"><input data-v-7718db06="" id="choice-REQ-checks-B" type="checkbox" name="choice-REQ-checks" value="B"><span data-v-7718db06="" class="letter mono">B</span><span data-v-7718db06="" class="label">integration tests</span><span data-v-7718db06="" class="cost small muted">12 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
             <!--v-if-->
-          </label><label data-v-7718db06="" class="option" for="choice-REQ-checks-C"><input data-v-7718db06="" id="choice-REQ-checks-C" type="checkbox" name="choice-REQ-checks" disabled="" value="C"><span data-v-7718db06="" class="letter mono">C</span><span data-v-7718db06="" class="label">the docs build</span><span data-v-7718db06="" class="cost small muted">2 minutes per run</span>
+          </label><label data-v-7718db06="" class="option" for="choice-REQ-checks-C"><input data-v-7718db06="" id="choice-REQ-checks-C" type="checkbox" name="choice-REQ-checks" value="C"><span data-v-7718db06="" class="letter mono">C</span><span data-v-7718db06="" class="label">the docs build</span><span data-v-7718db06="" class="cost small muted">2 minutes per run</span>
             <!--v-if-->
             <!--v-if-->
           </label>
         </fieldset>
+        <div data-v-7718db06="" class="your-words"><label data-v-7718db06="" class="small muted" for="words-REQ-checks">Your words (optional)</label><textarea data-v-7718db06="" id="words-REQ-checks" class="words-input" rows="2" value=""></textarea></div>
+        <!--v-if-->
       </article>
+      <div data-v-88790c7d="" class="send-row"><button data-v-88790c7d="" type="button" class="send" disabled="">Send answers</button>
+        <!--v-if-->
+      </div>
+      <!--v-if-->
+      <!--v-if-->
     </section>
     <section data-v-88790c7d="" aria-labelledby="decision-history" class="col">
       <h2 data-v-88790c7d="" id="decision-history">History</h2>

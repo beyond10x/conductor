@@ -1,7 +1,7 @@
 ---
 title: Read the dashboard
 sidebar_position: 4
-description: Serve the read-only dashboard on 127.0.0.1, read each of its sections, read the same data as JSON, and rebuild the app.
+description: Serve the dashboard on 127.0.0.1, read each of its sections, read the same data as JSON, and rebuild the app.
 lede: The dashboard is a read-only app of what every session works on, embedded in the conductor binary; the data it shows is rebuilt from its sources on every request and written to nothing.
 source: crates/conductor/src/dashboard.rs, crates/conductor/src/dashboard/; crates/conductor/dashboard/; crates/conductor/tests/dashboard.rs; Taskfile.yml, dashboard, ui, check; conductor dashboard serve --help
 ---
@@ -123,9 +123,15 @@ its target, or `measured: false` and the story that measures it.
 
 ## 4. What it does not do
 
-The dashboard writes nothing and changes nothing: no button cleans up a tree or answers a
-decision. Cleanup goes through each tree's owner; a decision through `conductor decision`. It
-writes every path under the home directory as `~`.
+The dashboard writes one thing: the operator's answers on its Decisions page. There he chooses on
+each open escalated request (Yes or No, one option, several options, or Done for a class-H item),
+may add his words, and sends them as one batch; each is recorded as his decision, `recorded_by`
+`dashboard`, its request moves to Answered, and the watch prints `answered <request-id> <choice>`
+so conductor relays it. The page shows each answer recorded or refused. Anyone who can read the
+page can send answers as the operator: see
+[the Decisions page writes](/docs/security/overview#the-decisions-page-writes) for the boundary
+and what it does not stop. Nothing else changes: no button cleans up a tree, and cleanup goes
+through each tree's owner. It writes every path under the home directory as `~`.
 
 ## 5. Change the app
 

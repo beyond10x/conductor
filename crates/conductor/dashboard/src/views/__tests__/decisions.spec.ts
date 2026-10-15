@@ -2,8 +2,8 @@
 // class-H request of `/api/decisions` (fixtures/decisions.json) oldest first, each with its own
 // control for its kind (two buttons Yes and No; a radio list; a checkbox list), the
 // recommendation and the default marked, its options' costs, its deadline and its age; every
-// control is disabled in this story, with a note that answering comes next. Below, the decision
-// history, newest first.
+// control is live since story:decisions-batch-answer (decisions-answer.spec.ts). Below, the
+// decision history, newest first.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import App from '../../App.vue';
@@ -106,14 +106,14 @@ describe('the Decisions page', () => {
     wrapper.unmount();
   });
 
-  it('renders a yes-no request as two buttons, Yes and No, disabled, with the marks and costs', async () => {
+  it('renders a yes-no request as two buttons, Yes and No, with the marks and costs', async () => {
     const wrapper = await page();
     const release = item(wrapper, 'REQ-release');
     expect(release.classes()).toContain('kind-yes-no');
     const buttons = release.findAll('button.choice');
     expect(buttons.map((button) => button.find('.answer').text())).toEqual(['Yes', 'No']);
     for (const button of buttons) {
-      expect(button.attributes('disabled')).toBeDefined();
+      expect(button.attributes('disabled')).toBeUndefined();
     }
     expect(buttons[0]!.find('.cost').text()).toBe('an hour of one controller');
     expect(buttons[0]!.find('.mark-recommended').text()).toBe('recommended');
@@ -124,14 +124,14 @@ describe('the Decisions page', () => {
     wrapper.unmount();
   });
 
-  it('renders a one-of request as a radio list, disabled, with the marks and costs', async () => {
+  it('renders a one-of request as a radio list, with the marks and costs', async () => {
     const wrapper = await page();
     const store = item(wrapper, 'REQ-store');
     expect(store.classes()).toContain('kind-one-of');
     const radios = store.findAll('input[type="radio"]');
     expect(radios).toHaveLength(3);
     for (const radio of radios) {
-      expect(radio.attributes('disabled')).toBeDefined();
+      expect(radio.attributes('disabled')).toBeUndefined();
       expect(radio.attributes('name')).toBe('choice-REQ-store');
     }
     const options = store.findAll('.option');
@@ -146,14 +146,14 @@ describe('the Decisions page', () => {
     wrapper.unmount();
   });
 
-  it('renders a several-of request as a checkbox list, disabled, with every recommended letter marked', async () => {
+  it('renders a several-of request as a checkbox list, with every recommended letter marked', async () => {
     const wrapper = await page();
     const checks = item(wrapper, 'REQ-checks');
     expect(checks.classes()).toContain('kind-several-of');
     const boxes = checks.findAll('input[type="checkbox"]');
     expect(boxes).toHaveLength(3);
     for (const box of boxes) {
-      expect(box.attributes('disabled')).toBeDefined();
+      expect(box.attributes('disabled')).toBeUndefined();
     }
     const options = checks.findAll('.option');
     expect(options.map((option) => option.find('.mark-recommended').exists())).toEqual([true, true, false]);
@@ -163,19 +163,13 @@ describe('the Decisions page', () => {
     wrapper.unmount();
   });
 
-  it('shows a request escalated before options were recorded with its text and no control', async () => {
+  it('shows a class-H item escalated before options were recorded with its text and its Done control', async () => {
     const wrapper = await page();
     const legacy = item(wrapper, 'REQ-legacy');
     expect(legacy.find('.options-text').text()).toBe('A: renew it; B: drop the job');
     expect(legacy.find('.recommendation-text').text()).toBe('recommended: A');
     expect(legacy.find('input').exists()).toBe(false);
-    expect(legacy.find('button').exists()).toBe(false);
-    wrapper.unmount();
-  });
-
-  it('says answering from the page comes next', async () => {
-    const wrapper = await page();
-    expect(wrapper.find('.read-only-note').text()).toContain('Answering from this page comes next');
+    expect(legacy.findAll('button.choice').map((button) => button.text())).toEqual(['Done']);
     wrapper.unmount();
   });
 

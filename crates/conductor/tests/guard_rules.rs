@@ -5610,3 +5610,52 @@ fn conductor_s_bash_is_not_held_to_conductor_build_run() {
         assert_verdict(&bash(&home, CONDUCTOR, command), Verdict::Allow, "");
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// The Decisions page's write endpoint (story:decisions-batch-answer).
+// -------------------------------------------------------------------------------------------------
+
+/// No session answers for the operator through the dashboard: a Bash call of conductor or of a
+/// controller that names `/api/answers`, or the instance's dashboard port (7313 without a config
+/// file) with a POST or a body, is denied, however the loopback address is spelt.
+#[test]
+fn no_session_posts_to_the_dashboard() {
+    let home = home("dashboard-answers");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "curl -s -X POST http://127.0.0.1:7313/api/answers -d '{}'",
+            "curl http://localhost:7313/api/answers",
+            "wget -qO- 'http://[::1]:7313/api/answers'",
+            "curl -XPOST http://0x7f000001:7313/api/decisions",
+            "curl --data @answers.json http://127.0.0.1:7313/",
+            "curl -d '{\"answers\":[]}' http://localhost:7313/x",
+            "curl --request POST 'http://[::1]:7313/'",
+            "curl --json '{}' http://127.1:7313/",
+            "wget --post-data=x http://2130706433:7313/",
+            "http POST :7313/api/x answers:='[]'",
+            "u=http://127.0.0.1:7313; curl -X POST $u/api/answers",
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                "the operator's answers",
+            );
+        }
+    }
+}
+
+/// Reading the dashboard stays allowed, and a POST to another port is not this rule's.
+#[test]
+fn a_session_still_reads_the_dashboard() {
+    let home = home("dashboard-reads");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "curl -s http://127.0.0.1:7313/api/decisions",
+            "curl -s http://localhost:7313/data.json | head",
+            "curl -s -X POST -d x http://127.0.0.1:8080/",
+            "curl -s http://127.0.0.1:73130/",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}

@@ -1,5 +1,6 @@
-//! `conductor dashboard serve`: a live, read-only page of what every session works on
-//! (`story:live-dashboard`).
+//! `conductor dashboard serve`: a live page of what every session works on
+//! (`story:live-dashboard`), read-only but for the operator's answers on its Decisions page
+//! (`story:decisions-batch-answer`).
 //!
 //! The command is presented by the `ess-cli/1` binding `crates/conductor/cli.yaml`, over the
 //! `local` callable `dashboard-serve` and its input `conductor.observation.DashboardServe`. It is
@@ -15,6 +16,14 @@
 //! `Host` 403, so a page served from elsewhere cannot read the data through DNS rebinding. Every
 //! answer carries [`CONTENT_SECURITY_POLICY`]: the app loads its script, its style and its data
 //! from this server and nothing else.
+//!
+//! The one write ([`answers`], `story:decisions-batch-answer`): `POST /api/answers` records a batch
+//! of the operator's answers to open escalated requests, each as his decision recorded by
+//! `dashboard`, and answers it row by row; any other method on it is 405. `index.html` carries the
+//! token the server minted at start in `<meta name="conductor-token">`, and a batch is taken only
+//! with that token, from the page's own origin, as JSON of at most 64 KiB. Anyone who can read the
+//! page can read the token: a local process that does is recorded as the operator
+//! (`website/docs/security/overview.md`).
 //!
 //! The overview's endpoints (`story:dashboard-overview`, [`overview`]): `/api/board`,
 //! `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs`, `/api/releases` and
@@ -38,7 +47,8 @@
 //! keeps, and served from memory after that; every JSON answer carries an `ETag`, and a request
 //! whose `If-None-Match` names it is answered `304 Not Modified` without a body.
 //!
-//! Each request reads its [`Sources`] afresh, but the session list, and writes nothing:
+//! Each request reads its [`Sources`] afresh, but the session list; none but `POST /api/answers`
+//! writes:
 //! - the session list a command prints (`claude agents --json`), read on a thread of its own every
 //!   [`cache::SESSIONS_EVERY`], each request taking the last one with when it was read
 //!   (`reading.sessions_read_at`): one row per session whose working directory is under the
@@ -62,6 +72,7 @@
 //! A source that cannot be read is named in `errors`; the others still show. No path under the
 //! home directory is printed in full: every string `/data.json` carries writes it as `~`.
 
+mod answers;
 mod cache;
 pub mod decisions;
 mod health;
@@ -71,6 +82,7 @@ pub mod series;
 mod usage;
 pub(crate) mod waste;
 
+pub use answers::ANSWERS_PATH;
 pub use health::{HealthSources, failure_class};
 
 use std::collections::HashSet;
@@ -81,7 +93,7 @@ use std::io::{self, ErrorKind, Read as _, Write as _};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
@@ -376,6 +388,11 @@ struct Server {
     snapshot_health: cache::Memo<health::Newest>,
     /// The last session list.
     sessions: cache::SessionList,
+    /// The token the page is served with and a batch of answers is taken with
+    /// (`story:decisions-batch-answer`).
+    token: answers::Token,
+    /// Held while a batch of answers is recorded: one batch at a time.
+    writes: Mutex<()>,
 }
 
 /// The endpoints whose answer is the store's alone, `/api/events` and `/api/decisions` the
@@ -410,8 +427,8 @@ struct Fingerprints {
 }
 
 impl Server {
-    fn new(sources: Sources, state: Option<PathBuf>) -> Self {
-        Self {
+    fn new(sources: Sources, state: Option<PathBuf>) -> io::Result<Self> {
+        Ok(Self {
             sources,
             state,
             waste: waste::Cache::default(),
@@ -423,7 +440,9 @@ impl Server {
             unanswered: cache::Memo::default(),
             snapshot_health: cache::Memo::default(),
             sessions: cache::SessionList::default(),
-        }
+            token: answers::Token::mint()?,
+            writes: Mutex::new(()),
+        })
     }
 
     /// The fingerprints of the store and the records now.
@@ -648,7 +667,8 @@ pub fn serve(listener: TcpListener, sources: Sources) -> Result<()> {
 /// As [`serve`].
 pub fn serve_over(listener: TcpListener, sources: Sources, state: Option<PathBuf>) -> Result<()> {
     let port = listener.local_addr()?.port();
-    let server = Arc::new(Server::new(sources, state));
+    let server =
+        Arc::new(Server::new(sources, state).context("mint the token the page is served with")?);
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
     // The session list is read at start and every `SESSIONS_EVERY` after, off the request path;
@@ -694,36 +714,57 @@ pub fn serve_over(listener: TcpListener, sources: Sources, state: Option<PathBuf
     Ok(())
 }
 
-/// Reads one request head, answers it and closes the connection.
+/// How much of what a client still sends after its answer is read before the connection closes:
+/// a refused body of up to several times [`answers::MAX_BODY`].
+const DRAIN: u64 = (MAX_HEAD + 4 * answers::MAX_BODY) as u64;
+
+/// Reads one request head, answers it (reading a body only where the answer takes one) and closes
+/// the connection.
 fn connection(mut stream: TcpStream, port: u16, server: &Server) -> io::Result<()> {
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
-    let head = read_head(&mut stream)?;
-    stream.write_all(&answer(head.as_deref(), port, server))?;
+    let (head, early) = read_head(&mut stream)?;
+    let reply = {
+        let mut body = |length: usize| read_body(&mut stream, &early, length);
+        answer(head.as_deref(), port, server, &mut body)
+    };
+    stream.write_all(&reply)?;
     stream.flush()?;
     // Take what the client still sends before closing: closing with unread bytes resets the
     // connection, and the client may lose the answer.
     stream.shutdown(Shutdown::Write)?;
-    let _ = io::copy(&mut (&stream).take(MAX_HEAD as u64), &mut io::sink());
+    let _ = io::copy(&mut (&stream).take(DRAIN), &mut io::sink());
     Ok(())
 }
 
+/// The body of `length` bytes: what was read with the head, `early`, then the rest from `stream`.
+fn read_body(stream: &mut TcpStream, early: &[u8], length: usize) -> io::Result<Vec<u8>> {
+    let mut body = early[..early.len().min(length)].to_vec();
+    if body.len() < length {
+        let mut rest = vec![0_u8; length - body.len()];
+        stream.read_exact(&mut rest)?;
+        body.extend_from_slice(&rest);
+    }
+    Ok(body)
+}
+
 /// The request head up to its blank line, or `None` when the client stops or exceeds
-/// [`MAX_HEAD`] first.
-fn read_head(stream: &mut TcpStream) -> io::Result<Option<String>> {
+/// [`MAX_HEAD`] first; with the bytes read after the blank line, the start of a body.
+fn read_head(stream: &mut TcpStream) -> io::Result<(Option<String>, Vec<u8>)> {
     let mut head = Vec::new();
     let mut chunk = [0_u8; 2048];
     loop {
         if let Some(end) = head.windows(4).position(|window| window == b"\r\n\r\n") {
+            let early = head.split_off(end + 4);
             head.truncate(end);
-            return Ok(Some(String::from_utf8_lossy(&head).into_owned()));
+            return Ok((Some(String::from_utf8_lossy(&head).into_owned()), early));
         }
         if head.len() > MAX_HEAD {
-            return Ok(None);
+            return Ok((None, Vec::new()));
         }
         let read = stream.read(&mut chunk)?;
         if read == 0 {
-            return Ok(None);
+            return Ok((None, Vec::new()));
         }
         head.extend_from_slice(&chunk[..read]);
     }
@@ -791,8 +832,14 @@ fn content_type(file: &File<'_>) -> &'static str {
     }
 }
 
-/// The whole HTTP answer to one request head.
-fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
+/// The whole HTTP answer to one request head; `body` reads the request's body of a given length,
+/// which only `POST /api/answers` does.
+fn answer(
+    head: Option<&str>,
+    port: u16,
+    server: &Server,
+    body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
+) -> Vec<u8> {
     const PLAIN: &str = "text/plain; charset=utf-8";
     let bad = || response(400, "Bad Request", PLAIN, b"bad request\n", "");
     let Some(head) = head else {
@@ -833,6 +880,18 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
     let snapshot: Option<&'static str> = overview::SNAPSHOT_PATHS
         .into_iter()
         .find(|known| *known == path);
+    if path == answers::ANSWERS_PATH {
+        if *method != "POST" {
+            return response(
+                405,
+                "Method Not Allowed",
+                PLAIN,
+                b"only POST\n",
+                "Allow: POST\r\n",
+            );
+        }
+        return post_answers(&header, port, server, body);
+    }
     let resource = match (path, snapshot) {
         ("/data.json", _) => Resource::Data,
         (HEALTH_PATH, _) => Resource::Health,
@@ -868,6 +927,15 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
     let home = server.sources.home.display().to_string();
     let home = home.trim_end_matches('/');
     match resource {
+        // The page carries the token a batch of answers is taken with
+        // (story:decisions-batch-answer).
+        Resource::App(file) if file.path() == Path::new("index.html") => response(
+            200,
+            "OK",
+            content_type(file),
+            &server.token.page_with(file.contents()),
+            "",
+        ),
         Resource::App(file) => response(200, "OK", content_type(file), file.contents(), ""),
         Resource::Data => {
             server.waste.refresh(&server.sources);
@@ -938,6 +1006,56 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
             };
             send(&cache::Body::json(200, &tilde_all(answer, home)), None)
         }
+    }
+}
+
+/// `POST /api/answers` (`story:decisions-batch-answer`, [`answers`]): with its headers admitted,
+/// reads the body and records the batch, one batch at a time, then drops the answers kept in
+/// memory, so the next read shows what was recorded.
+fn post_answers<'a>(
+    header: &impl Fn(&str) -> Option<&'a str>,
+    port: u16,
+    server: &Server,
+    body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
+) -> Vec<u8> {
+    const PLAIN: &str = "text/plain; charset=utf-8";
+    let refused = |refused: answers::Refused| {
+        response(
+            refused.status,
+            refused.reason,
+            PLAIN,
+            refused.why.as_bytes(),
+            "",
+        )
+    };
+    let length = match answers::admitted(header, port, &server.token) {
+        Ok(length) => length,
+        Err(why) => return refused(why),
+    };
+    let Ok(bytes) = body(length) else {
+        return response(
+            400,
+            "Bad Request",
+            PLAIN,
+            b"the body ended before its Content-Length\n",
+            "",
+        );
+    };
+    let recorded = {
+        let _one = server.writes.lock().unwrap_or_else(PoisonError::into_inner);
+        let recorded = answers::record(server.state.as_deref(), &bytes);
+        server.answers.clear();
+        server.facts.clear();
+        server.unanswered.clear();
+        recorded
+    };
+    match recorded {
+        Ok(results) => {
+            let mut text = serde_json::to_string_pretty(&results).unwrap_or_default();
+            text.push('\n');
+            response(200, "OK", "application/json", text.as_bytes(), "")
+        }
+        Err(why) => refused(why),
     }
 }
 

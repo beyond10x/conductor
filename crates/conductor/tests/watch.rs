@@ -3155,3 +3155,97 @@ fn an_escalation_seen_after_its_deadline_is_printed_unanswered_in_the_same_pass(
     );
     assert_eq!(pass(&mut case.decisions_watch(twelve_ten)), NOTHING);
 }
+
+/// `story:decisions-batch-answer`: a printed escalated request that is answered is printed
+/// `answered <request-id> <choice>` once, in the next pass, whether the operator answered it on
+/// the Decisions page or conductor relayed it (`answer-escalated-as-operator`, or
+/// `record-operator-decision` with `answer-escalated-request`); the choice is printed on one
+/// line. A withdrawn request prints nothing.
+#[test]
+fn an_answered_request_is_printed_once_and_a_withdrawn_one_not_at_all() {
+    let case = Case::new("decisions-answered");
+    case.sessions(&[]);
+    case.raise("REQ-1", "Release the pilot now?");
+    case.raise("REQ-2", "Rotate the deploy key?");
+    case.raise("REQ-3", "Which token scope?");
+    case.raise("REQ-4", "Drop the old job?");
+    case.escalate("REQ-1", "O");
+    case.escalate("REQ-2", "H");
+    case.escalate("REQ-3", "O");
+    case.escalate("REQ-4", "O");
+    assert_eq!(pass(&mut case.decisions_watch(noon)).len(), 4);
+
+    case.decide(&[
+        "decision",
+        "answer-escalated-as-operator",
+        "--request-id",
+        "REQ-1",
+        "--choice",
+        "Y",
+        "--recorded-by",
+        "dashboard",
+        "--operator-words",
+        "chosen on the Decisions page",
+    ]);
+    case.decide(&[
+        "decision",
+        "answer-escalated-as-operator",
+        "--request-id",
+        "REQ-2",
+        "--choice",
+        "done",
+        "--recorded-by",
+        "conductor",
+        "--operator-words",
+        "done, the key is rotated",
+    ]);
+    case.decide(&[
+        "decision",
+        "record-operator-decision",
+        "--decision-id",
+        "DEC-20261007-01",
+        "--decision-class",
+        "O",
+        "--question",
+        "Which token scope?",
+        "--options",
+        "A: now; B: later",
+        "--choice",
+        "B\nthen A",
+        "--reason",
+        "he said so",
+        "--evidence",
+        "his message",
+        "--decided-at",
+        "2026-10-07T12:05:00Z",
+        "--recorded-by",
+        "conductor",
+        "--operator-words",
+        "B, then A",
+    ]);
+    case.decide(&[
+        "decision",
+        "answer-escalated-request",
+        "--request-id",
+        "REQ-3",
+        "--decision-id",
+        "DEC-20261007-01",
+    ]);
+    case.decide(&[
+        "decision",
+        "withdraw-request",
+        "--request-id",
+        "REQ-4",
+        "--reason",
+        "the controller found another way",
+    ]);
+    assert_eq!(
+        pass(&mut case.decisions_watch(twelve_ten)),
+        [
+            "answered REQ-1 Y",
+            "answered REQ-2 done",
+            "answered REQ-3 B then A",
+        ]
+    );
+    assert_eq!(pass(&mut case.decisions_watch(twelve_thirty)), NOTHING);
+}

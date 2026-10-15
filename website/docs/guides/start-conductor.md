@@ -184,5 +184,5 @@ conductor in this checkout. It starts without the guard unless its role names a 
 
 ## What you see
 
-`task sessions` lists the running sessions with their kind, id and state. The read-only dashboard
+`task sessions` lists the running sessions with their kind, id and state. The dashboard
 shows what each one works on: [read the dashboard](./read-the-dashboard.md).

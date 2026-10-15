@@ -129,7 +129,17 @@ Denied in every guarded session:
   named here makes only writes.
 - a command that writes a `.claude/` settings file or a role's settings file
   ([write targets](#write-targets));
-- a command that writes a role's profile file.
+- a command that writes a role's profile file;
+- a command that answers for the operator through the dashboard: it names `/api/answers`, the
+  Decisions page's write endpoint, or names the instance's `dashboard_port` as `:<port>`
+  (whatever spells the loopback address before it: `127.0.0.1`, `localhost`, `[::1]`,
+  `0x7f000001`, none) and holds a POST or a body (`-X POST`, `-XPOST`, `--request POST`,
+  `--method=POST`, httpie's `POST`, `-d…`, `--data…`, `--json`, `-F`, `--form…`, `-T`,
+  `--upload-file`, `--post-data`, `--post-file`). The denial names
+  `conductor decision answer-escalated-as-operator`, the command conductor relays an answer the
+  operator gave it with. Reading the dashboard stays allowed. This is a substring test and a speed
+  bump, not a boundary: a script the command runs, a port or path held in a variable, or a
+  percent-encoded path is not caught ([residual risk](/docs/security/overview#the-decisions-page-writes)).
 
 Denied in a controller's session, in addition:
 

@@ -158,6 +158,9 @@ pub struct Places {
     /// (`story:guard-all-tools`): the tools each rule set allows beyond the built-in read-only
     /// allowlist.
     read_only: [Vec<String>; 2],
+    /// The instance's `dashboard_port`: a Bash call that posts to it is denied
+    /// (`story:decisions-batch-answer`).
+    dashboard_port: i64,
 }
 
 impl Places {
@@ -244,7 +247,25 @@ impl Places {
                     .flat_map(|role| role.read_only_tools.iter().cloned())
                     .collect()
             }),
+            dashboard_port: instance.dashboard_port,
         }
+    }
+
+    /// Whether the Bash `command` answers for the operator through the dashboard
+    /// (`story:decisions-batch-answer`): it names the answers endpoint, `/api/answers`, or names the
+    /// instance's dashboard port as `:<port>` (whatever spells the loopback address before it:
+    /// `127.0.0.1`, `localhost`, `[::1]`, `0x7f000001`, none) and holds a POST or a body
+    /// ([`posts`]). A substring test, a speed bump and not a boundary: a script the command runs, a
+    /// port or path a variable holds, or a percent-encoded path is not caught.
+    fn posts_to_dashboard(&self, command: &str) -> bool {
+        let port = format!(":{}", self.dashboard_port);
+        let names_port = command.match_indices(&port).any(|(at, _)| {
+            !command[at + port.len()..]
+                .chars()
+                .next()
+                .is_some_and(|next| next.is_ascii_digit())
+        });
+        command.contains(crate::dashboard::ANSWERS_PATH) || (names_port && posts(command))
     }
 
     /// The tools `rules` allows beyond the built-in read-only allowlist: its role's
@@ -1324,6 +1345,18 @@ impl Session<'_> {
                 );
             }
         }
+        if self.places.posts_to_dashboard(command) {
+            return (
+                Verdict::Deny,
+                format!(
+                    "the command posts to the dashboard (it names {} or posts to port {}): only \
+                     the operator sends the operator's answers, from the Decisions page; relay \
+                     his words with `conductor decision answer-escalated-as-operator`",
+                    crate::dashboard::ANSWERS_PATH,
+                    self.places.dashboard_port
+                ),
+            );
+        }
         if self.places.writes_settings(command) {
             return (
                 Verdict::Deny,
@@ -2251,6 +2284,35 @@ fn names_path(command: &str, spelling: &str, under: bool) -> bool {
 }
 
 /// Whether `text` holds `word` with no letter, digit, `_`, `-` or `.` on either side.
+/// Whether the Bash `command` holds an HTTP POST or a request body, as a word between white
+/// space, quotes and the shell's separators: `POST` (`-X POST`, `--request POST`, httpie's
+/// `http POST`), `-XPOST`, `--request=POST` or `--method=POST`; or a body flag of curl or wget,
+/// `-d…`, `--data…`, `--json`, `-F`, `--form…`, `-T`, `--upload-file`, `--post-data`,
+/// `--post-file`.
+fn posts(command: &str) -> bool {
+    command
+        .split(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | ';' | '|' | '&' | '(' | ')'))
+        .filter(|word| !word.is_empty())
+        .any(|word| {
+            let upper = word.to_ascii_uppercase();
+            upper == "POST"
+                || upper == "-XPOST"
+                || upper.ends_with("=POST")
+                || (word.starts_with("-d") && !word.starts_with("--"))
+                || [
+                    "--data",
+                    "--json",
+                    "--form",
+                    "--upload-file",
+                    "--post-data",
+                    "--post-file",
+                ]
+                .iter()
+                .any(|flag| word.starts_with(flag))
+                || matches!(word, "-F" | "-T")
+        })
+}
+
 fn contains_word(text: &str, word: &str) -> bool {
     let joins = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.');
     text.match_indices(word).any(|(at, _)| {

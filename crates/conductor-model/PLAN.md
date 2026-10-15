@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
-  contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
+  model digest 9276d85730c7432ec101f1501676fcf6cf3d021a81399c6e1806e1f1ff5003ae
+  contract digest f02216384c1887e1c61b183ba55c014a614098a304c6a559ce6ee4c5d87cd5c8
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-522 capabilities: **511 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+525 capabilities: **513 generated**, **3 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -234,6 +234,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.decision.RecordConductorDecision` |
 | command contract | `conductor.decision.RecordOperatorDecision` |
 | command behaviour | `conductor.decision.RecordOperatorDecision` |
+| command contract | `conductor.decision.RecordOperatorDecisionForRequest` |
 | command contract | `conductor.decision.ReverseConductorDecision` |
 | command behaviour | `conductor.decision.ReverseConductorDecision` |
 | command contract | `conductor.decision.ReverseOperatorDecision` |
@@ -415,6 +416,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.observation.WorkflowRunRecorded` |
 | event type | `conductor.session.LeaseTaken` |
 | event type | `conductor.session.LeaseTakenOver` |
+| error type | `conductor.decision.ChoiceInvalid` |
 | error type | `conductor.decision.DecisionExists` |
 | error type | `conductor.decision.DecisionNotFound` |
 | error type | `conductor.decision.DecisionReversed` |
@@ -539,6 +541,7 @@ What the specification fully determines is generated; what it cannot determine i
 
 | capability | source | why not generated | contract |
 | --- | --- | --- | --- |
+| command behaviour | `conductor.decision.RecordOperatorDecisionForRequest` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `no-such-request` | given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists` |
 | command behaviour | `conductor.dispatch.StartController` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-running` | given `conductor.dispatch.StartController` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `already-running` when, of the `conductor.dispatch.Controller` rows satisfying `(repository == input.repository and state in [Running, Paused])`, at least 1 rows are selected, error `conductor.dispatch.ControllerAlreadyRunning`; `started` otherwise, creates `conductor.dispatch.Controller`, emits `conductor.dispatch.ControllerStarted` |
 | command behaviour | `conductor.session.ClaimLease` | kept an obligation by an unknown identity, which reaches no declared outcome (neither `unknown_instance:` nor `wrong_state:`) | given `conductor.session.ClaimLease` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `taken` when, of the `conductor.session.Lease` rows satisfying `instance == input.instance`, no row is selected, creates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `renewed` when, of the `conductor.session.Lease` rows satisfying `(instance == input.instance and pid == input.pid)`, at least one row is selected, updates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `held` externally decided (the process the lease names lives and is not the claiming one), error `conductor.session.LeaseHeld`; `taken-over` otherwise, updates `conductor.session.Lease`, emits `conductor.session.LeaseTakenOver` |
 
@@ -547,7 +550,7 @@ What the specification fully determines is generated; what it cannot determine i
 | capability | source | stage | why |
 | --- | --- | --- | --- |
 | actor grants | `conductor.decision.Conductor` | planning | may invoke `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
-| actor grants | `conductor.decision.Operator` | planning | may invoke `conductor.decision.AnswerEscalatedRequest`, `conductor.decision.RecordOperatorDecision`, `conductor.decision.ReverseOperatorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.decision.Operator` | planning | may invoke `conductor.decision.AnswerEscalatedRequest`, `conductor.decision.RecordOperatorDecision`, `conductor.decision.RecordOperatorDecisionForRequest`, `conductor.decision.ReverseOperatorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.decision.RepositoryController` | planning | may invoke `conductor.decision.RaiseDecisionRequest`, `conductor.decision.WithdrawRequest`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.direction.Conductor` | planning | may invoke `conductor.direction.ActivateRepository`, `conductor.direction.AddServing`, `conductor.direction.DeactivateRepository`, `conductor.direction.MarkGoalMet`, `conductor.direction.MarkRepository`, `conductor.direction.ProposeGoal`, `conductor.direction.RemoveServing`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.direction.Operator` | planning | may invoke `conductor.direction.ActivateRepository`, `conductor.direction.ConfirmGoal`, `conductor.direction.DeactivateRepository`, `conductor.direction.DropGoal`, `conductor.direction.MarkRepository`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |

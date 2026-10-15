@@ -27,7 +27,7 @@
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //! | usage | the usage readings of the complete snapshots of the store under the state directory ([`crate::collect::usage::Forecast`], [`Watch::with_usage`]) | `usage: pool runs out ~<hour>, next reset <minute>`, once per change of the forecast hour (`usage.hour`; `story:usage-probe`) |
-//! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`), and once more in the first pass at or after the deadline its escalation recorded, `<minutes>` counted from the pass that printed its escalation (`story:decisions-page`) |
+//! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`), and once more in the first pass at or after the deadline its escalation recorded, `<minutes>` counted from the pass that printed its escalation (`story:decisions-page`); `answered <request-id> <choice>` once, in the first pass after a printed request was answered, from the Decisions page or by conductor, its decision's choice on one line, and nothing for one withdrawn (`story:decisions-batch-answer`) |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
@@ -122,8 +122,9 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
-use conductor_model::behaviour::SnapshotStorage;
+use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage, SnapshotStorage};
 use conductor_model::config::{Instance, Source};
+use conductor_model::decision::RequestId;
 use conductor_model::direction::Activity;
 use conductor_model::observation::{RunConclusion, SnapshotState};
 
@@ -1425,7 +1426,8 @@ impl Watch {
     /// <question>` in the first pass that finds one, and `unanswered <O|H> <request-id>
     /// <minutes>` once, in the first pass [`UNANSWERED_AFTER`] or more after it, and once in the
     /// first pass at or after the deadline its escalation recorded (`story:decisions-page`); one
-    /// line when both fall in the same pass. A request that leaves `Escalated` is forgotten.
+    /// line when both fall in the same pass. A request that leaves `Escalated` is forgotten, after
+    /// `answered <request-id> <choice>` when it was answered (`story:decisions-batch-answer`).
     /// Without a store nothing is printed.
     fn decisions(&self, now: OffsetDateTime, lines: &mut Vec<String>) -> Result<()> {
         let Some(state) = &self.decisions else {
@@ -1484,6 +1486,27 @@ impl Watch {
                 flag(reported || due),
                 flag(at_deadline || deadline_due)
             ));
+        }
+        // A printed request that left `Escalated` is forgotten; one that left it answered is
+        // printed `answered <request-id> <choice>` first, once, so conductor relays the answer
+        // (`story:decisions-batch-answer`). A withdrawn one prints nothing.
+        for (gone, _) in kept
+            .iter()
+            .filter(|(id, _)| !items.iter().any(|item| one_line(&item.request_id) == **id))
+        {
+            let request = DecisionRequestStorage::get(&store, &RequestId((*gone).to_owned()));
+            let Some(request) = request.filter(|request| {
+                request.state == conductor_model::decision::DecisionRequestState::Answered
+            }) else {
+                continue;
+            };
+            let choice = request
+                .data
+                .decision_id
+                .as_ref()
+                .and_then(|decision| DecisionStorage::get(&store, decision))
+                .map_or_else(String::new, |decision| one_line(&decision.data.choice));
+            lines.push(format!("answered {gone} {choice}").trim_end().to_owned());
         }
         if next != before {
             replace(&file, &next)?;

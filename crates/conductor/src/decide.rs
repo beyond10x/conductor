@@ -4,7 +4,7 @@
 //! (`--state-dir`, else the instance's `state` when a config file names it, else `state/`;
 //! [`crate::state::open`]), runs the generated behaviour, and checks that the store kept what the
 //! behaviour reported ([`Store::check`]) before it answers. An
-//! accepted command exits 0 and prints nothing, except the two that record a decision, which print
+//! accepted command exits 0 and prints nothing, except the three that record a decision, which print
 //! its id on one line. A refused command exits 1 with one line on standard error: the command, the
 //! error the specification declares, and what it means. A flag left out is named on standard error
 //! (exit 1) before any store is opened. `--input-json` is not read yet, and answers
@@ -36,9 +36,10 @@
 //!
 //! **Records.** Once the store kept it, every command of this group that records an outcome
 //! appends one line to the records' decision log, `decisions/YYYY-MM.jsonl` ([`crate::records`]):
-//! `decided` by the two record commands, `requested`, `answered` (both answer commands),
-//! `escalated`, `withdrawn`, and `reversed` (both reverse commands), each with the id of the record
-//! it moved and its repository as `repo`. A refusal appends nothing.
+//! `decided` by the two record commands, `requested`, `answered` (both answer commands), both
+//! `decided` and `answered` by `answer-escalated-as-operator` (`story:decisions-batch-answer`),
+//! `escalated`, `withdrawn`, and `reversed` (both reverse commands), each with the id of the
+//! record it moved and its repository as `repo`. A refusal appends nothing.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -49,19 +50,21 @@ use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage, Genera
 use conductor_model::decision::obligations::{
     AnswerEscalatedRequestBehavior, AnswerRequestBehavior, DecisionsQuery, EscalateRequestBehavior,
     HandsTodoQuery, RaiseDecisionRequestBehavior, RecordConductorDecisionBehavior,
-    RecordOperatorDecisionBehavior, RequestsQuery, ReverseConductorDecisionBehavior,
-    ReverseOperatorDecisionBehavior, WithdrawRequestBehavior,
+    RecordOperatorDecisionBehavior, RecordOperatorDecisionForRequestBehavior, RequestsQuery,
+    ReverseConductorDecisionBehavior, ReverseOperatorDecisionBehavior, WithdrawRequestBehavior,
 };
 use conductor_model::decision::{
     AnswerEscalatedRequest, AnswerEscalatedRequestOutcome, AnswerRequest, AnswerRequestOutcome,
     Decider, DecisionClass, DecisionId, DecisionLogEvent, DecisionLogLine, DecisionRequestSnapshot,
     DecisionRequestState, DecisionSnapshot, DecisionState, EscalateRequest, EscalateRequestOutcome,
     RaiseDecisionRequest, RaiseDecisionRequestOutcome, RecordConductorDecision,
-    RecordConductorDecisionOutcome, RecordOperatorDecision, RecordOperatorDecisionOutcome,
-    RequestId, RequestKind, RequestOption, ReverseConductorDecision,
-    ReverseConductorDecisionOutcome, ReverseOperatorDecision, ReverseOperatorDecisionOutcome,
-    ShowDecision, WithdrawRequest, WithdrawRequestOutcome,
+    RecordConductorDecisionOutcome, RecordOperatorDecision, RecordOperatorDecisionForRequest,
+    RecordOperatorDecisionForRequestOutcome, RecordOperatorDecisionOutcome, RequestId, RequestKind,
+    RequestOption, ReverseConductorDecision, ReverseConductorDecisionOutcome,
+    ReverseOperatorDecision, ReverseOperatorDecisionOutcome, ShowDecision, WithdrawRequest,
+    WithdrawRequestOutcome,
 };
+use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::Timestamp;
 use serde_json::Value;
@@ -71,8 +74,8 @@ use time::{Date, Month, OffsetDateTime, UtcOffset};
 use crate::cli::{
     AnswerEscalatedRequestArgs, AnswerRequestArgs, EscalateRequestArgs, Format, JsonInput,
     RaiseDecisionRequestArgs, RecordConductorDecisionArgs, RecordOperatorDecisionArgs,
-    ReverseConductorDecisionArgs, ReverseOperatorDecisionArgs, ShowDecisionArgs, ViewArgs,
-    WithdrawRequestArgs,
+    RecordOperatorDecisionForRequestArgs, ReverseConductorDecisionArgs,
+    ReverseOperatorDecisionArgs, ShowDecisionArgs, ViewArgs, WithdrawRequestArgs,
 };
 use crate::not_implemented;
 use crate::records;
@@ -488,6 +491,396 @@ pub fn answer_escalated_request(
             refused(COMMAND, "RequestStateConflict", &no_request(&request))
         }
     }
+}
+
+/// The operator's words an answer from the Decisions page is recorded on when he gave none
+/// (`story:decisions-batch-answer`).
+pub const PAGE_WORDS: &str = "chosen on the Decisions page";
+
+/// The choice a class-H item is answered with: the operator acted on it.
+pub const DONE: &str = "done";
+
+/// One answer of the operator to an escalated request (`story:decisions-batch-answer`), as the
+/// Decisions page sends it or conductor relays it: [`answer_as_operator`] records it.
+#[derive(Debug, Clone, Default)]
+pub struct OperatorAnswer {
+    /// The escalated request it answers.
+    pub request_id: String,
+    /// The letters chosen, each one of the request's lettered options; [`DONE`] for class H.
+    pub choice: Vec<String>,
+    /// The operator's words; none, or only white space, records [`PAGE_WORDS`].
+    pub operator_words: Option<String>,
+    /// The session that records it: `dashboard` for the Decisions page.
+    pub recorded_by: String,
+    /// The decision's id; allocated as `record-operator-decision` allocates one when none.
+    pub decision_id: Option<String>,
+    /// When he decided; now when none.
+    pub decided_at: Option<String>,
+    /// Why; the operator's words when none.
+    pub reason: Option<String>,
+    /// What it rests on; the request and the recording session when none.
+    pub evidence: Option<String>,
+    /// What the caller says the request holds, checked against it: the class, the question, the
+    /// options and the repository. The request's own are recorded.
+    pub decision_class: Option<String>,
+    pub question: Option<String>,
+    pub options: Option<String>,
+    pub repository: Option<String>,
+}
+
+/// What [`answer_as_operator`] did with one answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperatorAnswered {
+    /// The decision is recorded under this id, and its request is Answered with it.
+    Recorded(String),
+    /// Nothing was recorded: the specification's error, and why.
+    Refused { error: &'static str, reason: String },
+}
+
+/// `conductor decision answer-escalated-as-operator`: the command
+/// `conductor.decision.RecordOperatorDecisionForRequest`, then
+/// `conductor.decision.AnswerEscalatedRequest`, over one store handle
+/// ([`answer_as_operator`]). Prints the decision's id.
+///
+/// # Errors
+///
+/// A flag is missing, `--recorded-by` or `--operator-words` is blank, `--input-json` is given
+/// ([`NotImplemented`](crate::NotImplemented)), a flag names what the request does not hold, the
+/// store does not open or keep the answer, or the specification refuses it: `RequestNotFound`,
+/// `RequestStateConflict`, `ChoiceInvalid`, `DecisionExists`.
+pub fn answer_escalated_as_operator(
+    state: Option<&Path>,
+    args: RecordOperatorDecisionForRequestArgs,
+) -> Result<ExitCode> {
+    const COMMAND: &str = "decision answer-escalated-as-operator";
+    flags_only(
+        args.input_json,
+        "decision answer-escalated-as-operator --input-json",
+    )?;
+    let answer = OperatorAnswer {
+        request_id: flag(COMMAND, "--request-id", args.request_id)?,
+        choice: flag(COMMAND, "--choice", args.choice)?
+            .split(',')
+            .map(|letter| letter.trim().to_owned())
+            .collect(),
+        operator_words: Some(not_blank(COMMAND, "--operator-words", args.operator_words)?),
+        recorded_by: not_blank(COMMAND, "--recorded-by", args.recorded_by)?,
+        decision_id: args.decision_id,
+        decided_at: args.decided_at,
+        reason: args.reason,
+        evidence: args.evidence,
+        decision_class: args.decision_class,
+        question: args.question,
+        options: args.options,
+        repository: args.repository,
+    };
+    if let Some(given) = &answer.decision_id {
+        in_allocator_form(COMMAND, "--decision-id", DECISION_PREFIX, given)?;
+    }
+    match answer_as_operator(state, &answer).with_context(|| COMMAND.to_owned())? {
+        OperatorAnswered::Recorded(decision_id) => print_line(COMMAND, &decision_id),
+        OperatorAnswered::Refused { error, reason } => refused(COMMAND, error, &reason),
+    }
+}
+
+/// Records `answer` as the operator's decision and moves its request from Escalated to Answered
+/// with it (`story:decisions-batch-answer`): the one path of the Decisions page and of conductor
+/// relaying an answer.
+///
+/// It reads the request first and refuses, recording nothing, when no request has the id
+/// (`RequestNotFound`), the request is not escalated (`RequestStateConflict`: open, or answered
+/// or withdrawn meanwhile) or the choice does not fit it (`ChoiceInvalid`, [`choice_for`]). It
+/// then records the decision through `RecordOperatorDecisionForRequest`, whose class, question,
+/// options and repository are the request's, and moves the request through
+/// `AnswerEscalatedRequest` over the same handle, appending the `decided` and `answered` lines.
+/// The store commits each write on its own: should another process answer or withdraw the
+/// request between the two, the decision just recorded is reversed as the operator's, with that
+/// reason, and the answer is refused `RequestStateConflict`, so no decision answers no request.
+///
+/// # Errors
+///
+/// The store does not open or keep a read or a write, a records line cannot be written, a field
+/// the caller gives is not the request's, or no decision id could be allocated.
+pub fn answer_as_operator(
+    state: Option<&Path>,
+    answer: &OperatorAnswer,
+) -> Result<OperatorAnswered> {
+    const COMMAND: &str = "answer the escalated request as the operator";
+    let request = RequestId(answer.request_id.clone());
+    let refusal =
+        |error: &'static str, reason: String| Ok(OperatorAnswered::Refused { error, reason });
+    let generated = record(COMMAND, state)?;
+    let held = DecisionRequestStorage::get(&generated.ports, &request);
+    kept(COMMAND, &generated.ports.store)?;
+    let Some(held) = held else {
+        return refusal("RequestNotFound", no_request(&request));
+    };
+    if held.state != DecisionRequestState::Escalated {
+        return refusal("RequestStateConflict", not_escalated(&request, held.state));
+    }
+    let data = held.data;
+    let class = data.escalation_class.unwrap_or(DecisionClass::O);
+    let choice = match choice_for(class, &data, &answer.choice) {
+        Ok(choice) => choice,
+        Err(reason) => return refusal("ChoiceInvalid", format!("{reason}; nothing was recorded")),
+    };
+    let options = data.lettered_options.as_deref().map_or_else(
+        || data.options.clone(),
+        |options| {
+            options
+                .iter()
+                .map(|option| format!("{}: {} ({})", option.letter, option.label, option.cost))
+                .collect::<Vec<_>>()
+                .join("; ")
+        },
+    );
+    for (flag, given, held) in [
+        (
+            "--decision-class",
+            answer.decision_class.as_deref(),
+            Some(class_name(class)),
+        ),
+        (
+            "--question",
+            answer.question.as_deref(),
+            Some(data.question.as_str()),
+        ),
+        ("--options", answer.options.as_deref(), None),
+        (
+            "--repository",
+            answer.repository.as_deref(),
+            Some(data.repository.0.as_str()),
+        ),
+    ] {
+        let fits = match (flag, given) {
+            (_, None) => true,
+            ("--options", Some(given)) => given == data.options || given == options,
+            (_, Some(given)) => Some(given) == held,
+        };
+        if !fits {
+            bail!(
+                "{flag} {:?} is not what request {:?} holds; leave it out and the request's is \
+                 recorded",
+                given.unwrap_or_default(),
+                request.0
+            );
+        }
+    }
+    let words = answer
+        .operator_words
+        .as_deref()
+        .map(str::trim)
+        .filter(|words| !words.is_empty())
+        .unwrap_or(PAGE_WORDS)
+        .to_owned();
+    let fields = Fields {
+        decision_id: answer.decision_id.clone().map(DecisionId),
+        decision_class: class,
+        question: data.question.clone(),
+        options,
+        choice,
+        reason: answer.reason.clone().unwrap_or_else(|| words.clone()),
+        evidence: answer.evidence.clone().unwrap_or_else(|| {
+            format!(
+                "the operator's answer to request {}, recorded by {}",
+                request.0, answer.recorded_by
+            )
+        }),
+        decided_at: match &answer.decided_at {
+            Some(at) => Timestamp(at.clone()),
+            None => records::now()?,
+        },
+        repository: Some(data.repository.clone()),
+    };
+    // The first attempt records over the handle the request was read with: one store open.
+    let recorded = allocate(
+        COMMAND,
+        state,
+        Some(generated),
+        &fields,
+        |generated, decision_id| {
+            let outcome = generated
+                .record_operator_decision_for_request(RecordOperatorDecisionForRequest {
+                    request_id: request.clone(),
+                    decision_id,
+                    decision_class: fields.decision_class,
+                    question: fields.question.clone(),
+                    options: fields.options.clone(),
+                    choice: fields.choice.clone(),
+                    reason: fields.reason.clone(),
+                    evidence: fields.evidence.clone(),
+                    decided_at: fields.decided_at.clone(),
+                    recorded_by: answer.recorded_by.clone(),
+                    operator_words: words.clone(),
+                    repository: fields.repository.clone(),
+                })
+                .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+            Ok(match outcome {
+                RecordOperatorDecisionForRequestOutcome::Recorded { .. } => Answer::Recorded,
+                RecordOperatorDecisionForRequestOutcome::AlreadyRecorded { .. } => Answer::Held,
+                RecordOperatorDecisionForRequestOutcome::NoSuchRequest { error } => {
+                    Answer::Refused(Refusal {
+                        error: "RequestNotFound",
+                        detail: no_request(&error.request_id),
+                    })
+                }
+                RecordOperatorDecisionForRequestOutcome::NotEscalated { error } => {
+                    Answer::Refused(Refusal {
+                        error: "RequestStateConflict",
+                        detail: format!(
+                            "request {:?} is no longer escalated; nothing was recorded",
+                            error.request_id.0
+                        ),
+                    })
+                }
+            })
+        },
+    )?;
+    let (mut generated, decision_id) = match recorded {
+        Allocated::Recorded(generated, decision_id) => (*generated, decision_id),
+        Allocated::Refused(Refusal { error, detail }) => return refusal(error, detail),
+        Allocated::Held(decision_id) => {
+            return refusal(
+                "DecisionExists",
+                format!(
+                    "decision {:?} already exists; nothing was written",
+                    decision_id.0
+                ),
+            );
+        }
+    };
+    decided(
+        COMMAND,
+        &fields,
+        &decision_id,
+        Some((answer.recorded_by.as_str(), words.as_str())),
+    )?;
+    let outcome = generated
+        .answer_escalated_request(AnswerEscalatedRequest {
+            request_id: request.clone(),
+            decision_id: decision_id.clone(),
+        })
+        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+    let moved = match (generated.ports.store.check(), outcome) {
+        (Ok(()), AnswerEscalatedRequestOutcome::Answered { .. }) => true,
+        (Ok(()), _) | (Err(StoreError::Moved { .. }), _) => false,
+        (Err(failure), _) => {
+            return Err(anyhow::Error::new(failure))
+                .with_context(|| format!("{COMMAND}: the store did not keep the answer"));
+        }
+    };
+    if moved {
+        request_logged(
+            COMMAND,
+            &generated.ports,
+            &request,
+            DecisionLogEvent::Answered,
+            |line| line.decision_id = Some(decision_id.clone()),
+        )?;
+        return Ok(OperatorAnswered::Recorded(decision_id.0));
+    }
+    // Another process moved the request between the two writes: the decision answers nothing,
+    // so it does not stay in force.
+    let reason = format!(
+        "request {:?} was answered or withdrawn while this answer was recorded",
+        request.0
+    );
+    let mut fresh = record(COMMAND, state)?;
+    let reversed = fresh
+        .reverse_operator_decision(ReverseOperatorDecision {
+            decision_id: decision_id.clone(),
+            reason: reason.clone(),
+        })
+        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+    kept(COMMAND, &fresh.ports.store)?;
+    if let ReverseOperatorDecisionOutcome::Reversed { .. } = reversed {
+        decision_logged(
+            COMMAND,
+            &fresh.ports,
+            &decision_id,
+            DecisionLogEvent::Reversed,
+            |line| {
+                line.decided_by = Some(Decider::Operator);
+                line.reason = Some(reason.clone());
+            },
+        )?;
+    }
+    refusal(
+        "RequestStateConflict",
+        format!("{reason}; decision {} was reversed", decision_id.0),
+    )
+}
+
+/// The choice `given` records for a request of `class` holding `data`, joined by `,` in the order
+/// of the request's options; why it does not fit, when it does not (`ChoiceInvalid`): a class-H
+/// item takes [`DONE`]; a class-O request takes one of its lettered options for `yes-no` (`Y` or
+/// `N`) and `one-of`, and one or more distinct ones for `several-of`. A class-O request escalated
+/// without lettered options is answered in conductor's session, not by letter.
+fn choice_for(
+    class: DecisionClass,
+    data: &conductor_model::decision::DecisionRequestData,
+    given: &[String],
+) -> std::result::Result<String, String> {
+    let request = &data.request_id.0;
+    let shown = given.join(",");
+    if class == DecisionClass::H {
+        return if given == [DONE] {
+            Ok(DONE.to_owned())
+        } else {
+            Err(format!(
+                "request {request:?} is a class-H item, answered {DONE:?}, not {shown:?}"
+            ))
+        };
+    }
+    let (Some(kind), Some(options)) = (data.kind, data.lettered_options.as_deref()) else {
+        return Err(format!(
+            "request {request:?} was escalated without lettered options; answer it in \
+             conductor's session"
+        ));
+    };
+    if given.is_empty() || given.iter().any(String::is_empty) {
+        return Err(format!("the answer to request {request:?} names no letter"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for letter in given {
+        if !options.iter().any(|option| option.letter == *letter) {
+            return Err(format!(
+                "{letter:?} is none of the letters of request {request:?} ({})",
+                options
+                    .iter()
+                    .map(|option| option.letter.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if !seen.insert(letter.as_str()) {
+            return Err(format!(
+                "the answer to request {request:?} names {letter:?} twice"
+            ));
+        }
+    }
+    if kind != RequestKind::SeveralOf && given.len() > 1 {
+        return Err(format!(
+            "request {request:?} is {}, answered with one letter, not {shown:?}",
+            kind_name(kind)
+        ));
+    }
+    Ok(options
+        .iter()
+        .filter(|option| seen.contains(option.letter.as_str()))
+        .map(|option| option.letter.as_str())
+        .collect::<Vec<_>>()
+        .join(","))
+}
+
+/// Why `request`, resting in `state`, is not answered as an escalated one.
+fn not_escalated(request: &RequestId, state: DecisionRequestState) -> String {
+    format!(
+        "request {:?} is {}, not escalated, so it is not the operator's to answer; nothing was \
+         recorded",
+        request.0,
+        request_state_name(state)
+    )
 }
 
 /// `conductor decision escalate-request`: the command `conductor.decision.EscalateRequest`.
@@ -1277,6 +1670,66 @@ impl DecisionRequestStorage for Ports {
     }
 }
 
+/// `conductor.decision.RecordOperatorDecisionForRequest`, as its contract in
+/// `crates/conductor-model/PLAN.md` states it: `no-such-request` when no request has the input's
+/// id; `not-escalated` when it rests in any state but `Escalated`; `already-recorded` when a
+/// decision has the input's id; `recorded` otherwise, creating an `InForce` decision the operator
+/// decided, with the input's fields, as `RecordOperatorDecision` creates one.
+impl RecordOperatorDecisionForRequestBehavior for Ports {
+    fn record_operator_decision_for_request(
+        &mut self,
+        input: RecordOperatorDecisionForRequest,
+    ) -> std::result::Result<RecordOperatorDecisionForRequestOutcome, UnmetObligation> {
+        use conductor_model::decision::{
+            AnyDecision, Decision, DecisionData, DecisionExists, DecisionRecorded, RequestNotFound,
+            RequestStateConflict,
+        };
+        let Some(request) = DecisionRequestStorage::get(self, &input.request_id) else {
+            return Ok(RecordOperatorDecisionForRequestOutcome::NoSuchRequest {
+                error: RequestNotFound {
+                    request_id: input.request_id,
+                },
+            });
+        };
+        if request.state != DecisionRequestState::Escalated {
+            return Ok(RecordOperatorDecisionForRequestOutcome::NotEscalated {
+                error: RequestStateConflict {
+                    request_id: input.request_id,
+                },
+            });
+        }
+        if DecisionStorage::get(self, &input.decision_id).is_some() {
+            return Ok(RecordOperatorDecisionForRequestOutcome::AlreadyRecorded {
+                error: DecisionExists {
+                    decision_id: input.decision_id,
+                },
+            });
+        }
+        let data = DecisionData {
+            decision_id: input.decision_id.clone(),
+            decision_class: input.decision_class,
+            decided_by: Decider::Operator,
+            question: input.question,
+            options: input.options,
+            choice: input.choice,
+            reason: input.reason,
+            evidence: input.evidence,
+            decided_at: input.decided_at,
+            recorded_by: Some(input.recorded_by),
+            operator_words: Some(input.operator_words),
+            repository: input.repository,
+        };
+        DecisionStorage::put(self, AnyDecision::InForce(Decision::new(data)).snapshot());
+        Ok(RecordOperatorDecisionForRequestOutcome::Recorded {
+            decision_recorded: DecisionRecorded {
+                decision_id: input.decision_id,
+                decision_class: input.decision_class,
+                decided_by: Decider::Operator,
+            },
+        })
+    }
+}
+
 /// A decision store that holds nothing and keeps nothing: the specification's refusals that read
 /// only the input are asked over it before an id is allocated.
 struct Unstored;
@@ -1379,16 +1832,93 @@ fn record_decision(
     fields: &Fields,
     decider: Decider,
     operator: Option<(&str, &str)>,
-    mut run: impl FnMut(&mut Generated<Ports>, DecisionId) -> Result<Answer>,
+    run: impl FnMut(&mut Generated<Ports>, DecisionId) -> Result<Answer>,
 ) -> Result<ExitCode> {
+    match allocate(command, state, None, fields, run)? {
+        Allocated::Recorded(_, decision_id) => {
+            let mut line = decided_line(fields, &decision_id, operator)?;
+            line.decided_by = Some(decider);
+            records::append_decision(&line)
+                .with_context(|| format!("{command}: decision {}", decision_id.0))?;
+            print_line(command, &decision_id.0)
+        }
+        Allocated::Refused(Refusal { error, detail }) => refused(command, error, &detail),
+        Allocated::Held(decision_id) => already_held(command, &decision_id),
+    }
+}
+
+/// What [`allocate`] did.
+enum Allocated {
+    /// The decision is recorded under the id, through the handle given back.
+    Recorded(Box<Generated<Ports>>, DecisionId),
+    /// The behaviour refused it, and nothing was recorded.
+    Refused(Refusal),
+    /// The id given by hand is already a decision's (`DecisionExists`).
+    Held(DecisionId),
+}
+
+/// The records line `decided` of the decision `decision_id` recorded from `fields`, decided by
+/// the operator, who `operator` names as the recording session and his words when given.
+fn decided_line(
+    fields: &Fields,
+    decision_id: &DecisionId,
+    operator: Option<(&str, &str)>,
+) -> Result<DecisionLogLine> {
+    let mut line = records::decision_line(
+        DecisionLogEvent::Decided,
+        fields
+            .repository
+            .as_ref()
+            .map(|repository| repository.0.as_str()),
+        &decision_id.0,
+    )?;
+    line.class = Some(fields.decision_class);
+    line.decided_by = Some(Decider::Operator);
+    line.question = Some(fields.question.clone());
+    line.options = Some(fields.options.clone());
+    line.choice = Some(fields.choice.clone());
+    line.reason = Some(fields.reason.clone());
+    line.evidence = Some(fields.evidence.clone());
+    if let Some((recorded_by, operator_words)) = operator {
+        line.recorded_by = Some(recorded_by.to_owned());
+        line.operator_words = Some(operator_words.to_owned());
+    }
+    Ok(line)
+}
+
+/// Appends the operator's `decided` line of `decision_id` ([`decided_line`]).
+fn decided(
+    command: &str,
+    fields: &Fields,
+    decision_id: &DecisionId,
+    operator: Option<(&str, &str)>,
+) -> Result<()> {
+    records::append_decision(&decided_line(fields, decision_id, operator)?)
+        .with_context(|| format!("{command}: decision {}", decision_id.0))
+}
+
+/// Runs `run` for the id [`record_decision`] describes until it records or refuses: the id
+/// given by hand, or the next one allocated, again while another process records it first. The
+/// first attempt runs over `opened` when given, a handle that has only read.
+fn allocate(
+    command: &str,
+    state: Option<&Path>,
+    opened: Option<Generated<Ports>>,
+    fields: &Fields,
+    mut run: impl FnMut(&mut Generated<Ports>, DecisionId) -> Result<Answer>,
+) -> Result<Allocated> {
     let date = utc_day(&fields.decided_at.0)
         .with_context(|| format!("{command}: --decided-at {:?}", fields.decided_at.0))?;
     let prefix = format!("{DECISION_PREFIX}{date}-");
     let written = written_highest(&prefix);
     let mut before = None;
+    let mut opened = opened;
     for _ in 0..ATTEMPTS {
         // A fresh handle per attempt: a handle refuses every write after its first failure.
-        let mut generated = record(command, state)?;
+        let mut generated = match opened.take() {
+            Some(opened) => opened,
+            None => record(command, state)?,
+        };
         let decision_id = match &fields.decision_id {
             Some(given) => given.clone(),
             None => {
@@ -1412,33 +1942,10 @@ fn record_decision(
             }
         };
         match answer {
-            Answer::Recorded => {
-                let mut line = records::decision_line(
-                    DecisionLogEvent::Decided,
-                    fields
-                        .repository
-                        .as_ref()
-                        .map(|repository| repository.0.as_str()),
-                    &decision_id.0,
-                )?;
-                line.class = Some(fields.decision_class);
-                line.decided_by = Some(decider);
-                line.question = Some(fields.question.clone());
-                line.options = Some(fields.options.clone());
-                line.choice = Some(fields.choice.clone());
-                line.reason = Some(fields.reason.clone());
-                line.evidence = Some(fields.evidence.clone());
-                if let Some((recorded_by, operator_words)) = operator {
-                    line.recorded_by = Some(recorded_by.to_owned());
-                    line.operator_words = Some(operator_words.to_owned());
-                }
-                records::append_decision(&line)
-                    .with_context(|| format!("{command}: decision {}", decision_id.0))?;
-                return print_line(command, &decision_id.0);
-            }
-            Answer::Refused(Refusal { error, detail }) => return refused(command, error, &detail),
+            Answer::Recorded => return Ok(Allocated::Recorded(Box::new(generated), decision_id)),
+            Answer::Refused(refusal) => return Ok(Allocated::Refused(refusal)),
             Answer::Held if fields.decision_id.is_some() => {
-                return already_held(command, &decision_id);
+                return Ok(Allocated::Held(decision_id));
             }
             // Another process recorded the allocated id first: allocate again.
             Answer::Held => {}

@@ -82,6 +82,7 @@ Every command takes these, before or after its name.
 | [`conductor decision raise-decision-request`](#conductor-decision-raise-decision-request) | Raise a decision request |
 | [`conductor decision record-conductor-decision`](#conductor-decision-record-conductor-decision) | Record a decision taken by conductor |
 | [`conductor decision record-operator-decision`](#conductor-decision-record-operator-decision) | Record a decision taken by the operator |
+| [`conductor decision answer-escalated-as-operator`](#conductor-decision-answer-escalated-as-operator) | Answer an escalated request as the operator |
 | [`conductor decision reverse-conductor-decision`](#conductor-decision-reverse-conductor-decision) | Reverse a decision taken by conductor |
 | [`conductor decision reverse-operator-decision`](#conductor-decision-reverse-operator-decision) | Reverse a decision as the operator |
 | [`conductor decision withdraw-request`](#conductor-decision-withdraw-request) | Withdraw a decision request |
@@ -978,6 +979,30 @@ Usage: conductor decision record-operator-decision [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
+| `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
+| `--decision-class <DECISION_CLASS>` | no | none | DecisionClass One of `C`, `O`, `H`. |
+| `--question <QUESTION>` | no | none | string |
+| `--options <OPTIONS>` | no | none | string |
+| `--choice <CHOICE>` | no | none | string |
+| `--reason <REASON>` | no | none | string |
+| `--evidence <EVIDENCE>` | no | none | string |
+| `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
+| `--recorded-by <RECORDED_BY>` | no | none | string |
+| `--operator-words <OPERATOR_WORDS>` | no | none | string |
+| `--repository <REPOSITORY>` | no | none | RepositoryName |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor decision answer-escalated-as-operator`
+
+Answer an escalated request as the operator
+
+```text
+Usage: conductor decision answer-escalated-as-operator [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--request-id <REQUEST_ID>` | no | none | RequestId |
 | `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
 | `--decision-class <DECISION_CLASS>` | no | none | DecisionClass One of `C`, `O`, `H`. |
 | `--question <QUESTION>` | no | none | string |

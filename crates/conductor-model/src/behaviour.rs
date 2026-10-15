@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
-// contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
+// model digest 9276d85730c7432ec101f1501676fcf6cf3d021a81399c6e1806e1f1ff5003ae
+// contract digest f02216384c1887e1c61b183ba55c014a614098a304c6a559ce6ee4c5d87cd5c8
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -870,6 +870,12 @@ where
         let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
         return Ok(answer);
+    }
+}
+
+impl<P: crate::decision::obligations::RecordOperatorDecisionForRequestBehavior> crate::decision::obligations::RecordOperatorDecisionForRequestBehavior for Generated<P> {
+    fn record_operator_decision_for_request(&mut self, input: crate::decision::RecordOperatorDecisionForRequest) -> Result<crate::decision::RecordOperatorDecisionForRequestOutcome, UnmetObligation> {
+        crate::decision::obligations::RecordOperatorDecisionForRequestBehavior::record_operator_decision_for_request(&mut self.ports, input)
     }
 }
 

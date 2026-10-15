@@ -57,8 +57,14 @@ cannot read is named on standard error, and the view exits 1.
 
 `conductor dashboard serve` shows the sessions, their dispatches, the decision and dispatch logs,
 CI, usage and disk in an app embedded in the binary that reads its data from the same server. It listens on `127.0.0.1` only (port 7313 by
-default), answers only `GET`, refuses a request naming another `Host`, and writes nothing. It does
-not show guard denials; use `guard guard-decisions` for those.
+default), answers `GET` and refuses a request naming another `Host`. It writes one thing: the
+operator's answers from its Decisions page, `POST /api/answers`, each recorded as his decision
+with `recorded_by` `dashboard` and his words (or "chosen on the Decisions page"), followed by the
+`answered` line of its request, as `conductor decision answer-escalated-as-operator` records them.
+Anyone who holds the page's token is recorded as the operator
+([the Decisions page writes](/docs/security/overview#the-decisions-page-writes)); find those
+answers with `conductor decision decisions --format json` by `recorded_by`. It does not show guard
+denials; use `guard guard-decisions` for those.
 
 ## Records cannot be changed in place
 
