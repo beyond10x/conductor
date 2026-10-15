@@ -345,12 +345,12 @@ tasks:
     desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, test the dashboard app and hold crates/conductor/dashboard/dist to a fresh build, then format, lint and test
     cmds:
       - if [ -n "${B10X_GATES_POLICY:-}" ]; then git ls-files -z | xargs -0 b10x-gates scan-text; else echo "B10X_GATES_POLICY is not set; the Gates scan is skipped" >&2; fi
-      - '{{.ESS}} specify validate --path spec'
+      - "{{shellQuote .ESS}} specify validate --path spec"
       - mkdir -p .check
       - echo '*' > .check/.gitignore
-      - '{{.ESS}} verify conform run --path spec --scenarios spec/scenarios --target interpreted --report-format 2 --report-out .check/conformance.json'
+      - "{{shellQuote .ESS}} verify conform run --path spec --scenarios spec/scenarios --target interpreted --report-format 2 --report-out .check/conformance.json"
       - rm -rf .check/conductor-model
-      - '{{.ESS}} generate synthesize --path spec --target rust --layout crate --out .check/conductor-model'
+      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --out .check/conductor-model"
       - diff -r --exclude=.ess-output crates/conductor-model .check/conductor-model
       - npm --prefix crates/conductor/dashboard ci
       - npm --prefix crates/conductor/dashboard test
@@ -376,4 +376,4 @@ tasks:
     desc: Regenerate crates/conductor-model from spec/; every byte of it is generated
     cmds:
       - rm -rf crates/conductor-model
-      - '{{.ESS}} generate synthesize --path spec --target rust --layout crate --out crates/conductor-model'
+      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --out crates/conductor-model"
