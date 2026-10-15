@@ -10,3 +10,4 @@ domains:
   - conductor.config
   - conductor.session
   - conductor.host
+  - conductor.improvement

@@ -12,6 +12,7 @@ components:
         - conductor.config
         - conductor.session
         - conductor.host
+        - conductor.improvement
     # The config file and the instance in it, each from its environment variable
     # (CONDUCTOR_CONFIG, CONDUCTOR_INSTANCE) when no flag names it (story:config-file).
     settings:
@@ -86,6 +87,12 @@ components:
         - conductor.host.RecordPeak
         - conductor.host.ReleaseGrant
         - conductor.host.Reclaim
+        - conductor.improvement.DefineMetric
+        - conductor.improvement.SetMetricTarget
+        - conductor.improvement.RecordMetricReading
+        - conductor.improvement.RaiseFinding
+        - conductor.improvement.FileFinding
+        - conductor.improvement.VerifyFinding
     publishes:
       events:
         - conductor.observation.SnapshotStarted
@@ -151,6 +158,13 @@ components:
         - conductor.host.HostGrantReleased
         - conductor.host.DiskReclaimed
         - conductor.host.ReclaimFloorNotReached
+        - conductor.improvement.MetricDefined
+        - conductor.improvement.MetricTargetSet
+        - conductor.improvement.MetricReadingRecorded
+        - conductor.improvement.FindingRaised
+        - conductor.improvement.FindingFiled
+        - conductor.improvement.FindingVerified
+        - conductor.improvement.FindingClosed
     reached_by: command_line
     cli:
       binary: conductor
@@ -290,3 +304,23 @@ components:
           views:
             - conductor.host.Grants
             - conductor.host.ReclaimRuns
+        # story:metrics-naming: a metric is one measured quantity; a KPI is a metric with a
+        # target. Only `kpis` says KPI, and it lists metrics that have one.
+        - name: metric
+          summary: The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs
+          commands:
+            - conductor.improvement.DefineMetric
+            - conductor.improvement.SetMetricTarget
+            - conductor.improvement.RecordMetricReading
+          views:
+            - conductor.improvement.Metrics
+            - conductor.improvement.Kpis
+            - conductor.improvement.MetricReadings
+        - name: finding
+          summary: Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move
+          commands:
+            - conductor.improvement.RaiseFinding
+            - conductor.improvement.FileFinding
+            - conductor.improvement.VerifyFinding
+          views:
+            - conductor.improvement.Findings

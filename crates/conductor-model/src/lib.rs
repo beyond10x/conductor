@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6d1f95b4254f69133b76f164601756738633e1e76503801d2e3c7a6c88f59ccd
-// contract digest 9d0a3362ebc5c84fb2bdbbe4560f82b4d3cd628c59b7729905a74c87f253b5d4
+// model digest 0ff607dab46fc45d66d4f9d6d27b06d385ce7c7f968a8d59cabec184e11ca15e
+// contract digest d432d875c4bd6ede30a362acd0568d0828acf7657d8ac0857c7be556e47c4fe8
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Semantic types synthesised from the `conductor` specification, v1.
@@ -22,6 +22,7 @@ pub mod decision;
 pub mod direction;
 pub mod dispatch;
 pub mod host;
+pub mod improvement;
 pub mod obligation;
 pub mod observation;
 pub mod primitives;

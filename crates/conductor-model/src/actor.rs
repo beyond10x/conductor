@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6d1f95b4254f69133b76f164601756738633e1e76503801d2e3c7a6c88f59ccd
-// contract digest 9d0a3362ebc5c84fb2bdbbe4560f82b4d3cd628c59b7729905a74c87f253b5d4
+// model digest 0ff607dab46fc45d66d4f9d6d27b06d385ce7c7f968a8d59cabec184e11ca15e
+// contract digest d432d875c4bd6ede30a362acd0568d0828acf7657d8ac0857c7be556e47c4fe8
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -27,6 +27,12 @@ pub enum Actor {
     DispatchConductor,
     /// `conductor.dispatch.RepositoryController`.
     DispatchRepositoryController,
+    /// `conductor.improvement.Collector`.
+    ImprovementCollector,
+    /// `conductor.improvement.ConductorDev`.
+    ImprovementConductorDev,
+    /// `conductor.improvement.Operator`.
+    ImprovementOperator,
     /// `conductor.observation.Collector`.
     ObservationCollector,
     /// `conductor.session.Conductor`.
@@ -43,6 +49,9 @@ impl Actor {
         Actor::DirectionOperator,
         Actor::DispatchConductor,
         Actor::DispatchRepositoryController,
+        Actor::ImprovementCollector,
+        Actor::ImprovementConductorDev,
+        Actor::ImprovementOperator,
         Actor::ObservationCollector,
         Actor::SessionConductor,
     ];
@@ -57,6 +66,9 @@ impl Actor {
             Actor::DirectionOperator => "conductor.direction.Operator",
             Actor::DispatchConductor => "conductor.dispatch.Conductor",
             Actor::DispatchRepositoryController => "conductor.dispatch.RepositoryController",
+            Actor::ImprovementCollector => "conductor.improvement.Collector",
+            Actor::ImprovementConductorDev => "conductor.improvement.ConductorDev",
+            Actor::ImprovementOperator => "conductor.improvement.Operator",
             Actor::ObservationCollector => "conductor.observation.Collector",
             Actor::SessionConductor => "conductor.session.Conductor",
         }
@@ -127,6 +139,19 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.dispatch.ReportStarted",
             "conductor.dispatch.ReportUnblocked",
             "conductor.dispatch.RequestResource",
+        ],
+        Actor::ImprovementCollector => &[
+            "conductor.improvement.RaiseFinding",
+            "conductor.improvement.RecordMetricReading",
+        ],
+        Actor::ImprovementConductorDev => &[
+            "conductor.improvement.DefineMetric",
+            "conductor.improvement.FileFinding",
+            "conductor.improvement.RaiseFinding",
+            "conductor.improvement.VerifyFinding",
+        ],
+        Actor::ImprovementOperator => &[
+            "conductor.improvement.SetMetricTarget",
         ],
         Actor::ObservationCollector => &[
             "conductor.observation.CompleteSnapshot",
