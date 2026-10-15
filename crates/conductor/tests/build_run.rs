@@ -62,6 +62,11 @@ impl Case {
         self.dir.join("state")
     }
 
+    /// The host directory, which holds the ledger (`story:instance-isolation`).
+    fn host(&self) -> PathBuf {
+        self.dir.join("host")
+    }
+
     fn work(&self) -> PathBuf {
         self.dir.join("work")
     }
@@ -132,7 +137,7 @@ impl Case {
     }
 
     fn grants(&self) -> Vec<conductor_model::host::Grants> {
-        host::rows(&self.state()).expect("the ledger reads")
+        host::rows(&self.host()).expect("the ledger reads")
     }
 
     /// The class-H requests waiting for the operator's hands (`decision hands-todo`).
@@ -262,6 +267,7 @@ fn a_reservation_that_fits_runs_the_command_and_is_released_with_its_peak() {
     let case = Case::new("fits");
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(
@@ -324,6 +330,7 @@ fn a_reservation_that_does_not_fit_is_granted_once_reclaim_reaches_it() {
     case.free(10 * GIB + GIB / 2);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_frees_20g),
         &case.request(GIB, "touch ran"),
@@ -359,6 +366,7 @@ fn a_shortfall_is_refused_with_exit_2_and_the_command_never_runs() {
     case.free(10 * GIB);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_frees_1g),
         &case.request(4 * GIB, "touch ran"),
@@ -398,6 +406,7 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
     case.free(10 * GIB);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_frees_1g),
         &case.request(4 * GIB, "touch ran"),
@@ -445,6 +454,7 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
     // A second refusal in the same fall records none.
     let again = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(4 * GIB, "touch ran"),
@@ -461,6 +471,7 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
     case.free(100 * GIB);
     let fits = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB, "true"),
@@ -470,6 +481,7 @@ fn a_shortfall_records_one_operator_item_with_its_numbers() {
     case.free(10 * GIB);
     let next = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(4 * GIB, "touch ran"),
@@ -503,6 +515,7 @@ fn refusals_in_one_fall_for_different_commands_and_repositories_record_one_item(
     case.free(10 * GIB);
     let first = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_frees_1g),
         &case.request_in("example-repo", 4 * GIB, "touch first"),
@@ -516,6 +529,7 @@ fn refusals_in_one_fall_for_different_commands_and_repositories_record_one_item(
     // 11G free over a 10G floor: a 1G build fits, and free disk is still under `disk_clear`.
     let small = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request_in("example-small", GIB, "true"),
@@ -525,6 +539,7 @@ fn refusals_in_one_fall_for_different_commands_and_repositories_record_one_item(
 
     let second = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request_in("example-other", 6 * GIB, "touch second"),
@@ -548,6 +563,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
     case.free(10 * GIB);
     let refused = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(4 * GIB, "touch ran"),
@@ -570,6 +586,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
     case.free(15 * GIB);
     let fits = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB, "true"),
@@ -586,6 +603,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
     case.free(20 * GIB);
     let fits = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB, "true"),
@@ -594,12 +612,13 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
     assert_eq!(fits.exit_code(), 0, "{fits:?}");
     assert_eq!(state_of(&item), Some(DecisionRequestState::Withdrawn));
     assert!(case.hands_todo().is_empty(), "{:?}", case.hands_todo());
-    assert!(!case.state().join("host.fall").exists());
+    assert!(!case.host().join("host.fall").exists());
 
     // A new fall, cleared by the watch's pass alone: no build runs in between.
     case.free(10 * GIB);
     let refused = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(4 * GIB, "touch ran"),
@@ -612,18 +631,39 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
         panic!("a new fall, a new item: {refused:?}");
     };
     assert_eq!(
-        host::clear_fall(&case.state(), 19 * GIB, 20 * GIB).expect("the pass reads"),
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "example-org",
+            19 * GIB,
+            20 * GIB
+        )
+        .expect("the pass reads"),
         None,
         "under disk_clear nothing is withdrawn"
     );
     assert_eq!(state_of(&next), Some(DecisionRequestState::Escalated));
     assert_eq!(
-        host::clear_fall(&case.state(), 30 * GIB, 20 * GIB).expect("the pass withdraws"),
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "example-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("the pass withdraws"),
         Some(next.clone())
     );
     assert_eq!(state_of(&next), Some(DecisionRequestState::Withdrawn));
     assert_eq!(
-        host::clear_fall(&case.state(), 30 * GIB, 20 * GIB).expect("a second pass reads"),
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "example-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("a second pass reads"),
         None,
         "withdrawn once"
     );
@@ -714,6 +754,7 @@ fn a_shortfall_left_only_by_scratch_and_caches_records_no_operator_item() {
     case.free(10 * GIB);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_leaves_only_scratch),
         &case.request(4 * GIB, "true"),
@@ -736,6 +777,7 @@ fn a_shortfall_left_only_by_scratch_and_caches_records_no_operator_item() {
     case.free(10 * GIB);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_leaves_scratch_and_a_tree),
         &case.request(4 * GIB, "true"),
@@ -768,6 +810,7 @@ fn a_disk_item_names_no_var_tmp_entry_and_writes_the_home_as_tilde() {
     case.free(10 * GIB);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_leaves_personal_paths),
         &case.request(4 * GIB, &format!("touch {home}/ran")),
@@ -844,6 +887,7 @@ fn a_refused_build_run_names_no_personal_path_on_standard_error() {
     case.free(10 * GIB);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_leaves_personal_paths),
         &case.request(4 * GIB, &format!("touch {home}/ran")),
@@ -900,12 +944,13 @@ fn arrive(
     script: &str,
 ) -> thread::JoinHandle<anyhow::Result<Outcome>> {
     let state = case.state();
+    let host = case.host();
     let sources = case.sources(reclaim_nothing);
     let request = case.request(reserve, script);
     let settings = settings.clone();
-    let runner = thread::spawn(move || build::run(&state, &settings, &sources, &request));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings, &sources, &request));
     wait_until("the request is on the ledger", || {
-        host::rows(&case.state()).is_ok_and(|rows| {
+        host::rows(&case.host()).is_ok_and(|rows| {
             rows.iter()
                 .any(|row| row.command.as_deref() == Some(format!("sh -c {script}").as_str()))
         })
@@ -1039,12 +1084,13 @@ fn a_head_that_waits_past_its_bound_is_refused_and_the_next_request_runs() {
 fn a_reading_under_gate_stop_pauses_the_group_and_one_over_gate_resume_resumes_it() {
     let case = Case::new("watchdog");
     let state = case.state();
+    let host = case.host();
     let sources = case.sources(reclaim_nothing);
     let request = case.request(
         GIB,
         "while [ ! -e stop ]; do echo tick >> ticks; sleep 0.05; done",
     );
-    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &request));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
     let ticks = case.work().join("ticks");
     wait_until("the command ticks", || lines(&ticks) >= 3);
 
@@ -1091,6 +1137,7 @@ fn the_command_killed_releases_the_grant() {
     let case = Case::new("killed");
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB, "kill -9 $$"),
@@ -1119,17 +1166,19 @@ fn two_runs_at_once_each_reserve_and_the_second_sees_the_first() {
     // 12G free over a 10G floor: 2G to reserve.
     case.free(12 * GIB);
     let state = case.state();
+    let host = case.host();
     let sources = case.sources(reclaim_nothing);
     let first = case.request(GIB, "while [ ! -e stop ]; do sleep 0.05; done");
-    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &first));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &first));
     wait_until("the first run is running", || {
-        host::rows(&case.state())
+        host::rows(&case.host())
             .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
     });
 
     // The second fits beside the first: 2G − 1G leaves 1G.
     let second = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB, "true"),
@@ -1140,6 +1189,7 @@ fn two_runs_at_once_each_reserve_and_the_second_sees_the_first() {
     // A third asks 1.5G while the first holds 1G: 0.5G short, which it would not be alone.
     let third = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB + GIB / 2, "touch third"),
@@ -1173,11 +1223,12 @@ fn a_running_grant_holds_its_reservation_less_what_it_wrote() {
     // 12G free over a 10G floor: 2G to reserve.
     case.free(12 * GIB);
     let state = case.state();
+    let host = case.host();
     let sources = case.sources(reclaim_nothing);
     let first = case.request(2 * GIB, "while [ ! -e stop ]; do sleep 0.05; done");
-    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &first));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &first));
     wait_until("the first run is running", || {
-        host::rows(&case.state())
+        host::rows(&case.host())
             .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
     });
     let running = case
@@ -1186,11 +1237,12 @@ fn a_running_grant_holds_its_reservation_less_what_it_wrote() {
         .find(|row| row.state == HostGrantState::Running)
         .expect("a running grant");
     // The first run has written 1.5G of its 2G: it holds 0.5G more.
-    host::record_peak_of(&case.state(), &running.grant_id, GIB + GIB / 2)
+    host::record_peak_of(&case.host(), &running.grant_id, GIB + GIB / 2)
         .expect("the growth is recorded");
 
     let second = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB + GIB / 2, "true"),
@@ -1216,11 +1268,12 @@ fn a_shortfall_live_reservations_cover_waits_for_them_and_raises_no_item() {
     // 12G free over a 10G floor: 2G to reserve.
     case.free(12 * GIB);
     let state = case.state();
+    let host = case.host();
     let sources = case.sources(reclaim_nothing);
     let first = case.request(2 * GIB, "sleep 0.5");
-    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &first));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &first));
     wait_until("the first run is running", || {
-        host::rows(&case.state())
+        host::rows(&case.host())
             .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
     });
     let waiting = Settings {
@@ -1229,6 +1282,7 @@ fn a_shortfall_live_reservations_cover_waits_for_them_and_raises_no_item() {
     };
     let second = build::run(
         &case.state(),
+        &case.host(),
         &waiting,
         &case.sources(reclaim_nothing),
         &case.request(GIB, "true"),
@@ -1243,7 +1297,7 @@ fn a_shortfall_live_reservations_cover_waits_for_them_and_raises_no_item() {
         .expect("the runner ends")
         .expect("the first run ends");
     assert!(
-        !case.state().join("host.fall").exists(),
+        !case.host().join("host.fall").exists(),
         "no operator item for a wait"
     );
 }
@@ -1256,9 +1310,10 @@ fn runs_at_once_keep_every_ledger_write() {
     let runners: Vec<_> = (0..6)
         .map(|_| {
             let state = case.state();
+            let host = case.host();
             let sources = case.sources(reclaim_nothing);
             let request = case.request(GIB, "sleep 0.2");
-            thread::spawn(move || build::run(&state, &settings(), &sources, &request))
+            thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request))
         })
         .collect();
     for runner in runners {
@@ -1284,7 +1339,7 @@ fn a_request_or_grant_whose_run_is_gone_is_closed_by_the_next_run() {
     let case = Case::new("requester-gone");
     let at = host::now(OffsetDateTime::now_utc());
     let (request, granted) = {
-        let mut ledger = host::Ledger::lock(&case.state()).expect("the ledger opens");
+        let mut ledger = host::Ledger::lock(&case.host()).expect("the ledger opens");
         let request = ledger
             .request("example-org", None, None, GIB, "a waiter that died", &at)
             .expect("a request is recorded");
@@ -1302,12 +1357,13 @@ fn a_request_or_grant_whose_run_is_gone_is_closed_by_the_next_run() {
         (request, granted)
     };
     // Both runs held their lock and died: the files stay, nobody holds them.
-    drop(host::hold_run(&case.state(), &request).expect("a run lock"));
-    drop(host::hold_run(&case.state(), &granted).expect("a run lock"));
+    drop(host::hold_run(&case.host(), &request).expect("a run lock"));
+    drop(host::hold_run(&case.host(), &granted).expect("a run lock"));
     // 12G free over a 10G floor: the dead 6G grant would leave no room for 1G.
     case.free(12 * GIB);
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB, "true"),
@@ -1330,7 +1386,7 @@ fn a_request_or_grant_whose_run_is_gone_is_closed_by_the_next_run() {
 fn a_young_request_with_no_run_lock_file_is_left_to_its_waiter() {
     let case = Case::new("legacy-waiter");
     let at = host::now(OffsetDateTime::now_utc());
-    let request = host::Ledger::lock(&case.state())
+    let request = host::Ledger::lock(&case.host())
         .expect("the ledger opens")
         .request(
             "example-org",
@@ -1341,7 +1397,7 @@ fn a_young_request_with_no_run_lock_file_is_left_to_its_waiter() {
             &at,
         )
         .expect("a request is recorded");
-    let swept = host::Ledger::lock(&case.state())
+    let swept = host::Ledger::lock(&case.host())
         .expect("the ledger opens")
         .sweep(&host::now(OffsetDateTime::now_utc()))
         .expect("the sweep reads");
@@ -1365,7 +1421,7 @@ fn a_grant_whose_run_still_holds_its_lock_is_not_swept_when_its_group_is_gone() 
     let group = i64::from(child.id());
     child.wait().expect("wait for true");
     let grant = {
-        let mut ledger = host::Ledger::lock(&case.state()).expect("the ledger opens");
+        let mut ledger = host::Ledger::lock(&case.host()).expect("the ledger opens");
         let grant = ledger
             .request(
                 "example-org",
@@ -1382,28 +1438,28 @@ fn a_grant_whose_run_still_holds_its_lock_is_not_swept_when_its_group_is_gone() 
         grant
     };
     host::start_run(
-        &case.state(),
+        &case.host(),
         &grant,
         group,
         &host::now(OffsetDateTime::now_utc()),
     )
     .expect("the grant runs");
-    let lock = host::hold_run(&case.state(), &grant).expect("the run lock is held");
+    let lock = host::hold_run(&case.host(), &grant).expect("the run lock is held");
 
-    let swept = host::Ledger::lock(&case.state())
+    let swept = host::Ledger::lock(&case.host())
         .expect("the ledger opens")
         .sweep(&host::now(OffsetDateTime::now_utc()))
         .expect("the sweep reads");
     assert!(swept.is_empty(), "a held run is not swept: {swept:?}");
-    host::record_peak_of(&case.state(), &grant, GIB / 2).expect("its peak is recorded");
+    host::record_peak_of(&case.host(), &grant, GIB / 2).expect("its peak is recorded");
     host::release(
-        &case.state(),
+        &case.host(),
         &grant,
         Some(ReleaseReason::Exited),
         &host::now(OffsetDateTime::now_utc()),
     )
     .expect("its own release is kept");
-    host::end_run(&case.state(), &grant, lock);
+    host::end_run(&case.host(), &grant, lock);
     let grants = case.grants();
     let row = grants.iter().find(|row| row.grant_id == grant).unwrap();
     assert_eq!(row.release_reason, Some(ReleaseReason::Exited), "{row:?}");
@@ -1428,7 +1484,7 @@ fn a_grant_whose_process_group_is_gone_is_released_by_the_next_run() {
     let group = i64::from(child.id());
     child.wait().expect("wait for true");
     let orphan = {
-        let mut ledger = host::Ledger::lock(&case.state()).expect("the ledger opens");
+        let mut ledger = host::Ledger::lock(&case.host()).expect("the ledger opens");
         let orphan = ledger
             .request(
                 "example-org",
@@ -1445,7 +1501,7 @@ fn a_grant_whose_process_group_is_gone_is_released_by_the_next_run() {
         orphan
     };
     host::start_run(
-        &case.state(),
+        &case.host(),
         &orphan,
         group,
         &host::now(OffsetDateTime::now_utc()),
@@ -1454,6 +1510,7 @@ fn a_grant_whose_process_group_is_gone_is_released_by_the_next_run() {
 
     let outcome = build::run(
         &case.state(),
+        &case.host(),
         &settings(),
         &case.sources(reclaim_nothing),
         &case.request(GIB, "true"),
@@ -1610,6 +1667,7 @@ fn two_short_runs_in_a_row_run_one_reclaim() {
     for _ in 0..2 {
         let outcome = build::run(
             &case.state(),
+            &case.host(),
             &settings(),
             &case.sources(reclaim_frees_1g),
             &case.request(4 * GIB, "true"),
@@ -1662,13 +1720,14 @@ fn the_ledger_lock_is_free_while_a_reclaim_runs() {
     case.free(10 * GIB);
     let go = Go(case.dir.join("reclaim.go"));
     let state = case.state();
+    let host = case.host();
     let sources = case.sources(slow_reclaim);
     let request = case.request(4 * GIB, "true");
-    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &request));
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
     wait_until("the reclaim runs", || {
         case.dir.join("reclaim.started").exists()
     });
-    let taken = host::Ledger::try_lock(&case.state()).expect("the ledger opens");
+    let taken = host::Ledger::try_lock(&case.host()).expect("the ledger opens");
     let free = taken.is_some();
     drop(taken);
     drop(go);

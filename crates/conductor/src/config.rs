@@ -6,9 +6,11 @@
 //! `conductor-instance` settings the `conductor-cli` component declares in `spec/components.yaml`.
 //! A file `--config` or `CONDUCTOR_CONFIG` names must be there; when the default file is not,
 //! the built-in defaults apply ([`built_in`]), and they equal today's constants: nothing changes
-//! until a file exists. The instance is `--instance`, else `CONDUCTOR_INSTANCE`, else the file's
-//! `default` (`story:grouped-instance`), else the only one, else an error naming the instances
-//! ([`select`]).
+//! until a file exists. The instance is `--instance`, else `CONDUCTOR_INSTANCE`, else the instance
+//! whose tree holds the working directory ([`by_directory`], `story:instance-isolation`), else the
+//! file's `default` (`story:grouped-instance`), else the only one, else an error naming the
+//! instances ([`select`]). What the instances of the file share is in the host directory beside it
+//! ([`host_dir`]), and each role's settings file pins its instance ([`pin_problem`]).
 //!
 //! The file is read into `serde_json::Value` and converted into the generated
 //! `conductor.config` types ([`parse`]), which do not derive `serde`; what the types cannot say
@@ -521,13 +523,15 @@ pub fn load(flag: Option<&Path>, environment: &Environment) -> Result<Loaded> {
     }
 }
 
-/// The instance a command runs: `flag`, else [`INSTANCE_VARIABLE`], else the file's `default`,
-/// else the config's only one.
+/// The instance a command runs: `flag`, else [`INSTANCE_VARIABLE`], else the instance whose tree
+/// holds the working directory ([`by_directory`], `story:instance-isolation`), else the file's
+/// `default`, else the config's only one.
 ///
 /// # Errors
 ///
-/// The name given is not an instance of the config, or none is given, the file names no
-/// `default` and the config names more than one; the error names the instances there are.
+/// The name given is not an instance of the config; two instances' trees hold the working
+/// directory alike (`AmbiguousInstance`); or none is given, the file names no `default` and the
+/// config names more than one; the error names the instances there are.
 pub fn select<'c>(
     loaded: &'c Loaded,
     flag: Option<&str>,
@@ -540,11 +544,11 @@ pub fn select<'c>(
         .collect();
     let asked = match flag {
         Some(name) => Some(name.to_owned()),
-        None => environment
-            .instance
-            .as_ref()
-            .map(|name| name.to_string_lossy().into_owned())
-            .or_else(|| loaded.config.default.as_ref().map(|name| name.0.clone())),
+        None => match &environment.instance {
+            Some(name) => Some(name.to_string_lossy().into_owned()),
+            None => by_directory(instances, &environment.cwd)?
+                .or_else(|| loaded.config.default.as_ref().map(|name| name.0.clone())),
+        },
     };
     match asked {
         Some(name) => instances
@@ -567,6 +571,57 @@ pub fn select<'c>(
                 names.join(", ")
             ),
         },
+    }
+}
+
+/// The instance whose tree holds `cwd` (`story:instance-isolation`): its `records`, `state`,
+/// `checkouts.root` or `checkouts.trees` is `cwd` or an ancestor of it, read as written and as
+/// the file system resolves it. Where the trees of several instances hold it, the one whose tree
+/// lies deepest; none where it lies in no instance's tree.
+///
+/// # Errors
+///
+/// `AmbiguousInstance`: two instances' trees hold `cwd` at the same depth, so neither is chosen
+/// and the default is not taken either.
+pub fn by_directory(instances: &[Instance], cwd: &Path) -> Result<Option<String>> {
+    let real = fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    let mut best: Option<(usize, Vec<&str>)> = None;
+    for instance in instances {
+        let roots = [
+            &instance.records,
+            &instance.state,
+            &instance.checkouts.root,
+            &instance.checkouts.trees,
+        ];
+        let depth = roots
+            .iter()
+            .flat_map(|root| {
+                let root = PathBuf::from(root);
+                let resolved = fs::canonicalize(&root).ok();
+                [Some(root), resolved]
+            })
+            .flatten()
+            .filter(|root| cwd.starts_with(root) || real.starts_with(root))
+            .map(|root| root.components().count())
+            .max();
+        let Some(depth) = depth else { continue };
+        let name = instance.name.0.as_str();
+        match &mut best {
+            Some((deepest, names)) if *deepest == depth => names.push(name),
+            Some((deepest, _)) if *deepest > depth => {}
+            _ => best = Some((depth, vec![name])),
+        }
+    }
+    match best {
+        None => Ok(None),
+        Some((_, names)) if names.len() == 1 => Ok(Some(names[0].to_owned())),
+        Some((_, names)) => bail!(
+            "AmbiguousInstance: the working directory {} lies in the trees of the instances {} \
+             alike, so none is chosen and the default is not taken; choose one with \
+             {INSTANCE_VARIABLE}",
+            cwd.display(),
+            names.join(" and ")
+        ),
     }
 }
 
@@ -651,9 +706,168 @@ pub fn resolve(flag: Option<&Path>, environment: &Environment) -> Result<Active>
 /// What [`resolve`] answers.
 pub fn set_active(flag: Option<&Path>) -> Result<()> {
     let environment = Environment::from_process()?;
+    let (file, _) = locate(flag, &environment)?;
+    let _ = CONFIG_FILE.set(environment.cwd.join(file));
     let active = resolve(flag, &environment)?;
     let _ = ACTIVE.set(active);
     Ok(())
+}
+
+/// The config file [`set_active`] located, absolute.
+static CONFIG_FILE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Why the settings file `file` does not pin the instance `instance` (`story:instance-isolation`),
+/// or none when it does: its `env.CONDUCTOR_INSTANCE` is `instance`, and each of its hook commands
+/// that runs `conductor` starts `CONDUCTOR_INSTANCE=<instance> `. The harness does not pass the
+/// environment of the process that starts a session on to the session it forks, so only the
+/// settings select the instance the session's hooks and commands act for. The reason ends with
+/// what to write.
+#[must_use]
+pub fn pin_problem(file: &Path, instance: &str) -> Option<String> {
+    let fix = format!(
+        "write \"env\": {{\"{INSTANCE_VARIABLE}\": \"{instance}\"}} and start every hook command \
+         that runs conductor with `{INSTANCE_VARIABLE}={instance} conductor`"
+    );
+    let text = match fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(error) => return Some(format!("cannot be read ({error}): {fix}")),
+    };
+    let settings: Value = match serde_json::from_str(&text) {
+        Ok(settings) => settings,
+        Err(error) => return Some(format!("is no JSON ({error}): {fix}")),
+    };
+    match settings["env"][INSTANCE_VARIABLE].as_str() {
+        Some(name) if name == instance => {}
+        Some(name) => {
+            return Some(format!(
+                "pins the instance {name:?}, not {instance:?}: {fix}"
+            ));
+        }
+        None => return Some(format!("pins no instance: {fix}")),
+    }
+    let prefix = format!("{INSTANCE_VARIABLE}={instance} ");
+    hook_commands(&settings)
+        .into_iter()
+        .find(|command| runs_conductor(command) && !command.trim_start().starts_with(&prefix))
+        .map(|command| {
+            format!("has the hook command {command:?}, which runs conductor for no instance: {fix}")
+        })
+}
+
+/// `settings` pinned to `instance` (`story:instance-isolation`): its `env.CONDUCTOR_INSTANCE`
+/// set to `instance`, and each hook command that runs `conductor` started with
+/// `CONDUCTOR_INSTANCE=<instance> ` in place of any instance it named, so [`pin_problem`] finds
+/// none. Settings that are no JSON object become one holding only the pin.
+#[must_use]
+pub fn pinned(mut settings: Value, instance: &str) -> Value {
+    if !settings.is_object() {
+        settings = Value::Object(Map::new());
+    }
+    let env = &mut settings["env"];
+    if !env.is_object() {
+        *env = Value::Object(Map::new());
+    }
+    env[INSTANCE_VARIABLE] = Value::String(instance.to_owned());
+    let prefix = format!("{INSTANCE_VARIABLE}=");
+    if let Some(events) = settings["hooks"].as_object_mut() {
+        for matchers in events.values_mut().filter_map(Value::as_array_mut) {
+            for matcher in matchers.iter_mut() {
+                let Some(hooks) = matcher["hooks"].as_array_mut() else {
+                    continue;
+                };
+                for hook in hooks {
+                    let Some(command) = hook["command"].as_str() else {
+                        continue;
+                    };
+                    if !runs_conductor(command) {
+                        continue;
+                    }
+                    let mut rest = command.trim_start();
+                    while let Some(after) = rest.strip_prefix(&prefix) {
+                        rest = after
+                            .split_once(char::is_whitespace)
+                            .map_or("", |(_, more)| more.trim_start());
+                    }
+                    hook["command"] = Value::String(format!("{prefix}{instance} {rest}"));
+                }
+            }
+        }
+    }
+    settings
+}
+
+/// Every hook command of a settings file: `hooks.<event>[].hooks[].command`.
+fn hook_commands(settings: &Value) -> Vec<&str> {
+    settings["hooks"]
+        .as_object()
+        .into_iter()
+        .flat_map(|events| events.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|matcher| matcher["hooks"].as_array())
+        .flatten()
+        .filter_map(|hook| hook["command"].as_str())
+        .collect()
+}
+
+/// Whether `command` runs the `conductor` binary: one of its words is `conductor` or a path to it.
+fn runs_conductor(command: &str) -> bool {
+    command.split_whitespace().any(|word| {
+        let word = word.trim_matches(|c| c == '"' || c == '\'');
+        word == "conductor" || word.ends_with("/conductor")
+    })
+}
+
+/// The problems of the roles of `config` whose settings file is there and does not pin its
+/// instance ([`pin_problem`]), each by its `settings` path.
+fn pin_problems(config: &Config) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for (index, instance) in config.instances.iter().enumerate() {
+        for (at, role) in instance.roles.iter().enumerate() {
+            let Some(settings) = &role.settings else {
+                continue;
+            };
+            let file = Path::new(&settings.0);
+            if !file.is_file() {
+                continue;
+            }
+            if let Some(problem) = pin_problem(file, &instance.name.0) {
+                problems.push(Problem {
+                    path: format!("instances[{index}].roles[{at}].settings"),
+                    message: format!("the settings file {} {problem}", file.display()),
+                });
+            }
+        }
+    }
+    problems
+}
+
+/// The host directory's name beside the config file.
+pub const HOST_DIR: &str = "host";
+
+/// The host directory of the config file `file` (`story:instance-isolation`): `host/` beside it.
+/// What every instance of the file shares lives there, never under an instance's `state`: the
+/// host ledger, its locks, the reclaim record and the fall's marker (`crate::host`).
+#[must_use]
+pub fn host_of(file: &Path) -> PathBuf {
+    file.parent()
+        .map_or_else(|| PathBuf::from(HOST_DIR), |parent| parent.join(HOST_DIR))
+}
+
+/// The host directory of this process's config file ([`host_of`]): of the file [`set_active`]
+/// located, else of the one [`locate`] finds without a flag, `~/.b10x/conductor/host` when no
+/// variable names one. A `--state-dir` does not move it.
+///
+/// # Errors
+///
+/// No file was located and the working directory or the home directory cannot be read.
+pub fn host_dir() -> Result<PathBuf> {
+    if let Some(file) = CONFIG_FILE.get() {
+        return Ok(host_of(file));
+    }
+    let environment = Environment::from_process()?;
+    let (file, _) = locate(None, &environment)?;
+    Ok(host_of(&environment.cwd.join(file)))
 }
 
 /// The instance this process runs. [`crate::cli::Cli::run`] fixes it with [`set_active`]; a
@@ -3094,6 +3308,18 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     };
     if args.instance.is_some() || environment.instance.is_some() {
         select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
+    }
+    // Each role's settings pin its instance (`story:instance-isolation`).
+    let problems = pin_problems(&loaded.config);
+    if loaded.read && !problems.is_empty() {
+        report(
+            WHAT,
+            &Invalid {
+                file: loaded.path.clone(),
+                problems,
+            },
+        );
+        return Ok(ExitCode::FAILURE);
     }
     let names: Vec<&str> = loaded
         .config

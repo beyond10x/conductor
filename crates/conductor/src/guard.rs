@@ -12,9 +12,10 @@
 //! source of the instance excludes it.
 //! Conductor's rule decides the session in conductor's records: with a config file, a cwd in the
 //! instance's `records`; without one, the repository named `conductor`. A cwd in none of them is
-//! denied every tool that has a rule. A config file that does not load leaves the hook on the
-//! built-in instance (`crate::cli::Cli::run`), whose places are today's. Either way the controller
-//! rule keeps a controller from writing conductor's config: the file this process resolves
+//! denied every tool that has a rule. A config file that does not load denies every call, naming
+//! why (`ConfigUnloaded`, `story:instance-isolation`): the places of the built-in instance
+//! (`crate::cli::Cli::run`) still decide which rule's reason a denial names too. Either way the
+//! controller rule keeps a controller from writing conductor's config: the file this process resolves
 //! ([`config::locate`] over its own environment, `config_file`), loaded or not, the default file,
 //! the default file's directory itself, and the instance's state directory; not the rest of that
 //! directory, where an instance's records are by default.
@@ -406,20 +407,44 @@ fn session<'a>(
 ///
 /// [`NotImplemented`](crate::NotImplemented) without `--from-pre-tool-use`: recording a verdict
 /// given as flags is not written yet.
+///
+/// `unloaded` is why the config file did not load, if it did not: the hook then denies every
+/// call, naming it (`story:instance-isolation`, `ConfigUnloaded`), rather than deciding by the
+/// built-in places.
 pub fn record_guard_decision(
     state: Option<&Path>,
     args: RecordGuardDecisionArgs,
+    unloaded: Option<&str>,
 ) -> Result<ExitCode> {
     if !args.from_pre_tool_use {
         return not_implemented("guard record-guard-decision");
     }
-    Ok(hook(state, args.pid))
+    Ok(hook(state, args.pid, unloaded))
+}
+
+/// `decision` while the config file does not load, `problem` saying why: denied, its reason
+/// naming the problem, and the reason a rule gave too when one denied it already.
+fn unloaded_denial(decision: Decision, problem: &str) -> Decision {
+    let unloaded = format!(
+        "ConfigUnloaded: the config file does not load, so the guard allows no call until it \
+         does: {}",
+        one_line(problem)
+    );
+    let reason = match decision.verdict {
+        Verdict::Deny => format!("{}; {unloaded}", decision.reason),
+        Verdict::Allow => unloaded,
+    };
+    Decision {
+        verdict: Verdict::Deny,
+        reason,
+        ..decision
+    }
 }
 
 /// The hook: decide; for a denial, record it within the deadline; answer. `pid` is the calling
 /// session's process when the settings pass it (`--pid`), which the lease check compares with the
 /// holder's ([`leased`]).
-fn hook(state: Option<&Path>, pid: Option<i64>) -> ExitCode {
+fn hook(state: Option<&Path>, pid: Option<i64>, unloaded: Option<&str>) -> ExitCode {
     panic::set_hook(Box::new(|info| {
         eprintln!("conductor guard: {}", one_line(&info.to_string()));
     }));
@@ -466,6 +491,10 @@ fn hook(state: Option<&Path>, pid: Option<i64>) -> ExitCode {
         }
     })
     .unwrap_or_else(|_| Decision::denied("the guard failed while deciding the call"));
+    let decision = match unloaded {
+        Some(problem) => unloaded_denial(decision, problem),
+        None => decision,
+    };
 
     match decision.verdict {
         Verdict::Allow => ExitCode::SUCCESS,

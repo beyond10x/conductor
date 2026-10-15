@@ -85,10 +85,13 @@ types:
   # not available on this host, found before anything is recorded; `MeasurementShort`, the box the
   # provider measured at the session's boundary is short of the request
   # (`conductor.session.EnvelopeMeasurement`): the session is stopped and the controller recorded
-  # stopped.
+  # stopped. `InstanceNotPinned` (story:instance-isolation), under a config file: the controller
+  # role's settings file does not pin the instance (`conductor.config.Role`), found before anything
+  # is recorded.
   - name: conductor.dispatch.SpawnRefusal
     kind: enum
     variants:
+      - InstanceNotPinned
       - AlreadyRunning
       - SessionRunning
       - SessionsUnread

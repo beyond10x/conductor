@@ -186,7 +186,8 @@ impl Case {
         write(&self.checkout().join(".git/HEAD"), "ref: refs/heads/main\n");
         write(&self.charter(), CHARTER);
         write(&self.profile(), "# Repository controller\n");
-        write(&self.settings(), "{}\n");
+        // The settings pin the instance (`story:instance-isolation`).
+        write(&self.settings(), &pinned("example-org"));
         fs::create_dir_all(self.state()).expect("create the state directory");
         self.write_config(&self.full_role());
         self.trust(true);
@@ -327,6 +328,22 @@ impl Case {
     fn recorded(&self) -> bool {
         self.state().join("tree").exists()
     }
+}
+
+/// A settings file that pins `instance`: its `env` names it, and its hook command runs
+/// `conductor` with it first (`story:instance-isolation`).
+fn pinned(instance: &str) -> String {
+    json!({
+        "env": {"CONDUCTOR_INSTANCE": instance},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": format!(
+                "CONDUCTOR_INSTANCE={instance} conductor guard record-guard-decision \
+                 --from-pre-tool-use || exit 2"
+            ),
+        }]}]},
+    })
+    .to_string()
 }
 
 fn describe(output: &Output) -> String {
@@ -500,7 +517,7 @@ fn spawn_refuses_a_repository_whose_controller_is_recorded_running() {
 #[test]
 fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
     type Setup = fn(&Case);
-    let cases: [(&str, &str, Setup); 9] = [
+    let cases: [(&str, &str, Setup); 12] = [
         ("no-charter", "NoCharter", |case| {
             fs::remove_file(case.charter()).expect("remove the charter");
         }),
@@ -528,6 +545,30 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
                 "{{role: controller, harness: claude, model: sonnet, profile: {}}}",
                 case.profile().display()
             ));
+        }),
+        // `story:instance-isolation`, item 1: settings that do not pin the instance.
+        ("unpinned-settings", "InstanceNotPinned", |case| {
+            write(&case.settings(), "{}\n");
+        }),
+        (
+            "settings-of-another-instance",
+            "InstanceNotPinned",
+            |case| {
+                write(&case.settings(), &pinned("other-org"));
+            },
+        ),
+        ("hook-without-the-instance", "InstanceNotPinned", |case| {
+            write(
+                &case.settings(),
+                &json!({
+                    "env": {"CONDUCTOR_INSTANCE": "example-org"},
+                    "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+                        "type": "command",
+                        "command": "conductor guard record-guard-decision --from-pre-tool-use",
+                    }]}]},
+                })
+                .to_string(),
+            );
         }),
         ("codex", "NotClaude", |case| {
             case.write_config(
