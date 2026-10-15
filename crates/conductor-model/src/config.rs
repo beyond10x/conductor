@@ -1,11 +1,11 @@
 // generated from conductor v1
-// model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
-// contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
+// model digest 99fb6031b0fc0b05b180f34f5df669cf94318483ccff491f98cbd0db5e5f933c
+// contract digest de86d8994c5cc1678315429bddd9bf81b4605e88fcdc6ead118da796ee21a163
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
 //!
-//! The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An instance is one organization conductor runs: where its repositories come from, where their checkouts are, where conductor keeps its records, state and cache, which harness and model each role runs on, its cadence, thresholds, reports, and who decides each decision class. These types hold the effective config, after defaults; the file may leave out every key of an instance but its name, its sources and its checkouts. No field takes a secret.
+//! The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An instance is one organization conductor runs: where its repositories come from, where their checkouts are, where conductor keeps its records, state and cache, which harness and model each role runs on, its cadence, thresholds, reports, and who decides each decision class. These types hold the effective config, after defaults; the file may leave out every key of an instance but its name, its sources and its checkouts. No field takes a secret. What the instances of one file share lives in the host directory, `host/` beside the file (`conductor.host`), not under any instance's `state`.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -279,6 +279,26 @@ pub struct Instance {
 /// InstanceName — `conductor.config.InstanceName`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceName(pub String);
+
+/// InstanceRefusal — `conductor.config.InstanceRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceRefusal {
+    /// `AmbiguousInstance`.
+    AmbiguousInstance,
+    /// `StateDirNotInstance`.
+    StateDirNotInstance,
+    /// `ConfigUnloaded`.
+    ConfigUnloaded,
+}
+
+/// InstanceRefused — `conductor.config.InstanceRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceRefused {
+    /// `refusal` — `conductor.config.InstanceRefusal`.
+    pub refusal: InstanceRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
 
 /// Limits — `conductor.config.Limits`.
 ///

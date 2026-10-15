@@ -525,7 +525,7 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 /// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's own name),
 /// its model, bypass permissions, no user settings, and its settings file; conductor's defaults to
 /// [`CONDUCTOR_SETTINGS`] under `cwd`.
-fn harness_args(role: &Role, name: &SessionName, cwd: &Path) -> Vec<String> {
+fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Vec<String> {
     let mut args = vec!["-n".to_owned(), name.0.clone()];
     match (&role.profile, &role.agent) {
         (Some(profile), _) => {
@@ -545,22 +545,64 @@ fn harness_args(role: &Role, name: &SessionName, cwd: &Path) -> Vec<String> {
         ]
         .map(str::to_owned),
     );
-    let settings = role
-        .settings
-        .as_ref()
-        .map(|settings| settings.0.clone())
-        .or_else(|| {
-            (role.role == "conductor").then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
-        });
     if let Some(settings) = settings {
         args.extend(["--settings".to_owned(), settings]);
     }
     args
 }
 
+/// The settings a session of `role`, which names no settings file of its own, starts with under
+/// a config file (`story:instance-isolation`): the role's default ([`role_settings`]: for
+/// `conductor` [`CONDUCTOR_SETTINGS`] under `cwd`, an empty one for `conductor-dev`) pinned to
+/// `instance` ([`config::pinned`]), written to `<state>/sessions/<session name>.settings.json`,
+/// whose path it answers. The harness does not pass the environment it is started with on to the
+/// session it forks, so only the settings select the instance the session's hooks act for.
+///
+/// # Errors
+///
+/// The default is there and is no JSON, or the file cannot be written.
+fn write_pinned(
+    role: &Role,
+    cwd: &Path,
+    instance: &str,
+    state: &Path,
+    name: &SessionName,
+) -> Result<String> {
+    let base = match role_settings(role, cwd) {
+        Some(default) => match fs::read_to_string(&default) {
+            Ok(text) => serde_json::from_str(&text)
+                .with_context(|| format!("the settings {default} are no JSON"))?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => serde_json::json!({}),
+            Err(error) => {
+                return Err(error).with_context(|| format!("read the settings {default}"));
+            }
+        },
+        None => serde_json::json!({}),
+    };
+    let dir = state.join("sessions");
+    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    let file = dir.join(format!("{}.settings.json", name.0));
+    let text = serde_json::to_string_pretty(&config::pinned(base, instance))
+        .context("write the pinned settings")?;
+    fs::write(&file, format!("{text}\n")).with_context(|| format!("write {}", file.display()))?;
+    Ok(file.display().to_string())
+}
+
+/// The settings file a session of `role` starts with: its `settings`, else for `conductor`
+/// [`CONDUCTOR_SETTINGS`] under `cwd`, else none.
+fn role_settings(role: &Role, cwd: &Path) -> Option<String> {
+    role.settings
+        .as_ref()
+        .map(|settings| settings.0.clone())
+        .or_else(|| {
+            (role.role == "conductor").then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
+        })
+}
+
 /// Answers a refusal of `session start`: one line naming its `SessionStartRefusal`, and exit 1.
 fn start_refused(answer: &SessionStartRefused) -> Result<ExitCode> {
     let refusal = match answer.refusal {
+        SessionStartRefusal::InstanceNotPinned => "InstanceNotPinned",
         SessionStartRefusal::ProviderUnavailable => "ProviderUnavailable",
         SessionStartRefusal::MeasurementShort => "MeasurementShort",
         SessionStartRefusal::UnknownRole => "UnknownRole",
@@ -594,8 +636,10 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 /// harness printed, then one line naming the session started, its provider and its id.
 ///
 /// In order, it refuses: a role that is not `conductor` or `conductor-dev`, not named by the
-/// instance, or not on `claude` (`UnknownRole`); a live session holding the session name
-/// (`SessionRunning`); under `strict` a provider not available (`ProviderUnavailable`); a start
+/// instance, or not on `claude` (`UnknownRole`); under a config file, a role whose own settings
+/// file does not pin the instance (`InstanceNotPinned`, `story:instance-isolation`; a role with
+/// none starts with its default written pinned, [`write_pinned`]); a live session holding the
+/// session name (`SessionRunning`); under `strict` a provider not available (`ProviderUnavailable`); a start
 /// or first prompt that fails (`LaunchFailed`); under `strict` a box short of the request, which
 /// is stopped again (`MeasurementShort`).
 ///
@@ -627,6 +671,18 @@ pub fn start(
         Ok(found) => found,
         Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
     };
+    let environment = Environment::from_process().context("session start")?;
+    // The settings select the instance the session's hooks act for (`story:instance-isolation`):
+    // a role's own settings file must pin it.
+    if active.from_file
+        && let Some(settings) = &found.settings
+        && let Some(problem) = config::pin_problem(Path::new(&settings.0), &instance.name.0)
+    {
+        return refuse(
+            SessionStartRefusal::InstanceNotPinned,
+            format!("its settings {} {problem}", settings.0),
+        );
+    }
     let name = role_session_name(instance, found);
     if let Some(id) = confine::live_session(&name.0).context("session start")? {
         return refuse(
@@ -638,7 +694,6 @@ pub fn start(
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_start(&refuse, refusal),
     };
-    let environment = Environment::from_process().context("session start")?;
     let home = environment.home().context("session start")?;
     let cwd = &environment.cwd;
     let mut env = Vec::new();
@@ -654,10 +709,17 @@ pub fn start(
         ));
     }
     let state_dir = crate::state::dir(state)?;
+    let settings = match (&found.settings, active.from_file) {
+        (None, true) => Some(
+            write_pinned(found, cwd, &instance.name.0, &state_dir, &name)
+                .context("session start")?,
+        ),
+        _ => role_settings(found, cwd),
+    };
     let launch = Launch {
         request: request(instance, found, cwd, home),
         program: confine::CLAUDE.to_owned(),
-        args: harness_args(found, &name, cwd),
+        args: harness_args(found, &name, settings),
         env,
         session_prefix: instance.session_prefix.clone(),
         instance_limits: instance.confinement.limits.clone(),

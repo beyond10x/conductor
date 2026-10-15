@@ -283,14 +283,20 @@ fn a_start_keeps_its_record_under_the_state_dir_flag_and_nothing_in_the_working_
 fn a_controller_s_session_name_carries_the_instance_s_prefix() {
     let case = Case::new("session-prefix");
     let config = case.work.with_file_name("conductor.yaml");
+    // The instance's `state` is the one `--state-dir` names: a command that writes records takes
+    // no other (`story:instance-isolation`).
     fs::write(
         &config,
-        "version: conductor.config/1\n\
-         instances:\n\
-         \x20 - name: alpha\n\
-         \x20   session_prefix: a\n\
-         \x20   sources: [{github: alpha}]\n\
-         \x20   checkouts: {root: /srv/alpha, trees: /srv/alpha-trees}\n",
+        format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: alpha\n\
+             \x20   session_prefix: a\n\
+             \x20   sources: [{{github: alpha}}]\n\
+             \x20   checkouts: {{root: /srv/alpha, trees: /srv/alpha-trees}}\n\
+             \x20   state: {:?}\n",
+            case.state
+        ),
     )
     .expect("write the config file");
     let start = |more: &[&str]| {

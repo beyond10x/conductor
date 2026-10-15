@@ -95,15 +95,21 @@ impl Case {
                  {{memory_max: 4G, tasks_max: 256}}, writable: [checkout, records], \
                  forge_token_env: [GH_TOKEN]}}\n\
                  \x20     - {{role: conductor-dev, harness: claude, model: sonnet, writable: \
-                 [checkout]}}\n\
+                 [checkout], settings: {dev_settings}}}\n\
                  \x20     - {{role: controller, harness: claude, model: opus}}\n\
                  \x20   confinement: {confinement}\n",
                 root = case.home().join("example-org").display(),
                 trees = case.dir.join("trees").display(),
                 records = case.records().display(),
                 state = case.state().display(),
+                dev_settings = case.dev_settings().display(),
             ),
         );
+        // `story:instance-isolation`: conductor-dev's own settings pin the instance; conductor names
+        // none, and starts with the default of the working directory, which pins none, written
+        // pinned under the state directory.
+        write(&case.conductor_settings(), SHIPPED);
+        write(&case.dev_settings(), &pinned("alpha"));
         case.agents(&json!([]));
         let claude = case.dir.join("bin/claude");
         write(
@@ -122,6 +128,17 @@ impl Case {
 
     fn home(&self) -> PathBuf {
         self.dir.join("home")
+    }
+
+    /// The conductor role's default settings, `.claude/conductor-settings.json` of the working
+    /// directory, as this checkout ships them: no instance pinned.
+    fn conductor_settings(&self) -> PathBuf {
+        self.work().join(".claude/conductor-settings.json")
+    }
+
+    /// The conductor-dev role's settings file.
+    fn dev_settings(&self) -> PathBuf {
+        self.dir.join("settings/conductor-dev.json")
     }
 
     fn records(&self) -> PathBuf {
@@ -192,6 +209,26 @@ impl Case {
             .ok()
             .map(|text| serde_json::from_str(&text).expect("the record is JSON"))
     }
+}
+
+/// Settings as this checkout ships them: a hook that runs `conductor` for no instance.
+const SHIPPED: &str = r#"{"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command",
+  "command": "conductor guard record-guard-decision --from-pre-tool-use || exit 2"}]}]}}"#;
+
+/// A settings file that pins `instance`: its `env` names it, and its hook command runs
+/// `conductor` with it first (`story:instance-isolation`).
+fn pinned(instance: &str) -> String {
+    json!({
+        "env": {"CONDUCTOR_INSTANCE": instance},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": format!(
+                "CONDUCTOR_INSTANCE={instance} conductor guard record-guard-decision \
+                 --from-pre-tool-use || exit 2"
+            ),
+        }]}]},
+    })
+    .to_string()
 }
 
 fn describe(output: &Output) -> String {
@@ -375,6 +412,59 @@ fn an_unknown_role_is_refused() {
     );
 }
 
+/// `story:instance-isolation`, item 1: a role whose own settings file is not there, or does not
+/// pin the role's instance (its `env.CONDUCTOR_INSTANCE`, and each hook command that runs
+/// `conductor` prefixed with it), is refused before anything starts: the harness does not pass the
+/// starter's environment on to the session it forks, so only the settings select the instance its
+/// hooks act for. A pinned role starts, and one with no settings of its own starts pinned
+/// (`the_provider_is_given_the_role_s_request_and_first_prompt`).
+#[test]
+fn a_role_whose_settings_do_not_pin_its_instance_is_refused() {
+    let case = Case::new("not-pinned", STRICT);
+    let own = case.dir.join("settings/conductor.json");
+    let config = fs::read_to_string(case.config()).expect("read the config");
+    write(
+        &case.config(),
+        &config.replace(
+            "forge_token_env: [GH_TOKEN]}",
+            &format!("forge_token_env: [GH_TOKEN], settings: {}}}", own.display()),
+        ),
+    );
+    let unprefixed = json!({
+        "env": {"CONDUCTOR_INSTANCE": "alpha"},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": "conductor guard record-guard-decision --from-pre-tool-use || exit 2",
+        }]}]},
+    })
+    .to_string();
+    for (what, settings) in [
+        ("no env", "{}\n".to_owned()),
+        ("another instance", pinned("beta")),
+        ("a hook without the instance", unprefixed),
+    ] {
+        write(&own, &settings);
+        let output = case.start("conductor");
+        assert_refused(&output, "session start", "InstanceNotPinned");
+        assert!(
+            stderr(&output).contains("CONDUCTOR_INSTANCE=alpha"),
+            "{what}: the refusal names what to write: {}",
+            describe(&output)
+        );
+    }
+    fs::remove_file(&own).expect("remove the settings");
+    assert_refused(
+        &case.start("conductor"),
+        "session start",
+        "InstanceNotPinned",
+    );
+    assert!(
+        call_names(&case.fake()).is_empty(),
+        "{:?}",
+        calls(&case.fake())
+    );
+}
+
 /// A live session that holds the role's session name is refused before anything starts.
 #[test]
 fn a_session_already_running_under_the_name_is_refused() {
@@ -469,7 +559,19 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             "forge_token_env": ["GH_TOKEN"],
         })
     );
-    let settings = case.work().join(".claude/conductor-settings.json");
+    // Conductor names no settings: it starts with the working directory's, pinned to its
+    // instance under the state directory (`story:instance-isolation`).
+    let settings = case.state().join("sessions/conductor.settings.json");
+    let pinned: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the pinned settings"))
+            .expect("JSON");
+    assert_eq!(pinned["env"]["CONDUCTOR_INSTANCE"], "alpha", "{pinned}");
+    assert_eq!(
+        pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        "CONDUCTOR_INSTANCE=alpha conductor guard record-guard-decision --from-pre-tool-use || \
+         exit 2",
+        "{pinned}"
+    );
     assert_eq!(
         logged[0]["args"],
         json!([
@@ -511,6 +613,8 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             "bypassPermissions",
             "--setting-sources",
             "project,local",
+            "--settings",
+            case.dev_settings().display().to_string(),
         ])
     );
     assert!(

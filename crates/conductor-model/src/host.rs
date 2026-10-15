@@ -1,11 +1,12 @@
 // generated from conductor v1
-// model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
-// contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
+// model digest 99fb6031b0fc0b05b180f34f5df669cf94318483ccff491f98cbd0db5e5f933c
+// contract digest de86d8994c5cc1678315429bddd9bf81b4605e88fcdc6ead118da796ee21a163
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
 //!
 //! The machine several conductor instances share (story:multi-instance-host), and the protocol its disk runs under (epic:disk-protocol, story:disk-protocol-spec). Each instance keeps its own records, state, cache and sessions; what they share is one disk, one CPU and memory budget, and one machine-wide namespace of harness session names. The host ledger holds every grant an instance's conductor or a `conductor build run` takes: a controller slot, a build slot, or a disk reservation for a run's expected peak, so two instances or two runs cannot each grant the same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records each step with the bytes it freed, or what is left when it cannot reach the floor.
+//! The host directory (story:instance-isolation) is `host/` beside the config file, one for every instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the marker of the open fall of free disk `host.fall`, which names the item's instance: only that instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its `state` before is moved there once, at its first host command: every grant of its store, its run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that it was moved, and nothing is moved again.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 

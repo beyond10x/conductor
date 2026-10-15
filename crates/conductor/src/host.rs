@@ -1,8 +1,11 @@
 //! `conductor host`: the host ledger of slots and disk reservations (`story:build-run`), and the
 //! operator item a disk shortfall becomes (`story:disk-escalation`).
 //!
-//! The ledger is the `conductor.host.HostGrant`s of the store under the state directory. A
-//! command reads its input from its flags, opens the store ([`crate::state::open`]), runs the
+//! The ledger is the `conductor.host.HostGrant`s of the store in the host directory, `host/`
+//! beside the config file ([`crate::config::host_dir`], `story:instance-isolation`): one ledger
+//! for every instance of the file, whatever `--state-dir` says. An instance whose `state` still
+//! holds the ledger of an older binary has it moved there once ([`migrate`]). A
+//! command reads its input from its flags, opens the store ([`dir`]), runs the
 //! generated behaviour, and checks that the store kept what the behaviour reported before it
 //! answers, as `conductor resource` does. `request-disk` and `take-host-grant` print the id of
 //! the grant on one line. A refused command exits 1 with one line on standard error: the command,
@@ -11,7 +14,7 @@
 //! and lists the grants newest first.
 //!
 //! [`Ledger`] is what `conductor build run` ([`crate::build`]) reserves through: it holds the
-//! ledger's lock, `host.lock` in the state directory, from the request to its answer, so a second
+//! ledger's lock, `host.lock` in the host directory, from the request to its answer, so a second
 //! run reserving at the same time counts the first. Nothing expires by time: whenever a run
 //! reads the ledger it first releases, with `ProcessGroupGone`, every running grant whose process
 //! group is gone ([`Ledger::sweep`]).
@@ -23,11 +26,12 @@
 //! request raised and escalated as class H, so `decision hands-todo` lists it, naming the
 //! shortfall, what reclaim left by path and size, and the one command only a person runs. One item
 //! per fall of free disk, whatever command or repository is refused in it
-//! (`story:disk-item-per-fall`): `host.fall` in the state directory holds the item's id, and a
-//! refusal while it is there records none. A reservation that fits does not end the fall; free
-//! disk back at `thresholds.disk_clear` does, read by the next `build run` or the watch's pass
-//! ([`clear_fall`]), which withdraws the item (`WithdrawRequest`) and removes the marker. The item
-//! is the instance's, not one repository's. It names no personal path
+//! (`story:disk-item-per-fall`): `host.fall` in the host directory holds the item's id and its
+//! instance, and a refusal while it is there records none. A reservation that fits does not end
+//! the fall; free disk back at `thresholds.disk_clear` does, read by the next `build run` or the
+//! watch's pass of the item's instance ([`clear_fall`]), which withdraws the item
+//! (`WithdrawRequest`) in that instance's store and removes the marker; another instance leaves
+//! both. The item is the instance's, not one repository's. It names no personal path
 //! (`story:disk-item-redacted`): the entries of `/var/tmp` only as a count and a total size, and
 //! the home directory as `~` wherever it appears. A shortfall left only by scratch and caches
 //! records none ([`needs_person`], `story:reclaim-scratch-class-c`): freeing them is class C, and
@@ -74,11 +78,20 @@ use crate::cli::{
 use crate::not_implemented;
 use crate::store::Store;
 
-/// The ledger's lock, in the state directory.
+/// The ledger's lock, in the host directory.
 const LOCK: &str = "host.lock";
 
-/// The open fall's operator item, in the state directory.
+/// The open fall's operator item and its instance, in the host directory.
 const FALL: &str = "host.fall";
+
+/// What `build run` keeps of the last reclaim run, in the host directory.
+const RECLAIM_RECORD: &str = "host.reclaim";
+
+/// The lock one reclaim run holds while it walks the disk, in the host directory.
+const RECLAIM_LOCK: &str = "host.reclaim.lock";
+
+/// In an instance's state directory: its ledger was moved to the host directory ([`migrate`]).
+const MIGRATED: &str = "host.migrated";
 
 /// One GiB.
 const GIB: u64 = 1 << 30;
@@ -114,11 +127,101 @@ pub fn alive(group: i64) -> bool {
 /// The ledger, held under its lock from a request to its answer.
 pub struct Ledger {
     generated: Generated<Ports>,
-    state: PathBuf,
+    /// The host directory.
+    dir: PathBuf,
     _lock: File,
 }
 
-/// The directory of the run locks: each `build run` holds `<state>/host-runs/<grant>.lock` while it
+/// The host directory ([`crate::config::host_dir`]), once the ledger the state directory
+/// `--state-dir` or the instance names held before is moved there ([`migrate`]).
+///
+/// # Errors
+///
+/// The directories cannot be found, or the move fails.
+pub fn dir(state: Option<&Path>) -> Result<PathBuf> {
+    let host = crate::config::host_dir()?;
+    let state = crate::state::dir(state)?;
+    migrate(&state, &host, &crate::config::active().instance.name.0)?;
+    Ok(host)
+}
+
+/// Moves the host ledger an older binary kept in the instance's state directory `state` to the
+/// host directory `host`, once (`story:instance-isolation`): under the ledger's lock, every grant
+/// of the instance's store the host's does not hold yet, then deleted from the instance's; the run
+/// locks, renamed, so a run of the older binary still holds its own; the reclaim record, unless
+/// the host has one; and the fall's marker, naming `instance`, unless the host has one. The old
+/// locks are removed, and `host.migrated` in `state` records the move: nothing is moved again. A
+/// state directory that is not there holds nothing to move, and nothing is written.
+///
+/// # Errors
+///
+/// The ledger, either store, or a file does not move.
+pub fn migrate(state: &Path, host: &Path, instance: &str) -> Result<()> {
+    let marker = state.join(MIGRATED);
+    if marker.exists() || !state.is_dir() || state == host {
+        return Ok(());
+    }
+    let mut ledger = Ledger::lock(host)?;
+    if let Ok(mut old) = crate::store::open_existing(state) {
+        let grants = HostGrantStorage::list(&old);
+        kept("move the host ledger", &old)?;
+        for grant in grants {
+            let id = grant.data.grant_id.clone();
+            if HostGrantStorage::get(&ledger.generated.ports, &id).is_none() {
+                HostGrantStorage::put(&mut ledger.generated.ports, grant);
+            }
+            kept("move the host ledger", &ledger.generated.ports.store)?;
+            HostGrantStorage::delete(&mut old, &id);
+            kept("move the host ledger", &old)?;
+        }
+    }
+    let runs = state.join(RUNS);
+    if let Ok(entries) = fs::read_dir(&runs) {
+        let to = host.join(RUNS);
+        fs::create_dir_all(&to).with_context(|| format!("create {}", to.display()))?;
+        for entry in entries {
+            let entry = entry.with_context(|| format!("read {}", runs.display()))?;
+            let target = to.join(entry.file_name());
+            fs::rename(entry.path(), &target).with_context(|| {
+                format!("move {} to {}", entry.path().display(), target.display())
+            })?;
+        }
+        fs::remove_dir(&runs).with_context(|| format!("remove {}", runs.display()))?;
+    }
+    let record = state.join(RECLAIM_RECORD);
+    if record.exists() {
+        let target = host.join(RECLAIM_RECORD);
+        if target.exists() {
+            fs::remove_file(&record).with_context(|| format!("remove {}", record.display()))?;
+        } else {
+            fs::rename(&record, &target)
+                .with_context(|| format!("move {} to {}", record.display(), target.display()))?;
+        }
+    }
+    let fall = state.join(FALL);
+    if let Ok(text) = fs::read_to_string(&fall) {
+        let target = host.join(FALL);
+        let item = text.lines().next().unwrap_or_default().trim();
+        if !target.exists() && !item.is_empty() {
+            fs::write(&target, format!("{item}\n{instance}\n"))
+                .with_context(|| format!("write {}", target.display()))?;
+        }
+        fs::remove_file(&fall).with_context(|| format!("remove {}", fall.display()))?;
+    }
+    for lock in [LOCK, RECLAIM_LOCK] {
+        let path = state.join(lock);
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).with_context(|| format!("remove {}", path.display())),
+        }
+    }
+    fs::write(&marker, format!("{}\n", host.display()))
+        .with_context(|| format!("write {}", marker.display()))?;
+    Ok(())
+}
+
+/// The directory of the run locks: each `build run` holds `<host>/host-runs/<grant>.lock` while it
 /// lives, so a sweep never releases a grant whose command ended but whose wrapper is still recording
 /// its peak and releasing it.
 const RUNS: &str = "host-runs";
@@ -203,7 +306,7 @@ pub enum Answer {
 }
 
 impl Ledger {
-    /// Takes the ledger's lock in the state directory `state`, waiting for another holder, and
+    /// Takes the ledger's lock in the host directory `state`, waiting for another holder, and
     /// opens the store there.
     ///
     /// # Errors
@@ -223,7 +326,7 @@ impl Ledger {
         let store = crate::store::open(state)?;
         Ok(Self {
             generated: Generated::new(Ports { store }),
-            state: state.to_owned(),
+            dir: state.to_owned(),
             _lock: lock,
         })
     }
@@ -248,7 +351,7 @@ impl Ledger {
         let store = crate::store::open(state)?;
         Ok(Some(Self {
             generated: Generated::new(Ports { store }),
-            state: state.to_owned(),
+            dir: state.to_owned(),
             _lock: lock,
         }))
     }
@@ -263,7 +366,7 @@ impl Ledger {
     ///
     /// The store does not read or keep a release.
     pub fn sweep(&mut self, at: &Timestamp) -> Result<Vec<GrantId>> {
-        let state = self.state.clone();
+        let state = self.dir.clone();
         let grants = HostGrantStorage::list(&self.generated.ports);
         kept("host ledger", &self.generated.ports.store)?;
         let mut requests = Vec::new();
@@ -400,7 +503,7 @@ impl Ledger {
                     && row.data.kind == GrantKind::Disk
                     && row.data.grant_id != *grant
                     && arrival(row) < mine
-                    && run_lock(&self.state, &row.data.grant_id) == RunLock::Held
+                    && run_lock(&self.dir, &row.data.grant_id) == RunLock::Held
             })
             .count())
     }
@@ -746,14 +849,15 @@ fn outside(count: usize, shortfall: &Shortfall<'_>) -> String {
 }
 
 /// Records one operator item for `shortfall`, unless the open fall has one: a decision request
-/// raised and escalated as class H, which `decision hands-todo` lists. Answers the item's id, or
-/// none when the fall had one already.
+/// raised and escalated as class H in the store under the instance's state directory `state`,
+/// which `decision hands-todo` lists. The fall's marker, in the host directory `host`, names the
+/// item and its instance. Answers the item's id, or none when the fall had one already.
 ///
 /// # Errors
 ///
 /// The decision store does not keep the item, or the fall's marker cannot be written.
-pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String>> {
-    let marker = state.join(FALL);
+pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String>> {
+    let marker = host.join(FALL);
     if marker.exists() {
         return Ok(None);
     }
@@ -830,7 +934,7 @@ pub fn escalate(state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String
         },
         dry_run,
     )?;
-    fs::write(&marker, format!("{request_id}\n"))
+    fs::write(&marker, format!("{request_id}\n{}\n", shortfall.instance))
         .with_context(|| format!("write {}", marker.display()))?;
     Ok(Some(request_id))
 }
@@ -957,21 +1061,29 @@ fn entries_hidden(text: &str, var_tmp: &str) -> String {
 }
 
 /// Ends the open fall once `free` bytes are free and that is at least `clear`
-/// (`thresholds.disk_clear`): withdraws its operator item, if still open (`WithdrawRequest`),
-/// and removes the marker, so the next shortfall records a new item. Answers the id of the item
-/// withdrawn. The watch's pass calls it with what it reads; it takes the ledger's lock, and
-/// leaves the fall to the next pass while a `build run` holds it.
+/// (`thresholds.disk_clear`): withdraws its operator item, if still open (`WithdrawRequest`), in
+/// the store under `state`, the state directory of `instance`, and removes the marker from the
+/// host directory `host`, so the next shortfall records a new item. A fall whose item another
+/// instance raised is left to that instance. Answers the id of the item withdrawn. The watch's
+/// pass calls it with what it reads; it takes the ledger's lock, and leaves the fall to the next
+/// pass while a `build run` holds it.
 ///
 /// # Errors
 ///
 /// The ledger or the decision store does not open, or the withdrawal or the marker's removal is
 /// not kept.
-pub fn clear_fall(state: &Path, free: u64, clear: u64) -> Result<Option<String>> {
-    if free < clear || !state.join(FALL).exists() {
+pub fn clear_fall(
+    host: &Path,
+    state: &Path,
+    instance: &str,
+    free: u64,
+    clear: u64,
+) -> Result<Option<String>> {
+    if free < clear || !host.join(FALL).exists() {
         return Ok(None);
     }
-    match Ledger::try_lock(state)? {
-        Some(ledger) => ledger.clear_fall(free, clear),
+    match Ledger::try_lock(host)? {
+        Some(ledger) => ledger.clear_fall(state, instance, free, clear),
         None => Ok(None),
     }
 }
@@ -982,32 +1094,44 @@ impl Ledger {
     /// # Errors
     ///
     /// As [`clear_fall`].
-    pub fn clear_fall(&self, free: u64, clear: u64) -> Result<Option<String>> {
+    pub fn clear_fall(
+        &self,
+        state: &Path,
+        instance: &str,
+        free: u64,
+        clear: u64,
+    ) -> Result<Option<String>> {
         if free < clear {
             return Ok(None);
         }
-        let marker = self.state.join(FALL);
-        let item = match fs::read_to_string(&marker) {
-            Ok(text) => text.trim().to_owned(),
+        let marker = self.dir.join(FALL);
+        let text = match fs::read_to_string(&marker) {
+            Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => {
                 return Err(error).with_context(|| format!("read {}", marker.display()));
             }
         };
+        let mut lines = text.lines().map(str::trim);
+        let item = lines.next().unwrap_or_default().to_owned();
+        // A marker of an older binary names no instance: it was the one instance's own.
+        if lines
+            .next()
+            .is_some_and(|owner| !owner.is_empty() && owner != instance)
+        {
+            return Ok(None);
+        }
         let open = !item.is_empty()
-            && DecisionRequestStorage::get(
-                &crate::store::open(&self.state)?,
-                &RequestId(item.clone()),
-            )
-            .is_some_and(|request| {
-                matches!(
-                    request.state,
-                    DecisionRequestState::Open | DecisionRequestState::Escalated
-                )
-            });
+            && DecisionRequestStorage::get(&crate::store::open(state)?, &RequestId(item.clone()))
+                .is_some_and(|request| {
+                    matches!(
+                        request.state,
+                        DecisionRequestState::Open | DecisionRequestState::Escalated
+                    )
+                });
         if open {
             crate::decide::withdraw_request(
-                Some(&self.state),
+                Some(state),
                 WithdrawRequestArgs {
                     request_id: Some(item.clone()),
                     reason: Some(format!(
@@ -1051,7 +1175,7 @@ pub fn take_host_grant(state: Option<&Path>, args: TakeHostGrantArgs) -> Result<
         requested_at: Timestamp(flag(COMMAND, "--requested-at", args.requested_at)?),
     };
     let mut generated = Generated::new(Ports {
-        store: crate::state::open(state)?,
+        store: crate::store::open(&dir(state)?)?,
     });
     let outcome = generated
         .take_host_grant(input)
@@ -1082,7 +1206,7 @@ pub fn request_disk(state: Option<&Path>, args: RequestDiskArgs) -> Result<ExitC
     let bytes = flag(COMMAND, "--bytes", args.bytes)?;
     let command = flag(COMMAND, "--command", args.command)?;
     let at = Timestamp(flag(COMMAND, "--requested-at", args.requested_at)?);
-    let mut ledger = Ledger::lock(&crate::state::dir(state)?)?;
+    let mut ledger = Ledger::lock(&dir(state)?)?;
     let bytes = u64::try_from(bytes).map_err(|_| {
         anyhow!(
             "{COMMAND}: InvalidSize: a reservation asks for a positive size, not {bytes} bytes; \
@@ -1115,7 +1239,7 @@ pub fn reserve_disk(state: Option<&Path>, args: ReserveDiskArgs) -> Result<ExitC
         reclaimed_bytes: flag(COMMAND, "--reclaimed-bytes", args.reclaimed_bytes)?,
     };
     let mut generated = Generated::new(Ports {
-        store: crate::state::open(state)?,
+        store: crate::store::open(&dir(state)?)?,
     });
     let outcome = generated
         .reserve_disk(input)
@@ -1136,7 +1260,7 @@ pub fn start_run_command(state: Option<&Path>, args: StartRunArgs) -> Result<Exi
     let grant = GrantId(flag(COMMAND, "--grant-id", args.grant_id)?);
     let group = flag(COMMAND, "--process-group", args.process_group)?;
     let at = Timestamp(flag(COMMAND, "--started-at", args.started_at)?);
-    start_run(&crate::state::dir(state)?, &grant, group, &at)?;
+    start_run(&dir(state)?, &grant, group, &at)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1154,7 +1278,7 @@ pub fn record_peak(state: Option<&Path>, args: RecordPeakArgs) -> Result<ExitCod
         peak_bytes: flag(COMMAND, "--peak-bytes", args.peak_bytes)?,
     };
     let mut generated = Generated::new(Ports {
-        store: crate::state::open(state)?,
+        store: crate::store::open(&dir(state)?)?,
     });
     let outcome = generated
         .record_peak(input)
@@ -1181,7 +1305,7 @@ pub fn release_grant(state: Option<&Path>, args: ReleaseGrantArgs) -> Result<Exi
         None => None,
     };
     let at = Timestamp(flag(COMMAND, "--released-at", args.released_at)?);
-    release(&crate::state::dir(state)?, &grant, reason, &at)?;
+    release(&dir(state)?, &grant, reason, &at)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1213,7 +1337,7 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "release_reason",
     ];
     let generated = Generated::new(Ports {
-        store: crate::state::open_existing(state)?,
+        store: crate::store::open_existing(&dir(state)?)?,
     });
     let mut held = generated
         .grants()

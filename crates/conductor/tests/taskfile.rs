@@ -346,9 +346,32 @@ impl Case {
         self.dir.join("records")
     }
 
+    /// Pins the settings file `path` to the instance `alpha`, keeping what it holds: a role's own
+    /// settings name its instance (`story:instance-isolation`).
+    fn pin(&self, path: &Path) {
+        let mut settings: Value = fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        settings["env"]["CONDUCTOR_INSTANCE"] = Value::from("alpha");
+        fs::create_dir_all(path.parent().expect("a parent")).expect("create its directory");
+        fs::write(path, settings.to_string()).expect("write the pinned settings");
+    }
+
+    /// The settings a session of `alpha` named `session` starts with when its role names none:
+    /// the role's default written pinned under the instance's state (`story:instance-isolation`).
+    fn pinned_default(&self, session: &str) -> PathBuf {
+        self.dir
+            .join("home/.b10x/conductor/alpha/state/sessions")
+            .join(format!("{session}.settings.json"))
+    }
+
     /// Writes the config file of one instance `alpha` whose records are `records/`, with the
-    /// role conductor on `model` and, when given, `settings`.
+    /// role conductor on `model` and, when given, `settings`, pinned to `alpha`.
     fn config(&self, model: &str, settings: Option<&Path>) -> PathBuf {
+        if let Some(path) = settings {
+            self.pin(path);
+        }
         let settings = settings.map_or(String::new(), |path| {
             format!(", settings: {}", path.display())
         });
@@ -474,6 +497,7 @@ fn shown(output: &Output) -> String {
     )
 }
 
+/// Its settings are this checkout's, written pinned to the instance (`story:instance-isolation`).
 #[test]
 fn conductor_start_runs_claude_in_the_records_directory_with_this_checkouts_settings() {
     let Some(case) = Case::new("start-default-settings") else {
@@ -487,7 +511,11 @@ fn conductor_start_runs_claude_in_the_records_directory_with_this_checkouts_sett
     assert_eq!(calls.len(), 1, "{calls:?}");
     let (cwd, args) = &calls[0];
     assert_eq!(cwd, &case.records(), "{args}");
-    let settings = root().join(".claude/conductor-settings.json");
+    let settings = case.pinned_default("conductor");
+    let pinned: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the pinned settings"))
+            .expect("JSON");
+    assert_eq!(pinned["env"]["CONDUCTOR_INSTANCE"], "alpha", "{pinned}");
     assert!(
         args.starts_with(&format!(
             "--bg -n conductor --agent conductor --model sonnet --permission-mode \
@@ -911,7 +939,7 @@ fn conductor_start_with_a_role_profile_appends_it_and_passes_no_agent() {
             "--bg -n conductor --append-system-prompt-file {} --model opus --permission-mode \
              bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
             profile.display(),
-            root().join(".claude/conductor-settings.json").display()
+            case.pinned_default("conductor").display()
         )),
         "{args}"
     );
@@ -947,6 +975,7 @@ fn conductor_start_without_a_profile_keeps_the_agent_and_drops_user_settings() {
     };
     case.link_agent("conductor");
     let settings = case.dir.join("home/conductor-settings.json");
+    case.pin(&settings);
     let config = w02_config(&case, &format!(", settings: {}", settings.display()), "");
 
     let output = case.task("conductor:start", Some(&config));
@@ -1022,7 +1051,8 @@ fn conductor_restart_stops_nothing_when_the_role_profile_is_not_a_file() {
 }
 
 /// Without a settings file or profile on the role conductor-dev, conductor-dev starts in this
-/// checkout as the agent conductor-dev, without the user's settings and with no `--settings`.
+/// checkout as the agent conductor-dev, without the user's settings, and with settings that only
+/// pin its instance (`story:instance-isolation`).
 #[test]
 fn dev_start_drops_user_settings() {
     let Some(case) = Case::new("w02-dev-start") else {
@@ -1039,11 +1069,11 @@ fn dev_start_drops_user_settings() {
     assert!(
         args.starts_with(&format!(
             "--bg -n conductor-dev --agent conductor-dev --model sonnet --permission-mode \
-             bypassPermissions {SETTING_SOURCES} Start of session."
+             bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
+            case.pinned_default("conductor-dev").display()
         )),
         "{args}"
     );
-    assert!(!args.contains("--settings "), "{args}");
 }
 
 /// The role conductor-dev's `settings` and `profile` reach its start command: the profile in
@@ -1055,6 +1085,7 @@ fn dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev() {
     };
     let profile = w02_profile(&case, "conductor-dev.md");
     let settings = case.dir.join("home/dev-settings.json");
+    case.pin(&settings);
     let config = w02_config(
         &case,
         "",

@@ -18,7 +18,9 @@ $ conductor build run --reserve 8G -- task check
 
 `conductor build run --reserve <size> [--repository <repo>] -- <command>` asks the host ledger for
 `<size>`, the command's expected peak, written in GiB with `G`. The ledger is shared by every
-instance on the host, so two instances or two runs never grant the same free space. The binary
+instance on the host, so two instances or two runs never grant the same free space: it lives in the
+host directory, `host/` beside the config file, never in an instance's `state`, and a `--state-dir`
+does not move it. The binary
 grants at once when free disk, minus the live reservations, minus the floor, covers the size;
 nobody is asked.
 

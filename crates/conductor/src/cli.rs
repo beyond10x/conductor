@@ -87,6 +87,67 @@ pub struct Cli {
     /// The group the command belongs to.
     #[command(subcommand)]
     pub group: Group,
+
+    /// The words that name the leaf run, after `conductor`, as [`leaf_of`] reads them from the
+    /// parsed arguments; empty when the caller did not give them. No flag: the binary fills it.
+    #[arg(skip)]
+    pub leaf: Vec<String>,
+}
+
+/// The words that name the leaf `matches` parsed, after `conductor`: `["decision",
+/// "raise-decision-request"]`, `["doctor"]`.
+#[must_use]
+pub fn leaf_of(matches: &clap::ArgMatches) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut at = matches;
+    while let Some((name, sub)) = at.subcommand() {
+        words.push(name.to_owned());
+        at = sub;
+    }
+    words
+}
+
+/// The [`Access`] [`LEAVES`] declares of the leaf `words` names, if any.
+#[must_use]
+pub fn access_of(words: &[String]) -> Option<Access> {
+    access_of_words(&words.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// Whether the leaf `words` names writes the instance's records, or reads them into what it
+/// writes (`story:instance-isolation`): every writing leaf of `decision`, `dispatch`, `message`,
+/// `resource` and `controller`, whose events are lines of the decision and dispatch logs; `spawn`;
+/// `snapshot publish-board`; `snapshot start-snapshot` and `complete-snapshot`, whose rollups read
+/// the dispatch log; and `build run`, whose shortfall raises an operator item. Such a leaf writes
+/// its records to the instance's `records`, so its store is the instance's `state` too
+/// ([`crate::state::refuse_other`]).
+#[must_use]
+pub fn writes_records(words: &[String]) -> bool {
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let writes = matches!(
+        access_of_words(&words),
+        Some(Access::Writes | Access::RunWrites)
+    );
+    writes
+        && matches!(
+            words.as_slice(),
+            [
+                "decision" | "dispatch" | "message" | "resource" | "controller",
+                _
+            ] | ["spawn"]
+                | ["build", "run"]
+                | [
+                    "snapshot",
+                    "publish-board" | "start-snapshot" | "complete-snapshot"
+                ]
+        )
+}
+
+/// [`access_of`] over borrowed words.
+fn access_of_words(words: &[&str]) -> Option<Access> {
+    LEAVES
+        .iter()
+        .find(|(leaf, _)| *leaf == words)
+        .map(|(_, access)| *access)
 }
 
 impl Cli {
@@ -110,8 +171,9 @@ impl Cli {
     /// What [`Cli::run`] answers.
     pub fn run_with(self, providers: &dyn crate::confine::Providers) -> Result<ExitCode> {
         // The instance every handler reads (`crate::config::active`). The two config leaves read
-        // the file themselves, to report each problem; the guard hook falls back to the built-in
-        // instance rather than deny every tool call over a file that does not load.
+        // the file themselves, to report each problem; the guard hook answers a file that does
+        // not load by denying every call and naming it (`story:instance-isolation`).
+        let mut unloaded = None;
         match &self.group {
             Group::Config(_)
             | Group::Trust(_)
@@ -120,9 +182,14 @@ impl Cli {
             | Group::Setup(_)
             | Group::Upgrade(_) => {}
             Group::Guard(_) => {
-                let _ = crate::config::set_active(self.config.as_deref());
+                unloaded = crate::config::set_active(self.config.as_deref())
+                    .err()
+                    .map(|error| format!("{error:#}"));
             }
             _ => crate::config::set_active(self.config.as_deref())?,
+        }
+        if let Some(dir) = &self.state_dir {
+            crate::state::refuse_other(&self.leaf, dir)?;
         }
         let state = self.state_dir.as_deref();
         match self.group {
@@ -271,7 +338,7 @@ impl Cli {
             },
             Group::Guard(command) => match command {
                 GuardCommand::RecordGuardDecision(args) => {
-                    guard::record_guard_decision(state, args)
+                    guard::record_guard_decision(state, args, unloaded.as_deref())
                 }
                 GuardCommand::GuardDecisions(view) => guard::guard_decisions(state, view),
             },
