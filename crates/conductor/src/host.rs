@@ -17,7 +17,10 @@
 //! group is gone ([`Ledger::sweep`]).
 //!
 //! **Queue.** Disk requests are answered in arrival order (`story:build-run-queue`): a request
-//! with a waiting request made before it ([`Ledger::ahead`]) waits, even when it alone would fit.
+//! with a waiting request made before it ([`Ledger::ahead`]) waits, even when it alone would fit,
+//! unless every request ahead of it lacks more than the live reservations hold, so it can only be
+//! refused: then one that fits is granted past them ([`Ledger::ahead_bytes`],
+//! `story:build-run-backfill`).
 //!
 //! **Escalation.** A refused reservation records one operator item ([`escalate`]): a decision
 //! request raised and escalated as class H, so `decision hands-todo` lists it, naming the
@@ -387,13 +390,24 @@ impl Ledger {
     ///
     /// The store does not read.
     pub fn ahead(&self, grant: &GrantId) -> Result<usize> {
+        Ok(self.ahead_bytes(grant)?.len())
+    }
+
+    /// The bytes each request ahead of `grant` asks ([`Ledger::ahead`]), in arrival order: what
+    /// `build run` counts to know whether every one of them can only be refused, so that `grant`
+    /// may be granted past them (`story:build-run-backfill`).
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn ahead_bytes(&self, grant: &GrantId) -> Result<Vec<u64>> {
         let grants = HostGrantStorage::list(&self.generated.ports);
         kept("host ledger", &self.generated.ports.store)?;
         let Some(own) = grants.iter().find(|row| row.data.grant_id == *grant) else {
-            return Ok(0);
+            return Ok(Vec::new());
         };
         let mine = arrival(own);
-        Ok(grants
+        let mut ahead: Vec<&HostGrantSnapshot> = grants
             .iter()
             .filter(|row| {
                 row.state == HostGrantState::Requested
@@ -402,7 +416,16 @@ impl Ledger {
                     && arrival(row) < mine
                     && run_lock(&self.state, &row.data.grant_id) == RunLock::Held
             })
-            .count())
+            .collect();
+        ahead.sort_by(|a, b| arrival(a).cmp(&arrival(b)));
+        Ok(ahead
+            .into_iter()
+            .map(|row| {
+                row.data
+                    .bytes
+                    .map_or(0, |bytes| u64::try_from(bytes).unwrap_or(0))
+            })
+            .collect())
     }
 
     /// `ReserveDisk`: answers the request `grant` with what the disk lacks for it and what a

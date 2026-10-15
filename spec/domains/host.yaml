@@ -372,13 +372,16 @@ commands:
   # ReserveDisk; nobody is asked.
   #
   # The requests in `Requested` whose run still waits form the host's queue, in arrival order
-  # (`requested_at`, then `grant_id`) (story:build-run-queue). Only the head is answered: a later
-  # request waits behind it even when it alone would fit, so a small build never overtakes a large
-  # one made before it. The head is answered once it fits, once what it lacks exceeds what the
-  # live reservations hold (refused: their release cannot cover it), or once it has waited the
-  # run's bound for them (refused); since nothing behind it is granted meanwhile, the live
-  # reservations only shrink while it waits. A request that has waited longer than
-  # `thresholds.watchdog_every` names its position in the queue on standard error.
+  # (`requested_at`, then `grant_id`) (story:build-run-queue). The head is answered once it fits,
+  # once what it lacks exceeds what the live reservations hold (refused: their release cannot
+  # cover it), or once it has waited the run's bound for them (refused). A later request waits
+  # behind it, even when it alone would fit, while any request ahead of it lacks no more than the
+  # live reservations hold: that one waits for them, and since nothing behind it is granted
+  # meanwhile, they only shrink while it waits. When every request ahead lacks more than the live
+  # reservations hold together, so each can only be refused, a later request that fits beside the
+  # floor and the live reservations is granted at once (story:build-run-backfill). A request that
+  # has waited longer than `thresholds.watchdog_every` names its position in the queue on standard
+  # error.
   - name: conductor.host.RequestDisk
     naming:
       wire: request-disk
@@ -429,7 +432,9 @@ commands:
   # ledger's lock, what the disk lacks for the requested bytes once free disk, the live reservations
   # of every instance and the floor are counted (`shortfall_bytes`, 0 when it fits). When it does
   # not fit it runs a reclaim run first (`Reclaim`), counts again, and passes what that run freed as
-  # `reclaimed_bytes`.
+  # `reclaimed_bytes`. When a reclaim run that finished within the last five minutes freed nothing,
+  # it runs none and answers at once with `reclaimed_bytes` 0, naming that run
+  # (story:build-run-backfill).
   - name: conductor.host.ReserveDisk
     naming:
       wire: reserve-disk
