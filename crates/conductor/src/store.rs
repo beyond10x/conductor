@@ -262,6 +262,42 @@ fn hold(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Whether another writer holds the writer lock of the store under `state` (`state/tree/.lock`)
+/// right now. Takes the lock without waiting and lets it go at once; a store with no lock file
+/// yet is not held.
+///
+/// # Errors
+///
+/// The lock file is there and cannot be opened, or the lock cannot be asked for.
+pub fn tree_held(state: &Path) -> io::Result<bool> {
+    let path = state.join(TREE_DIR).join(TREE_LOCK);
+    let file = match OpenOptions::new().write(true).open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(false),
+        Err(fs::TryLockError::WouldBlock) => Ok(true),
+        Err(fs::TryLockError::Error(error)) => Err(error),
+    }
+}
+
+/// Waits until no other writer holds the writer lock of the store under `state`, taking it and
+/// letting it go; a store with no lock file yet is not waited for.
+///
+/// # Errors
+///
+/// The lock file is there and cannot be opened or locked.
+pub fn wait_for_tree(state: &Path) -> io::Result<()> {
+    let path = state.join(TREE_DIR).join(TREE_LOCK);
+    match OpenOptions::new().write(true).open(&path) {
+        Ok(file) => file.lock(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 /// What a tree holds, as far as a handle needs it to know whether another writer changed the tree
 /// since: how many commit files, one per command any writer committed
 /// (`tenants/<tenant>/groups/…/<digest>.json` in eventlog-tree's layout), and the directory of

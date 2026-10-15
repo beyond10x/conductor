@@ -651,7 +651,10 @@ impl Watch {
     /// Passes every `options.every` (`main`'s CI on the first and then every
     /// `options.ci_every`), writing each change as a line to `out`, until the first pass that
     /// found one; with `options.follow`, for ever. A source that does not answer is named on
-    /// `notes`.
+    /// `notes`. Each probe that reads the store opens it as a reader
+    /// ([`crate::store::open_reader`]), which never takes a tree's writer lock, and drops it
+    /// within the pass: nothing is held across a sleep
+    /// (`story:store-readers-hold-no-writer-lock`).
     ///
     /// # Errors
     ///
@@ -1298,7 +1301,7 @@ impl Watch {
             return Ok(self.sources.repositories.clone());
         };
         let what = "no snapshot yet; main CI is read of no repository";
-        let store = state::open_existing(Some(state)).context(what)?;
+        let store = crate::store::open_reader(state).context(what)?;
         let complete = SnapshotStorage::list(&store)
             .iter()
             .any(|snapshot| snapshot.state == SnapshotState::Complete);
@@ -1344,7 +1347,7 @@ impl Watch {
             }
             return Ok(());
         }
-        let Ok(store) = state::open_existing(Some(state)) else {
+        let Ok(store) = crate::store::open_reader(state) else {
             return Ok(());
         };
         let snapshots = SnapshotStorage::list(&store);
@@ -1385,7 +1388,7 @@ impl Watch {
         let Some(state) = &self.sources.store else {
             return Ok(());
         };
-        let Ok(store) = state::open_existing(Some(state)) else {
+        let Ok(store) = crate::store::open_reader(state) else {
             return Ok(());
         };
         let snapshots = SnapshotStorage::list(&store);
@@ -1416,7 +1419,7 @@ impl Watch {
         let Some(state) = &self.usage else {
             return Ok(());
         };
-        let Ok(store) = state::open_existing(Some(state)) else {
+        let Ok(store) = crate::store::open_reader(state) else {
             return Ok(());
         };
         let Some(forecast) = crate::collect::usage::Forecast::of(&store) else {
@@ -1447,7 +1450,7 @@ impl Watch {
         let Some(state) = &self.decisions else {
             return Ok(());
         };
-        let Ok(store) = state::open_existing(Some(state)) else {
+        let Ok(store) = crate::store::open_reader(state) else {
             return Ok(());
         };
         let items = crate::status::unanswered(&store);

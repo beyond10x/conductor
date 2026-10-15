@@ -308,50 +308,75 @@ pub enum Answer {
     Refused,
 }
 
+/// The ledger's lock file in `state`, opened, and created when it is not there; not locked.
+fn lock_file(state: &Path) -> Result<File> {
+    let path = state.join(LOCK);
+    OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open the host ledger's lock {}", path.display()))
+}
+
+/// Whether another writer holds the writer lock of the store in `state`.
+fn tree_held(state: &Path) -> Result<bool> {
+    crate::store::tree_held(state)
+        .with_context(|| format!("read the store's writer lock in {}", state.display()))
+}
+
 impl Ledger {
     /// Takes the ledger's lock in the host directory `state`, waiting for another holder, and
     /// opens the store there.
+    ///
+    /// `host.lock` is never held while the store's writer lock is waited for
+    /// (`story:store-readers-hold-no-writer-lock`): every run of the host queues on `host.lock`, so
+    /// one run waiting under it on a store another writer holds would stop them all. The store is
+    /// opened first, which takes and lets go the tree's writer lock, without `host.lock`; once
+    /// `host.lock` is taken, a tree lock another writer holds makes the run let `host.lock` go
+    /// again and wait for the tree lock without it.
     ///
     /// # Errors
     ///
     /// The directory or its lock file cannot be made or locked, or the store does not open.
     pub fn lock(state: &Path) -> Result<Self> {
         fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
-        let path = state.join(LOCK);
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&path)
-            .with_context(|| format!("open the host ledger's lock {}", path.display()))?;
-        lock.lock()
-            .with_context(|| format!("lock the host ledger {}", path.display()))?;
         let store = crate::store::open(state)?;
-        Ok(Self {
-            generated: Generated::new(Ports { store }),
-            dir: state.to_owned(),
-            _lock: lock,
-        })
+        loop {
+            let lock = lock_file(state)?;
+            lock.lock()
+                .with_context(|| format!("lock the host ledger {}", state.join(LOCK).display()))?;
+            if !tree_held(state)? {
+                return Ok(Self {
+                    generated: Generated::new(Ports { store }),
+                    dir: state.to_owned(),
+                    _lock: lock,
+                });
+            }
+            drop(lock);
+            crate::store::wait_for_tree(state).with_context(|| {
+                format!("wait for the store's writer lock in {}", state.display())
+            })?;
+        }
     }
 
-    /// [`Ledger::lock`] without waiting: `None` while another holder has the lock.
+    /// [`Ledger::lock`] without waiting: `None` while another holder has the lock, or another
+    /// writer the store's writer lock. The store is opened before `host.lock` is asked for, as in
+    /// [`Ledger::lock`].
     ///
     /// # Errors
     ///
     /// The directory or its lock file cannot be made, or the store does not open.
     pub fn try_lock(state: &Path) -> Result<Option<Self>> {
         fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
-        let path = state.join(LOCK);
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&path)
-            .with_context(|| format!("open the host ledger's lock {}", path.display()))?;
-        if lock.try_lock().is_err() {
+        if tree_held(state)? {
             return Ok(None);
         }
         let store = crate::store::open(state)?;
+        let lock = lock_file(state)?;
+        if lock.try_lock().is_err() || tree_held(state)? {
+            return Ok(None);
+        }
         Ok(Some(Self {
             generated: Generated::new(Ports { store }),
             dir: state.to_owned(),
@@ -1186,6 +1211,12 @@ impl Ledger {
             .next()
             .is_some_and(|owner| !owner.is_empty() && owner != instance)
         {
+            return Ok(None);
+        }
+        // The item is in the instance's store; under `host.lock` its writer lock is never waited
+        // for (`story:store-readers-hold-no-writer-lock`): while another writer holds it, the fall
+        // is left to the next run or pass.
+        if !item.is_empty() && crate::store::tree_held(state).unwrap_or(true) {
             return Ok(None);
         }
         let open = !item.is_empty()

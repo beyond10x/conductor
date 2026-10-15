@@ -1215,6 +1215,137 @@ fn two_runs_at_once_each_reserve_and_the_second_sees_the_first() {
     assert!(live.is_empty(), "every grant is released: {live:?}");
 }
 
+/// Opens the lock file `path`, creating it; not locked.
+fn lock_file(path: &Path) -> fs::File {
+    fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .unwrap_or_else(|error| panic!("open {}: {error}", path.display()))
+}
+
+/// Holds the writer lock of the store under `dir` (`dir/tree/.lock`), as another writer, a
+/// snapshot say, does, until the answer is dropped.
+fn hold_tree(dir: &Path) -> fs::File {
+    drop(conductor_cli::store::open(dir).expect("the store opens"));
+    let tree = lock_file(&dir.join("tree").join(".lock"));
+    tree.lock().expect("hold the tree's writer lock");
+    tree
+}
+
+/// `story:store-readers-hold-no-writer-lock`: a run whose ledger store's tree lock another writer
+/// holds waits for it without holding `host.lock`, so the host's other runs are not queued behind
+/// it; once the tree lock is let go, the run reserves and runs its command.
+#[test]
+fn a_run_waiting_on_the_stores_tree_lock_does_not_hold_host_lock() {
+    let case = Case::new("tree-lock-without-host-lock");
+    let tree = hold_tree(&case.host());
+
+    let (state, host) = (case.state(), case.host());
+    let sources = case.sources(reclaim_nothing);
+    let request = case.request(GIB, "touch ran");
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    // Long enough for the run to reach the tree lock; then `host.lock` is read for half a second.
+    thread::sleep(Duration::from_millis(500));
+    let mut held = 0;
+    for _ in 0..10 {
+        let host = lock_file(&case.host().join("host.lock"));
+        if host.try_lock().is_err() {
+            held += 1;
+        }
+        drop(host);
+        thread::sleep(Duration::from_millis(50));
+    }
+    let waiting = !runner.is_finished();
+    drop(tree);
+    let outcome = runner
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
+    assert_eq!(
+        held, 0,
+        "build run held host.lock in {held} of 10 reads while it waited on the tree lock"
+    );
+    assert!(waiting, "the run did not wait on the tree lock");
+    assert!(
+        matches!(outcome, Outcome::Ran { code: 0, .. }),
+        "{outcome:?}"
+    );
+    assert!(case.work().join("ran").exists(), "the command ran");
+}
+
+/// `story:store-readers-hold-no-writer-lock`: free disk back at `disk_clear` ends the open fall,
+/// whose item is in the instance's store; while another writer holds that store's tree lock the
+/// run, under `host.lock`, does not wait on it: it runs its command and leaves the fall to the
+/// next run, which withdraws the item.
+#[test]
+fn a_run_under_host_lock_never_waits_on_the_instance_stores_tree_lock() {
+    let case = Case::new("instance-tree-lock-under-host-lock");
+    case.free(10 * GIB);
+    let refused = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(4 * GIB, "true"),
+    )
+    .expect("the run answers");
+    let Outcome::Refused {
+        item: Some(item), ..
+    } = refused
+    else {
+        panic!("refused with an item: {refused:?}");
+    };
+    case.free(20 * GIB);
+    let tree = hold_tree(&case.state());
+
+    let (state, host) = (case.state(), case.host());
+    let sources = case.sources(reclaim_nothing);
+    let request = case.request(GIB, "touch ran");
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let started = Instant::now();
+    while !runner.is_finished() && started.elapsed() < Duration::from_secs(10) {
+        thread::sleep(Duration::from_millis(50));
+    }
+    let finished = runner.is_finished();
+    drop(tree);
+    let outcome = runner
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
+    assert!(
+        finished,
+        "the run waited over 10 s, under host.lock, on the instance store's tree lock"
+    );
+    assert!(
+        matches!(outcome, Outcome::Ran { code: 0, .. }),
+        "{outcome:?}"
+    );
+    let state_of = |id: &str| {
+        case.disk_items()
+            .into_iter()
+            .find(|request| request.data.request_id.0 == id)
+            .map(|request| request.state)
+    };
+    assert_eq!(
+        state_of(&item),
+        Some(DecisionRequestState::Escalated),
+        "the fall is left to the next run"
+    );
+
+    let next = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, "true"),
+    )
+    .expect("the run ends");
+    assert_eq!(next.exit_code(), 0, "{next:?}");
+    assert_eq!(state_of(&item), Some(DecisionRequestState::Withdrawn));
+}
+
 /// A running grant holds only what its run has not written yet: free disk already counts the
 /// growth it recorded, so a reservation beside it is not refused for space that is in use.
 #[test]
