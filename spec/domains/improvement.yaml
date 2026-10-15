@@ -35,6 +35,17 @@ types:
     kind: newtype
     of: String
 
+  # The input of `conductor metric compute --day <date>` (story:kpi-records), the instrument of
+  # the metrics computed from the store, the records' `decisions/` and `dispatches/` logs and the
+  # newest complete snapshot's merged pull requests and releases (design § 2: K1, K2, K4, K5). It
+  # defines each metric it computes that is absent, and records one `MetricReading` per metric,
+  # scope and day through `RecordMetricReading`, judging `met` against the target the metric
+  # holds. `day` is a UTC date, `YYYY-MM-DD`, read by the handler.
+  - name: conductor.improvement.ComputeMetrics
+    kind: struct
+    fields:
+      - {name: day, type: String}
+
   # The id of one friction finding, given by the detection that raises it, as a decision
   # request's id is given by the controller that raises it.
   - name: conductor.improvement.FindingId

@@ -144,6 +144,7 @@ Every command takes these, before or after its name.
 | [`conductor metric kpis`](#conductor-metric-kpis) | KPIs |
 | [`conductor metric metric-readings`](#conductor-metric-metric-readings) | Metric readings |
 | [`conductor metric metrics`](#conductor-metric-metrics) | Metrics |
+| [`conductor metric compute`](#conductor-metric-compute) | Compute one UTC day's readings of K1, K2, K4 and K5 from the records' decision and dispatch logs and the newest complete snapshot, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value |
 | [`conductor finding`](#conductor-finding) | Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move |
 | [`conductor finding file-finding`](#conductor-finding-file-finding) | File a finding as a draft story |
 | [`conductor finding raise-finding`](#conductor-finding-raise-finding) | Raise a friction finding |
@@ -1827,6 +1828,18 @@ Usage: conductor metric metrics [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor metric compute`
+
+Compute one UTC day's readings of K1, K2, K4 and K5 from the records' decision and dispatch logs and the newest complete snapshot, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value
+
+```text
+Usage: conductor metric compute [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--day <DAY>` | no | none | The UTC day to compute, YYYY-MM-DD |
 
 ## `conductor finding`
 

@@ -480,6 +480,25 @@ fn read_log(records: &Path, log: &str) -> Result<Vec<Line>> {
     Ok(lines)
 }
 
+/// Every line of `log` (`dispatches` or `decisions`) under `records` that is a JSON object, files
+/// in name order, and the number of lines that are not one, which `records check` names. A log
+/// that is not there holds no line. `conductor metric compute` reads the logs through it.
+///
+/// # Errors
+///
+/// The log's directory or one of its files cannot be read.
+pub fn log_objects(records: &Path, log: &str) -> Result<(Vec<Map<String, Value>>, usize)> {
+    let mut objects = Vec::new();
+    let mut unread = 0;
+    for line in read_log(records, log)? {
+        match serde_json::from_str::<Value>(&line.text) {
+            Ok(Value::Object(object)) => objects.push(object),
+            _ => unread += 1,
+        }
+    }
+    Ok((objects, unread))
+}
+
 /// The ids of the decisions the store holds, or none when there is no store: a view creates
 /// nothing.
 fn stored_decisions(state: Option<&Path>) -> Result<Vec<String>> {

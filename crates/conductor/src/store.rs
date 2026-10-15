@@ -81,6 +81,7 @@ mod controller;
 mod decision;
 mod dispatch;
 mod host;
+mod improvement;
 mod marks;
 pub mod migrate;
 pub mod observations;

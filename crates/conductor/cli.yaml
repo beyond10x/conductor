@@ -160,6 +160,11 @@ callables:
     input: conductor.observation.Status
     result: conductor.observation.StatusReport
     errors: {}
+  metric-compute:
+    target: {kind: local, owner: conductor-cli, action: metric_compute}
+    input: conductor.improvement.ComputeMetrics
+    result: String
+    errors: {}
   host-grants:
     target: {kind: local, owner: conductor-cli, action: host_grants}
     input: conductor.host.ShowGrants
@@ -356,6 +361,12 @@ commands:
     arguments:
       - field: format
         source: {kind: option, long: format}
+  - path: [metric, compute]
+    callable: metric-compute
+    about: Compute one UTC day's readings of K1, K2, K4 and K5 from the records' decision and dispatch logs and the newest complete snapshot, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value
+    arguments:
+      - field: day
+        source: {kind: option, long: day}
   - path: [host, reclaim]
     callable: gc-reclaim
     about: Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached

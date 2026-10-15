@@ -66,7 +66,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::{
-    build, controller, dashboard, decide, dispatch, goal, guard, host, message, repository,
+    build, controller, dashboard, decide, dispatch, goal, guard, host, message, metric, repository,
     resource, session, shipped, snapshot, status,
 };
 
@@ -296,21 +296,19 @@ impl Cli {
                     crate::gc::reclaim::run_reclaim(state, args.format.as_deref())
                 }
             },
-            // The improvement loop's leaves are not written yet (story:kpi-spec placed them).
+            // The metrics and their readings (story:kpi-records).
             Group::Metric(command) => match command {
-                MetricCommand::DefineMetric(_) => crate::not_implemented("metric define-metric"),
-                MetricCommand::RecordMetricReading(_) => {
-                    crate::not_implemented("metric record-metric-reading")
+                MetricCommand::DefineMetric(args) => metric::define_metric(state, args),
+                MetricCommand::RecordMetricReading(args) => {
+                    metric::record_metric_reading(state, args)
                 }
-                MetricCommand::SetMetricTarget(_) => {
-                    crate::not_implemented("metric set-metric-target")
-                }
-                MetricCommand::Kpis(_) => crate::not_implemented("metric kpis"),
-                MetricCommand::MetricReadings(_) => {
-                    crate::not_implemented("metric metric-readings")
-                }
-                MetricCommand::Metrics(_) => crate::not_implemented("metric metrics"),
+                MetricCommand::SetMetricTarget(args) => metric::set_metric_target(state, args),
+                MetricCommand::Kpis(view) => metric::kpis(state, view),
+                MetricCommand::MetricReadings(view) => metric::metric_readings(state, view),
+                MetricCommand::Metrics(view) => metric::metrics(state, view),
+                MetricCommand::Compute(args) => metric::compute(state, &args),
             },
+            // The friction findings' leaves are not written yet (story:kpi-spec placed them).
             Group::Finding(command) => match command {
                 FindingCommand::FileFinding(_) => crate::not_implemented("finding file-finding"),
                 FindingCommand::RaiseFinding(_) => crate::not_implemented("finding raise-finding"),
@@ -631,6 +629,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["metric", "kpis"], Access::Reads),
     (&["metric", "metric-readings"], Access::Reads),
     (&["metric", "metrics"], Access::Reads),
+    // Reads the records' logs and the snapshot, and records the day's readings
+    // (story:kpi-records).
+    (&["metric", "compute"], Access::Writes),
     (&["finding", "file-finding"], Access::Writes),
     (&["finding", "raise-finding"], Access::Writes),
     (&["finding", "verify-finding"], Access::Writes),
@@ -1156,6 +1157,20 @@ pub enum MetricCommand {
     /// Metrics
     #[command(name = "metrics")]
     Metrics(ViewArgs),
+
+    /// Compute one UTC day's readings of K1, K2, K4 and K5 from the records' decision and dispatch logs and the newest complete snapshot, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value
+    #[command(name = "compute")]
+    Compute(MetricComputeArgs),
+}
+
+/// The input of the binding's `metric-compute` callable, `conductor.improvement.ComputeMetrics`
+/// (`story:kpi-records`). The day is text the handler reads, so a value it refuses is named
+/// there.
+#[derive(Debug, Clone, Args)]
+pub struct MetricComputeArgs {
+    /// The UTC day to compute, YYYY-MM-DD
+    #[arg(long)]
+    pub day: Option<String>,
 }
 
 /// `conductor finding`: friction the loop detected, the draft story each is filed as, and the

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 0ff607dab46fc45d66d4f9d6d27b06d385ce7c7f968a8d59cabec184e11ca15e
-// contract digest d432d875c4bd6ede30a362acd0568d0828acf7657d8ac0857c7be556e47c4fe8
+// model digest 3cec5d42862cad2b6c07a7e108435103c91eca3e80cc2611aced34c5acba954a
+// contract digest cf990a5ce0cc5b4847b4ebc4ea063087896846e554baa25e0278d674530442a7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Improvement — `conductor.improvement`.
@@ -8,6 +8,13 @@
 //! The measured self-improvement loop (docs/design/self-improvement.md § 2, § 5; story:kpi-spec). Its vocabulary is the operator's (story:metrics-naming, 2026-10-14): a **metric** is one measured quantity with its unit, its instrument and a series of readings over time; a **KPI** is a metric the operator set a target for, shown with that target and whether a reading meets it. Every KPI is a metric; not every metric is a KPI. A friction finding is what the loop detects (a KPI past its target, or a friction signature repeated) with the evidence ids it rests on; conductor-dev files it as a draft story naming the metric it should move, and a week after delivery the metric is read again and the finding is verified or closed.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// ComputeMetrics — `conductor.improvement.ComputeMetrics`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComputeMetrics {
+    /// `day` — `String`.
+    pub day: String,
+}
 
 /// FindingId — `conductor.improvement.FindingId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]

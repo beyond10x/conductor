@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 0ff607dab46fc45d66d4f9d6d27b06d385ce7c7f968a8d59cabec184e11ca15e
-  contract digest d432d875c4bd6ede30a362acd0568d0828acf7657d8ac0857c7be556e47c4fe8
+  model digest 3cec5d42862cad2b6c07a7e108435103c91eca3e80cc2611aced34c5acba954a
+  contract digest cf990a5ce0cc5b4847b4ebc4ea063087896846e554baa25e0278d674530442a7
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-564 capabilities: **549 generated**, **3 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+565 capabilities: **550 generated**, **3 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -132,6 +132,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.ReclaimStep` |
 | domain type | `conductor.host.ReleaseReason` |
 | domain type | `conductor.host.ShowGrants` |
+| domain type | `conductor.improvement.ComputeMetrics` |
 | domain type | `conductor.improvement.FindingId` |
 | domain type | `conductor.improvement.FrictionFinding.State` |
 | domain type | `conductor.improvement.Metric.State` |
