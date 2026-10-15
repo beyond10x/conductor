@@ -12,7 +12,9 @@
 //!    would fit, and names its position in the queue on standard error once it has waited
 //!    `thresholds.watchdog_every`. The head waits for live reservations at most
 //!    [`Settings::wait`], then is refused; one whose shortfall they do not cover is answered at
-//!    once.
+//!    once. When every request ahead lacks more than the live reservations hold together, so each
+//!    can only be refused, a run that fits beside the floor and the live reservations is granted
+//!    past them ([`host::Ledger::ahead_bytes`], `story:build-run-backfill`).
 //! 2. **Reclaim.** When it does not fit, one reclaim run frees what needs no decision
 //!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The reclaim never runs under
 //!    the ledger's lock: the run lets it go, reclaims, takes it again and counts from the start,
@@ -20,7 +22,9 @@
 //!    it meanwhile. One reclaim walks the disk at a time (`host.reclaim.lock` in the host
 //!    directory, `host/` beside the config file, which every instance shares), and a run that finds one started within [`RECLAIM_REUSE`] (`host.reclaim`: when
 //!    it started and ended, what it was asked to reach, freed and left, or why it failed) reuses
-//!    its result instead of walking again ([`shared_reclaim`]). The answer (`ReserveDisk`) is
+//!    its result instead of walking again ([`shared_reclaim`]). When that run ended and freed
+//!    nothing, the head takes no reclaim lock and walks nothing: it is answered at once, naming
+//!    that run ([`barren_reclaim`]). The answer (`ReserveDisk`) is
 //!    granted, granted after reclaim, or refused with the shortfall: the command never runs, the
 //!    shortfall and what is left are printed on standard error as the operator item names them
 //!    (`/var/tmp` entries as a count and a size, the home as `~`), one operator item is recorded
@@ -391,9 +395,10 @@ pub fn run(
     let mut reclaimed = 0;
     let mut left = Vec::new();
     let mut reclaim_ran = false;
-    // The queue (`story:build-run-queue`): only its head is answered, so a request made later never
+    // The queue (`story:build-run-queue`): the head is answered, and a request made later never
     // takes the space an earlier one waits for. The head waits for live reservations at most
-    // `settings.wait` (`held`); since nothing behind it is granted meanwhile, they only shrink.
+    // `settings.wait` (`held`); since nothing behind it is granted meanwhile, they only shrink. A
+    // request behind heads that can only be refused is granted when it fits (backfill).
     let mut held = Duration::ZERO;
     let mut queued = Duration::ZERO;
     let mut told = None;
@@ -404,7 +409,7 @@ pub fn run(
         if let Some(signal) = received() {
             ledger.withdraw(&grant, &host::now((sources.clock)()))?;
             drop(ledger);
-            host::end_run(state, &grant, run_lock);
+            host::end_run(host, &grant, run_lock);
             say(&format!(
                 "conductor: build run: {signal}: the request was withdrawn from the queue; the \
                  command did not run (grant {})",
@@ -412,11 +417,24 @@ pub fn run(
             ));
             return Ok(Outcome::Stopped { grant, signal });
         }
-        let ahead = ledger.ahead(&grant)?;
+        let before = ledger.ahead_bytes(&grant)?;
+        let ahead = before.len();
         if ahead == 0 {
             short = lacking(&ledger)?;
             if short > 0 && !reclaim_ran {
                 reclaim_ran = true;
+                // A reclaim run that ended a moment ago and freed nothing is not walked again:
+                // the head is answered now, naming that run (`story:build-run-backfill`).
+                if let Some(barren) = barren_reclaim(sources, host) {
+                    say(&format!(
+                        "conductor: build run: reclaim: the reclaim run started {}s ago freed \
+                         nothing; no reclaim walks the disk again until it is {}s old",
+                        barren.age,
+                        RECLAIM_REUSE.as_secs()
+                    ));
+                    left = barren.left;
+                    continue;
+                }
                 // Reclaim frees until this many bytes are free: where the request fits beside the
                 // floor and every live reservation.
                 let fits = settings
@@ -449,6 +467,24 @@ pub fn run(
                 ));
             }
             held += pause;
+        } else {
+            // Backfill (`story:build-run-backfill`): when every request ahead lacks more than the
+            // live reservations hold together, each can only be refused, so one that fits beside
+            // the floor and the live reservations is granted past them. While any one ahead lacks
+            // no more than they hold, it waits for them, and nothing behind it is granted.
+            let free = free_bytes(sources)?;
+            let holding = ledger.reserved(Some(&grant))?;
+            let refused_only = before
+                .iter()
+                .all(|&bytes| shortfall(bytes, free, holding, settings.floor) > holding);
+            if refused_only && shortfall(request.reserve, free, holding, settings.floor) == 0 {
+                short = 0;
+                say(&format!(
+                    "conductor: build run: granted past {ahead} request(s) ahead, each short of \
+                     more than the live reservations hold"
+                ));
+                break;
+            }
         }
         // Waiting longer than `thresholds.watchdog_every` names the position, and again when it
         // moves.
@@ -542,12 +578,12 @@ pub fn run(
     // A signal before the command starts: the granted reservation is released, and nothing runs.
     if let Some(signal) = received() {
         host::release(
-            state,
+            host,
             &grant,
             Some(ReleaseReason::Killed),
             &host::now((sources.clock)()),
         )?;
-        host::end_run(state, &grant, run_lock);
+        host::end_run(host, &grant, run_lock);
         say(&format!(
             "conductor: build run: {signal}: the grant was released; the command did not run \
              (grant {})",
@@ -889,6 +925,41 @@ fn reclaim(sources: &Sources, state: &Path, host: &Path, need: u64) -> ReclaimRe
             reached: false,
         }
     })
+}
+
+/// A reclaim run that ended and freed nothing ([`barren_reclaim`]).
+struct Barren {
+    /// Seconds since it started.
+    age: u64,
+    /// What it left, by path and size.
+    left: Vec<(String, u64)>,
+}
+
+/// The last reclaim run of the host (`host.reclaim` in the host directory `host`, where
+/// [`shared_reclaim`] writes it), when it started within [`RECLAIM_REUSE`], ended without failing
+/// and freed nothing: a head that does not fit is answered at once rather than wait for the next
+/// walk (`story:build-run-backfill`). Read without the reclaim lock: the record is replaced whole,
+/// and a walk under way has not ended.
+fn barren_reclaim(sources: &Sources, host: &Path) -> Option<Barren> {
+    let text = fs::read_to_string(host.join(RECLAIM_RECORD)).ok()?;
+    let last = serde_json::from_str::<Value>(&text).ok()?;
+    let started = last["started"].as_i64()?;
+    let ended = last["finished"].as_i64().is_some();
+    if !ended || last["error"].is_string() || last["reclaimed"].as_u64()? != 0 {
+        return None;
+    }
+    let now = (sources.clock)().unix_timestamp();
+    let age = u64::try_from(now.saturating_sub(started)).ok()?;
+    if age >= RECLAIM_REUSE.as_secs() {
+        return None;
+    }
+    let left = last["left"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| Some((row[0].as_str()?.to_owned(), row[1].as_u64()?)))
+        .collect();
+    Some(Barren { age, left })
 }
 
 /// A reclaim for `need` bytes, one at a time on the host: waits while another run walks the disk

@@ -45,7 +45,10 @@
 //! Every endpoint answers warm in under 200 ms (`story:dashboard-fast`, [`cache`]): an answer that
 //! reads the store is computed once per write to the store, through one store handle the server
 //! keeps, and served from memory after that; every JSON answer carries an `ETag`, and a request
-//! whose `If-None-Match` names it is answered `304 Not Modified` without a body.
+//! whose `If-None-Match` names it is answered `304 Not Modified` without a body. After a write the
+//! kept answer is served at once, with its age in `X-Conductor-Age`, while it is computed again in
+//! the background, at most once per endpoint per [`cache::DEBOUNCE`]; a request before an
+//! endpoint's first answer is answered `503` with `Retry-After` after [`cache::COLD_WAIT`].
 //!
 //! Each request reads its [`Sources`] afresh, but the session list; none but `POST /api/answers`
 //! writes:
@@ -83,6 +86,7 @@ mod usage;
 pub(crate) mod waste;
 
 pub use answers::ANSWERS_PATH;
+pub use cache::{Probe, Tuning};
 pub use health::{HealthSources, failure_class};
 
 use std::collections::HashSet;
@@ -396,6 +400,88 @@ struct Server {
     token: answers::Token,
     /// Held while a batch of answers is recorded: one batch at a time.
     writes: Mutex<()>,
+    /// The debounce and the cold wait of the kept answers.
+    tuning: cache::Tuning,
+}
+
+/// A computation of a kept answer: of the key given, over the store given.
+type Compute<T> = fn(&Server, &str, cache::Held<'_>) -> T;
+
+/// One kind of kept answer: where it is kept, the state directory whose store it reads, and how it
+/// is computed.
+struct Kind<T> {
+    memo: fn(&Server) -> &cache::Memo<T>,
+    state: fn(&Server) -> Option<PathBuf>,
+    compute: Compute<T>,
+}
+
+impl<T> Clone for Kind<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Kind<T> {}
+
+/// The answers of [`STORED_PATHS`], by request target.
+const ANSWERS: Kind<cache::Body> = Kind {
+    memo: |server| &server.answers,
+    state: Server::store_path,
+    compute: |server, target, held| match held {
+        Ok(store) => {
+            let path = target.split_once('?').map_or(target, |(path, _)| path);
+            let (status, value) = server.compute(path, target, store);
+            cache::Body::json(status, &value)
+        }
+        Err(error) => store_failure(error),
+    },
+};
+
+/// What `/api/waiting-on` reads from the store, without the session list and the watch's files,
+/// which each request reads; why when the store does not open.
+const FACTS: Kind<Result<repo::Facts, String>> = Kind {
+    memo: |server| &server.facts,
+    state: Server::store_path,
+    compute: |server, _, held| match held {
+        Ok(store) => Ok(repo::facts(store, &server.sources, &[])),
+        Err(error) => Err(format!("the store does not open: {error:#}\n")),
+    },
+};
+
+/// The unanswered operator items of a store, or why it does not open.
+type Unanswered = Result<Vec<crate::status::OperatorItem>, String>;
+
+/// The unanswered operator items of the store, which `/api/unanswered` answers with the oldest
+/// one's age now (`story:decisions-notify`); why when the store does not open.
+const UNANSWERED: Kind<Unanswered> = Kind {
+    memo: |server| &server.unanswered,
+    state: Server::store_path,
+    compute: |_, _, held| match held {
+        Ok(store) => Ok(store.map(crate::status::unanswered).unwrap_or_default()),
+        Err(error) => Err(format!("the store does not open: {error:#}\n")),
+    },
+};
+
+/// The health view's newest snapshot with its rows, of the store under its own state directory.
+const HEALTH: Kind<health::Newest> = Kind {
+    memo: |server| &server.snapshot_health,
+    state: |server| Some(server.sources.health.state.clone()),
+    compute: |_, _, held| health::newest(held),
+};
+
+/// Ends a background computation that did not finish (it panicked): its key computes again.
+struct Unfinished<'a, T: Clone> {
+    memo: &'a cache::Memo<T>,
+    key: &'a str,
+    claim: Option<cache::Claim>,
+}
+
+impl<T: Clone> Drop for Unfinished<'_, T> {
+    fn drop(&mut self) {
+        if let Some(claim) = self.claim.take() {
+            self.memo.finish(self.key, claim, None);
+        }
+    }
 }
 
 /// The endpoints whose answer is the store's alone, `/api/events` and `/api/decisions` the
@@ -430,14 +516,14 @@ struct Fingerprints {
 }
 
 impl Server {
-    fn new(sources: Sources, state: Option<PathBuf>) -> io::Result<Self> {
+    fn new(sources: Sources, state: Option<PathBuf>, tuning: cache::Tuning) -> io::Result<Self> {
         Ok(Self {
             sources,
             state,
             waste: waste::Cache::default(),
             usage: usage::Cache::default(),
             doctor: health::Doctor::default(),
-            stores: cache::Stores::default(),
+            stores: cache::Stores::new(tuning.probe.clone()),
             answers: cache::Memo::default(),
             facts: cache::Memo::default(),
             unanswered: cache::Memo::default(),
@@ -445,6 +531,7 @@ impl Server {
             sessions: cache::SessionList::default(),
             token: answers::Token::mint()?,
             writes: Mutex::new(()),
+            tuning,
         })
     }
 
@@ -469,41 +556,91 @@ impl Server {
     }
 
     /// The state directory whose store the snapshot endpoints read, when it holds one.
-    fn store_state(&self) -> Option<&Path> {
+    fn store_path(&self) -> Option<PathBuf> {
         self.state
-            .as_deref()
+            .clone()
             .filter(|state| state.join("tree").exists())
     }
 
-    /// The answer to `target`, whose path is one of [`STORED_PATHS`], at `fingerprints`: from
-    /// memory when it was computed at them, else computed now and kept. `asked` says a request
-    /// asks, not the warmer. A store that does not open is answered `500`.
+    /// The answer of `kind` for `key` at `fingerprint`: kept and fresh; kept and stale, served at
+    /// once while one computation of it runs in the background, which starts at most once per
+    /// [`cache::Tuning::debounce`]; or never computed, when a computation of it starts and a
+    /// request (`wait`) waits for it up to [`cache::Tuning::cold_wait`]. `asked` says a request
+    /// asks, not the warmer.
+    fn serve<T: Clone + Send + 'static>(
+        self: &Arc<Self>,
+        kind: Kind<T>,
+        key: &str,
+        fingerprint: u64,
+        asked: bool,
+        wait: bool,
+    ) -> cache::Served<T> {
+        let memo = (kind.memo)(self);
+        let deadline = Instant::now() + self.tuning.cold_wait;
+        loop {
+            let served = memo.look(key, fingerprint, asked);
+            if !matches!(served, cache::Served::Fresh(..))
+                && let Some(claim) = memo.claim(key, self.tuning.debounce)
+            {
+                self.recompute(kind, key, fingerprint, claim);
+            }
+            if !matches!(served, cache::Served::Cold) || !wait || Instant::now() >= deadline {
+                return served;
+            }
+            memo.wait(key, deadline);
+        }
+    }
+
+    /// Computes the answer of `kind` for `key` on a thread of its own, keeping it at
+    /// `fingerprint` under `claim`.
+    fn recompute<T: Clone + Send + 'static>(
+        self: &Arc<Self>,
+        kind: Kind<T>,
+        key: &str,
+        fingerprint: u64,
+        claim: cache::Claim,
+    ) {
+        let server = Arc::clone(self);
+        let owned = key.to_owned();
+        let spawned = std::thread::Builder::new()
+            .name("dashboard-compute".to_owned())
+            .spawn(move || {
+                let key = owned.as_str();
+                let memo = (kind.memo)(&server);
+                let mut unfinished = Unfinished {
+                    memo,
+                    key,
+                    claim: Some(claim),
+                };
+                let state = (kind.state)(&server);
+                let value = server.stores.compute(key, state.as_deref(), |held| {
+                    (kind.compute)(&server, key, held)
+                });
+                unfinished.claim = None;
+                memo.finish(key, claim, Some((fingerprint, value)));
+            });
+        if let Err(error) = spawned {
+            eprintln!("conductor dashboard: start a computation of {key}: {error}");
+            (kind.memo)(self).finish(key, claim, None);
+        }
+    }
+
+    /// The answer to `target`, whose path is one of [`STORED_PATHS`], at `fingerprints`, as
+    /// [`Server::serve`] finds it. A store that does not open is answered `500`.
     fn stored(
-        &self,
+        self: &Arc<Self>,
         target: &str,
         fingerprints: &Fingerprints,
         asked: bool,
-    ) -> (cache::Body, Instant) {
+        wait: bool,
+    ) -> cache::Served<cache::Body> {
         let path = target.split_once('?').map_or(target, |(path, _)| path);
         let fingerprint = match path {
             overview::EVENTS_PATH => fingerprints.events,
             decisions::DECISIONS_PATH => fingerprints.decisions,
             _ => fingerprints.store,
         };
-        self.stores.memoized(
-            &self.answers,
-            target,
-            fingerprint,
-            asked,
-            self.store_state(),
-            |held| match held {
-                Ok(store) => {
-                    let (status, value) = self.compute(path, target, store);
-                    cache::Body::json(status, &value)
-                }
-                Err(error) => store_failure(error),
-            },
-        )
+        self.serve(ANSWERS, target, fingerprint, asked, wait)
     }
 
     /// The status and answer of the endpoint `path` at `target` over `store`.
@@ -564,67 +701,47 @@ impl Server {
     }
 
     /// What `/api/waiting-on` reads from the store, at `fingerprints`, without the session list
-    /// and the watch's files, which each request reads; why when the store does not open.
-    fn facts(&self, fingerprints: &Fingerprints, asked: bool) -> Result<repo::Facts, String> {
-        self.stores
-            .memoized(
-                &self.facts,
-                "facts",
-                fingerprints.store,
-                asked,
-                self.store_state(),
-                |held| match held {
-                    Ok(store) => Ok(repo::facts(store, &self.sources, &[])),
-                    Err(error) => Err(format!("the store does not open: {error:#}\n")),
-                },
-            )
-            .0
+    /// and the watch's files, which each request reads; why when the store does not open; with
+    /// when it was computed when it is stale; none before it was first computed.
+    fn facts(
+        self: &Arc<Self>,
+        fingerprints: &Fingerprints,
+        asked: bool,
+        wait: bool,
+    ) -> Option<(Result<repo::Facts, String>, Option<Instant>)> {
+        served(self.serve(FACTS, "facts", fingerprints.store, asked, wait))
     }
 
     /// The unanswered operator items of the store, at `fingerprints`, which `/api/unanswered`
     /// answers with the oldest one's age now (`story:decisions-notify`); why when the store does
-    /// not open.
+    /// not open; with when they were computed when they are stale; none before they were first
+    /// computed.
     fn unanswered(
-        &self,
+        self: &Arc<Self>,
         fingerprints: &Fingerprints,
         asked: bool,
-    ) -> Result<Vec<crate::status::OperatorItem>, String> {
-        self.stores
-            .memoized(
-                &self.unanswered,
-                "unanswered",
-                fingerprints.store,
-                asked,
-                self.store_state(),
-                |held| match held {
-                    Ok(store) => Ok(store.map(crate::status::unanswered).unwrap_or_default()),
-                    Err(error) => Err(format!("the store does not open: {error:#}\n")),
-                },
-            )
-            .0
+        wait: bool,
+    ) -> Option<(Unanswered, Option<Instant>)> {
+        served(self.serve(UNANSWERED, "unanswered", fingerprints.store, asked, wait))
     }
 
     /// The health view's newest snapshot with its rows, computed once per write to the store
-    /// under its state directory.
-    fn snapshot_health(&self, asked: bool) -> health::Newest {
-        let state = &self.sources.health.state;
+    /// under its state directory; with when it was computed when it is stale; none before it was
+    /// first computed.
+    fn snapshot_health(
+        self: &Arc<Self>,
+        asked: bool,
+        wait: bool,
+    ) -> Option<(health::Newest, Option<Instant>)> {
         let mut hasher = cache::hasher();
-        cache::fingerprint(state, &mut hasher);
-        self.stores
-            .memoized(
-                &self.snapshot_health,
-                "health",
-                hasher.finish(),
-                asked,
-                Some(state),
-                health::newest,
-            )
-            .0
+        cache::fingerprint(&self.sources.health.state, &mut hasher);
+        served(self.serve(HEALTH, "health", hasher.finish(), asked, wait))
     }
 
-    /// Computes again every answer asked lately whose store moved since, so the request after a
-    /// write mostly finds it computed; at start, the answers the overview reads first.
-    fn warm(&self, start: bool) {
+    /// Starts a computation of every answer asked lately whose store moved since, as the debounce
+    /// lets it, so the request after a write mostly finds it computed; at start, of the answers
+    /// the overview reads first. Waits for none.
+    fn warm(self: &Arc<Self>, start: bool) {
         let fingerprints = self.fingerprints();
         let mut targets = self.answers.keys();
         if start {
@@ -636,17 +753,50 @@ impl Server {
             );
         }
         for target in targets {
-            self.stored(&target, &fingerprints, false);
+            self.stored(&target, &fingerprints, false, false);
         }
         if start || !self.facts.keys().is_empty() {
-            let _ = self.facts(&fingerprints, false);
+            self.facts(&fingerprints, false, false);
         }
         if start || !self.unanswered.keys().is_empty() {
-            let _ = self.unanswered(&fingerprints, false);
+            self.unanswered(&fingerprints, false, false);
         }
         if start || !self.snapshot_health.keys().is_empty() {
-            self.snapshot_health(false);
+            self.snapshot_health(false, false);
         }
+    }
+}
+
+/// The value of a kept answer, with when it was computed when it is stale; none before it was
+/// first computed.
+fn served<T>(served: cache::Served<T>) -> Option<(T, Option<Instant>)> {
+    match served {
+        cache::Served::Fresh(value, _) => Some((value, None)),
+        cache::Served::Stale(value, computed) => Some((value, Some(computed))),
+        cache::Served::Cold => None,
+    }
+}
+
+/// `503 Service Unavailable` with `Retry-After`: an answer asked before it was first computed.
+fn unavailable() -> Vec<u8> {
+    response(
+        503,
+        "Service Unavailable",
+        "text/plain; charset=utf-8",
+        b"this answer is being computed for the first time; ask again\n",
+        &format!("Retry-After: {}\r\n", cache::RETRY_AFTER),
+    )
+}
+
+/// A kept answer as an HTTP answer to a request whose `If-None-Match` is `condition`: a stale one
+/// with its age in `X-Conductor-Age`, `503` before it was first computed ([`cache::send`]).
+fn send_served(served: cache::Served<cache::Body>, condition: Option<&str>) -> Vec<u8> {
+    match served {
+        cache::Served::Fresh(body, computed) => {
+            cache::send(&body, condition, Some(computed), false)
+        }
+        cache::Served::Stale(body, computed) => cache::send(&body, condition, Some(computed), true),
+        cache::Served::Cold => unavailable(),
     }
 }
 
@@ -669,9 +819,25 @@ pub fn serve(listener: TcpListener, sources: Sources) -> Result<()> {
 ///
 /// As [`serve`].
 pub fn serve_over(listener: TcpListener, sources: Sources, state: Option<PathBuf>) -> Result<()> {
+    serve_tuned(listener, sources, state, cache::Tuning::default())
+}
+
+/// [`serve_over`] with `tuning`: the seam a test shortens the waits of and watches the
+/// computations through.
+///
+/// # Errors
+///
+/// As [`serve`].
+pub fn serve_tuned(
+    listener: TcpListener,
+    sources: Sources,
+    state: Option<PathBuf>,
+    tuning: cache::Tuning,
+) -> Result<()> {
     let port = listener.local_addr()?.port();
-    let server =
-        Arc::new(Server::new(sources, state).context("mint the token the page is served with")?);
+    let server = Arc::new(
+        Server::new(sources, state, tuning).context("mint the token the page is served with")?,
+    );
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
     // The session list is read at start and every `SESSIONS_EVERY` after, off the request path;
@@ -723,7 +889,7 @@ const DRAIN: u64 = (MAX_HEAD + 4 * answers::MAX_BODY) as u64;
 
 /// Reads one request head, answers it (reading a body only where the answer takes one) and closes
 /// the connection.
-fn connection(mut stream: TcpStream, port: u16, server: &Server) -> io::Result<()> {
+fn connection(mut stream: TcpStream, port: u16, server: &Arc<Server>) -> io::Result<()> {
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
     let (head, early) = read_head(&mut stream)?;
@@ -840,7 +1006,7 @@ fn content_type(file: &File<'_>) -> &'static str {
 fn answer(
     head: Option<&str>,
     port: u16,
-    server: &Server,
+    server: &Arc<Server>,
     body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
 ) -> Vec<u8> {
     const PLAIN: &str = "text/plain; charset=utf-8";
@@ -924,8 +1090,10 @@ fn answer(
             "Allow: GET\r\n",
         );
     }
-    let send =
-        |body: &cache::Body, computed: Option<Instant>| cache::send(body, condition, computed);
+    // An answer built from a kept one that is stale carries when that was computed.
+    let send = |body: &cache::Body, stale: Option<Instant>| {
+        cache::send(body, condition, stale, stale.is_some())
+    };
     let now = OffsetDateTime::now_utc();
     let home = server.sources.home.display().to_string();
     let home = home.trim_end_matches('/');
@@ -956,9 +1124,11 @@ fn answer(
             server.waste.refresh(&server.sources);
             server.doctor.refresh(&server.sources.health);
             let waste = server.waste.view(now);
-            let newest = server.snapshot_health(true);
+            let Some((newest, stale)) = server.snapshot_health(true, true) else {
+                return unavailable();
+            };
             let answer = health::answer(&server.sources, &server.doctor, waste, newest);
-            send(&cache::Body::json(200, &answer), None)
+            send(&cache::Body::json(200, &answer), stale)
         }
         Resource::Events if overview::since(target).is_err() => {
             let problem = overview::since(target).err().unwrap_or_default();
@@ -970,28 +1140,32 @@ fn answer(
                 "",
             )
         }
-        Resource::Unanswered => match server.unanswered(&server.fingerprints(), true) {
-            Ok(items) => send(
+        Resource::Unanswered => match server.unanswered(&server.fingerprints(), true, true) {
+            Some((Ok(items), stale)) => send(
                 &cache::Body::json(200, &overview::unanswered(&items, now)),
-                None,
+                stale,
             ),
-            Err(error) => send(&cache::Body::text(500, error), None),
+            Some((Err(error), stale)) => send(&cache::Body::text(500, error), stale),
+            None => unavailable(),
         },
         Resource::Decisions => decisions_answer(server, condition),
-        Resource::Snapshot | Resource::Events | Resource::Series | Resource::Kpis => {
-            let (body, computed) = server.stored(target, &server.fingerprints(), true);
-            send(&body, Some(computed))
-        }
-        Resource::Repo(path) if STORED_PATHS.contains(&path) => {
-            let (body, computed) = server.stored(target, &server.fingerprints(), true);
-            send(&body, Some(computed))
-        }
+        Resource::Snapshot | Resource::Events | Resource::Series | Resource::Kpis => send_served(
+            server.stored(target, &server.fingerprints(), true, true),
+            condition,
+        ),
+        Resource::Repo(path) if STORED_PATHS.contains(&path) => send_served(
+            server.stored(target, &server.fingerprints(), true, true),
+            condition,
+        ),
         Resource::Repo(path) => {
             let listed = server.sessions.last();
-            let answer = if path == "/api/waiting-on" {
-                let mut facts = match server.facts(&server.fingerprints(), true) {
-                    Ok(facts) => facts,
-                    Err(error) => return send(&cache::Body::text(500, error), None),
+            let (answer, stale) = if path == "/api/waiting-on" {
+                let (mut facts, stale) = match server.facts(&server.fingerprints(), true, true) {
+                    Some((Ok(facts), stale)) => (facts, stale),
+                    Some((Err(error), stale)) => {
+                        return send(&cache::Body::text(500, error), stale);
+                    }
+                    None => return unavailable(),
                 };
                 // The session list and the watch's files are read now; the store's part is kept.
                 let read = |name: &str| fs::read_to_string(server.sources.watch.join(name)).ok();
@@ -1000,14 +1174,15 @@ fn answer(
                 facts.silent = read("silent.reported");
                 let mut answer = repo::waiting_on(&facts);
                 answer["errors"] = json!(listed.errors);
-                answer
+                (answer, stale)
             } else {
                 server.usage.refresh(&server.sources);
                 let usage = server.usage.view(now);
-                repo::endpoint(path, target, &server.sources, &listed, &usage, now)
-                    .unwrap_or(Value::Null)
+                let answer = repo::endpoint(path, target, &server.sources, &listed, &usage, now)
+                    .unwrap_or(Value::Null);
+                (answer, None)
             };
-            send(&cache::Body::json(200, &tilde_all(answer, home)), None)
+            send(&cache::Body::json(200, &tilde_all(answer, home)), stale)
         }
     }
 }
@@ -1065,9 +1240,12 @@ fn post_answers<'a>(
 /// A store that is there and does not open, answered `500` with its reason on one line.
 /// `/api/decisions` (`story:decisions-page`): the answer kept while neither the store nor the
 /// decision log changed ([`Server::stored`]), `304` when `condition` names its `ETag`.
-fn decisions_answer(server: &Server, condition: Option<&str>) -> Vec<u8> {
-    let (body, computed) = server.stored(decisions::DECISIONS_PATH, &server.fingerprints(), true);
-    cache::send(&body, condition, Some(computed))
+fn decisions_answer(server: &Arc<Server>, condition: Option<&str>) -> Vec<u8> {
+    let fingerprints = server.fingerprints();
+    send_served(
+        server.stored(decisions::DECISIONS_PATH, &fingerprints, true, true),
+        condition,
+    )
 }
 
 fn store_failure(error: &anyhow::Error) -> cache::Body {

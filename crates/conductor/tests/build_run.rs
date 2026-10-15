@@ -2056,7 +2056,10 @@ fn a_signal_withdraws_the_queued_request(name: &str, signal: Signal) {
             .trim()
             .to_owned(),
     );
-    let _waiter = host::hold_run(&case.state(), &head).expect("hold the head's run lock");
+    // The binary's host directory: `~/.b10x/conductor/host` of the case's home, as no config
+    // file names one (`config::host_dir`).
+    let host_dir = case.dir.join("home").join(".b10x").join("conductor").join("host");
+    let _waiter = host::hold_run(&host_dir, &head).expect("hold the head's run lock");
     let script = "touch ran";
     let mut run = case.build_run(script);
     wait_until("the request waits in the queue", || {
@@ -2125,4 +2128,132 @@ fn sigint_withdraws_a_queued_request() {
 #[test]
 fn sighup_withdraws_a_queued_request() {
     a_signal_withdraws_the_queued_request("withdraw-hup", Signal::SIGHUP);
+}
+
+/// `story:build-run-backfill`: an 8G head at 5G available lacks 3G, more than the live
+/// reservations hold (none), so it can only be refused. While it walks the disk (a reclaim that
+/// waits for `reclaim.go`), a 2G request behind it, which fits beside the floor, is granted at
+/// once and runs. A 4G request behind that one, which would take the floor once the 2G holds its
+/// reservation, is never granted. The head is refused once its reclaim frees nothing.
+#[test]
+fn a_request_behind_a_head_that_can_only_be_refused_is_granted_when_it_fits() {
+    let case = Case::new("backfill");
+    let go = Go(case.dir.join("reclaim.go"));
+    let _stops = Stops(vec![case.work().join("stop-small")]);
+    // 15G free over a 10G floor: 5G to reserve.
+    case.free(15 * GIB);
+    let state = case.state();
+    let host = case.host();
+    let sources = case.sources(slow_reclaim);
+    let request = case.request(8 * GIB, "touch head");
+    let head = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    wait_until("the head's reclaim runs", || {
+        case.dir.join("reclaim.started").exists()
+    });
+
+    let waiting = Settings {
+        wait: Duration::from_secs(30),
+        ..settings()
+    };
+    let small_script = "while [ ! -e stop-small ]; do sleep 0.05; done";
+    let small = arrive(&case, &waiting, 2 * GIB, small_script);
+    wait_until("the 2G request behind the head runs", || {
+        state_of(&case, small_script) == Some(HostGrantState::Running)
+    });
+    assert_eq!(
+        state_of(&case, "touch head"),
+        Some(HostGrantState::Requested),
+        "the 2G request was granted while the head still waited"
+    );
+
+    // 3G is left beside the floor and the 2G run: a 4G request is never granted past the floor.
+    let unbounded = Settings {
+        wait: Duration::ZERO,
+        ..settings()
+    };
+    let over = arrive(&case, &unbounded, 4 * GIB, "touch over");
+    thread::sleep(Duration::from_millis(600));
+    assert_eq!(
+        state_of(&case, "touch over"),
+        Some(HostGrantState::Requested),
+        "4G does not fit beside the floor and the 2G run"
+    );
+
+    drop(go);
+    let head = head
+        .join()
+        .expect("the head's runner ends")
+        .expect("the head answers");
+    assert!(
+        matches!(head, Outcome::Refused { shortfall, .. } if shortfall == 5 * GIB),
+        "the head lacks 5G once the 2G run holds its reservation: {head:?}"
+    );
+    let over = over
+        .join()
+        .expect("the 4G runner ends")
+        .expect("the 4G request answers");
+    assert!(
+        matches!(over, Outcome::Refused { .. }),
+        "the 4G request never ran past the floor: {over:?}"
+    );
+    assert!(!case.work().join("over").exists());
+    assert!(!case.work().join("head").exists());
+
+    fs::write(case.work().join("stop-small"), "").expect("stop the 2G command");
+    let small = small
+        .join()
+        .expect("the 2G runner ends")
+        .expect("the 2G run ends");
+    assert!(matches!(small, Outcome::Ran { code: 0, .. }), "{small:?}");
+}
+
+/// A reclaim that reached what it was asked, since that was free already, and freed nothing.
+fn reclaim_reached_nothing(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
+    count_reclaim(state);
+    Ok(ReclaimReport {
+        reclaimed_bytes: 0,
+        steps: Vec::new(),
+        left: Vec::new(),
+        reached: true,
+    })
+}
+
+/// `story:build-run-backfill`: a reclaim run that finished a moment ago freed nothing, so an 8G
+/// head at 5G available, which would ask reclaim for more than that run was asked, is refused at
+/// once, naming that run, and walks the disk no second time.
+#[test]
+fn a_head_that_does_not_fit_after_a_recent_reclaim_freed_nothing_is_refused_at_once() {
+    let case = Case::new("refused-after-barren-reclaim");
+    // 15G free over a 10G floor: 5G to reserve.
+    case.free(15 * GIB);
+    let first = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_reached_nothing),
+        &case.request(6 * GIB, "touch first"),
+    )
+    .expect("the first run answers");
+    assert!(matches!(first, Outcome::Refused { .. }), "{first:?}");
+    assert_eq!(case.reclaims(), 1);
+
+    let head = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_reached_nothing),
+        &case.request(8 * GIB, "touch head"),
+    )
+    .expect("the head answers");
+    assert!(
+        matches!(head, Outcome::Refused { shortfall, reclaimed: 0, .. } if shortfall == 3 * GIB),
+        "{head:?}"
+    );
+    assert_eq!(case.reclaims(), 1, "the head walks the disk no second time");
+    let said = case.said();
+    assert!(
+        said.contains("the reclaim run started") && said.contains("freed nothing"),
+        "the refusal names the run that freed nothing: {said}"
+    );
+    assert!(!case.work().join("head").exists());
 }
