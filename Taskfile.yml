@@ -326,10 +326,11 @@ tasks:
       - dir="$(dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}")/profiles" && mkdir -p "$dir" && install -m 0644 .agents/conductor.md .agents/conductor-dev.md .agents/repo-controller.md "$dir/" && echo "profiles installed in $dir"
 
   measure:
-    desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio and the guard latency); run it on a quiet host
+    desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio, the guard latency and the dashboard's warm answers); run it on a quiet host
     cmds:
       - cargo test --release --locked -p conductor-cli --test store_tree -- --ignored --nocapture appends_at_5000_events_cost_less_than_three_times_appends_at_500
       - cargo test --release --locked -p conductor-cli --test guard_latency -- --ignored --nocapture
+      - cargo test --release --locked -p conductor-cli --test dashboard_fast -- --ignored --nocapture
 
   ui:
     desc: Build the dashboard app (crates/conductor/dashboard, Vue 3 and Vite on the Node version of its .nvmrc) into crates/conductor/dashboard/dist/, which is committed and which the conductor binary embeds; installs the locked packages first (npm ci)

@@ -56,6 +56,7 @@ export function overview(): OverviewData {
     events: (all['/api/events'] as { rows: EventRow[] }).rows,
     since: SINCE,
     errors: [],
+    pending: [],
   };
 }
 

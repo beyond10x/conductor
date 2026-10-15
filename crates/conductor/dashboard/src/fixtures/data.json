@@ -169,6 +169,7 @@
   },
   "reading": {
     "sessions": "claude agents --json",
+    "sessions_read_at": "2026-10-13T09:29:55Z",
     "root": "~/example-org/conductor",
     "ci_state": "~/.cache/conductor-watch/ci.state",
     "checkouts": "~/example-org"

@@ -179,7 +179,7 @@ describe('the health view', () => {
     vi.stubGlobal('fetch', fetcher);
     const wrapper = mount(Health);
     await flushPromises();
-    expect(fetcher).toHaveBeenCalledWith('/api/health', { cache: 'no-store' });
+    expect(fetcher).toHaveBeenCalledWith('/api/health', { cache: 'no-cache' });
     expect(wrapper.find('h1').text()).toBe('Health');
     for (const part of [DoctorPanel, SnapshotPanel, CollectorRuns, MemberFailures, DiskPanel]) {
       expect(wrapper.findComponent(part).exists()).toBe(true);

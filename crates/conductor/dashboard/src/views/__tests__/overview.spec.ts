@@ -49,6 +49,44 @@ describe('loadOverview', () => {
     expect(view.errors).toEqual([]);
   });
 
+  it('reads every endpoint at once and gives each part as it arrives', async () => {
+    const all = answers();
+    const held: Array<() => void> = [];
+    const asked: string[] = [];
+    // Every answer waits until the test lets it go, so the reads are seen to start together.
+    const fetcher = vi.fn(
+      (input: RequestInfo | URL) =>
+        new Promise<Response>((resolve) => {
+          const url = String(input);
+          asked.push(url);
+          held.push(() =>
+            resolve(
+              new Response(JSON.stringify(all[url.split('?')[0]!]), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            ),
+          );
+        }),
+    );
+    const parts: string[][] = [];
+    const loading = loadOverview(NOW, fetcher, (part) => parts.push([...part.pending]));
+    await flushPromises();
+    expect(asked).toHaveLength(8);
+    held.shift()!();
+    await flushPromises();
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toHaveLength(7);
+    expect(parts[0]).not.toContain('/data.json');
+    for (const release of held) {
+      release();
+    }
+    const view = await loading;
+    expect(parts).toHaveLength(8);
+    expect(view.pending).toEqual([]);
+    expect(view.board.rows).toHaveLength(4);
+  });
+
   it('names an endpoint that could not be read and keeps the others', async () => {
     const view = await loadOverview(NOW, fakeFetch([], ['/api/board']));
     expect(view.errors).toEqual(['/api/board: 500']);
@@ -84,6 +122,25 @@ describe('Overview', () => {
     expect(collapsed.attributes('open')).toBeUndefined();
     expect(collapsed.find('summary').text()).toBe('Disk & spend · 33.6 GiB free · 5.8k tokens today');
     expect(wrapper.text()).toContain('snapshot of 2026-10-13T09:00:00Z');
+  });
+
+  it('shows each panel as its endpoint answers, without waiting for the slowest', async () => {
+    const all = fakeFetch([]);
+    // `/api/events` never answers; every other endpoint does.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).startsWith('/api/events') ? new Promise<Response>(() => {}) : all(input),
+      ),
+    );
+    const wrapper = mount(Overview);
+    await flushPromises();
+    expect(wrapper.findAll('table tbody tr')).toHaveLength(4);
+    expect(wrapper.findAll('.needs .card')).toHaveLength(3);
+    expect(wrapper.find('ol.timeline').exists()).toBe(false);
+    const reading = wrapper.findAll('.state-loading').map((state) => state.text());
+    expect(reading).toContain('reading /api/events…');
+    wrapper.unmount();
   });
 
   it('names what could not be read', async () => {
