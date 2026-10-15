@@ -2,11 +2,15 @@
 //!
 //! Each command records its outcome in the store under the state directory (`--state-dir`, else
 //! `state/`; [`crate::state::dir`]) through the generated behaviours, and `controllers` answers
-//! from those records. None of them starts, stops or messages a session: launching and ending the
-//! session itself is [`crate::spawn`].
+//! from those records. `start-controller` and `revise-charter` start, stop or message no session:
+//! launching the session itself is [`crate::spawn`]. `pause-controller` and `stop-controller` stop
+//! the controller's session through its instance's provider before they record it, and
+//! `resume-controller` resumes it from its transcript ([`crate::spawn::end`],
+//! [`crate::spawn::resume`]); a session that fails to stop or resume leaves the record as it was.
 //!
-//! `start-controller` prints the new controller's id, the one every other command takes; the
-//! other commands print nothing. A refusal the specification declares exits 1 with one line on
+//! `start-controller` prints the new controller's id, the one every other command takes;
+//! `pause-controller`, `resume-controller` and `stop-controller` print one line naming the session
+//! they stopped or resumed, and nothing when they touched none; the other commands print nothing. A refusal the specification declares exits 1 with one line on
 //! standard error that names its error. Input through `--input-json -` is not written yet.
 
 use std::io::{self, Write as _};
@@ -15,6 +19,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{ControllerStorage, Generated};
+use conductor_model::config::SessionName;
 use conductor_model::dispatch::obligations::{
     ControllersQuery, PauseControllerBehavior, ResumeControllerBehavior, ReviseCharterBehavior,
     StartControllerBehavior, StopControllerBehavior,
@@ -35,6 +40,7 @@ use crate::cli::{
     JsonInput, PauseControllerArgs, ResumeControllerArgs, ReviseCharterArgs, StartControllerArgs,
     StopControllerArgs, ViewArgs,
 };
+use crate::confine::Providers;
 use crate::not_implemented;
 use crate::store::Store;
 
@@ -104,23 +110,74 @@ pub fn start_controller(state: Option<&Path>, args: StartControllerArgs) -> Resu
     }
 }
 
+/// The controller `controller_id` as the store holds it now, if it does; the store is let go
+/// before the session is touched.
+fn held(state: Option<&Path>, controller_id: &ControllerId) -> Result<Option<ControllerSnapshot>> {
+    let generated = record(state)?;
+    let held = ControllerStorage::get(&generated.ports, controller_id);
+    generated
+        .ports
+        .store
+        .check()
+        .context("read the controller")?;
+    Ok(held)
+}
+
+/// The controller `controller_id`'s repository and session name, when the store holds it in one
+/// of `states`.
+fn in_state(
+    state: Option<&Path>,
+    controller_id: &ControllerId,
+    states: &[ControllerState],
+) -> Result<Option<(String, SessionName)>> {
+    Ok(held(state, controller_id)?
+        .filter(|held| states.contains(&held.state))
+        .map(|held| (held.data.repository.0, held.data.session_name)))
+}
+
+/// Writes `line` on standard output, when there is one.
+fn say(line: Option<String>) -> Result<()> {
+    if let Some(line) = line {
+        writeln!(io::stdout().lock(), "{line}").context("write the session to standard output")?;
+    }
+    Ok(())
+}
+
 /// `conductor controller pause-controller`: the command `conductor.dispatch.PauseController`.
+/// A running controller's session is stopped first through its instance's provider
+/// ([`crate::spawn::end`]), and the command prints `stopped <session name> (<id>)`; a session no
+/// provider's measurement records is left as it is.
 ///
 /// # Errors
 ///
-/// A flag is missing or `--input-json` is given, the store does not open or keep the record, or
-/// the controller is unknown (`ControllerNotFound`) or not running (`ControllerStateConflict`).
-pub fn pause_controller(state: Option<&Path>, args: PauseControllerArgs) -> Result<ExitCode> {
+/// A flag is missing or `--input-json` is given, the store does not open or keep the record, the
+/// session is not stopped, or the controller is unknown (`ControllerNotFound`) or not running
+/// (`ControllerStateConflict`).
+pub fn pause_controller(
+    state: Option<&Path>,
+    args: PauseControllerArgs,
+    providers: &dyn Providers,
+) -> Result<ExitCode> {
     const WHAT: &str = "controller pause-controller";
     flags_only(args.input_json, "controller pause-controller --input-json")?;
     let controller_id = controller_id(args.controller_id, WHAT)?;
+    let stopped = match in_state(state, &controller_id, &[ControllerState::Running])? {
+        Some((repository, session_name)) => {
+            crate::spawn::end(state, &repository, &session_name, providers)
+                .with_context(|| format!("{WHAT}: the controller stays running"))?
+        }
+        None => None,
+    };
     let mut generated = record(state)?;
     let outcome = generated
         .pause_controller(PauseController { controller_id })
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the pause")?;
     match outcome {
-        PauseControllerOutcome::Paused { .. } => Ok(ExitCode::SUCCESS),
+        PauseControllerOutcome::Paused { .. } => {
+            say(stopped.map(|session| format!("stopped {session}")))?;
+            Ok(ExitCode::SUCCESS)
+        }
         PauseControllerOutcome::NoSuchController { error } => not_found(WHAT, &error),
         PauseControllerOutcome::WrongState { error } => {
             state_conflict(WHAT, &error, "only a running controller is paused")
@@ -129,15 +186,32 @@ pub fn pause_controller(state: Option<&Path>, args: PauseControllerArgs) -> Resu
 }
 
 /// `conductor controller resume-controller`: the command `conductor.dispatch.ResumeController`.
+/// A paused controller's session is resumed first from its transcript through its instance's
+/// provider ([`crate::spawn::resume`]), and the command prints `resumed <session name> (<id>)`,
+/// with `in <unit>` under the `systemd` provider; a session no provider's measurement records, or
+/// one the session list shows live, is left as it is.
 ///
 /// # Errors
 ///
-/// A flag is missing or `--input-json` is given, the store does not open or keep the record, or
-/// the controller is unknown (`ControllerNotFound`) or not paused (`ControllerStateConflict`).
-pub fn resume_controller(state: Option<&Path>, args: ResumeControllerArgs) -> Result<ExitCode> {
+/// A flag is missing or `--input-json` is given, the store does not open or keep the record, the
+/// session is not resumed, or the controller is unknown (`ControllerNotFound`) or not paused
+/// (`ControllerStateConflict`).
+pub fn resume_controller(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    args: ResumeControllerArgs,
+    providers: &dyn Providers,
+) -> Result<ExitCode> {
     const WHAT: &str = "controller resume-controller";
     flags_only(args.input_json, "controller resume-controller --input-json")?;
     let controller_id = controller_id(args.controller_id, WHAT)?;
+    let resumed = match in_state(state, &controller_id, &[ControllerState::Paused])? {
+        Some((repository, session_name)) => {
+            crate::spawn::resume(config_flag, state, &repository, &session_name, providers)
+                .with_context(|| format!("{WHAT}: the controller stays paused"))?
+        }
+        None => None,
+    };
     let mut generated = record(state)?;
     let outcome = generated
         .resume_controller(ResumeController { controller_id })
@@ -148,7 +222,10 @@ pub fn resume_controller(state: Option<&Path>, args: ResumeControllerArgs) -> Re
         .check()
         .context("keep the resumption")?;
     match outcome {
-        ResumeControllerOutcome::Resumed { .. } => Ok(ExitCode::SUCCESS),
+        ResumeControllerOutcome::Resumed { .. } => {
+            say(resumed.map(|session| format!("resumed {session}")))?;
+            Ok(ExitCode::SUCCESS)
+        }
         ResumeControllerOutcome::NoSuchController { error } => not_found(WHAT, &error),
         ResumeControllerOutcome::WrongState { error } => {
             state_conflict(WHAT, &error, "only a paused controller is resumed")
@@ -157,16 +234,35 @@ pub fn resume_controller(state: Option<&Path>, args: ResumeControllerArgs) -> Re
 }
 
 /// `conductor controller stop-controller`: the command `conductor.dispatch.StopController`.
+/// A running or paused controller's session is stopped first through its instance's provider
+/// ([`crate::spawn::end`]), and the command prints `stopped <session name> (<id>)`; a session
+/// that is gone already, or that no provider's measurement records, is left as it is.
 ///
 /// # Errors
 ///
-/// A flag is missing or `--input-json` is given, the store does not open or keep the record, or
-/// the controller is unknown (`ControllerNotFound`) or already stopped (`ControllerStateConflict`).
-pub fn stop_controller(state: Option<&Path>, args: StopControllerArgs) -> Result<ExitCode> {
+/// A flag is missing or `--input-json` is given, the store does not open or keep the record, the
+/// session is not stopped, or the controller is unknown (`ControllerNotFound`) or already stopped
+/// (`ControllerStateConflict`).
+pub fn stop_controller(
+    state: Option<&Path>,
+    args: StopControllerArgs,
+    providers: &dyn Providers,
+) -> Result<ExitCode> {
     const WHAT: &str = "controller stop-controller";
     flags_only(args.input_json, "controller stop-controller --input-json")?;
     let controller_id = controller_id(args.controller_id, WHAT)?;
     let reason = required(args.reason, WHAT, "--reason")?;
+    let stopped = match in_state(
+        state,
+        &controller_id,
+        &[ControllerState::Running, ControllerState::Paused],
+    )? {
+        Some((repository, session_name)) => {
+            crate::spawn::end(state, &repository, &session_name, providers)
+                .with_context(|| format!("{WHAT}: the controller is not recorded stopped"))?
+        }
+        None => None,
+    };
     let mut generated = record(state)?;
     let outcome = generated
         .stop_controller(StopController {
@@ -176,7 +272,10 @@ pub fn stop_controller(state: Option<&Path>, args: StopControllerArgs) -> Result
         .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
     generated.ports.store.check().context("keep the stop")?;
     match outcome {
-        StopControllerOutcome::Stopped { .. } => Ok(ExitCode::SUCCESS),
+        StopControllerOutcome::Stopped { .. } => {
+            say(stopped.map(|session| format!("stopped {session}")))?;
+            Ok(ExitCode::SUCCESS)
+        }
         StopControllerOutcome::NoSuchController { error } => not_found(WHAT, &error),
         StopControllerOutcome::WrongState { error } => {
             state_conflict(WHAT, &error, "the controller is already stopped")

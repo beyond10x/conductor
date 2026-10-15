@@ -186,5 +186,6 @@ dispatch and reports the goal's state.
 | `conductor spawn` refused | the refusal names its cause; [troubleshoot](./troubleshoot.md) lists the fixes |
 | the controller asks to merge under `merge: human` | conductor answers "a person merges here"; merge it yourself |
 
-To stop a controller, `claude stop <id>` ends its session and
-`conductor controller stop-controller` records it stopped.
+To stop a controller, `conductor controller stop-controller` ends the session `conductor spawn`
+started, through the instance's confinement provider, and records it stopped;
+`pause-controller` and `resume-controller` stop it and resume it from its transcript.

@@ -48,13 +48,10 @@ controller.
 **One controller per repository.** `conductor controller start-controller` refuses a second
 controller for a repository that already has a running or paused one (`ControllerAlreadyRunning`).
 
-:::caution[Planned]
-
-`controller start-controller` and `stop-controller` record the controller only. They do not start
-or end its session: the conductor session starts the harness session itself, with the controller
-role's model, profile and settings.
-
-:::
+`controller start-controller` records the controller only and starts no session: `conductor
+spawn` starts it, with the controller role's model, profile and settings. `controller
+pause-controller` and `stop-controller` stop the session `conductor spawn` started through the
+instance's confinement provider, and `resume-controller` resumes it from its transcript.
 
 ## Profiles and rules
 

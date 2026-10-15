@@ -5,8 +5,11 @@
 //! - `conductor spawn` (a controller, under the session prefix `ex`) and `conductor session start
 //!   --role conductor` (no prefix) set the slice's limits with `systemctl --user set-property`,
 //!   start the unit with `systemd-run --user`, type the first prompt into the session's FIFO and
-//!   measure the unit's cgroup; `conductor session stop` stops the unit; `resume` starts a new
-//!   unit running `claude --resume <id>`.
+//!   measure the unit's cgroup, and `spawn` prints the session's id; the instance's slice is
+//!   `conductor_<prefix>.slice` or `conductor.slice`, siblings of each other; `conductor session
+//!   stop` stops the unit; `resume` starts a new unit running `claude --resume <id>` once the
+//!   old one is gone; `controller pause-controller`, `resume-controller` and `stop-controller`
+//!   stop and resume a controller's unit and record its state.
 //! - `available` reads the user manager's delegated controllers from a fixture
 //!   `cgroup.controllers`.
 //!
@@ -18,8 +21,10 @@
 //! - `systemd-run`: logs its arguments to `systemd-run.log`, one per line and `----` after each
 //!   call, makes the session live (`agents-live.json` becomes `agents.json`), and runs the
 //!   launcher it was given (the arguments from `/bin/sh` on) in the background;
-//! - `systemctl`: logs its arguments to `systemctl.log` the same way, and answers `show` with the
-//!   case's `control-group`;
+//! - `systemctl`: logs its arguments to `systemctl.log` the same way, answers `show -p
+//!   ControlGroup` with the case's `control-group`, and `show -p LoadState -p ActiveState` with
+//!   the first line of the case's `unit-states` (`LoadState=… ActiveState=…`, one line per call,
+//!   the last one kept), or a unit that is not there when there is none;
 //! - `script`: the launcher's PTY program; logs its arguments to `script.args` and copies what is
 //!   typed into the FIFO to `typed`, as many bytes as `typed.size` says.
 //!
@@ -43,8 +48,8 @@ use conductor_model::config::{ConfinementProvider, Gibibytes, Limits, Network, S
 use conductor_model::session::{SessionRequest, StartedSession};
 use serde_json::{Value, json};
 
-/// The child's first argument that asks it to resume a session through the provider itself,
-/// since no command resumes one: `resume <session id>`.
+/// The child's first argument that asks it to resume a conductor session through the provider
+/// itself, as no command resumes conductor's: `resume <session id>`.
 const RESUME: &str = "resume";
 
 /// The child run of this test binary; a plain run of the suite passes it at once.
@@ -127,7 +132,7 @@ fn resume_in_child(host: &Host, dir: &Path, id: &str) -> i32 {
         role: "conductor".to_owned(),
         session_name: SessionName("conductor".to_owned()),
         provider: "systemd".to_owned(),
-        unit: Some("conductor-conductor.service".to_owned()),
+        unit: Some("conductor_conductor.service".to_owned()),
         session_id: Some(id.to_owned()),
     };
     let mut provider = host.provider(ConfinementProvider::Systemd);
@@ -225,7 +230,17 @@ impl Case {
             &format!(
                 "#!/bin/sh\n\
                  printf '%s\\n' \"$@\" '----' >> '{d}/systemctl.log'\n\
-                 for arg; do [ \"$arg\" = show ] && cat '{d}/control-group'; done\n\
+                 case \" $* \" in\n\
+                 *' ControlGroup '*) cat '{d}/control-group' ;;\n\
+                 *' LoadState '*)\n\
+                 \x20 if [ -s '{d}/unit-states' ]; then\n\
+                 \x20   head -n 1 '{d}/unit-states' | tr ' ' '\\n'\n\
+                 \x20   if [ \"$(wc -l < '{d}/unit-states')\" -gt 1 ]; then\n\
+                 \x20     tail -n +2 '{d}/unit-states' > '{d}/unit-states.next'\n\
+                 \x20     mv '{d}/unit-states.next' '{d}/unit-states'\n\
+                 \x20   fi\n\
+                 \x20 else printf 'LoadState=not-found\\nActiveState=inactive\\n'; fi ;;\n\
+                 esac\n\
                  exit 0\n"
             ),
         );
@@ -358,6 +373,27 @@ impl Case {
             .collect()
     }
 
+    /// What the fake `systemctl show -p LoadState -p ActiveState` answers, one line per call, the
+    /// last one kept.
+    fn unit_states(&self, states: &[&str]) {
+        let mut text = states.join("\n");
+        text.push('\n');
+        write(&self.dir.join("unit-states"), &text);
+    }
+
+    /// The rows of `controller controllers --format json`.
+    fn controller_rows(&self) -> Vec<Value> {
+        let output = self.run(
+            &self.records(),
+            &["controller", "controllers", "--format", "json"],
+        );
+        assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+        match serde_json::from_slice(&output.stdout).expect("the view prints JSON") {
+            Value::Array(rows) => rows,
+            other => panic!("the view printed {other}, not an array"),
+        }
+    }
+
     /// The measurement of the session `name`, if one was written.
     fn record(&self, name: &str) -> Option<Value> {
         fs::read_to_string(
@@ -461,11 +497,13 @@ fn controller_case(name: &str) -> Case {
     case
 }
 
-const CONTROLLER_CGROUP: &str = "/user.slice/user-1000.slice/user@1000.service/conductor.slice/\
-                                 conductor-ex.slice/conductor-ex-alpha.service";
+/// The instance's slice sits directly in the user manager's root slice, a sibling of every other
+/// instance's: no `conductor.slice` above it.
+const CONTROLLER_CGROUP: &str = "/user.slice/user-1000.slice/user@1000.service/\
+                                 conductor_ex.slice/conductor_ex-alpha.service";
 
 /// `conductor spawn` through the systemd provider: the instance's slice carries the instance's
-/// limits, the unit `conductor-ex-alpha.service` runs in it with the controller role's limits
+/// limits, the unit `conductor_ex-alpha.service` runs in it with the controller role's limits
 /// and the spike's launcher, the charter is typed into the FIFO, and the measurement reads the
 /// unit's cgroup files.
 #[test]
@@ -479,14 +517,31 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
     let checkout = case.home().join("example-org/alpha");
     let state = case.state().join("sessions");
     let systemctl = case.calls("systemctl");
+    // First: no unit of the session's name is left from an earlier session.
     assert_eq!(
         systemctl.first().map(Vec::as_slice),
         Some(
             &[
                 "--user",
+                "show",
+                "-p",
+                "LoadState",
+                "-p",
+                "ActiveState",
+                "conductor_ex-alpha.service"
+            ]
+            .map(str::to_owned)[..]
+        ),
+        "{systemctl:?}"
+    );
+    assert_eq!(
+        systemctl.get(1).map(Vec::as_slice),
+        Some(
+            &[
+                "--user",
                 "set-property",
                 "--runtime",
-                "conductor-ex.slice",
+                "conductor_ex.slice",
                 "MemoryMax=8G",
                 "CPUWeight=200",
                 "TasksMax=1024"
@@ -501,9 +556,9 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
     let head: Vec<String> = [
         "--user",
         "--unit",
-        "conductor-ex-alpha.service",
+        "conductor_ex-alpha.service",
         "--slice",
-        "conductor-ex.slice",
+        "conductor_ex.slice",
         "--collect",
         "-p",
         "MemoryMax=4G",
@@ -538,6 +593,12 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
     );
     let id = session_id_of(&command);
     assert_eq!(id.len(), 36, "a UUID: {command}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("{id}\n"),
+        "spawn prints the session's id, as it does under the none provider: {}",
+        describe(&output)
+    );
     assert!(
         command.starts_with(&format!(
             "stty cols 160 rows 48; exec 'claude' '--session-id' '{id}' '-n' 'ex-alpha' \
@@ -554,7 +615,7 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
     assert_eq!(case.typed(CHARTER), typed(CHARTER));
 
     assert_eq!(
-        systemctl.get(1).map(Vec::as_slice),
+        systemctl.get(2).map(Vec::as_slice),
         Some(
             &[
                 "--user",
@@ -562,7 +623,7 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
                 "-p",
                 "ControlGroup",
                 "--value",
-                "conductor-ex-alpha.service"
+                "conductor_ex-alpha.service"
             ]
             .map(str::to_owned)[..]
         ),
@@ -575,7 +636,7 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
     assert_eq!(record["cpu_weight"], 50, "{record:#}");
     assert_eq!(record["tasks_max"], 256, "{record:#}");
     assert_eq!(
-        record["session"]["unit"], "conductor-ex-alpha.service",
+        record["session"]["unit"], "conductor_ex-alpha.service",
         "{record:#}"
     );
     assert_eq!(record["session"]["session_id"], id.as_str(), "{record:#}");
@@ -625,10 +686,10 @@ fn conductor_case(name: &str) -> Case {
 }
 
 const CONDUCTOR_CGROUP: &str = "/user.slice/user-1000.slice/user@1000.service/conductor.slice/\
-                                conductor-conductor.service";
+                                conductor_conductor.service";
 
 /// `conductor session start --role conductor` through the systemd provider: the slice
-/// `conductor.slice` is reset to no limit, the unit `conductor-conductor.service` sets only the
+/// `conductor.slice` is reset to no limit, the unit `conductor_conductor.service` sets only the
 /// role's memory limit, the forge token variable is passed by name, the prompt is typed into the
 /// FIFO, and a limit file reading `max` is recorded absent.
 #[test]
@@ -645,6 +706,22 @@ fn conductor_starts_in_its_unit_inside_the_unprefixed_slice() {
     let systemctl = case.calls("systemctl");
     assert_eq!(
         systemctl.first().map(Vec::as_slice),
+        Some(
+            &[
+                "--user",
+                "show",
+                "-p",
+                "LoadState",
+                "-p",
+                "ActiveState",
+                "conductor_conductor.service"
+            ]
+            .map(str::to_owned)[..]
+        ),
+        "{systemctl:?}"
+    );
+    assert_eq!(
+        systemctl.get(1).map(Vec::as_slice),
         Some(
             &[
                 "--user",
@@ -665,7 +742,7 @@ fn conductor_starts_in_its_unit_inside_the_unprefixed_slice() {
     let head: Vec<String> = [
         "--user",
         "--unit",
-        "conductor-conductor.service",
+        "conductor_conductor.service",
         "--slice",
         "conductor.slice",
         "--collect",
@@ -718,7 +795,7 @@ fn conductor_starts_in_its_unit_inside_the_unprefixed_slice() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains(&format!(
-            "started conductor: provider systemd, unit conductor-conductor.service, session {id}"
+            "started conductor: provider systemd, unit conductor_conductor.service, session {id}"
         )),
         "{}",
         describe(&output)
@@ -736,12 +813,13 @@ fn conductor_stops_with_systemctl_stop() {
     let started = case.run(&work, &["session", "start", "--role", "conductor"]);
     assert_eq!(started.status.code(), Some(0), "{}", describe(&started));
     case.typed(CONDUCTOR_PROMPT);
+    case.unit_states(&["LoadState=loaded ActiveState=active"]);
     let stopped = case.run(&work, &["session", "stop", "--role", "conductor"]);
     assert_eq!(stopped.status.code(), Some(0), "{}", describe(&stopped));
     let systemctl = case.calls("systemctl");
     assert_eq!(
         systemctl.last().map(Vec::as_slice),
-        Some(&["--user", "stop", "conductor-conductor.service"].map(str::to_owned)[..]),
+        Some(&["--user", "stop", "conductor_conductor.service"].map(str::to_owned)[..]),
         "{systemctl:?}"
     );
     assert!(case.record("conductor").is_none(), "the record is removed");
@@ -760,7 +838,7 @@ fn resume_starts_a_new_unit_running_claude_resume() {
         serde_json::from_slice(&output.stdout).expect("the resumed session as JSON");
     assert_eq!(
         answered,
-        json!({"provider": "systemd", "unit": "conductor-conductor.service", "session_id": id})
+        json!({"provider": "systemd", "unit": "conductor_conductor.service", "session_id": id})
     );
     let runs = case.calls("systemd-run");
     assert_eq!(runs.len(), 1, "{runs:?}");
@@ -770,7 +848,7 @@ fn resume_starts_a_new_unit_running_claude_resume() {
         &[
             "--user",
             "--unit",
-            "conductor-conductor.service",
+            "conductor_conductor.service",
             "--slice",
             "conductor.slice",
             "--collect",
@@ -856,18 +934,276 @@ fn the_limits_rows_of_the_config_page_name_the_systemd_provider() {
     }
 }
 
-/// The unit and slice names:`conductor-<session name>.service`, a grouped repository's `/`
-/// escaped as systemd escapes it; `conductor-<prefix>.slice`, or `conductor.slice`.
+/// The unit and slice names: `conductor_<session name>.service`, a grouped repository's `/`
+/// escaped as systemd escapes it; `conductor_<prefix>.slice`, or `conductor.slice`.
 #[test]
 fn unit_and_slice_names() {
     assert_eq!(
         systemd::unit_name(&SessionName("ex-alpha".to_owned())),
-        "conductor-ex-alpha.service"
+        "conductor_ex-alpha.service"
     );
     assert_eq!(
         systemd::unit_name(&SessionName("ex-group/alpha".to_owned())),
-        "conductor-ex-group\\x2falpha.service"
+        "conductor_ex-group\\x2falpha.service"
     );
-    assert_eq!(systemd::slice_name(Some("ex")), "conductor-ex.slice");
+    assert_eq!(systemd::slice_name(Some("ex")), "conductor_ex.slice");
     assert_eq!(systemd::slice_name(None), "conductor.slice");
+}
+
+/// systemd reads each `-` of a slice's name as one step down: `conductor-ex.slice` is a child of
+/// `conductor.slice`, the slice of the instance without a prefix, whose limits would then cap it.
+/// No instance's slice has a `-` in its name, a prefix's own `-` escaped as `\x2d`, so every
+/// instance's slice is a child of the root slice, and a sibling of every other.
+#[test]
+fn every_instance_slice_is_a_sibling_of_the_others() {
+    let slices: Vec<String> = [None, Some("ex"), Some("ex-a"), Some("lrun"), Some("a-b-c")]
+        .into_iter()
+        .map(systemd::slice_name)
+        .collect();
+    for slice in &slices {
+        let stem = slice.strip_suffix(".slice").expect("a slice");
+        assert!(
+            !stem.contains('-'),
+            "{slice} would nest inside another slice"
+        );
+    }
+    assert_eq!(slices[2], "conductor_ex\\x2da.slice");
+    let mut distinct = slices.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(distinct.len(), slices.len(), "{slices:?}");
+}
+
+// -------------------------------------------------------------------------------------------
+// Stopping and resuming a controller through its instance's provider.
+// -------------------------------------------------------------------------------------------
+
+/// How many of `calls` start with `head`.
+fn count_calls(calls: &[Vec<String>], head: &[&str]) -> usize {
+    calls
+        .iter()
+        .filter(|call| call.len() >= head.len() && call[..head.len()] == *head)
+        .count()
+}
+
+/// `controller pause-controller` stops a controller's unit with `systemctl --user stop` and
+/// records it `Paused`; `controller resume-controller` starts a new unit of the same name in
+/// the instance's slice running `claude --resume <id>`, records it `Running` and its new
+/// measurement; `controller stop-controller` stops the unit again and records it `Stopped`.
+#[test]
+fn a_controller_pauses_resumes_and_stops_through_its_unit() {
+    let case = controller_case("lifecycle");
+    case.session("ex-alpha", CHARTER);
+    case.unit_cgroup(CONTROLLER_CGROUP, "4294967296", "50", "256");
+    let records = case.records();
+    let spawned = case.run(&records, &["spawn", "--repository", "alpha"]);
+    assert_eq!(spawned.status.code(), Some(0), "{}", describe(&spawned));
+    case.typed(CHARTER);
+    let id = String::from_utf8_lossy(&spawned.stdout).trim().to_owned();
+    assert_eq!(id.len(), 36, "{}", describe(&spawned));
+    let rows = case.controller_rows();
+    assert_eq!(rows.len(), 1, "{rows:#?}");
+    let controller = rows[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    let state = |case: &Case| case.controller_rows()[0]["state"].clone();
+
+    // Pause: the unit runs, and is stopped.
+    case.unit_states(&["LoadState=loaded ActiveState=active"]);
+    let paused = case.run(
+        &records,
+        &[
+            "controller",
+            "pause-controller",
+            "--controller-id",
+            &controller,
+        ],
+    );
+    assert_eq!(paused.status.code(), Some(0), "{}", describe(&paused));
+    assert_eq!(
+        String::from_utf8_lossy(&paused.stdout),
+        format!("stopped ex-alpha ({id})\n")
+    );
+    let systemctl = case.calls("systemctl");
+    assert_eq!(
+        count_calls(
+            &systemctl,
+            &["--user", "stop", "conductor_ex-alpha.service"]
+        ),
+        1,
+        "{systemctl:?}"
+    );
+    assert_eq!(state(&case), "Paused");
+    assert!(
+        case.record("ex-alpha").is_some(),
+        "the record keeps the session's id for the resume"
+    );
+
+    // Resume: the stopped unit is gone, and a new one resumes the session.
+    write(&case.dir.join("agents.json"), "[]\n");
+    write(&case.dir.join("typed.size"), "0");
+    case.unit_states(&["LoadState=not-found ActiveState=inactive"]);
+    let resumed = case.run(
+        &records,
+        &[
+            "controller",
+            "resume-controller",
+            "--controller-id",
+            &controller,
+        ],
+    );
+    assert_eq!(resumed.status.code(), Some(0), "{}", describe(&resumed));
+    assert_eq!(
+        String::from_utf8_lossy(&resumed.stdout),
+        format!("resumed ex-alpha ({id}) in conductor_ex-alpha.service\n")
+    );
+    let runs = case.calls("systemd-run");
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    let run = &runs[1];
+    assert_eq!(
+        &run[..6],
+        &[
+            "--user",
+            "--unit",
+            "conductor_ex-alpha.service",
+            "--slice",
+            "conductor_ex.slice",
+            "--collect"
+        ]
+        .map(str::to_owned)[..],
+        "{run:?}"
+    );
+    let (_, _, command) = launcher_tail(run);
+    assert!(
+        command.starts_with(&format!(
+            "stty cols 160 rows 48; exec 'claude' '--resume' '{id}' '-n' 'ex-alpha' \
+             '--append-system-prompt-file' '{}' '--model' 'sonnet'",
+            case.dir.join("roles/repo-controller.md").display()
+        )),
+        "{command}"
+    );
+    assert!(!command.contains("--session-id"), "{command}");
+    assert_eq!(state(&case), "Running");
+    let record = case
+        .record("ex-alpha")
+        .expect("the resumed box is measured");
+    assert_eq!(record["session"]["session_id"], id.as_str(), "{record:#}");
+    assert_eq!(
+        record["session"]["unit"], "conductor_ex-alpha.service",
+        "{record:#}"
+    );
+    assert_eq!(record["memory_max"], 4_294_967_296_i64, "{record:#}");
+
+    // Stop: the unit runs again, and is stopped; the controller is recorded stopped.
+    case.unit_states(&["LoadState=loaded ActiveState=active"]);
+    let stopped = case.run(
+        &records,
+        &[
+            "controller",
+            "stop-controller",
+            "--controller-id",
+            &controller,
+            "--reason",
+            "the wave closed",
+        ],
+    );
+    assert_eq!(stopped.status.code(), Some(0), "{}", describe(&stopped));
+    let systemctl = case.calls("systemctl");
+    assert_eq!(
+        count_calls(
+            &systemctl,
+            &["--user", "stop", "conductor_ex-alpha.service"]
+        ),
+        2,
+        "{systemctl:?}"
+    );
+    assert_eq!(state(&case), "Stopped");
+}
+
+/// A controller whose unit is gone already, as after a crash, is recorded stopped without a
+/// `systemctl stop`, which would fail on a unit that is not loaded.
+#[test]
+fn a_controller_whose_unit_is_gone_is_recorded_stopped() {
+    let case = controller_case("gone");
+    case.session("ex-alpha", CHARTER);
+    case.unit_cgroup(CONTROLLER_CGROUP, "4294967296", "50", "256");
+    let records = case.records();
+    let spawned = case.run(&records, &["spawn", "--repository", "alpha"]);
+    assert_eq!(spawned.status.code(), Some(0), "{}", describe(&spawned));
+    case.typed(CHARTER);
+    let controller = case.controller_rows()[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    case.unit_states(&["LoadState=not-found ActiveState=inactive"]);
+    let stopped = case.run(
+        &records,
+        &[
+            "controller",
+            "stop-controller",
+            "--controller-id",
+            &controller,
+            "--reason",
+            "it crashed",
+        ],
+    );
+    assert_eq!(stopped.status.code(), Some(0), "{}", describe(&stopped));
+    let systemctl = case.calls("systemctl");
+    assert_eq!(
+        count_calls(&systemctl, &["--user", "stop"]),
+        0,
+        "{systemctl:?}"
+    );
+    assert_eq!(case.controller_rows()[0]["state"], "Stopped");
+}
+
+/// A resume issued while the old unit is still stopping waits until systemd has dropped it
+/// (`reset-failed` once it is inactive), then starts the new unit under the same name.
+#[test]
+fn resume_waits_until_the_old_unit_is_gone() {
+    let case = conductor_case("resume-wait");
+    write(&case.dir.join("typed.size"), "0");
+    case.unit_states(&[
+        "LoadState=loaded ActiveState=deactivating",
+        "LoadState=loaded ActiveState=inactive",
+        "LoadState=not-found ActiveState=inactive",
+    ]);
+    let id = "0a1b2c3d-0000-4000-8000-00000000abcd";
+    let output = case.run(&case.dir.join("work"), &[RESUME, id]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let systemctl = case.calls("systemctl");
+    let shows = systemctl
+        .iter()
+        .filter(|call| call.iter().any(|arg| arg == "LoadState"))
+        .count();
+    assert_eq!(shows, 3, "{systemctl:?}");
+    assert_eq!(
+        count_calls(
+            &systemctl,
+            &["--user", "reset-failed", "conductor_conductor.service"]
+        ),
+        1,
+        "{systemctl:?}"
+    );
+    assert_eq!(case.calls("systemd-run").len(), 1);
+}
+
+/// A resume while the old unit still runs starts nothing: two sessions would share one
+/// transcript.
+#[test]
+fn resume_refuses_while_the_old_unit_still_runs() {
+    let case = conductor_case("resume-running");
+    case.unit_states(&["LoadState=loaded ActiveState=active"]);
+    let output = case.run(
+        &case.dir.join("work"),
+        &[RESUME, "0a1b2c3d-0000-4000-8000-00000000abcd"],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("conductor_conductor.service") && stderr.contains("active"),
+        "{stderr}"
+    );
+    assert!(case.calls("systemd-run").is_empty());
 }

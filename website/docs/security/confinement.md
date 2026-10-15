@@ -19,11 +19,19 @@ under `report` it starts unboxed and its measurement says why. The measurement i
 `conductor snapshot sessions`. `conductor doctor` prints whether each provider is available.
 
 The `systemd` provider runs each session in a `systemd-run --user` unit,
-`conductor-<session name>.service`, inside the instance's slice, `conductor-<session_prefix>.slice`
-or `conductor.slice`. The slice carries the instance's `confinement.limits`; the unit the role's
+`conductor_<session name>.service`, inside the instance's slice, `conductor_<session_prefix>.slice`
+or `conductor.slice` without a prefix. systemd reads a `-` in a slice's name as one level down
+(`conductor-ex.slice` would sit inside `conductor.slice`), so no slice name has one: a `-` of
+the prefix is written `\x2d`, and every instance's slice is a sibling of every other's, capped by
+its own limits only. The slice carries the instance's `confinement.limits`; the unit the role's
 `limits` (`MemoryMax`, `CPUWeight`, `TasksMax`). The session runs in the foreground of the unit
 under `script`, which gives it a terminal, and its first prompt is typed into it; `conductor
-session stop` stops the unit. The provider reads the limits back from the unit's cgroup. It is
+spawn` prints the session's id. `conductor session stop` stops the unit of conductor's session;
+`conductor controller pause-controller` and `stop-controller` stop a controller's unit
+(`systemctl --user stop`) before they record it paused or stopped, and `resume-controller` starts
+a new unit of the same name running `claude --resume <id>` before it records it running. A unit of
+the session's name that is still stopping is waited for, up to 30 s, before the new one starts;
+one that still runs is refused. The provider reads the limits back from the unit's cgroup. It is
 available where the user manager delegates the `cpu`, `memory` and `pids` controllers, and it
 sets up no write fence yet, so its box is partial: `report` records that, `strict` stops the
 session.

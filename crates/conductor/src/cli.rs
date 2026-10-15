@@ -101,7 +101,8 @@ impl Cli {
         self.run_with(&crate::confine::Host::default())
     }
 
-    /// [`Cli::run`], with the sessions `spawn`, `session start` and `session stop` start and stop
+    /// [`Cli::run`], with the sessions `spawn`, `session start`, `session stop` and the controller
+    /// commands `pause-controller`, `resume-controller` and `stop-controller` start, stop and resume
     /// going through `providers`, and `doctor` reporting them.
     ///
     /// # Errors
@@ -232,12 +233,14 @@ impl Cli {
                     controller::start_controller(state, args)
                 }
                 ControllerCommand::PauseController(args) => {
-                    controller::pause_controller(state, args)
+                    controller::pause_controller(state, args, providers)
                 }
                 ControllerCommand::ResumeController(args) => {
-                    controller::resume_controller(state, args)
+                    controller::resume_controller(self.config.as_deref(), state, args, providers)
                 }
-                ControllerCommand::StopController(args) => controller::stop_controller(state, args),
+                ControllerCommand::StopController(args) => {
+                    controller::stop_controller(state, args, providers)
+                }
                 ControllerCommand::ReviseCharter(args) => controller::revise_charter(state, args),
                 ControllerCommand::Controllers(view) => controller::controllers(state, view),
             },

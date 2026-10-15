@@ -20,9 +20,10 @@
 //!
 //! [`choose`] reads `confinement`: under `strict`, a provider that is not available starts
 //! nothing (`ProviderUnavailable`); under `report`, the session starts unboxed through `none`
-//! and its record names why. [`Chosen::start`] then starts, prompts and measures; a box short of
-//! the request ([`shortfall`]) is stopped again under `strict` (`MeasurementShort`) and recorded
-//! as it is under `report`. The measurement of a started session is written to
+//! and its record names why. [`Chosen::start`] then starts, prompts and measures, and
+//! [`Chosen::resume`] resumes a stopped session and measures it again; a box short of the request
+//! ([`shortfall`]) is stopped again under `strict` (`MeasurementShort`) and recorded as it is
+//! under `report`. The measurement of a started session is written to
 //! `<state>/sessions/<session name>.envelope.json` ([`record_path`]), which the sessions
 //! collector reads into the session's `envelope_*` fields ([`read_measurement`]).
 
@@ -475,6 +476,42 @@ impl Chosen {
                 });
             }
         };
+        self.measured(session, said, request, state)
+    }
+
+    /// Resumes `session` from its transcript through the chosen provider, for `launch`, measures
+    /// the box it runs in now and writes the measurement under `state`, as [`Chosen::start`]
+    /// does; under `strict` a box short of the request is stopped again and nothing is written.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal::LaunchFailed`] when the provider's resume fails, or
+    /// [`Refusal::MeasurementShort`].
+    pub fn resume(
+        mut self,
+        session: &StartedSession,
+        launch: &Launch,
+        state: &Path,
+    ) -> Result<Started, Refusal> {
+        let resumed =
+            self.provider
+                .resume(session, launch)
+                .map_err(|error| Refusal::LaunchFailed {
+                    detail: format!("{error:#}"),
+                    session: None,
+                })?;
+        self.measured(resumed, Said::default(), &launch.request, state)
+    }
+
+    /// Measures `session`, which runs for `request`, and writes the measurement under `state`;
+    /// under `strict` stops a box short of the request again instead.
+    fn measured(
+        &mut self,
+        session: StartedSession,
+        said: Said,
+        request: &SessionRequest,
+        state: &Path,
+    ) -> Result<Started, Refusal> {
         let mut measurement = match self.provider.measure(&session, request) {
             Ok(measurement) => measurement,
             Err(error) => unboxed(

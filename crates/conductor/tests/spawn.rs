@@ -273,6 +273,19 @@ impl Case {
         fake_provider::without_harness(output)
     }
 
+    /// `conductor <args>` as [`Case::spawn_fake`] runs spawn, over the fake providers.
+    fn run_fake(&self, args: &[&str]) -> Output {
+        fs::create_dir_all(self.fake()).expect("create the fake's directory");
+        let path = format!("{}:/usr/bin:/bin", self.dir.join("bin").display());
+        let output = fake_provider::command(&self.home(), &self.fake(), args)
+            .current_dir(self.records())
+            .env("CONDUCTOR_CONFIG", self.config())
+            .env("PATH", path)
+            .output()
+            .expect("the child runs");
+        fake_provider::without_harness(output)
+    }
+
     /// How many sessions the stand-in launched.
     fn launches(&self) -> usize {
         fs::read_to_string(self.dir.join("launches"))
@@ -809,6 +822,79 @@ fn spawn_starts_through_the_provider_with_one_start_and_one_prompt() {
     let rows = case.controllers();
     assert_eq!(rows.len(), 1, "{rows:#?}");
     assert_eq!(rows[0]["state"], "Running", "{}", rows[0]);
+}
+
+/// The controller commands stop and resume the session through the provider: `pause-controller`
+/// stops a live session through the provider its measurement names and records it `Paused`;
+/// `resume-controller` resumes it through the instance's provider from the recorded id and
+/// records it `Running`; `stop-controller` stops nothing once the session list shows none of the
+/// name, and records it `Stopped`.
+#[test]
+fn the_controller_commands_stop_and_resume_the_session_through_the_provider() {
+    let case = Case::new("provider-lifecycle");
+    let spawned = case.spawn_fake();
+    assert_eq!(spawned.status.code(), Some(0), "{}", describe(&spawned));
+    let controller = case.controllers()[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    let live = json!([{"id": "fake-ex-alpha", "name": "ex-alpha", "pid": 4242}]);
+
+    case.sessions(&live);
+    let paused = case.run_fake(&[
+        "controller",
+        "pause-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(paused.status.code(), Some(0), "{}", describe(&paused));
+    assert_eq!(
+        String::from_utf8_lossy(&paused.stdout),
+        "stopped ex-alpha (fake-ex-alpha)\n"
+    );
+    let logged = calls(&case.fake());
+    let stop = logged.last().expect("a call");
+    assert_eq!(stop["call"], "stop", "{stop}");
+    assert_eq!(stop["provider"], "none", "{stop}");
+    assert_eq!(stop["session_id"], "fake-ex-alpha", "{stop}");
+    assert_eq!(case.controllers()[0]["state"], "Paused");
+
+    case.sessions(&json!([]));
+    let resumed = case.run_fake(&[
+        "controller",
+        "resume-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(resumed.status.code(), Some(0), "{}", describe(&resumed));
+    assert_eq!(
+        String::from_utf8_lossy(&resumed.stdout),
+        "resumed ex-alpha (fake-ex-alpha)\n"
+    );
+    let names = call_names(&case.fake());
+    assert_eq!(
+        &names[names.len() - 2..],
+        ["resume", "measure"],
+        "{names:?}"
+    );
+    assert_eq!(case.controllers()[0]["state"], "Running");
+
+    let before = call_names(&case.fake()).len();
+    let stopped = case.run_fake(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        &controller,
+        "--reason",
+        "the wave closed",
+    ]);
+    assert_eq!(stopped.status.code(), Some(0), "{}", describe(&stopped));
+    assert_eq!(
+        call_names(&case.fake()).len(),
+        before,
+        "no live session, nothing to stop"
+    );
+    assert_eq!(case.controllers()[0]["state"], "Stopped");
 }
 
 /// With `confinement.provider: none`, spawn launches today's start form, and the measurement it

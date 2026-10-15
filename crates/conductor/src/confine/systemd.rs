@@ -2,13 +2,16 @@
 //! --user` unit inside its instance's slice, with the way the spike found working
 //! (`docs/analysis/session-box-spike.md`, way (a)).
 //!
-//! - The instance's slice is `conductor-<session_prefix>.slice`, or `conductor.slice` without a
-//!   prefix ([`slice_name`]). Before a unit starts in it, `systemctl --user set-property
-//!   --runtime <slice>` sets the instance's `confinement.limits` on it: `MemoryMax`, `CPUWeight`
-//!   and `TasksMax`, each reset (`infinity`, or an empty `CPUWeight=`) where the instance sets
-//!   none.
-//! - [`Provider::start`] runs the session in the unit `conductor-<session name>.service`
-//!   ([`unit_name`]): `systemd-run --user --unit <unit> --slice <slice> --collect`, `-p
+//! - The instance's slice is `conductor_<session_prefix>.slice`, or `conductor.slice` without a
+//!   prefix ([`slice_name`]). systemd reads each `-` of a slice's name as one step down the
+//!   hierarchy, so no slice name has one: a prefix's own `-` is written `\x2d`, and every
+//!   instance's slice is a child of the user manager's root slice, a sibling of every other
+//!   instance's. Before a unit starts in it, `systemctl --user set-property --runtime <slice>`
+//!   sets the instance's `confinement.limits` on it: `MemoryMax`, `CPUWeight` and `TasksMax`,
+//!   each reset (`infinity`, or an empty `CPUWeight=`) where the instance sets none.
+//! - [`Provider::start`] runs the session in the unit `conductor_<session name>.service`
+//!   ([`unit_name`]), once no unit of that name is left ([`Systemd::wait_gone`]): `systemd-run
+//!   --user --unit <unit> --slice <slice> --collect`, `-p
 //!   MemoryMax=`, `-p CPUWeight=` and `-p TasksMax=` for each limit the role sets, its output to
 //!   nothing, in the session's start directory, with `TERM`, `SHELL=/bin/bash`, this process's
 //!   `PATH`, the launch's variables and, by name only, each `forge_token_env` variable this
@@ -18,8 +21,13 @@
 //!   The FIFO and the typescript are `<state>/sessions/<session name>.fifo` and `.typescript`.
 //! - [`Provider::prompt`] waits until the session list shows the session live, then types the
 //!   prompt into the FIFO as one bracketed paste, and Enter.
-//! - [`Provider::stop`] is `systemctl --user stop <unit>`; [`Provider::resume`] starts a new unit
-//!   of the same name running `claude --resume <id> <arguments>`.
+//! - [`Provider::stop`] is `systemctl --user stop <unit>`, and nothing when systemd has no unit of
+//!   that name loaded (`systemctl --user show -p LoadState -p ActiveState <unit>` reads
+//!   `LoadState=not-found`): the session ended already. [`Provider::resume`] starts a new unit
+//!   of the same name running `claude --resume <id> <arguments>`, as `start` does once the old
+//!   unit is gone: while it is still stopping the provider waits for it, up to [`GONE_WAIT`], and
+//!   resets it once it is inactive or failed so systemd drops it; a unit that still runs is
+//!   refused, since two sessions would write one transcript.
 //! - [`Provider::measure`] asks systemd for the unit's cgroup (`systemctl --user show -p
 //!   ControlGroup --value <unit>`) and reads `memory.max`, `cpu.weight` and `pids.max` there,
 //!   each absent where the file reads `max` or is not there. The provider sets up no write fence
@@ -74,11 +82,15 @@ pub const NO_FENCE: &str = "the systemd provider sets up no write fence yet";
 /// How long the TUI is given between the pasted prompt and Enter.
 const PASTE_SETTLE: Duration = Duration::from_millis(500);
 
-/// The unit a session runs in: `conductor-<session name>.service`, every character but letters,
-/// digits, `:`, `_`, `.` and `-` written `\xNN` as `systemd-escape` writes it.
+/// How long a unit of a session's name may take to be gone before a start or resume refuses.
+pub const GONE_WAIT: Duration = Duration::from_secs(30);
+
+/// The unit a session runs in: `conductor_<session name>.service`, every character but letters,
+/// digits, `:`, `_`, `.` and `-` written `\xNN` as `systemd-escape` writes it. A `-` in a
+/// service's name sets no cgroup hierarchy; the unit sits in the slice `--slice` names.
 #[must_use]
 pub fn unit_name(name: &SessionName) -> String {
-    let mut unit = String::from("conductor-");
+    let mut unit = String::from("conductor_");
     for byte in name.0.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'.' | b'-') {
             unit.push(char::from(byte));
@@ -90,12 +102,26 @@ pub fn unit_name(name: &SessionName) -> String {
     unit
 }
 
-/// The slice of an instance: `conductor-<prefix>.slice`, or `conductor.slice` without one.
+/// The slice of an instance: `conductor_<prefix>.slice`, or `conductor.slice` without one; every
+/// character of the prefix but letters and digits, its `-` above all, written `\xNN` as
+/// `systemd-escape` writes it. No name has a `-`, which systemd would read as nesting: each
+/// instance's slice is a sibling of every other's.
 #[must_use]
 pub fn slice_name(prefix: Option<&str>) -> String {
     prefix.map_or_else(
         || "conductor.slice".to_owned(),
-        |prefix| format!("conductor-{prefix}.slice"),
+        |prefix| {
+            let mut slice = String::from("conductor_");
+            for byte in prefix.bytes() {
+                if byte.is_ascii_alphanumeric() {
+                    slice.push(char::from(byte));
+                } else {
+                    slice.push_str(&format!("\\x{byte:02x}"));
+                }
+            }
+            slice.push_str(".slice");
+            slice
+        },
     )
 }
 
@@ -210,10 +236,74 @@ impl Systemd {
         Ok(())
     }
 
-    /// Starts the unit of `launch`'s session in its instance's slice, running `claude
-    /// <harness>` through the launcher, and answers the unit's name.
+    /// What systemd says of `unit`: its `LoadState` and its `ActiveState`.
+    fn unit_state(unit: &str) -> Result<(String, String)> {
+        let text = call(
+            SYSTEMCTL,
+            &[
+                "--user",
+                "show",
+                "-p",
+                "LoadState",
+                "-p",
+                "ActiveState",
+                unit,
+            ]
+            .map(str::to_owned),
+        )
+        .with_context(|| format!("read the state of the unit {unit}"))?;
+        let value = |key: &str| {
+            text.lines()
+                .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        };
+        Ok((value("LoadState"), value("ActiveState")))
+    }
+
+    /// Waits until systemd has no unit `unit` loaded, within [`GONE_WAIT`]: one that is stopping
+    /// is waited for, one that is inactive or failed is reset (`systemctl --user reset-failed`)
+    /// so systemd drops it. Fails at once on a unit that runs, and at the bound on one that is
+    /// still there.
+    fn wait_gone(unit: &str) -> Result<()> {
+        let started = Instant::now();
+        loop {
+            let (load, active) = Self::unit_state(unit)?;
+            if load == "not-found" || load.is_empty() {
+                return Ok(());
+            }
+            match active.as_str() {
+                "active" | "activating" | "reloading" | "refreshing" => bail!(
+                    "the unit {unit} still runs (ActiveState={active}): stop it before a session \
+                     starts under its name"
+                ),
+                "inactive" | "failed" => {
+                    call(
+                        SYSTEMCTL,
+                        &["--user", "reset-failed", unit].map(str::to_owned),
+                    )
+                    .with_context(|| format!("reset the unit {unit}"))?;
+                }
+                _ => {}
+            }
+            if started.elapsed() >= GONE_WAIT {
+                bail!(
+                    "the unit {unit} is still there (LoadState={load}, ActiveState={active}) \
+                     after {} s",
+                    GONE_WAIT.as_secs()
+                );
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    /// Starts the unit of `launch`'s session in its instance's slice, once no unit of its name
+    /// is left, running `claude <harness>` through the launcher, and answers the unit's name.
     fn run_unit(launch: &Launch, harness: &[String]) -> Result<String> {
         let request = &launch.request;
+        let unit = unit_name(&request.session_name);
+        Self::wait_gone(&unit)?;
         let slice = slice_name(
             launch
                 .session_prefix
@@ -221,7 +311,6 @@ impl Systemd {
                 .map(|prefix| prefix.0.as_str()),
         );
         Self::set_slice(&slice, &launch.instance_limits)?;
-        let unit = unit_name(&request.session_name);
         let fifo = session_file(&launch.state, &request.session_name, "fifo");
         let typescript = session_file(&launch.state, &request.session_name, "typescript");
         let dir = fifo.parent().unwrap_or(&launch.state);
@@ -427,6 +516,10 @@ impl Provider for Systemd {
 
     fn stop(&mut self, session: &StartedSession, _request: &SessionRequest) -> Result<()> {
         let unit = Self::unit_of(session);
+        let (load, _) = Self::unit_state(&unit)?;
+        if load == "not-found" {
+            return Ok(());
+        }
         call(SYSTEMCTL, &["--user", "stop", &unit].map(str::to_owned))
             .with_context(|| format!("stop the unit {unit}"))?;
         Ok(())

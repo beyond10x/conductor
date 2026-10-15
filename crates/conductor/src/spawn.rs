@@ -1,5 +1,5 @@
-//! `conductor spawn` (`story:spawn`): starts a repository's controller session, and the session
-//! end behind `controller stop-controller`.
+//! `conductor spawn` (`story:spawn`): starts a repository's controller session; and the session
+//! end and resume behind `controller pause-controller`, `resume-controller` and `stop-controller`.
 //!
 //! The command is presented by the `ess-cli/1` binding `crates/conductor/cli.yaml`, over the
 //! `local` callable `spawn`, its input `conductor.dispatch.SpawnController`; each refusal is a
@@ -45,38 +45,48 @@
 //! said; it is recorded `StopController` only when the session list, read again, shows no live
 //! session of the name. A live one, or a list that cannot be read, leaves the controller `Running`,
 //! and the refusal names the session or says so. It prints what `claude --bg` printed: the background session's id.
+//! A provider whose session prints nothing to conductor, as the `systemd` provider's runs in its
+//! unit, answers the id it chose, and `spawn` prints that id on one line.
+//!
+//! [`end`] and [`resume`] stop and resume a controller session through its instance's provider,
+//! for `controller pause-controller`, `resume-controller` and `stop-controller`
+//! ([`crate::controller`]): the session's provider, unit and id are those its measurement
+//! records under the state directory.
 //!
 //! A launch that succeeds appends one `sent` line to the records' dispatch log
 //! ([`crate::records`]): the repository as `repo`, the controller's id, the session name as `to`,
 //! that session id and the charter revision 1.
 
 use std::fs;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{CommandWord, Harness as RoleHarness, Instance, Role};
+use conductor_model::config::{
+    CommandWord, ConfinementProvider, Harness as RoleHarness, Instance, Limits, Network, Role,
+    SessionName,
+};
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
     ControllerAlreadyRunning, DispatchLogEvent, SpawnController, SpawnRefusal, SpawnRefused,
     StartController, StartControllerOutcome, StopController, StopControllerOutcome,
 };
 use conductor_model::observation::{Harness, RepositoryName};
-use conductor_model::session::SessionRequest;
+use conductor_model::session::{SessionRequest, StartedSession};
 use serde_json::Value;
 
-use crate::cli::{SpawnArgs, StopControllerArgs};
+use crate::cli::SpawnArgs;
 use crate::collect::{self, Under};
 use crate::config::{self, Environment};
 use crate::confine::places::{self, Placement};
 use crate::confine::{self, CLAUDE, Launch, Providers, Refusal, live_session};
-use crate::not_implemented;
 
 const COMMAND: &str = "spawn";
 
 /// `conductor spawn`: starts the controller session of `--repository` through the provider the
 /// instance's `confinement` names ([`confine`]) and records the controller `Running`, as the
-/// module documentation says. Prints what `claude --bg` printed.
+/// module documentation says. Prints what `claude --bg` printed, or the id the provider chose.
 ///
 /// # Errors
 ///
@@ -177,66 +187,20 @@ pub fn spawn(
         }
     };
 
-    let request = SessionRequest {
-        role: config::CONTROLLER.to_owned(),
-        session_name: session_name.clone(),
-        cwd: checkout.display().to_string(),
-        limits: controller.limits.clone(),
-        writable: places::resolve(
-            &controller.writable,
-            &Placement {
-                home: home.to_owned(),
-                tmpdir: confine::tmpdir(),
-                start: checkout.clone(),
-                repository: Some(repository.clone()),
-                trees: PathBuf::from(&instance.checkouts.trees),
-                records: PathBuf::from(&instance.records),
-                harness: controller.harness,
-                controller: true,
-            },
-        ),
-        network: controller.network,
-        forge_token_env: controller.forge_token_env.clone(),
-    };
-    let mut env = Vec::new();
-    if active.from_file {
-        // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
-        // path would name a file of the repository.
-        let (file, _) = config::locate(config_flag, &environment).context(COMMAND)?;
-        env.push((
-            config::INSTANCE_VARIABLE.to_owned(),
-            instance.name.0.clone(),
-        ));
-        env.push((
-            config::CONFIG_VARIABLE.to_owned(),
-            environment.cwd.join(file).display().to_string(),
-        ));
-    }
     let state_dir = crate::state::dir(state)?;
-    let launch = Launch {
-        request,
-        session_prefix: instance.session_prefix.clone(),
-        instance_limits: instance.confinement.limits.clone(),
-        state: state_dir.clone(),
-        program: CLAUDE.to_owned(),
-        args: [
-            "-n",
-            &session_name.0,
-            "--append-system-prompt-file",
-            &profile,
-            "--model",
-            &model,
-            "--permission-mode",
-            "bypassPermissions",
-            "--setting-sources",
-            "project,local",
-            "--settings",
-            &settings,
-        ]
-        .map(str::to_owned)
-        .to_vec(),
-        env,
-    };
+    let launch = controller_launch(
+        config_flag,
+        &state_dir,
+        &ControllerRole {
+            role: controller,
+            profile: &profile,
+            settings: &settings,
+            model: &model,
+        },
+        &repository,
+        &checkout,
+        &environment,
+    )?;
     // The none provider's launch is `claude --bg`; another provider's is its own start.
     let launcher = if chosen.name() == "none" {
         format!("{CLAUDE} --bg")
@@ -246,6 +210,14 @@ pub fn spawn(
     let failure = match chosen.start(&launch, &charter, &state_dir) {
         Ok(started) => {
             confine::pass_through(&started.said)?;
+            // A provider whose harness printed nothing, as the systemd provider's session in its
+            // unit prints nothing to conductor, still answers the session's id: spawn prints it.
+            if started.said.stdout.is_empty()
+                && let Some(id) = &started.session.session_id
+            {
+                writeln!(io::stdout().lock(), "{id}")
+                    .context("write the session's id to standard output")?;
+            }
             let mut line = crate::records::dispatch_line(DispatchLogEvent::Sent, &repository)?;
             line.controller_id = Some(controller_id.0.0.clone());
             line.to = Some(session_name.0.clone());
@@ -347,13 +319,235 @@ fn refuse_confined(
     }
 }
 
-/// Ends the controller session `args.controller_id` names.
+/// The controller role and the files it starts with, each checked to be one ([`role`]).
+struct ControllerRole<'r> {
+    role: &'r Role,
+    profile: &'r str,
+    settings: &'r str,
+    model: &'r str,
+}
+
+/// The launch of `repository`'s controller session in `checkout`, as the module documentation
+/// gives it: the controller role's request, the harness arguments before the charter, and with a
+/// config file the instance's name and the file's absolute path for the session.
+fn controller_launch(
+    config_flag: Option<&Path>,
+    state_dir: &Path,
+    controller: &ControllerRole<'_>,
+    repository: &str,
+    checkout: &Path,
+    environment: &Environment,
+) -> Result<Launch> {
+    let active = config::active();
+    let instance = &active.instance;
+    let home = environment.home().context(COMMAND)?;
+    let session_name = config::session_name(instance, repository);
+    let role = controller.role;
+    let request = SessionRequest {
+        role: config::CONTROLLER.to_owned(),
+        session_name: session_name.clone(),
+        cwd: checkout.display().to_string(),
+        limits: role.limits.clone(),
+        writable: places::resolve(
+            &role.writable,
+            &Placement {
+                home: home.to_owned(),
+                tmpdir: confine::tmpdir(),
+                start: checkout.to_owned(),
+                repository: Some(repository.to_owned()),
+                trees: PathBuf::from(&instance.checkouts.trees),
+                records: PathBuf::from(&instance.records),
+                harness: role.harness,
+                controller: true,
+            },
+        ),
+        network: role.network,
+        forge_token_env: role.forge_token_env.clone(),
+    };
+    let mut env = Vec::new();
+    if active.from_file {
+        // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
+        // path would name a file of the repository.
+        let (file, _) = config::locate(config_flag, environment).context(COMMAND)?;
+        env.push((
+            config::INSTANCE_VARIABLE.to_owned(),
+            instance.name.0.clone(),
+        ));
+        env.push((
+            config::CONFIG_VARIABLE.to_owned(),
+            environment.cwd.join(file).display().to_string(),
+        ));
+    }
+    Ok(Launch {
+        request,
+        session_prefix: instance.session_prefix.clone(),
+        instance_limits: instance.confinement.limits.clone(),
+        state: state_dir.to_owned(),
+        program: CLAUDE.to_owned(),
+        args: [
+            "-n",
+            &session_name.0,
+            "--append-system-prompt-file",
+            controller.profile,
+            "--model",
+            controller.model,
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "project,local",
+            "--settings",
+            controller.settings,
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        env,
+    })
+}
+
+/// The session `name` as its measurement under the state directory records it, or `None` when
+/// none was written: a session no provider of this build started.
+fn recorded_session(state_dir: &Path, name: &SessionName) -> Result<Option<StartedSession>> {
+    Ok(confine::read_measurement(state_dir, name)?.map(|measurement| measurement.session))
+}
+
+/// Ends the controller session `session_name`, the one behind `controller pause-controller` and
+/// `controller stop-controller`, through the provider its measurement names: the `systemd`
+/// provider stops its unit (`systemctl --user stop`; nothing when the unit is gone already), the
+/// `none` provider a session the session list shows live (`claude stop`, `claude rm`). The
+/// measurement stays: it holds the id a resume starts from. A session with no measurement is left
+/// as it is.
+///
+/// Answers the session's name and id when a session was stopped, `None` otherwise.
 ///
 /// # Errors
 ///
-/// [`NotImplemented`](crate::NotImplemented): no command ends a session yet.
-pub fn end(_args: &StopControllerArgs) -> Result<ExitCode> {
-    not_implemented("spawn end")
+/// The measurement or the session list cannot be read, or the provider did not stop the session.
+pub fn end(
+    state: Option<&Path>,
+    repository: &str,
+    session_name: &SessionName,
+    providers: &dyn Providers,
+) -> Result<Option<String>> {
+    let state_dir = crate::state::dir(state)?;
+    let Some(session) = recorded_session(&state_dir, session_name)? else {
+        return Ok(None);
+    };
+    let systemd = session.provider == "systemd";
+    if !systemd && live_session(&session_name.0)?.is_none() {
+        return Ok(None);
+    }
+    let mut provider = providers.provider(if systemd {
+        ConfinementProvider::Systemd
+    } else {
+        ConfinementProvider::None
+    });
+    let instance = &config::active().instance;
+    let cwd = checkout(instance, repository).map_or_else(
+        |_| instance.checkouts.root.clone(),
+        |dir| dir.display().to_string(),
+    );
+    let request = SessionRequest {
+        role: config::CONTROLLER.to_owned(),
+        session_name: session_name.clone(),
+        cwd,
+        limits: Limits {
+            memory_max: None,
+            cpu_weight: None,
+            tasks_max: None,
+        },
+        writable: Vec::new(),
+        network: Network::Open,
+        forge_token_env: Vec::new(),
+    };
+    provider
+        .stop(&session, &request)
+        .with_context(|| format!("stop the controller session {}", session_name.0))?;
+    Ok(Some(format!(
+        "{} ({})",
+        session_name.0,
+        session.session_id.as_deref().unwrap_or("with no id")
+    )))
+}
+
+/// Resumes `repository`'s controller session `session_name` from its transcript through the
+/// provider the instance's `confinement` names ([`confine::choose`]), with the launch `spawn`
+/// starts it with, and writes its new measurement: the `systemd` provider starts a new unit of the
+/// session's name running `claude --resume <id>` once the old unit is gone, the `none` provider
+/// runs `claude --bg --resume <id>`. The session's id is the one its measurement records.
+///
+/// A session with no measurement, or one the session list shows live, is left as it is: there
+/// is nothing to resume.
+///
+/// Answers the session's name and id, and the unit it runs in now, when a session was resumed.
+///
+/// # Errors
+///
+/// The measurement or the session list cannot be read; the measurement records no id; the
+/// checkout or the controller role no longer holds; under `strict` the provider is not
+/// available, or the resumed box measures short of the request and is stopped again; the
+/// provider's resume fails.
+pub fn resume(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    repository: &str,
+    session_name: &SessionName,
+    providers: &dyn Providers,
+) -> Result<Option<String>> {
+    let state_dir = crate::state::dir(state)?;
+    let Some(session) = recorded_session(&state_dir, session_name)? else {
+        return Ok(None);
+    };
+    if session.session_id.is_none() {
+        bail!(
+            "the measurement of the session {} records no id to resume it from: stop the \
+             controller and spawn it again",
+            session_name.0
+        );
+    }
+    if live_session(&session_name.0)?.is_some() {
+        return Ok(None);
+    }
+    let instance = &config::active().instance;
+    let checkout = checkout(instance, repository).map_err(|detail| anyhow!("{detail}"))?;
+    let (controller, profile, settings, model) =
+        role(instance).map_err(|(_, detail)| anyhow!("{detail}"))?;
+    let environment = Environment::from_process().context(COMMAND)?;
+    let launch = controller_launch(
+        config_flag,
+        &state_dir,
+        &ControllerRole {
+            role: controller,
+            profile: &profile,
+            settings: &settings,
+            model: &model,
+        },
+        repository,
+        &checkout,
+        &environment,
+    )?;
+    let chosen = confine::choose(providers, &instance.confinement)
+        .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
+    let started = chosen
+        .resume(&session, &launch, &state_dir)
+        .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
+    let id = started
+        .session
+        .session_id
+        .as_deref()
+        .unwrap_or("with no id");
+    Ok(Some(match &started.session.unit {
+        Some(unit) => format!("{} ({id}) in {unit}", session_name.0),
+        None => format!("{} ({id})", session_name.0),
+    }))
+}
+
+/// What a refusal of the confinement says, named.
+fn refusal_detail(refusal: Refusal) -> String {
+    match refusal {
+        Refusal::ProviderUnavailable(detail) => format!("ProviderUnavailable: {detail}"),
+        Refusal::MeasurementShort(detail) => format!("MeasurementShort: {detail}"),
+        Refusal::LaunchFailed { detail, .. } => format!("LaunchFailed: {detail}"),
+    }
 }
 
 /// Answers a refusal: one line naming its `SpawnRefusal`, and exit 1.
