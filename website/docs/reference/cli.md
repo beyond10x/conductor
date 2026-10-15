@@ -134,6 +134,7 @@ Every command takes these, before or after its name.
 | [`conductor host reserve-disk`](#conductor-host-reserve-disk) | Answer a disk request |
 | [`conductor host start-run`](#conductor-host-start-run) | Start the reserved run |
 | [`conductor host take-host-grant`](#conductor-host-take-host-grant) | Take a host grant |
+| [`conductor host withdraw-disk-request`](#conductor-host-withdraw-disk-request) | Withdraw a waiting disk request |
 | [`conductor host grants`](#conductor-host-grants) | Host grants |
 | [`conductor host reclaim-runs`](#conductor-host-reclaim-runs) | Reclaim runs |
 | [`conductor host reclaim`](#conductor-host-reclaim) | Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached |
@@ -1683,6 +1684,20 @@ Usage: conductor host take-host-grant [OPTIONS]
 | `--bytes <BYTES>` | no | none | integer, optional |
 | `--session-name <SESSION_NAME>` | no | none | SessionName |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor host withdraw-disk-request`
+
+Withdraw a waiting disk request
+
+```text
+Usage: conductor host withdraw-disk-request [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--grant-id <GRANT_ID>` | no | none | GrantId |
+| `--withdrawn-at <WITHDRAWN_AT>` | no | none | timestamp, RFC 3339 |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host grants`

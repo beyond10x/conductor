@@ -16,17 +16,21 @@ mod common;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use conductor_cli::build::{self, Outcome, Request, Settings, Sources};
-use conductor_cli::gc::reclaim::ReclaimReport;
+use conductor_cli::gc::reclaim::{READINGS_VARIABLE, ReclaimReport, VAR_TMP_VARIABLE};
 use conductor_cli::host;
 use conductor_model::behaviour::DecisionRequestStorage as _;
 use conductor_model::decision::{DecisionClass, DecisionRequestState};
 use conductor_model::host::{GrantKind, HostGrantState, ReleaseReason};
+use nix::sys::signal::{Signal, kill, killpg};
+use nix::unistd::Pid;
+use serde_json::Value;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 const GIB: u64 = 1 << 30;
 
@@ -1677,4 +1681,258 @@ fn the_ledger_lock_is_free_while_a_reclaim_runs() {
         matches!(outcome, Outcome::Refused { .. }),
         "refused: {outcome:?}"
     );
+}
+
+/// `story:build-run-cancel-group`: what the binary's cases of a signal to `build run` share. The
+/// binary runs with the case's home, its state directory, free disk read from `readings.txt`
+/// (1000G: every reservation fits and no reclaim runs) and the case's `var-tmp/`.
+impl Case {
+    fn binary(&self, args: &[&str]) -> Command {
+        let home = self.dir.join("home");
+        fs::create_dir_all(&home).expect("create the case's home");
+        let readings = self.dir.join("readings.txt");
+        fs::write(&readings, format!("{}\n", 1000 * GIB)).expect("write the readings");
+        let mut command = common::conductor(&home);
+        command
+            .arg("--state-dir")
+            .arg(self.state())
+            .args(args)
+            .env(READINGS_VARIABLE, &readings)
+            .env(VAR_TMP_VARIABLE, self.var_tmp())
+            .current_dir(self.work())
+            .stdin(Stdio::null());
+        command
+    }
+
+    /// `build run --reserve 1G -- sh -c <script>`, started.
+    fn build_run(&self, script: &str) -> Running {
+        let child = self
+            .binary(&["build", "run", "--reserve", "1G", "--", "sh", "-c", script])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("conductor runs");
+        Running { child, group: None }
+    }
+
+    /// The row of `host grants --format json` whose command is `sh -c <script>`.
+    fn grant_row(&self, script: &str) -> Option<Value> {
+        let output = self
+            .binary(&["host", "grants", "--format", "json"])
+            .output()
+            .expect("conductor runs");
+        if !output.status.success() {
+            return None;
+        }
+        let rows: Value = serde_json::from_slice(&output.stdout).ok()?;
+        let command = format!("sh -c {script}");
+        rows.as_array()?
+            .iter()
+            .find(|row| row["command"] == command.as_str())
+            .cloned()
+    }
+}
+
+/// A `build run` a case started, and the process group of its command once known: both are
+/// killed when the case ends, passed or not.
+struct Running {
+    child: Child,
+    group: Option<i32>,
+}
+
+impl Running {
+    /// Sends `signal` to `build run` itself, not to its command's group.
+    fn signal(&self, signal: Signal) {
+        let pid = i32::try_from(self.child.id()).expect("a pid");
+        kill(Pid::from_raw(pid), signal).expect("signal build run");
+    }
+
+    /// The exit of `build run`, within 30 seconds.
+    fn exit(&mut self) -> ExitStatus {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if let Some(status) = self.child.try_wait().expect("wait for build run") {
+                return status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "build run did not exit within 30 seconds of the signal"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        if let Some(group) = self.group {
+            let _ = killpg(Pid::from_raw(group), Signal::SIGKILL);
+        }
+    }
+}
+
+/// `story:build-run-cancel-group`: `signal` to a `build run` whose command runs stops the whole
+/// process group of the command, the background member `script` starts included; the grant is
+/// released as killed, and `build run` exits with 128 + the signal.
+fn a_signal_stops_the_running_group(name: &str, signal: Signal, script: &str) {
+    let case = Case::new(name);
+    let mut run = case.build_run(script);
+    let mut group = None;
+    wait_until("the command runs in its process group", || {
+        group = case
+            .grant_row(script)
+            .filter(|row| row["state"] == "Running")
+            .and_then(|row| row["process_group"].as_i64());
+        group.is_some()
+    });
+    let group = group.expect("a process group");
+    run.group = Some(i32::try_from(group).expect("a process group id"));
+    // The script's background member starts.
+    wait_until("the background member runs", || {
+        case.work().join("started").exists()
+    });
+    run.signal(signal);
+    let status = run.exit();
+    assert_eq!(
+        status.code(),
+        Some(128 + signal as i32),
+        "build run exits with 128 + {signal}: {status}"
+    );
+    wait_until("no process of the group is left", || !host::alive(group));
+    let row = case.grant_row(script).expect("the grant is listed");
+    assert_eq!(row["state"], "Released", "{row}");
+    assert_eq!(row["release_reason"], "Killed", "{row}");
+}
+
+/// The payload of the running cases: a background `sleep` and a foreground one, in one group.
+const PAYLOAD: &str = "sleep 600 & touch started; sleep 600; wait";
+
+/// The review's probe, `cancelling_build_wrapper_must_stop_its_payload`: SIGTERM.
+#[test]
+fn cancelling_build_wrapper_must_stop_its_payload() {
+    a_signal_stops_the_running_group("cancel-term", Signal::SIGTERM, PAYLOAD);
+}
+
+#[test]
+fn sigint_to_build_run_stops_its_whole_group() {
+    a_signal_stops_the_running_group("cancel-int", Signal::SIGINT, PAYLOAD);
+}
+
+#[test]
+fn sighup_to_build_run_stops_its_whole_group() {
+    a_signal_stops_the_running_group("cancel-hup", Signal::SIGHUP, PAYLOAD);
+}
+
+/// A group that ignores the forwarded signal is killed once the grace period has passed.
+#[test]
+fn a_group_that_ignores_the_signal_is_killed_after_the_grace_period() {
+    a_signal_stops_the_running_group(
+        "cancel-ignored",
+        Signal::SIGTERM,
+        "trap '' TERM; sleep 600 & touch started; sleep 600; wait",
+    );
+}
+
+/// `story:build-run-cancel-group`: `signal` to a `build run` whose request still waits in the
+/// queue withdraws the request: the grant reads `Withdrawn`, its command never ran, and `build
+/// run` exits with 128 + the signal. The request ahead of it is one `host request-disk` recorded
+/// a minute before, whose run lock the case holds as its waiter would.
+fn a_signal_withdraws_the_queued_request(name: &str, signal: Signal) {
+    let case = Case::new(name);
+    let before = (OffsetDateTime::now_utc() - time::Duration::minutes(1))
+        .format(&Rfc3339)
+        .expect("a time");
+    let head = case
+        .binary(&[
+            "host",
+            "request-disk",
+            "--instance",
+            "example-org",
+            "--bytes",
+            "1073741824",
+            "--command",
+            "sh -c head",
+            "--requested-at",
+            &before,
+        ])
+        .output()
+        .expect("conductor runs");
+    assert!(head.status.success(), "{head:?}");
+    let head = conductor_model::host::GrantId(
+        String::from_utf8(head.stdout)
+            .expect("a grant id")
+            .trim()
+            .to_owned(),
+    );
+    let _waiter = host::hold_run(&case.state(), &head).expect("hold the head's run lock");
+    let script = "touch ran";
+    let mut run = case.build_run(script);
+    wait_until("the request waits in the queue", || {
+        case.grant_row(script)
+            .is_some_and(|row| row["state"] == "Requested")
+    });
+    // Behind the head, it stays queued.
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        case.grant_row(script).map(|row| row["state"].clone()),
+        Some(Value::from("Requested"))
+    );
+    run.signal(signal);
+    let status = run.exit();
+    assert_eq!(
+        status.code(),
+        Some(128 + signal as i32),
+        "build run exits with 128 + {signal}: {status}"
+    );
+    let row = case.grant_row(script).expect("the request is listed");
+    assert_eq!(row["state"], "Withdrawn", "{row}");
+    assert_eq!(row["process_group"], Value::Null, "{row}");
+    assert!(!case.work().join("ran").exists(), "the command never ran");
+    assert_eq!(
+        case.grant_row("head").map(|row| row["state"].clone()),
+        Some(Value::from("Requested")),
+        "the request ahead is left"
+    );
+    // `host withdraw-disk-request` withdraws a waiting request once, and refuses it then.
+    let withdraw = || {
+        case.binary(&[
+            "host",
+            "withdraw-disk-request",
+            "--grant-id",
+            &head.0,
+            "--withdrawn-at",
+            "2026-10-15T12:00:00Z",
+        ])
+        .output()
+        .expect("conductor runs")
+    };
+    let withdrawn = withdraw();
+    assert!(withdrawn.status.success(), "{withdrawn:?}");
+    assert_eq!(
+        case.grant_row("head").map(|row| row["state"].clone()),
+        Some(Value::from("Withdrawn"))
+    );
+    let again = withdraw();
+    assert_eq!(again.status.code(), Some(1), "withdrawn twice: {again:?}");
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("HostGrantStateConflict"),
+        "{again:?}"
+    );
+}
+
+#[test]
+fn sigterm_withdraws_a_queued_request() {
+    a_signal_withdraws_the_queued_request("withdraw-term", Signal::SIGTERM);
+}
+
+#[test]
+fn sigint_withdraws_a_queued_request() {
+    a_signal_withdraws_the_queued_request("withdraw-int", Signal::SIGINT);
+}
+
+#[test]
+fn sighup_withdraws_a_queued_request() {
+    a_signal_withdraws_the_queued_request("withdraw-hup", Signal::SIGHUP);
 }

@@ -85,6 +85,7 @@ components:
         - conductor.host.StartRun
         - conductor.host.RecordPeak
         - conductor.host.ReleaseGrant
+        - conductor.host.WithdrawDiskRequest
         - conductor.host.Reclaim
     publishes:
       events:
@@ -149,6 +150,7 @@ components:
         - conductor.host.RunStarted
         - conductor.host.PeakRecorded
         - conductor.host.HostGrantReleased
+        - conductor.host.DiskRequestWithdrawn
         - conductor.host.DiskReclaimed
         - conductor.host.ReclaimFloorNotReached
     reached_by: command_line
@@ -286,6 +288,7 @@ components:
             - conductor.host.StartRun
             - conductor.host.RecordPeak
             - conductor.host.ReleaseGrant
+            - conductor.host.WithdrawDiskRequest
             - conductor.host.Reclaim
           views:
             - conductor.host.Grants

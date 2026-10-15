@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
-// contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
+// model digest c0ef1a3324c23839f6b0f302cb9b8876c8f8ee3cc64ed3ddd1fc90c460de2ff0
+// contract digest 09b9e3b36ca9a47ec158ccc6b2bc1ff55dce758a3c5b278524c692c68a35baf2
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -62,6 +62,8 @@ pub enum HostGrantState {
     Requested,
     /// `Running`.
     Running,
+    /// `Withdrawn`.
+    Withdrawn,
 }
 
 /// LeftOver — `conductor.host.LeftOver`.
@@ -208,6 +210,7 @@ pub mod host_grant_state {
         impl Sealed for super::Released {}
         impl Sealed for super::Requested {}
         impl Sealed for super::Running {}
+        impl Sealed for super::Withdrawn {}
     }
 
     /// A declared state of `HostGrant`, as a type.
@@ -249,6 +252,13 @@ pub mod host_grant_state {
 
     impl Marker for Running {
         const STATE: super::HostGrantState = super::HostGrantState::Running;
+    }
+
+    /// `Withdrawn`. Terminal: an instance may rest here forever.
+    pub struct Withdrawn;
+
+    impl Marker for Withdrawn {
+        const STATE: super::HostGrantState = super::HostGrantState::Withdrawn;
     }
 }
 
@@ -335,6 +345,14 @@ impl HostGrant<host_grant_state::Requested> {
             state: core::marker::PhantomData,
         }
     }
+
+    /// `withdraw` — `Requested` → `Withdrawn`. Taken by the `withdrawn` outcome of `conductor.host.WithdrawDiskRequest`.
+    pub fn withdraw(self) -> HostGrant<host_grant_state::Withdrawn> {
+        HostGrant {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
 }
 
 impl HostGrant<host_grant_state::Running> {
@@ -371,6 +389,8 @@ pub enum AnyHostGrant {
     Requested(HostGrant<host_grant_state::Requested>),
     /// Resting in `Running`.
     Running(HostGrant<host_grant_state::Running>),
+    /// Resting in `Withdrawn`.
+    Withdrawn(HostGrant<host_grant_state::Withdrawn>),
 }
 
 impl HostGrantSnapshot {
@@ -400,6 +420,10 @@ impl HostGrantSnapshot {
                 data: self.data,
                 state: core::marker::PhantomData,
             }),
+            HostGrantState::Withdrawn => AnyHostGrant::Withdrawn(HostGrant {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
         }
     }
 }
@@ -413,6 +437,7 @@ impl AnyHostGrant {
             Self::Released(_) => HostGrantState::Released,
             Self::Requested(_) => HostGrantState::Requested,
             Self::Running(_) => HostGrantState::Running,
+            Self::Withdrawn(_) => HostGrantState::Withdrawn,
         }
     }
 
@@ -437,6 +462,10 @@ impl AnyHostGrant {
             },
             Self::Running(instance) => HostGrantSnapshot {
                 state: HostGrantState::Running,
+                data: instance.into_data(),
+            },
+            Self::Withdrawn(instance) => HostGrantSnapshot {
+                state: HostGrantState::Withdrawn,
                 data: instance.into_data(),
             },
         }
@@ -933,6 +962,47 @@ pub enum TakeHostGrantOutcome {
     },
 }
 
+/// Withdraw a waiting disk request — the input of `conductor.host.WithdrawDiskRequest`.
+///
+/// Everything it can result in is [`WithdrawDiskRequestOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WithdrawDiskRequest {
+    /// `grant_id` — `conductor.host.GrantId`.
+    pub grant_id: GrantId,
+    /// `withdrawn_at` — `Timestamp`.
+    pub withdrawn_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.host.WithdrawDiskRequest` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WithdrawDiskRequestOutcome {
+    /// `withdrawn` — otherwise.
+    ///
+    /// The request leaves the queue; the requests behind it move up.
+    Withdrawn {
+        /// The `conductor.host.DiskRequestWithdrawn` this outcome publishes.
+        disk_request_withdrawn: DiskRequestWithdrawn,
+    },
+    /// `no-such-grant` — for an identity no record carries.
+    ///
+    /// No grant with that id.
+    NoSuchGrant {
+        /// Why it was refused: `conductor.host.HostGrantNotFound`.
+        error: HostGrantNotFound,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// Only a request still waiting is withdrawn; an answered one is released or was refused.
+    WrongState {
+        /// Why it was refused: `conductor.host.HostGrantStateConflict`.
+        error: HostGrantStateConflict,
+    },
+}
+
 /// DiskReclaimed — the event `conductor.host.DiskReclaimed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskReclaimed {
@@ -940,6 +1010,13 @@ pub struct DiskReclaimed {
     pub reclaim_run_id: ReclaimRunId,
     /// `reclaimed_bytes` — `Integer`.
     pub reclaimed_bytes: i64,
+}
+
+/// DiskRequestWithdrawn — the event `conductor.host.DiskRequestWithdrawn`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskRequestWithdrawn {
+    /// `grant_id` — `conductor.host.GrantId`.
+    pub grant_id: GrantId,
 }
 
 /// DiskRequested — the event `conductor.host.DiskRequested`.
@@ -1217,6 +1294,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
         fn take_host_grant(&mut self, input: super::TakeHostGrant) -> Result<super::TakeHostGrantOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.host.WithdrawDiskRequest` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait WithdrawDiskRequestBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.host.WithdrawDiskRequest`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn withdraw_disk_request(&mut self, input: super::WithdrawDiskRequest) -> Result<super::WithdrawDiskRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.host.Grants` — generated.

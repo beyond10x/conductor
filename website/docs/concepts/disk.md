@@ -42,7 +42,9 @@ only what needs no decision, in order, until the reservation fits:
 - snapshots past retention.
 
 Each step is recorded with the path it removed and the bytes it freed. A tree a live session works
-in, or a running gate's target, is never touched. The watch also runs a reclaim once each time free
+in, or a running gate's target, is never touched. Nor are the instance's records, state,
+checkouts or trees, however a symbolic link leads into them: a scratch root that is itself a link is skipped,
+and a stale scratch entry that is a link is removed as a link, never followed. The watch also runs a reclaim once each time free
 disk falls under `thresholds.disk_admit`, so space is freed before anyone asks.
 
 ## 3. Watch the run
@@ -52,6 +54,12 @@ Once granted, the command runs in its own process group under a disk watchdog. U
 resumes. The peak of the directories the command writes (the tree's `target/`, or the working
 directory) is recorded with the reservation, and the reservation is released when the command
 exits or is killed. `conductor build run` exits with the command's own status.
+
+Stopping `conductor build run` with SIGTERM, SIGINT or SIGHUP stops the build with it. The signal
+is forwarded to the command's whole process group; a group with a process left 10 seconds later is
+killed. The peak is recorded, the reservation is released, and `conductor build run` exits with
+128 plus the signal. A request still waiting in the queue is withdrawn instead (state `Withdrawn`
+in `conductor host grants`), and its command never starts.
 
 ## 4. Escalate
 
