@@ -13,6 +13,7 @@
 //! they stopped or resumed, and nothing when they touched none; the other commands print nothing. A refusal the specification declares exits 1 with one line on
 //! standard error that names its error. Input through `--input-json -` is not written yet.
 
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
@@ -99,14 +100,18 @@ pub fn start_controller(state: Option<&Path>, args: StartControllerArgs) -> Resu
         }
         StartControllerOutcome::AlreadyRunning {
             error: ControllerAlreadyRunning { repository },
-        } => refused(
-            WHAT,
-            "ControllerAlreadyRunning",
-            &format!(
-                "repository {:?} already has a running or paused controller",
-                repository.0
-            ),
-        ),
+        } => {
+            let held = holder(&generated, &repository)
+                .map_or_else(String::new, |held| format!(": controller {held}"));
+            refused(
+                WHAT,
+                "ControllerAlreadyRunning",
+                &format!(
+                    "repository {:?} already has a running or paused controller{held}",
+                    repository.0
+                ),
+            )
+        }
     }
 }
 
@@ -384,13 +389,57 @@ pub fn controllers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 /// ([`crate::spawn`]).
 pub(crate) struct Ports {
     pub(crate) store: Store,
+    /// The controllers' lock ([`LOCK`]), held as long as the ports are.
+    _lock: File,
 }
 
-/// Opens the store a command records into, creating it when it is not there.
+/// The lock in the state directory every command that records a controller holds from before it
+/// reads the controllers until its record is kept (`story:controller-start-atomic`): the check
+/// that a repository has no running or paused controller and the start that records one are then
+/// one step, however many starts race. The store's own writer lock is taken by each commit and
+/// cannot be held across one, so this lock, as the host ledger's (`host.lock`), is held instead.
+const LOCK: &str = "controllers.lock";
+
+/// Opens the store a command records into, creating it when it is not there, under the
+/// controllers' lock ([`LOCK`]), which is held until the answer is dropped.
 pub(crate) fn record(state: Option<&Path>) -> Result<Generated<Ports>> {
-    Ok(Generated::new(Ports {
-        store: crate::state::open(state)?,
-    }))
+    let dir = crate::state::dir(state)?;
+    // The store is opened first, so a state directory it refuses (one `conductor store migrate`
+    // is to move) is left as it was. It reads the tree again at each read after another writer
+    // committed, so the reads under the lock see every start kept before it.
+    let store = crate::store::open(&dir)?;
+    let path = dir.join(LOCK);
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("open the controllers' lock {}", path.display()))?;
+    lock.lock()
+        .with_context(|| format!("lock the controllers {}", path.display()))?;
+    Ok(Generated::new(Ports { store, _lock: lock }))
+}
+
+/// The running or paused controller of `repository`, as `<id> (<state>, session <name>)`, read
+/// from the store `generated` holds; none when there is none.
+pub(crate) fn holder(generated: &Generated<Ports>, repository: &RepositoryName) -> Option<String> {
+    ControllerStorage::list(&generated.ports.store)
+        .into_iter()
+        .find(|held| {
+            held.data.repository == *repository
+                && matches!(
+                    held.state,
+                    ControllerState::Running | ControllerState::Paused
+                )
+        })
+        .map(|held| {
+            format!(
+                "{} ({}, session {})",
+                held.data.controller_id.0.0,
+                state_name(held.state),
+                held.data.session_name.0
+            )
+        })
 }
 
 impl ControllerStorage for Ports {
