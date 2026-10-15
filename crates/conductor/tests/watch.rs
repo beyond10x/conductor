@@ -2375,6 +2375,59 @@ fn the_binary_keeps_watching_without_a_line_while_no_source_answers() {
     );
 }
 
+/// `story:store-readers-hold-no-writer-lock`: a `watch run --follow` that has passed once over a
+/// store with a complete snapshot, and sleeps until its next pass, holds neither store's writer
+/// lock, so a snapshot another process takes, which appends to `tree/` and to `observations/`,
+/// ends within 2 s.
+#[test]
+fn a_following_watch_asleep_between_passes_lets_another_process_append_within_2s() {
+    let case = Case::new("binary-asleep-holds-no-lock");
+    let (home, work, bin) = case.binary_dirs();
+    let state = case.dir.join("state");
+    let taken = snapshot::take_in(&state, &[]).expect("the first snapshot ends");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+    let config = case.config(&acme_config(
+        "\x20   thresholds: {disk_low: 1G, disk_clear: 2G, disk_admit: 1G, gate_stop: 1G, \
+         gate_resume: 2G}\n",
+    ));
+    let watch = common::conductor(&home)
+        .arg("--state-dir")
+        .arg(&state)
+        .args(["watch", "run", "--follow", "--every", "60"])
+        .current_dir(&work)
+        .env("PATH", &bin)
+        .env(config::CONFIG_VARIABLE, &config)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the conductor binary starts");
+    // The disk probe writes `disk.free` in the first pass; the usage and decision probes, which
+    // read both stores, follow it within the pass. A second later the watch sleeps for 60 s.
+    wait_for("the watch's first pass", || {
+        state.join("watch").join("disk.free").is_file()
+    });
+    thread::sleep(Duration::from_secs(1));
+
+    let (sender, receiver) = mpsc::channel();
+    let appending = state.clone();
+    thread::spawn(move || {
+        let _ = sender.send(snapshot::take_in(&appending, &[]).map(|taken| taken.state));
+    });
+    let appended = receiver.recv_timeout(Duration::from_secs(2));
+    let (code, stdout, stderr) = finish(watch, Duration::ZERO);
+    assert_eq!(code, None, "the watch ended: {stdout} {stderr}");
+    match appended {
+        Ok(Ok(SnapshotState::Complete)) => {}
+        Ok(other) => panic!("the second snapshot did not complete: {other:?}"),
+        Err(RecvTimeoutError::Timeout) => panic!(
+            "a snapshot from another process waited over 2 s on a store lock the sleeping \
+             watch holds"
+        ),
+        Err(RecvTimeoutError::Disconnected) => panic!("the appending thread panicked"),
+    }
+}
+
 #[test]
 fn the_binary_refuses_an_interval_of_zero() {
     let case = Case::new("zero");

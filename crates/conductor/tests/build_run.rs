@@ -1165,6 +1165,55 @@ fn two_runs_at_once_each_reserve_and_the_second_sees_the_first() {
     assert!(live.is_empty(), "every grant is released: {live:?}");
 }
 
+/// `story:store-readers-hold-no-writer-lock`: a run whose store's tree lock another writer holds
+/// waits for it without holding `host.lock`, so the host's other runs are not queued behind it;
+/// once the tree lock is let go, the run reserves and runs its command.
+#[test]
+fn a_run_waiting_on_the_stores_tree_lock_does_not_hold_host_lock() {
+    let case = Case::new("tree-lock-without-host-lock");
+    drop(conductor_cli::store::open(&case.state()).expect("the store opens"));
+    let open = |path: PathBuf| {
+        fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .unwrap_or_else(|error| panic!("open {}: {error}", path.display()))
+    };
+    // Another writer, a snapshot say, holds the tree's writer lock.
+    let tree = open(case.state().join("tree").join(".lock"));
+    tree.lock().expect("hold the tree's writer lock");
+
+    let state = case.state();
+    let sources = case.sources(reclaim_nothing);
+    let request = case.request(GIB, "touch ran");
+    let runner = thread::spawn(move || build::run(&state, &settings(), &sources, &request));
+    // Long enough for the run to reach the tree lock; then `host.lock` is read for half a second.
+    thread::sleep(Duration::from_millis(500));
+    let mut held = 0;
+    for _ in 0..10 {
+        let host = open(case.state().join("host.lock"));
+        if host.try_lock().is_err() {
+            held += 1;
+        }
+        drop(host);
+        thread::sleep(Duration::from_millis(50));
+    }
+    let waiting = !runner.is_finished();
+    drop(tree);
+    let outcome = runner
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
+    assert_eq!(
+        held, 0,
+        "build run held host.lock in {held} of 10 reads while it waited on the tree lock"
+    );
+    assert!(waiting, "the run did not wait on the tree lock");
+    assert!(matches!(outcome, Outcome::Ran { code: 0, .. }), "{outcome:?}");
+    assert!(case.work().join("ran").exists(), "the command ran");
+}
+
 /// A running grant holds only what its run has not written yet: free disk already counts the
 /// growth it recorded, so a reservation beside it is not refused for space that is in use.
 #[test]
