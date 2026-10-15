@@ -76,6 +76,7 @@ instances:
           tasks_max: 512
         writable: [checkout, ~/example-org/shared]
         network: open
+        forge_token_env: [EXAMPLE_FORGE_TOKEN]
     confinement:
       mode: strict
       provider: none
