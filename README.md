@@ -18,7 +18,7 @@ on a repository you have: [one task in an existing repository](https://beyond10x
   operator.
 - The `conductor` CLI, written in Rust. It reads the repositories, keeps the records in an
   append-only store, guards every tool call of the sessions, watches for events, and serves a
-  read-only dashboard.
+  dashboard where the operator reads the state and answers decisions.
 - Three generic profiles in [`.agents/`](.agents/) that tell each session what to do. The rules of
   one organization go in its own `rules.md`; this repository ships none.
 
@@ -180,7 +180,7 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
    refuses until one is in place.
 5. `task conductor:start` starts conductor in the background in the records directory;
    `task conductor:attach` opens it in this terminal. `task sessions` lists the sessions and
-   `task dashboard` serves a read-only page on http://127.0.0.1:7313/.
+   `task dashboard` serves the dashboard on http://127.0.0.1:7313/.
 
 Sessions start with `--setting-sources project,local`, so your user-level settings and agents are
 not loaded; the role's settings file carries what the session needs.

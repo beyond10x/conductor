@@ -21,7 +21,7 @@ confinement moves to the next wave.
 | U8 | dashboard-fast | done; merged with U9 (`/api/decisions` and `/api/unanswered` served from the shared memo) |
 | U9 | decisions-page | done |
 | U10 | decisions-batch-answer | in work; adversarial review of its write path before the gate |
-| U11 | guard bot release route | in work on `wave/37-guard`. Operator decision 2026-10-15, option A of conductor's NEED N-20261014-28: release and CI re-run commands through the bot route, for the session's own repository only |
+| U11 | guard bot release route | in work on `wave/37-guard`. Operator decision 2026-10-15 (option A): release and CI re-run commands through the bot route, for the session's own repository only |
 
 Moved to wave 38: session-writes-bwrap, session-forge-credentials, confined-tutorial.
 

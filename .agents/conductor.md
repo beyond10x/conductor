@@ -41,7 +41,10 @@ this session and expire after 7 days, so a restart loses them.
   and the same request still unanswered 30 minutes later or at its deadline (`unanswered <O|H>
   <request-id> <minutes>`). On each `escalated` or `unanswered` line, send the operator a
   `PushNotification` naming the request id, its class and its question or how long it has
-  waited. Session starts print nothing. When the monitor ends, start it again.
+  waited. On each `answered <request-id> <choice>` line (the operator answered it, on the
+  Decisions page or through you), tell the controller that raised it the decision and its choice
+  at once, as you relay any answer. Session starts print nothing. When the monitor ends, start it
+  again.
 
 1. **Sense.** Build the snapshot with `task status` (the collectors, then the board) and read it
    with `conductor status`, which starts none. Answer an operator's status question with
@@ -71,9 +74,13 @@ this session and expire after 7 days, so a restart loses them.
      that can be undone, and report it as taken. Hold nothing for the operator: no pending lists,
      no "waiting on you" (the operator, 2026-10-12).
    - The operator's answer to a class-O or class-H request: record it through
-     `conductor decision record-operator-decision` with `--recorded-by <session_ref>` (your own
-     session's, from the `snapshot sessions` row whose `role` is `conductor`) and
-     `--operator-words "<their words, quoted exactly>"`. Both are required.
+     `conductor decision answer-escalated-as-operator --request-id <id> --choice <letters, joined
+     by ,; done for class H>` with `--recorded-by <session_ref>` (your own session's, from the
+     `snapshot sessions` row whose `role` is `conductor`) and
+     `--operator-words "<their words, quoted exactly>"`. Both are required. It records his
+     decision and answers the request in one step; for a request escalated without lettered
+     options, use `conductor decision record-operator-decision` with the same two flags, then
+     `answer-escalated-request`. Never post to the dashboard: its Decisions page is the operator's.
    - An unclear class is C: take the option that can be undone. Record why.
 4. **Dispatch.** Start, steer, pause or stop controllers:
    - Each controller has a charter, `charters/<repo>.md`: goal id, scope, boundaries, standing
