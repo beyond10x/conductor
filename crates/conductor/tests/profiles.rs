@@ -96,8 +96,8 @@ fn conductor_reads_the_all_sessions_section_only_when_the_file_has_it() {
     assert!(
         text.contains(
             "and, when the file has that section, `conductor rules show --section \"all \
-             sessions\"` (the rules every session follows; when it is refused, skip it: the \
-             refusal names the sections the file has)"
+             sessions\" --brief` (the rules every session follows; when it is refused, skip it: \
+             the refusal names the sections the file has)"
         ),
         "conductor.md: the shared section is read only when the file has it"
     );
@@ -660,12 +660,18 @@ fn conductor_restarts_rarely_and_starts_on_less_reading() {
 
     let conductor = profile("conductor.md");
     for sentence in [
-        "At session start read, in this order: this profile; the rules for your role, through \
-         `conductor rules show --section conductor` and, when the file has that section, \
-         `conductor rules show --section \"all sessions\"` (the rules every session follows; \
-         when it is refused, skip it: the refusal names the sections the file has), not the \
-         whole `rules.md`;",
-        "§§ 4–8 of `docs/design/conductor.md` in the product repository, and no other section;",
+        "At session start read, in this order, and no file twice:",
+        "the titles of the rules for your role: `conductor rules show --section conductor \
+         --brief` and, when the file has that section, `conductor rules show --section \"all \
+         sessions\" --brief` (the rules every session follows; when it is refused, skip it: the \
+         refusal names the sections the file has). Not the whole `rules.md`: read an item whole \
+         with `conductor rules show --item <n>,…` when a cycle needs it;",
+        "the newest hand-over, the one committed last",
+        "only the sections the hand-over points to of §§ 4–8 of `docs/design/conductor.md` in \
+         the product repository, `NORTHSTAR.md` and the newest `STATUS.md`, and no design \
+         section outside §§ 4–8; with no hand-over, those three in full;",
+        "the lines of `decisions/` and `dispatches/` whose `at` is later than the hand-over's \
+         commit time, not the last 50 lines.",
         "When a restart you need cannot be answered because conductor-dev is unreachable",
         "write your hand-over as for `[RESTART conductor]`, commit it, and run `task \
          conductor:restart` yourself",
@@ -680,6 +686,17 @@ fn conductor_restarts_rarely_and_starts_on_less_reading() {
         !conductor.contains("§§ 2–12 of `docs/design/conductor.md`"),
         "conductor.md: the start reads design §§ 4-8 only"
     );
+    // `story:conductor-context-budget`: the start reads rule titles, not the rules in full, and
+    // the log since the hand-over, not a fixed tail of it.
+    for gone in [
+        "the last 50 lines of `decisions/` and `dispatches/`",
+        "`conductor rules show --section conductor` and",
+    ] {
+        assert!(
+            !conductor.contains(gone),
+            "conductor.md: no longer holds {gone:?}"
+        );
+    }
 }
 
 /// `story:conductor-dev-report-form`: conductor-dev answers a NEED in the report form conductor

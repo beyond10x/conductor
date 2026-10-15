@@ -1368,6 +1368,38 @@ fn conductor_settings_wire_the_guard_and_keep_background_isolation_off() {
     assert_eq!(conductor["disableAllHooks"], Value::Bool(false));
 }
 
+/// The tools conductor never calls, which its settings deny so their definitions stop filling
+/// its first-turn context (`story:conductor-context-budget`, measured in
+/// `docs/analysis/conductor-context-budget.md`).
+const CONDUCTOR_DENIED_TOOLS: [&str; 7] = [
+    "Artifact",
+    "Workflow",
+    "ScheduleWakeup",
+    "EnterWorktree",
+    "AskUserQuestion",
+    "ReportFindings",
+    "ShareOnboardingGuide",
+];
+
+#[test]
+fn conductor_settings_deny_the_tools_conductor_never_calls() {
+    let conductor = settings("conductor-settings.json");
+    let denied: Vec<&str> = conductor["permissions"]["deny"]
+        .as_array()
+        .unwrap_or_else(|| panic!("conductor's settings deny a list of tools: {conductor:#}"))
+        .iter()
+        .map(|tool| tool.as_str().expect("a tool name"))
+        .collect();
+    assert_eq!(denied, CONDUCTOR_DENIED_TOOLS);
+    // The controllers' settings are not conductor's to narrow.
+    let controller = settings("controller-settings.json");
+    assert_eq!(
+        controller["permissions"]["deny"],
+        Value::Null,
+        "{controller:#}"
+    );
+}
+
 /// Both files run the guard under `sh`, as Claude Code does: with the built binary on `PATH` a
 /// denial is 2, and with no `conductor` on `PATH` the shell's 127 becomes 2 as well.
 #[test]

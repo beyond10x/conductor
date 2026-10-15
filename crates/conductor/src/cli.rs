@@ -1240,6 +1240,11 @@ pub struct RulesShowArgs {
     /// How the items are printed: text (verbatim) or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+
+    /// One line per item instead: its number and its first sentence. `--brief` alone is
+    /// `--brief true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub brief: Option<bool>,
 }
 
 // `conductor store`: the command the binding declares over the `local` callable `store-migrate`

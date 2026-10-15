@@ -326,6 +326,8 @@ commands:
         source: {kind: option, long: section}
       - field: format
         source: {kind: option, long: format}
+      - field: brief
+        source: {kind: option, long: brief}
   - path: [upgrade]
     callable: upgrade
     about: Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release

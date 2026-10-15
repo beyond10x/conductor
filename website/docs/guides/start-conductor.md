@@ -113,10 +113,13 @@ claude --bg -n <session name> --append-system-prompt-file <profile> --model <mod
 
 The session name is the conductor role's: `<session_prefix>-conductor`, or `conductor` when the
 instance has no `session_prefix`. The settings default to this checkout's
-`.claude/conductor-settings.json`. The prompt tells conductor to arm its two recurring jobs (at
-`cadence.cycle` and `cadence.daily` of `conductor config show`) and its watch
-(`conductor watch run --follow`), then read the hand-over committed last in `docs/handoff/`, act on
-its first task and run one cycle. A hand-over therefore keeps only open work.
+`.claude/conductor-settings.json`, which also denies the tools conductor never calls (Artifact,
+Workflow, ScheduleWakeup, EnterWorktree, AskUserQuestion, ReportFindings and ShareOnboardingGuide),
+so their definitions stay out of its context. The prompt tells conductor to arm its two recurring
+jobs (at `cadence.cycle` and `cadence.daily` of `conductor config show`) and its watch
+(`conductor watch run --follow`), then act on the first task of the hand-over committed last in
+`docs/handoff/`, which its start reading has already opened, and run one cycle. A hand-over
+therefore keeps only open work.
 
 The task refuses, and starts nothing, when:
 
