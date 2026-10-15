@@ -263,8 +263,11 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
 
 ## More than one instance
 
-When the config file names more than one instance, `default:` is the one commands use; every
-command for another runs with `CONDUCTOR_INSTANCE=<name>`.
+This section applies only to an instance that names no `conductor` role, which your instance
+serves as the file's `default` (`conductor.served_by` in `conductor config show` names it). An
+instance that names a `conductor` role has its own conductor: never run a command for it, write its
+records, dispatch to its controllers or message its sessions. For an instance you serve, every
+command runs with `CONDUCTOR_INSTANCE=<name>`.
 - Its records (charters, dispatch lines, status) live in its own `records`, never in another
   instance's.
 - Start its controllers with `CONDUCTOR_INSTANCE=<name>` in the environment, the same agent and
