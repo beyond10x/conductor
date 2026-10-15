@@ -740,10 +740,13 @@ fn start_snapshot_refuses_at_start_naming_a_missing_program() {
              \x20   checkouts:\n\
              \x20     root: {root}\n\
              \x20     trees: {trees}\n\
-             \x20   records: {records}\n",
+             \x20   records: {records}\n\
+             \x20   state: {state}\n",
             root = case.dir.join("checkouts").display(),
             trees = case.dir.join("trees").display(),
             records = case.dir.join("records").display(),
+            // The `--state-dir` below: a snapshot takes no other (`story:instance-isolation`).
+            state = case.dir.join("state").display(),
         ),
     )
     .expect("write the config file");

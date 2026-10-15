@@ -457,6 +457,7 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
         .context("HOME is not an absolute path; the watch reads the transcripts under ~/.claude")?;
     let active = config::active();
     let options = Options::of(&active.instance, args);
+    let host = crate::host::dir(state)?;
     let state = state::dir(state)?;
     let mut watch = Watch::new(
         Sources::new(home, active, state.clone()),
@@ -466,7 +467,8 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
     .with_gitlab(Forge::all(&active.instance))
     .with_usage(state.clone())
     .with_decisions(state.clone())
-    .with_reclaim(state, crate::gc::reclaim::reclaim);
+    .with_reclaim(state, crate::gc::reclaim::reclaim)
+    .with_host(host);
     watch.run(&options, &mut io::stdout().lock(), &mut io::stderr().lock())?;
     Ok(ExitCode::SUCCESS)
 }
@@ -484,6 +486,9 @@ pub struct Watch {
     /// The state directory a reclaim run is recorded under, and the reclaim run once per fall
     /// under `disk_admit`; none: no reclaim.
     reclaim: Option<(PathBuf, Reclaimer)>,
+    /// The host directory whose fall of free disk an instance's pass ends
+    /// (`story:instance-isolation`); none: the pass ends none.
+    host: Option<PathBuf>,
     /// The state directory whose store's usage readings the usage probe reads; none: no usage
     /// line (`story:usage-probe`).
     usage: Option<PathBuf>,
@@ -588,6 +593,7 @@ impl Watch {
             dir,
             failing: BTreeSet::new(),
             reclaim: None,
+            host: None,
             usage: None,
             decisions: None,
         }
@@ -606,6 +612,14 @@ impl Watch {
     #[must_use]
     pub fn with_reclaim(mut self, state: PathBuf, reclaim: Reclaimer) -> Self {
         self.reclaim = Some((state, reclaim));
+        self
+    }
+
+    /// This watch ending, once free disk is back at `disk_clear`, the fall its instance recorded
+    /// an operator item for in the host directory `host` ([`crate::host::clear_fall`]).
+    #[must_use]
+    pub fn with_host(mut self, host: PathBuf) -> Self {
+        self.host = Some(host);
         self
     }
 
@@ -1592,13 +1606,17 @@ impl Watch {
         }
         // Free disk back at `disk_clear` ends a fall `conductor build run` recorded an operator
         // item for, which is withdrawn (`story:disk-item-per-fall`).
-        if let Some(state) = self.reclaim.as_ref().map(|(state, _)| state.clone()) {
+        if let (Some(state), Some(host)) = (
+            self.reclaim.as_ref().map(|(state, _)| state.clone()),
+            self.host.clone(),
+        ) {
             let clear = self
                 .settings
                 .disk_clear
                 .saturating_mul(1 << 30)
                 .max(crate::gc::reclaim::floor_bytes(self.settings.disk_admit));
-            match crate::host::clear_fall(&state, bytes, clear) {
+            let instance = self.settings.instance.clone();
+            match crate::host::clear_fall(&host, &state, &instance, bytes, clear) {
                 Ok(_) => self.answered("disk item"),
                 Err(error) => {
                     let error = error.context("withdraw the operator item of a fall that is over");

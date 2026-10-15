@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 3eb5c41b70d3592e942a9f1f1b090cb277c378b502edc84fb9a422d6512ee285
-  contract digest b0dfa83f4b1926261016fb468e0bb2d5f3b1db74275b94cfe728fbb8da7a9be8
+  model digest 8edad738c6b5689ba394ca170ba4f1bdba8e03a517cceb3adee4fb4b6566a0df
+  contract digest b63ca81a4b13794d6772aed33575fa3e4e1ed6bca22c18a46e3a425a0ae59e38
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-528 capabilities: **516 generated**, **3 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+530 capabilities: **518 generated**, **3 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -37,6 +37,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.InitRecords` |
 | domain type | `conductor.config.Instance` |
 | domain type | `conductor.config.InstanceName` |
+| domain type | `conductor.config.InstanceRefusal` |
+| domain type | `conductor.config.InstanceRefused` |
 | domain type | `conductor.config.Limits` |
 | domain type | `conductor.config.LocalSource` |
 | domain type | `conductor.config.Machine` |

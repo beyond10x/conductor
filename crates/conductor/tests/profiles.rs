@@ -835,3 +835,18 @@ fn a_report_on_a_pull_request_names_every_red_check() {
                     board list them under `failing checks`, never one of them for all.";
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
+
+/// `story:instance-isolation`, item 7: the section on other instances applies only to an instance
+/// that names no `conductor` role, which the `default` instance's conductor serves; an instance
+/// with its own conductor is never acted for by another, so no conductor is a second writer of
+/// its records.
+#[test]
+fn conductor_acts_for_another_instance_only_when_it_names_no_conductor() {
+    let text = profile("conductor.md");
+    let sentence = "This section applies only to an instance that names no `conductor` role, which \
+                    your instance serves as the file's `default` (`conductor.served_by` in \
+                    `conductor config show` names it). An instance that names a `conductor` role \
+                    has its own conductor: never run a command for it, write its records, \
+                    dispatch to its controllers or message its sessions.";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}

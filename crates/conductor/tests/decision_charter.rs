@@ -118,8 +118,10 @@ impl Case {
         command
             .current_dir(self.root.join("work"))
             .env(CONFIG_VARIABLE, self.root.join("conductor.yaml"))
+            // The instance's own `state`: a command that writes records takes no other
+            // (`story:instance-isolation`).
             .arg("--state-dir")
-            .arg(self.root.join("state"))
+            .arg(self.root.join("home/state"))
             .args([
                 "decision",
                 "record-conductor-decision",

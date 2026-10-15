@@ -243,7 +243,7 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// `tests/snapshot.rs` (`story:snapshot-member-failures`, `story:snapshot-duration`); the `host`
 /// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
 /// `tests/usage_probe.rs` (`story:usage-probe`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 89] = [
+const IMPLEMENTED: [&str; 90] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",

@@ -463,7 +463,19 @@ fn controller_case(name: &str) -> Case {
     let profile = case.dir.join("roles/repo-controller.md");
     let settings = case.dir.join("roles/controller-settings.json");
     write(&profile, "# Repository controller\n");
-    write(&settings, "{}\n");
+    // The settings pin the instance (`story:instance-isolation`).
+    write(
+        &settings,
+        &json!({
+            "env": {"CONDUCTOR_INSTANCE": "example-org"},
+            "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+                "type": "command",
+                "command": "CONDUCTOR_INSTANCE=example-org conductor guard \
+                            record-guard-decision --from-pre-tool-use || exit 2",
+            }]}]},
+        })
+        .to_string(),
+    );
     write(
         &case.home().join(".claude.json"),
         &json!({"projects": {checkout.display().to_string(): {"hasTrustDialogAccepted": true}}})

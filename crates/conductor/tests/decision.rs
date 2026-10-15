@@ -912,15 +912,20 @@ fn an_allocated_decision_id_is_free_in_the_hand_written_decision_files() {
     )
     .expect("write a file that is not jsonl");
     let config = root.join("conductor.yaml");
+    // The instance's `state` is the one `--state-dir` names: a command that writes records takes
+    // no other (`story:instance-isolation`).
     fs::write(
         &config,
-        "version: conductor.config/1\n\
-         instances:\n\
-         \x20 - name: example-org\n\
-         \x20   sources: [{github: example-org}]\n\
-         \x20   checkouts: {root: ~/checkouts, trees: ~/trees}\n\
-         \x20   records: ~/records\n\
-         \x20   state: ~/state\n",
+        format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: example-org\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: ~/checkouts, trees: ~/trees}}\n\
+             \x20   records: ~/records\n\
+             \x20   state: {:?}\n",
+            case.state
+        ),
     )
     .expect("write the config file");
 

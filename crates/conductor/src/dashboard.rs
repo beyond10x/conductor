@@ -334,8 +334,8 @@ fn watch_dir(home: &Path, root: &Path) -> PathBuf {
     }
 }
 
-/// `conductor dashboard serve`: listens on `127.0.0.1:<--port>` (default [`DEFAULT_PORT`]; 0
-/// picks a free port), prints `listening on http://127.0.0.1:<port>` as its first line, and
+/// `conductor dashboard serve`: listens on `127.0.0.1:<--port>` (default the instance's
+/// `dashboard_port`, [`DEFAULT_PORT`] for the first instance; 0 picks a free port), prints `listening on http://127.0.0.1:<port>` as its first line, and
 /// serves until it is stopped.
 ///
 /// # Errors
@@ -344,7 +344,10 @@ fn watch_dir(home: &Path, root: &Path) -> PathBuf {
 /// be bound.
 pub fn dashboard_serve(args: &DashboardServeArgs) -> Result<ExitCode> {
     let sources = Sources::active(args.root.clone())?;
-    let port = args.port.unwrap_or(DEFAULT_PORT);
+    // The instance's own port (`story:instance-isolation`), so two instances never serve one.
+    let port = args.port.unwrap_or_else(|| {
+        u16::try_from(crate::config::active().instance.dashboard_port).unwrap_or(DEFAULT_PORT)
+    });
     let listener = TcpListener::bind(("127.0.0.1", port))
         .with_context(|| format!("listen on 127.0.0.1:{port}"))?;
     let bound = listener.local_addr()?.port();

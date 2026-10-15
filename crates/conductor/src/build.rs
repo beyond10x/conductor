@@ -17,8 +17,8 @@
 //!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The reclaim never runs under
 //!    the ledger's lock: the run lets it go, reclaims, takes it again and counts from the start,
 //!    so the queue never waits on one run's walk of the disk; the requests behind it stay behind
-//!    it meanwhile. One reclaim walks the disk at a time (`host.reclaim.lock` in the state
-//!    directory), and a run that finds one started within [`RECLAIM_REUSE`] (`host.reclaim`: when
+//!    it meanwhile. One reclaim walks the disk at a time (`host.reclaim.lock` in the host
+//!    directory, `host/` beside the config file, which every instance shares), and a run that finds one started within [`RECLAIM_REUSE`] (`host.reclaim`: when
 //!    it started and ended, what it was asked to reach, freed and left, or why it failed) reuses
 //!    its result instead of walking again ([`shared_reclaim`]). The answer (`ReserveDisk`) is
 //!    granted, granted after reclaim, or refused with the shortfall: the command never runs, the
@@ -180,10 +180,10 @@ pub const WAIT_FOR_RESERVATIONS: Duration = Duration::from_secs(3600);
 /// once each; a walk of a full disk takes minutes.
 pub const RECLAIM_REUSE: Duration = Duration::from_secs(5 * 60);
 
-/// The lock one reclaim run holds while it walks the disk, in the state directory.
+/// The lock one reclaim run holds while it walks the disk, in the host directory.
 const RECLAIM_LOCK: &str = "host.reclaim.lock";
 
-/// The last reclaim run of the host, in the state directory: when it started and ended, the bytes
+/// The last reclaim run of the host, in the host directory: when it started and ended, the bytes
 /// it was asked to reach, whether it reached them, what it freed and left, or why it failed.
 const RECLAIM_RECORD: &str = "host.reclaim";
 
@@ -335,7 +335,9 @@ pub fn shortfall(bytes: u64, free: u64, reserved: u64, floor: u64) -> u64 {
     bytes.saturating_sub(available)
 }
 
-/// Runs `request` over the ledger in the state directory `state`.
+/// Runs `request` over the ledger in the host directory `host` (`story:instance-isolation`), for
+/// the instance whose state directory is `state`: its reclaim and its operator item are that
+/// instance's.
 ///
 /// # Errors
 ///
@@ -344,6 +346,7 @@ pub fn shortfall(bytes: u64, free: u64, reserved: u64, floor: u64) -> u64 {
 /// freeing nothing.
 pub fn run(
     state: &Path,
+    host: &Path,
     settings: &Settings,
     sources: &Sources,
     request: &Request,
@@ -354,11 +357,11 @@ pub fn run(
     let command = request.command.join(" ");
     let at = host::now((sources.clock)());
 
-    let mut ledger = Ledger::lock(state)?;
+    let mut ledger = Ledger::lock(host)?;
     ledger.sweep(&at)?;
     // Free disk back at `disk_clear` ends the fall: its operator item is withdrawn.
     let clear = settings.clear.max(settings.floor);
-    if let Err(error) = ledger.clear_fall(free_bytes(sources)?, clear) {
+    if let Err(error) = ledger.clear_fall(state, &settings.instance, free_bytes(sources)?, clear) {
         (sources.say)(
             state,
             &format!("conductor: build run: the fall's operator item was not withdrawn: {error:#}"),
@@ -373,7 +376,7 @@ pub fn run(
         &at,
     )?;
     // Held from the request to the release, so a sweep closes this grant only once this run is gone.
-    let run_lock = host::hold_run(state, &grant)?;
+    let run_lock = host::hold_run(host, &grant)?;
     let lacking = |ledger: &Ledger| -> Result<u64> {
         let free = free_bytes(sources)?;
         Ok(shortfall(
@@ -423,10 +426,10 @@ pub fn run(
                 // Never under the ledger's lock: every other run would wait on this walk. The
                 // requests behind this one stay behind it meanwhile, as its request is held.
                 drop(ledger);
-                let report = reclaim(sources, state, fits);
+                let report = reclaim(sources, state, host, fits);
                 reclaimed = report.reclaimed_bytes;
                 left = report.left;
-                ledger = Ledger::lock(state)?;
+                ledger = Ledger::lock(host)?;
                 ledger.sweep(&host::now((sources.clock)()))?;
                 // Count again from the start, under the lock.
                 continue;
@@ -461,7 +464,7 @@ pub fn run(
         drop(ledger);
         pause_unless_received(pause);
         queued += pause;
-        ledger = Ledger::lock(state)?;
+        ledger = Ledger::lock(host)?;
         ledger.sweep(&host::now((sources.clock)()))?;
     }
     // Only a shortfall live reservations do not cover needs a person.
@@ -479,7 +482,7 @@ pub fn run(
                 );
                 return Ok(None);
             }
-            host::escalate(state, shortfall)
+            host::escalate(host, state, shortfall)
         };
         let shortfall = Shortfall {
             instance: &settings.instance,
@@ -500,7 +503,7 @@ pub fn run(
             );
             None
         });
-        host::end_run(state, &grant, run_lock);
+        host::end_run(host, &grant, run_lock);
         say_refused(
             sources,
             state,
@@ -547,16 +550,16 @@ pub fn run(
         Ok(child) => child,
         Err(error) => {
             let at = host::now((sources.clock)());
-            host::release(state, &grant, Some(ReleaseReason::Exited), &at)?;
+            host::release(host, &grant, Some(ReleaseReason::Exited), &at)?;
             return Err(error).with_context(|| format!("build run: start {program:?}"));
         }
     };
     let group = i64::from(child.id());
-    if let Err(error) = host::start_run(state, &grant, group, &host::now((sources.clock)())) {
+    if let Err(error) = host::start_run(host, &grant, group, &host::now((sources.clock)())) {
         signal(group, Signal::SIGKILL);
         let _ = child.wait();
         let at = host::now((sources.clock)());
-        let _ = host::release(state, &grant, Some(ReleaseReason::Killed), &at);
+        let _ = host::release(host, &grant, Some(ReleaseReason::Killed), &at);
         return Err(error);
     }
 
@@ -567,6 +570,7 @@ pub fn run(
             grant: grant.clone(),
             start,
             state: state.to_owned(),
+            host: host.to_owned(),
             sources: sources.clone(),
             settings: settings.clone(),
             group,
@@ -597,7 +601,7 @@ pub fn run(
         .peak
         .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
         .saturating_sub(watched.start);
-    if let Err(error) = host::record_peak_of(state, &grant, peak) {
+    if let Err(error) = host::record_peak_of(host, &grant, peak) {
         (sources.say)(
             state,
             &format!("conductor: build run: the peak was not recorded: {error:#}"),
@@ -608,13 +612,13 @@ pub fn run(
     } else {
         ReleaseReason::Exited
     };
-    if let Err(error) = host::release(state, &grant, Some(reason), &host::now((sources.clock)())) {
+    if let Err(error) = host::release(host, &grant, Some(reason), &host::now((sources.clock)())) {
         (sources.say)(
             state,
             &format!("conductor: build run: the grant was not released: {error:#}"),
         );
     }
-    host::end_run(state, &grant, run_lock);
+    host::end_run(host, &grant, run_lock);
     Ok(Outcome::Ran {
         grant,
         code,
@@ -671,8 +675,8 @@ fn supervise(
     (status, forwarded.map(|(signal, _)| signal))
 }
 
-/// `conductor build run`: [`run`] for the active instance, in the working directory, with the
-/// handlers of [`catch`] installed. Exits with the command's status, 2 when it was refused
+/// `conductor build run`: [`run`] for the active instance, in the working directory, over the
+/// host directory ([`host::dir`]), with the handlers of [`catch`] installed. Exits with the command's status, 2 when it was refused
 /// ([`run`] names the shortfall on standard error), or 128 + the signal that stopped it.
 ///
 /// # Errors
@@ -695,8 +699,10 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
         command: args.command.clone(),
         cwd: std::env::current_dir().context("build run: read the working directory")?,
     };
+    let host = host::dir(state)?;
     let outcome = run(
         &crate::state::dir(state)?,
+        &host,
         &Settings::of(instance),
         &Sources::of(instance),
         &request,
@@ -750,6 +756,8 @@ struct Watchdog {
     grant: GrantId,
     start: u64,
     state: PathBuf,
+    /// The host directory.
+    host: PathBuf,
     sources: Sources,
     settings: Settings,
     group: i64,
@@ -783,7 +791,7 @@ impl Watchdog {
                         ),
                     );
                     let need = self.settings.gate_resume;
-                    reclaim(&self.sources, &self.state, need);
+                    reclaim(&self.sources, &self.state, &self.host, need);
                 }
                 Ok(free) if stopped && free >= self.settings.gate_resume => {
                     signal(self.group, Signal::SIGCONT);
@@ -810,7 +818,7 @@ impl Watchdog {
             // only what this run has not written yet.
             let grown = watched.peak.saturating_sub(watched.start);
             if grown >= recorded.saturating_add(GIB) {
-                match host::record_peak_now(&self.state, &self.grant, grown) {
+                match host::record_peak_now(&self.host, &self.grant, grown) {
                     Ok(true) => recorded = grown,
                     Ok(false) => {}
                     Err(error) => {
@@ -856,8 +864,8 @@ fn free_bytes(sources: &Sources) -> Result<u64> {
 
 /// One reclaim for `need` bytes, shared by the host ([`shared_reclaim`]); a failing one is named
 /// on standard error and frees nothing. The caller holds no ledger lock.
-fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
-    shared_reclaim(sources, state, need).unwrap_or_else(|error| {
+fn reclaim(sources: &Sources, state: &Path, host: &Path, need: u64) -> ReclaimReport {
+    shared_reclaim(sources, state, host, need).unwrap_or_else(|error| {
         (sources.say)(state, &format!("conductor: build run: reclaim: {error:#}"));
         ReclaimReport {
             reclaimed_bytes: 0,
@@ -869,7 +877,7 @@ fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
 }
 
 /// A reclaim for `need` bytes, one at a time on the host: waits while another run walks the disk
-/// (`host.reclaim.lock`), then reuses the last run's result when it started within
+/// (`host.reclaim.lock` in the host directory `host`), then reuses the last run's result when it started within
 /// [`RECLAIM_REUSE`] and ended: its failure, or what it left and nothing freed by this run, when
 /// it did not reach what it was asked (it freed all it could) or was asked at least `need`.
 /// Otherwise it records its start in `host.reclaim`, runs [`Sources::reclaim`] and records its
@@ -879,9 +887,14 @@ fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
 /// # Errors
 ///
 /// The lock or the record cannot be written, the reclaim fails, or the reused one failed.
-fn shared_reclaim(sources: &Sources, state: &Path, need: u64) -> Result<ReclaimReport> {
-    fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
-    let path = state.join(RECLAIM_LOCK);
+fn shared_reclaim(
+    sources: &Sources,
+    state: &Path,
+    host: &Path,
+    need: u64,
+) -> Result<ReclaimReport> {
+    fs::create_dir_all(host).with_context(|| format!("create {}", host.display()))?;
+    let path = host.join(RECLAIM_LOCK);
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -890,7 +903,7 @@ fn shared_reclaim(sources: &Sources, state: &Path, need: u64) -> Result<ReclaimR
         .with_context(|| format!("open {}", path.display()))?;
     lock.lock()
         .with_context(|| format!("lock {}", path.display()))?;
-    let record = state.join(RECLAIM_RECORD);
+    let record = host.join(RECLAIM_RECORD);
     let now = (sources.clock)().unix_timestamp();
     if let Some(last) = fs::read_to_string(&record)
         .ok()

@@ -10,6 +10,16 @@ summary: >
   same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records
   each step with the bytes it freed, or what is left when it cannot reach the floor.
 
+  The host directory (story:instance-isolation) is `host/` beside the config file, one for every
+  instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an
+  instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks
+  `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the
+  marker of the open fall of free disk `host.fall`, which names the item's instance: only that
+  instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its
+  `state` before is moved there once, at its first host command: every grant of its store, its run
+  locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
+  it was moved, and nothing is moved again.
+
 naming:
   wire: host
   display: Host

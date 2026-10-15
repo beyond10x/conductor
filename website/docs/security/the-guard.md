@@ -312,8 +312,15 @@ Claude Code treats any exit status other than 0 and 2 as "proceed". The wired co
 `|| exit 2`, so a missing `conductor` binary, or a guard killed before it answered, still blocks
 the call.
 
-A config file that does not load leaves the hook on the built-in instance's places. What is
-denied without a file stays denied; the places the broken file names grant nothing.
+A config file that does not load denies every call, naming the problem (`ConfigUnloaded`), until
+the file loads again: the hook never decides by the built-in instance's places in its stead, so a
+broken file cannot hand one instance's sessions another's paths. A call a rule denies anyway names
+that rule's reason too.
+
+A settings file pins its instance: `"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and each hook command
+that runs `conductor` starts `CONDUCTOR_INSTANCE=<name> conductor guard …`. The harness does not
+pass on the environment of the process that starts a session, so a hook without the pin acts for
+whatever instance its environment selects.
 
 ## What is recorded
 

@@ -63,3 +63,37 @@ pub fn open(flag: Option<&Path>) -> Result<Store> {
 pub fn open_existing(flag: Option<&Path>) -> Result<Store> {
     store::open_existing(&dir(flag)?)
 }
+
+/// Refuses a `--state-dir` `dir` other than the instance's `state` for the leaf `words` when it
+/// writes the instance's records ([`crate::cli::writes_records`], `story:instance-isolation`,
+/// `StateDirNotInstance`): its records go to the instance's `records`, so a store elsewhere would
+/// hold what the records beside it do not. A view, and a command that writes only the store, may
+/// take another directory. Without a config file there is no instance whose state to keep.
+///
+/// # Errors
+///
+/// The refusal, naming the directory and the instance's `state`, before anything is written.
+pub fn refuse_other(words: &[String], dir: &Path) -> Result<()> {
+    let active = config::active();
+    if !active.from_file || !crate::cli::writes_records(words) {
+        return Ok(());
+    }
+    let state = Path::new(&active.instance.state);
+    let resolved = |path: &Path| {
+        std::fs::canonicalize(path).unwrap_or_else(|_| {
+            env::current_dir().map_or_else(|_| path.to_owned(), |cwd| cwd.join(path))
+        })
+    };
+    if resolved(dir) == resolved(state) {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "{}: refused: StateDirNotInstance: --state-dir {} is not the state of the instance {}, {}; \
+         its records are written to {}, beside that state only, so nothing was written",
+        words.join(" "),
+        dir.display(),
+        active.instance.name.0,
+        state.display(),
+        active.instance.records
+    )
+}

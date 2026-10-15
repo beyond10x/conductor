@@ -572,6 +572,7 @@ fn refused(answer: &SpawnRefused) -> Result<ExitCode> {
 /// adds fails to compile here rather than rendering under a guessed name.
 const fn refusal_name(refusal: SpawnRefusal) -> &'static str {
     match refusal {
+        SpawnRefusal::InstanceNotPinned => "InstanceNotPinned",
         SpawnRefusal::AlreadyRunning => "AlreadyRunning",
         SpawnRefusal::SessionRunning => "SessionRunning",
         SpawnRefusal::SessionsUnread => "SessionsUnread",
@@ -699,6 +700,15 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
     };
     let profile = file(profile, SpawnRefusal::NoProfile, "profile")?;
     let settings = file(settings, SpawnRefusal::NoSettings, "settings")?;
+    // The settings select the instance the session's hooks act for (`story:instance-isolation`).
+    if config::active().from_file
+        && let Some(problem) = config::pin_problem(Path::new(&settings), &instance.name.0)
+    {
+        return Err((
+            SpawnRefusal::InstanceNotPinned,
+            format!("the controller role's settings {settings} {problem}"),
+        ));
+    }
     Ok((role, profile, settings, model.0.clone()))
 }
 
