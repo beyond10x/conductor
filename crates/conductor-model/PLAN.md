@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest c57afcffa8f56a01b9675b8e33c1434f0b6e52ce34b3297aabe1a9408493f915
-  contract digest ffb66da8a203df275c7ca4883077d44e1bb1d68542f04920ee89e26c69ee7d7f
+  model digest 3eb5c41b70d3592e942a9f1f1b090cb277c378b502edc84fb9a422d6512ee285
+  contract digest b0dfa83f4b1926261016fb468e0bb2d5f3b1db74275b94cfe728fbb8da7a9be8
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-525 capabilities: **513 generated**, **3 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+528 capabilities: **516 generated**, **3 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -314,6 +314,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.host.StartRun` |
 | command contract | `conductor.host.TakeHostGrant` |
 | command behaviour | `conductor.host.TakeHostGrant` |
+| command contract | `conductor.host.WithdrawDiskRequest` |
+| command behaviour | `conductor.host.WithdrawDiskRequest` |
 | command contract | `conductor.observation.CompleteSnapshot` |
 | command behaviour | `conductor.observation.CompleteSnapshot` |
 | command contract | `conductor.observation.FailSnapshot` |
@@ -388,6 +390,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.dispatch.ResourceReleased` |
 | event type | `conductor.dispatch.ResourceRequested` |
 | event type | `conductor.host.DiskReclaimed` |
+| event type | `conductor.host.DiskRequestWithdrawn` |
 | event type | `conductor.host.DiskRequested` |
 | event type | `conductor.host.DiskReservationRefused` |
 | event type | `conductor.host.DiskReserved` |

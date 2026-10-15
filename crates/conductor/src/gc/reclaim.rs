@@ -23,8 +23,11 @@
 //! 3. stale scratch and caches (`story:reclaim-scratch-class-c`: freeing them is class C): each
 //!    entry directly under a root [`scratch_roots`] names (the agents' scratch, sccache and the Go
 //!    build cache under the home, as the disk panel lists them, and `/var/tmp`), deleted only when
-//!    [`kept_scratch`] finds no reason to keep it, read just before: the entry is ours and no
-//!    link; it neither holds nor lies in one of the instance's own places; nothing in it was
+//!    [`kept_scratch`] finds no reason to keep it, read just before: the entry is ours; it neither
+//!    holds nor lies in one of the instance's own places, compared both as written and with every
+//!    link resolved (`story:reclaim-alias-protected`), and an entry that is a link is removed as a
+//!    link, never followed; a root that is itself a link is skipped and named on standard error;
+//!    nothing in it was
 //!    modified in the last [`STALE`]; it is no `target/` and holds none; it holds no git worktree
 //!    (a tree a session may hold a lease on: only `worktree` removes trees); no live session works
 //!    in it; no process on the host has its working directory, root, program or an open file in
@@ -414,8 +417,24 @@ fn scratch(sources: &Sources, state: &Path, steps: &mut Steps) -> Result<()> {
         sources.targets.as_path(),
         sources.watch.as_path(),
     ];
+    // Each place as written and as resolved: a link anywhere on the way to an entry or to a place
+    // must not hide that the two are one (`story:reclaim-alias-protected`).
+    let protected: Vec<PathBuf> = own
+        .iter()
+        .flat_map(|place| [place.to_path_buf(), resolved(place)])
+        .collect();
+    let homes = [sources.home.clone(), resolved(&sources.home)];
     let mut holders = Holders::default();
     for root in scratch_roots(Some(&sources.home), &sources.var_tmp) {
+        if fs::symlink_metadata(&root).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            let _ = writeln!(
+                io::stderr().lock(),
+                "conductor: {COMMAND}: skipped the scratch root {}: it is a symbolic link, and \
+                 what it names is not reclaim's",
+                root.display()
+            );
+            continue;
+        }
         let Ok(listed) = fs::read_dir(&root) else {
             continue;
         };
@@ -426,8 +445,8 @@ fn scratch(sources: &Sources, state: &Path, steps: &mut Steps) -> Result<()> {
                 return Ok(());
             }
             let checks = Checks {
-                own: &own,
-                home: &sources.home,
+                own: &protected,
+                home: &homes,
                 live: &live,
                 deadline: Instant::now() + sources.measure_timeout,
             };
@@ -455,36 +474,52 @@ fn scratch(sources: &Sources, state: &Path, steps: &mut Steps) -> Result<()> {
 }
 
 /// What [`kept_scratch`] checks an entry against: the instance's own places, which no entry may
-/// hold or lie in; the home directory, which no entry may hold; the working directories of the
-/// live sessions; and when the walk of the entry must have ended.
+/// hold or lie in; the home directory, which no entry may hold, each as written and as resolved
+/// ([`resolved`]); the working directories of the live sessions; and when the walk of the entry
+/// must have ended.
 struct Checks<'a> {
-    own: &'a [&'a Path],
-    home: &'a Path,
+    own: &'a [PathBuf],
+    home: &'a [PathBuf],
     live: &'a [PathBuf],
     deadline: Instant,
 }
 
+/// `path` with every link on its way resolved, or `path` as written when it cannot be resolved
+/// (it is not there).
+fn resolved(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 /// Why the scratch or cache entry `entry` must stay, read just before it would be deleted; none
-/// when it may go. Anything that cannot be read is a reason to keep.
+/// when it may go. Anything that cannot be read is a reason to keep. An entry that is a link is
+/// checked as what it names, and removed as a link, never followed.
 fn kept_scratch(entry: &Path, checks: &Checks<'_>, holders: &mut Holders) -> Option<String> {
     let metadata = match fs::symlink_metadata(entry) {
         Ok(metadata) => metadata,
         Err(error) => return Some(format!("cannot read it: {error}")),
     };
-    if metadata.file_type().is_symlink() {
-        return Some("a link".to_owned());
-    }
     // The owner of `/proc/self` is the effective user of this process.
     match fs::metadata("/proc/self") {
         Ok(me) if me.uid() == metadata.uid() => {}
         Ok(_) => return Some("another user's".to_owned()),
         Err(error) => return Some(format!("cannot tell whose it is: {error}")),
     }
-    if checks.home.starts_with(entry)
-        || checks
-            .own
-            .iter()
-            .any(|place| place.starts_with(entry) || entry.starts_with(place))
+    // What the entry is once every link on its way, its own included, is resolved.
+    let real = match fs::canonicalize(entry) {
+        Ok(real) => real,
+        Err(error) => return Some(format!("cannot resolve it: {error}")),
+    };
+    let overlaps = |place: &Path| {
+        place.starts_with(entry)
+            || entry.starts_with(place)
+            || place.starts_with(&real)
+            || real.starts_with(place)
+    };
+    if checks
+        .home
+        .iter()
+        .any(|home| home.starts_with(entry) || home.starts_with(&real))
+        || checks.own.iter().any(|place| overlaps(place))
     {
         return Some("one of the instance's own places".to_owned());
     }

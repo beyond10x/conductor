@@ -296,6 +296,7 @@ impl Cli {
                 HostCommand::ReserveDisk(args) => host::reserve_disk(state, args),
                 HostCommand::StartRun(args) => host::start_run_command(state, args),
                 HostCommand::TakeHostGrant(args) => host::take_host_grant(state, args),
+                HostCommand::WithdrawDiskRequest(args) => host::withdraw_disk_request(state, args),
                 HostCommand::Grants(view) => host::grants(state, view),
                 HostCommand::ReclaimRuns(_) => crate::not_implemented("host reclaim-runs"),
                 HostCommand::Reclaim(args) => {
@@ -600,6 +601,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["host", "reserve-disk"], Access::Writes),
     (&["host", "start-run"], Access::Writes),
     (&["host", "take-host-grant"], Access::Writes),
+    (&["host", "withdraw-disk-request"], Access::Writes),
     (&["host", "grants"], Access::Reads),
     (&["host", "reclaim-runs"], Access::Reads),
     // Removes what needs no decision until free disk is back over the floor (story:disk-reclaim).
@@ -1088,6 +1090,10 @@ pub enum HostCommand {
     /// Take a host grant
     #[command(name = "take-host-grant")]
     TakeHostGrant(TakeHostGrantArgs),
+
+    /// Withdraw a waiting disk request
+    #[command(name = "withdraw-disk-request")]
+    WithdrawDiskRequest(WithdrawDiskRequestArgs),
 
     /// Host grants
     #[command(name = "grants")]
@@ -1762,6 +1768,20 @@ pub struct TakeHostGrantArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.WithdrawDiskRequest`.
+#[derive(Debug, Clone, Args)]
+pub struct WithdrawDiskRequestArgs {
+    /// GrantId
+    #[arg(long)]
+    pub grant_id: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub withdrawn_at: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

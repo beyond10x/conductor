@@ -332,6 +332,7 @@ const IMPLEMENTED: [&str; 89] = [
     "host reserve-disk",
     "host start-run",
     "host take-host-grant",
+    "host withdraw-disk-request",
     "host grants",
 ];
 

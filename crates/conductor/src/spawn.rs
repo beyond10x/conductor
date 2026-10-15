@@ -171,18 +171,26 @@ pub fn spawn(
             .store
             .check()
             .context("keep the controller")?;
-        outcome
+        let held = crate::controller::holder(&generated, &RepositoryName(repository.clone()));
+        (outcome, held)
     };
     let controller_id = match outcome {
-        StartControllerOutcome::Started { controller_started } => controller_started.controller_id,
-        StartControllerOutcome::AlreadyRunning {
-            error: ControllerAlreadyRunning { .. },
-        } => {
+        (StartControllerOutcome::Started { controller_started }, _) => {
+            controller_started.controller_id
+        }
+        (
+            StartControllerOutcome::AlreadyRunning {
+                error: ControllerAlreadyRunning { .. },
+            },
+            held,
+        ) => {
+            let held = held.map_or_else(String::new, |held| format!(": controller {held}"));
             return refuse(
                 SpawnRefusal::AlreadyRunning,
-                "the repository already has a running or paused controller (controller \
-                 controllers)"
-                    .to_owned(),
+                format!(
+                    "the repository already has a running or paused controller{held} (controller \
+                     controllers)"
+                ),
             );
         }
     };

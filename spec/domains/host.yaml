@@ -114,8 +114,10 @@ entities:
   # reservation runs its command in its own process group, records the peak the run measured, and is
   # released when the command exits or is killed. Nothing expires by time: a live grant whose
   # process group is gone is released, with `ProcessGroupGone`, by the next command that reads the
-  # ledger, before that command answers. The ledger's state names map onto the lifecycle as written
-  # (`Requested`, `Granted`, `Running`, `Released`, `Refused`).
+  # ledger, before that command answers. A request whose `build run` is stopped by a signal while
+  # it still waits in the queue is withdrawn (story:build-run-cancel-group). The ledger's state
+  # names map onto the lifecycle as written (`Requested`, `Granted`, `Running`, `Released`,
+  # `Refused`, `Withdrawn`).
   - name: conductor.host.HostGrant
     identity:
       name: grant_id
@@ -164,8 +166,8 @@ entities:
         type: Optional<conductor.host.ReleaseReason>
     lifecycle:
       initial: Requested
-      states: [Requested, Granted, Running, Released, Refused]
-      terminal: [Released, Refused]
+      states: [Requested, Granted, Running, Released, Refused, Withdrawn]
+      terminal: [Released, Refused, Withdrawn]
       transitions:
         - name: grant
           from: [Requested]
@@ -173,6 +175,9 @@ entities:
         - name: refuse
           from: [Requested]
           to: Refused
+        - name: withdraw
+          from: [Requested]
+          to: Withdrawn
         - name: start
           from: [Granted]
           to: Running
@@ -300,6 +305,11 @@ events:
         type: conductor.host.GrantId
       - name: reason
         type: Optional<conductor.host.ReleaseReason>
+
+  - name: conductor.host.DiskRequestWithdrawn
+    fields:
+      - name: grant_id
+        type: conductor.host.GrantId
 
   - name: conductor.host.DiskReclaimed
     fields:
@@ -650,6 +660,45 @@ commands:
           conductor.host.HostGrantStateConflict:
             grant_id: input.grant_id
         summary: The grant was released before, or refused; nothing changes.
+
+  # A request still waiting in the queue whose `build run` received SIGTERM, SIGINT or SIGHUP
+  # (story:build-run-cancel-group): it leaves the queue, its command never runs, and `build run`
+  # exits with 128 + the signal. `released_at` is when it was withdrawn.
+  - name: conductor.host.WithdrawDiskRequest
+    naming:
+      wire: withdraw-disk-request
+      display: Withdraw a waiting disk request
+    input:
+      - name: grant_id
+        type: conductor.host.GrantId
+      - name: withdrawn_at
+        type: Timestamp
+    outcomes:
+      - name: withdrawn
+        moves: conductor.host.HostGrant.withdraw
+        instance: grant_id
+        sets:
+          released_at: input.withdrawn_at
+        emits:
+          - conductor.host.DiskRequestWithdrawn
+        payload:
+          conductor.host.DiskRequestWithdrawn:
+            grant_id: input.grant_id
+        summary: The request leaves the queue; the requests behind it move up.
+      - name: no-such-grant
+        unknown_instance: true
+        error: conductor.host.HostGrantNotFound
+        payload:
+          conductor.host.HostGrantNotFound:
+            grant_id: input.grant_id
+        summary: No grant with that id.
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.host.HostGrantStateConflict
+        payload:
+          conductor.host.HostGrantStateConflict:
+            grant_id: input.grant_id
+        summary: Only a request still waiting is withdrawn; an answered one is released or was refused.
 
   # One reclaim run as `conductor host reclaim` records it: the steps it applied in order with the
   # bytes each freed, and, when free disk is still under the floor after the last reclaimable

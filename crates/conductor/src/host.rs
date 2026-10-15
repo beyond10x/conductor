@@ -48,13 +48,13 @@ use conductor_model::direction::ServingId;
 use conductor_model::dispatch::{GuardDecisionId, MessageId, ResourceRequestId};
 use conductor_model::host::obligations::{
     GrantsQuery, RecordPeakBehavior, ReleaseGrantBehavior, RequestDiskBehavior,
-    ReserveDiskBehavior, StartRunBehavior, TakeHostGrantBehavior,
+    ReserveDiskBehavior, StartRunBehavior, TakeHostGrantBehavior, WithdrawDiskRequestBehavior,
 };
 use conductor_model::host::{
     GrantId, GrantKind, Grants, HostGrantSnapshot, HostGrantState, ReclaimRunId, RecordPeak,
     RecordPeakOutcome, ReleaseGrant, ReleaseGrantOutcome, ReleaseReason, RequestDisk,
     RequestDiskOutcome, ReserveDisk, ReserveDiskOutcome, StartRun, StartRunOutcome, TakeHostGrant,
-    TakeHostGrantOutcome,
+    TakeHostGrantOutcome, WithdrawDiskRequest, WithdrawDiskRequestOutcome,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::{BoardId, ObservationId, RepositoryName, SnapshotId};
@@ -69,7 +69,7 @@ use time::format_description::well_known::Rfc3339;
 use crate::cli::{
     EscalateRequestArgs, JsonInput, RaiseDecisionRequestArgs, RecordPeakArgs, ReleaseGrantArgs,
     RequestDiskArgs, ReserveDiskArgs, StartRunArgs, TakeHostGrantArgs, ViewArgs,
-    WithdrawRequestArgs,
+    WithdrawDiskRequestArgs, WithdrawRequestArgs,
 };
 use crate::not_implemented;
 use crate::store::Store;
@@ -614,6 +614,50 @@ fn release_answer(command: &str, outcome: ReleaseGrantOutcome) -> Result<()> {
              still a request, or was released or refused (see `conductor host grants`)",
             error.grant_id.0
         ),
+    }
+}
+
+/// `WithdrawDiskRequest`: the request `grant`, still waiting in the queue, leaves it at `at`
+/// (`story:build-run-cancel-group`).
+///
+/// # Errors
+///
+/// The specification refuses it, or the store does not open or keep it.
+pub fn withdraw(state: &Path, grant: &GrantId, at: &Timestamp) -> Result<()> {
+    let mut ledger = Ledger::lock(state)?;
+    ledger.withdraw(grant, at)
+}
+
+impl Ledger {
+    /// [`withdraw`] under this ledger's lock.
+    ///
+    /// # Errors
+    ///
+    /// The specification refuses it, or the store does not keep it.
+    pub fn withdraw(&mut self, grant: &GrantId, at: &Timestamp) -> Result<()> {
+        const COMMAND: &str = "host withdraw-disk-request";
+        let outcome = self
+            .generated
+            .withdraw_disk_request(WithdrawDiskRequest {
+                grant_id: grant.clone(),
+                withdrawn_at: at.clone(),
+            })
+            .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+        kept(COMMAND, &self.generated.ports.store)?;
+        match outcome {
+            WithdrawDiskRequestOutcome::Withdrawn { .. } => Ok(()),
+            WithdrawDiskRequestOutcome::NoSuchGrant { error } => {
+                bail!(
+                    "{COMMAND}: HostGrantNotFound: {}",
+                    no_grant(&error.grant_id)
+                )
+            }
+            WithdrawDiskRequestOutcome::WrongState { error } => bail!(
+                "{COMMAND}: HostGrantStateConflict: grant {} is no request still waiting: it was \
+                 granted, refused or withdrawn (see `conductor host grants`)",
+                error.grant_id.0
+            ),
+        }
     }
 }
 
@@ -1185,6 +1229,24 @@ pub fn release_grant(state: Option<&Path>, args: ReleaseGrantArgs) -> Result<Exi
     Ok(ExitCode::SUCCESS)
 }
 
+/// `conductor host withdraw-disk-request`: the command `conductor.host.WithdrawDiskRequest`.
+///
+/// # Errors
+///
+/// A flag is missing, `--input-json` is given, the store does not open or keep it, or the
+/// specification refuses it: `HostGrantNotFound`, `HostGrantStateConflict`.
+pub fn withdraw_disk_request(
+    state: Option<&Path>,
+    args: WithdrawDiskRequestArgs,
+) -> Result<ExitCode> {
+    const COMMAND: &str = "host withdraw-disk-request";
+    flags_only(args.input_json, "host withdraw-disk-request --input-json")?;
+    let grant = GrantId(flag(COMMAND, "--grant-id", args.grant_id)?);
+    let at = Timestamp(flag(COMMAND, "--withdrawn-at", args.withdrawn_at)?);
+    withdraw(&crate::state::dir(state)?, &grant, &at)?;
+    Ok(ExitCode::SUCCESS)
+}
+
 /// `conductor host grants`: the view `conductor.host.Grants`, live and recent grants newest first
 /// with each run's peak beside its reservation, over the existing store, rendered as `--format`
 /// asks. A view creates no store.
@@ -1259,6 +1321,7 @@ pub fn state_name(state: HostGrantState) -> &'static str {
         HostGrantState::Released => "Released",
         HostGrantState::Requested => "Requested",
         HostGrantState::Running => "Running",
+        HostGrantState::Withdrawn => "Withdrawn",
     }
 }
 
@@ -1271,6 +1334,7 @@ pub fn state_named(name: &str) -> Option<HostGrantState> {
         HostGrantState::Released,
         HostGrantState::Requested,
         HostGrantState::Running,
+        HostGrantState::Withdrawn,
     ]
     .into_iter()
     .find(|state| state_name(*state) == name)

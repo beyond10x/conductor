@@ -36,14 +36,21 @@
 //! 4. **Release.** When the command ends, its peak is recorded (`RecordPeak`) and the grant
 //!    released (`ReleaseGrant`: `Exited`, or `Killed` by a signal), and `build run` exits with the
 //!    command's status, 128 + the signal for a killed one.
+//! 5. **Stop** (`story:build-run-cancel-group`). SIGTERM, SIGINT or SIGHUP to `build run` itself
+//!    ([`catch`]) never leaves a build behind it: while the command runs, the signal is forwarded
+//!    to its whole process group (and SIGCONT after it, for a group the watchdog stopped); a group
+//!    with a process left after [`GRACE`] is sent SIGKILL; the run is reaped, its peak recorded and
+//!    its grant released as `Killed`. A request still waiting in the queue is withdrawn
+//!    (`WithdrawDiskRequest`), and one granted whose command has not started is released. Either
+//!    way `build run` exits with 128 + the signal it received.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -61,6 +68,67 @@ use crate::host::{self, Answer, Ledger, Shortfall, gib};
 
 /// One GiB.
 const GIB: u64 = 1 << 30;
+
+/// The signals that stop `build run`, each forwarded to its command's process group.
+pub const STOPPING: [Signal; 3] = [Signal::SIGTERM, Signal::SIGINT, Signal::SIGHUP];
+
+/// How long the command's process group has to end after the forwarded signal before it is sent
+/// SIGKILL.
+pub const GRACE: Duration = Duration::from_secs(10);
+
+/// How often a run that waits, in the queue or on its command, looks for a signal it received.
+const SIGNAL_POLL: Duration = Duration::from_millis(20);
+
+/// The signal this process received of [`STOPPING`], 0 while none, once [`catch`] installed its
+/// handlers.
+static RECEIVED: OnceLock<Arc<AtomicUsize>> = OnceLock::new();
+
+/// Installs the handlers that note SIGTERM, SIGINT and SIGHUP instead of ending this process, so
+/// [`run`] stops its build first. A command `build run` starts gets the default handlers back
+/// when it executes.
+///
+/// # Errors
+///
+/// A handler cannot be installed.
+pub fn catch() -> Result<()> {
+    let received = RECEIVED.get_or_init(|| Arc::new(AtomicUsize::new(0)));
+    for signal in STOPPING {
+        let number = signal as i32;
+        signal_hook::flag::register_usize(
+            number,
+            Arc::clone(received),
+            usize::try_from(number).unwrap_or(0),
+        )
+        .with_context(|| format!("build run: catch {signal}"))?;
+    }
+    Ok(())
+}
+
+/// The signal of [`STOPPING`] this process received, if [`catch`] installed its handlers and one
+/// arrived.
+fn received() -> Option<Signal> {
+    let number = RECEIVED.get()?.load(Ordering::SeqCst);
+    Signal::try_from(i32::try_from(number).ok()?)
+        .ok()
+        .filter(|signal| STOPPING.contains(signal))
+}
+
+/// Sleeps `pause`, waking early once a signal was received ([`received`]).
+fn pause_unless_received(pause: Duration) {
+    let until = Instant::now() + pause;
+    while received().is_none() {
+        let now = Instant::now();
+        if now >= until {
+            return;
+        }
+        thread::sleep((until - now).min(SIGNAL_POLL));
+    }
+}
+
+/// 128 + `signal`, the exit of a run `signal` stopped.
+fn signal_code(signal: Signal) -> u8 {
+    u8::try_from(128 + signal as i32).unwrap_or(1)
+}
 
 /// How often the watchdog reads free disk when `thresholds.watchdog_every` does not read.
 const EVERY: Duration = Duration::from_secs(10);
@@ -205,6 +273,14 @@ pub enum Outcome {
         /// How often the watchdog continued it.
         resumed: u32,
     },
+    /// A signal stopped `build run` before its command ran ([`STOPPING`]): the request, still
+    /// waiting in the queue, was withdrawn, or the grant was released.
+    Stopped {
+        /// The grant.
+        grant: GrantId,
+        /// The signal received.
+        signal: Signal,
+    },
     /// Reclaim could not reach the size: the command never ran.
     Refused {
         /// The refused grant.
@@ -228,6 +304,7 @@ impl Outcome {
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Ran { code, .. } => *code,
+            Self::Stopped { signal, .. } => signal_code(*signal),
             Self::Refused { .. } => 2,
         }
     }
@@ -319,6 +396,19 @@ pub fn run(
     let mut told = None;
     let pause = sources.every.max(Duration::from_millis(10));
     loop {
+        // A signal while the request waits withdraws it: it leaves the queue, and the command
+        // never runs.
+        if let Some(signal) = received() {
+            ledger.withdraw(&grant, &host::now((sources.clock)()))?;
+            drop(ledger);
+            host::end_run(state, &grant, run_lock);
+            say(&format!(
+                "conductor: build run: {signal}: the request was withdrawn from the queue; the \
+                 command did not run (grant {})",
+                grant.0
+            ));
+            return Ok(Outcome::Stopped { grant, signal });
+        }
         let ahead = ledger.ahead(&grant)?;
         if ahead == 0 {
             short = lacking(&ledger)?;
@@ -369,7 +459,7 @@ pub fn run(
             told = Some(ahead);
         }
         drop(ledger);
-        thread::sleep(pause);
+        pause_unless_received(pause);
         queued += pause;
         ledger = Ledger::lock(state)?;
         ledger.sweep(&host::now((sources.clock)()))?;
@@ -431,6 +521,22 @@ pub fn run(
     drop(ledger);
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
     let start = size(&measured(&request.cwd), sources.every).unwrap_or(0);
+    // A signal before the command starts: the granted reservation is released, and nothing runs.
+    if let Some(signal) = received() {
+        host::release(
+            state,
+            &grant,
+            Some(ReleaseReason::Killed),
+            &host::now((sources.clock)()),
+        )?;
+        host::end_run(state, &grant, run_lock);
+        say(&format!(
+            "conductor: build run: {signal}: the grant was released; the command did not run \
+             (grant {})",
+            grant.0
+        ));
+        return Ok(Outcome::Stopped { grant, signal });
+    }
 
     let mut child = match Command::new(program)
         .args(arguments)
@@ -468,17 +574,23 @@ pub fn run(
         };
         thread::spawn(move || watch.run(&done))
     };
-    let status = child.wait();
+    let (status, stopped_by) = supervise(&mut child, group);
     done.store(true, Ordering::SeqCst);
     let watched = watchdog
         .join()
         .map_err(|_| anyhow!("build run: the disk watchdog panicked"))?;
     let status = status.context("build run: wait for the command")?;
 
-    let (code, killed) = match (status.code(), status.signal()) {
-        (Some(code), _) => (u8::try_from(code & 0xff).unwrap_or(1), false),
-        (None, Some(signal)) => (u8::try_from(128 + (signal & 0x7f)).unwrap_or(1), true),
-        (None, None) => (1, true),
+    let (code, killed) = match (stopped_by, status.code(), status.signal()) {
+        (Some(signal), _, _) => {
+            say(&format!(
+                "conductor: build run: {signal}: the command's process group {group} was stopped"
+            ));
+            (signal_code(signal), true)
+        }
+        (None, Some(code), _) => (u8::try_from(code & 0xff).unwrap_or(1), false),
+        (None, None, Some(signal)) => (u8::try_from(128 + (signal & 0x7f)).unwrap_or(1), true),
+        (None, None, None) => (1, true),
     };
     // The run's growth: what it wrote beyond the size it started from.
     let peak = watched
@@ -514,14 +626,61 @@ pub fn run(
     })
 }
 
-/// `conductor build run`: [`run`] for the active instance, in the working directory. Exits with
-/// the command's status, or 2 when it was refused ([`run`] names the shortfall on standard error).
+/// Waits for the command `child`, the leader of the process group `group`, to end. A signal
+/// `build run` receives meanwhile ([`received`]) is forwarded to the whole group, with SIGCONT
+/// after it; once the leader has ended, the wait goes on until no process of the group is left,
+/// and a group with one left [`GRACE`] after the signal is sent SIGKILL. Answers the leader's
+/// status and the signal that stopped the run, if one did.
+fn supervise(
+    child: &mut std::process::Child,
+    group: i64,
+) -> (std::io::Result<std::process::ExitStatus>, Option<Signal>) {
+    let mut forwarded: Option<(Signal, Instant)> = None;
+    let mut killed = false;
+    let mut status = None;
+    loop {
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(exited)) => status = Some(Ok(exited)),
+                Ok(None) => {}
+                Err(error) => status = Some(Err(error)),
+            }
+        }
+        if forwarded.is_none()
+            && let Some(received) = received()
+        {
+            signal(group, received);
+            signal(group, Signal::SIGCONT);
+            forwarded = Some((received, Instant::now()));
+        }
+        match (&status, forwarded) {
+            (Some(_), None) => break,
+            (Some(_), Some(_)) if !host::alive(group) => break,
+            _ => {}
+        }
+        if let Some((_, since)) = forwarded
+            && !killed
+            && since.elapsed() >= GRACE
+        {
+            signal(group, Signal::SIGKILL);
+            killed = true;
+        }
+        thread::sleep(SIGNAL_POLL);
+    }
+    let status = status.unwrap_or_else(|| child.wait());
+    (status, forwarded.map(|(signal, _)| signal))
+}
+
+/// `conductor build run`: [`run`] for the active instance, in the working directory, with the
+/// handlers of [`catch`] installed. Exits with the command's status, 2 when it was refused
+/// ([`run`] names the shortfall on standard error), or 128 + the signal that stopped it.
 ///
 /// # Errors
 ///
-/// `--reserve` or the command is missing, or [`run`] fails.
+/// `--reserve` or the command is missing, a handler cannot be installed, or [`run`] fails.
 pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> {
     const COMMAND: &str = "build run";
+    catch()?;
     let reserve = args
         .reserve
         .ok_or_else(|| anyhow!("{COMMAND}: --reserve is missing"))?;

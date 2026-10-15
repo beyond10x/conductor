@@ -458,7 +458,9 @@ fn seen(store: &Store, snapshot: &SnapshotId, records: &Path) -> Result<Seen> {
                 }
                 seen.add("disk_granted", &groups, &data.requested_at.0, id);
             }
-            HostGrantState::Requested => {}
+            // A withdrawn request was neither answered nor run: its `build run` was stopped while
+            // it waited.
+            HostGrantState::Requested | HostGrantState::Withdrawn => {}
         }
     }
     Ok(seen)
