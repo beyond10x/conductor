@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -674,8 +674,75 @@ const GLAB_CREDENTIAL_GROUPS: [&str; 8] = [
 ];
 
 /// Commands that name `gh` or `glab` without running it, or run it through the bot route, which
-/// this rule leaves alone: only as the simple command's program ([`names_without_running`]).
-const GH_NOT_RUN: [&str; 6] = ["b10x-gates", "which", "type", "whereis", "man", "hash"];
+/// this rule leaves to [`bot_route`]: only as the simple command's program
+/// ([`names_without_running`]).
+const GH_NOT_RUN: [&str; 6] = [BOT_ROUTE, "which", "type", "whereis", "man", "hash"];
+
+/// The program of the bot route, which a `gh` call is left to ([`bot_route`]).
+const BOT_ROUTE: &str = "b10x-gates";
+
+/// The `gh` calls the bot route carries, each group with its verbs, for the session's own
+/// repository only: its release (the operator's decision of 2026-10-15) and a re-run of its CI
+/// (the coordinator's decision the same day: a controller re-runs failed CI through the route).
+const ROUTE_CARRIES: [(&str, &[&str]); 3] = [
+    ("release", &["create", "upload", "edit", "view"]),
+    ("run", &["rerun"]),
+    ("workflow", &["run"]),
+];
+
+/// The options of `b10x-gates gh` that take the next word as their value.
+const ROUTE_VALUES: [&str; 5] = ["--repo", "--repository", "--policy", "--key", "--gitleaks"];
+
+/// A run of the bot route `b10x-gates gh [opts] -- <gh args>`: the repository its
+/// `--repository` names, the `gh` arguments, and whether it asks for its own help.
+struct BotRoute<'w> {
+    repository: Option<&'w str>,
+    args: Vec<String>,
+    help: bool,
+}
+
+/// The bot route the simple command `words` runs, if it runs one: its program, after reserved
+/// words and assignments, is `b10x-gates`, and its subcommand, the first word after it that is no
+/// flag, is `gh`. The `gh` arguments are the words after `--`, and before it every word that is
+/// no option nor an option's value.
+fn bot_route(words: &[String]) -> Option<BotRoute<'_>> {
+    let words = command_words(words);
+    let (program, rest) = words.split_first()?;
+    if shell::program(program) != BOT_ROUTE {
+        return None;
+    }
+    let at = rest.iter().position(|word| !word.starts_with('-'))?;
+    if rest[at] != "gh" {
+        return None;
+    }
+    let rest = &rest[at + 1..];
+    let mut route = BotRoute {
+        repository: None,
+        args: Vec::new(),
+        help: false,
+    };
+    let mut next = 0;
+    while let Some(word) = rest.get(next) {
+        next += 1;
+        if word == "--" {
+            route.args.extend(rest[next..].iter().cloned());
+            break;
+        }
+        if let Some(value) = word.strip_prefix("--repository=") {
+            route.repository = Some(value);
+        } else if word == "--repository" {
+            route.repository = rest.get(next).map(String::as_str);
+            next += 1;
+        } else if ROUTE_VALUES.contains(&word.as_str()) {
+            next += 1;
+        } else if word == "-h" || word == "--help" {
+            route.help = true;
+        } else if !word.starts_with('-') {
+            route.args.push(word.clone());
+        }
+    }
+    Some(route)
+}
 
 /// A forge whose command-line tool the guard reads: `gh` for GitHub, `glab` for GitLab. A write
 /// through either is held alike for each role ([`forge_write`]).
@@ -1313,6 +1380,11 @@ impl Session<'_> {
             })
         };
         for words in &commands {
+            if let Some(gh) = bot_route(words)
+                && let Some(reason) = self.bot_route_denial(&gh)
+            {
+                return (Verdict::Deny, reason);
+            }
             for forge in Forge::ALL {
                 let Some(write) = forge_write(words, forge, assigned(forge)) else {
                     continue;
@@ -1480,6 +1552,96 @@ impl Session<'_> {
              checkout and managed worktrees, and no GitHub or GitLab write"
                 .to_owned(),
         )
+    }
+
+    /// Why a run of the bot route, `b10x-gates gh`, is denied, if it is (the operator's decision
+    /// of 2026-10-15): the route carries only `release create|upload|edit|view`, `run rerun` and
+    /// `workflow run` ([`ROUTE_CARRIES`]) of the session's own repository, the `<owner>/<name>` the
+    /// `origin` of its checkout names (conductor's: of its records), which `--repository` names
+    /// and any `-R`/`--repo` among the `gh` arguments names too. A credential group is class H,
+    /// as a bare `gh` write of one is. No `gh` arguments, or a help request, runs nothing on the
+    /// forge.
+    fn bot_route_denial(&self, gh: &BotRoute) -> Option<String> {
+        let shown = format!("b10x-gates gh -- {}", gh.args.join(" "));
+        let mut operands: Vec<&str> = Vec::new();
+        let mut repos: Vec<&str> = Vec::new();
+        let mut help = gh.help;
+        // A flag between the group and the verb may take the verb's place as its value, as in
+        // [`forge_write`]: the verb read would not be the one that runs.
+        let mut flag_before_verb = false;
+        let mut next = 0;
+        while let Some(word) = gh.args.get(next) {
+            next += 1;
+            if word == "-R" || word == "--repo" {
+                repos.extend(gh.args.get(next).map(String::as_str));
+                next += 1;
+            } else if let Some(repo) = word.strip_prefix("--repo=") {
+                repos.push(repo);
+            } else if word == "--help" {
+                help = true;
+            } else if word.starts_with('-') && word.len() > 1 {
+                flag_before_verb |= operands.len() == 1;
+            } else {
+                operands.push(word);
+            }
+        }
+        if help || operands.is_empty() {
+            return None;
+        }
+        let group = operands[0];
+        let verb = operands.get(1).copied().unwrap_or_default();
+        if Forge::GitHub.credential_groups().contains(&group) {
+            return Some(format!(
+                "`{shown}` is a GitHub write of a credential through the bot route: class H, the \
+                 operator's hands, whoever authorized it; no session runs it by any route"
+            ));
+        }
+        let calls: Vec<String> = ROUTE_CARRIES
+            .iter()
+            .map(|(group, verbs)| format!("`{group} {}`", verbs.join("|")))
+            .collect();
+        let carried = format!(
+            "the bot route carries only {} of the session's own repository",
+            calls.join(", ")
+        );
+        let carries = ROUTE_CARRIES
+            .iter()
+            .any(|(name, verbs)| *name == group && verbs.contains(&verb));
+        if !carries || flag_before_verb {
+            return Some(format!(
+                "`gh {group} {verb}` through the bot route is denied: {carried}, written with \
+                 no flag between the group and the verb"
+            ));
+        }
+        let checkout = match self.rules {
+            Rules::Controller => self.checkout(),
+            Rules::Conductor => self.places.records(),
+        };
+        let Some((host, own)) = collect::gitlab::origin(&checkout) else {
+            return Some(format!(
+                "`{shown}` is denied: {carried}, the one the origin of {} names, and it names \
+                 none",
+                self.places.shown(&checkout)
+            ));
+        };
+        let is_own = |named: &str| {
+            named.eq_ignore_ascii_case(&own) || named.eq_ignore_ascii_case(&format!("{host}/{own}"))
+        };
+        let Some(repository) = gh.repository else {
+            return Some(format!(
+                "`{shown}` names no --repository: {carried}, named as `b10x-gates gh --repository \
+                 {own} -- release …`"
+            ));
+        };
+        if let Some(other) = std::iter::once(repository)
+            .chain(repos)
+            .find(|r| !is_own(r))
+        {
+            return Some(format!(
+                "`{shown}` names the repository {other}: {carried}, {own}"
+            ));
+        }
+        None
     }
 
     /// Why a `git` command, `words` from the program word on and `env` the `GIT_DIR=` and

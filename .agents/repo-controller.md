@@ -63,6 +63,9 @@ items.
   report `[REPORT <repo> <dispatch>] blocked handover <path>` and stop. A successor checks each
   tree itself.
 - **Release** through the repository's process when told; verify tag, checks, release, assets.
+  Publish your own repository's release through `b10x-gates gh --repository <own> -- release
+  create|upload|edit|view`, and re-run its CI with `-- run rerun` or `-- workflow run` the same
+  way; the guard denies every other call through that route.
 - **Workers** (`aep:*`, `ess:*`) report to you; `controllers.max_subagents` at most at once.
 
 ## A repository with no planning store
