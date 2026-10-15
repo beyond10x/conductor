@@ -337,6 +337,29 @@ fn get(port: u16, path: &str, etag: Option<&str>) -> Answer {
     }
 }
 
+/// `GET path` with `If-None-Match: <etag>` until the answer is no longer the stale one the client
+/// holds: after a write the kept answer is served stale, `304` with `X-Conductor-Age`, while its
+/// recompute runs, which starts at most once per debounce (`cache::DEBOUNCE`); up to a minute.
+fn revalidated(port: u16, path: &str, etag: &str) -> Answer {
+    let since = Instant::now();
+    loop {
+        let answer = get(port, path, Some(etag));
+        if answer.status != 304 {
+            return answer;
+        }
+        assert!(
+            answer.header("X-Conductor-Age").is_some(),
+            "{path}: a 304 after the write is not marked stale: {:?}",
+            answer.head
+        );
+        assert!(
+            since.elapsed() < Duration::from_secs(60),
+            "{path} still answers the old snapshot after a minute"
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
 /// The median of `times`.
 fn median(mut times: Vec<Duration>) -> Duration {
     times.sort();
@@ -410,7 +433,7 @@ fn a_new_write_refreshes_the_cached_answer() {
 
     case.complete("2026-10-13T08:00:00Z", 3, 1);
     for (path, before) in &held {
-        let after = get(port, path, Some(&before.etag()));
+        let after = revalidated(port, path, &before.etag());
         assert_eq!(after.status, 200, "{path} still answers the old snapshot");
         assert_ne!(after.etag(), before.etag(), "{path}");
         let rows = after.json()["rows"].to_string();

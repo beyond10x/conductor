@@ -292,6 +292,33 @@ fn get(port: u16, path: &str) -> Value {
     serde_json::from_str(&body).unwrap_or_else(|error| panic!("GET {path}: {error}: {body}"))
 }
 
+/// `GET path` with the extra header lines `headers`, asked again while the answer is a kept one
+/// served stale (`X-Conductor-Age`): after a write the kept answer is served at once while it is
+/// computed again, which starts at most once per debounce (`cache::DEBOUNCE`); up to a minute.
+/// The status, the head and the body.
+fn revalidated(port: u16, path: &str, headers: &str) -> (u16, String, String) {
+    let since = std::time::Instant::now();
+    loop {
+        let answer = exchange(port, path, headers);
+        if header(&answer.1, "X-Conductor-Age").is_none() {
+            return answer;
+        }
+        assert!(
+            since.elapsed() < Duration::from_secs(60),
+            "GET {path} is still stale after a minute: {}",
+            answer.1
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// [`get`] of the answer [`revalidated`] gives: the one computed after the last write.
+fn fresh(port: u16, path: &str) -> Value {
+    let (status, _, body) = revalidated(port, path, "");
+    assert_eq!(status, 200, "GET {path}: {body}");
+    serde_json::from_str(&body).unwrap_or_else(|error| panic!("GET {path}: {error}: {body}"))
+}
+
 /// `/api/events` since [`SINCE`].
 fn events(port: u16) -> Vec<Value> {
     let answer = get(port, "/api/events?since=2026-10-13T00%3A00%3A00Z");
@@ -866,7 +893,7 @@ fn the_reviews_endpoint_answers_what_waits_for_review_oldest_first() {
 
     let (id, state) = case.take(EARLIER, reviews_fixture());
     assert_eq!(state, SnapshotState::Complete);
-    let reviews = get(port, "/api/reviews");
+    let reviews = fresh(port, "/api/reviews");
     assert_eq!(
         reviews["snapshot"],
         json!({"id": id, "started_at": EARLIER})
@@ -992,7 +1019,7 @@ fn the_unanswered_endpoint_counts_the_operator_items_and_ages_the_oldest() {
     case.request("REQ-OLD", EARLIER, Some("H"));
     let raised = OffsetDateTime::parse(EARLIER, &Rfc3339).expect("a fixed instant");
     let before = (OffsetDateTime::now_utc() - raised).whole_seconds();
-    let answer = get(port, overview::UNANSWERED_PATH);
+    let answer = fresh(port, overview::UNANSWERED_PATH);
     let after = (OffsetDateTime::now_utc() - raised).whole_seconds();
 
     assert_eq!(answer["count"], 2, "{answer:#}");
@@ -1098,7 +1125,7 @@ fn the_decisions_endpoint_lists_the_open_operator_items_and_the_history() {
         ],
     );
 
-    let answer = get(port, "/api/decisions");
+    let answer = fresh(port, "/api/decisions");
     let open = answer["open"].as_array().expect("open rows");
     let ids: Vec<&Value> = open.iter().map(|row| &row["request_id"]).collect();
     assert_eq!(ids, [&json!("REQ-OLD"), &json!("REQ-NEW")], "{answer:#}");
@@ -1215,7 +1242,7 @@ fn the_decisions_endpoint_answers_304_until_the_store_or_the_log_changes() {
     assert_eq!(header(&head, "ETag"), Some(first.as_str()));
 
     case.request("REQ-2", LATER, Some("H"));
-    let (status, head, body) = exchange(
+    let (status, head, body) = revalidated(
         port,
         "/api/decisions",
         &format!("If-None-Match: {first}\r\n"),
@@ -1237,7 +1264,7 @@ fn the_decisions_endpoint_answers_304_until_the_store_or_the_log_changes() {
                  "id": "REQ-0", "reason": "gone"}),
         ],
     );
-    let (status, head, _) = exchange(
+    let (status, head, _) = revalidated(
         port,
         "/api/decisions",
         &format!("If-None-Match: {second}\r\n"),
