@@ -2999,8 +2999,14 @@ impl Case {
     }
 
     /// Escalates the request `id` as `class` (`O` or `H`; an `H` item carries why it has no dry
-    /// run).
+    /// run, and an `O` item what the operator chooses from, with a deadline two days on).
     fn escalate(&self, id: &str, class: &str) {
+        self.escalate_until(id, class, (class == "O").then_some("2026-10-09T12:00:00Z"));
+    }
+
+    /// Escalates the request `id` as `class` with the deadline `deadline`, when given, and what
+    /// the operator chooses from (`story:decisions-page`).
+    fn escalate_until(&self, id: &str, class: &str, deadline: Option<&str>) {
         let mut args = vec![
             "decision",
             "escalate-request",
@@ -3013,6 +3019,20 @@ impl Case {
         ];
         if class == "H" {
             args.extend(["--no-dry-run", "the step needs the operator's login"]);
+        }
+        if let Some(deadline) = deadline {
+            args.extend([
+                "--kind",
+                "yes-no",
+                "--lettered-options",
+                r#"[{"letter":"Y","label":"yes","cost":"an hour"},{"letter":"N","label":"no","cost":"nothing"}]"#,
+                "--recommended-letters",
+                "Y",
+                "--default-letters",
+                "N",
+                "--deadline",
+                deadline,
+            ]);
         }
         self.decide(&args);
     }
@@ -3075,4 +3095,63 @@ fn an_escalated_request_unanswered_for_30_minutes_is_printed_once() {
         ["unanswered O REQ-1 30"]
     );
     assert_eq!(pass(&mut case.decisions_watch(one_pm)), NOTHING);
+}
+
+fn twelve_nine() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T12:09:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+fn twelve_ten() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T12:10:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+/// `story:decisions-page`: an escalated request whose escalation records a deadline is printed
+/// `unanswered <O|H> <request-id> <minutes>` once, in the first pass at or after its deadline,
+/// with the minutes since the pass that printed its escalation; its 30-minute line is still
+/// printed once. A request without a deadline prints only the 30-minute line.
+#[test]
+fn an_escalated_request_is_printed_unanswered_once_at_its_deadline() {
+    let case = Case::new("decisions-deadline");
+    case.sessions(&[]);
+    case.raise("REQ-1", "Release the pilot now?");
+    case.raise("REQ-2", "Rotate the deploy key?");
+    case.raise("REQ-3", "Which token scope?");
+    case.escalate_until("REQ-1", "O", Some("2026-10-07T12:10:00Z"));
+    case.escalate_until("REQ-2", "H", Some("2026-10-07T12:10:00Z"));
+    case.escalate_until("REQ-3", "H", None);
+    assert_eq!(pass(&mut case.decisions_watch(noon)).len(), 3);
+
+    assert_eq!(pass(&mut case.decisions_watch(twelve_nine)), NOTHING);
+    assert_eq!(
+        pass(&mut case.decisions_watch(twelve_ten)),
+        ["unanswered O REQ-1 10", "unanswered H REQ-2 10"]
+    );
+    assert_eq!(pass(&mut case.decisions_watch(twelve_twenty_nine)), NOTHING);
+    assert_eq!(
+        pass(&mut case.decisions_watch(twelve_thirty)),
+        [
+            "unanswered O REQ-1 30",
+            "unanswered H REQ-2 30",
+            "unanswered H REQ-3 30",
+        ]
+    );
+    assert_eq!(pass(&mut case.decisions_watch(one_pm)), NOTHING);
+}
+
+/// `story:decisions-page`: a deadline that has already passed when the escalation is first seen
+/// prints the escalation and its unanswered line in that same pass.
+#[test]
+fn an_escalation_seen_after_its_deadline_is_printed_unanswered_in_the_same_pass() {
+    let case = Case::new("decisions-deadline-passed");
+    case.sessions(&[]);
+    case.raise("REQ-1", "Release the pilot now?");
+    case.escalate_until("REQ-1", "O", Some("2026-10-07T11:30:00Z"));
+    assert_eq!(
+        pass(&mut case.decisions_watch(noon)),
+        [
+            "escalated O REQ-1 Release the pilot now?",
+            "unanswered O REQ-1 0",
+        ]
+    );
+    assert_eq!(pass(&mut case.decisions_watch(twelve_ten)), NOTHING);
 }

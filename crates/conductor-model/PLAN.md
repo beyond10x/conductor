@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest ab9ef9807c45deaa3915150a17cb8f2fc31c7db15e16b117315ad296619eb893
-  contract digest 42e3bc90d997096584e69b1c3ec4beb69b42fd2d3e16bf4a04a793844b195a9d
+  model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
+  contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-518 capabilities: **507 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+522 capabilities: **511 generated**, **2 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -79,6 +79,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.decision.DecisionLogLine` |
 | domain type | `conductor.decision.DecisionRequest.State` |
 | domain type | `conductor.decision.RequestId` |
+| domain type | `conductor.decision.RequestKind` |
+| domain type | `conductor.decision.RequestOption` |
 | domain type | `conductor.decision.ShowDecision` |
 | domain type | `conductor.direction.Activity` |
 | domain type | `conductor.direction.DecidedBy` |
@@ -418,7 +420,9 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.decision.DecisionReversed` |
 | error type | `conductor.decision.DecisionStateConflict` |
 | error type | `conductor.decision.DryRunMissing` |
+| error type | `conductor.decision.EscalationIncomplete` |
 | error type | `conductor.decision.NotEscalatable` |
+| error type | `conductor.decision.OptionsInvalid` |
 | error type | `conductor.decision.RequestExists` |
 | error type | `conductor.decision.RequestNotFound` |
 | error type | `conductor.decision.RequestStateConflict` |

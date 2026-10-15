@@ -124,6 +124,8 @@ Every command takes these, before or after its name.
 | [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
+| [`conductor session start`](#conductor-session-start) | Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
+| [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session |
 | [`conductor host`](#conductor-host) | The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk |
 | [`conductor host record-reclaim`](#conductor-host-record-reclaim) | Record a reclaim run |
 | [`conductor host record-peak`](#conductor-host-record-peak) | Record a run's peak |
@@ -919,6 +921,11 @@ Usage: conductor decision escalate-request [OPTIONS]
 | `--reason <REASON>` | no | none | string |
 | `--dry-run <FILE>` | no | none | The file holding the dry run: what every step of the operator's script that needs no credential printed. A class-H escalation carries this or `--no-dry-run` |
 | `--no-dry-run <REASON>` | no | none | Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run` |
+| `--kind <KIND>` | no | none | RequestKind: how the operator answers. Required for class O One of `yes-no`, `one-of`, `several-of`. |
+| `--lettered-options <LETTERED_OPTIONS>` | no | none | list of RequestOption, a JSON array of `{letter, label, cost}`; `Y` and `N` for `yes-no`. Required for class O |
+| `--recommended-letters <LETTERS>` | no | none | The letter conductor recommends, or several joined by `,` for `several-of`. Required for class O |
+| `--default-letters <LETTERS>` | no | none | The letter that stands when the operator has not answered by the deadline, or several joined by `,` for `several-of`. Required for class O |
+| `--deadline <DEADLINE>` | no | none | timestamp, RFC 3339: when the default stands. Required for class O |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision raise-decision-request`
@@ -1532,6 +1539,30 @@ Usage: conductor session leases [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor session start`
+
+Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+
+```text
+Usage: conductor session start [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
+
+## `conductor session stop`
+
+Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+
+```text
+Usage: conductor session stop [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
 
 ## `conductor host`
 

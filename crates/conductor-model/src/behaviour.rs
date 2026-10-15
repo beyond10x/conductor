@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest ab9ef9807c45deaa3915150a17cb8f2fc31c7db15e16b117315ad296619eb893
-// contract digest 42e3bc90d997096584e69b1c3ec4beb69b42fd2d3e16bf4a04a793844b195a9d
+// model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
+// contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -736,6 +736,10 @@ where
         if decided(all(&[equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), (Some(Some(&input.dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.no_dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value)]), "conductor.decision.EscalateRequest")? {
             return Ok(crate::decision::EscalateRequestOutcome::Untested { error: crate::decision::DryRunMissing { request_id: input.request_id.clone() } });
         }
+        // `incomplete`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("O".to_owned())), any(&[(Some(Some(&input.kind).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.lettered_options).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.recommended_letters).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.default_letters).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.deadline).and_then(|value| value.as_ref()).is_some())).map(|value| !value)])]), "conductor.decision.EscalateRequest")? {
+            return Ok(crate::decision::EscalateRequestOutcome::Incomplete { error: crate::decision::EscalationIncomplete { request_id: input.request_id.clone() } });
+        }
         // `escalated`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
             return Ok(crate::decision::EscalateRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
@@ -750,6 +754,11 @@ where
         next.data.escalation_reason = Some(input.reason.clone());
         next.data.dry_run = input.dry_run.clone();
         next.data.no_dry_run = input.no_dry_run.clone();
+        next.data.kind = input.kind.clone();
+        next.data.lettered_options = input.lettered_options.clone();
+        next.data.recommended_letters = input.recommended_letters.clone();
+        next.data.default_letters = input.default_letters.clone();
+        next.data.deadline = input.deadline.clone();
         let answer = crate::decision::EscalateRequestOutcome::Escalated { request_escalated: crate::decision::RequestEscalated { request_id: input.request_id.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -781,6 +790,11 @@ where
             escalation_reason: None,
             dry_run: None,
             no_dry_run: None,
+            kind: None,
+            lettered_options: None,
+            recommended_letters: None,
+            default_letters: None,
+            deadline: None,
             decision_id: None,
         };
         let answer = crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested: crate::decision::DecisionRequested { request_id: identity.clone(), repository: input.repository.clone() } };
@@ -2938,6 +2952,11 @@ where
                 recommendation: held.data.recommendation,
                 raised_at: held.data.raised_at,
                 blocker: held.data.blocker,
+                kind: held.data.kind,
+                lettered_options: held.data.lettered_options,
+                recommended_letters: held.data.recommended_letters,
+                default_letters: held.data.default_letters,
+                deadline: held.data.deadline,
             })
             .collect())
     }

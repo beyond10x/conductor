@@ -31,3 +31,4 @@ scenarios:
   - scenarios/send-dispatch-twice.yaml
   - scenarios/receive-message-unknown-kind.yaml
   - scenarios/claim-lease.yaml
+  - scenarios/escalate-o-with-options.yaml

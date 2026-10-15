@@ -27,7 +27,7 @@
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //! | usage | the usage readings of the complete snapshots of the store under the state directory ([`crate::collect::usage::Forecast`], [`Watch::with_usage`]) | `usage: pool runs out ~<hour>, next reset <minute>`, once per change of the forecast hour (`usage.hour`; `story:usage-probe`) |
-//! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`). The store records no deadline, so no line is printed at one |
+//! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`), and once more in the first pass at or after the deadline its escalation recorded, `<minutes>` counted from the pass that printed its escalation (`story:decisions-page`) |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
@@ -95,7 +95,8 @@
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
 //! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
-//! request printed, when, and whether its unanswered line was), `usage.hour` (the forecast hour the
+//! request printed, when, whether its 30-minute unanswered line was, and whether its line at the
+//! deadline was), `usage.hour` (the forecast hour the
 //! usage line was last printed for),
 //! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
 //! `disk-admit`, `gate-stop`, `disk.free` (the bytes free the last pass read), and, in the
@@ -200,7 +201,8 @@ const USAGE_HOUR: &str = "usage.hour";
 
 /// The escalated requests the watch has printed, one per line: `<request-id>\t<instant of the
 /// pass that printed its escalation, RFC 3339>\t<1 once its unanswered line was printed, else 0>`
-/// (`story:decisions-notify`).
+/// (`story:decisions-notify`)`\t<1 once its line at the deadline was printed, else 0>`
+/// (`story:decisions-page`; a line without it reads 0).
 const ESCALATED_SEEN: &str = "escalated.seen";
 
 /// How long an escalated request waits from the pass that printed its escalation before it is
@@ -1421,8 +1423,10 @@ impl Watch {
     /// The decision requests escalated as class O or H and not answered or withdrawn
     /// ([`crate::status::unanswered`], `story:decisions-notify`): `escalated <O|H> <request-id>
     /// <question>` in the first pass that finds one, and `unanswered <O|H> <request-id>
-    /// <minutes>` once, in the first pass [`UNANSWERED_AFTER`] or more after it. A request that
-    /// leaves `Escalated` is forgotten. Without a store nothing is printed.
+    /// <minutes>` once, in the first pass [`UNANSWERED_AFTER`] or more after it, and once in the
+    /// first pass at or after the deadline its escalation recorded (`story:decisions-page`); one
+    /// line when both fall in the same pass. A request that leaves `Escalated` is forgotten.
+    /// Without a store nothing is printed.
     fn decisions(&self, now: OffsetDateTime, lines: &mut Vec<String>) -> Result<()> {
         let Some(state) = &self.decisions else {
             return Ok(());
@@ -1433,41 +1437,52 @@ impl Watch {
         let items = crate::status::unanswered(&store);
         let file = self.state(ESCALATED_SEEN);
         let before = read_optional(&file)?.unwrap_or_default();
-        let kept: BTreeMap<&str, (&str, bool)> = before
+        let kept: BTreeMap<&str, (&str, bool, bool)> = before
             .lines()
             .filter_map(|line| {
                 let mut fields = line.split('\t');
                 let id = fields.next()?;
                 let seen = fields.next()?;
                 let reported = fields.next()? == "1";
-                Some((id, (seen, reported)))
+                // A line written before deadlines were recorded has no fourth field.
+                let at_deadline = fields.next() == Some("1");
+                Some((id, (seen, reported, at_deadline)))
             })
             .collect();
         let after = i64::try_from(UNANSWERED_AFTER.as_secs() / 60).unwrap_or(i64::MAX);
         let mut next = String::new();
         for item in &items {
             let id = one_line(&item.request_id);
-            let (seen, reported) = match kept.get(id.as_str()) {
-                Some(&(seen, reported)) => (seen.to_owned(), reported),
+            let (seen, reported, at_deadline) = match kept.get(id.as_str()) {
+                Some(&(seen, reported, at_deadline)) => (seen.to_owned(), reported, at_deadline),
                 None => {
                     lines.push(format!(
                         "escalated {} {id} {}",
                         item.class,
                         one_line(&item.question)
                     ));
-                    (now.format(&Rfc3339)?, false)
+                    (now.format(&Rfc3339)?, false, false)
                 }
             };
             let waited = OffsetDateTime::parse(&seen, &Rfc3339)
                 .ok()
                 .map(|at| (now - at).whole_minutes());
             let due = !reported && waited.is_some_and(|minutes| minutes >= after);
-            if let (true, Some(minutes)) = (due, waited) {
+            // The deadline its escalation recorded (`story:decisions-page`): once, at or after it.
+            let deadline_due = !at_deadline
+                && item
+                    .deadline
+                    .as_deref()
+                    .and_then(|deadline| OffsetDateTime::parse(deadline, &Rfc3339).ok())
+                    .is_some_and(|deadline| now >= deadline);
+            if let (true, Some(minutes)) = (due || deadline_due, waited) {
                 lines.push(format!("unanswered {} {id} {minutes}", item.class));
             }
+            let flag = |set: bool| if set { "1" } else { "0" };
             next.push_str(&format!(
-                "{id}\t{seen}\t{}\n",
-                if reported || due { "1" } else { "0" }
+                "{id}\t{seen}\t{}\t{}\n",
+                flag(reported || due),
+                flag(at_deadline || deadline_due)
             ));
         }
         if next != before {

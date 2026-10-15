@@ -277,6 +277,9 @@ pub struct OperatorItem {
     pub question: String,
     /// When it was raised, RFC 3339, as the store holds it.
     pub raised_at: String,
+    /// When its default stands, RFC 3339, as its escalation recorded it; none on an escalation
+    /// that recorded none (`story:decisions-page`).
+    pub deadline: Option<String>,
 }
 
 /// The unanswered operator items of `store` (decision requests in state `Escalated`), the one
@@ -295,6 +298,7 @@ pub fn unanswered(store: &Store) -> Vec<OperatorItem> {
                 .map_or("O", crate::decide::class_name),
             question: held.data.question,
             raised_at: held.data.raised_at.0,
+            deadline: held.data.deadline.map(|deadline| deadline.0),
         })
         .collect();
     items.sort_by(|left, right| {

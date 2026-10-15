@@ -24,6 +24,12 @@
 //! then, 00:00 UTC of the day without `since`; `/api/unanswered` the count of unanswered class-O
 //! and class-H items and the oldest one's age (`story:decisions-notify`).
 //!
+//! The Decisions page's data ([`decisions`], `story:decisions-page`): `/api/decisions` answers the
+//! open class-O and class-H items with what the operator chooses from, oldest first, and the
+//! records' decision log, newest first. It is the one answer computed once per write to the store
+//! or the log and served from memory with an `ETag`; a request naming that `ETag` in
+//! `If-None-Match` is answered `304`.
+//!
 //! The charts' series and the KPIs ([`series`]): `/api/series` lists the series and, with
 //! `?series=<name>&by=<dimension>&days=<n>`, answers one by day and group; `/api/kpis` answers
 //! each KPI against its target. Both read the daily rollups of the same store
@@ -51,6 +57,7 @@
 //! A source that cannot be read is named in `errors`; the others still show. No path under the
 //! home directory is printed in full: every string `/data.json` carries writes it as `~`.
 
+pub mod decisions;
 mod health;
 pub mod overview;
 pub mod repo;
@@ -349,6 +356,8 @@ struct Server {
     usage: usage::Cache,
     /// Doctor's last rows, which the health view serves (`story:dashboard-health`).
     doctor: health::Doctor,
+    /// The last `/api/decisions` answer (`story:decisions-page`).
+    decisions: decisions::Cache,
 }
 
 /// Answers every connection `listener` accepts, each on a thread of its own, from `sources`. The
@@ -377,6 +386,7 @@ pub fn serve_over(listener: TcpListener, sources: Sources, state: Option<PathBuf
         waste: waste::Cache::default(),
         usage: usage::Cache::default(),
         doctor: health::Doctor::default(),
+        decisions: decisions::Cache::default(),
     });
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
@@ -454,6 +464,8 @@ enum Resource {
     Events,
     /// [`overview::UNANSWERED_PATH`] (`story:decisions-notify`).
     Unanswered,
+    /// [`decisions::DECISIONS_PATH`] (`story:decisions-page`).
+    Decisions,
     /// [`HEALTH_PATH`].
     Health,
     /// One of [`repo::PATHS`], by its path (`story:dashboard-repo-view`).
@@ -543,6 +555,7 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
         (_, Some(known)) => Resource::Snapshot(known),
         (overview::EVENTS_PATH, _) => Resource::Events,
         (overview::UNANSWERED_PATH, _) => Resource::Unanswered,
+        (decisions::DECISIONS_PATH, _) => Resource::Decisions,
         (series::SERIES_PATH, _) => Resource::Series,
         (series::KPIS_PATH, _) => Resource::Kpis,
         _ if repo::PATHS.contains(&path) => Resource::Repo(
@@ -600,6 +613,7 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
             )),
             Err(error) => store_failure(&error),
         },
+        Resource::Decisions => decisions_answer(head, server),
         Resource::Events => {
             let now = OffsetDateTime::now_utc();
             let since = match overview::since(target) {
@@ -668,6 +682,35 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
             )),
             Err(error) => store_failure(&error),
         },
+    }
+}
+
+/// `/api/decisions` (`story:decisions-page`): the held answer while neither the store nor the
+/// decision log changed, `304` when the request names its `ETag`.
+fn decisions_answer(head: &str, server: &Server) -> Vec<u8> {
+    let records = &server.sources.root;
+    let fingerprint = match decisions::Fingerprint::of(server.state.as_deref(), records) {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => return store_failure(&anyhow::Error::from(error)),
+    };
+    let computed = server.decisions.answer(fingerprint, || {
+        let store = open_store(server.state.as_deref())?;
+        let mut errors = Vec::new();
+        let log = jsonl(&records.join(crate::records::DECISIONS), &mut errors);
+        let answer = decisions::answer(store.as_ref(), &log, errors);
+        let home = server.sources.home.display().to_string();
+        Ok(tilde_all(answer, home.trim_end_matches('/')))
+    });
+    match computed {
+        Ok(answer) => {
+            let etag = format!("ETag: {}\r\n", answer.etag);
+            if decisions::not_modified(head, &answer.etag) {
+                response(304, "Not Modified", "application/json", b"", &etag)
+            } else {
+                response(200, "OK", "application/json", answer.body.as_bytes(), &etag)
+            }
+        }
+        Err(error) => store_failure(&error),
     }
 }
 

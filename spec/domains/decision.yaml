@@ -22,6 +22,21 @@ types:
     of: String
     prefix: "DEC-"
 
+  # How the operator answers an escalated request (story:decisions-page): `yes-no`, Yes or No;
+  # `one-of`, exactly one of its lettered options; `several-of`, any number of them, at least one.
+  - name: conductor.decision.RequestKind
+    kind: enum
+    variants: [yes-no, one-of, several-of]
+
+  # One lettered option of an escalated request (story:decisions-page): its letter (`A`, `B`, …;
+  # `Y` and `N` for a `yes-no` request), what it does, and what it costs, in words.
+  - name: conductor.decision.RequestOption
+    kind: struct
+    fields:
+      - {name: letter, type: String}
+      - {name: label, type: String}
+      - {name: cost, type: String}
+
   - name: conductor.decision.DecisionClass
     kind: enum
     variants: [C, O, H]
@@ -111,6 +126,21 @@ entities:
         type: Optional<String>
       - name: no_dry_run
         type: Optional<String>
+      # What the Decisions page shows of an escalated request (story:decisions-page): its kind,
+      # its lettered options with their cost, the letters conductor recommends and the ones that
+      # stand when the operator does not answer by the deadline. Each is set by
+      # `EscalateRequest`, required for class O and optional for class H; absent on a request
+      # escalated before them, which the page shows as `one-of` with no options.
+      - name: kind
+        type: Optional<conductor.decision.RequestKind>
+      - name: lettered_options
+        type: Optional<List<conductor.decision.RequestOption>>
+      - name: recommended_letters
+        type: Optional<String>
+      - name: default_letters
+        type: Optional<String>
+      - name: deadline
+        type: Optional<Timestamp>
       - name: decision_id
         type: Optional<conductor.decision.DecisionId>
     relations:
@@ -209,6 +239,25 @@ errors:
     summary: >
       A class-H item carries its dry run (`--dry-run`) or why it has none (`--no-dry-run`), and
       this one carries neither.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.EscalationIncomplete
+    summary: >
+      A class-O escalation carries its kind, its lettered options with their cost, the
+      recommended letters, the default letters and the deadline (story:decisions-page), and this
+      one lacks at least one of them.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  # The command checks what the specification cannot before it opens the store: the letters are
+  # unique and non-empty, a `yes-no` request's are `Y` and `N`, the recommended and default
+  # letters are among them, one letter for `yes-no` and `one-of` and at least one for
+  # `several-of`, and every option carries a label and a cost (story:decisions-page).
+  - name: conductor.decision.OptionsInvalid
+    summary: The escalation's options, recommended letters or default letters do not fit its kind.
     fields:
       - name: request_id
         type: conductor.decision.RequestId
@@ -552,6 +601,9 @@ commands:
         summary: Only an escalated request is answered here.
 
   # Records line (`DecisionLogLine`): `escalated`, with `id`, `escalation_class` and `reason`.
+  # A class-O escalation names what the operator chooses from (story:decisions-page); the
+  # command also refuses options that do not fit their kind (`OptionsInvalid`) before it opens
+  # the store.
   - name: conductor.decision.EscalateRequest
     naming:
       wire: escalate-request
@@ -573,6 +625,21 @@ commands:
         type: Optional<String>
       - name: no_dry_run
         type: Optional<String>
+      # What the operator chooses from (story:decisions-page): the kind, the lettered options
+      # with their cost (a JSON array of `{letter, label, cost}` on the command line), the
+      # recommended letters and the default letters (one letter, or several joined by `,` for a
+      # `several-of` request), and the deadline, after which the default stands. Required for
+      # class O, optional for class H.
+      - name: kind
+        type: Optional<conductor.decision.RequestKind>
+      - name: lettered_options
+        type: Optional<List<conductor.decision.RequestOption>>
+      - name: recommended_letters
+        type: Optional<String>
+      - name: default_letters
+        type: Optional<String>
+      - name: deadline
+        type: Optional<Timestamp>
     outcomes:
       - name: class-c
         when: escalation_class == C
@@ -594,6 +661,23 @@ commands:
         summary: >
           A class-H item without its dry run or a reason for none is not handed over, and the
           request stays open.
+      - name: incomplete
+        when:
+          all:
+            - escalation_class == O
+            - any:
+                - missing(kind)
+                - missing(lettered_options)
+                - missing(recommended_letters)
+                - missing(default_letters)
+                - missing(deadline)
+        error: conductor.decision.EscalationIncomplete
+        payload:
+          conductor.decision.EscalationIncomplete:
+            request_id: input.request_id
+        summary: >
+          A class-O item without its kind, options, recommendation, default or deadline is not
+          handed over, and the request stays open.
       - name: escalated
         moves: conductor.decision.DecisionRequest.escalate
         instance: request_id
@@ -602,6 +686,11 @@ commands:
           escalation_reason: input.reason
           dry_run: input.dry_run
           no_dry_run: input.no_dry_run
+          kind: input.kind
+          lettered_options: input.lettered_options
+          recommended_letters: input.recommended_letters
+          default_letters: input.default_letters
+          deadline: input.deadline
         emits:
           - conductor.decision.RequestEscalated
         payload:
@@ -810,6 +899,18 @@ views:
         type: Timestamp
       - name: blocker
         type: Optional<String>
+      # What the Decisions page shows of an escalated request (story:decisions-page); null on a
+      # request escalated before them, or not escalated.
+      - name: kind
+        type: Optional<conductor.decision.RequestKind>
+      - name: lettered_options
+        type: Optional<List<conductor.decision.RequestOption>>
+      - name: recommended_letters
+        type: Optional<String>
+      - name: default_letters
+        type: Optional<String>
+      - name: deadline
+        type: Optional<Timestamp>
     naming:
       wire: requests
       display: Decision requests

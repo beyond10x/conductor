@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest ab9ef9807c45deaa3915150a17cb8f2fc31c7db15e16b117315ad296619eb893
-// contract digest 42e3bc90d997096584e69b1c3ec4beb69b42fd2d3e16bf4a04a793844b195a9d
+// model digest e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6
+// contract digest c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -122,6 +122,28 @@ pub enum DecisionRequestState {
 /// RequestId — `conductor.decision.RequestId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestId(pub String);
+
+/// RequestKind — `conductor.decision.RequestKind`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestKind {
+    /// `yes-no`.
+    YesNo,
+    /// `one-of`.
+    OneOf,
+    /// `several-of`.
+    SeveralOf,
+}
+
+/// RequestOption — `conductor.decision.RequestOption`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestOption {
+    /// `letter` — `String`.
+    pub letter: String,
+    /// `label` — `String`.
+    pub label: String,
+    /// `cost` — `String`.
+    pub cost: String,
+}
 
 /// ShowDecision — `conductor.decision.ShowDecision`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,6 +359,16 @@ pub struct DecisionRequestData {
     pub dry_run: Option<String>,
     /// `no_dry_run` — `Optional<String>`.
     pub no_dry_run: Option<String>,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
     /// `decision_id` — `Optional<conductor.decision.DecisionId>`.
     ///
     /// Carries `decision`: `conductor.decision.DecisionRequest` references one `conductor.decision.Decision`.
@@ -681,6 +713,16 @@ pub struct EscalateRequest {
     pub dry_run: Option<String>,
     /// `no_dry_run` — `Optional<String>`.
     pub no_dry_run: Option<String>,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
 }
 
 /// Everything `conductor.decision.EscalateRequest` can result in — one variant per declared outcome.
@@ -703,6 +745,13 @@ pub enum EscalateRequestOutcome {
     Untested {
         /// Why it was refused: `conductor.decision.DryRunMissing`.
         error: DryRunMissing,
+    },
+    /// `incomplete` — when `(escalation_class == O and (not (defined(kind)) or not (defined(lettered_options)) or not (defined(recommended_letters)) or not (defined(default_letters)) or not (defined(deadline))))`.
+    ///
+    /// A class-O item without its kind, options, recommendation, default or deadline is not handed over, and the request stays open.
+    Incomplete {
+        /// Why it was refused: `conductor.decision.EscalationIncomplete`.
+        error: EscalationIncomplete,
     },
     /// `escalated` — otherwise.
     ///
@@ -1099,11 +1148,29 @@ pub struct DryRunMissing {
     pub request_id: RequestId,
 }
 
+/// The declared error `conductor.decision.EscalationIncomplete`.
+///
+/// A class-O escalation carries its kind, its lettered options with their cost, the recommended letters, the default letters and the deadline (story:decisions-page), and this one lacks at least one of them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EscalationIncomplete {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
 /// The declared error `conductor.decision.NotEscalatable`.
 ///
 /// The request is class C; conductor decides it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotEscalatable {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
+/// The declared error `conductor.decision.OptionsInvalid`.
+///
+/// The escalation's options, recommended letters or default letters do not fit its kind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptionsInvalid {
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
 }
@@ -1252,6 +1319,16 @@ pub struct Requests {
     pub raised_at: crate::primitives::Timestamp,
     /// `blocker` — `Optional<String>`.
     pub blocker: Option<String>,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.

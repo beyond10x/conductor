@@ -1055,6 +1055,20 @@ fn status_counts_the_unanswered_operator_items_and_the_oldest_one_s_age() {
         ];
         if class == "H" {
             args.extend(["--no-dry-run", "the step needs the operator's login"]);
+        } else {
+            // What the operator chooses from (story:decisions-page).
+            args.extend([
+                "--kind",
+                "yes-no",
+                "--lettered-options",
+                r#"[{"letter":"Y","label":"yes","cost":"an hour"},{"letter":"N","label":"no","cost":"nothing"}]"#,
+                "--recommended-letters",
+                "Y",
+                "--default-letters",
+                "N",
+                "--deadline",
+                "2026-10-20T12:00:00Z",
+            ]);
         }
         printed(&root, &args);
     }

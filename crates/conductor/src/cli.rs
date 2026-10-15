@@ -2529,6 +2529,24 @@ pub struct EscalateRequestArgs {
     /// Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run`
     #[arg(long, value_name = "REASON")]
     pub no_dry_run: Option<String>,
+    /// RequestKind: how the operator answers. Required for class O.
+    #[arg(long, value_parser = ["yes-no", "one-of", "several-of"])]
+    pub kind: Option<String>,
+    /// list of RequestOption, a JSON array of `{letter, label, cost}`; `Y` and `N` for `yes-no`.
+    /// Required for class O
+    #[arg(long, value_parser = json_list)]
+    pub lettered_options: Option<String>,
+    /// The letter conductor recommends, or several joined by `,` for `several-of`. Required for
+    /// class O
+    #[arg(long, value_name = "LETTERS")]
+    pub recommended_letters: Option<String>,
+    /// The letter that stands when the operator has not answered by the deadline, or several
+    /// joined by `,` for `several-of`. Required for class O
+    #[arg(long, value_name = "LETTERS")]
+    pub default_letters: Option<String>,
+    /// timestamp, RFC 3339: when the default stands. Required for class O
+    #[arg(long, value_parser = timestamp)]
+    pub deadline: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

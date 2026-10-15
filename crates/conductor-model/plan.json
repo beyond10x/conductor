@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "ab9ef9807c45deaa3915150a17cb8f2fc31c7db15e16b117315ad296619eb893",
-    "contract_digest": "42e3bc90d997096584e69b1c3ec4beb69b42fd2d3e16bf4a04a793844b195a9d"
+    "source_digest": "e04e6fade321d42be8ea9057b9bfe800a24310edf0bc817d1a642de633ebcec6",
+    "contract_digest": "c647c821a13845ffc4c02885c629e2d0ad48af8c9395e301548662614742fca4"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -461,6 +461,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.decision.RequestId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.decision.RequestKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.decision.RequestOption",
       "disposition": {
         "disposition": "generated"
       }
@@ -2864,7 +2878,21 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.decision.EscalationIncomplete",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.decision.NotEscalatable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.decision.OptionsInvalid",
       "disposition": {
         "disposition": "generated"
       }

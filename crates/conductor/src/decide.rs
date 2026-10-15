@@ -58,8 +58,9 @@ use conductor_model::decision::{
     DecisionRequestState, DecisionSnapshot, DecisionState, EscalateRequest, EscalateRequestOutcome,
     RaiseDecisionRequest, RaiseDecisionRequestOutcome, RecordConductorDecision,
     RecordConductorDecisionOutcome, RecordOperatorDecision, RecordOperatorDecisionOutcome,
-    RequestId, ReverseConductorDecision, ReverseConductorDecisionOutcome, ReverseOperatorDecision,
-    ReverseOperatorDecisionOutcome, ShowDecision, WithdrawRequest, WithdrawRequestOutcome,
+    RequestId, RequestKind, RequestOption, ReverseConductorDecision,
+    ReverseConductorDecisionOutcome, ReverseOperatorDecision, ReverseOperatorDecisionOutcome,
+    ShowDecision, WithdrawRequest, WithdrawRequestOutcome,
 };
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::Timestamp;
@@ -83,7 +84,7 @@ pub const ATTEMPTS: usize = 64;
 
 /// The fields of the `Requests` view, in the specification's order
 /// (`spec/domains/decision.yaml`).
-const REQUEST_COLUMNS: [&str; 11] = [
+const REQUEST_COLUMNS: [&str; 16] = [
     "escalation_class",
     "escalation_reason",
     "request_id",
@@ -95,6 +96,11 @@ const REQUEST_COLUMNS: [&str; 11] = [
     "recommendation",
     "raised_at",
     "blocker",
+    "kind",
+    "lettered_options",
+    "recommended_letters",
+    "default_letters",
+    "deadline",
 ];
 
 /// The columns `decision hands-todo` prints as a table (`text`, `markdown`): the fields of the
@@ -525,6 +531,19 @@ fn escalate(
         flag(COMMAND, "--escalation-class", args.escalation_class)?,
     )?;
     let reason = flag(COMMAND, "--reason", args.reason)?;
+    let choices = Choices::read(
+        escalation_class,
+        args.kind.as_deref(),
+        args.lettered_options.as_deref(),
+        args.recommended_letters.as_deref(),
+        args.default_letters.as_deref(),
+    )
+    .map_err(|problem| {
+        anyhow!(
+            "{COMMAND}: OptionsInvalid: {problem}; request {:?} is unchanged",
+            request_id.0
+        )
+    })?;
     let dry_run = match measured {
         Some(text) => Some(text),
         None => args
@@ -538,6 +557,11 @@ fn escalate(
         reason: reason.clone(),
         dry_run,
         no_dry_run: args.no_dry_run,
+        kind: choices.kind,
+        lettered_options: choices.options,
+        recommended_letters: choices.recommended,
+        default_letters: choices.default,
+        deadline: args.deadline.map(Timestamp),
     };
     let mut generated = record(COMMAND, state)?;
     let outcome = generated
@@ -572,6 +596,17 @@ fn escalate(
                 error.request_id.0
             ),
         ),
+        EscalateRequestOutcome::Incomplete { error } => refused(
+            COMMAND,
+            "EscalationIncomplete",
+            &format!(
+                "a class-O escalation carries what the operator chooses from: `--kind`, \
+                 `--lettered-options` (each option's letter, label and cost), \
+                 `--recommended-letters`, `--default-letters` and `--deadline`; request {:?} is \
+                 unchanged",
+                error.request_id.0
+            ),
+        ),
         EscalateRequestOutcome::NoSuchRequest { error } => {
             refused(COMMAND, "RequestNotFound", &no_request(&error.request_id))
         }
@@ -592,6 +627,156 @@ fn dry_run_of(command: &str, file: &str) -> Result<String> {
     let text = std::fs::read_to_string(file)
         .with_context(|| format!("{command}: --dry-run: read the dry run {file:?}"))?;
     Ok(text.trim_end().to_owned())
+}
+
+/// What an escalation names for the operator to choose from (`story:decisions-page`), read from
+/// the flags of `decision escalate-request` and checked against what the specification cannot
+/// say: each option has a letter, a label and a cost, no letter twice, a `yes-no` request's
+/// letters are `Y` and `N`, and the recommended and default letters are among them, one for
+/// `yes-no` and `one-of` and at least one for `several-of`. Letters are kept joined by `,`.
+#[derive(Debug, Default)]
+struct Choices {
+    kind: Option<RequestKind>,
+    options: Option<Vec<RequestOption>>,
+    recommended: Option<String>,
+    default: Option<String>,
+}
+
+impl Choices {
+    /// The choices of an escalation of `class`. Letters without options are refused for class H;
+    /// for class O the specification refuses the missing options (`EscalationIncomplete`).
+    fn read(
+        class: DecisionClass,
+        kind: Option<&str>,
+        options: Option<&str>,
+        recommended: Option<&str>,
+        default: Option<&str>,
+    ) -> std::result::Result<Self, String> {
+        let kind = kind
+            .map(|name| kind_named(name).ok_or_else(|| format!("{name:?} is no RequestKind")))
+            .transpose()?;
+        let options = options.map(lettered_options).transpose()?;
+        if let Some(options) = &options {
+            let mut seen = std::collections::BTreeSet::new();
+            for option in options {
+                if !seen.insert(option.letter.as_str()) {
+                    return Err(format!(
+                        "the options name the letter {:?} twice",
+                        option.letter
+                    ));
+                }
+            }
+            if kind == Some(RequestKind::YesNo) && seen != ["N", "Y"].into_iter().collect() {
+                return Err(format!(
+                    "a yes-no request's letters are Y and N, not {}",
+                    seen.into_iter().collect::<Vec<_>>().join(", ")
+                ));
+            }
+        }
+        let letters = |flag: &str, given: Option<&str>| -> std::result::Result<_, String> {
+            let Some(given) = given else {
+                return Ok(None);
+            };
+            let letters: Vec<&str> = given
+                .split(',')
+                .map(str::trim)
+                .filter(|letter| !letter.is_empty())
+                .collect();
+            if letters.is_empty() {
+                return Err(format!("{flag} names no letter; it names at least one"));
+            }
+            if letters.len() > 1 && kind != Some(RequestKind::SeveralOf) {
+                return Err(format!(
+                    "{flag} names {}; only a several-of request takes more than one letter",
+                    letters.join(",")
+                ));
+            }
+            let Some(options) = &options else {
+                if class == DecisionClass::O {
+                    return Ok(Some(letters.join(",")));
+                }
+                return Err(format!(
+                    "{flag} names letters, and no --lettered-options are given"
+                ));
+            };
+            if let Some(stray) = letters
+                .iter()
+                .find(|letter| !options.iter().any(|option| option.letter == **letter))
+            {
+                return Err(format!(
+                    "{flag} names {stray:?}, which is not an option's letter"
+                ));
+            }
+            Ok(Some(letters.join(",")))
+        };
+        let recommended = letters("--recommended-letters", recommended)?;
+        let default = letters("--default-letters", default)?;
+        Ok(Self {
+            kind,
+            options,
+            recommended,
+            default,
+        })
+    }
+}
+
+/// The options `--lettered-options` holds: a JSON array of `{letter, label, cost}`, each text
+/// and none blank, at least one.
+fn lettered_options(text: &str) -> std::result::Result<Vec<RequestOption>, String> {
+    let array: Vec<Value> = serde_json::from_str(text)
+        .map_err(|error| format!("--lettered-options is no JSON array: {error}"))?;
+    if array.is_empty() {
+        return Err("--lettered-options names no option".to_owned());
+    }
+    array
+        .iter()
+        .enumerate()
+        .map(|(at, option)| {
+            let field = |name: &str| match option.get(name).and_then(Value::as_str) {
+                Some(value) if !value.trim().is_empty() => Ok(value.trim().to_owned()),
+                _ => Err(format!(
+                    "option {} of --lettered-options has no {name}; each has a letter, a label \
+                     and a cost",
+                    at + 1
+                )),
+            };
+            Ok(RequestOption {
+                letter: field("letter")?,
+                label: field("label")?,
+                cost: field("cost")?,
+            })
+        })
+        .collect()
+}
+
+/// The kind's name as the specification spells it (`story:decisions-page`). Exhaustive, so a
+/// kind the specification adds fails to compile here rather than being written under a guessed
+/// name.
+#[must_use]
+pub fn kind_name(kind: RequestKind) -> &'static str {
+    match kind {
+        RequestKind::YesNo => "yes-no",
+        RequestKind::OneOf => "one-of",
+        RequestKind::SeveralOf => "several-of",
+    }
+}
+
+/// The kind `name` spells, as [`kind_name`] writes it.
+#[must_use]
+pub fn kind_named(name: &str) -> Option<RequestKind> {
+    [
+        RequestKind::YesNo,
+        RequestKind::OneOf,
+        RequestKind::SeveralOf,
+    ]
+    .into_iter()
+    .find(|kind| kind_name(*kind) == name)
+}
+
+/// An option as the views, the store and the dashboard write it: `{letter, label, cost}`.
+#[must_use]
+pub fn option_value(option: &RequestOption) -> Value {
+    serde_json::json!({"letter": option.letter, "label": option.label, "cost": option.cost})
 }
 
 /// `conductor decision withdraw-request`: the command `conductor.decision.WithdrawRequest`.
@@ -776,6 +961,13 @@ pub fn requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.recommendation),
                 Value::from(row.raised_at.0),
                 Value::from(row.blocker),
+                Value::from(row.kind.map(kind_name)),
+                row.lettered_options.map_or(Value::Null, |options| {
+                    Value::Array(options.iter().map(option_value).collect())
+                }),
+                Value::from(row.recommended_letters),
+                Value::from(row.default_letters),
+                Value::from(row.deadline.map(|deadline| deadline.0)),
             ]
         })
         .collect();

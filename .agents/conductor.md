@@ -38,10 +38,10 @@ this session and expire after 7 days, so a restart loses them.
   hooks differ from the `b10x-gates` on `PATH` (`gates hooks stale: <n> checkouts`: list them
   with `conductor repository refresh-hooks` and install them afresh with `--apply`, which uses
   `gates_policy`), a decision request you escalated (`escalated <O|H> <request-id> <question>`)
-  and the same request still unanswered 30 minutes later (`unanswered <O|H> <request-id>
-  <minutes>`). On each `escalated` or `unanswered` line, send the operator a `PushNotification`
-  naming the request id, its class and its question or how long it has waited. Session starts
-  print nothing. When the monitor ends, start it again.
+  and the same request still unanswered 30 minutes later or at its deadline (`unanswered <O|H>
+  <request-id> <minutes>`). On each `escalated` or `unanswered` line, send the operator a
+  `PushNotification` naming the request id, its class and its question or how long it has
+  waited. Session starts print nothing. When the monitor ends, start it again.
 
 1. **Sense.** Build the snapshot with `task status` (the collectors, then the board) and read it
    with `conductor status`, which starts none. Answer an operator's status question with
@@ -182,6 +182,13 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   class-H item with `conductor decision escalate-request` and `--dry-run <file>`, or with
   `--no-dry-run <reason>` when no step runs without the credential. A class-H escalation with
   neither is refused, and `decision hands-todo` shows each item's dry run.
+- **Every escalation names what the operator chooses from.** Give every escalation its kind,
+  options, costs, recommendation, default and deadline: `--kind` (`yes-no`, `one-of` or
+  `several-of`), `--lettered-options` (a JSON array of `{letter, label, cost}`; `Y` and `N` for
+  `yes-no`), `--recommended-letters` and `--default-letters` (one letter, or several joined by
+  `,` for `several-of`) and `--deadline` (RFC 3339: when the default stands). A class-O
+  escalation without them is refused; give a class-H one them as well. The dashboard's
+  Decisions page shows each open item with them.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.

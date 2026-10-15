@@ -286,6 +286,33 @@ fn conductor_pushes_a_notification_on_each_escalated_and_unanswered_line() {
     );
 }
 
+/// `story:decisions-page`: conductor gives every escalation what the Decisions page shows, by
+/// the flags `decision escalate-request` reads, and knows the watch's line at a deadline.
+#[test]
+fn conductor_gives_every_escalation_its_kind_options_costs_recommendation_default_and_deadline() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "Give every escalation its kind, options, costs, recommendation, default and \
+             deadline"
+        ),
+        "conductor.md: every escalation names what the operator chooses from"
+    );
+    for flag in [
+        "`--kind`",
+        "`--lettered-options`",
+        "`--recommended-letters`",
+        "`--default-letters`",
+        "`--deadline`",
+    ] {
+        assert!(text.contains(flag), "conductor.md: names {flag}");
+    }
+    assert!(
+        text.contains("or at its deadline"),
+        "conductor.md: the watch's unanswered line at a deadline"
+    );
+}
+
 /// `story:self-arming-restart`: the restart prompt arms the jobs and the watch, so a hand-over
 /// keeps only open work.
 #[test]
