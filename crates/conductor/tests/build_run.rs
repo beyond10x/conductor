@@ -2058,7 +2058,12 @@ fn a_signal_withdraws_the_queued_request(name: &str, signal: Signal) {
     );
     // The binary's host directory: `~/.b10x/conductor/host` of the case's home, as no config
     // file names one (`config::host_dir`).
-    let host_dir = case.dir.join("home").join(".b10x").join("conductor").join("host");
+    let host_dir = case
+        .dir
+        .join("home")
+        .join(".b10x")
+        .join("conductor")
+        .join("host");
     let _waiter = host::hold_run(&host_dir, &head).expect("hold the head's run lock");
     let script = "touch ran";
     let mut run = case.build_run(script);
