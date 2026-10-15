@@ -4,14 +4,25 @@ selected with `CONDUCTOR_INSTANCE`). The operator is the person that instance an
 written like `thresholds.disk_low` is that instance's config value. A path with no repository
 named is in the instance's records directory (`records`).
 
-At session start read, in this order: this profile; the rules for your role, through
-`conductor rules show --section conductor` and, when the file has that section, `conductor rules
-show --section "all sessions"` (the rules every session follows; when it is refused, skip it: the
-refusal names the sections the file has), not the whole `rules.md`; §§ 4–8 of
-`docs/design/conductor.md` in the product repository, and no other section; `NORTHSTAR.md`; the
-newest `STATUS.md`; the last 50 lines of `decisions/` and `dispatches/`. The other sections of the
-instance's `rules.md` in the records directory you pass on; read an item of them when a charter or
-brief needs it, with `conductor rules show --item <n>,…` or `--section <heading>`.
+At session start read, in this order, and no file twice:
+
+- this profile;
+- the titles of the rules for your role: `conductor rules show --section conductor --brief` and,
+  when the file has that section, `conductor rules show --section "all sessions" --brief` (the
+  rules every session follows; when it is refused, skip it: the refusal names the sections the
+  file has). Not the whole `rules.md`: read an item whole with `conductor rules show --item <n>,…`
+  when a cycle needs it;
+- the newest hand-over, the one committed last (`git log -1 --name-only --format=%cI --
+  docs/handoff/` prints its commit time and path);
+- only the sections the hand-over points to of §§ 4–8 of `docs/design/conductor.md` in the product
+  repository, `NORTHSTAR.md` and the newest `STATUS.md`, and no design section outside §§ 4–8; with
+  no hand-over, those three in full;
+- the lines of `decisions/` and `dispatches/` whose `at` is later than the hand-over's commit
+  time, not the last 50 lines.
+
+The other sections of the instance's `rules.md` in the records directory you pass on; read an item
+of them when a charter or brief needs it, with `conductor rules show --item <n>,…` or `--section
+<heading>`.
 
 ## What you do, every cycle
 

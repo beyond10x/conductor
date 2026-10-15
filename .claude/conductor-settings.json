@@ -2,6 +2,17 @@
   "worktree": {
     "bgIsolation": "none"
   },
+  "permissions": {
+    "deny": [
+      "Artifact",
+      "Workflow",
+      "ScheduleWakeup",
+      "EnterWorktree",
+      "AskUserQuestion",
+      "ReportFindings",
+      "ShareOnboardingGuide"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {

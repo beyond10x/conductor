@@ -11,7 +11,8 @@
 //! `--item 43,49,51` prints those items in the order given; `--section <heading>` every item under
 //! each heading of that text (any case), its subsections' included, in file order; neither, every
 //! item. Text output is the items verbatim with one blank line between two; `--format json` a list
-//! of rows. A number no item holds, or a heading the file does not hold, is refused on one line of
+//! of rows; `--brief` one line per item, `<n>. <first sentence>` ([`brief`]), so a session reads a
+//! section's titles and asks for an item whole with `--item` (`story:conductor-context-budget`). A number no item holds, or a heading the file does not hold, is refused on one line of
 //! standard error naming it, and nothing is printed; a heading's refusal names, on that line, every
 //! section heading the file has (`story:rules-section-names`).
 
@@ -183,6 +184,43 @@ fn title(text: &str) -> String {
     lead.trim_end_matches(['.', ':']).to_owned()
 }
 
+/// The item's number and first sentence on one line, `<n>. <first sentence>`, as the file writes
+/// the sentence: up to the first `.`, `?` or `!` followed, after any closing `*`, `_`, backtick,
+/// `)` or quote, by white space or the item's end; an item with no such end gives its first line.
+#[must_use]
+pub fn brief(item: &Item) -> String {
+    let first = item.text.lines().next().unwrap_or_default();
+    let words: Vec<&str> = item.text.split_whitespace().collect();
+    let joined = words.join(" ");
+    let body = joined.split_once(". ").map_or("", |(_, body)| body);
+    let chars: Vec<char> = body.chars().collect();
+    let mut end = None;
+    for (at, &ch) in chars.iter().enumerate() {
+        if !matches!(ch, '.' | '?' | '!') {
+            continue;
+        }
+        let mut after = at + 1;
+        while chars
+            .get(after)
+            .is_some_and(|&next| matches!(next, '*' | '_' | '`' | ')' | '"' | '\''))
+        {
+            after += 1;
+        }
+        if chars.get(after).is_none_or(|next| next.is_whitespace()) {
+            end = Some(after);
+            break;
+        }
+    }
+    match end {
+        Some(end) => format!(
+            "{}. {}",
+            item.number,
+            chars[..end].iter().collect::<String>()
+        ),
+        None => first.trim_end().to_owned(),
+    }
+}
+
 /// What follows the item's `Source:` line, on one line.
 fn source(text: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
@@ -294,12 +332,17 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
         item: args.item.clone(),
         section: args.section.clone(),
         format: args.format.clone(),
+        brief: args.brief,
     };
     let json = match input.format.as_deref() {
         None | Some("text") => false,
         Some("json") => true,
         Some(other) => bail!("{COMMAND}: --format {other:?} is not one of text, json"),
     };
+    let brief_lines = input.brief == Some(true);
+    if json && brief_lines {
+        bail!("{COMMAND}: give --brief or --format json, not both: a json row carries its title");
+    }
     let file = PathBuf::from(&config::active().instance.records).join(RULES_FILE);
     let text =
         fs::read_to_string(&file).with_context(|| format!("{COMMAND}: read {}", file.display()))?;
@@ -321,6 +364,11 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
             })
             .collect();
         format!("{}\n", Value::Array(rows))
+    } else if brief_lines {
+        chosen
+            .iter()
+            .map(|item| format!("{}\n", brief(item)))
+            .collect()
     } else {
         chosen
             .iter()

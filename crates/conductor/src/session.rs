@@ -434,8 +434,9 @@ lease check of your profile, arm what wakes you; the hand-over does not list it.
 then CronCreate each recurring job it does not show: one every cadence.cycle, one at \
 cadence.daily (UTC) for the daily cycle, both values from conductor config show, with the prompts \
 your profile gives. Start the watch once with the Monitor tool: conductor watch run --follow. \
-Then read the hand-over committed last (git log -1 --name-only --format= -- docs/handoff/), act \
-on its first task, then run one cycle.";
+Then act on the first task of the hand-over your start reading opened, the one committed last \
+(git log -1 --name-only --format= -- docs/handoff/), without reading it again, then run one \
+cycle.";
 
 /// The first prompt of conductor-dev's session (`session start --role conductor-dev`).
 pub const DEV_PROMPT: &str = "Start of session. Read your profile's start-of-session list in its \
@@ -777,4 +778,23 @@ pub fn stop(
     writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
         .context("write the stopped session")?;
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CONDUCTOR_PROMPT;
+
+    /// `story:conductor-context-budget`: the profile's start reading opens the newest hand-over,
+    /// so the first prompt acts on it and does not have it read a second time.
+    #[test]
+    fn the_first_prompt_does_not_read_the_hand_over_again() {
+        assert!(
+            !CONDUCTOR_PROMPT.contains("read the hand-over"),
+            "{CONDUCTOR_PROMPT}"
+        );
+        assert!(
+            CONDUCTOR_PROMPT.contains("act on the first task of the hand-over"),
+            "{CONDUCTOR_PROMPT}"
+        );
+    }
 }

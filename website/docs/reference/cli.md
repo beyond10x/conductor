@@ -1874,6 +1874,7 @@ Usage: conductor rules show [OPTIONS]
 | `--item <ITEM>` | no | none | The item numbers to print, comma-separated (43,49,51), in the order given |
 | `--section <SECTION>` | no | none | A heading of rules.md, any case: print every item under each heading of that text |
 | `--format <FORMAT>` | no | none | How the items are printed: text (verbatim) or json. Default: text |
+| `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
 
 ## `conductor setup`
 
