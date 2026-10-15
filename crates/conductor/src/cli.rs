@@ -296,6 +296,29 @@ impl Cli {
                     crate::gc::reclaim::run_reclaim(state, args.format.as_deref())
                 }
             },
+            // The improvement loop's leaves are not written yet (story:kpi-spec placed them).
+            Group::Metric(command) => match command {
+                MetricCommand::DefineMetric(_) => crate::not_implemented("metric define-metric"),
+                MetricCommand::RecordMetricReading(_) => {
+                    crate::not_implemented("metric record-metric-reading")
+                }
+                MetricCommand::SetMetricTarget(_) => {
+                    crate::not_implemented("metric set-metric-target")
+                }
+                MetricCommand::Kpis(_) => crate::not_implemented("metric kpis"),
+                MetricCommand::MetricReadings(_) => {
+                    crate::not_implemented("metric metric-readings")
+                }
+                MetricCommand::Metrics(_) => crate::not_implemented("metric metrics"),
+            },
+            Group::Finding(command) => match command {
+                FindingCommand::FileFinding(_) => crate::not_implemented("finding file-finding"),
+                FindingCommand::RaiseFinding(_) => crate::not_implemented("finding raise-finding"),
+                FindingCommand::VerifyFinding(_) => {
+                    crate::not_implemented("finding verify-finding")
+                }
+                FindingCommand::Findings(_) => crate::not_implemented("finding findings"),
+            },
             Group::Build(command) => match command {
                 BuildCommand::Run(args) => build::build_run(state, &args),
             },
@@ -383,6 +406,14 @@ pub enum Group {
     /// The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk
     #[command(subcommand)]
     Host(HostCommand),
+
+    /// The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs
+    #[command(subcommand)]
+    Metric(MetricCommand),
+
+    /// Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move
+    #[command(subcommand)]
+    Finding(FindingCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `build run`
     // (`story:build-run`).
@@ -594,6 +625,16 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["host", "reclaim-runs"], Access::Reads),
     // Removes what needs no decision until free disk is back over the floor (story:disk-reclaim).
     (&["host", "reclaim"], Access::Writes),
+    (&["metric", "define-metric"], Access::Writes),
+    (&["metric", "record-metric-reading"], Access::Writes),
+    (&["metric", "set-metric-target"], Access::Writes),
+    (&["metric", "kpis"], Access::Reads),
+    (&["metric", "metric-readings"], Access::Reads),
+    (&["metric", "metrics"], Access::Reads),
+    (&["finding", "file-finding"], Access::Writes),
+    (&["finding", "raise-finding"], Access::Writes),
+    (&["finding", "verify-finding"], Access::Writes),
+    (&["finding", "findings"], Access::Reads),
     // Reserves disk in the host ledger and runs the session's own build under the disk watchdog
     // (story:build-run); the guard sends every build through it.
     (&["build", "run"], Access::RunWrites),
@@ -1088,6 +1129,56 @@ pub enum HostCommand {
     Reclaim(HostReclaimArgs),
 }
 
+/// `conductor metric`: the measured quantities of the self-improvement loop, their daily
+/// readings and the targets that make some of them KPIs.
+#[derive(Debug, Subcommand)]
+pub enum MetricCommand {
+    /// Define a metric
+    #[command(name = "define-metric")]
+    DefineMetric(DefineMetricArgs),
+
+    /// Record a metric's reading
+    #[command(name = "record-metric-reading")]
+    RecordMetricReading(RecordMetricReadingArgs),
+
+    /// Set a metric's target
+    #[command(name = "set-metric-target")]
+    SetMetricTarget(SetMetricTargetArgs),
+
+    /// KPIs
+    #[command(name = "kpis")]
+    Kpis(ViewArgs),
+
+    /// Metric readings
+    #[command(name = "metric-readings")]
+    MetricReadings(ViewArgs),
+
+    /// Metrics
+    #[command(name = "metrics")]
+    Metrics(ViewArgs),
+}
+
+/// `conductor finding`: friction the loop detected, the draft story each is filed as, and the
+/// week-later check of the metric it should move.
+#[derive(Debug, Subcommand)]
+pub enum FindingCommand {
+    /// File a finding as a draft story
+    #[command(name = "file-finding")]
+    FileFinding(FileFindingArgs),
+
+    /// Raise a friction finding
+    #[command(name = "raise-finding")]
+    RaiseFinding(RaiseFindingArgs),
+
+    /// Verify a filed finding
+    #[command(name = "verify-finding")]
+    VerifyFinding(VerifyFindingArgs),
+
+    /// Friction findings
+    #[command(name = "findings")]
+    Findings(ViewArgs),
+}
+
 /// The input of the binding's `gc-reclaim` callable, `conductor.host.ReclaimDisk`. The format is
 /// text the handler reads, so a value it refuses is named there.
 #[derive(Debug, Clone, Args)]
@@ -1566,6 +1657,15 @@ fn timestamp(value: &str) -> Result<String, String> {
     Ok(value.to_owned())
 }
 
+/// Accepts an exact decimal, such as `0.1`, `-10.50` or `15e-1`, exactly as the generated
+/// decimal reader reads one (`conductor_model::primitives::invariant::Number`), and keeps it as
+/// written: the generated `Decimal` carries its wire rendering.
+fn decimal(value: &str) -> Result<String, String> {
+    conductor_model::primitives::invariant::Number::parse(value)
+        .map(|_| value.to_owned())
+        .ok_or_else(|| "not a decimal: expected digits, a `.` and an exponent at most".to_owned())
+}
+
 /// Accepts a UUID as 8-4-4-4-12 hexadecimal digits in either case, and answers its canonical
 /// lower-case rendering, which the generated `Uuid` carries.
 fn uuid(value: &str) -> Result<String, String> {
@@ -1743,6 +1843,144 @@ pub struct TakeHostGrantArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.DefineMetric`.
+#[derive(Debug, Clone, Args)]
+pub struct DefineMetricArgs {
+    /// MetricId
+    #[arg(long)]
+    pub metric_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub name: Option<String>,
+    /// string
+    #[arg(long)]
+    pub unit: Option<String>,
+    /// string
+    #[arg(long)]
+    pub instrument: Option<String>,
+    /// string
+    #[arg(long)]
+    pub definition: Option<String>,
+    /// decimal, optional
+    #[arg(long, allow_negative_numbers = true, value_parser = decimal)]
+    pub baseline: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub baseline_period: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.RecordMetricReading`.
+#[derive(Debug, Clone, Args)]
+pub struct RecordMetricReadingArgs {
+    /// MetricReadingId
+    #[arg(long)]
+    pub reading_id: Option<String>,
+    /// MetricId
+    #[arg(long)]
+    pub metric_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub day: Option<String>,
+    /// string
+    #[arg(long)]
+    pub scope: Option<String>,
+    /// decimal
+    #[arg(long, allow_negative_numbers = true, value_parser = decimal)]
+    pub value: Option<String>,
+    /// list of string, a JSON array
+    #[arg(long, value_parser = json_list)]
+    pub sources: Option<String>,
+    /// boolean, optional
+    #[arg(long)]
+    pub met: Option<bool>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub recorded_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.SetMetricTarget`.
+#[derive(Debug, Clone, Args)]
+pub struct SetMetricTargetArgs {
+    /// MetricId
+    #[arg(long)]
+    pub metric_id: Option<String>,
+    /// decimal
+    #[arg(long, allow_negative_numbers = true, value_parser = decimal)]
+    pub target: Option<String>,
+    /// TargetDirection
+    #[arg(long, value_parser = ["AtMost", "AtLeast"])]
+    pub direction: Option<String>,
+    /// string
+    #[arg(long)]
+    pub target_owner: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub target_set_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.FileFinding`.
+#[derive(Debug, Clone, Args)]
+pub struct FileFindingArgs {
+    /// FindingId
+    #[arg(long)]
+    pub finding_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub story: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.RaiseFinding`.
+#[derive(Debug, Clone, Args)]
+pub struct RaiseFindingArgs {
+    /// FindingId
+    #[arg(long)]
+    pub finding_id: Option<String>,
+    /// string
+    #[arg(long)]
+    pub signature: Option<String>,
+    /// list of string, a JSON array
+    #[arg(long, value_parser = json_list)]
+    pub evidence: Option<String>,
+    /// MetricId
+    #[arg(long)]
+    pub metric_id: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub raised_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.VerifyFinding`.
+#[derive(Debug, Clone, Args)]
+pub struct VerifyFindingArgs {
+    /// FindingId
+    #[arg(long)]
+    pub finding_id: Option<String>,
+    /// boolean
+    #[arg(long)]
+    pub moved: Option<bool>,
+    /// string
+    #[arg(long)]
+    pub verdict: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

@@ -69,6 +69,8 @@ enum Accepts {
     /// `String`: any text.
     Text,
     Integer,
+    /// An exact decimal, the wire rendering of `Decimal`.
+    Decimal,
     Boolean,
     /// RFC 3339, the wire rendering of `Timestamp`.
     Timestamp,
@@ -347,6 +349,7 @@ fn accepts(model: &Value, type_ref: &Value, context: &str) -> Accepts {
         Some("primitive") => match text(&type_ref["name"], context) {
             "string" => Accepts::Text,
             "integer" => Accepts::Integer,
+            "decimal" => Accepts::Decimal,
             "boolean" => Accepts::Boolean,
             "timestamp" => Accepts::Timestamp,
             "uuid" => Accepts::Uuid,
@@ -979,6 +982,12 @@ fn every_flag_accepts_what_its_field_holds() {
                         let (accepted, refused): (Vec<String>, Vec<&str>) = match &field.accepts {
                             Accepts::Text => (owned(&["a value"]), vec![]),
                             Accepts::Integer => (owned(&["-1", "42"]), vec!["4.2", "x"]),
+                            // Exactly what the generated decimal reader reads
+                            // (`conductor_model::primitives::invariant::Number::parse`).
+                            Accepts::Decimal => (
+                                owned(&["42", "-10.50", "0.1", ".5", "15e-1", "+2E3"]),
+                                vec!["x", "1.2.3", ".", "1e", "1,5", "0x10"],
+                            ),
                             Accepts::Boolean => (owned(&["true", "false"]), vec!["maybe"]),
                             // Exactly what the generated `Timestamp` reader reads
                             // (`conductor_model::primitives`, `fn rfc3339`).
