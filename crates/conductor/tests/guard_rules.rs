@@ -1300,12 +1300,13 @@ fn a_controller_s_bash_writes_no_project_settings() {
 }
 
 // -------------------------------------------------------------------------------------------------
-// Correction 2, decision 2: `gh` reads are allowed, everything else from `gh` is a GitHub write;
-// the bot route is left alone.
+// Correction 2, decision 2: `gh` reads are allowed, everything else from `gh` is a GitHub write.
+// The bot route, `b10x-gates gh`, was left alone there; since the operator's decision of
+// 2026-10-15 it carries only the session's own release (the cases after these).
 // -------------------------------------------------------------------------------------------------
 
 #[test]
-fn gh_reads_and_the_bot_route_are_allowed() {
+fn gh_reads_are_allowed() {
     let home = home("gh-allow-list-reads");
     for cwd in [PROBE, CONDUCTOR] {
         for command in [
@@ -1321,8 +1322,6 @@ fn gh_reads_and_the_bot_route_are_allowed() {
             "gh --version",
             "gh help pr",
             "gh search issues --repo o/r x",
-            "b10x-gates gh -- pr create --fill",
-            "b10x-gates gh -- pr merge 3 --squash",
             "which gh",
             "command -v gh && gh pr list",
         ] {
@@ -1349,6 +1348,87 @@ fn everything_else_from_gh_is_a_github_write() {
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Deny, "GitHub write");
         }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// The operator's decision of 2026-10-15: the bot route, `b10x-gates gh [opts] -- <gh args>`,
+// carries a controller's release of its own repository, `release create|upload|edit|view` with
+// `--repository` naming the repository its checkout's `origin` names, and nothing else.
+// -------------------------------------------------------------------------------------------------
+
+/// A controller's checkout, `~/example-org/widget`, whose `origin` is
+/// `github.com/example-org/widget`, under a home of its own; the session runs in it.
+fn release_home(case: &str) -> (Home, &'static str) {
+    let home = home(case);
+    let git = home.join("example-org/widget/.git");
+    fs::create_dir_all(&git).expect("create the checkout's .git");
+    fs::write(
+        git.join("config"),
+        "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = https://github.com/example-org/widget.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+    )
+    .expect("write the checkout's git config");
+    (home, "~/example-org/widget")
+}
+
+#[test]
+fn the_bot_route_admits_a_release_of_the_controllers_own_repository() {
+    let (home, widget) = release_home("bot-route-own-release");
+    for command in [
+        "b10x-gates gh --repo . --repository example-org/widget --policy p.json -- release create v1.0.0 --draft --notes-file notes.md",
+        "b10x-gates gh --repository example-org/widget -- release upload v1.0.0 dist/a.tar.gz SHA256SUMS",
+        "b10x-gates gh --repository=example-org/widget -- release edit v1.0.0 --draft=false",
+        "B10X_GATES_POLICY=p.json b10x-gates gh --repository Example-Org/Widget -- release view v1.0.0",
+        "b10x-gates gh --repository example-org/widget -- release create v1.0.0 --repo example-org/widget",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Allow, "");
+    }
+}
+
+#[test]
+fn a_bare_gh_release_write_is_still_denied() {
+    let (home, widget) = release_home("bot-route-bare-gh");
+    for command in [
+        "gh release create v1.0.0 --draft",
+        "gh --repo example-org/widget release upload v1.0.0 a.tar.gz",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Deny, "GitHub write");
+    }
+}
+
+#[test]
+fn the_bot_route_naming_another_repository_is_denied() {
+    let (home, widget) = release_home("bot-route-other-repository");
+    for command in [
+        "b10x-gates gh --repository example-org/other -- release create v1.0.0",
+        "b10x-gates gh --repository=other-org/widget -- release upload v1.0.0 a.tar.gz",
+        "b10x-gates gh --repository example-org/widget -- release create v1.0.0 --repo example-org/other",
+        "b10x-gates gh --repository example-org/widget -- -R example-org/other release edit v1.0.0",
+        "b10x-gates gh -- release create v1.0.0",
+    ] {
+        assert_verdict(
+            &bash(&home, widget, command),
+            Verdict::Deny,
+            "the bot route",
+        );
+    }
+}
+
+#[test]
+fn the_bot_route_denies_every_other_gh_subcommand() {
+    let (home, widget) = release_home("bot-route-other-subcommand");
+    for command in [
+        "b10x-gates gh --repository example-org/widget -- pr merge 3 --squash",
+        "b10x-gates gh --repository example-org/widget -- pr create --fill",
+        "b10x-gates gh --repository example-org/widget -- repo delete example-org/widget --yes",
+        "b10x-gates gh --repository example-org/widget -- release delete v1.0.0 --yes",
+        "b10x-gates gh --repository example-org/widget -- run rerun 1 --failed",
+    ] {
+        assert_verdict(
+            &bash(&home, widget, command),
+            Verdict::Deny,
+            "the bot route",
+        );
     }
 }
 
