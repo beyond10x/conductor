@@ -15,7 +15,9 @@
 //!   measurement ([`super::waste`]) with every one of its rows.
 //!
 //! A part that cannot be read is named in `errors`; the others still show. The store is opened
-//! only when it is there, and nothing is written.
+//! only when it is there, and nothing is written. The snapshot and its rows are read through the
+//! store handle the server keeps, once per write to the store (`story:dashboard-fast`,
+//! [`super::cache`]); the rest is read for each request.
 
 use std::env;
 use std::ffi::OsString;
@@ -25,18 +27,24 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use anyhow::Result;
-use conductor_model::behaviour::Generated;
+use conductor_model::behaviour::{
+    CollectorRunObservationStorage, Generated, MemberFailureObservationStorage, SnapshotStorage,
+};
 use conductor_model::config::Instance;
-use conductor_model::observation::FailureClass;
 use conductor_model::observation::obligations::{
     CollectorRunsQuery, MemberFailuresQuery, SnapshotsQuery,
 };
-use conductor_model::observation::{CollectorRuns, MemberFailures};
+use conductor_model::observation::{
+    CollectorRunObservationSnapshot, CollectorRuns, FailureClass, MemberFailureObservationSnapshot,
+    MemberFailures, ObservationId, SnapshotId, SnapshotSnapshot,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+use super::cache::Held;
 use super::{FAILURE_FIXES, Sources, rfc3339, tilde_all};
+use crate::store::Store;
 use crate::{config, doctor};
 
 /// How often the server's timer looks whether doctor is due again.
@@ -258,12 +266,12 @@ fn fix(class: FailureClass) -> (&'static str, &'static str) {
         .map_or(("other", ""), |(_, name, fix)| (*name, *fix))
 }
 
-/// `/api/health` from `sources`, with the last disk-waste measurement `waste` and the doctor
-/// cache `doctor`, the home directory written `~`.
-pub(super) fn answer(sources: &Sources, doctor: &Doctor, waste: Value) -> Value {
+/// `/api/health` from `sources`, with the last disk-waste measurement `waste`, the doctor cache
+/// `doctor` and the newest snapshot with its rows `newest` ([`newest`], which the server keeps
+/// until the store is written), the home directory written `~`.
+pub(super) fn answer(sources: &Sources, doctor: &Doctor, waste: Value, newest: Newest) -> Value {
     let health = &sources.health;
-    let mut errors = Vec::new();
-    let (snapshot, collector_runs, member_failures) = newest(&health.state, &mut errors);
+    let (snapshot, collector_runs, member_failures, mut errors) = newest;
     let data = json!({
         "generated_at": rfc3339((health.clock)()),
         "doctor": doctor.view(),
@@ -277,19 +285,64 @@ pub(super) fn answer(sources: &Sources, doctor: &Doctor, waste: Value) -> Value 
     tilde_all(data, home.trim_end_matches('/'))
 }
 
-/// The newest snapshot of the store under `state`, by `started_at`, in any state, with its
-/// collector runs and member failures; null and none when the store or its snapshots cannot be
-/// read, with why in `errors`.
-fn newest(state: &Path, errors: &mut Vec<String>) -> (Value, Vec<Value>, Vec<Value>) {
+/// The newest snapshot, its collector runs, its member failures, and what could not be read.
+pub(super) type Newest = (Value, Vec<Value>, Vec<Value>, Vec<String>);
+
+/// The store the server keeps, read through the generated queries without being owned by them:
+/// the queries only `get` and `list`, so a write through it writes nothing.
+struct Reading<'a>(&'a Store);
+
+/// The three storages the health view's queries read, each delegating its reads to the store.
+macro_rules! read_only {
+    ($storage:ident, $identity:ty, $snapshot:ty) => {
+        impl $storage for Reading<'_> {
+            fn get(&self, identity: &$identity) -> Option<$snapshot> {
+                $storage::get(self.0, identity)
+            }
+
+            fn put(&mut self, _snapshot: $snapshot) {}
+
+            fn delete(&mut self, _identity: &$identity) {}
+
+            fn list(&self) -> Vec<$snapshot> {
+                $storage::list(self.0)
+            }
+        }
+    };
+}
+
+read_only!(SnapshotStorage, SnapshotId, SnapshotSnapshot);
+read_only!(
+    CollectorRunObservationStorage,
+    ObservationId,
+    CollectorRunObservationSnapshot
+);
+read_only!(
+    MemberFailureObservationStorage,
+    ObservationId,
+    MemberFailureObservationSnapshot
+);
+
+/// The newest snapshot of the store `held` (the one under [`HealthSources::state`]), by
+/// `started_at`, in any state, with its collector runs and member failures; null and none when the
+/// store or its snapshots cannot be read, with why.
+pub(super) fn newest(held: Held<'_>) -> Newest {
+    let mut errors = Vec::new();
+    let (snapshot, runs, failures) = newest_in(held, &mut errors);
+    (snapshot, runs, failures, errors)
+}
+
+fn newest_in(held: Held<'_>, errors: &mut Vec<String>) -> (Value, Vec<Value>, Vec<Value>) {
     let none = || (Value::Null, Vec::new(), Vec::new());
-    let store = match crate::store::open_existing(state) {
-        Ok(store) => store,
+    let store = match held {
+        Ok(Some(store)) => store,
+        Ok(None) => return none(),
         Err(error) => {
             errors.push(format!("snapshots: {error:#}"));
             return none();
         }
     };
-    let generated = Generated::new(store);
+    let generated = Generated::new(Reading(store));
     let snapshots = match generated.snapshots() {
         Ok(rows) => rows,
         Err(unmet) => {

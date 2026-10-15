@@ -63,7 +63,7 @@ Each session commits only the files it writes, with a pathspec.
 |---|---|
 | `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check`, and for the dashboard app (`crates/conductor/dashboard`, Node as `.nvmrc` pins) `npm ci`, Vitest and a check that the committed `dist/` equals a fresh `task ui` build |
 | `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton; trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
-| `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency); run alone on a quiet host |
+| `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency, the dashboard's warm answers); run alone on a quiet host |
 | `task regen` | regenerates `crates/conductor-model` from `spec/` |
 | `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |

@@ -19,21 +19,11 @@
 //! - `errors`: each decision log file that could not be read, or held a line that is no JSON
 //!   object.
 //!
-//! The answer is computed once per write ([`Cache`]): a write to the store is a new commit file
-//! under its tree, and a write to the log changes a file's size or time, so the server keeps the
-//! last answer with what it read it from ([`Fingerprint`]) and serves it from memory while that
-//! is unchanged. Each answer carries an `ETag`, the digest of its body; a request whose
-//! `If-None-Match` names it is answered `304` with no body.
+//! The server computes the answer once per write to the store or to the decision log and serves
+//! it from memory with an `ETag`, as it serves every answer that reads the store
+//! (`story:dashboard-fast`, `super::cache`); a request whose `If-None-Match` names it is answered
+//! `304` with no body.
 
-use std::collections::hash_map::DefaultHasher;
-use std::fs;
-use std::hash::{Hash as _, Hasher as _};
-use std::io;
-use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::SystemTime;
-
-use anyhow::Result;
 use conductor_model::behaviour::DecisionRequestStorage;
 use conductor_model::decision::DecisionRequestData;
 use serde_json::{Value, json};
@@ -44,144 +34,6 @@ use crate::store::Store;
 
 /// The path of the Decisions page's data.
 pub const DECISIONS_PATH: &str = "/api/decisions";
-
-/// What an answer was read from: the store's commit files under `state/tree/` (their count and the
-/// newest one's time) and each decision log file (its name, size and time).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Fingerprint {
-    commits: usize,
-    newest: Option<SystemTime>,
-    log: Vec<(String, u64, Option<SystemTime>)>,
-}
-
-impl Fingerprint {
-    /// The fingerprint of the store under `state`, if any, and of the decision log under
-    /// `records`.
-    ///
-    /// # Errors
-    ///
-    /// A directory that is there does not read.
-    pub fn of(state: Option<&Path>, records: &Path) -> io::Result<Self> {
-        let mut print = Self::default();
-        if let Some(state) = state {
-            let tenants = state.join("tree").join("tenants");
-            match fs::read_dir(&tenants) {
-                Ok(entries) => {
-                    for entry in entries {
-                        let entry = entry?;
-                        if entry.file_type()?.is_dir() {
-                            print.walk(&entry.path().join("groups"))?;
-                        }
-                    }
-                }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
-        }
-        match fs::read_dir(records.join(crate::records::DECISIONS)) {
-            Ok(entries) => {
-                for entry in entries {
-                    let entry = entry?;
-                    let metadata = entry.metadata()?;
-                    print.log.push((
-                        entry.file_name().to_string_lossy().into_owned(),
-                        metadata.len(),
-                        metadata.modified().ok(),
-                    ));
-                }
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        print.log.sort();
-        Ok(print)
-    }
-
-    /// Counts the commit files under `directory`, as the store's own mark counts them, and keeps
-    /// the newest one's time.
-    fn walk(&mut self, directory: &Path) -> io::Result<()> {
-        let entries = match fs::read_dir(directory) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            let name = entry.file_name();
-            if kind.is_dir() {
-                self.walk(&entry.path())?;
-            } else if kind.is_file()
-                && !name.to_string_lossy().starts_with('.')
-                && Path::new(&name)
-                    .extension()
-                    .is_some_and(|extension| extension == "json")
-            {
-                self.commits += 1;
-                let modified = entry.metadata()?.modified().ok();
-                self.newest = self.newest.max(modified);
-            }
-        }
-        Ok(())
-    }
-}
-
-/// One computed answer: its body and its `ETag`.
-#[derive(Debug, Clone)]
-pub struct Answer {
-    /// The JSON body, pretty-printed, ending in a newline.
-    pub body: Arc<String>,
-    /// The `ETag`, quoted.
-    pub etag: String,
-}
-
-/// The last answer and what it was read from.
-#[derive(Debug, Default)]
-pub struct Cache {
-    held: Mutex<Option<(Fingerprint, Answer)>>,
-}
-
-impl Cache {
-    /// The answer for `fingerprint`: the one held when it was computed for the same fingerprint,
-    /// else `compute`'s, which is then held.
-    ///
-    /// # Errors
-    ///
-    /// `compute` failed; nothing is held then.
-    pub fn answer(
-        &self,
-        fingerprint: Fingerprint,
-        compute: impl FnOnce() -> Result<Value>,
-    ) -> Result<Answer> {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some((print, answer)) = held.as_ref()
-            && *print == fingerprint
-        {
-            return Ok(answer.clone());
-        }
-        let mut body = serde_json::to_string_pretty(&compute()?).unwrap_or_default();
-        body.push('\n');
-        let mut hasher = DefaultHasher::new();
-        body.hash(&mut hasher);
-        let answer = Answer {
-            etag: format!("\"d-{:016x}\"", hasher.finish()),
-            body: Arc::new(body),
-        };
-        *held = Some((fingerprint, answer.clone()));
-        Ok(answer)
-    }
-}
-
-/// Whether the request head `head` carries an `If-None-Match` that names `etag` (or `*`).
-#[must_use]
-pub fn not_modified(head: &str, etag: &str) -> bool {
-    head.split("\r\n")
-        .filter_map(|line| line.split_once(':'))
-        .filter(|(name, _)| name.trim().eq_ignore_ascii_case("if-none-match"))
-        .flat_map(|(_, value)| value.split(','))
-        .map(|tag| tag.trim().trim_start_matches("W/"))
-        .any(|tag| tag == etag || tag == "*")
-}
 
 /// The answer over `store` (none: no open item) and the decision log's lines `log`, in file
 /// order, with the log's read problems `errors`.

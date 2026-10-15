@@ -62,41 +62,31 @@ pub const PATHS: [&str; 4] = [
     "/api/specifications",
 ];
 
-/// The answer of the endpoint `path` ([`PATHS`]) to the request target `target`, over the store
-/// `store`, the sources `sources` and the token measurement `usage` (the `usage` object of
-/// `/data.json`), at `now`; none for another path. `/api/sessions` without `?repository=`
-/// answers no row. What could not be read is named in `errors`, beside the rows.
+/// The answer of `/api/sessions` to the request target `target`, from the sources `sources`, the
+/// last session list `listed` and the token measurement `usage` (the `usage` object of
+/// `/data.json`), at `now`; none for another path. `/api/blockers` and `/api/specifications`
+/// read the store alone and `/api/waiting-on` reads it too, so the server keeps their store's
+/// part ([`super::cache`]) and answers them itself. Without `?repository=` it answers no row.
+/// What could not be read is named in `errors`, beside the rows.
 pub(super) fn endpoint(
     path: &str,
     target: &str,
-    store: Option<&Store>,
     sources: &Sources,
+    listed: &super::cache::Listed,
     usage: &Value,
     now: OffsetDateTime,
 ) -> Option<Value> {
-    Some(match path {
-        "/api/blockers" => blockers(store),
-        "/api/specifications" => specifications(store),
-        "/api/waiting-on" => {
-            let mut errors = Vec::new();
-            let agents = super::agents(&sources.agents, &mut errors);
-            let mut answer = waiting_on(&facts(store, sources, &agents));
-            answer["errors"] = json!(errors);
-            answer
-        }
-        "/api/sessions" => {
-            let Some(repository) = query(target, "repository") else {
-                return Some(json!({"rows": [], "errors": ["no ?repository= named"]}));
-            };
-            let mut errors = Vec::new();
-            let agents = super::agents(&sources.agents, &mut errors);
-            let dispatches = super::jsonl(&sources.root.join("dispatches"), &mut errors);
-            let mut answer = sessions(sources, &repository, &agents, &dispatches, usage, now);
-            answer["errors"] = json!(errors);
-            answer
-        }
-        _ => return None,
-    })
+    if path != "/api/sessions" {
+        return None;
+    }
+    let Some(repository) = query(target, "repository") else {
+        return Some(json!({"rows": [], "errors": ["no ?repository= named"]}));
+    };
+    let mut errors = listed.errors.clone();
+    let dispatches = super::jsonl(&sources.root.join("dispatches"), &mut errors);
+    let mut answer = sessions(sources, &repository, &listed.rows, &dispatches, usage, now);
+    answer["errors"] = json!(errors);
+    Some(answer)
 }
 
 // ---------------------------------------------------------------------------------------------

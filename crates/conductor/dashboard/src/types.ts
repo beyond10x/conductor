@@ -107,6 +107,8 @@ export interface Usage {
 
 export interface Reading {
   sessions: string;
+  /** When the server last read the session list, which it reads every 10 s off the request. */
+  sessions_read_at: string | null;
   root: string;
   ci_state: string;
   checkouts: string;

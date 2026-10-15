@@ -26,19 +26,24 @@
 //!
 //! The Decisions page's data ([`decisions`], `story:decisions-page`): `/api/decisions` answers the
 //! open class-O and class-H items with what the operator chooses from, oldest first, and the
-//! records' decision log, newest first. It is the one answer computed once per write to the store
-//! or the log and served from memory with an `ETag`; a request naming that `ETag` in
-//! `If-None-Match` is answered `304`.
+//! records' decision log, newest first, computed once per write to the store or the log.
 //!
 //! The charts' series and the KPIs ([`series`]): `/api/series` lists the series and, with
 //! `?series=<name>&by=<dimension>&days=<n>`, answers one by day and group; `/api/kpis` answers
 //! each KPI against its target. Both read the daily rollups of the same store
 //! (`story:dashboard-history`), the day ending now in UTC.
 //!
-//! Each request reads its [`Sources`] afresh and writes nothing:
-//! - the session list a command prints (`claude agents --json`): one row per session whose working
-//!   directory is under the instance's checkouts root, with its current dispatch; a session
-//!   without a `pid` has exited and is listed, as `exited`, below the live ones;
+//! Every endpoint answers warm in under 200 ms (`story:dashboard-fast`, [`cache`]): an answer that
+//! reads the store is computed once per write to the store, through one store handle the server
+//! keeps, and served from memory after that; every JSON answer carries an `ETag`, and a request
+//! whose `If-None-Match` names it is answered `304 Not Modified` without a body.
+//!
+//! Each request reads its [`Sources`] afresh, but the session list, and writes nothing:
+//! - the session list a command prints (`claude agents --json`), read on a thread of its own every
+//!   [`cache::SESSIONS_EVERY`], each request taking the last one with when it was read
+//!   (`reading.sessions_read_at`): one row per session whose working directory is under the
+//!   instance's checkouts root, with its current dispatch; a session without a `pid` has exited
+//!   and is listed, as `exited`, below the live ones;
 //! - `dispatches/*.jsonl` and `decisions/*.jsonl` under the records root;
 //! - the CI watch's state file, one `repo|workflow|run id|conclusion|time` per line;
 //! - the watch's usage-limit and context files (`limit.new`, `limit.seen`, `context-reported`);
@@ -57,6 +62,7 @@
 //! A source that cannot be read is named in `errors`; the others still show. No path under the
 //! home directory is printed in full: every string `/data.json` carries writes it as `~`.
 
+mod cache;
 pub mod decisions;
 mod health;
 pub mod overview;
@@ -70,12 +76,13 @@ pub use health::{HealthSources, failure_class};
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
+use std::hash::{Hash as _, Hasher as _};
 use std::io::{self, ErrorKind, Read as _, Write as _};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use conductor_model::config::Instance;
@@ -348,7 +355,7 @@ fn find_root(start: &Path) -> PathBuf {
 }
 
 /// What every connection shares: the sources, the state directory whose store the snapshot
-/// endpoints read, and the last disk and token measurements.
+/// endpoints read, the last disk and token measurements, and what [`cache`] keeps.
 struct Server {
     sources: Sources,
     state: Option<PathBuf>,
@@ -356,8 +363,269 @@ struct Server {
     usage: usage::Cache,
     /// Doctor's last rows, which the health view serves (`story:dashboard-health`).
     doctor: health::Doctor,
-    /// The last `/api/decisions` answer (`story:decisions-page`).
-    decisions: decisions::Cache,
+    /// The store handles every computation over a store takes.
+    stores: cache::Stores,
+    /// The answers of the endpoints that read the store ([`STORED_PATHS`]), by request target.
+    answers: cache::Memo<cache::Body>,
+    /// What `/api/waiting-on` reads from the store.
+    facts: cache::Memo<Result<repo::Facts, String>>,
+    /// The unanswered operator items `/api/unanswered` reads from the store
+    /// (`story:decisions-notify`); their age is taken at each request.
+    unanswered: cache::Memo<Result<Vec<crate::status::OperatorItem>, String>>,
+    /// The health view's newest snapshot with its rows.
+    snapshot_health: cache::Memo<health::Newest>,
+    /// The last session list.
+    sessions: cache::SessionList,
+}
+
+/// The endpoints whose answer is the store's alone, `/api/events` and `/api/decisions` the
+/// records' too: each is computed once per write and served from memory.
+const STORED_PATHS: [&str; 12] = [
+    "/api/board",
+    "/api/repositories",
+    "/api/pull-requests",
+    "/api/workflow-runs",
+    "/api/releases",
+    "/api/reviews",
+    overview::EVENTS_PATH,
+    decisions::DECISIONS_PATH,
+    series::SERIES_PATH,
+    series::KPIS_PATH,
+    BLOCKERS_PATH,
+    SPECIFICATIONS_PATH,
+];
+
+/// Two of [`repo::PATHS`] that read the store alone.
+const BLOCKERS_PATH: &str = "/api/blockers";
+const SPECIFICATIONS_PATH: &str = "/api/specifications";
+
+/// The fingerprints of what the kept answers read, taken once per request or warming.
+struct Fingerprints {
+    /// The store's and the day's (UTC).
+    store: u64,
+    /// [`Fingerprints::store`] with the records' dispatch and decision files.
+    events: u64,
+    /// [`Fingerprints::store`] with the records' decision files (`story:decisions-page`).
+    decisions: u64,
+}
+
+impl Server {
+    fn new(sources: Sources, state: Option<PathBuf>) -> Self {
+        Self {
+            sources,
+            state,
+            waste: waste::Cache::default(),
+            usage: usage::Cache::default(),
+            doctor: health::Doctor::default(),
+            stores: cache::Stores::default(),
+            answers: cache::Memo::default(),
+            facts: cache::Memo::default(),
+            unanswered: cache::Memo::default(),
+            snapshot_health: cache::Memo::default(),
+            sessions: cache::SessionList::default(),
+        }
+    }
+
+    /// The fingerprints of the store and the records now.
+    fn fingerprints(&self) -> Fingerprints {
+        let mut hasher = cache::hasher();
+        if let Some(state) = &self.state {
+            cache::fingerprint(state, &mut hasher);
+        }
+        OffsetDateTime::now_utc().date().hash(&mut hasher);
+        let store = hasher.finish();
+        let log = self.sources.root.join(crate::records::DECISIONS);
+        let mut decisions = hasher.clone();
+        cache::files(&log, &mut decisions);
+        cache::files(&self.sources.root.join("dispatches"), &mut hasher);
+        cache::files(&log, &mut hasher);
+        Fingerprints {
+            store,
+            events: hasher.finish(),
+            decisions: decisions.finish(),
+        }
+    }
+
+    /// The state directory whose store the snapshot endpoints read, when it holds one.
+    fn store_state(&self) -> Option<&Path> {
+        self.state
+            .as_deref()
+            .filter(|state| state.join("tree").exists())
+    }
+
+    /// The answer to `target`, whose path is one of [`STORED_PATHS`], at `fingerprints`: from
+    /// memory when it was computed at them, else computed now and kept. `asked` says a request
+    /// asks, not the warmer. A store that does not open is answered `500`.
+    fn stored(
+        &self,
+        target: &str,
+        fingerprints: &Fingerprints,
+        asked: bool,
+    ) -> (cache::Body, Instant) {
+        let path = target.split_once('?').map_or(target, |(path, _)| path);
+        let fingerprint = match path {
+            overview::EVENTS_PATH => fingerprints.events,
+            decisions::DECISIONS_PATH => fingerprints.decisions,
+            _ => fingerprints.store,
+        };
+        self.stores.memoized(
+            &self.answers,
+            target,
+            fingerprint,
+            asked,
+            self.store_state(),
+            |held| match held {
+                Ok(store) => {
+                    let (status, value) = self.compute(path, target, store);
+                    cache::Body::json(status, &value)
+                }
+                Err(error) => store_failure(error),
+            },
+        )
+    }
+
+    /// The status and answer of the endpoint `path` at `target` over `store`.
+    fn compute(
+        &self,
+        path: &str,
+        target: &str,
+        store: Option<&crate::store::Store>,
+    ) -> (u16, Value) {
+        let now = OffsetDateTime::now_utc();
+        let home = self.sources.home.display().to_string();
+        let home = home.trim_end_matches('/');
+        match path {
+            overview::EVENTS_PATH => {
+                let since = overview::since(target)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| overview::start_of_day(now));
+                let mut errors = Vec::new();
+                let root = &self.sources.root;
+                let dispatches = jsonl(&root.join("dispatches"), &mut errors);
+                let decisions = jsonl(&root.join("decisions"), &mut errors);
+                let events = overview::events(
+                    store,
+                    &dispatches,
+                    &decisions,
+                    &config::active().instance,
+                    since,
+                );
+                // `&repository=<name>` keeps that repository's rows (`story:dashboard-repo-view`).
+                let events = match repo::query(target, "repository") {
+                    Some(name) => {
+                        let rows = events["rows"].as_array().cloned().unwrap_or_default();
+                        json!({"rows": repo::events_for_repository(rows, &name)})
+                    }
+                    None => events,
+                };
+                (200, tilde_all(events, home))
+            }
+            // The open class-O and class-H items and the decision log (`story:decisions-page`).
+            decisions::DECISIONS_PATH => {
+                let mut errors = Vec::new();
+                let log = jsonl(
+                    &self.sources.root.join(crate::records::DECISIONS),
+                    &mut errors,
+                );
+                (200, tilde_all(decisions::answer(store, &log, errors), home))
+            }
+            series::SERIES_PATH => series::answer(target, store, now.date()),
+            series::KPIS_PATH => (200, series::kpis(store, now.date())),
+            BLOCKERS_PATH => (200, tilde_all(repo::blockers(store), home)),
+            SPECIFICATIONS_PATH => (200, tilde_all(repo::specifications(store), home)),
+            _ => (
+                200,
+                overview::snapshot_endpoint(path, store).unwrap_or(Value::Null),
+            ),
+        }
+    }
+
+    /// What `/api/waiting-on` reads from the store, at `fingerprints`, without the session list
+    /// and the watch's files, which each request reads; why when the store does not open.
+    fn facts(&self, fingerprints: &Fingerprints, asked: bool) -> Result<repo::Facts, String> {
+        self.stores
+            .memoized(
+                &self.facts,
+                "facts",
+                fingerprints.store,
+                asked,
+                self.store_state(),
+                |held| match held {
+                    Ok(store) => Ok(repo::facts(store, &self.sources, &[])),
+                    Err(error) => Err(format!("the store does not open: {error:#}\n")),
+                },
+            )
+            .0
+    }
+
+    /// The unanswered operator items of the store, at `fingerprints`, which `/api/unanswered`
+    /// answers with the oldest one's age now (`story:decisions-notify`); why when the store does
+    /// not open.
+    fn unanswered(
+        &self,
+        fingerprints: &Fingerprints,
+        asked: bool,
+    ) -> Result<Vec<crate::status::OperatorItem>, String> {
+        self.stores
+            .memoized(
+                &self.unanswered,
+                "unanswered",
+                fingerprints.store,
+                asked,
+                self.store_state(),
+                |held| match held {
+                    Ok(store) => Ok(store.map(crate::status::unanswered).unwrap_or_default()),
+                    Err(error) => Err(format!("the store does not open: {error:#}\n")),
+                },
+            )
+            .0
+    }
+
+    /// The health view's newest snapshot with its rows, computed once per write to the store
+    /// under its state directory.
+    fn snapshot_health(&self, asked: bool) -> health::Newest {
+        let state = &self.sources.health.state;
+        let mut hasher = cache::hasher();
+        cache::fingerprint(state, &mut hasher);
+        self.stores
+            .memoized(
+                &self.snapshot_health,
+                "health",
+                hasher.finish(),
+                asked,
+                Some(state),
+                health::newest,
+            )
+            .0
+    }
+
+    /// Computes again every answer asked lately whose store moved since, so the request after a
+    /// write mostly finds it computed; at start, the answers the overview reads first.
+    fn warm(&self, start: bool) {
+        let fingerprints = self.fingerprints();
+        let mut targets = self.answers.keys();
+        if start {
+            targets.extend(
+                STORED_PATHS
+                    .iter()
+                    .filter(|path| **path != overview::EVENTS_PATH)
+                    .map(|path| (*path).to_owned()),
+            );
+        }
+        for target in targets {
+            self.stored(&target, &fingerprints, false);
+        }
+        if start || !self.facts.keys().is_empty() {
+            let _ = self.facts(&fingerprints, false);
+        }
+        if start || !self.unanswered.keys().is_empty() {
+            let _ = self.unanswered(&fingerprints, false);
+        }
+        if start || !self.snapshot_health.keys().is_empty() {
+            self.snapshot_health(false);
+        }
+    }
 }
 
 /// Answers every connection `listener` accepts, each on a thread of its own, from `sources`. The
@@ -380,16 +648,23 @@ pub fn serve(listener: TcpListener, sources: Sources) -> Result<()> {
 /// As [`serve`].
 pub fn serve_over(listener: TcpListener, sources: Sources, state: Option<PathBuf>) -> Result<()> {
     let port = listener.local_addr()?.port();
-    let server = Arc::new(Server {
-        sources,
-        state,
-        waste: waste::Cache::default(),
-        usage: usage::Cache::default(),
-        doctor: health::Doctor::default(),
-        decisions: decisions::Cache::default(),
-    });
+    let server = Arc::new(Server::new(sources, state));
     server.waste.refresh(&server.sources);
     server.usage.refresh(&server.sources);
+    // The session list is read at start and every `SESSIONS_EVERY` after, off the request path;
+    // the answers that read the store are computed at start and again after each write
+    // (story:dashboard-fast).
+    server
+        .sessions
+        .start(server.sources.agents.clone(), cache::SESSIONS_EVERY);
+    let warmer = Arc::clone(&server);
+    std::thread::spawn(move || {
+        warmer.warm(true);
+        loop {
+            std::thread::sleep(cache::WARM_EVERY);
+            warmer.warm(false);
+        }
+    });
     // Doctor is taken at start and again once its last rows are older than their interval, off
     // the request path (story:dashboard-health).
     let doctor = server.doctor.clone();
@@ -458,8 +733,8 @@ fn read_head(stream: &mut TcpStream) -> io::Result<Option<String>> {
 enum Resource {
     App(&'static File<'static>),
     Data,
-    /// One of [`overview::SNAPSHOT_PATHS`], by its path.
-    Snapshot(&'static str),
+    /// One of [`overview::SNAPSHOT_PATHS`].
+    Snapshot,
     /// [`overview::EVENTS_PATH`].
     Events,
     /// [`overview::UNANSWERED_PATH`] (`story:decisions-notify`).
@@ -531,10 +806,19 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
     if !version.starts_with("HTTP/1.") {
         return bad();
     }
-    let host = lines
+    let headers: Vec<(&str, &str)> = lines
         .filter_map(|line| line.split_once(':'))
-        .find(|(name, _)| name.trim().eq_ignore_ascii_case("host"))
-        .map(|(_, value)| value.trim());
+        .map(|(name, value)| (name.trim(), value.trim()))
+        .collect();
+    let header = |wanted: &str| {
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
+            .map(|(_, value)| *value)
+    };
+    let host = header("host");
+    // A client that holds an answer names its `ETag`; an answer it holds is `304`.
+    let condition = header("if-none-match");
     let own = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
     if !host.is_some_and(|host| own.iter().any(|own| own.eq_ignore_ascii_case(host))) {
         return response(
@@ -552,7 +836,7 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
     let resource = match (path, snapshot) {
         ("/data.json", _) => Resource::Data,
         (HEALTH_PATH, _) => Resource::Health,
-        (_, Some(known)) => Resource::Snapshot(known),
+        (_, Some(_)) => Resource::Snapshot,
         (overview::EVENTS_PATH, _) => Resource::Events,
         (overview::UNANSWERED_PATH, _) => Resource::Unanswered,
         (decisions::DECISIONS_PATH, _) => Resource::Decisions,
@@ -578,193 +862,116 @@ fn answer(head: Option<&str>, port: u16, server: &Server) -> Vec<u8> {
             "Allow: GET\r\n",
         );
     }
+    let send =
+        |body: &cache::Body, computed: Option<Instant>| cache::send(body, condition, computed);
+    let now = OffsetDateTime::now_utc();
+    let home = server.sources.home.display().to_string();
+    let home = home.trim_end_matches('/');
     match resource {
         Resource::App(file) => response(200, "OK", content_type(file), file.contents(), ""),
         Resource::Data => {
             server.waste.refresh(&server.sources);
             server.usage.refresh(&server.sources);
-            let now = OffsetDateTime::now_utc();
             let data = collect(
                 &server.sources,
+                &server.sessions.last(),
                 server.waste.view(now),
                 server.usage.view(now),
                 now,
             );
-            let mut body = serde_json::to_string_pretty(&data).unwrap_or_default();
-            body.push('\n');
-            response(200, "OK", "application/json", body.as_bytes(), "")
+            send(&cache::Body::json(200, &data), None)
         }
         Resource::Health => {
             server.waste.refresh(&server.sources);
             server.doctor.refresh(&server.sources.health);
-            let waste = server.waste.view(OffsetDateTime::now_utc());
-            json_answer(&health::answer(&server.sources, &server.doctor, waste))
+            let waste = server.waste.view(now);
+            let newest = server.snapshot_health(true);
+            let answer = health::answer(&server.sources, &server.doctor, waste, newest);
+            send(&cache::Body::json(200, &answer), None)
         }
-        Resource::Snapshot(path) => match open_store(server.state.as_deref()) {
-            Ok(store) => json_answer(
-                &overview::snapshot_endpoint(path, store.as_ref()).unwrap_or(Value::Null),
+        Resource::Events if overview::since(target).is_err() => {
+            let problem = overview::since(target).err().unwrap_or_default();
+            response(
+                400,
+                "Bad Request",
+                PLAIN,
+                format!("{problem}\n").as_bytes(),
+                "",
+            )
+        }
+        Resource::Unanswered => match server.unanswered(&server.fingerprints(), true) {
+            Ok(items) => send(
+                &cache::Body::json(200, &overview::unanswered(&items, now)),
+                None,
             ),
-            Err(error) => store_failure(&error),
+            Err(error) => send(&cache::Body::text(500, error), None),
         },
-        Resource::Unanswered => match open_store(server.state.as_deref()) {
-            Ok(store) => json_answer(&overview::unanswered(
-                store.as_ref(),
-                OffsetDateTime::now_utc(),
-            )),
-            Err(error) => store_failure(&error),
-        },
-        Resource::Decisions => decisions_answer(head, server),
-        Resource::Events => {
-            let now = OffsetDateTime::now_utc();
-            let since = match overview::since(target) {
-                Ok(since) => since.unwrap_or_else(|| overview::start_of_day(now)),
-                Err(problem) => {
-                    return response(
-                        400,
-                        "Bad Request",
-                        PLAIN,
-                        format!("{problem}\n").as_bytes(),
-                        "",
-                    );
-                }
-            };
-            let store = match open_store(server.state.as_deref()) {
-                Ok(store) => store,
-                Err(error) => return store_failure(&error),
-            };
-            let mut errors = Vec::new();
-            let root = &server.sources.root;
-            let dispatches = jsonl(&root.join("dispatches"), &mut errors);
-            let decisions = jsonl(&root.join("decisions"), &mut errors);
-            let events = overview::events(
-                store.as_ref(),
-                &dispatches,
-                &decisions,
-                &config::active().instance,
-                since,
-            );
-            // `&repository=<name>` keeps that repository's rows (`story:dashboard-repo-view`).
-            let events = match repo::query(target, "repository") {
-                Some(name) => {
-                    let rows = events["rows"].as_array().cloned().unwrap_or_default();
-                    json!({"rows": repo::events_for_repository(rows, &name)})
-                }
-                None => events,
-            };
-            let home = server.sources.home.display().to_string();
-            json_answer(&tilde_all(events, home.trim_end_matches('/')))
+        Resource::Decisions => decisions_answer(server, condition),
+        Resource::Snapshot | Resource::Events | Resource::Series | Resource::Kpis => {
+            let (body, computed) = server.stored(target, &server.fingerprints(), true);
+            send(&body, Some(computed))
         }
-        Resource::Repo(path) => match open_store(server.state.as_deref()) {
-            Ok(store) => {
-                server.usage.refresh(&server.sources);
-                let now = OffsetDateTime::now_utc();
-                let usage = server.usage.view(now);
-                let answer =
-                    repo::endpoint(path, target, store.as_ref(), &server.sources, &usage, now)
-                        .unwrap_or(Value::Null);
-                let home = server.sources.home.display().to_string();
-                json_answer(&tilde_all(answer, home.trim_end_matches('/')))
-            }
-            Err(error) => store_failure(&error),
-        },
-        Resource::Series => match open_store(server.state.as_deref()) {
-            Ok(store) => {
-                let today = OffsetDateTime::now_utc().date();
-                let (status, body) = series::answer(target, store.as_ref(), today);
-                json_status(status, &body)
-            }
-            Err(error) => store_failure(&error),
-        },
-        Resource::Kpis => match open_store(server.state.as_deref()) {
-            Ok(store) => json_answer(&series::kpis(
-                store.as_ref(),
-                OffsetDateTime::now_utc().date(),
-            )),
-            Err(error) => store_failure(&error),
-        },
-    }
-}
-
-/// `/api/decisions` (`story:decisions-page`): the held answer while neither the store nor the
-/// decision log changed, `304` when the request names its `ETag`.
-fn decisions_answer(head: &str, server: &Server) -> Vec<u8> {
-    let records = &server.sources.root;
-    let fingerprint = match decisions::Fingerprint::of(server.state.as_deref(), records) {
-        Ok(fingerprint) => fingerprint,
-        Err(error) => return store_failure(&anyhow::Error::from(error)),
-    };
-    let computed = server.decisions.answer(fingerprint, || {
-        let store = open_store(server.state.as_deref())?;
-        let mut errors = Vec::new();
-        let log = jsonl(&records.join(crate::records::DECISIONS), &mut errors);
-        let answer = decisions::answer(store.as_ref(), &log, errors);
-        let home = server.sources.home.display().to_string();
-        Ok(tilde_all(answer, home.trim_end_matches('/')))
-    });
-    match computed {
-        Ok(answer) => {
-            let etag = format!("ETag: {}\r\n", answer.etag);
-            if decisions::not_modified(head, &answer.etag) {
-                response(304, "Not Modified", "application/json", b"", &etag)
+        Resource::Repo(path) if STORED_PATHS.contains(&path) => {
+            let (body, computed) = server.stored(target, &server.fingerprints(), true);
+            send(&body, Some(computed))
+        }
+        Resource::Repo(path) => {
+            let listed = server.sessions.last();
+            let answer = if path == "/api/waiting-on" {
+                let mut facts = match server.facts(&server.fingerprints(), true) {
+                    Ok(facts) => facts,
+                    Err(error) => return send(&cache::Body::text(500, error), None),
+                };
+                // The session list and the watch's files are read now; the store's part is kept.
+                let read = |name: &str| fs::read_to_string(server.sources.watch.join(name)).ok();
+                facts.sessions = listed.rows;
+                facts.limits = read("limit.new");
+                facts.silent = read("silent.reported");
+                let mut answer = repo::waiting_on(&facts);
+                answer["errors"] = json!(listed.errors);
+                answer
             } else {
-                response(200, "OK", "application/json", answer.body.as_bytes(), &etag)
-            }
+                server.usage.refresh(&server.sources);
+                let usage = server.usage.view(now);
+                repo::endpoint(path, target, &server.sources, &listed, &usage, now)
+                    .unwrap_or(Value::Null)
+            };
+            send(&cache::Body::json(200, &tilde_all(answer, home)), None)
         }
-        Err(error) => store_failure(&error),
-    }
-}
-
-/// `value` answered as JSON with `status`: 200, 400 or 404.
-fn json_status(status: u16, value: &Value) -> Vec<u8> {
-    let reason = match status {
-        200 => "OK",
-        400 => "Bad Request",
-        404 => "Not Found",
-        _ => "Internal Server Error",
-    };
-    let mut body = serde_json::to_string_pretty(value).unwrap_or_default();
-    body.push('\n');
-    response(status, reason, "application/json", body.as_bytes(), "")
-}
-
-/// `value` answered as JSON, `200 OK`.
-fn json_answer(value: &Value) -> Vec<u8> {
-    let mut body = serde_json::to_string_pretty(value).unwrap_or_default();
-    body.push('\n');
-    response(200, "OK", "application/json", body.as_bytes(), "")
-}
-
-/// The store under `state`, opened read-only as a view opens it ([`crate::store::open_existing`]),
-/// or none when there is no state directory or no store in it (`tree/`, as
-/// [`crate::store::open_existing`] looks for it): an endpoint then answers no snapshot.
-///
-/// # Errors
-///
-/// A store is there and does not open.
-fn open_store(state: Option<&Path>) -> Result<Option<crate::store::Store>> {
-    match state {
-        Some(state) if state.join("tree").exists() => crate::store::open_existing(state).map(Some),
-        _ => Ok(None),
     }
 }
 
 /// A store that is there and does not open, answered `500` with its reason on one line.
-fn store_failure(error: &anyhow::Error) -> Vec<u8> {
-    response(
-        500,
-        "Internal Server Error",
-        "text/plain; charset=utf-8",
-        format!("the store does not open: {error:#}\n").as_bytes(),
-        "",
-    )
+/// `/api/decisions` (`story:decisions-page`): the answer kept while neither the store nor the
+/// decision log changed ([`Server::stored`]), `304` when `condition` names its `ETag`.
+fn decisions_answer(server: &Server, condition: Option<&str>) -> Vec<u8> {
+    let (body, computed) = server.stored(decisions::DECISIONS_PATH, &server.fingerprints(), true);
+    cache::send(&body, condition, Some(computed))
+}
+
+fn store_failure(error: &anyhow::Error) -> cache::Body {
+    cache::Body::text(500, format!("the store does not open: {error:#}\n"))
 }
 
 fn response(status: u16, reason: &str, content_type: &str, body: &[u8], extra: &str) -> Vec<u8> {
+    response_with(status, reason, content_type, body, "no-store", extra)
+}
+
+/// An HTTP answer whose `Cache-Control` is `cache`: `no-store` for one a client is not to keep,
+/// `no-cache` for one it keeps and asks again for with its `ETag` ([`cache::send`]).
+fn response_with(
+    status: u16,
+    reason: &str,
+    content_type: &str,
+    body: &[u8],
+    cache: &str,
+    extra: &str,
+) -> Vec<u8> {
     let mut answer = format!(
         "HTTP/1.1 {status} {reason}\r\n\
          Content-Type: {content_type}\r\n\
          Content-Length: {}\r\n\
-         Cache-Control: no-store\r\n\
+         Cache-Control: {cache}\r\n\
          X-Content-Type-Options: nosniff\r\n\
          Content-Security-Policy: {CONTENT_SECURITY_POLICY}\r\n\
          Connection: close\r\n\
@@ -776,11 +983,18 @@ fn response(status: u16, reason: &str, content_type: &str, body: &[u8], extra: &
     answer
 }
 
-/// Everything the page shows, read from `sources` at `now` with the disk measurement `waste` and
-/// the token measurement `usage`, with the home directory written `~`.
-fn collect(sources: &Sources, waste: Value, usage: Value, now: OffsetDateTime) -> Value {
-    let mut errors = Vec::new();
-    let rows = agents(&sources.agents, &mut errors);
+/// Everything the page shows, read from `sources` at `now` with the last session list `listed`,
+/// the disk measurement `waste` and the token measurement `usage`, with the home directory
+/// written `~`.
+fn collect(
+    sources: &Sources,
+    listed: &cache::Listed,
+    waste: Value,
+    usage: Value,
+    now: OffsetDateTime,
+) -> Value {
+    let mut errors = listed.errors.clone();
+    let rows = &listed.rows;
     let dispatches = jsonl(&sources.root.join("dispatches"), &mut errors);
     let decisions = jsonl(&sources.root.join("decisions"), &mut errors);
     let checkouts = sources.checkouts.as_path();
@@ -849,7 +1063,7 @@ fn collect(sources: &Sources, waste: Value, usage: Value, now: OffsetDateTime) -
         "controllers": controllers,
         "build_slot": "not recorded",
         "sessions": sessions,
-        "watch": watch(&sources.watch, &rows, now, &mut errors),
+        "watch": watch(&sources.watch, rows, now, &mut errors),
         "context_handover": sources.context_handover,
         "red_ci": red_ci(&sources.ci_state, &mut errors),
         "decisions": recent(&decisions),
@@ -857,6 +1071,7 @@ fn collect(sources: &Sources, waste: Value, usage: Value, now: OffsetDateTime) -
         "usage": usage,
         "reading": {
             "sessions": command_line(&sources.agents),
+            "sessions_read_at": listed.at.map(rfc3339),
             "root": sources.root.display().to_string(),
             "ci_state": sources.ci_state.display().to_string(),
             "checkouts": checkouts.display().to_string(),

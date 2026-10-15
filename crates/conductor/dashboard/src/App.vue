@@ -74,7 +74,7 @@ let timer: ReturnType<typeof setInterval> | undefined;
 
 async function load(): Promise<void> {
   try {
-    const answer = await fetch('/data.json', { cache: 'no-store' });
+    const answer = await fetch('/data.json', { cache: 'no-cache' });
     if (!answer.ok) {
       failure.value = `could not read /data.json: ${answer.status}`;
       return;

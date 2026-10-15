@@ -2,8 +2,9 @@
 // The overview (`#/`, story:dashboard-overview): the KPI strip (story:dashboard-kpi-panels), what
 // waits for review (story:review-limit), the summary strip, the trends (story:dashboard-charts-ui),
 // what needs the operator, the repositories with their state chips, today's events, and disk and
-// spend collapsed. It reads every endpoint at once on mount and every 20 s (src/api/overview.ts);
-// a panel whose endpoint could not be read says so in its place.
+// spend collapsed. It reads every endpoint at once on mount and every 20 s (src/api/overview.ts),
+// and shows each panel as its endpoint answers, a panel still waiting for its first answer saying
+// so (story:dashboard-fast); a panel whose endpoint could not be read says so in its place.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   loadOverview,
@@ -28,12 +29,47 @@ import DiskSpend from './overview/DiskSpend.vue';
 /** Milliseconds between two reads, as `/data.json` is read. */
 const RELOAD_MS = 20_000;
 
+/** The endpoints the repository table reads. */
+const REPOSITORY_PATHS = [
+  '/api/board',
+  '/api/repositories',
+  '/api/pull-requests',
+  '/api/workflow-runs',
+  '/api/releases',
+];
+
 const view = ref<OverviewData | null>(null);
 const mine = ref<string[]>([]);
 let timer: ReturnType<typeof setInterval> | undefined;
+/** Whether a read runs: a reload waits for it rather than racing it. */
+let reading = false;
 
+/**
+ * Reads every endpoint at once and shows each part as it arrives (story:dashboard-fast); a
+ * reload keeps each panel's last part until its endpoint answers again.
+ */
 async function load(): Promise<void> {
-  view.value = await loadOverview(new Date());
+  if (reading) {
+    return;
+  }
+  reading = true;
+  try {
+    view.value = await loadOverview(
+      new Date(),
+      fetch,
+      (part) => {
+        view.value = part;
+      },
+      view.value,
+    );
+  } finally {
+    reading = false;
+  }
+}
+
+/** Whether any of the endpoints `paths` has not answered its first read yet. */
+function waiting(paths: string[]): boolean {
+  return view.value !== null && paths.some((path) => view.value!.pending.includes(path));
 }
 
 /** The browser's storage, or none where it cannot be read. */
@@ -81,23 +117,25 @@ onBeforeUnmount(() => {
         <template v-else>no complete snapshot yet</template>
         · today since {{ view.since }}
       </p>
+      <PanelState v-if="waiting(['/api/reviews'])" state="loading" card>reading /api/reviews…</PanelState>
       <WaitingForReview
+        v-else
         :rows="reviews"
         :at="view.reviews.snapshot?.started_at ?? null"
         :error="error(['/api/reviews'])"
       />
       <SummaryTiles :tiles="tiles" />
       <Trends />
-      <NeedsYou :cards="cards" :error="error(['/data.json', '/api/board'])" />
-      <RepositoryTable
-        :rows="rows"
-        :mine="mine"
-        :error="
-          error(['/api/board', '/api/repositories', '/api/pull-requests', '/api/workflow-runs', '/api/releases'])
-        "
-      />
-      <TodayTimeline :events="view.events" :error="error(['/api/events'])" />
-      <DiskSpend :data="view.data" :error="error(['/data.json'])" />
+      <PanelState v-if="waiting(['/data.json', '/api/board'])" state="loading" card
+        >reading /data.json and /api/board…</PanelState
+      >
+      <NeedsYou v-else :cards="cards" :error="error(['/data.json', '/api/board'])" />
+      <PanelState v-if="waiting(REPOSITORY_PATHS)" state="loading" card>reading the repositories…</PanelState>
+      <RepositoryTable v-else :rows="rows" :mine="mine" :error="error(REPOSITORY_PATHS)" />
+      <PanelState v-if="waiting(['/api/events'])" state="loading" card>reading /api/events…</PanelState>
+      <TodayTimeline v-else :events="view.events" :error="error(['/api/events'])" />
+      <PanelState v-if="waiting(['/data.json'])" state="loading" card>reading /data.json…</PanelState>
+      <DiskSpend v-else :data="view.data" :error="error(['/data.json'])" />
       <ul v-if="view.errors.length > 0" class="read-errors small c-red">
         <li v-for="failed in view.errors" :key="failed">could not read {{ failed }}</li>
       </ul>

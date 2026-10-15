@@ -64,11 +64,10 @@ pub const UNANSWERED_PATH: &str = "/api/unanswered";
 /// `/api/unanswered`: `{count, oldest}`, the number of decision requests escalated as class O or
 /// H and not answered or withdrawn, and the one raised first as `{request_id, class, raised_at,
 /// age_seconds}` at `now`, or null; `{count: 0, oldest: null}` without a store
-/// (`story:decisions-notify`). The same reading as `conductor status`'s
-/// ([`crate::status::unanswered`]).
+/// (`story:decisions-notify`). `items` is the store's reading as `conductor status` takes it
+/// ([`crate::status::unanswered`]), none without a store.
 #[must_use]
-pub fn unanswered(store: Option<&Store>, now: OffsetDateTime) -> Value {
-    let items = store.map(crate::status::unanswered).unwrap_or_default();
+pub fn unanswered(items: &[crate::status::OperatorItem], now: OffsetDateTime) -> Value {
     let oldest = items.first().map(|item| {
         json!({
             "request_id": item.request_id,

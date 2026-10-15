@@ -149,7 +149,22 @@ export interface OverviewData {
   /** The `since` the events were asked with: 00:00 UTC of the day. */
   since: string;
   errors: string[];
+  /** The endpoints of the first read that have not answered yet; their panels say they read. */
+  pending: string[];
 }
+
+/** The endpoints the overview reads, by path, as `pending` and `errors` name them. */
+export const OVERVIEW_PATHS = [
+  '/data.json',
+  '/api/board',
+  '/api/repositories',
+  '/api/pull-requests',
+  '/api/workflow-runs',
+  '/api/releases',
+  '/api/events',
+  '/api/reviews',
+  '/api/unanswered',
+] as const;
 
 /** The deviation of a repository whose `main` has a failing workflow, as the board names it. */
 export const RED_MAIN = 'red main';
@@ -167,10 +182,13 @@ export function startOfDayUtc(now: Date): string {
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
-/** The JSON `path` answers, or the reason it could not be read. */
+/**
+ * The JSON `path` answers, or the reason it could not be read. `no-cache` keeps the answer and
+ * asks again with its `ETag`, which the server answers `304` while nothing changed.
+ */
 async function read<T>(fetcher: Fetch, path: string): Promise<T | string> {
   try {
-    const answer = await fetcher(path, { cache: 'no-store' });
+    const answer = await fetcher(path, { cache: 'no-cache' });
     if (!answer.ok) {
       return `${path.split('?')[0]}: ${answer.status}`;
     }
@@ -180,52 +198,102 @@ async function read<T>(fetcher: Fetch, path: string): Promise<T | string> {
   }
 }
 
-/** Reads every endpoint of the overview at `now`, at once; one that fails leaves its part empty. */
-export async function loadOverview(now: Date, fetcher: Fetch = fetch): Promise<OverviewData> {
+/** The overview before anything answered: every part empty, every endpoint pending. */
+export function emptyOverview(since: string): OverviewData {
+  const none = { snapshot: null, rows: [] };
+  return {
+    data: null,
+    board: none,
+    repositories: none,
+    pullRequests: none,
+    workflowRuns: none,
+    releases: none,
+    reviews: none,
+    unanswered: null,
+    events: [],
+    since,
+    errors: [],
+    pending: [...OVERVIEW_PATHS],
+  };
+}
+
+/**
+ * Reads every endpoint of the overview at `now`, at once, and gives the view to `onPart` each
+ * time one answers, so each panel shows as its endpoint arrives; one that fails leaves its part
+ * empty and is named in `errors`. A reload starts from `previous`, whose parts stay until their
+ * endpoint answers again. Resolves with the view once every endpoint answered.
+ */
+export async function loadOverview(
+  now: Date,
+  fetcher: Fetch = fetch,
+  onPart: (view: OverviewData) => void = () => {},
+  previous: OverviewData | null = null,
+): Promise<OverviewData> {
   const since = startOfDayUtc(now);
   const none = { snapshot: null, rows: [] };
-  const [
-    data,
-    board,
-    repositories,
-    pullRequests,
-    workflowRuns,
-    releases,
-    events,
-    reviews,
-    unanswered,
-  ] = await Promise.all([
-    read<DashboardData>(fetcher, '/data.json'),
-    read<FromSnapshot<BoardRow>>(fetcher, '/api/board'),
-    read<FromSnapshot<RepositoryRow>>(fetcher, '/api/repositories'),
-    read<FromSnapshot<PullRequestRow>>(fetcher, '/api/pull-requests'),
-    read<FromSnapshot<WorkflowRunRow>>(fetcher, '/api/workflow-runs'),
-    read<FromSnapshot<ReleaseRow>>(fetcher, '/api/releases'),
-    read<{ rows: EventRow[] }>(fetcher, `/api/events?since=${encodeURIComponent(since)}`),
-    read<FromSnapshot<ReviewRow>>(fetcher, '/api/reviews'),
-    read<Unanswered>(fetcher, '/api/unanswered'),
-  ]);
-  const errors: string[] = [];
-  function part<T>(answer: T | string, empty: T): T {
+  let view: OverviewData =
+    previous === null ? emptyOverview(since) : { ...previous, since, pending: [] };
+
+  async function settle<T>(
+    path: (typeof OVERVIEW_PATHS)[number],
+    url: string,
+    empty: T,
+    put: (view: OverviewData, value: T) => OverviewData,
+  ): Promise<void> {
+    const answer = await read<T>(fetcher, url);
+    const errors = view.errors.filter((error) => !error.startsWith(`${path}:`));
+    let value = empty;
     if (typeof answer === 'string') {
       errors.push(answer);
-      return empty;
+    } else {
+      value = answer;
     }
-    return answer;
+    view = {
+      ...put(view, value),
+      errors,
+      pending: view.pending.filter((pending) => pending !== path),
+    };
+    onPart(view);
   }
-  return {
-    data: part<DashboardData | null>(data, null),
-    board: part(board, none),
-    repositories: part(repositories, none),
-    pullRequests: part(pullRequests, none),
-    workflowRuns: part(workflowRuns, none),
-    releases: part(releases, none),
-    reviews: part(reviews, none),
-    unanswered: part<Unanswered | null>(unanswered, null),
-    events: part(events, { rows: [] }).rows,
-    since,
-    errors,
-  };
+
+  await Promise.all([
+    settle<DashboardData | null>('/data.json', '/data.json', null, (v, data) => ({ ...v, data })),
+    settle<FromSnapshot<BoardRow>>('/api/board', '/api/board', none, (v, board) => ({
+      ...v,
+      board,
+    })),
+    settle<FromSnapshot<RepositoryRow>>('/api/repositories', '/api/repositories', none, (v, repositories) => ({
+      ...v,
+      repositories,
+    })),
+    settle<FromSnapshot<PullRequestRow>>('/api/pull-requests', '/api/pull-requests', none, (v, pullRequests) => ({
+      ...v,
+      pullRequests,
+    })),
+    settle<FromSnapshot<WorkflowRunRow>>('/api/workflow-runs', '/api/workflow-runs', none, (v, workflowRuns) => ({
+      ...v,
+      workflowRuns,
+    })),
+    settle<FromSnapshot<ReleaseRow>>('/api/releases', '/api/releases', none, (v, releases) => ({
+      ...v,
+      releases,
+    })),
+    settle<{ rows: EventRow[] }>(
+      '/api/events',
+      `/api/events?since=${encodeURIComponent(since)}`,
+      { rows: [] },
+      (v, events) => ({ ...v, events: events.rows }),
+    ),
+    settle<FromSnapshot<ReviewRow>>('/api/reviews', '/api/reviews', none, (v, reviews) => ({
+      ...v,
+      reviews,
+    })),
+    settle<Unanswered | null>('/api/unanswered', '/api/unanswered', null, (v, unanswered) => ({
+      ...v,
+      unanswered,
+    })),
+  ]);
+  return view;
 }
 
 // ---------------------------------------------------------------------------------------------
