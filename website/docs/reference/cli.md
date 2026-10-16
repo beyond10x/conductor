@@ -165,6 +165,8 @@ Every command takes these, before or after its name.
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
+| [`conductor need`](#conductor-need) |  |
+| [`conductor need new`](#conductor-need-new) | Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite |
 | [`conductor records`](#conductor-records) |  |
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor rules`](#conductor-rules) |  |
@@ -2099,6 +2101,24 @@ Usage: conductor init [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--instance <NAME>` | no | none | The instance whose records directory is written. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
+
+## `conductor need`
+
+```text
+Usage: conductor need [OPTIONS] <COMMAND>
+```
+
+## `conductor need new`
+
+Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
+
+```text
+Usage: conductor need new [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--day <DAY>` | no | none | The UTC date the id is minted for, yyyy-mm-dd. Default: today |
 
 ## `conductor records`
 

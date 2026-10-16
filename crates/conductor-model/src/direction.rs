@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6d653976692f5ee4c6fc02dec9822f5ba498946d6f3a4549131eb0a3881b5b9d
-// contract digest c90b09bc1a4fb6c7523648ca709e830ffb26234389d4e5db6be455884a5e49d3
+// model digest c7a400dd0778e5076d21a29762ae666f240b19f0559ada9a788ea1044ffa3f9a
+// contract digest 09a75fd598f74b773a3cdd6f97222132becf654ce3ccd648ad0a31723f5935cb
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -73,6 +73,13 @@ pub enum MarkedBy {
 /// MarkedRepository — `conductor.direction.MarkedRepository`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkedRepository(pub String);
+
+/// NewNeed — `conductor.direction.NewNeed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewNeed {
+    /// `day` — `Optional<String>`.
+    pub day: Option<String>,
+}
 
 /// RepositoryActivity — `conductor.direction.RepositoryActivity`.
 #[derive(Debug, Clone, PartialEq, Eq)]

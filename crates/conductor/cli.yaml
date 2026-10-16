@@ -46,6 +46,11 @@ callables:
     input: conductor.decision.ShowDecision
     result: String
     errors: {}
+  need-new:
+    target: {kind: local, owner: conductor-cli, action: need_new}
+    input: conductor.direction.NewNeed
+    result: String
+    errors: {}
   config-validate:
     target: {kind: local, owner: conductor-cli, action: config_validate}
     input: conductor.config.ValidateConfig
@@ -237,6 +242,12 @@ commands:
         source: {kind: option, long: decision-id}
       - field: format
         source: {kind: option, long: format}
+  - path: [need, new]
+    callable: need-new
+    about: Print the next NEED id no earlier NEED used, N-<yyyymmdd>-<nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
+    arguments:
+      - field: day
+        source: {kind: option, long: day}
   - path: [config, validate]
     callable: config-validate
     about: Check the config file; exit 1 naming each problem by its YAML path

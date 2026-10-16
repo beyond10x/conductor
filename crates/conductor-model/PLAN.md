@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 6d653976692f5ee4c6fc02dec9822f5ba498946d6f3a4549131eb0a3881b5b9d
-  contract digest c90b09bc1a4fb6c7523648ca709e830ffb26234389d4e5db6be455884a5e49d3
+  model digest c7a400dd0778e5076d21a29762ae666f240b19f0559ada9a788ea1044ffa3f9a
+  contract digest 09a75fd598f74b773a3cdd6f97222132becf654ce3ccd648ad0a31723f5935cb
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-586 capabilities: **570 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+587 capabilities: **571 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -91,6 +91,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.direction.GoalServing.State` |
 | domain type | `conductor.direction.MarkedBy` |
 | domain type | `conductor.direction.MarkedRepository` |
+| domain type | `conductor.direction.NewNeed` |
 | domain type | `conductor.direction.RepositoryActivity` |
 | domain type | `conductor.direction.RepositoryActivityRow` |
 | domain type | `conductor.direction.RepositoryMark.State` |

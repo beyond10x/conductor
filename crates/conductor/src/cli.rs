@@ -413,6 +413,9 @@ impl Cli {
             Group::Doctor => crate::doctor::doctor_with(self.config.as_deref(), providers),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
+            Group::Need(command) => match command {
+                NeedCommand::New(args) => crate::need::need_new(&args),
+            },
             Group::Records(command) => match command {
                 RecordsCommand::Check(args) => crate::records::records_check(state, &args),
             },
@@ -516,6 +519,11 @@ pub enum Group {
     /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
     #[command(name = "init")]
     Init(InitArgs),
+
+    // No help, as for `dashboard`: the binding declares the group only through `need new`
+    // (`story:need-id-unique`).
+    #[command(subcommand)]
+    Need(NeedCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `records check`
     // (`story:records-from-commands`).
@@ -732,6 +740,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Removes the build caches, trees and targets the disk panel marks reclaimable.
     (&["gc"], Access::Writes),
     (&["init"], Access::Writes),
+    // Keeps the id it prints in the state directory (story:need-id-unique).
+    (&["need", "new"], Access::Writes),
     // Reads conductor's records logs and the store's decisions (story:records-from-commands).
     (&["records", "check"], Access::ConductorReads),
     // Reads the instance's rules.md and nothing else; a controller cites its items in a worker's
@@ -1406,6 +1416,25 @@ pub struct RecordsCheckArgs {
     /// How the findings are printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+}
+
+// `conductor need`: the command the binding declares over the `local` callable `need-new`
+// (`story:need-id-unique`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum NeedCommand {
+    /// Print the next NEED id no earlier NEED used, N-<yyyymmdd>-<nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
+    #[command(name = "new")]
+    New(NeedNewArgs),
+}
+
+/// The input of the binding's `need-new` callable, `conductor.direction.NewNeed`. The day is text
+/// the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct NeedNewArgs {
+    /// The UTC date the id is minted for, yyyy-mm-dd. Default: today
+    #[arg(long)]
+    pub day: Option<String>,
 }
 
 // `conductor rules`: the command the binding declares over the `local` callable `rules-show`

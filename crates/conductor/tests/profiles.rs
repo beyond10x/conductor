@@ -717,6 +717,19 @@ fn conductor_dev_answers_a_need_in_the_report_form() {
     );
 }
 
+/// `story:need-id-unique`: conductor sends a NEED only with an id `conductor need new` printed, so
+/// no two NEEDs share one.
+#[test]
+fn conductor_sends_a_need_only_with_a_minted_id() {
+    let conductor = profile("conductor.md");
+    let sentence = "Send a `[NEED conductor <id>]` only with an id `conductor need new` printed, \
+                    run for that NEED; never write an id by hand or reuse one.";
+    assert!(
+        conductor.contains(sentence),
+        "conductor.md: holds {sentence:?}"
+    );
+}
+
 /// Waves are wide and concurrent (the operator, 2026-10-14): every ready unit with disjoint scope,
 /// all implementors started at once, the next wave planned while a gate runs.
 #[test]

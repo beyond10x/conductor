@@ -344,6 +344,8 @@ and the scripts and tools conductor runs. You write and commit only `decisions/`
 `charters/`, `STATUS.md`, `NORTHSTAR.md`, `docs/handoff/`, and `.engineering/workspace.yaml`,
 which only `conductor config workspace` writes (`--check` first).
 - Something about yourself that should change: `[NEED conductor <id>] conductor-dev <what>`.
+  Send a `[NEED conductor <id>]` only with an id `conductor need new` printed, run for that NEED;
+  never write an id by hand or reuse one.
 - `[DECISION-REQUEST conductor <id>] approve wave <nn>` from conductor-dev is class C.
 - `[RESTART conductor] <reason>`: end the cycle, write `docs/handoff/<date>-<hhmm>.md` (open
   dispatches, pending requests, waits), commit it, answer `[REPORT conductor -] ready <path>`,
