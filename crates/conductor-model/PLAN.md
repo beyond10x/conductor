@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 275d89d32946ae4b645b5fab96234677a0b39147df8d6bdee0098b1e7ef07e01
-  contract digest acf76e0fbaeef4c9c67cc8ae69172a8d0637b7f8d3495c42f2f88dfa24041795
+  model digest 874651500e2b230e5db2db024e9397e145e0c9ae0afd650869c131d47da423c5
+  contract digest 1268c357392663d0dd0179ba6aa55f09c3d64dacfc6dfd13f6208c14c9be839b
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-586 capabilities: **570 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+592 capabilities: **576 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -91,6 +91,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.direction.GoalServing.State` |
 | domain type | `conductor.direction.MarkedBy` |
 | domain type | `conductor.direction.MarkedRepository` |
+| domain type | `conductor.direction.NewNeed` |
 | domain type | `conductor.direction.RepositoryActivity` |
 | domain type | `conductor.direction.RepositoryActivityRow` |
 | domain type | `conductor.direction.RepositoryMark.State` |
@@ -128,6 +129,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.GrantKind` |
 | domain type | `conductor.host.HostGrant.State` |
 | domain type | `conductor.host.LeftOver` |
+| domain type | `conductor.host.ListSlices` |
 | domain type | `conductor.host.ReclaimDisk` |
 | domain type | `conductor.host.ReclaimFellShort` |
 | domain type | `conductor.host.ReclaimKind` |
@@ -137,6 +139,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.ReclaimStep` |
 | domain type | `conductor.host.ReleaseReason` |
 | domain type | `conductor.host.ShowGrants` |
+| domain type | `conductor.host.SliceRow` |
 | domain type | `conductor.improvement.ComputeMetrics` |
 | domain type | `conductor.improvement.FindingId` |
 | domain type | `conductor.improvement.FrictionFinding.State` |
@@ -237,6 +240,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.observation.UsageObservation` |
 | entity lifecycle | `conductor.observation.WorkflowRunObservation` |
 | entity lifecycle | `conductor.session.Lease` |
+| command contract | `conductor.decision.AmendEscalatedRequest` |
+| command behaviour | `conductor.decision.AmendEscalatedRequest` |
 | command contract | `conductor.decision.AnswerEscalatedRequest` |
 | command behaviour | `conductor.decision.AnswerEscalatedRequest` |
 | command contract | `conductor.decision.AnswerRequest` |
@@ -384,6 +389,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.decision.DecisionRecorded` |
 | event type | `conductor.decision.DecisionRequested` |
 | event type | `conductor.decision.DecisionReversedEvent` |
+| event type | `conductor.decision.RequestAmended` |
 | event type | `conductor.decision.RequestAnswered` |
 | event type | `conductor.decision.RequestEscalated` |
 | event type | `conductor.decision.RequestWithdrawn` |
@@ -607,7 +613,7 @@ What the specification fully determines is generated; what it cannot determine i
 
 | capability | source | stage | why |
 | --- | --- | --- | --- |
-| actor grants | `conductor.decision.Conductor` | planning | may invoke `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.decision.Conductor` | planning | may invoke `conductor.decision.AmendEscalatedRequest`, `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.decision.Operator` | planning | may invoke `conductor.decision.AnswerEscalatedRequest`, `conductor.decision.RecordOperatorDecision`, `conductor.decision.RecordOperatorDecisionForRequest`, `conductor.decision.ReverseOperatorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.decision.RepositoryController` | planning | may invoke `conductor.decision.RaiseDecisionRequest`, `conductor.decision.WithdrawRequest`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.direction.Conductor` | planning | may invoke `conductor.direction.ActivateRepository`, `conductor.direction.AddServing`, `conductor.direction.DeactivateRepository`, `conductor.direction.MarkGoalMet`, `conductor.direction.MarkRepository`, `conductor.direction.ProposeGoal`, `conductor.direction.RemoveServing`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |

@@ -468,6 +468,54 @@ fn a_batch_records_each_answer_as_the_operators_decision() {
 
 /// The page sends `Sec-Fetch-Site: same-origin` and, on a same-origin POST, a browser may send
 /// no `Origin`: that is taken; neither is refused.
+/// `story:request-amend-escalated`: what an escalated request is amended with reaches the
+/// Decisions page's data: the class-H item escalated without options shows its kind, options,
+/// recommended and default letters and deadline once it is amended.
+#[test]
+fn an_amended_escalated_request_shows_its_new_fields_on_the_decisions_page() {
+    let case = Case::new("amended");
+    let before = case.request(HANDS);
+    assert_eq!(before["lettered_options"], Value::Null);
+    assert_eq!(before["default_letters"], Value::Null);
+    assert_eq!(before["deadline"], Value::Null);
+
+    case.decide(&[
+        "decision",
+        "amend-escalated-request",
+        "--request-id",
+        HANDS,
+        "--reason",
+        "the profile asks for a default and a deadline",
+        "--kind",
+        "yes-no",
+        "--lettered-options",
+        r#"[{"letter":"Y","label":"log in now","cost":"five minutes"},{"letter":"N","label":"leave it","cost":"the release waits"}]"#,
+        "--recommended-letters",
+        "Y",
+        "--default-letters",
+        "N",
+        "--deadline",
+        "2026-10-20T09:00:00Z",
+    ]);
+    // The page's data is computed after the write: a server already running answers a write made
+    // outside it from memory first (`story:dashboard-fast`).
+    let port = case.start();
+    let after = get(port, "/api/decisions").json()["open"]
+        .as_array()
+        .and_then(|open| open.iter().find(|row| row["request_id"] == HANDS))
+        .cloned()
+        .expect("the hands item is open");
+    assert_eq!(after["kind"], "yes-no");
+    assert_eq!(after["recommended"], json!(["Y"]));
+    assert_eq!(after["default"], json!(["N"]));
+    assert_eq!(after["deadline"], "2026-10-20T09:00:00Z");
+    assert_eq!(
+        after["options"][0],
+        json!({"letter": "Y", "label": "log in now", "cost": "five minutes"})
+    );
+    assert_eq!(after["class"], "H", "the class is as it was escalated");
+}
+
 #[test]
 fn a_same_origin_post_without_an_origin_is_taken() {
     let case = Case::new("same-origin");

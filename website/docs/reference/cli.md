@@ -76,6 +76,7 @@ Every command takes these, before or after its name.
 | [`conductor repository refresh-hooks`](#conductor-repository-refresh-hooks) | List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after |
 | [`conductor repository shipped`](#conductor-repository-shipped) | What shipped since an instant, from the newest complete snapshot's GitHub observations |
 | [`conductor decision`](#conductor-decision) | Decision requests and the decisions that answer them |
+| [`conductor decision amend-escalated-request`](#conductor-decision-amend-escalated-request) | Amend an escalated decision request |
 | [`conductor decision answer-escalated-request`](#conductor-decision-answer-escalated-request) | Answer an escalated decision request |
 | [`conductor decision answer-request`](#conductor-decision-answer-request) | Answer a decision request |
 | [`conductor decision escalate-request`](#conductor-decision-escalate-request) | Escalate a decision request |
@@ -139,6 +140,7 @@ Every command takes these, before or after its name.
 | [`conductor host grants`](#conductor-host-grants) | Host grants |
 | [`conductor host reclaim-runs`](#conductor-host-reclaim-runs) | Reclaim runs |
 | [`conductor host reclaim`](#conductor-host-reclaim) | Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached |
+| [`conductor host slices`](#conductor-host-slices) | List each systemd user slice of conductor, conductor.slice or conductor_&lt;prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit |
 | [`conductor metric`](#conductor-metric) | The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs |
 | [`conductor metric define-metric`](#conductor-metric-define-metric) | Define a metric |
 | [`conductor metric record-metric-reading`](#conductor-metric-record-metric-reading) | Record a metric's reading |
@@ -165,6 +167,8 @@ Every command takes these, before or after its name.
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
+| [`conductor need`](#conductor-need) |  |
+| [`conductor need new`](#conductor-need-new) | Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite |
 | [`conductor records`](#conductor-records) |  |
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor rules`](#conductor-rules) |  |
@@ -896,6 +900,26 @@ Decision requests and the decisions that answer them
 ```text
 Usage: conductor decision [OPTIONS] <COMMAND>
 ```
+
+## `conductor decision amend-escalated-request`
+
+Amend an escalated decision request
+
+```text
+Usage: conductor decision amend-escalated-request [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--request-id <REQUEST_ID>` | no | none | RequestId of the escalated request |
+| `--reason <REASON>` | no | none | Why the request is completed |
+| `--kind <KIND>` | no | none | RequestKind: how the operator answers One of `yes-no`, `one-of`, `several-of`. |
+| `--lettered-options <LETTERED_OPTIONS>` | no | none | list of RequestOption, a JSON array of `{letter, label, cost}`; replaces the held options |
+| `--recommended-letters <LETTERS>` | no | none | The letter conductor recommends, or several joined by `,` for `several-of` |
+| `--default-letters <LETTERS>` | no | none | The letter that stands when the operator has not answered by the deadline, or several joined by `,` for `several-of` |
+| `--deadline <DEADLINE>` | no | none | timestamp, RFC 3339: when the default stands |
+| `--dry-run <TEXT>` | no | none | The dry run of a class-H item, as text (not a file, unlike `escalate-request`) |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision answer-escalated-request`
 
@@ -1781,6 +1805,19 @@ Usage: conductor host reclaim [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the steps are printed: text or json. Default: text |
 
+## `conductor host slices`
+
+List each systemd user slice of conductor, conductor.slice or conductor_&lt;prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
+
+```text
+Usage: conductor host slices [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | none | How the slices are printed: text or json. Default: text |
+| `--gc <BOOL>` | no | none | Stop each slice that holds no unit and that no instance of the config file names. `--gc` alone is `--gc true` One of `true`, `false`. |
+
 ## `conductor metric`
 
 The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs
@@ -2101,6 +2138,24 @@ Usage: conductor init [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--instance <NAME>` | no | none | The instance whose records directory is written. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
+
+## `conductor need`
+
+```text
+Usage: conductor need [OPTIONS] <COMMAND>
+```
+
+## `conductor need new`
+
+Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
+
+```text
+Usage: conductor need new [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--day <DAY>` | no | none | The UTC date the id is minted for, yyyy-mm-dd. Default: today |
 
 ## `conductor records`
 

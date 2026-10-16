@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 275d89d32946ae4b645b5fab96234677a0b39147df8d6bdee0098b1e7ef07e01
-// contract digest acf76e0fbaeef4c9c67cc8ae69172a8d0637b7f8d3495c42f2f88dfa24041795
+// model digest 874651500e2b230e5db2db024e9397e145e0c9ae0afd650869c131d47da423c5
+// contract digest 1268c357392663d0dd0179ba6aa55f09c3d64dacfc6dfd13f6208c14c9be839b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -58,6 +58,8 @@ pub enum DecisionLogEvent {
     Answered,
     /// `Escalated`.
     Escalated,
+    /// `Amended`.
+    Amended,
     /// `Withdrawn`.
     Withdrawn,
     /// `Reversed`.
@@ -590,6 +592,57 @@ impl AnyDecisionRequest {
             },
         }
     }
+}
+
+/// Amend an escalated decision request — the input of `conductor.decision.AmendEscalatedRequest`.
+///
+/// Everything it can result in is [`AmendEscalatedRequestOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmendEscalatedRequest {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
+    /// `dry_run` — `Optional<String>`.
+    pub dry_run: Option<String>,
+}
+
+/// Everything `conductor.decision.AmendEscalatedRequest` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AmendEscalatedRequestOutcome {
+    /// `amended` — when the existing subject is in Escalated.
+    ///
+    /// The escalated request carries the fields given and waits for the operator.
+    Amended {
+        /// The `conductor.decision.RequestAmended` this outcome publishes.
+        request_amended: RequestAmended,
+    },
+    /// `no-such-request` — for an identity no record carries.
+    NoSuchRequest {
+        /// Why it was refused: `conductor.decision.RequestNotFound`.
+        error: RequestNotFound,
+    },
+    /// `not-escalated` — otherwise.
+    ///
+    /// Only an escalated request is amended; an open, answered or withdrawn one is unchanged.
+    NotEscalated {
+        /// Why it was refused: `conductor.decision.RequestStateConflict`.
+        error: RequestStateConflict,
+    },
 }
 
 /// Answer an escalated decision request — the input of `conductor.decision.AnswerEscalatedRequest`.
@@ -1146,6 +1199,13 @@ pub struct DecisionReversedEvent {
     pub reason: String,
 }
 
+/// RequestAmended — the event `conductor.decision.RequestAmended`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestAmended {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
 /// RequestAnswered — the event `conductor.decision.RequestAnswered`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAnswered {
@@ -1414,6 +1474,17 @@ pub struct Requests {
 /// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
 /// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
 pub mod obligations {
+    /// The behaviour `conductor.decision.AmendEscalatedRequest` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait AmendEscalatedRequestBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.decision.AmendEscalatedRequest`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn amend_escalated_request(&mut self, input: super::AmendEscalatedRequest) -> Result<super::AmendEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.decision.AnswerEscalatedRequest` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it

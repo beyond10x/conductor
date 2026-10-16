@@ -476,6 +476,65 @@ fn each_command_that_records_a_decision_or_request_appends_one_line_to_the_decis
     );
 }
 
+/// `story:request-amend-escalated`: amending an escalated request appends one `amended` line,
+/// with the request and the reason, and the check passes it.
+#[test]
+fn amending_an_escalated_request_appends_its_amended_line() {
+    let case = Case::new("amend-log");
+    case.ok(&[
+        "decision",
+        "raise-decision-request",
+        "--request-id",
+        "alpha-1",
+        "--repository",
+        "alpha",
+        "--question",
+        "Which store?",
+        "--options",
+        "A or B",
+        "--recommendation",
+        "A",
+        "--raised-at",
+        AT,
+    ]);
+    case.ok(&[
+        "decision",
+        "escalate-request",
+        "--request-id",
+        "alpha-1",
+        "--escalation-class",
+        "H",
+        "--reason",
+        "a login",
+        "--no-dry-run",
+        "no step runs without it",
+    ]);
+    let (_, line) = case.appends(
+        "decisions",
+        &[
+            "decision",
+            "amend-escalated-request",
+            "--request-id",
+            "alpha-1",
+            "--reason",
+            "complete the item",
+            "--kind",
+            "yes-no",
+            "--lettered-options",
+            r#"[{"letter":"Y","label":"log in","cost":"five minutes"},{"letter":"N","label":"leave it","cost":"the release waits"}]"#,
+            "--default-letters",
+            "N",
+        ],
+    );
+    holds(
+        &line,
+        &json!({"event": "amended", "repo": "alpha", "id": "alpha-1",
+                "reason": "complete the item"}),
+    );
+    let output = case.run(&["records", "check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}
+
 /// The arguments of `dispatch report-done` for `dispatch`, with fixed evidence.
 fn done(dispatch: &str) -> [&str; 6] {
     [

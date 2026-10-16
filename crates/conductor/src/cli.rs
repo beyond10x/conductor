@@ -286,6 +286,9 @@ impl Cli {
                     decide::answer_escalated_request(state, args)
                 }
                 DecisionCommand::EscalateRequest(args) => decide::escalate_request(state, args),
+                DecisionCommand::AmendEscalatedRequest(args) => {
+                    decide::amend_escalated_request(state, args)
+                }
                 DecisionCommand::WithdrawRequest(args) => decide::withdraw_request(state, args),
                 DecisionCommand::ReverseConductorDecision(args) => {
                     decide::reverse_conductor_decision(state, args)
@@ -369,6 +372,7 @@ impl Cli {
                 HostCommand::Reclaim(args) => {
                     crate::gc::reclaim::run_reclaim(state, args.format.as_deref())
                 }
+                HostCommand::Slices(args) => crate::slices::host_slices(&args),
             },
             // The metrics and their readings (story:kpi-records).
             Group::Metric(command) => match command {
@@ -413,6 +417,9 @@ impl Cli {
             Group::Doctor => crate::doctor::doctor_with(self.config.as_deref(), providers),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
+            Group::Need(command) => match command {
+                NeedCommand::New(args) => crate::need::need_new(&args),
+            },
             Group::Records(command) => match command {
                 RecordsCommand::Check(args) => crate::records::records_check(state, &args),
             },
@@ -516,6 +523,11 @@ pub enum Group {
     /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
     #[command(name = "init")]
     Init(InitArgs),
+
+    // No help, as for `dashboard`: the binding declares the group only through `need new`
+    // (`story:need-id-unique`).
+    #[command(subcommand)]
+    Need(NeedCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `records check`
     // (`story:records-from-commands`).
@@ -650,6 +662,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     ),
     (&["decision", "answer-request"], Access::Writes),
     (&["decision", "escalate-request"], Access::Writes),
+    (&["decision", "amend-escalated-request"], Access::Writes),
     (&["decision", "raise-decision-request"], Access::Writes),
     (&["decision", "record-conductor-decision"], Access::Writes),
     (&["decision", "record-operator-decision"], Access::Writes),
@@ -706,6 +719,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["host", "reclaim-runs"], Access::Reads),
     // Removes what needs no decision until free disk is back over the floor (story:disk-reclaim).
     (&["host", "reclaim"], Access::Writes),
+    // Lists the user manager's conductor slices; --gc stops an empty one no instance names
+    // (story:slice-remove).
+    (&["host", "slices"], Access::Writes),
     (&["metric", "define-metric"], Access::Writes),
     (&["metric", "record-metric-reading"], Access::Writes),
     (&["metric", "set-metric-target"], Access::Writes),
@@ -732,6 +748,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Removes the build caches, trees and targets the disk panel marks reclaimable.
     (&["gc"], Access::Writes),
     (&["init"], Access::Writes),
+    // Keeps the id it prints in the state directory (story:need-id-unique).
+    (&["need", "new"], Access::Writes),
     // Reads conductor's records logs and the store's decisions (story:records-from-commands).
     (&["records", "check"], Access::ConductorReads),
     // Reads the instance's rules.md and nothing else; a controller cites its items in a worker's
@@ -946,6 +964,10 @@ pub enum RepositoryCommand {
 /// `conductor decision`: decision requests and the decisions that answer them.
 #[derive(Debug, Subcommand)]
 pub enum DecisionCommand {
+    /// Amend an escalated decision request
+    #[command(name = "amend-escalated-request")]
+    AmendEscalatedRequest(AmendEscalatedRequestArgs),
+
     /// Answer an escalated decision request
     #[command(name = "answer-escalated-request")]
     AnswerEscalatedRequest(AnswerEscalatedRequestArgs),
@@ -1221,6 +1243,10 @@ pub enum HostCommand {
     /// Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
     #[command(name = "reclaim")]
     Reclaim(HostReclaimArgs),
+
+    /// List each systemd user slice of conductor, conductor.slice or conductor_<prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
+    #[command(name = "slices")]
+    Slices(HostSlicesArgs),
 }
 
 /// `conductor metric`: the measured quantities of the self-improvement loop, their daily
@@ -1302,6 +1328,19 @@ pub struct HostReclaimArgs {
     /// How the steps are printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+}
+
+/// The input of the binding's `host-slices` callable, `conductor.host.ListSlices`. The format is
+/// text the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct HostSlicesArgs {
+    /// How the slices are printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
+    /// Stop each slice that holds no unit and that no instance of the config file names.
+    /// `--gc` alone is `--gc true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub gc: Option<bool>,
 }
 
 // `conductor build`: the command the binding declares over the `local` callable `build-run`
@@ -1406,6 +1445,25 @@ pub struct RecordsCheckArgs {
     /// How the findings are printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+}
+
+// `conductor need`: the command the binding declares over the `local` callable `need-new`
+// (`story:need-id-unique`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum NeedCommand {
+    /// Print the next NEED id no earlier NEED used, N-<yyyymmdd>-<nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
+    #[command(name = "new")]
+    New(NeedNewArgs),
+}
+
+/// The input of the binding's `need-new` callable, `conductor.direction.NewNeed`. The day is text
+/// the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct NeedNewArgs {
+    /// The UTC date the id is minted for, yyyy-mm-dd. Default: today
+    #[arg(long)]
+    pub day: Option<String>,
 }
 
 // `conductor rules`: the command the binding declares over the `local` callable `rules-show`
@@ -2996,6 +3054,40 @@ pub struct EscalateRequestArgs {
     /// timestamp, RFC 3339: when the default stands. Required for class O
     #[arg(long, value_parser = timestamp)]
     pub deadline: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.decision.AmendEscalatedRequest` (`story:request-amend-escalated`). A
+/// field given replaces the held one; a field left out stays.
+#[derive(Debug, Clone, Args)]
+pub struct AmendEscalatedRequestArgs {
+    /// RequestId of the escalated request
+    #[arg(long)]
+    pub request_id: Option<String>,
+    /// Why the request is completed
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// RequestKind: how the operator answers
+    #[arg(long, value_parser = ["yes-no", "one-of", "several-of"])]
+    pub kind: Option<String>,
+    /// list of RequestOption, a JSON array of `{letter, label, cost}`; replaces the held options
+    #[arg(long, value_parser = json_list)]
+    pub lettered_options: Option<String>,
+    /// The letter conductor recommends, or several joined by `,` for `several-of`
+    #[arg(long, value_name = "LETTERS")]
+    pub recommended_letters: Option<String>,
+    /// The letter that stands when the operator has not answered by the deadline, or several
+    /// joined by `,` for `several-of`
+    #[arg(long, value_name = "LETTERS")]
+    pub default_letters: Option<String>,
+    /// timestamp, RFC 3339: when the default stands
+    #[arg(long, value_parser = timestamp)]
+    pub deadline: Option<String>,
+    /// The dry run of a class-H item, as text (not a file, unlike `escalate-request`)
+    #[arg(long, value_name = "TEXT")]
+    pub dry_run: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

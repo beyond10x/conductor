@@ -213,6 +213,12 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   `,` for `several-of`) and `--deadline` (RFC 3339: when the default stands). A class-O
   escalation without them is refused; give a class-H one them as well. The dashboard's
   Decisions page shows each open item with them.
+- **Complete an escalated item in place.** Complete an escalated item with `conductor decision
+  amend-escalated-request --request-id <id> --reason <r>`, not by text and not by withdrawing and
+  raising it again: add `--kind`, `--lettered-options` (the JSON array; the options given replace
+  the held ones), `--recommended-letters`, `--default-letters`, `--deadline` (RFC 3339) and
+  `--dry-run <text>` (the text, not a file). A field left out stays as escalated; a default or
+  recommended letter that names no option is refused, as is a request that is not escalated.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.
@@ -344,6 +350,8 @@ and the scripts and tools conductor runs. You write and commit only `decisions/`
 `charters/`, `STATUS.md`, `NORTHSTAR.md`, `docs/handoff/`, and `.engineering/workspace.yaml`,
 which only `conductor config workspace` writes (`--check` first).
 - Something about yourself that should change: `[NEED conductor <id>] conductor-dev <what>`.
+  Send a `[NEED conductor <id>]` only with an id `conductor need new` printed, run for that NEED;
+  never write an id by hand or reuse one.
 - `[DECISION-REQUEST conductor <id>] approve wave <nn>` from conductor-dev is class C.
 - `[RESTART conductor] <reason>`: end the cycle, write `docs/handoff/<date>-<hhmm>.md` (open
   dispatches, pending requests, waits), commit it, answer `[REPORT conductor -] ready <path>`,

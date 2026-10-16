@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "275d89d32946ae4b645b5fab96234677a0b39147df8d6bdee0098b1e7ef07e01",
-    "contract_digest": "acf76e0fbaeef4c9c67cc8ae69172a8d0637b7f8d3495c42f2f88dfa24041795"
+    "source_digest": "874651500e2b230e5db2db024e9397e145e0c9ae0afd650869c131d47da423c5",
+    "contract_digest": "1268c357392663d0dd0179ba6aa55f09c3d64dacfc6dfd13f6208c14c9be839b"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -551,6 +551,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.direction.NewNeed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.direction.RepositoryActivity",
       "disposition": {
         "disposition": "generated"
@@ -810,6 +817,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.host.ListSlices",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.host.ReclaimDisk",
       "disposition": {
         "disposition": "generated"
@@ -867,6 +881,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.ShowGrants",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.SliceRow",
       "disposition": {
         "disposition": "generated"
       }
@@ -1567,6 +1588,20 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.session.Lease",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.decision.AmendEscalatedRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.decision.AmendEscalatedRequest",
       "disposition": {
         "disposition": "generated"
       }
@@ -2644,6 +2679,13 @@
     {
       "kind": "event_type",
       "source": "conductor.decision.DecisionReversedEvent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.decision.RequestAmended",
       "disposition": {
         "disposition": "generated"
       }
@@ -4048,7 +4090,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.decision.AmendEscalatedRequest`, `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {

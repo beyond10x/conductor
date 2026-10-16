@@ -113,6 +113,17 @@ types:
       - {name: refusal, type: conductor.direction.RulesRefusal}
       - {name: detail, type: String}
 
+  # The input of `conductor need new` (story:need-id-unique). It prints the next id no earlier NEED
+  # used, `N-<yyyymmdd>-<nn>` (at least two digits, counted from 01 for the day), and keeps it in
+  # the state directory, so two calls never print the same id, a restart included. An id the
+  # records' hand-overs, decisions or dispatches already cite for that day is skipped too. `day`
+  # is the UTC date, `yyyy-mm-dd`, the id is minted for; without it, today. A `day` that is no
+  # date is refused on one line of standard error naming it, and nothing is kept.
+  - name: conductor.direction.NewNeed
+    kind: struct
+    fields:
+      - {name: day, type: Optional<String>}
+
 entities:
   # An override of whether conductor processes a repository's GitHub issues and pull requests
   # (design § 10). Without a mark, activity is computed from the newest

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 275d89d32946ae4b645b5fab96234677a0b39147df8d6bdee0098b1e7ef07e01
-// contract digest acf76e0fbaeef4c9c67cc8ae69172a8d0637b7f8d3495c42f2f88dfa24041795
+// model digest 874651500e2b230e5db2db024e9397e145e0c9ae0afd650869c131d47da423c5
+// contract digest 1268c357392663d0dd0179ba6aa55f09c3d64dacfc6dfd13f6208c14c9be839b
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -668,6 +668,40 @@ impl<P> Generated<P> {
     /// The generated behaviours, over `ports`.
     pub fn new(ports: P) -> Self {
         Self { ports }
+    }
+}
+
+/// `conductor.decision.AmendEscalatedRequest`, generated: every outcome is one the specification fully determines.
+impl<P> crate::decision::obligations::AmendEscalatedRequestBehavior for Generated<P>
+where
+    P: DecisionRequestStorage,
+{
+    fn amend_escalated_request(&mut self, input: crate::decision::AmendEscalatedRequest) -> Result<crate::decision::AmendEscalatedRequestOutcome, UnmetObligation> {
+        let _ = &input;
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
+            return Ok(crate::decision::AmendEscalatedRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
+        };
+        let _ = &held;
+        // `amended`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::decision::DecisionRequestState::Escalated)), "conductor.decision.AmendEscalatedRequest")? {
+            let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
+                return Ok(crate::decision::AmendEscalatedRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
+            };
+            let _ = &held;
+            let mut next = held;
+            next.data.dry_run = input.dry_run.clone();
+            next.data.kind = input.kind.clone();
+            next.data.lettered_options = input.lettered_options.clone();
+            next.data.recommended_letters = input.recommended_letters.clone();
+            next.data.default_letters = input.default_letters.clone();
+            next.data.deadline = input.deadline.clone();
+            let answer = crate::decision::AmendEscalatedRequestOutcome::Amended { request_amended: crate::decision::RequestAmended { request_id: input.request_id.clone() } };
+            DecisionRequestStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `not-escalated`: the default.
+        return Ok(crate::decision::AmendEscalatedRequestOutcome::NotEscalated { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } });
     }
 }
 
