@@ -309,6 +309,7 @@ pub fn report_done(state: Option<&Path>, args: ReportDoneArgs) -> Result<ExitCod
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         evidence: flag(COMMAND, "--evidence", args.evidence)?,
     };
+    let evidence = input.evidence.clone();
     let (outcome, store) = run(state, COMMAND, |generated| generated.report_done(input))?;
     match outcome {
         ReportDoneOutcome::Done { dispatch_done } => logged(
@@ -319,9 +320,12 @@ pub fn report_done(state: Option<&Path>, args: ReportDoneArgs) -> Result<ExitCod
             |line| line.evidence = Some(dispatch_done.evidence.clone()),
         ),
         ReportDoneOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
-        ReportDoneOutcome::WrongState { error } => wrong_state(
+        ReportDoneOutcome::WrongState { error } => retried(
             COMMAND,
+            &store,
             &error.dispatch_id,
+            (DispatchState::Done, DispatchLogEvent::Done),
+            |line| line.evidence = Some(evidence),
             "only a sent, started or blocked dispatch is done",
         ),
     }
@@ -341,6 +345,7 @@ pub fn report_failed(state: Option<&Path>, args: ReportFailedArgs) -> Result<Exi
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
+    let reason = input.reason.clone();
     let (outcome, store) = run(state, COMMAND, |generated| generated.report_failed(input))?;
     match outcome {
         ReportFailedOutcome::Failed { dispatch_failed } => logged(
@@ -351,9 +356,12 @@ pub fn report_failed(state: Option<&Path>, args: ReportFailedArgs) -> Result<Exi
             |line| line.reason = Some(dispatch_failed.reason.clone()),
         ),
         ReportFailedOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
-        ReportFailedOutcome::WrongState { error } => wrong_state(
+        ReportFailedOutcome::WrongState { error } => retried(
             COMMAND,
+            &store,
             &error.dispatch_id,
+            (DispatchState::Failed, DispatchLogEvent::Failed),
+            |line| line.reason = Some(reason),
             "only a started or blocked dispatch fails",
         ),
     }
@@ -373,6 +381,7 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
         dispatch_id: dispatch_id(COMMAND, args.dispatch_id)?,
         reason: flag(COMMAND, "--reason", args.reason)?,
     };
+    let reason = input.reason.clone();
     let (outcome, store) = run(state, COMMAND, |generated| generated.cancel_dispatch(input))?;
     match outcome {
         CancelDispatchOutcome::Cancelled { dispatch_cancelled } => logged(
@@ -383,9 +392,14 @@ pub fn cancel_dispatch(state: Option<&Path>, args: CancelDispatchArgs) -> Result
             |line| line.reason = Some(dispatch_cancelled.reason.clone()),
         ),
         CancelDispatchOutcome::NoSuchDispatch { error } => no_dispatch(COMMAND, &error.dispatch_id),
-        CancelDispatchOutcome::WrongState { error } => {
-            wrong_state(COMMAND, &error.dispatch_id, "the dispatch already ended")
-        }
+        CancelDispatchOutcome::WrongState { error } => retried(
+            COMMAND,
+            &store,
+            &error.dispatch_id,
+            (DispatchState::Cancelled, DispatchLogEvent::Cancelled),
+            |line| line.reason = Some(reason),
+            "the dispatch already ended",
+        ),
     }
 }
 
@@ -508,6 +522,26 @@ fn logged(
     records::append_dispatch(&line)
         .with_context(|| format!("{command}: dispatch {}", dispatch.0))?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// The answer to a command that found its dispatch already moved (`DispatchStateConflict`): when
+/// the dispatch is in the `ended` state this command moves it to and the records' dispatch log
+/// holds no line of that event for it, the earlier run kept the move and failed to append its
+/// line, so this run appends it from its own input and succeeds. Otherwise the refusal stands.
+fn retried(
+    command: &str,
+    store: &Store,
+    dispatch: &DispatchId,
+    (ended, event): (DispatchState, DispatchLogEvent),
+    fill: impl FnOnce(&mut DispatchLogLine),
+    rule: &str,
+) -> Result<ExitCode> {
+    let state = DispatchStorage::get(store, dispatch).map(|held| held.state);
+    kept(command, store)?;
+    if state == Some(ended) && !records::dispatch_event_logged(&dispatch.0, event)? {
+        return logged(command, store, dispatch, event, fill);
+    }
+    wrong_state(command, dispatch, rule)
 }
 
 /// Refuses `--input-json`, which no handler reads yet, as `what` not implemented.
