@@ -375,7 +375,9 @@ fn a_job_count_the_environment_holds_is_kept_and_a_large_reserve_leaves_one() {
         ..case.sources(reclaim_nothing)
     };
     run(&settings(), holding);
-    assert_eq!(jobs().trim(), format!("{inherited} -j18"));
+    // Trimmed on both sides: with no CARGO_BUILD_JOBS in this test's own environment the line
+    // starts with the empty value and a space.
+    assert_eq!(jobs().trim(), format!("{inherited} -j18").trim());
     let tight = Settings {
         cores: 2,
         cpu_reserve: 5,
