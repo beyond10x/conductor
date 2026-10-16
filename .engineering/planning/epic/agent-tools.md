@@ -4,44 +4,41 @@ id: epic:agent-tools
 kind: epic
 status: draft
 title: Sessions call short conductor tools instead of long shell commands
-revision: 1
+revision: 2
 ---
 # Epic: agent-tools
 
 ## Outcome
 
-The fleet's sessions spend fewer tokens and fewer round trips on tool calls. The repeated long command lines are replaced by short `conductor` verbs that print one summary line, and on failure only the failing lines and a log path.
+Sessions act only through a confined tool surface, never through arbitrary Bash:
+- `tool` is a separate binary with no admin command, a thin client of the instance's broker over a socket mounted into the session's workspace.
+- The broker holds the forge credentials, the bot route and the store writes. It checks each call against the caller's grant and records it.
+- On Claude Code the surface is an MCP server, and Bash is denied to every worker.
+- Leads compile each worker's grant with `agent run`; a child's grant never exceeds its parent's.
+- `tool define` makes aliases of verbs the caller holds, checked per step at call time.
+
+Design: docs/design/roles-and-surfaces.md § 6, approved by the operator on 2026-10-16. This replaces the earlier ranking of `conductor` verbs, which the operator redirected.
 
 ## Why
 
-The operator, 2026-10-16: measure the longest tool calls and wrap them. The analysis covered 48 h of 302 transcripts and 24,647 tool calls:
-- tool-call arguments were 78 % of output tokens, and results cost about 3.5× the arguments;
-- the context re-read is about 153k tokens per turn, so round trips cost more than bytes;
-- 26 % of file-read output re-read a file already read;
-- there were 212 guard refusals in 48 h, 78 of them retried;
-- the biggest clusters are file reads by sed or cat, grep, SendMessage bodies, the commit boilerplate, build-run test plus log grep plus poll, and receive-message re-typing.
+The operator, 2026-10-16:
+- "I really do not want at all that my workers and agents … are able to call arbitrary bash."
+- "if we give them the conductor tool, they are leaving the sandbox."
 
-An inline sequence helper (`conductor run '{seq: [...]}'`) saves round trips, not argument bytes. The guard cannot see inside its argument, so it may carry only typed verbs run as argv, never a raw shell step, and it must apply the guard's checks per step.
+The 48 h analysis: of 24,647 calls, 96 % of Bash calls were compound, there were 212 guard refusals, and tool-call arguments were 78 % of output tokens.
 
-## Stories, ranked by estimated tokens saved per day
+## Acceptance
 
-1. `conductor tool show <path> [--fn sym|--lines a:b] [--max 4k]`: bounded reads, which say "unchanged since turn N" on a re-read.
-2. Trimmed defaults:
-   - `rules show` prints an index unless given `--item`;
-   - `config show` prints a summary;
-   - diffs print `--stat`.
-3. `conductor test <crate> [--test t] [--filter f] [--reserve] [--wait]`: prints `N passed, M failed` and at most 40 failing lines, and keeps the log.
-4. `conductor commit [-C tree] -m|-F - -- <paths>`: the bot route and policy are built in, and it prints `<sha> <n> files`.
-5. `conductor wait --log f --until <re> | --task <id> | --pr repo#n`: prints the summary once. It is the product form of rules item 139, and joins epic:process-supervision C7.
-6. Messages are recorded on delivery by a hook, with no `receive-message` re-typing.
-7. `conductor tool append|replace <path>`: edits the guard can verify, in place of heredocs and python replace-scripts.
-8. `conductor gate push|merge <ref>` and `conductor pr checks repo#n [--wait]`.
-9. `conductor fleet agents [--name n]`.
-10. `conductor handoff note "<text>"`.
-11. `conductor run '<flow YAML>'`: a carrier for the verbs above, with `seq:`, `par:` and stop-on-fail. It has no shell step, and the guard's checks apply per step.
-
-Every verb prints exit code and counts on its first line, then at most 40 failing lines, then the log path. A success is one line.
+1. The broker and `tool` ship with read (`show`, `search`, `diff`), build (`test`, `check`, `fmt`), `commit`, `send` and `report`. Implementers move to them with Bash denied.
+2. Before and after, from transcripts by the same analysis: context per turn, round trips, refusals.
+3. Then the rest of § 6.3 (forge, plan, team, memory with TTL, wait, `agent run`), with grants compiled by the lead.
+4. Then `tool define` aliases with session, team and instance scope and expiry. Use is recorded, and an alias used often becomes a draft story.
+5. The `conductor` binary loses its session commands once no session calls them.
 
 ## Out of Scope
 
-Code payloads (Write and Edit content), which no wrapper removes.
+Code payloads in Write and Edit.
+
+## Ambiguities
+
+None. The operator chose `tool`, MCP and Bash denied.
