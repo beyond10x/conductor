@@ -85,7 +85,7 @@ fn answer(state: Option<&Path>, args: &RepositoryShippedArgs) -> Result<ExitCode
         format: format(args.format.as_deref())?,
     };
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let snapshots = generated.snapshots().map_err(|unmet| anyhow!("{unmet}"))?;
     let mut newest: Option<(OffsetDateTime, _)> = None;
     for row in snapshots {

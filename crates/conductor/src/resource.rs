@@ -14,7 +14,7 @@
 //! dispatch log ([`crate::records`]): `resource-granted` or `resource-refused`, with the request's
 //! id, repository, resource and amount, and the refusal's reason.
 //!
-//! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing.
+//! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -256,7 +256,7 @@ pub fn resource_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCod
         }
     }
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .resource_requests()
         .map_err(|unmet| anyhow!("resource resource-requests: {unmet}"))?;

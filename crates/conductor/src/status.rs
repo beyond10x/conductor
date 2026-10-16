@@ -42,7 +42,7 @@
 //! the count of the rows the board writes, so it is refused when given; `--input-json` is not read
 //! yet and answers [`NotImplemented`](crate::NotImplemented).
 //!
-//! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing.
+//! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing.
 //!
 //! `conductor status` ([`status`], `story:status-command`) is the view `conductor.observation.Status`:
 //! the answer to "what is the status" in one call, read from the store alone, without starting a
@@ -217,7 +217,7 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "deviation_rows",
         "path",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .boards()
         .map_err(|unmet| anyhow!("snapshot boards: {unmet}"))?;
@@ -255,7 +255,7 @@ pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
         Some("json") => true,
         Some(other) => bail!("{WHAT}: --format {other:?} is not one of text, json"),
     };
-    let store = crate::state::open_existing(state).context(WHAT)?;
+    let store = crate::state::open_reader(state).context(WHAT)?;
     let report = status_report(&store, OffsetDateTime::now_utc());
     let rendered = if json {
         format!("{}\n", status_json(&report))

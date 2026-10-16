@@ -1144,7 +1144,7 @@ pub fn releases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "published_at",
         "url",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .releases()
         .map_err(|unmet| anyhow!("snapshot releases: {unmet}"))?;
@@ -1180,7 +1180,7 @@ pub fn merged_pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<Exit
         "merged_at",
         "url",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .merged_pull_requests()
         .map_err(|unmet| anyhow!("snapshot merged-pull-requests: {unmet}"))?;
@@ -1516,7 +1516,7 @@ pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "disk_free_bytes",
         "failure_reason",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .snapshots()
         .map_err(|unmet| anyhow!("snapshot snapshots: {unmet}"))?;
@@ -1569,7 +1569,7 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "wave_ready",
         "wave_reason",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .repositories()
         .map_err(|unmet| anyhow!("snapshot repositories: {unmet}"))?;
@@ -1629,7 +1629,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "updated_at",
         "url",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .pull_requests()
         .map_err(|unmet| anyhow!("snapshot pull-requests: {unmet}"))?;
@@ -1670,7 +1670,7 @@ pub fn workflow_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "conclusion",
         "run_at",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .workflow_runs()
         .map_err(|unmet| anyhow!("snapshot workflow-runs: {unmet}"))?;
@@ -1715,7 +1715,7 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "envelope_writable",
         "envelope_unboxed",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .sessions()
         .map_err(|unmet| anyhow!("snapshot sessions: {unmet}"))?;
@@ -1760,7 +1760,7 @@ pub fn blockers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "blocker_kind",
         "title",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .blockers()
         .map_err(|unmet| anyhow!("snapshot blockers: {unmet}"))?;
@@ -1801,7 +1801,7 @@ pub fn specifications(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "synthesis_refusals",
         "conformance_status",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .specifications()
         .map_err(|unmet| anyhow!("snapshot specifications: {unmet}"))?;
@@ -1843,7 +1843,7 @@ pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
         "collector",
         "error_line",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .member_failures()
         .map_err(|unmet| anyhow!("snapshot member-failures: {unmet}"))?;
@@ -1881,7 +1881,7 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "read_bytes",
         "written_bytes",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .collector_runs()
         .map_err(|unmet| anyhow!("snapshot collector-runs: {unmet}"))?;
@@ -1923,7 +1923,7 @@ pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "secrets_updated_at",
         "error_line",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .secret_syncs()
         .map_err(|unmet| anyhow!("snapshot secret-syncs: {unmet}"))?;
@@ -1966,7 +1966,7 @@ pub fn usage_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "used_percent",
         "resets_at",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .usage_readings()
         .map_err(|unmet| anyhow!("snapshot usage-readings: {unmet}"))?;
