@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:build-run-backfill
 kind: story
-status: draft
+status: implemented
 title: A disk request that fits runs while a larger one ahead of it cannot
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:09Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:09Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:10Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: build-run-backfill
 

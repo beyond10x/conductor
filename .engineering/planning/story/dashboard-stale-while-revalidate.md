@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:dashboard-stale-while-revalidate
 kind: story
-status: draft
+status: implemented
 title: The dashboard never blocks a read on a recompute
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:10Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:10Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:10Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: dashboard-stale-while-revalidate
 

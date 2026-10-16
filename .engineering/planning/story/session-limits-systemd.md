@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:session-limits-systemd
 kind: story
-status: draft
+status: implemented
 title: Each instance and session runs under systemd limits
 relations:
 - decomposes: epic:session-confinement
@@ -21,7 +21,11 @@ scope:
   path: docs/analysis/session-limits-run.md
 - confidence: cited
   path: docs/config.md
-revision: 14
+revision: 17
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:06Z", actor: "human:timo", revision: 15, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:06Z", actor: "human:timo", revision: 16, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:06Z", actor: "human:timo", revision: 17, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

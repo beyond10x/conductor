@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:session-envelope-seam
 kind: story
-status: draft
+status: implemented
 title: A session starts only in the envelope its role requests
 relations:
 - decomposes: epic:session-confinement
@@ -58,7 +58,11 @@ scope:
   path: website/docs/guides/start-conductor.md
 - confidence: cited
   path: website/docs/security/confinement.md
-revision: 29
+revision: 32
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:05Z", actor: "human:timo", revision: 30, decided_on: {"recorded":{"review_outcome":16}}}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:05Z", actor: "human:timo", revision: 31, decided_on: {"recorded":{"review_outcome":16}}}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:05Z", actor: "human:timo", revision: 32, decided_on: {"recorded":{"test_result":1,"review_outcome":16}}}
 ---
 ## Why
 

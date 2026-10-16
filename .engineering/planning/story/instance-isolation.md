@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:instance-isolation
 kind: story
-status: draft
+status: implemented
 title: Every conductor process and session acts for exactly one instance, pinned, never by default
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:09Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:09Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:09Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: instance-isolation
 
