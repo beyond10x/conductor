@@ -107,6 +107,7 @@ instances:
       gate_resume: 18G
       watchdog_every: 5s
       silent_session: 45m
+      cpu_reserve: 3
     retention:
       snapshots: 3
     reports:

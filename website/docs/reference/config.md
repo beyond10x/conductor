@@ -87,6 +87,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `thresholds.gate_resume` | [Gibibytes](#gibibytes) | `17G` | `gate_resume > gate_stop` |
 | `thresholds.watchdog_every` | duration | `10s` |  |
 | `thresholds.silent_session` | duration | `30m` |  |
+| `thresholds.cpu_reserve` | integer | `2` | `cpu_reserve >= 0` |
 | `retention.snapshots` | integer | `12` | `snapshots >= 1` |
 | `reports` | list of [Report](#report) | `[]` |  |
 | `reports[].channel` | string | required |  |
@@ -276,9 +277,9 @@ Keys: `cycle`, `daily`, `watch`, `ci`. Specified as `conductor.config.Cadence`.
 
 ### Thresholds
 
-Conductor's context above which it hands over; the filesystem whose free space the disk thresholds read, written absolute or under `~`; free disk under which the watch reports it, from which a further fall is reported again, under which no session starts, and under which a full gate takes a build slot; the size above which a build is expected to write enough to ask for a slot; free disk under which the full-gate watchdog stops the gate's process group and from which it resumes it; how often the watchdog reads it; and how long a live controller session, and every one of its sub-agents, may write nothing to its transcript before the watch reports it silent, a duration as `cadence` writes one. Absent, the filesystem is `/` and the silence 30 minutes.
+Conductor's context above which it hands over; the filesystem whose free space the disk thresholds read, written absolute or under `~`; free disk under which the watch reports it, from which a further fall is reported again, under which no session starts, and under which a full gate takes a build slot; the size above which a build is expected to write enough to ask for a slot; free disk under which the full-gate watchdog stops the gate's process group and from which it resumes it; how often the watchdog reads it; and how long a live controller session, and every one of its sub-agents, may write nothing to its transcript before the watch reports it silent, a duration as `cadence` writes one; and how many CPU cores `conductor build run` leaves to the desktop: its command's job count is the cores less this. Absent, the filesystem is `/`, the silence 30 minutes and the reserve 2 cores.
 
-Keys: `context_handover`, `disk_path`, `disk_low`, `disk_clear`, `disk_admit`, `build_slot`, `build_size`, `gate_stop`, `gate_resume`, `watchdog_every`, `silent_session`. Specified as `conductor.config.Thresholds`.
+Keys: `context_handover`, `disk_path`, `disk_low`, `disk_clear`, `disk_admit`, `build_slot`, `build_size`, `gate_stop`, `gate_resume`, `watchdog_every`, `silent_session`, `cpu_reserve`. Specified as `conductor.config.Thresholds`.
 
 ### Retention
 

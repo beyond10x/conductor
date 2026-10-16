@@ -313,8 +313,10 @@ types:
   # for a slot; free disk under which the full-gate watchdog stops the gate's process group and
   # from which it resumes it; how often the watchdog reads it; and how long a live controller
   # session, and every one of its sub-agents, may write nothing to its transcript before the watch
-  # reports it silent (story:watch-silent-controller), a duration as `cadence` writes one. Absent,
-  # the filesystem is `/` and the silence 30 minutes.
+  # reports it silent (story:watch-silent-controller), a duration as `cadence` writes one; and how
+  # many CPU cores `conductor build run` leaves to the desktop: its command's job count is the
+  # cores less this (story:build-run-spare-cores). Absent, the filesystem is `/`, the silence 30
+  # minutes and the reserve 2 cores.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -329,8 +331,10 @@ types:
       - {name: gate_resume, type: conductor.config.Gibibytes}
       - {name: watchdog_every, type: Duration}
       - {name: silent_session, type: Duration}
+      - {name: cpu_reserve, type: Integer}
     invariants:
       - gate_resume > gate_stop
+      - cpu_reserve >= 0
 
   # How many snapshots' observations the instance keeps: those of the newest `snapshots` complete
   # ones (story:observation-retention). Absent, it is 12, a day at the 2-hour cadence.

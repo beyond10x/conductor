@@ -176,6 +176,8 @@ const GATE_STOP_GIB: i64 = 15;
 
 /// Free GiB from which the full-gate watchdog resumes a stopped gate.
 const GATE_RESUME_GIB: i64 = 17;
+/// The cores `build run` leaves to the desktop (`thresholds.cpu_reserve`).
+const CPU_RESERVE: i64 = 2;
 
 /// Seconds between two reads of free disk by the full-gate watchdog.
 const WATCHDOG_EVERY: u64 = 10;
@@ -277,7 +279,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 11] = [
+const THRESHOLD_KEYS: [&str; 12] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -289,6 +291,7 @@ const THRESHOLD_KEYS: [&str; 11] = [
     "gate_resume",
     "watchdog_every",
     "silent_session",
+    "cpu_reserve",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1260,6 +1263,7 @@ fn default_thresholds() -> Thresholds {
         gate_resume: Gibibytes(GATE_RESUME_GIB),
         watchdog_every: Duration(format!("PT{WATCHDOG_EVERY}S")),
         silent_session: Duration(format!("PT{SILENT_SESSION_MINUTES}M")),
+        cpu_reserve: CPU_RESERVE,
     }
 }
 
@@ -2847,6 +2851,22 @@ impl Reader<'_> {
             Some(value) => self.duration(value, &join(path, "silent_session")),
             None => Some(defaults.silent_session),
         };
+        let cpu_reserve = match Self::get(map, "cpu_reserve") {
+            Some(value) => {
+                let cores = value.as_i64().filter(|cores| *cores >= 0);
+                if cores.is_none() {
+                    self.problem(
+                        &join(path, "cpu_reserve"),
+                        format!(
+                            "{} is not a number of cores: write a whole number of 0 or more",
+                            echo(value)
+                        ),
+                    );
+                }
+                cores
+            }
+            None => Some(defaults.cpu_reserve),
+        };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -2872,6 +2892,7 @@ impl Reader<'_> {
             gate_resume: gate_resume?,
             watchdog_every: watchdog_every?,
             silent_session: silent_session?,
+            cpu_reserve: cpu_reserve?,
         })
     }
 
@@ -3262,6 +3283,10 @@ pub fn document(instance: &Instance) -> Yaml {
                 ("gate_resume", size(&thresholds.gate_resume)),
                 ("watchdog_every", text(&written(&thresholds.watchdog_every))),
                 ("silent_session", text(&written(&thresholds.silent_session))),
+                (
+                    "cpu_reserve",
+                    Yaml::Number(serde_yaml::Number::from(thresholds.cpu_reserve)),
+                ),
             ]),
         ),
         (
