@@ -365,6 +365,8 @@ commands:
         source: {kind: option, long: reserve}
       - field: repository
         source: {kind: option, long: repository}
+      - field: measure
+        source: {kind: option, long: measure}
       - field: command
         source: {kind: trailing}
   - path: [status]

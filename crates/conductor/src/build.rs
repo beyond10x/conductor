@@ -64,7 +64,7 @@ use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -146,6 +146,10 @@ fn signal_code(signal: Signal) -> u8 {
 
 /// How often the watchdog reads free disk when `thresholds.watchdog_every` does not read.
 const EVERY: Duration = Duration::from_secs(10);
+
+/// How long one walk over the directories a run writes may take before its reading is dropped
+/// (`story:reserve-from-peak`). The walk has its own thread, so the watchdog never waits for it.
+const WALK_BOUND: Duration = Duration::from_secs(60);
 
 /// The variable the harness sets for the commands of a session, naming it: Claude Code's
 /// (`story:build-run-session-bound`). `build run` records it on its request.
@@ -242,6 +246,9 @@ pub struct Sources {
     /// an entry with a `pid` names it by `id` or `sessionId`; the list keeps one that exited
     /// without one. Empty: no list is read, and no request is withdrawn for its session.
     pub sessions: Vec<OsString>,
+    /// The bytes under the directories `paths`, or none when the walk takes longer than the
+    /// bound: [`walk`]. A case gives a slow or a failing one.
+    pub walk: fn(&[PathBuf], Duration) -> Option<u64>,
 }
 
 /// Writes `line` to standard error.
@@ -270,6 +277,7 @@ impl Sources {
             say: stderr,
             env: |name| std::env::var(name).ok(),
             sessions: ["claude", "agents", "--json"].map(OsString::from).to_vec(),
+            walk,
         }
     }
 }
@@ -285,6 +293,8 @@ pub struct Request {
     pub session_name: Option<String>,
     /// The command and its arguments.
     pub command: Vec<String>,
+    /// Directories measured besides the run's own (`--measure`).
+    pub measure: Vec<PathBuf>,
     /// Where it runs.
     pub cwd: PathBuf,
 }
@@ -300,8 +310,8 @@ pub enum Outcome {
         code: u8,
         /// Whether a signal ended it.
         killed: bool,
-        /// The largest size measured of what it writes.
-        peak: u64,
+        /// The growth measured of what it writes; none when no measurement of it completed.
+        peak: Option<u64>,
         /// What a reclaim run freed before it was granted.
         reclaimed: u64,
         /// How often the watchdog stopped it.
@@ -646,7 +656,8 @@ pub fn run(
     }
     drop(ledger);
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
-    let start = size(&measured(&request.cwd), sources.every).unwrap_or(0);
+    let paths = measured(request, sources);
+    let start = (sources.walk)(&paths, WALK_BOUND);
     // A signal before the command starts: the granted reservation is released, and nothing runs.
     if let Some(signal) = received() {
         host::release(
@@ -697,7 +708,7 @@ pub fn run(
             sources: sources.clone(),
             settings: settings.clone(),
             group,
-            measured: measured(&request.cwd),
+            measured: paths.clone(),
         };
         thread::spawn(move || watch.run(&done))
     };
@@ -731,12 +742,16 @@ pub fn run(
         (None, None, Some(signal)) => (u8::try_from(128 + (signal & 0x7f)).unwrap_or(1), true),
         (None, None, None) => (1, true),
     };
-    // The run's growth: what it wrote beyond the size it started from.
+    // The run's growth: what it wrote beyond the size it started from, by the largest complete
+    // reading. With no reading of the start or of the end it is unknown, and none is recorded.
+    let last = (sources.walk)(&paths, WALK_BOUND);
     let peak = watched
-        .peak
-        .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
-        .saturating_sub(watched.start);
-    if let Err(error) = host::record_run_of(host, &grant, peak, watched.paused) {
+        .start
+        .zip([watched.peak, last].into_iter().flatten().max())
+        .map(|(start, peak)| peak.saturating_sub(start));
+    if let Some(peak) = peak
+        && let Err(error) = host::record_run_of(host, &grant, peak, watched.paused)
+    {
         (sources.say)(
             state,
             &format!("conductor: build run: the peak was not recorded: {error:#}"),
@@ -864,6 +879,7 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
         repository: args.repository.clone(),
         session_name: None,
         command: args.command.clone(),
+        measure: args.measure.iter().map(PathBuf::from).collect(),
         cwd: std::env::current_dir().context("build run: read the working directory")?,
     };
     let host = host::dir(state)?;
@@ -976,9 +992,10 @@ fn say_refused(
 /// What the watchdog saw of one run.
 #[derive(Debug, Default)]
 struct Watched {
-    /// The size measured when the run started.
-    start: u64,
-    peak: u64,
+    /// The size measured when the run started; none when that walk did not complete.
+    start: Option<u64>,
+    /// The largest complete reading since; none while there is none.
+    peak: Option<u64>,
     paused: u32,
     resumed: u32,
     /// How long the run was stopped, over all its pauses.
@@ -988,25 +1005,48 @@ struct Watched {
 /// The disk watchdog of one run.
 struct Watchdog {
     grant: GrantId,
-    start: u64,
+    start: Option<u64>,
     state: PathBuf,
     /// The host directory.
     host: PathBuf,
     sources: Sources,
     settings: Settings,
     group: i64,
-    measured: PathBuf,
+    /// What the run writes: the directories measured.
+    measured: Vec<PathBuf>,
 }
 
 impl Watchdog {
     /// Reads free disk and measures the run every [`Sources::every`] until `done`.
-    fn run(&self, done: &AtomicBool) -> Watched {
+    fn run(&self, done: &Arc<AtomicBool>) -> Watched {
         let start = self.start;
         let mut watched = Watched {
             start,
-            peak: start,
+            peak: None,
             ..Watched::default()
         };
+        // The walks run on a thread of their own, each bounded by [`WALK_BOUND`]; the watchdog
+        // reads the last complete one, and a walk that ran out of time leaves the reading as it
+        // was. The thread ends after the walk under way once the run is over.
+        let reading = Arc::new(Mutex::new(None::<u64>));
+        {
+            let (reading, sources, paths) = (
+                Arc::clone(&reading),
+                self.sources.clone(),
+                self.measured.clone(),
+            );
+            let done = Arc::clone(done);
+            thread::spawn(move || {
+                while !done.load(Ordering::SeqCst) {
+                    if let Some(bytes) = (sources.walk)(&paths, WALK_BOUND)
+                        && let Ok(mut held) = reading.lock()
+                    {
+                        *held = Some(bytes);
+                    }
+                    wait(&done, sources.every);
+                }
+            });
+        }
         let mut recorded = 0u64;
         let mut stopped: Option<Instant> = None;
         while !wait(done, self.sources.every) {
@@ -1047,12 +1087,14 @@ impl Watchdog {
                     (self.sources.say)(&self.state, &format!("conductor: build run: {error:#}"))
                 }
             }
-            if let Some(bytes) = size(&self.measured, self.sources.every) {
-                watched.peak = watched.peak.max(bytes);
-            }
+            let read = reading.lock().ok().and_then(|held| *held);
+            watched.peak = watched.peak.max(read);
             // The growth so far, recorded as it passes each further gibibyte, so the ledger counts
             // only what this run has not written yet.
-            let grown = watched.peak.saturating_sub(watched.start);
+            let grown = watched
+                .start
+                .zip(watched.peak)
+                .map_or(0, |(start, peak)| peak.saturating_sub(start));
             if grown >= recorded.saturating_add(GIB) {
                 match host::record_peak_now(&self.host, &self.grant, grown, watched.paused) {
                     Ok(true) => recorded = grown,
@@ -1252,26 +1294,42 @@ fn shared_reclaim(
     ran
 }
 
-/// What a run in `cwd` writes: its `target/` when `cwd` is a Cargo project or holds one, else
-/// `cwd` itself.
-fn measured(cwd: &Path) -> PathBuf {
+/// What a run writes: its `target/` when its working directory is a Cargo project or holds one,
+/// else the working directory itself; each `--measure` directory; and `CARGO_TARGET_DIR` when the
+/// environment of the command sets it. A relative path is relative to the working directory.
+fn measured(request: &Request, sources: &Sources) -> Vec<PathBuf> {
+    let cwd = &request.cwd;
     let target = cwd.join("target");
-    if target.exists() || cwd.join("Cargo.toml").exists() {
+    let own = if target.exists() || cwd.join("Cargo.toml").exists() {
         target
     } else {
-        cwd.to_owned()
+        cwd.clone()
+    };
+    let mut paths = vec![own];
+    let named = request
+        .measure
+        .iter()
+        .cloned()
+        .chain((sources.env)("CARGO_TARGET_DIR").map(PathBuf::from))
+        .filter(|path| !path.as_os_str().is_empty());
+    for path in named {
+        let path = cwd.join(path);
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
     }
+    paths
 }
 
-/// The bytes under `path`, or none when the walk takes longer than `bound`.
-fn size(path: &Path, bound: Duration) -> Option<u64> {
-    if !path.exists() {
+/// The bytes under `paths`, each inode once, or none when the walk takes longer than `bound`. A
+/// path that does not exist holds nothing.
+#[must_use]
+pub fn walk(paths: &[PathBuf], bound: Duration) -> Option<u64> {
+    let there: Vec<PathBuf> = paths.iter().filter(|path| path.exists()).cloned().collect();
+    if there.is_empty() {
         return Some(0);
     }
-    crate::disk::tree_size(
-        &[path.to_owned()],
-        Some(Instant::now() + bound.max(Duration::from_secs(1))),
-    )
-    .ok()
-    .map(|size| size.allocated)
+    crate::disk::tree_size(&there, Some(Instant::now() + bound))
+        .ok()
+        .map(|size| size.allocated)
 }

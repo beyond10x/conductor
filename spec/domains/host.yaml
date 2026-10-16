@@ -106,13 +106,17 @@ types:
       - {name: path, type: String}
       - {name: bytes, type: Integer}
 
-  # The input of `conductor build run --reserve <size> [--repository <repo>] -- <command> [args…]`
-  # (story:build-run). The size is written in GiB with `G`, as the config file writes one.
+  # The input of `conductor build run --reserve <size> [--repository <repo>] [--measure <dir>]… --
+  # <command> [args…]` (story:build-run). The size is written in GiB with `G`, as the config file
+  # writes one. Each `--measure` directory is measured with the run's own (`target/` or the working
+  # directory, and `CARGO_TARGET_DIR` when the command's environment sets it), for a run that
+  # writes elsewhere (story:reserve-from-peak).
   - name: conductor.host.BuildRun
     kind: struct
     fields:
       - {name: reserve, type: conductor.config.Gibibytes}
       - {name: repository, type: Optional<conductor.observation.RepositoryName>}
+      - {name: measure, type: List<String>}
       - {name: command, type: List<String>}
 
   # `conductor build run` refused: the bytes asked for and the bytes the disk still lacks after
@@ -185,8 +189,11 @@ entities:
       # Requested: the expected peak a disk reservation or a build slot holds.
       - name: bytes
         type: Optional<Integer>
-      # Measured: the largest size of the directories the run writes (the tree's `target/`, or
-      # the working directory), as recorded while it ran.
+      # Measured: the growth of the directories the run writes (the tree's `target/` or the working
+      # directory, each `--measure` directory, `CARGO_TARGET_DIR`), as recorded while it ran.
+      # Absent while a run has recorded none, and absent on a released grant whose size could not
+      # be measured: the peak is unknown, never 0 (story:reserve-from-peak). A run whose size
+      # was not measured records no peak.
       - name: peak_bytes
         type: Optional<Integer>
       # How often the disk watchdog paused the run, as recorded with its peak
@@ -640,8 +647,9 @@ commands:
             grant_id: input.grant_id
         summary: Only a granted reservation starts its run, once.
 
-  # The run's measured peak: the largest reading so far of the directories it writes. Recorded
-  # while it runs, and once more as it exits, before the grant is released.
+  # The run's measured peak: the growth so far of the directories it writes, by the last complete
+  # reading. Recorded while it runs, and once more as it exits, before the grant is released; a
+  # run none of whose readings completed records none, and its peak stays absent: unknown.
   - name: conductor.host.RecordPeak
     naming:
       wire: record-peak

@@ -89,6 +89,7 @@ impl Case {
             env: |_| None,
             // No session list: a library case names no harness session.
             sessions: Vec::new(),
+            walk: build::walk,
         }
     }
 
@@ -130,6 +131,7 @@ impl Case {
             repository: Some("example-repo".to_owned()),
             session_name: None,
             command: vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()],
+            measure: Vec::new(),
             cwd: self.work(),
         }
     }
@@ -2706,4 +2708,277 @@ fn a_head_that_does_not_fit_after_a_recent_reclaim_freed_nothing_is_refused_at_o
         "the refusal names the run that freed nothing: {said}"
     );
     assert!(!case.work().join("head").exists());
+}
+
+/// The apparent size of the files under `paths`: a sparse file of 2G counts 2G, so a case writes
+/// gibibytes without writing a block. A path that is not there holds nothing.
+fn apparent(paths: &[PathBuf]) -> u64 {
+    fn under(path: &Path) -> u64 {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_dir() => fs::read_dir(path)
+                .map(|entries| entries.flatten().map(|entry| under(&entry.path())).sum())
+                .unwrap_or(0),
+            Ok(meta) => meta.len(),
+            Err(_) => 0,
+        }
+    }
+    paths.iter().map(|path| under(path)).sum()
+}
+
+/// A walk that takes no time.
+fn quick_walk(paths: &[PathBuf], _bound: Duration) -> Option<u64> {
+    Some(apparent(paths))
+}
+
+/// A walk of a large directory: two seconds over what exists, and none when its bound is shorter,
+/// as a real walk that runs out of time answers.
+fn slow_walk(paths: &[PathBuf], bound: Duration) -> Option<u64> {
+    const TAKES: Duration = Duration::from_secs(2);
+    if !paths.iter().any(|path| path.exists()) {
+        return Some(0);
+    }
+    if bound < TAKES {
+        thread::sleep(bound);
+        return None;
+    }
+    thread::sleep(TAKES);
+    Some(apparent(paths))
+}
+
+/// A walk that never finishes in time.
+fn no_walk(_paths: &[PathBuf], _bound: Duration) -> Option<u64> {
+    None
+}
+
+/// Runs `request` on a thread, waits until its grant records a peak of at least `least` while it
+/// runs, and answers the running rows that do; then lets the command end (`stop` in its working
+/// directory).
+fn peak_while_running(
+    case: &Case,
+    sources: Sources,
+    request: Request,
+    least: u64,
+) -> Vec<conductor_model::host::Grants> {
+    let (state, host) = (case.state(), case.host());
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let recorded = || {
+        host::rows(&case.host())
+            .map(|rows| {
+                rows.into_iter()
+                    .filter(|row| row.state == HostGrantState::Running)
+                    .filter(|row| {
+                        row.peak_bytes
+                            .is_some_and(|peak| u64::try_from(peak).unwrap_or(0) >= least)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while recorded().is_empty() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    let seen = recorded();
+    fs::write(case.work().join("stop"), "").expect("stop the command");
+    runner
+        .join()
+        .expect("the run does not panic")
+        .expect("the run ends");
+    seen
+}
+
+const WRITES_TWO_GIB: &str = "mkdir -p target && truncate -s 2G target/blob; \
+    while [ ! -e stop ]; do sleep 0.05; done";
+
+/// A walk of a big `target/` takes longer than the watchdog's interval, and the growth is still
+/// recorded while the run goes on: the walk has its own thread and a bound of a minute or more
+/// (`story:reserve-from-peak`).
+#[test]
+fn a_slow_walk_still_records_growth() {
+    let case = Case::new("slow-walk");
+    let sources = Sources {
+        walk: slow_walk,
+        ..case.sources(reclaim_nothing)
+    };
+    let seen = peak_while_running(
+        &case,
+        sources,
+        case.request(4 * GIB, WRITES_TWO_GIB),
+        2 * GIB,
+    );
+    assert_eq!(
+        seen.len(),
+        1,
+        "the 2G the run wrote is recorded on its running grant: {:?}",
+        case.grants()
+    );
+}
+
+/// A directory named with `--measure` is measured with the run's own: a command that writes
+/// there, outside its working directory, shrinks its reservation.
+#[test]
+fn a_measure_directory_shrinks_the_reservation() {
+    let case = Case::new("measure-dir");
+    let out = case.dir.join("out");
+    fs::create_dir_all(&out).expect("create the measured directory");
+    let sources = Sources {
+        walk: quick_walk,
+        ..case.sources(reclaim_nothing)
+    };
+    let request = Request {
+        measure: vec![out.clone()],
+        ..case.request(
+            4 * GIB,
+            &format!(
+                "truncate -s 2G {}/blob; while [ ! -e stop ]; do sleep 0.05; done",
+                out.display()
+            ),
+        )
+    };
+    let seen = peak_while_running(&case, sources, request, 2 * GIB);
+    assert_eq!(
+        seen.len(),
+        1,
+        "the 2G in --measure is recorded: {:?}",
+        case.grants()
+    );
+}
+
+/// `CARGO_TARGET_DIR`, set in the command's environment, is measured too; a relative one is
+/// relative to the working directory, as Cargo reads it.
+#[test]
+fn the_cargo_target_dir_of_the_environment_is_measured() {
+    let case = Case::new("cargo-target-dir");
+    let sources = Sources {
+        walk: quick_walk,
+        env: |name| (name == "CARGO_TARGET_DIR").then(|| "elsewhere".to_owned()),
+        ..case.sources(reclaim_nothing)
+    };
+    let request = case.request(
+        4 * GIB,
+        "mkdir -p elsewhere && truncate -s 2G elsewhere/blob; \
+         while [ ! -e stop ]; do sleep 0.05; done",
+    );
+    let seen = peak_while_running(&case, sources, request, 2 * GIB);
+    assert_eq!(
+        seen.len(),
+        1,
+        "CARGO_TARGET_DIR is measured: {:?}",
+        case.grants()
+    );
+}
+
+/// A run none of whose measurements completed has no peak: the grant records none, `Ran` answers
+/// none, and it is not 0.
+#[test]
+fn an_unmeasured_run_has_an_unknown_peak() {
+    let case = Case::new("unmeasured");
+    let sources = Sources {
+        walk: no_walk,
+        ..case.sources(reclaim_nothing)
+    };
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &sources,
+        &case.request(
+            GIB,
+            "mkdir -p target && head -c 4096 /dev/zero > target/blob",
+        ),
+    )
+    .expect("the run ends");
+    let Outcome::Ran {
+        ref grant, peak, ..
+    } = outcome
+    else {
+        panic!("the command ran: {outcome:?}");
+    };
+    assert_eq!(peak, None, "no measurement completed: unknown, not 0");
+    let grants = case.grants();
+    let row = grants
+        .iter()
+        .find(|row| row.grant_id == *grant)
+        .expect("the grant");
+    assert_eq!(row.state, HostGrantState::Released, "{row:?}");
+    assert_eq!(row.peak_bytes, None, "{row:?}");
+}
+
+/// `host grants` writes an unmeasured run's peak as `unknown` in a table, and null in JSON.
+#[test]
+fn host_grants_shows_an_unmeasured_peak_as_unknown() {
+    let case = Case::new("grants-unknown");
+    let home = case.dir.join("home");
+    fs::create_dir_all(&home).expect("create the case's home");
+    let state = case.state();
+    let run = |args: &[&str]| {
+        common::conductor(&home)
+            .arg("--state-dir")
+            .arg(&state)
+            .args(args)
+            .current_dir(case.work())
+            .output()
+            .expect("conductor runs")
+    };
+    let requested = run(&[
+        "host",
+        "request-disk",
+        "--instance",
+        "example-org",
+        "--bytes",
+        "1024",
+        "--command",
+        "true",
+        "--requested-at",
+        "2026-10-13T12:00:00Z",
+    ]);
+    assert!(requested.status.success(), "{requested:?}");
+    let grant = String::from_utf8(requested.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
+    for args in [
+        vec![
+            "host",
+            "reserve-disk",
+            "--grant-id",
+            &grant,
+            "--shortfall-bytes",
+            "0",
+            "--reclaimed-bytes",
+            "0",
+        ],
+        vec![
+            "host",
+            "start-run",
+            "--grant-id",
+            &grant,
+            "--process-group",
+            "4242",
+            "--started-at",
+            "2026-10-13T12:00:01Z",
+        ],
+        vec![
+            "host",
+            "release-grant",
+            "--grant-id",
+            &grant,
+            "--reason",
+            "Exited",
+            "--released-at",
+            "2026-10-13T12:00:02Z",
+        ],
+    ] {
+        let output = run(&args);
+        assert!(output.status.success(), "{args:?}: {output:?}");
+    }
+    let table = run(&["host", "grants"]);
+    let table = String::from_utf8_lossy(&table.stdout).into_owned();
+    assert!(
+        table.contains("unknown"),
+        "the peak is shown as unknown:\n{table}"
+    );
+    let json = run(&["host", "grants", "--format", "json"]);
+    let rows: serde_json::Value = serde_json::from_slice(&json.stdout).expect("json rows");
+    assert!(rows[0]["peak_bytes"].is_null(), "{rows}");
 }

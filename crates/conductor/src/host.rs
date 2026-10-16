@@ -75,8 +75,8 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::cli::{
-    EscalateRequestArgs, JsonInput, RaiseDecisionRequestArgs, RecordPeakArgs, ReleaseGrantArgs,
-    RequestDiskArgs, ReserveDiskArgs, StartRunArgs, TakeHostGrantArgs, ViewArgs,
+    EscalateRequestArgs, Format, JsonInput, RaiseDecisionRequestArgs, RecordPeakArgs,
+    ReleaseGrantArgs, RequestDiskArgs, ReserveDiskArgs, StartRunArgs, TakeHostGrantArgs, ViewArgs,
     WithdrawDiskRequestArgs, WithdrawRequestArgs,
 };
 use crate::not_implemented;
@@ -1576,6 +1576,7 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         .grants()
         .map_err(|unmet| anyhow!("host grants: {unmet}"))?;
     held.reverse();
+    let unknown = matches!(view.format, Format::Text | Format::Markdown);
     let rows: Vec<Vec<Value>> = held
         .into_iter()
         .map(|row| {
@@ -1586,7 +1587,17 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.repository.map(|name| name.0)),
                 Value::from(kind_name(row.kind)),
                 Value::from(row.bytes),
-                Value::from(row.peak_bytes),
+                match row.peak_bytes {
+                    Some(peak) => Value::from(peak),
+                    // A table says what null means for a finished run: it was not measured.
+                    None if unknown
+                        && row.kind == GrantKind::Disk
+                        && row.state == HostGrantState::Released =>
+                    {
+                        Value::from("unknown")
+                    }
+                    None => Value::Null,
+                },
                 Value::from(row.pauses),
                 Value::from(row.command),
                 Value::from(row.process_group),

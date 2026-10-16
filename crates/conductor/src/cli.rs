@@ -1363,6 +1363,10 @@ pub struct BuildRunArgs {
     /// The repository the command builds, recorded with the reservation
     #[arg(long)]
     pub repository: Option<String>,
+    /// A directory to measure besides the run's own (`target/`, the working directory, and
+    /// `CARGO_TARGET_DIR` when the command's environment sets it); repeatable
+    #[arg(long, value_name = "DIR")]
+    pub measure: Vec<String>,
     /// The command and its arguments, after `--`
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
