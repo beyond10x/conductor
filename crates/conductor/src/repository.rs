@@ -272,7 +272,7 @@ pub fn repository_marks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode
     /// The view's fields, in the specification's order (`spec/domains/direction.yaml`).
     const COLUMNS: [&str; 5] = ["repository", "state", "marked_by", "session", "reason"];
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .repository_marks()
         .map_err(|unmet| anyhow!("repository repository-marks: {unmet}"))?;
@@ -330,7 +330,7 @@ pub fn repository_activity(
             })?,
         },
     };
-    let store = crate::state::open_existing(state).context(WHAT)?;
+    let store = crate::state::open_reader(state).context(WHAT)?;
     let rows: Vec<Vec<Value>> = activity(&store)
         .into_iter()
         .map(|row| {

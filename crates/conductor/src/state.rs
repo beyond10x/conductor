@@ -64,6 +64,16 @@ pub fn open_existing(flag: Option<&Path>) -> Result<Store> {
     store::open_existing(&dir(flag)?)
 }
 
+/// For a view that writes nothing: [`open_existing`] as a reader ([`store::open_reader`]), which
+/// never takes the tree's writer lock, so it neither waits on a writer nor keeps one waiting.
+///
+/// # Errors
+///
+/// As [`open_existing`].
+pub fn open_reader(flag: Option<&Path>) -> Result<Store> {
+    store::open_reader(&dir(flag)?)
+}
+
 /// Refuses a `--state-dir` `dir` other than the instance's `state` for the leaf `words` when it
 /// writes the instance's records ([`crate::cli::writes_records`], `story:instance-isolation`,
 /// `StateDirNotInstance`): its records go to the instance's `records`, so a store elsewhere would

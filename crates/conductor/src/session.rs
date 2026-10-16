@@ -199,7 +199,7 @@ pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "taken_over_pid",
     ];
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .leases()
         .map_err(|unmet| anyhow!("session leases: {unmet}"))?;

@@ -749,7 +749,7 @@ pub fn guard_decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
         "decided_at",
     ];
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .guard_decisions()
         .map_err(|unmet| anyhow!("guard guard-decisions: {unmet}"))?;

@@ -529,7 +529,7 @@ fn stored_decisions(state: Option<&Path>) -> Result<Vec<String>> {
     if !dir.join("tree").exists() {
         return Ok(Vec::new());
     }
-    let store = crate::state::open_existing(state)?;
+    let store = crate::state::open_reader(state)?;
     let held = DecisionStorage::list(&store);
     store
         .check()

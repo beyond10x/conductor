@@ -360,7 +360,7 @@ pub fn controllers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "charter_revision",
     ];
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .controllers()
         .map_err(|unmet| anyhow!("controller controllers: {unmet}"))?;

@@ -29,7 +29,7 @@
 //! charter's "Do not touch" and standing-rule lines on standard error before it records
 //! ([`print_charter`], `story:decision-reads-charter`); a class O or H refusal prints none.
 //!
-//! A view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
+//! A view opens only an existing store ([`crate::state::open_reader`]) and creates nothing. It
 //! lists every row it can read, in the order the rows were first stored, and answers through
 //! [`crate::store::show`]: a record it cannot read is named on standard error and exits 1, after
 //! the other rows. `decision show` renders one row of the `decisions` view the same way.
@@ -1793,7 +1793,7 @@ fn decision_logged(
 /// Opens the existing store a view reads, creating nothing.
 fn existing(view: &str, state: Option<&Path>) -> Result<Generated<Ports>> {
     Ok(Generated::new(Ports {
-        store: crate::state::open_existing(state).with_context(|| view.to_owned())?,
+        store: crate::state::open_reader(state).with_context(|| view.to_owned())?,
     }))
 }
 

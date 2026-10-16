@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-16T17:04:57Z",
+  "actor": "human:timo",
+  "artifact": "story:views-open-as-reader",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --no-fail-fast: 1210 passed, 0 failed at 3cdf7ed0; tests/views_open_as_reader.rs red (35 views timed out) then green"
+  }
+}

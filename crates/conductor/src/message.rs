@@ -24,7 +24,7 @@
 //! sender, recipient, kind and first line, and as `repo` the repository the first line names
 //! ([`named_repository`]), else the sender.
 //!
-//! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
+//! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing. It
 //! lists every row it can read, in the order the messages were first stored, and answers through
 //! [`crate::store::show`].
 
@@ -429,7 +429,7 @@ pub fn messages(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         }
     }
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .messages()
         .map_err(|unmet| anyhow!("message messages: {unmet}"))?;
