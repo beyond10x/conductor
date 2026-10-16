@@ -33,7 +33,7 @@ scope:
   path: docs/analysis/substrate-tool-server-run.md
 - confidence: cited
   path: spec/domains/config.yaml
-revision: 5
+revision: 6
 ---
 ## Why
 
@@ -76,3 +76,7 @@ not fit.
 `docs/analysis/substrate-tool-server-run.md` (new). After `substrate-tool-spike` (go),
 `substrate-client`, `session-envelope-seam`, `session-writes-bwrap` (`confine/mod.rs`) and
 `guard-all-tools`.
+
+## Superseded
+
+Superseded by story:tool-broker-read (epic:agent-tools, docs/design/roles-and-surfaces.md § 6, approved by the operator on 2026-10-16). Both put an MCP server in place of Bash, chosen by a per-role key. This story's general `run` verb is the arbitrary Bash the operator ruled out ("I really do not want at all that my workers and agents … are able to call arbitrary bash"). Kept for its history; not to be implemented.
