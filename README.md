@@ -84,7 +84,7 @@ A `gitlab` source names the host its group is on, such as `host: gitlab.example.
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.16.1 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.16.2 --locked conductor-cli
 conductor doctor
 ```
 
@@ -94,7 +94,7 @@ from the release instead: each GitHub Release from `v0.6.0` on carries
 `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
 
 ```console
-version=0.16.1 target=x86_64-unknown-linux-gnu
+version=0.16.2 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -112,7 +112,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 `conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
 `tar` and `sha256sum` (or `shasum` on macOS).
 
-`conductor --version` prints the installed version, `conductor 0.16.1`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 0.16.2`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.

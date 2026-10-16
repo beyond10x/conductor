@@ -153,7 +153,7 @@ version = "1.0.0"
 
 [[package]]
 name = "conductor-cli"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "conductor-docs"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "anyhow",
  "clap",
