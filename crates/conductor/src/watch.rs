@@ -340,6 +340,9 @@ impl Sources {
 pub struct Settings {
     /// The instance's name, which the usage-limit notification's title names.
     pub instance: String,
+    /// The key of the instance's fall of free disk in the host directory: its session prefix, its
+    /// name without one (`story:host-fall-per-instance`).
+    pub fall_key: String,
     /// Tokens of a session's context above which it is reported: `thresholds.context_handover`.
     pub context_handover: u64,
     /// Free GiB on `/` under which it is reported: `thresholds.disk_low`.
@@ -375,6 +378,7 @@ impl Settings {
         let thresholds = &instance.thresholds;
         Self {
             instance: instance.name.0.clone(),
+            fall_key: crate::host::fall_key(instance),
             context_handover: count(thresholds.context_handover.0),
             disk_low: count(thresholds.disk_low.0),
             disk_clear: count(thresholds.disk_clear.0),
@@ -1658,7 +1662,8 @@ impl Watch {
                 .saturating_mul(1 << 30)
                 .max(crate::gc::reclaim::floor_bytes(self.settings.disk_admit));
             let instance = self.settings.instance.clone();
-            match crate::host::clear_fall(&host, &state, &instance, bytes, clear) {
+            let key = self.settings.fall_key.clone();
+            match crate::host::clear_fall(&host, &state, &key, &instance, bytes, clear) {
                 Ok(_) => self.answered("disk item"),
                 Err(error) => {
                     let error = error.context("withdraw the operator item of a fall that is over");

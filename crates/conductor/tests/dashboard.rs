@@ -1908,6 +1908,48 @@ mod health_view {
     }
 
     #[test]
+    fn every_instances_fall_is_served() {
+        let case = Case::new("health-falls");
+        let host = case.home.join("host");
+        for (prefix, instance) in [("b", "example-two"), ("a", "example-one")] {
+            let file = host.join("falls").join(format!("{prefix}.json"));
+            fs::create_dir_all(file.parent().expect("a directory")).expect("falls/");
+            fs::write(
+                &file,
+                format!("{{\"item\":\"disk-{prefix}\",\"instance\":\"{instance}\"}}\n"),
+            )
+            .expect("a fall");
+        }
+        let mut sources = case.sources();
+        sources.health.host = Some(host);
+        let port = start(sources);
+        let health = health(port);
+        let falls = health["disk"]["falls"].as_array().expect("falls").clone();
+        let seen: Vec<(String, String, String)> = falls
+            .iter()
+            .map(|fall| {
+                let text = |key: &str| fall[key].as_str().expect(key).to_owned();
+                (text("prefix"), text("instance"), text("item"))
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                (
+                    "a".to_owned(),
+                    "example-one".to_owned(),
+                    "disk-a".to_owned()
+                ),
+                (
+                    "b".to_owned(),
+                    "example-two".to_owned(),
+                    "disk-b".to_owned()
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn every_disk_waste_row_is_served() {
         let case = Case::new("health-waste");
         for at in 0..85 {

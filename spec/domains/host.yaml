@@ -14,10 +14,13 @@ summary: >
   instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an
   instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks
   `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the
-  marker of the open fall of free disk `host.fall`, which names the item's instance: only that
-  instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its
-  `state` before is moved there once, at its first host command: every grant of its store, its run
-  locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
+  open falls of free disk, one file per instance, `falls/<prefix>.json` (the instance's session
+  prefix, its name without one), which names the item and its instance: only that instance reads,
+  withdraws or removes its file, and the dashboard lists every instance's. A `host.fall` of 0.16.x
+  is read once as the fall of the instance it names and moved to that instance's file
+  (story:host-fall-per-instance). A `--state-dir` does not move it. The ledger an instance kept in
+  its `state` before is moved there once, at its first host command: every grant of its store, its
+  run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
   it was moved, and nothing is moved again.
 
   The host registry (story:instance-names-unique) is one per host, whatever config file a command

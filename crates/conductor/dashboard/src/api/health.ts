@@ -67,11 +67,20 @@ export interface WasteRow {
 }
 
 /** `ok` above `thresholds.disk_low`, `low` at or below it, `admit-only` at or below `disk_admit`. */
+/** One instance's open fall of free disk and its operator item. */
+export interface DiskFall {
+  prefix: string;
+  instance: string;
+  item: string;
+}
+
 export type DiskState = 'ok' | 'low' | 'admit-only';
 
 /** The free disk against the instance's floors, and every disk-waste row. */
 export interface DiskHealth {
   path: string;
+  /** Every instance's open fall of free disk on the host (`falls/<prefix>.json`). */
+  falls: DiskFall[];
   free_bytes: number | null;
   disk_low_bytes: number;
   disk_admit_bytes: number;

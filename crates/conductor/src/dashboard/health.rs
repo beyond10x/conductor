@@ -79,6 +79,9 @@ pub struct HealthSources {
     pub disk_low: u64,
     /// `thresholds.disk_admit`, in GiB.
     pub disk_admit: u64,
+    /// The host directory whose `falls/` the disk part lists, every instance's
+    /// (`story:host-fall-per-instance`); none lists no fall.
+    pub host: Option<PathBuf>,
 }
 
 impl HealthSources {
@@ -108,6 +111,7 @@ impl HealthSources {
             free_bytes: |path| crate::disk::space(path).map(|space| space.available),
             disk_low: gib(instance.thresholds.disk_low.0),
             disk_admit: gib(instance.thresholds.disk_admit.0),
+            host: None,
         }
     }
 }
@@ -473,12 +477,21 @@ fn disk(health: &HealthSources, waste: Value, errors: &mut Vec<String>) -> Value
             "ok"
         }
     });
+    let falls: Vec<Value> = health
+        .host
+        .as_deref()
+        .map(crate::host::falls)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|fall| json!({"prefix": fall.key, "instance": fall.instance, "item": fall.item}))
+        .collect();
     let mut disk = json!({
         "path": health.disk.display().to_string(),
         "free_bytes": free,
         "disk_low_bytes": low,
         "disk_admit_bytes": admit,
         "state": state,
+        "falls": falls,
     });
     if let (Value::Object(disk), Value::Object(waste)) = (&mut disk, waste) {
         disk.extend(waste);

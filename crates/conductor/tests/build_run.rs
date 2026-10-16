@@ -164,6 +164,7 @@ impl Case {
 fn settings() -> Settings {
     Settings {
         instance: "example-org".to_owned(),
+        fall_key: "example-org".to_owned(),
         floor: 10 * GIB,
         clear: 20 * GIB,
         gate_stop: 5 * GIB,
@@ -703,6 +704,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
             &case.host(),
             &case.state(),
             "example-org",
+            "example-org",
             19 * GIB,
             20 * GIB
         )
@@ -716,6 +718,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
             &case.host(),
             &case.state(),
             "example-org",
+            "example-org",
             30 * GIB,
             20 * GIB
         )
@@ -728,6 +731,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
             &case.host(),
             &case.state(),
             "example-org",
+            "example-org",
             30 * GIB,
             20 * GIB
         )
@@ -735,6 +739,150 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
         None,
         "withdrawn once"
     );
+}
+
+/// `story:host-fall-per-instance`: a fall is kept per instance, as `<host>/falls/<prefix>.json`, and
+/// only the instance that recorded it clears it: A's pass at free disk over `disk_clear` leaves B's
+/// fall, and its item, in place.
+#[test]
+fn an_instances_pass_leaves_another_instances_fall_in_place() {
+    let case = Case::new("fall-per-instance");
+    let of = |prefix: &str| Settings {
+        instance: format!("{prefix}-org"),
+        fall_key: prefix.to_owned(),
+        ..settings()
+    };
+    case.free(10 * GIB);
+    let mut items = Vec::new();
+    for (prefix, command) in [("a", "touch a"), ("b", "touch b")] {
+        let refused = build::run(
+            &case.state(),
+            &case.host(),
+            &of(prefix),
+            &case.sources(reclaim_nothing),
+            &case.request(4 * GIB, command),
+        )
+        .expect("the run answers");
+        let Outcome::Refused {
+            item: Some(item), ..
+        } = refused
+        else {
+            panic!("{prefix} has no fall yet, so its refusal records an item: {refused:?}");
+        };
+        assert!(
+            case.host()
+                .join("falls")
+                .join(format!("{prefix}.json"))
+                .is_file(),
+            "{prefix}'s fall is its own file"
+        );
+        items.push(item);
+    }
+    assert!(!case.host().join("host.fall").exists(), "no shared marker");
+    let [a, b] = [items[0].clone(), items[1].clone()];
+    let state_of = |id: &str| {
+        case.disk_items()
+            .into_iter()
+            .find(|request| request.data.request_id.0 == id)
+            .map(|request| request.state)
+    };
+    let listed: Vec<(String, String)> = host::falls(&case.host())
+        .into_iter()
+        .map(|fall| (fall.key, fall.instance))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("a".to_owned(), "a-org".to_owned()),
+            ("b".to_owned(), "b-org".to_owned())
+        ]
+    );
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "a",
+            "a-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("a's pass"),
+        Some(a.clone())
+    );
+    assert_eq!(state_of(&a), Some(DecisionRequestState::Withdrawn));
+    assert_eq!(state_of(&b), Some(DecisionRequestState::Escalated));
+    assert!(case.host().join("falls").join("b.json").is_file());
+    assert!(!case.host().join("falls").join("a.json").exists());
+    assert_eq!(host::falls(&case.host()).len(), 1);
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "b",
+            "b-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("b's pass"),
+        Some(b.clone())
+    );
+    assert_eq!(state_of(&b), Some(DecisionRequestState::Withdrawn));
+    assert!(host::falls(&case.host()).is_empty());
+}
+
+/// `story:host-fall-per-instance`: a `host.fall` of 0.16.x is read once as the fall of the instance
+/// it names, then moved to `falls/<prefix>.json`; another instance leaves it.
+#[test]
+fn a_shared_host_fall_is_moved_to_the_instance_it_names() {
+    let case = Case::new("fall-migrates");
+    fs::create_dir_all(case.host()).expect("the host directory");
+    fs::write(case.host().join("host.fall"), "disk-old\nexample-org\n").expect("the old marker");
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "x",
+            "other-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("another instance's pass"),
+        None
+    );
+    assert!(case.host().join("host.fall").is_file(), "not its fall");
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "a",
+            "example-org",
+            19 * GIB,
+            20 * GIB
+        )
+        .expect("its pass under disk_clear"),
+        None
+    );
+    assert!(!case.host().join("host.fall").exists(), "moved");
+    let moved = fs::read_to_string(case.host().join("falls").join("a.json")).expect("moved");
+    assert!(
+        moved.contains("disk-old") && moved.contains("example-org"),
+        "{moved}"
+    );
+
+    host::clear_fall(
+        &case.host(),
+        &case.state(),
+        "a",
+        "example-org",
+        30 * GIB,
+        20 * GIB,
+    )
+    .expect("its pass over disk_clear");
+    assert!(!case.host().join("falls").join("a.json").exists());
 }
 
 /// A reclaim that frees 1G and leaves, only a person may remove, an 8G cache under the case's

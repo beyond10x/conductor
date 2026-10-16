@@ -31,6 +31,11 @@ const pill = computed(() => {
     <div class="floors small muted">
       low at {{ gib(disk.disk_low_bytes) }} · admit-only at {{ gib(disk.disk_admit_bytes) }}
     </div>
+    <ul v-if="disk.falls.length > 0" class="falls small" aria-label="Open falls of free disk">
+      <li v-for="fall in disk.falls" :key="fall.prefix">
+        fall of {{ fall.instance }} ({{ fall.prefix }}): item <span class="mono">{{ fall.item }}</span>
+      </li>
+    </ul>
     <p v-if="disk.measured_at === null" class="small muted">
       {{ disk.measuring ? 'disk waste: measuring, no measurement yet' : 'disk waste: no measurement' }}
     </p>

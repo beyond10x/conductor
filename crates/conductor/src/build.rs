@@ -163,6 +163,9 @@ const SESSIONS_BOUND: Duration = Duration::from_secs(20);
 pub struct Settings {
     /// The instance the grant is taken for.
     pub instance: String,
+    /// The key of the instance's fall of free disk in the host directory: its session prefix, its
+    /// name without one (`story:host-fall-per-instance`).
+    pub fall_key: String,
     /// Free bytes no reservation may take: `thresholds.disk_admit` and reclaim's margin
     /// ([`crate::gc::reclaim::floor_bytes`]).
     pub floor: u64,
@@ -190,6 +193,7 @@ impl Settings {
         let thresholds = &instance.thresholds;
         Self {
             instance: instance.name.0.clone(),
+            fall_key: crate::host::fall_key(instance),
             floor: crate::gc::reclaim::floor_bytes(
                 u64::try_from(thresholds.disk_admit.0).unwrap_or(0),
             ),
@@ -416,7 +420,13 @@ pub fn run(
     ledger.sweep(&at)?;
     // Free disk back at `disk_clear` ends the fall: its operator item is withdrawn.
     let clear = settings.clear.max(settings.floor);
-    if let Err(error) = ledger.clear_fall(state, &settings.instance, free_bytes(sources)?, clear) {
+    if let Err(error) = ledger.clear_fall(
+        state,
+        &settings.fall_key,
+        &settings.instance,
+        free_bytes(sources)?,
+        clear,
+    ) {
         (sources.say)(
             state,
             &format!("conductor: build run: the fall's operator item was not withdrawn: {error:#}"),
@@ -619,6 +629,7 @@ pub fn run(
         };
         let shortfall = Shortfall {
             instance: &settings.instance,
+            key: &settings.fall_key,
             repository: request.repository.as_deref(),
             command: &command,
             bytes: request.reserve,

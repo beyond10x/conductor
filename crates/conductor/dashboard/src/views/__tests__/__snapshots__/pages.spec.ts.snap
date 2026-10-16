@@ -204,6 +204,9 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
           </div>
           <div data-v-262fdc11="" class="free">36.0 GiB free on /</div>
           <div data-v-262fdc11="" class="floors small muted"> low at 40.0 GiB · admit-only at 20.0 GiB</div>
+          <ul data-v-262fdc11="" class="falls small" aria-label="Open falls of free disk">
+            <li data-v-262fdc11=""> fall of example-org (alpha): item <span data-v-262fdc11="" class="mono">disk-example</span></li>
+          </ul>
           <details data-v-262fdc11="">
             <summary data-v-262fdc11="">Disk waste · 6.0 GiB in 3 rows</summary>
             <p data-v-262fdc11="" class="small muted">5.0 GiB reclaimable · measured 2026-10-13T09:25:00Z (5m ago) · read-only: <code data-v-262fdc11="">conductor gc</code> removes the reclaimable rows </p>

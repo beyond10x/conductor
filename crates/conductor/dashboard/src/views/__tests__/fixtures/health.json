@@ -71,6 +71,9 @@
     "disk_low_bytes": 42949672960,
     "disk_admit_bytes": 21474836480,
     "state": "low",
+    "falls": [
+      { "prefix": "alpha", "instance": "example-org", "item": "disk-example" }
+    ],
     "measured_at": "2026-10-13T09:25:00Z",
     "measured_ago": "5m",
     "measuring": false,

@@ -29,12 +29,14 @@
 //! request raised and escalated as class H, so `decision hands-todo` lists it, naming the
 //! shortfall, what reclaim left by path and size, and the one command only a person runs. One item
 //! per fall of free disk, whatever command or repository is refused in it
-//! (`story:disk-item-per-fall`): `host.fall` in the host directory holds the item's id and its
-//! instance, and a refusal while it is there records none. A reservation that fits does not end
+//! (`story:disk-item-per-fall`): `falls/<prefix>.json` in the host directory holds the item's id
+//! and its instance, one file per instance (`story:host-fall-per-instance`), and a refusal while
+//! the instance's own is there records none. A reservation that fits does not end
 //! the fall; free disk back at `thresholds.disk_clear` does, read by the next `build run` or the
 //! watch's pass of the item's instance ([`clear_fall`]), which withdraws the item
-//! (`WithdrawRequest`) in that instance's store and removes the marker; another instance leaves
-//! both. The item is the instance's, not one repository's. It names no personal path
+//! (`WithdrawRequest`) in that instance's store and removes its file; another instance's pass
+//! never reads it. A `host.fall` of 0.16.x is read once as the fall of the instance it names and
+//! moved to that instance's file. The item is the instance's, not one repository's. It names no personal path
 //! (`story:disk-item-redacted`): the entries of `/var/tmp` only as a count and a total size, and
 //! the home directory as `~` wherever it appears. A shortfall left only by scratch and caches
 //! records none ([`needs_person`], `story:reclaim-scratch-class-c`): freeing them is class C, and
@@ -85,8 +87,124 @@ use crate::store::Store;
 /// The ledger's lock, in the host directory.
 const LOCK: &str = "host.lock";
 
-/// The open fall's operator item and its instance, in the host directory.
+/// The shared marker of the open fall an older binary (0.16.x) kept in the host directory: the
+/// item's id and its instance, on two lines. Read once ([`adopt`]), then moved to [`FALLS`].
 const FALL: &str = "host.fall";
+
+/// The directory of the open falls in the host directory: `<prefix>.json` holds one instance's
+/// operator item (`story:host-fall-per-instance`).
+const FALLS: &str = "falls";
+
+/// One instance's open fall of free disk: its operator item and the instance it is in.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Fall {
+    /// The file's name without `.json`: the instance's session prefix, its name without one.
+    #[serde(skip)]
+    pub key: String,
+    /// The instance whose store holds the item.
+    pub instance: String,
+    /// The operator item's request id.
+    pub item: String,
+}
+
+/// The key of `instance`'s fall: its session prefix, its name without one.
+#[must_use]
+pub fn fall_key(instance: &conductor_model::config::Instance) -> String {
+    instance
+        .session_prefix
+        .as_ref()
+        .map_or_else(|| instance.name.0.clone(), |prefix| prefix.0.clone())
+}
+
+/// The file `key`'s fall is kept in: any character but an ASCII letter or number, `-`, `_` or `.`
+/// is written `_`, and no name starts with a dot.
+fn fall_file(host: &Path, key: &str) -> PathBuf {
+    let mut name: String = key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if name.is_empty() || name.starts_with('.') {
+        name.insert(0, '_');
+    }
+    host.join(FALLS).join(format!("{name}.json"))
+}
+
+fn read_fall(path: &Path) -> Option<Fall> {
+    let text = fs::read_to_string(path).ok()?;
+    let mut fall: Fall = serde_json::from_str(&text).ok()?;
+    fall.key = path.file_stem()?.to_str()?.to_owned();
+    Some(fall)
+}
+
+fn write_fall(host: &Path, key: &str, instance: &str, item: &str) -> Result<()> {
+    let path = fall_file(host, key);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    }
+    let text = serde_json::to_string(&Fall {
+        key: key.to_owned(),
+        instance: instance.to_owned(),
+        item: item.to_owned(),
+    })?;
+    fs::write(&path, format!("{text}\n")).with_context(|| format!("write {}", path.display()))
+}
+
+/// Every open fall in the host directory `host`, by key: what the dashboard shows. A `host.fall`
+/// of 0.16.x not moved yet is listed under the name of the instance it names.
+#[must_use]
+pub fn falls(host: &Path) -> Vec<Fall> {
+    let mut out: Vec<Fall> = fs::read_dir(host.join(FALLS))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| read_fall(&entry.path()))
+        .collect();
+    if let Some((item, instance)) = legacy(host) {
+        out.push(Fall {
+            key: instance.clone(),
+            instance,
+            item,
+        });
+    }
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    out
+}
+
+/// The item and the instance of an unmoved `host.fall`; a marker of 0.16.x names both.
+fn legacy(host: &Path) -> Option<(String, String)> {
+    let text = fs::read_to_string(host.join(FALL)).ok()?;
+    let mut lines = text.lines().map(str::trim);
+    let item = lines.next().filter(|line| !line.is_empty())?;
+    let instance = lines.next().filter(|line| !line.is_empty())?;
+    Some((item.to_owned(), instance.to_owned()))
+}
+
+/// Moves a `host.fall` of 0.16.x that names `instance` to the instance's own file under `key`,
+/// once. One that names another instance stays for it. A file of the instance's own wins.
+fn adopt(host: &Path, key: &str, instance: &str) -> Result<()> {
+    let Some((item, owner)) = legacy(host) else {
+        return Ok(());
+    };
+    if owner != instance {
+        return Ok(());
+    }
+    if !fall_file(host, key).exists() {
+        write_fall(host, key, instance, &item)?;
+    }
+    let old = host.join(FALL);
+    match fs::remove_file(&old) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("remove {}", old.display())),
+    }
+}
 
 /// What `build run` keeps of the last reclaim run, in the host directory.
 const RECLAIM_RECORD: &str = "host.reclaim";
@@ -939,6 +1057,8 @@ pub fn rows(state: &Path) -> Result<Vec<Grants>> {
 pub struct Shortfall<'a> {
     /// The instance whose run fell short.
     pub instance: &'a str,
+    /// The key of its fall: the instance's session prefix, its name without one.
+    pub key: &'a str,
     /// The repository the run builds, if it named one.
     pub repository: Option<&'a str>,
     /// The command that did not run, as the ledger holds it.
@@ -1054,8 +1174,8 @@ fn outside(count: usize, shortfall: &Shortfall<'_>) -> String {
 ///
 /// The decision store does not keep the item, or the fall's marker cannot be written.
 pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<Option<String>> {
-    let marker = host.join(FALL);
-    if marker.exists() {
+    adopt(host, shortfall.key, shortfall.instance)?;
+    if fall_file(host, shortfall.key).exists() {
         return Ok(None);
     }
     let request_id = format!("disk-{}", eventlog_core::new_event_id());
@@ -1131,8 +1251,7 @@ pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<
         },
         dry_run,
     )?;
-    fs::write(&marker, format!("{request_id}\n{}\n", shortfall.instance))
-        .with_context(|| format!("write {}", marker.display()))?;
+    write_fall(host, shortfall.key, shortfall.instance, &request_id)?;
     Ok(Some(request_id))
 }
 
@@ -1272,15 +1391,17 @@ fn entries_hidden(text: &str, var_tmp: &str) -> String {
 pub fn clear_fall(
     host: &Path,
     state: &Path,
+    key: &str,
     instance: &str,
     free: u64,
     clear: u64,
 ) -> Result<Option<String>> {
-    if free < clear || !host.join(FALL).exists() {
+    adopt(host, key, instance)?;
+    if free < clear || !fall_file(host, key).exists() {
         return Ok(None);
     }
     match Ledger::try_lock(host)? {
-        Some(ledger) => ledger.clear_fall(state, instance, free, clear),
+        Some(ledger) => ledger.clear_fall(state, key, instance, free, clear),
         None => Ok(None),
     }
 }
@@ -1294,30 +1415,21 @@ impl Ledger {
     pub fn clear_fall(
         &self,
         state: &Path,
+        key: &str,
         instance: &str,
         free: u64,
         clear: u64,
     ) -> Result<Option<String>> {
+        adopt(&self.dir, key, instance)?;
         if free < clear {
             return Ok(None);
         }
-        let marker = self.dir.join(FALL);
-        let text = match fs::read_to_string(&marker) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(error).with_context(|| format!("read {}", marker.display()));
-            }
-        };
-        let mut lines = text.lines().map(str::trim);
-        let item = lines.next().unwrap_or_default().to_owned();
-        // A marker of an older binary names no instance: it was the one instance's own.
-        if lines
-            .next()
-            .is_some_and(|owner| !owner.is_empty() && owner != instance)
-        {
+        // Only this instance's own file is read: another instance's fall is never in reach.
+        let marker = fall_file(&self.dir, key);
+        let Some(fall) = read_fall(&marker) else {
             return Ok(None);
-        }
+        };
+        let item = fall.item;
         // The item is in the instance's store; under `host.lock` its writer lock is never waited
         // for (`story:store-readers-hold-no-writer-lock`): while another writer holds it, the fall
         // is left to the next run or pass.

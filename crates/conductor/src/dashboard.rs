@@ -267,6 +267,7 @@ impl Sources {
         if active.from_file {
             let mut sources = Self::of(home, root, &active.instance);
             sources.health.config = config::explicit().map(Path::to_path_buf);
+            sources.health.host = config::host_dir().ok();
             return Ok(sources);
         }
         let root = match root {

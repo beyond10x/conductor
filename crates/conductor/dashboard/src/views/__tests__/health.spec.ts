@@ -149,6 +149,14 @@ describe('the disk part', () => {
     expect(wrapper.find('.floors').text()).toBe('low at 40.0 GiB · admit-only at 20.0 GiB');
   });
 
+  it('lists the fall of every instance on the host', () => {
+    const wrapper = mount(DiskPanel, { props: { disk: fixture().disk } });
+    expect(wrapper.find('.falls').text()).toContain('fall of example-org (alpha): item disk-example');
+    const disk = fixture().disk;
+    disk.falls = [];
+    expect(mount(DiskPanel, { props: { disk } }).find('.falls').exists()).toBe(false);
+  });
+
   it('marks admit-only in red and ok in green', () => {
     const disk = fixture().disk;
     disk.state = 'admit-only';

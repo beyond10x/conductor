@@ -1019,6 +1019,7 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
         Settings::default(),
         Settings {
             instance: built_in.name.0.clone(),
+            fall_key: built_in.name.0.clone(),
             context_handover: 300_000,
             disk_low: 100,
             disk_clear: 110,
@@ -1045,6 +1046,7 @@ fn the_settings_are_the_instances_name_and_thresholds() {
         Settings::of(&instance),
         Settings {
             instance: "acme".to_owned(),
+            fall_key: "acme".to_owned(),
             context_handover: 150_000,
             disk_low: 40,
             disk_clear: 45,
