@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 82c2dd9ab624b78c4e22adeb6075fa97df4dea2197736d0a98e9dde900bc2114
-// contract digest a9c96468490c04e780ff53f364ae8e3cb997e360c5a96313981a192bf316f7cc
+// model digest 73958f4fb2fb7a0d1bf419f2590741fe2f90d6ac899e3fd1f9a97e7f9f7b2cae
+// contract digest 2b33c688f3811a756ffdce2e13ac749cc7ff827e78da6a9b905b7def3b04d03d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2050,6 +2050,7 @@ where
             command: Some(input.command.clone()),
             process_group: None,
             session_name: input.session_name.clone(),
+            session_id: input.session_id.clone(),
             reclaimed_bytes: None,
             shortfall_bytes: None,
             requested_at: input.requested_at.clone(),
@@ -2185,6 +2186,7 @@ where
             command: None,
             process_group: None,
             session_name: Some(input.session_name.clone()),
+            session_id: None,
             reclaimed_bytes: None,
             shortfall_bytes: None,
             requested_at: input.requested_at.clone(),
@@ -2216,6 +2218,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.released_at = Some(input.withdrawn_at.clone());
+        next.data.release_reason = input.reason.clone();
         let answer = crate::host::WithdrawDiskRequestOutcome::Withdrawn { disk_request_withdrawn: crate::host::DiskRequestWithdrawn { grant_id: input.grant_id.clone() } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -3448,6 +3451,7 @@ where
                 command: held.data.command,
                 process_group: held.data.process_group,
                 session_name: held.data.session_name,
+                session_id: held.data.session_id,
                 reclaimed_bytes: held.data.reclaimed_bytes,
                 shortfall_bytes: held.data.shortfall_bytes,
                 requested_at: held.data.requested_at,

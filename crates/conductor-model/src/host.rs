@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 82c2dd9ab624b78c4e22adeb6075fa97df4dea2197736d0a98e9dde900bc2114
-// contract digest a9c96468490c04e780ff53f364ae8e3cb997e360c5a96313981a192bf316f7cc
+// model digest 73958f4fb2fb7a0d1bf419f2590741fe2f90d6ac899e3fd1f9a97e7f9f7b2cae
+// contract digest 2b33c688f3811a756ffdce2e13ac749cc7ff827e78da6a9b905b7def3b04d03d
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -30,6 +30,15 @@ pub struct BuildRunRefused {
     pub shortfall_bytes: i64,
     /// `left` — `List<conductor.host.LeftOver>`.
     pub left: Vec<LeftOver>,
+}
+
+/// BuildRunWithdrawn — `conductor.host.BuildRunWithdrawn`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildRunWithdrawn {
+    /// `grant_id` — `conductor.host.GrantId`.
+    pub grant_id: GrantId,
+    /// `session_id` — `conductor.session.SessionId`.
+    pub session_id: crate::session::SessionId,
 }
 
 /// GrantId — `conductor.host.GrantId`: a distinct wrapper around `String`.
@@ -150,6 +159,8 @@ pub enum ReleaseReason {
     Killed,
     /// `ProcessGroupGone`.
     ProcessGroupGone,
+    /// `SessionStopped`.
+    SessionStopped,
 }
 
 /// ShowGrants — `conductor.host.ShowGrants`.
@@ -185,6 +196,8 @@ pub struct HostGrantData {
     pub process_group: Option<i64>,
     /// `session_name` — `Optional<conductor.config.SessionName>`.
     pub session_name: Option<crate::config::SessionName>,
+    /// `session_id` — `Optional<conductor.session.SessionId>`.
+    pub session_id: Option<crate::session::SessionId>,
     /// `reclaimed_bytes` — `Optional<Integer>`.
     pub reclaimed_bytes: Option<i64>,
     /// `shortfall_bytes` — `Optional<Integer>`.
@@ -784,6 +797,8 @@ pub struct RequestDisk {
     pub repository: Option<crate::observation::RepositoryName>,
     /// `session_name` — `Optional<conductor.config.SessionName>`.
     pub session_name: Option<crate::config::SessionName>,
+    /// `session_id` — `Optional<conductor.session.SessionId>`.
+    pub session_id: Option<crate::session::SessionId>,
     /// `bytes` — `Integer`.
     pub bytes: i64,
     /// `command` — `String`.
@@ -976,6 +991,8 @@ pub struct WithdrawDiskRequest {
     pub grant_id: GrantId,
     /// `withdrawn_at` — `Timestamp`.
     pub withdrawn_at: crate::primitives::Timestamp,
+    /// `reason` — `Optional<conductor.host.ReleaseReason>`.
+    pub reason: Option<ReleaseReason>,
 }
 
 /// Everything `conductor.host.WithdrawDiskRequest` can result in — one variant per declared outcome.
@@ -1180,6 +1197,8 @@ pub struct Grants {
     pub process_group: Option<i64>,
     /// `session_name` — `Optional<conductor.config.SessionName>`.
     pub session_name: Option<crate::config::SessionName>,
+    /// `session_id` — `Optional<conductor.session.SessionId>`.
+    pub session_id: Option<crate::session::SessionId>,
     /// `reclaimed_bytes` — `Optional<Integer>`.
     pub reclaimed_bytes: Option<i64>,
     /// `shortfall_bytes` — `Optional<Integer>`.
