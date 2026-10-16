@@ -102,7 +102,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use conductor_model::config::Instance;
-use conductor_model::observation::FailureClass;
+use conductor_model::observation::{DashboardMemory, FailureClass};
 use include_dir::{Dir, File, include_dir};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -471,14 +471,28 @@ const HEALTH: Kind<health::Newest> = Kind {
     compute: |_, _, held| health::newest(held),
 };
 
+/// The size of a kept answer that is not sent as it is kept: that of its debug text, about what
+/// its strings and rows hold.
+macro_rules! weighed_by_debug {
+    ($($kept:ty),*) => {
+        $(impl cache::Weigh for $kept {
+            fn weight(&self) -> usize {
+                format!("{self:?}").len()
+            }
+        })*
+    };
+}
+
+weighed_by_debug!(Result<repo::Facts, String>, Unanswered, health::Newest);
+
 /// Ends a background computation that did not finish (it panicked): its key computes again.
-struct Unfinished<'a, T: Clone> {
+struct Unfinished<'a, T: Clone + cache::Weigh> {
     memo: &'a cache::Memo<T>,
     key: &'a str,
     claim: Option<cache::Claim>,
 }
 
-impl<T: Clone> Drop for Unfinished<'_, T> {
+impl<T: Clone + cache::Weigh> Drop for Unfinished<'_, T> {
     fn drop(&mut self) {
         if let Some(claim) = self.claim.take() {
             self.memo.finish(self.key, claim, None);
@@ -537,6 +551,36 @@ impl Server {
         })
     }
 
+    /// What this process holds in memory (`story:dashboard-memory-bound`): its resident set, its
+    /// store handles and the answers it keeps.
+    fn memory(&self) -> DashboardMemory {
+        let stores = self.stores.held();
+        let memos = [
+            self.answers.held(),
+            self.facts.held(),
+            self.unanswered.held(),
+            self.snapshot_health.held(),
+        ];
+        let int = |count: u64| i64::try_from(count).unwrap_or(i64::MAX);
+        let size = |count: usize| int(count as u64);
+        DashboardMemory {
+            rss_bytes: health::rss_bytes().map(int),
+            store_handles: size(stores.handles),
+            store_replays: size(stores.replays),
+            store_replays_peak: size(stores.peak),
+            store_bytes: int(stores.bytes),
+            memo_entries: size(memos.iter().map(|memo| memo.entries).sum()),
+            memo_entries_peak_endpoint: size(
+                memos
+                    .iter()
+                    .map(|memo| memo.peak_endpoint)
+                    .max()
+                    .unwrap_or(0),
+            ),
+            memo_bytes: size(memos.iter().map(|memo| memo.bytes).sum()),
+        }
+    }
+
     /// The fingerprints of the store and the records now.
     fn fingerprints(&self) -> Fingerprints {
         let mut hasher = cache::hasher();
@@ -569,7 +613,7 @@ impl Server {
     /// [`cache::Tuning::debounce`]; or never computed, when a computation of it starts and a
     /// request (`wait`) waits for it up to [`cache::Tuning::cold_wait`]. `asked` says a request
     /// asks, not the warmer.
-    fn serve<T: Clone + Send + 'static>(
+    fn serve<T: Clone + cache::Weigh + Send + 'static>(
         self: &Arc<Self>,
         kind: Kind<T>,
         key: &str,
@@ -595,7 +639,7 @@ impl Server {
 
     /// Computes the answer of `kind` for `key` on a thread of its own, keeping it at
     /// `fingerprint` under `claim`.
-    fn recompute<T: Clone + Send + 'static>(
+    fn recompute<T: Clone + cache::Weigh + Send + 'static>(
         self: &Arc<Self>,
         kind: Kind<T>,
         key: &str,
@@ -1129,7 +1173,13 @@ fn answer(
             let Some((newest, stale)) = server.snapshot_health(true, true) else {
                 return unavailable();
             };
-            let answer = health::answer(&server.sources, &server.doctor, waste, newest);
+            let answer = health::answer(
+                &server.sources,
+                &server.doctor,
+                waste,
+                newest,
+                &server.memory(),
+            );
             send(&cache::Body::json(200, &answer), stale)
         }
         Resource::Events if overview::since(target).is_err() => {

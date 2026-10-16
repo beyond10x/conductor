@@ -81,6 +81,23 @@ export interface DiskHealth {
   rows: WasteRow[];
 }
 
+/**
+ * What the dashboard's process holds in memory (story:dashboard-memory-bound):
+ * `conductor.observation.DashboardMemory`.
+ */
+export interface MemoryHealth {
+  /** Its resident set; null where the system does not report it. */
+  rss_bytes: number | null;
+  store_handles: number;
+  store_replays: number;
+  /** The most replays of one tree alive at once since start: 1 when bounded. */
+  store_replays_peak: number;
+  store_bytes: number;
+  memo_entries: number;
+  memo_entries_peak_endpoint: number;
+  memo_bytes: number;
+}
+
 /** `/api/health`. */
 export interface HealthData {
   generated_at: string;
@@ -89,6 +106,7 @@ export interface HealthData {
   collector_runs: CollectorRun[];
   member_failures: MemberFailure[];
   disk: DiskHealth;
+  memory: MemoryHealth;
   errors: string[];
 }
 
