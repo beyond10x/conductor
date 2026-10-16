@@ -21,6 +21,7 @@ On 2026-10-15, snapshot 01a14133 was still Collecting after 37 minutes. It held 
 - The snapshot's read and write bytes are recorded per collector as an observation of the snapshot.
 - A measured change brings one snapshot of the live instance under 5 minutes and under 500 MB read, recorded as evidence with the before and after figures.
 - A test over a fixture store with 10× the observations shows that read bytes grow with the new observations, not with the whole store.
+- A Collecting snapshot whose process is gone is failed by the next snapshot's start, or by the watch, with the reason `process gone`, so a killed run never stays Collecting. Evidence: snapshot 01a142ac of 2026-10-16 ended with SIGKILL (exit 137) at about 1 h and stayed Collecting.
 
 ## Out of Scope
 

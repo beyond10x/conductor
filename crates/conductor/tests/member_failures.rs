@@ -24,8 +24,8 @@ use conductor_cli::collect::{Collector, blockers, specifications};
 use conductor_cli::snapshot::{self, Recorder, Taken};
 use conductor_cli::store;
 use conductor_model::behaviour::Generated;
-use conductor_model::observation::SnapshotState;
 use conductor_model::observation::obligations::SpecificationsQuery;
+use conductor_model::observation::{SnapshotState, SpecificationPresence};
 use serde_json::{Value, json};
 
 /// The three members of every case.
@@ -378,4 +378,45 @@ fn a_snapshot_with_no_failure_prints_no_member_failure() {
     assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
     assert_eq!(case.blockers(&taken).len(), 3);
     assert_eq!(case.rows("member-failures"), Vec::<Value>::new());
+}
+
+/// `story:snapshot-unlisted-repository`: a repository the source lists that is not archived and
+/// is no member of the workspace file is one row in presence `NotInWorkspace`, not a failed
+/// snapshot; the members are read as before.
+#[test]
+fn a_listed_repository_that_is_no_member_is_a_not_in_workspace_row() {
+    let case = Case::new("specifications_unlisted");
+    let repositories = case.dir.join("repositories.json");
+    write(
+        &repositories,
+        &json!(
+            ["alpha", "beta", "gamma", "delta"]
+                .iter()
+                .map(|name| json!({"name": name, "isArchived": false}))
+                .collect::<Vec<_>>()
+        )
+        .to_string(),
+    );
+    let mut sources = specifications::Sources::new(case.hub(), &case.state());
+    sources.workspace.fetch = case.fake_fetch("no-such-member", false);
+    sources.repositories = vec![OsString::from("cat"), repositories.into_os_string()];
+
+    let taken = case.take("specifications", move |record| {
+        specifications::collect_from(&sources, record)
+    });
+
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+    let generated = Generated::new(store::open_existing(&case.state()).expect("the store"));
+    let mut read: Vec<(String, SpecificationPresence)> = generated
+        .specifications()
+        .expect("the generated query answers")
+        .into_iter()
+        .map(|row| (row.repository.0, row.presence))
+        .collect();
+    read.sort_by(|a, b| a.0.cmp(&b.0));
+    let names: Vec<_> = read.iter().map(|row| row.0.as_str()).collect();
+    assert_eq!(names, ["alpha", "beta", "delta", "gamma"]);
+    assert_eq!(read[2].1, SpecificationPresence::NotInWorkspace);
+    assert_eq!(read[0].1, SpecificationPresence::Missing);
+    assert_eq!(case.failures(&taken), Vec::new(), "no member failure");
 }

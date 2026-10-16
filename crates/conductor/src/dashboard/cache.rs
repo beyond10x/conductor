@@ -245,7 +245,25 @@ pub(super) fn hasher() -> DefaultHasher {
 /// One store handle per state directory, kept for the server's life, behind the one lock every
 /// computation over a store takes; with the probe of a test.
 #[derive(Default)]
-pub(super) struct Stores(Mutex<HashMap<PathBuf, Store>>, Option<Arc<Probe>>);
+pub(super) struct Stores(
+    Mutex<HashMap<PathBuf, Store>>,
+    Option<Arc<Probe>>,
+    Mutex<StoresHeld>,
+);
+
+/// What the store handles hold in memory, as the last computation left them
+/// (`story:dashboard-memory-bound`): read without the lock a computation holds.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct StoresHeld {
+    /// The handles kept: one per state directory.
+    pub(super) handles: usize,
+    /// The trees they hold replayed.
+    pub(super) replays: usize,
+    /// The most replays of one tree alive at once in any handle since the server started.
+    pub(super) peak: usize,
+    /// The bytes of the files those replays were built from.
+    pub(super) bytes: u64,
+}
 
 /// What a computation is given: the store, none where there is none to read, or why it does not
 /// open.
@@ -254,7 +272,27 @@ pub(super) type Held<'a> = Result<Option<&'a Store>, &'a anyhow::Error>;
 impl Stores {
     /// The handles, none opened yet, watched by `probe`.
     pub(super) fn new(probe: Option<Arc<Probe>>) -> Self {
-        Self(Mutex::default(), probe)
+        Self(Mutex::default(), probe, Mutex::default())
+    }
+
+    /// What the handles hold in memory, as the last computation left them.
+    pub(super) fn held(&self) -> StoresHeld {
+        *lock(&self.2)
+    }
+
+    /// Takes down what `stores` hold in memory now.
+    fn note(&self, stores: &HashMap<PathBuf, Store>) {
+        let mut held = lock(&self.2);
+        let each: Vec<store::Replays> = stores.values().map(Store::held).collect();
+        *held = StoresHeld {
+            handles: stores.len(),
+            replays: each.iter().map(|replays| replays.live).sum(),
+            peak: each
+                .iter()
+                .map(|replays| replays.peak)
+                .fold(held.peak, usize::max),
+            bytes: each.iter().map(|replays| replays.bytes).sum(),
+        };
     }
 
     /// Runs `compute` with the store under `state`, opened the first time as a reader
@@ -299,7 +337,10 @@ impl Stores {
         if let Some(delay) = delay.filter(|delay| !delay.is_zero()) {
             std::thread::sleep(delay);
         }
-        let answer = Self::with_held(&mut lock(&self.0), state, compute);
+        let mut stores = lock(&self.0);
+        let answer = Self::with_held(&mut stores, state, compute);
+        self.note(&stores);
+        drop(stores);
         if let Some(probe) = &self.1 {
             probe.end(key);
         }
@@ -314,6 +355,10 @@ impl Stores {
 /// How many answers one [`Memo`] keeps; past it, the one asked longest ago is dropped.
 const KEPT: usize = 256;
 
+/// How many answers one [`Memo`] keeps for one endpoint, each query string its own answer; past
+/// it, the one of that endpoint asked longest ago is dropped (`story:dashboard-memory-bound`).
+const PER_ENDPOINT: usize = 16;
+
 /// How long after it was last asked an answer is still computed again by the warmer.
 const WARM_FOR: Duration = Duration::from_secs(600);
 
@@ -323,6 +368,36 @@ struct Kept<T> {
     computed: Instant,
     asked: Instant,
     value: T,
+    /// Its [`Weigh::weight`], taken when it was kept.
+    weight: usize,
+}
+
+/// About how many bytes a kept answer holds.
+pub(super) trait Weigh {
+    /// The bytes, about.
+    fn weight(&self) -> usize;
+}
+
+impl Weigh for Body {
+    fn weight(&self) -> usize {
+        self.bytes.len() + self.etag.len()
+    }
+}
+
+/// What the answers of one [`Memo`] hold in memory (`story:dashboard-memory-bound`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct MemoHeld {
+    /// The answers kept.
+    pub(super) entries: usize,
+    /// The most kept for any one endpoint: a key's path, without its query string.
+    pub(super) peak_endpoint: usize,
+    /// Their [`Weigh::weight`], together.
+    pub(super) bytes: usize,
+}
+
+/// The endpoint of `key`: its path, without the query string.
+fn endpoint(key: &str) -> &str {
+    key.split_once('?').map_or(key, |(path, _)| path)
 }
 
 /// The kept answers, and the computations of them.
@@ -370,7 +445,21 @@ impl<T> Default for Memo<T> {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Claim(u64);
 
-impl<T: Clone> Memo<T> {
+impl<T: Clone + Weigh> Memo<T> {
+    /// What the kept answers hold in memory now.
+    pub(super) fn held(&self) -> MemoHeld {
+        let entries = lock(&self.0);
+        let mut per: HashMap<&str, usize> = HashMap::new();
+        for key in entries.kept.keys() {
+            *per.entry(endpoint(key)).or_default() += 1;
+        }
+        MemoHeld {
+            entries: entries.kept.len(),
+            peak_endpoint: per.values().copied().max().unwrap_or(0),
+            bytes: entries.kept.values().map(|kept| kept.weight).sum(),
+        }
+    }
+
     /// The answer kept for `key`: fresh when it was computed at `fingerprint`, else stale; cold
     /// when none is kept. `asked` says a request asks, which keeps the answer warm.
     pub(super) fn look(&self, key: &str, fingerprint: u64, asked: bool) -> Served<T> {
@@ -418,7 +507,11 @@ impl<T: Clone> Memo<T> {
         if let Some((fingerprint, value)) = computed
             && claim.0 == entries.generation
         {
-            Self::put(&mut entries.kept, key, fingerprint, value);
+            Self::put(&mut entries, key, fingerprint, value);
+        }
+        // The debounce counts only for a key with an answer kept: one without keeps none.
+        if !entries.kept.contains_key(key) {
+            entries.started.remove(key);
         }
         drop(entries);
         self.1.notify_all();
@@ -437,24 +530,44 @@ impl<T: Clone> Memo<T> {
         );
     }
 
-    fn put(kept: &mut HashMap<String, Kept<T>>, key: &str, fingerprint: u64, value: T) {
+    /// Keeps `value` for `key`. A new key past [`PER_ENDPOINT`] answers of its endpoint drops the
+    /// one of them asked longest ago, and past [`KEPT`] answers in all the one asked longest ago
+    /// of any; a dropped key's debounce goes with it.
+    fn put(entries: &mut Entries<T>, key: &str, fingerprint: u64, value: T) {
         let now = Instant::now();
+        let kept = &mut entries.kept;
         let last_asked = kept.get(key).map_or(now, |entry| entry.asked);
-        if kept.len() >= KEPT && !kept.contains_key(key) {
-            let oldest = kept
-                .iter()
-                .min_by_key(|(_, entry)| entry.asked)
-                .map(|(key, _)| key.clone());
-            if let Some(oldest) = oldest {
-                kept.remove(&oldest);
+        if !kept.contains_key(key) {
+            let path = endpoint(key);
+            let oldest_of = |kept: &HashMap<String, Kept<T>>, same: bool| {
+                kept.iter()
+                    .filter(|(other, _)| !same || endpoint(other) == path)
+                    .min_by_key(|(_, entry)| entry.asked)
+                    .map(|(other, _)| other.clone())
+            };
+            let of_endpoint = kept.keys().filter(|other| endpoint(other) == path).count();
+            let dropped = if of_endpoint >= PER_ENDPOINT {
+                oldest_of(kept, true)
+            } else if kept.len() >= KEPT {
+                oldest_of(kept, false)
+            } else {
+                None
+            };
+            if let Some(dropped) = dropped {
+                kept.remove(&dropped);
+                if !entries.running.contains(&dropped) {
+                    entries.started.remove(&dropped);
+                }
             }
         }
+        let kept = &mut entries.kept;
         kept.insert(
             key.to_owned(),
             Kept {
                 fingerprint,
                 computed: now,
                 asked: last_asked,
+                weight: value.weight(),
                 value,
             },
         );

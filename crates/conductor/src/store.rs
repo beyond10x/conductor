@@ -81,6 +81,7 @@ mod controller;
 mod decision;
 mod dispatch;
 mod host;
+mod improvement;
 mod marks;
 pub mod migrate;
 pub mod observations;
@@ -478,6 +479,36 @@ struct Tree {
     /// mark, `log` serves all of it. `None` after a write that cannot tell whether another writer
     /// committed beside it.
     seen: RefCell<Option<Mark>>,
+    /// What of the tree this handle holds in memory: the replays alive and the most alive at
+    /// once, and the bytes `log` was built from.
+    held: RefCell<Holding>,
+}
+
+/// What one tree of a handle holds in memory.
+#[derive(Debug, Clone, Copy, Default)]
+struct Holding {
+    /// The replays of the tree alive now: `log`, and one being built.
+    live: usize,
+    /// The most alive at once since the handle opened.
+    peak: usize,
+    /// The bytes of the files each live replay was built from, together.
+    bytes: u64,
+    /// Those of the replay `log` holds.
+    kept: u64,
+}
+
+/// What a handle holds of its trees in memory (`story:dashboard-memory-bound`), as
+/// [`Store::held`] reports it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Replays {
+    /// The trees held replayed now.
+    pub live: usize,
+    /// The most replays of one tree alive at once since the handle opened: 1 while each reopen
+    /// drops the old replay before it builds the new one.
+    pub peak: usize,
+    /// The bytes of the files the replays held now were built from: what a replay holds is about
+    /// that much.
+    pub bytes: u64,
 }
 
 impl Tree {
@@ -487,8 +518,58 @@ impl Tree {
             root,
             log: RefCell::new(None),
             seen: RefCell::new(None),
+            held: RefCell::default(),
         }
     }
+
+    /// A replay of the tree, built from files of `bytes` bytes, is alive.
+    fn built(&self, bytes: u64) {
+        let mut held = self.held.borrow_mut();
+        held.live += 1;
+        held.peak = held.peak.max(held.live);
+        held.bytes += bytes;
+    }
+
+    /// Keeps `log`, built from files of `bytes` bytes and counted by [`Tree::built`], as the
+    /// tree's replay, and drops the one it replaces.
+    fn keep(&self, log: TreeEventStore, bytes: u64) {
+        let old = self.log.replace(Some(log));
+        let mut held = self.held.borrow_mut();
+        if old.is_some() {
+            drop(old);
+            held.live -= 1;
+            held.bytes -= held.kept;
+        }
+        held.kept = bytes;
+    }
+
+    /// Drops the tree's replay, when it holds one, and what it is known to serve.
+    fn release(&self) {
+        let old = self.log.take();
+        *self.seen.borrow_mut() = None;
+        if old.is_some() {
+            drop(old);
+            let mut held = self.held.borrow_mut();
+            held.live -= 1;
+            held.bytes -= held.kept;
+            held.kept = 0;
+        }
+    }
+}
+
+/// The bytes of every file under `root`; what cannot be read counts nothing.
+fn replayed_bytes(root: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(root) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => replayed_bytes(&entry.path()),
+            Ok(kind) if kind.is_file() => entry.metadata().map_or(0, |metadata| metadata.len()),
+            _ => 0,
+        })
+        .sum()
 }
 
 /// Why the store could not keep or read a record.
@@ -621,13 +702,14 @@ impl Store {
             drop(lock);
             (log, seen)
         };
+        let tree = Tree::unopened(root);
+        let bytes = replayed_bytes(&tree.root);
+        tree.built(bytes);
+        tree.keep(log, bytes);
+        *tree.seen.borrow_mut() = Some(seen);
         Ok(Self {
             runtime,
-            tree: Tree {
-                root,
-                log: RefCell::new(Some(log)),
-                seen: RefCell::new(Some(seen)),
-            },
+            tree,
             observations: Tree::unopened(state.join(OBSERVATIONS_DIR)),
             series: Tree::unopened(state.join(SERIES_DIR)),
             tenant: TenantId::new(CONDUCTOR)?,
@@ -654,8 +736,14 @@ impl Store {
                 return Ok(true);
             }
         }
+        // The old replay goes before the new one is built: a reopen never holds two replays of
+        // the tree at once (`story:dashboard-memory-bound`). Should the reopen fail, the next use
+        // opens the tree afresh.
+        tree.release();
         let (log, seen) = self.reopened(tree)?;
-        *tree.log.borrow_mut() = Some(log);
+        let bytes = replayed_bytes(&tree.root);
+        tree.built(bytes);
+        tree.keep(log, bytes);
         *tree.seen.borrow_mut() = Some(seen);
         Ok(true)
     }
@@ -702,6 +790,20 @@ impl Store {
         } else {
             &self.tree
         }
+    }
+
+    /// What this handle holds of its trees in memory: the replays alive now, the most of one tree
+    /// alive at once since it opened, and the bytes they were built from.
+    #[must_use]
+    pub fn held(&self) -> Replays {
+        [&self.tree, &self.observations, &self.series]
+            .iter()
+            .map(|tree| *tree.held.borrow())
+            .fold(Replays::default(), |sum, held| Replays {
+                live: sum.live + held.live,
+                peak: sum.peak.max(held.peak),
+                bytes: sum.bytes + held.bytes,
+            })
     }
 
     /// Whether every read and write on this handle since it was opened succeeded.
@@ -1123,6 +1225,8 @@ fn encode_goal(goal: &GoalSnapshot) -> Value {
         "goal_id": goal.data.goal_id.0,
         "title": goal.data.title,
         "exit_evidence": goal.data.exit_evidence,
+        "evidence": goal.data.evidence,
+        "reason": goal.data.reason,
     })
 }
 
@@ -1134,8 +1238,20 @@ fn decode_goal(body: &Value) -> Result<GoalSnapshot, String> {
             goal_id: GoalId(text(body, "goal_id")?),
             title: text(body, "title")?,
             exit_evidence: text(body, "exit_evidence")?,
+            evidence: goal_note(body, "evidence")?,
+            reason: goal_note(body, "reason")?,
         },
     })
+}
+
+/// A goal's `evidence` or `reason`: absent or null when the goal was not met or dropped, as every
+/// goal recorded before the store kept them is.
+fn goal_note(body: &Value, field: &str) -> Result<Option<String>, String> {
+    match body.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(note)) => Ok(Some(note.clone())),
+        Some(other) => Err(format!("{field} is {other}, not a string")),
+    }
 }
 
 /// The state's name as the specification spells it. Exhaustive, so a state the specification adds

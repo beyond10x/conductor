@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 8edad738c6b5689ba394ca170ba4f1bdba8e03a517cceb3adee4fb4b6566a0df
-  contract digest b63ca81a4b13794d6772aed33575fa3e4e1ed6bca22c18a46e3a425a0ae59e38
+  model digest 6d653976692f5ee4c6fc02dec9822f5ba498946d6f3a4549131eb0a3881b5b9d
+  contract digest c90b09bc1a4fb6c7523648ca709e830ffb26234389d4e5db6be455884a5e49d3
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-530 capabilities: **518 generated**, **3 obligations**, **9 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+586 capabilities: **570 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -123,6 +123,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.dispatch.Verdict` |
 | domain type | `conductor.host.BuildRun` |
 | domain type | `conductor.host.BuildRunRefused` |
+| domain type | `conductor.host.BuildRunWithdrawn` |
 | domain type | `conductor.host.GrantId` |
 | domain type | `conductor.host.GrantKind` |
 | domain type | `conductor.host.HostGrant.State` |
@@ -136,6 +137,14 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.ReclaimStep` |
 | domain type | `conductor.host.ReleaseReason` |
 | domain type | `conductor.host.ShowGrants` |
+| domain type | `conductor.improvement.ComputeMetrics` |
+| domain type | `conductor.improvement.FindingId` |
+| domain type | `conductor.improvement.FrictionFinding.State` |
+| domain type | `conductor.improvement.Metric.State` |
+| domain type | `conductor.improvement.MetricId` |
+| domain type | `conductor.improvement.MetricReading.State` |
+| domain type | `conductor.improvement.MetricReadingId` |
+| domain type | `conductor.improvement.TargetDirection` |
 | domain type | `conductor.observation.BlockerObservation.State` |
 | domain type | `conductor.observation.Board.State` |
 | domain type | `conductor.observation.BoardId` |
@@ -145,6 +154,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.CommitSha` |
 | domain type | `conductor.observation.DailySeries.State` |
 | domain type | `conductor.observation.DailySeriesId` |
+| domain type | `conductor.observation.DashboardMemory` |
 | domain type | `conductor.observation.DashboardServe` |
 | domain type | `conductor.observation.EnvelopeProvider` |
 | domain type | `conductor.observation.FailureClass` |
@@ -208,6 +218,9 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.dispatch.ResourceRequest` |
 | entity lifecycle | `conductor.host.HostGrant` |
 | entity lifecycle | `conductor.host.ReclaimRun` |
+| entity lifecycle | `conductor.improvement.FrictionFinding` |
+| entity lifecycle | `conductor.improvement.Metric` |
+| entity lifecycle | `conductor.improvement.MetricReading` |
 | entity lifecycle | `conductor.observation.BlockerObservation` |
 | entity lifecycle | `conductor.observation.Board` |
 | entity lifecycle | `conductor.observation.CollectorRunObservation` |
@@ -318,6 +331,19 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | command behaviour | `conductor.host.TakeHostGrant` |
 | command contract | `conductor.host.WithdrawDiskRequest` |
 | command behaviour | `conductor.host.WithdrawDiskRequest` |
+| command contract | `conductor.improvement.DefineMetric` |
+| command behaviour | `conductor.improvement.DefineMetric` |
+| command contract | `conductor.improvement.FileFinding` |
+| command behaviour | `conductor.improvement.FileFinding` |
+| command contract | `conductor.improvement.RaiseFinding` |
+| command behaviour | `conductor.improvement.RaiseFinding` |
+| command contract | `conductor.improvement.RecordMetricReading` |
+| command behaviour | `conductor.improvement.RecordMetricReading` |
+| command contract | `conductor.improvement.SetMetricTarget` |
+| command contract | `conductor.improvement.SupersedeMetricReading` |
+| command behaviour | `conductor.improvement.SupersedeMetricReading` |
+| command contract | `conductor.improvement.VerifyFinding` |
+| command behaviour | `conductor.improvement.VerifyFinding` |
 | command contract | `conductor.observation.CompleteSnapshot` |
 | command behaviour | `conductor.observation.CompleteSnapshot` |
 | command contract | `conductor.observation.FailSnapshot` |
@@ -401,6 +427,14 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.host.PeakRecorded` |
 | event type | `conductor.host.ReclaimFloorNotReached` |
 | event type | `conductor.host.RunStarted` |
+| event type | `conductor.improvement.FindingClosed` |
+| event type | `conductor.improvement.FindingFiled` |
+| event type | `conductor.improvement.FindingRaised` |
+| event type | `conductor.improvement.FindingVerified` |
+| event type | `conductor.improvement.MetricDefined` |
+| event type | `conductor.improvement.MetricReadingRecorded` |
+| event type | `conductor.improvement.MetricReadingSuperseded` |
+| event type | `conductor.improvement.MetricTargetSet` |
 | event type | `conductor.observation.BlockerRecorded` |
 | event type | `conductor.observation.BoardPublished` |
 | event type | `conductor.observation.CollectorRunRecorded` |
@@ -467,6 +501,14 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.host.HostGrantStateConflict` |
 | error type | `conductor.host.InvalidSize` |
 | error type | `conductor.host.NotADiskGrant` |
+| error type | `conductor.improvement.FindingExists` |
+| error type | `conductor.improvement.FindingNotFound` |
+| error type | `conductor.improvement.FindingStateConflict` |
+| error type | `conductor.improvement.MetricExists` |
+| error type | `conductor.improvement.MetricNotFound` |
+| error type | `conductor.improvement.MetricReadingExists` |
+| error type | `conductor.improvement.MetricReadingNotFound` |
+| error type | `conductor.improvement.MetricReadingStateConflict` |
 | error type | `conductor.observation.DailySeriesExists` |
 | error type | `conductor.observation.DailySeriesNotFound` |
 | error type | `conductor.observation.InvalidCount` |
@@ -501,6 +543,16 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | view query | `conductor.host.Grants` |
 | view type | `conductor.host.ReclaimRuns` |
 | view query | `conductor.host.ReclaimRuns` |
+| view type | `conductor.improvement.Findings` |
+| view query | `conductor.improvement.Findings` |
+| view type | `conductor.improvement.KpiReadings` |
+| view query | `conductor.improvement.KpiReadings` |
+| view type | `conductor.improvement.Kpis` |
+| view query | `conductor.improvement.Kpis` |
+| view type | `conductor.improvement.MetricReadings` |
+| view query | `conductor.improvement.MetricReadings` |
+| view type | `conductor.improvement.Metrics` |
+| view query | `conductor.improvement.Metrics` |
 | view type | `conductor.observation.Blockers` |
 | view query | `conductor.observation.Blockers` |
 | view type | `conductor.observation.Boards` |
@@ -548,6 +600,7 @@ What the specification fully determines is generated; what it cannot determine i
 | --- | --- | --- | --- |
 | command behaviour | `conductor.decision.RecordOperatorDecisionForRequest` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `no-such-request` | given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists` |
 | command behaviour | `conductor.dispatch.StartController` | kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `already-running` | given `conductor.dispatch.StartController` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `already-running` when, of the `conductor.dispatch.Controller` rows satisfying `(repository == input.repository and state in [Running, Paused])`, at least 1 rows are selected, error `conductor.dispatch.ControllerAlreadyRunning`; `started` otherwise, creates `conductor.dispatch.Controller`, emits `conductor.dispatch.ControllerStarted` |
+| command behaviour | `conductor.improvement.SetMetricTarget` | kept an obligation by a subject predicate choosing between a move and an update | given `conductor.improvement.SetMetricTarget` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `targeted` when the existing subject is in Untargeted, takes `target` of `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `retargeted` when the existing subject is in Targeted, updates `conductor.improvement.Metric`, emits `conductor.improvement.MetricTargetSet`; `no-such-metric` for an identity no record carries, error `conductor.improvement.MetricNotFound` |
 | command behaviour | `conductor.session.ClaimLease` | kept an obligation by an unknown identity, which reaches no declared outcome (neither `unknown_instance:` nor `wrong_state:`) | given `conductor.session.ClaimLease` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `taken` when, of the `conductor.session.Lease` rows satisfying `instance == input.instance`, no row is selected, creates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `renewed` when, of the `conductor.session.Lease` rows satisfying `(instance == input.instance and pid == input.pid)`, at least one row is selected, updates `conductor.session.Lease`, emits `conductor.session.LeaseTaken`; `held` externally decided (the process the lease names lives and is not the claiming one), error `conductor.session.LeaseHeld`; `taken-over` otherwise, updates `conductor.session.Lease`, emits `conductor.session.LeaseTakenOver` |
 
 ## Refused — not represented by this synthesis
@@ -561,5 +614,8 @@ What the specification fully determines is generated; what it cannot determine i
 | actor grants | `conductor.direction.Operator` | planning | may invoke `conductor.direction.ActivateRepository`, `conductor.direction.ConfirmGoal`, `conductor.direction.DeactivateRepository`, `conductor.direction.DropGoal`, `conductor.direction.MarkRepository`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.dispatch.Conductor` | planning | may invoke `conductor.dispatch.CancelDispatch`, `conductor.dispatch.GrantResource`, `conductor.dispatch.HandleMessage`, `conductor.dispatch.PauseController`, `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.RefuseResource`, `conductor.dispatch.RejectMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.ResumeController`, `conductor.dispatch.ReviseCharter`, `conductor.dispatch.RouteNeed`, `conductor.dispatch.SendDispatch`, `conductor.dispatch.StartController`, `conductor.dispatch.StopController`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.dispatch.RepositoryController` | planning | may invoke `conductor.dispatch.RecordGuardDecision`, `conductor.dispatch.ReleaseResource`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.RequestResource`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.improvement.Collector` | planning | may invoke `conductor.improvement.RaiseFinding`, `conductor.improvement.RecordMetricReading`, `conductor.improvement.SupersedeMetricReading`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.improvement.ConductorDev` | planning | may invoke `conductor.improvement.DefineMetric`, `conductor.improvement.FileFinding`, `conductor.improvement.RaiseFinding`, `conductor.improvement.VerifyFinding`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.improvement.Operator` | planning | may invoke `conductor.improvement.SetMetricTarget`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.observation.Collector` | planning | may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordCollectorRun`, `conductor.observation.RecordDailySeries`, `conductor.observation.RecordMemberFailure`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.ReviseDailySeries`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.session.Conductor` | planning | may invoke `conductor.session.ClaimLease`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |

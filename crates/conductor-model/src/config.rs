@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 8edad738c6b5689ba394ca170ba4f1bdba8e03a517cceb3adee4fb4b6566a0df
-// contract digest b63ca81a4b13794d6772aed33575fa3e4e1ed6bca22c18a46e3a425a0ae59e38
+// model digest 6d653976692f5ee4c6fc02dec9822f5ba498946d6f3a4549131eb0a3881b5b9d
+// contract digest c90b09bc1a4fb6c7523648ca709e830ffb26234389d4e5db6be455884a5e49d3
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -539,6 +539,7 @@ pub enum Source {
 /// Thresholds — `conductor.config.Thresholds`.
 ///
 /// Every value satisfies `gate_resume > gate_stop` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `cpu_reserve >= 0` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thresholds {
     /// `context_handover` — `conductor.config.Tokens`.
@@ -563,6 +564,8 @@ pub struct Thresholds {
     pub watchdog_every: crate::primitives::Duration,
     /// `silent_session` — `Duration`.
     pub silent_session: crate::primitives::Duration,
+    /// `cpu_reserve` — `Integer`.
+    pub cpu_reserve: i64,
 }
 
 /// TimeOfDay — `conductor.config.TimeOfDay`: a distinct wrapper around `String`.

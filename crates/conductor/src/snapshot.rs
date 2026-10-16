@@ -1915,7 +1915,7 @@ names! {
         [Busy, Idle, Waiting, Background, Unknown];
     EnvelopeProvider: envelope_provider_name, envelope_provider_named = [Systemd];
     SpecificationPresence: specification_presence_name, specification_presence_named =
-        [Present, OptedOut, Missing];
+        [Present, OptedOut, Missing, NotInWorkspace];
     ValidationResult: validation_result_name, validation_result_named = [Valid, Refused, NotRun];
     CollectorRunOutcome: collector_run_outcome_name, collector_run_outcome_named =
         [Completed, Failed, OverBudget];

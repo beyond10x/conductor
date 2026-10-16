@@ -1,0 +1,887 @@
+domain: conductor.improvement
+
+summary: >
+  The measured self-improvement loop (docs/design/self-improvement.md § 2, § 5;
+  story:kpi-spec). Its vocabulary is the operator's (story:metrics-naming, 2026-10-14): a
+  **metric** is one measured quantity with its unit, its instrument and a series of readings over
+  time; a **KPI** is a metric the operator set a target for, shown with that target and whether a
+  reading meets it. Every KPI is a metric; not every metric is a KPI. A friction finding is what
+  the loop detects (a KPI past its target, or a friction signature repeated) with the evidence ids
+  it rests on; conductor-dev files it as a draft story naming the metric it should move, and a
+  week after delivery the metric is read again and the finding is verified or closed.
+
+naming:
+  wire: improvement
+  display: Improvement
+
+types:
+  # The id of one metric, as the design's tables name it (`K1`, `T3`). A KPI row of the design
+  # that reports two quantities, such as K4's median and p90, is two metrics, since a metric is
+  # one measured quantity (story:metrics-naming); each has its own id (`K4.median`, `K4.p90`).
+  - name: conductor.improvement.MetricId
+    kind: newtype
+    of: String
+
+  # Which side of its target a KPI's reading must be on to meet it: `AtMost`, the value is at or
+  # below the target (`≤ 0.10`); `AtLeast`, at or above it. A target the design writes relative
+  # to the baseline (`−75 %`) is set as the value it comes to against that baseline.
+  - name: conductor.improvement.TargetDirection
+    kind: enum
+    variants: [AtMost, AtLeast]
+
+  # The identity of one reading: `<metric_id>|<scope>|<day>`, as a daily rollup's
+  # (`conductor.observation.DailySeriesId`).
+  - name: conductor.improvement.MetricReadingId
+    kind: newtype
+    of: String
+
+  # The input of `conductor metric compute --day <date>` (story:kpi-records), the instrument of
+  # the metrics computed from the store, the records' `decisions/` and `dispatches/` logs and the
+  # newest complete snapshot's merged pull requests and releases (design § 2: K1, K2, K4, K5),
+  # and from the store's daily rollups (`conductor.observation.DailySeries`) of failed CI runs,
+  # merged and closed-unmerged pull requests and patch and feature releases (K6, K12). It
+  # defines each metric it computes that is absent, and records one `MetricReading` per metric,
+  # scope and day through `RecordMetricReading`, judging `met` against the target the metric
+  # holds. `day` is a UTC date, `YYYY-MM-DD`, read by the handler.
+  - name: conductor.improvement.ComputeMetrics
+    kind: struct
+    fields:
+      - {name: day, type: String}
+
+  # The id of one friction finding, given by the detection that raises it, as a decision
+  # request's id is given by the controller that raises it.
+  - name: conductor.improvement.FindingId
+    kind: newtype
+    of: String
+
+entities:
+  # One measured quantity (story:metrics-naming): `name` its short title (`operator touches per
+  # merged PR`); `unit` what a value of it counts in (`ratio`, `percent`, `hours`, `tokens`,
+  # `count per day`, `USD list price`); `instrument` what computes it (`decision store + forge
+  # PRs`); `definition` what it counts. `baseline` and `baseline_period` are the value the design
+  # measured before the loop ran and the days it covers (`2026-10-06..13`), absent for a metric
+  # not measured yet (K13).
+  #
+  # The target makes it a KPI: `target` the value, `direction` which side of it meets it,
+  # `target_owner` who set it, `target_set_at` when. The targets are the operator's (design § 5,
+  # "what stays with the operator"). A metric is `Untargeted` until one is set, then `Targeted`,
+  # a KPI; a later target replaces the held one.
+  - name: conductor.improvement.Metric
+    identity:
+      name: metric_id
+      type: conductor.improvement.MetricId
+    fields:
+      - name: name
+        type: String
+      - name: unit
+        type: String
+      - name: instrument
+        type: String
+      - name: definition
+        type: String
+      - name: baseline
+        type: Optional<Decimal>
+      - name: baseline_period
+        type: Optional<String>
+      - name: target
+        type: Optional<Decimal>
+      - name: direction
+        type: Optional<conductor.improvement.TargetDirection>
+      - name: target_owner
+        type: Optional<String>
+      - name: target_set_at
+        type: Optional<Timestamp>
+    relations:
+      - name: readings
+        kind: owns
+        target: conductor.improvement.MetricReading
+        cardinality: many
+        via: metric_id
+    lifecycle:
+      initial: Untargeted
+      states: [Untargeted, Targeted]
+      terminal: [Targeted]
+      transitions:
+        - name: target
+          from: [Untargeted]
+          to: Targeted
+
+  # One day's value of one metric for one scope (design § 5, step 1, "Measure"): the series a
+  # metric has over time. `day` is the UTC date it covers (`YYYY-MM-DD`); `scope` what it was
+  # measured over, `instance` for the whole instance, else a repository name or one task, a
+  # merged PR (`alpha#12`, the per-task metrics T1-T4); `value` in the metric's unit; `sources`
+  # the evidence ids it was computed from (decision ids, PR and run ids, session ids), counts and
+  # ids only, never message text. `target` is the target the metric held when the reading was
+  # recorded and `met` whether the value meets it; both are absent when it held none.
+  # `recorded_at` is when the instrument recorded it. A reading has no meaning without its metric,
+  # which owns it.
+  #
+  # A reading is `Recorded` while it is its metric's newest for its scope (the latest day, then
+  # the latest recorded), and `Superseded` once a newer one of the same metric and scope is
+  # recorded (story:kpi-records): the instrument supersedes the older one, so each metric and scope
+  # has one `Recorded` reading, its value now.
+  - name: conductor.improvement.MetricReading
+    identity:
+      name: reading_id
+      type: conductor.improvement.MetricReadingId
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: day
+        type: String
+      - name: scope
+        type: String
+      - name: value
+        type: Decimal
+      - name: sources
+        type: List<String>
+      - name: target
+        type: Optional<Decimal>
+      - name: met
+        type: Optional<Boolean>
+      - name: recorded_at
+        type: Timestamp
+    lifecycle:
+      initial: Recorded
+      states: [Recorded, Superseded]
+      terminal: [Superseded]
+      transitions:
+        - name: supersede
+          from: [Recorded]
+          to: Superseded
+
+  # One friction the loop detected (design § 3, § 5 steps 2-5): a KPI past its target for two
+  # days, or a friction signature repeated (a guard denial repeated by three sessions, an
+  # operator correction of the same kind twice, a tool error repeated). `signature` names it and
+  # is what a second detection of the same friction matches; `evidence` the ids it rests on;
+  # `metric_id` the metric it should move (story:kpi-spec's `kpi`): the KPI past its target, or
+  # for a friction signature the metric the design ranks it against (§ 3, § 4: guard denials
+  # move K10, idle controllers K7); `raised_at` when it was detected.
+  #
+  # `Open` until conductor-dev files it as a draft story citing it and the metric it should move
+  # (step 3), `Filed` with `story` that story's id. A week after the story is delivered the metric
+  # is read again (step 5): `Verified` when it moved, `Closed` when it did not, with `verdict`
+  # the reading it was judged on. A friction that did not move is raised again as a new finding.
+  - name: conductor.improvement.FrictionFinding
+    identity:
+      name: finding_id
+      type: conductor.improvement.FindingId
+    fields:
+      - name: signature
+        type: String
+      - name: evidence
+        type: List<String>
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: raised_at
+        type: Timestamp
+      - name: story
+        type: Optional<String>
+      - name: verdict
+        type: Optional<String>
+    relations:
+      - name: metric
+        kind: references
+        target: conductor.improvement.Metric
+        cardinality: one
+        via: metric_id
+    lifecycle:
+      initial: Open
+      states: [Open, Filed, Verified, Closed]
+      terminal: [Verified, Closed]
+      transitions:
+        - name: file
+          from: [Open]
+          to: Filed
+        - name: verify
+          from: [Filed]
+          to: Verified
+        - name: close
+          from: [Filed]
+          to: Closed
+
+actors:
+  # Conductor-dev owns the instruments, the thresholds of detection and the draft stories
+  # (design § 5, "what the loop changes alone").
+  - name: conductor.improvement.ConductorDev
+    may:
+      - conductor.improvement.DefineMetric
+      - conductor.improvement.RaiseFinding
+      - conductor.improvement.FileFinding
+      - conductor.improvement.VerifyFinding
+    naming:
+      display: Conductor-dev
+
+  # The measuring run: the instruments run daily with the snapshot (design § 5, step 1) and
+  # record each metric's reading; the detection that follows raises findings (step 2).
+  - name: conductor.improvement.Collector
+    may:
+      - conductor.improvement.RecordMetricReading
+      - conductor.improvement.SupersedeMetricReading
+      - conductor.improvement.RaiseFinding
+    naming:
+      display: Collector
+
+  # The KPI targets are the operator's alone (design § 5).
+  - name: conductor.improvement.Operator
+    may:
+      - conductor.improvement.SetMetricTarget
+    naming:
+      display: Operator
+
+errors:
+  - name: conductor.improvement.MetricExists
+    summary: A metric already has this id, so nothing was defined; the held metric is unchanged.
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+
+  - name: conductor.improvement.MetricNotFound
+    summary: No metric has this id; define it first.
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+
+  - name: conductor.improvement.MetricReadingExists
+    summary: >
+      The metric already has a reading for this scope and day, so nothing was recorded; the held
+      reading is unchanged.
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+
+  - name: conductor.improvement.MetricReadingNotFound
+    summary: No reading has this id.
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+
+  - name: conductor.improvement.MetricReadingStateConflict
+    summary: The reading is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+
+  - name: conductor.improvement.FindingExists
+    summary: A finding already has this id, so nothing was raised; the held finding is unchanged.
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+
+  - name: conductor.improvement.FindingNotFound
+    summary: No finding has this id.
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+
+  - name: conductor.improvement.FindingStateConflict
+    summary: The finding is not in a state this command acts from, so nothing moved.
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+
+commands:
+  # A metric the design names, with the instrument that computes it (design § 2). It starts
+  # without a target: it is a metric and not yet a KPI.
+  - name: conductor.improvement.DefineMetric
+    naming:
+      wire: define-metric
+      display: Define a metric
+    input:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+        example: "K1"
+      - name: name
+        type: String
+        example: "operator touches per merged PR"
+      - name: unit
+        type: String
+        example: "ratio"
+      - name: instrument
+        type: String
+        example: "decision store + forge PRs"
+      - name: definition
+        type: String
+        example: "operator-decided decisions + class-O escalations + class-H items, divided by PRs merged"
+      - name: baseline
+        type: Optional<Decimal>
+      - name: baseline_period
+        type: Optional<String>
+        example: "2026-10-06..13"
+    outcomes:
+      - name: defined
+        creates: conductor.improvement.Metric
+        instance: metric_id
+        sets:
+          name: input.name
+          unit: input.unit
+          instrument: input.instrument
+          definition: input.definition
+          baseline: input.baseline
+          baseline_period: input.baseline_period
+        emits:
+          - conductor.improvement.MetricDefined
+        payload:
+          conductor.improvement.MetricDefined:
+            metric_id: input.metric_id
+            name: input.name
+            unit: input.unit
+        summary: The metric is defined without a target; its readings can be recorded.
+      - name: already-defined
+        existing_instance: true
+        error: conductor.improvement.MetricExists
+        payload:
+          conductor.improvement.MetricExists:
+            metric_id: input.metric_id
+        summary: A metric already has this id; the held metric is unchanged.
+
+  # The operator's target on a metric (design § 2, Target column), which makes it a KPI. A
+  # target set on a KPI replaces the one it held; the readings already recorded keep whether
+  # they met the target held when they were recorded.
+  - name: conductor.improvement.SetMetricTarget
+    naming:
+      wire: set-metric-target
+      display: Set a metric's target
+    input:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+        example: "K1"
+      - name: target
+        type: Decimal
+        example: 0.1
+      - name: direction
+        type: conductor.improvement.TargetDirection
+      - name: target_owner
+        type: String
+        example: "operator"
+      - name: target_set_at
+        type: Timestamp
+        example: "2026-10-15T09:00:00Z"
+    outcomes:
+      - name: targeted
+        when_subject_state: Untargeted
+        moves: conductor.improvement.Metric.target
+        instance: metric_id
+        sets:
+          target: input.target
+          direction: input.direction
+          target_owner: input.target_owner
+          target_set_at: input.target_set_at
+        emits:
+          - conductor.improvement.MetricTargetSet
+        payload:
+          conductor.improvement.MetricTargetSet:
+            metric_id: input.metric_id
+            target: input.target
+            direction: input.direction
+            target_owner: input.target_owner
+        summary: The metric has a target and is a KPI from now on.
+      - name: retargeted
+        when_subject_state: Targeted
+        updates: conductor.improvement.Metric
+        instance: metric_id
+        sets:
+          target: input.target
+          direction: input.direction
+          target_owner: input.target_owner
+          target_set_at: input.target_set_at
+        emits:
+          - conductor.improvement.MetricTargetSet
+        payload:
+          conductor.improvement.MetricTargetSet:
+            metric_id: input.metric_id
+            target: input.target
+            direction: input.direction
+            target_owner: input.target_owner
+        summary: The KPI's target is replaced by the one given.
+      - name: no-such-metric
+        unknown_instance: true
+        error: conductor.improvement.MetricNotFound
+        payload:
+          conductor.improvement.MetricNotFound:
+            metric_id: input.metric_id
+
+  # One day's reading of a metric for one scope, recorded by its instrument (design § 5, step 1);
+  # never typed by a person. `met` is judged by the instrument against the target the metric
+  # holds, and given only for a KPI.
+  - name: conductor.improvement.RecordMetricReading
+    naming:
+      wire: record-metric-reading
+      display: Record a metric's reading
+    input:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+        example: "K1|instance|2026-10-14"
+      - name: metric_id
+        type: conductor.improvement.MetricId
+        example: "K1"
+      - name: day
+        type: String
+        example: "2026-10-14"
+      - name: scope
+        type: String
+        example: "instance"
+      - name: value
+        type: Decimal
+        example: 0.245
+      - name: sources
+        type: List<String>
+      - name: target
+        type: Optional<Decimal>
+      - name: met
+        type: Optional<Boolean>
+      - name: recorded_at
+        type: Timestamp
+        example: "2026-10-15T00:10:00Z"
+    outcomes:
+      - name: no-such-metric
+        when_related: {via: input.metric_id, exists: false}
+        error: conductor.improvement.MetricNotFound
+        payload:
+          conductor.improvement.MetricNotFound:
+            metric_id: input.metric_id
+        summary: No metric has this id, and nothing was recorded.
+      - name: already-recorded
+        existing_instance: true
+        error: conductor.improvement.MetricReadingExists
+        payload:
+          conductor.improvement.MetricReadingExists:
+            reading_id: input.reading_id
+        summary: The day's reading for the scope is there already, and is unchanged.
+      - name: recorded
+        creates: conductor.improvement.MetricReading
+        instance: reading_id
+        sets:
+          metric_id: input.metric_id
+          day: input.day
+          scope: input.scope
+          value: input.value
+          sources: input.sources
+          target: input.target
+          met: input.met
+          recorded_at: input.recorded_at
+        emits:
+          - conductor.improvement.MetricReadingRecorded
+        payload:
+          conductor.improvement.MetricReadingRecorded:
+            reading_id: input.reading_id
+            metric_id: input.metric_id
+            day: input.day
+            scope: input.scope
+            value: input.value
+        summary: The metric's value for the scope and day is kept in its series.
+
+  # The instrument's mark that a reading is no longer its metric's newest for its scope, once a
+  # newer one of the same metric and scope is recorded (story:kpi-records). The superseded reading
+  # keeps its value and stays in the series.
+  - name: conductor.improvement.SupersedeMetricReading
+    naming:
+      wire: supersede-metric-reading
+      display: Supersede a metric's reading
+    input:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+        example: "K1|instance|2026-10-13"
+      - name: by
+        type: conductor.improvement.MetricReadingId
+        example: "K1|instance|2026-10-14"
+    outcomes:
+      - name: superseded
+        moves: conductor.improvement.MetricReading.supersede
+        instance: reading_id
+        emits:
+          - conductor.improvement.MetricReadingSuperseded
+        payload:
+          conductor.improvement.MetricReadingSuperseded:
+            reading_id: input.reading_id
+            by: input.by
+        summary: The reading is no longer its metric's newest for its scope.
+      - name: no-such-reading
+        unknown_instance: true
+        error: conductor.improvement.MetricReadingNotFound
+        payload:
+          conductor.improvement.MetricReadingNotFound:
+            reading_id: input.reading_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.improvement.MetricReadingStateConflict
+        payload:
+          conductor.improvement.MetricReadingStateConflict:
+            reading_id: input.reading_id
+        summary: The reading is superseded already, and nothing moved.
+
+  # A detected friction (design § 5, step 2), with the evidence ids it rests on and the metric it
+  # should move. Raising does not deduplicate: a signature already open or filed is matched when
+  # findings are filed (step 3, story:findings-to-stories), which files none twice.
+  - name: conductor.improvement.RaiseFinding
+    naming:
+      wire: raise-finding
+      display: Raise a friction finding
+    input:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+        example: "FF-2026-10-15-guard-denial"
+      - name: signature
+        type: String
+        example: "guard-denial:write-outside-checkout"
+      - name: evidence
+        type: List<String>
+      - name: metric_id
+        type: conductor.improvement.MetricId
+        example: "K10"
+      - name: raised_at
+        type: Timestamp
+        example: "2026-10-15T00:20:00Z"
+    outcomes:
+      - name: no-such-metric
+        when_related: {via: input.metric_id, exists: false}
+        error: conductor.improvement.MetricNotFound
+        payload:
+          conductor.improvement.MetricNotFound:
+            metric_id: input.metric_id
+        summary: No metric has this id, and nothing was raised.
+      - name: already-raised
+        existing_instance: true
+        error: conductor.improvement.FindingExists
+        payload:
+          conductor.improvement.FindingExists:
+            finding_id: input.finding_id
+        summary: A finding already has this id; the held finding is unchanged.
+      - name: raised
+        creates: conductor.improvement.FrictionFinding
+        instance: finding_id
+        sets:
+          signature: input.signature
+          evidence: input.evidence
+          metric_id: input.metric_id
+          raised_at: input.raised_at
+          story: {cleared: true}
+          verdict: {cleared: true}
+        emits:
+          - conductor.improvement.FindingRaised
+        payload:
+          conductor.improvement.FindingRaised:
+            finding_id: input.finding_id
+            signature: input.signature
+            evidence: input.evidence
+            metric_id: input.metric_id
+        summary: The friction is an open finding until conductor-dev files it as a draft story.
+
+  # Conductor-dev's draft story for an open finding (design § 5, step 3), citing the finding and
+  # the metric it names.
+  - name: conductor.improvement.FileFinding
+    naming:
+      wire: file-finding
+      display: File a finding as a draft story
+    input:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+      - name: story
+        type: String
+        example: "story:watch-waits"
+    outcomes:
+      - name: filed
+        moves: conductor.improvement.FrictionFinding.file
+        instance: finding_id
+        sets:
+          story: input.story
+        emits:
+          - conductor.improvement.FindingFiled
+        payload:
+          conductor.improvement.FindingFiled:
+            finding_id: input.finding_id
+            story: input.story
+        summary: The finding is filed as the draft story, which names the metric it should move.
+      - name: no-such-finding
+        unknown_instance: true
+        error: conductor.improvement.FindingNotFound
+        payload:
+          conductor.improvement.FindingNotFound:
+            finding_id: input.finding_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.improvement.FindingStateConflict
+        payload:
+          conductor.improvement.FindingStateConflict:
+            finding_id: input.finding_id
+        summary: Only an open finding is filed.
+
+  # The week-later check (design § 5, step 5): the metric the finding's story named is read
+  # again; `moved` says whether it moved, `verdict` the reading it was judged on.
+  - name: conductor.improvement.VerifyFinding
+    naming:
+      wire: verify-finding
+      display: Verify a filed finding
+    input:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+      - name: moved
+        type: Boolean
+      - name: verdict
+        type: String
+        example: "K7|instance|2026-10-22"
+    outcomes:
+      - name: verified
+        when: moved == true
+        moves: conductor.improvement.FrictionFinding.verify
+        instance: finding_id
+        sets:
+          verdict: input.verdict
+        emits:
+          - conductor.improvement.FindingVerified
+        payload:
+          conductor.improvement.FindingVerified:
+            finding_id: input.finding_id
+            verdict: input.verdict
+        summary: The metric moved; the finding's story did what it was filed for.
+      - name: closed
+        moves: conductor.improvement.FrictionFinding.close
+        instance: finding_id
+        sets:
+          verdict: input.verdict
+        emits:
+          - conductor.improvement.FindingClosed
+        payload:
+          conductor.improvement.FindingClosed:
+            finding_id: input.finding_id
+            verdict: input.verdict
+        summary: The metric did not move; the friction is raised again as a new finding.
+      - name: no-such-finding
+        unknown_instance: true
+        error: conductor.improvement.FindingNotFound
+        payload:
+          conductor.improvement.FindingNotFound:
+            finding_id: input.finding_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.improvement.FindingStateConflict
+        payload:
+          conductor.improvement.FindingStateConflict:
+            finding_id: input.finding_id
+        summary: Only a filed finding is verified.
+
+events:
+  - name: conductor.improvement.MetricDefined
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: name
+        type: String
+      - name: unit
+        type: String
+
+  - name: conductor.improvement.MetricTargetSet
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: target
+        type: Decimal
+      - name: direction
+        type: conductor.improvement.TargetDirection
+      - name: target_owner
+        type: String
+
+  - name: conductor.improvement.MetricReadingRecorded
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: day
+        type: String
+      - name: scope
+        type: String
+      - name: value
+        type: Decimal
+
+  - name: conductor.improvement.MetricReadingSuperseded
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+      - name: by
+        type: conductor.improvement.MetricReadingId
+
+  - name: conductor.improvement.FindingRaised
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+      - name: signature
+        type: String
+      - name: evidence
+        type: List<String>
+      - name: metric_id
+        type: conductor.improvement.MetricId
+
+  - name: conductor.improvement.FindingFiled
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+      - name: story
+        type: String
+
+  - name: conductor.improvement.FindingVerified
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+      - name: verdict
+        type: String
+
+  - name: conductor.improvement.FindingClosed
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+      - name: verdict
+        type: String
+
+views:
+  # Every metric, KPI or not, with its state: `Targeted` is a KPI.
+  - name: conductor.improvement.Metrics
+    source: conductor.improvement.Metric
+    consistency: read_your_writes
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: state
+        type: conductor.improvement.Metric.State
+      - name: name
+        type: String
+      - name: unit
+        type: String
+      - name: instrument
+        type: String
+      - name: definition
+        type: String
+      - name: baseline
+        type: Optional<Decimal>
+      - name: baseline_period
+        type: Optional<String>
+      - name: target
+        type: Optional<Decimal>
+      - name: direction
+        type: Optional<conductor.improvement.TargetDirection>
+      - name: target_owner
+        type: Optional<String>
+      - name: target_set_at
+        type: Optional<Timestamp>
+    naming:
+      wire: metrics
+      display: Metrics
+
+  # The KPIs: the metrics the operator set a target for (story:metrics-naming), each with its
+  # target. Whether a KPI meets it is a reading's fact (`met` in `MetricReadings`), judged
+  # against the target held when the reading was recorded; the newest reading's `met` is whether
+  # the KPI meets its target now, which `KpiReadings` lists.
+  - name: conductor.improvement.Kpis
+    source: conductor.improvement.Metric
+    consistency: read_your_writes
+    filter: state == Targeted
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: state
+        type: conductor.improvement.Metric.State
+      - name: name
+        type: String
+      - name: unit
+        type: String
+      - name: instrument
+        type: String
+      - name: baseline
+        type: Optional<Decimal>
+      - name: target
+        type: Optional<Decimal>
+      - name: direction
+        type: Optional<conductor.improvement.TargetDirection>
+      - name: target_owner
+        type: Optional<String>
+      - name: target_set_at
+        type: Optional<Timestamp>
+    naming:
+      wire: kpis
+      display: KPIs
+
+  # Every reading of every metric, one row per metric, scope and day: the series the board and
+  # the dashboard chart, and the trend of each KPI.
+  - name: conductor.improvement.MetricReadings
+    source: conductor.improvement.MetricReading
+    consistency: read_your_writes
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+      - name: state
+        type: conductor.improvement.MetricReading.State
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: day
+        type: String
+      - name: scope
+        type: String
+      - name: value
+        type: Decimal
+      - name: sources
+        type: List<String>
+      - name: target
+        type: Optional<Decimal>
+      - name: met
+        type: Optional<Boolean>
+      - name: recorded_at
+        type: Timestamp
+    naming:
+      wire: metric-readings
+      display: Metric readings
+
+  # Each KPI's newest instance-wide reading (story:kpi-records, story:metrics-naming): the
+  # `Recorded` reading of scope `instance` that was judged against a target, with that target and
+  # whether it met it. A KPI whose newest reading was recorded before its target was set has no
+  # row until its next reading.
+  - name: conductor.improvement.KpiReadings
+    source: conductor.improvement.MetricReading
+    consistency: read_your_writes
+    filter:
+      all:
+        - state == Recorded
+        - scope == "instance"
+        - defined(target)
+    fields:
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: scope
+        type: String
+      - name: day
+        type: String
+      - name: value
+        type: Decimal
+      - name: target
+        type: Optional<Decimal>
+      - name: met
+        type: Optional<Boolean>
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+    naming:
+      wire: kpi-readings
+      display: KPI readings
+
+  # Every friction finding with its state, evidence, metric and story.
+  - name: conductor.improvement.Findings
+    source: conductor.improvement.FrictionFinding
+    consistency: read_your_writes
+    fields:
+      - name: finding_id
+        type: conductor.improvement.FindingId
+      - name: state
+        type: conductor.improvement.FrictionFinding.State
+      - name: signature
+        type: String
+      - name: evidence
+        type: List<String>
+      - name: metric_id
+        type: conductor.improvement.MetricId
+      - name: raised_at
+        type: Timestamp
+      - name: story
+        type: Optional<String>
+      - name: verdict
+        type: Optional<String>
+    naming:
+      wire: findings
+      display: Friction findings

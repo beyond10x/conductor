@@ -154,6 +154,12 @@ entities:
         type: String
       - name: exit_evidence
         type: String
+      # The evidence MarkGoalMet was given; absent until the goal is met.
+      - name: evidence
+        type: Optional<String>
+      # The reason DropGoal was given; absent unless the goal was dropped.
+      - name: reason
+        type: Optional<String>
     relations:
       - name: servings
         kind: owns
@@ -530,6 +536,8 @@ commands:
       - name: met
         moves: conductor.direction.Goal.meet
         instance: goal_id
+        sets:
+          evidence: input.evidence
         emits:
           - conductor.direction.GoalMet
         payload:
@@ -574,6 +582,8 @@ commands:
       - name: dropped
         moves: conductor.direction.Goal.drop
         instance: goal_id
+        sets:
+          reason: input.reason
         emits:
           - conductor.direction.GoalDropped
         payload:
@@ -767,6 +777,10 @@ views:
         type: String
       - name: exit_evidence
         type: String
+      - name: evidence
+        type: Optional<String>
+      - name: reason
+        type: Optional<String>
     naming:
       wire: goals
       display: Goals

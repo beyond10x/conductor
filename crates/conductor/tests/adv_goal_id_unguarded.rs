@@ -180,6 +180,8 @@ fn assert_unkeepable(state: &Path, what: &str, goal: &str, reason: &str) {
                 goal_id: GoalId(goal.to_owned()),
                 title: "unkeepable".to_owned(),
                 exit_evidence: "evidence".to_owned(),
+                evidence: None,
+                reason: None,
             },
         },
     );

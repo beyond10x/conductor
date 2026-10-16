@@ -45,9 +45,11 @@ types:
 
   # Why a grant was released: the command exited, it was killed, or the next command that read
   # the ledger found its process group gone. A slot handed back by conductor carries no reason.
+  # `SessionStopped` is why a waiting request was withdrawn when the session that made it was no
+  # longer running (story:build-run-session-bound); a request withdrawn on a signal carries none.
   - name: conductor.host.ReleaseReason
     kind: enum
-    variants: [Exited, Killed, ProcessGroupGone]
+    variants: [Exited, Killed, ProcessGroupGone, SessionStopped]
 
   # What one reclaim step freed, from the reclaimable rows of `conductor gc` that need no
   # decision: the build output of an idle managed tree (no live session, no running gate), build
@@ -95,6 +97,15 @@ types:
       - {name: bytes, type: Integer}
       - {name: shortfall_bytes, type: Integer}
       - {name: left, type: List<conductor.host.LeftOver>}
+
+  # `conductor build run` withdrawn while its request waited, because the session that made it is
+  # no longer running (story:build-run-session-bound): standard error says
+  # `withdrawn: session <id> stopped`; the command never ran; the exit is 2.
+  - name: conductor.host.BuildRunWithdrawn
+    kind: struct
+    fields:
+      - {name: grant_id, type: conductor.host.GrantId}
+      - {name: session_id, type: conductor.session.SessionId}
 
   # The input of `conductor host grants`.
   - name: conductor.host.ShowGrants
@@ -152,6 +163,10 @@ entities:
       # the working directory), as recorded while it ran.
       - name: peak_bytes
         type: Optional<Integer>
+      # How often the disk watchdog paused the run, as recorded with its peak
+      # (story:build-run-pause-visible).
+      - name: pauses
+        type: Optional<Integer>
       # The command a disk reservation covers: its argv joined into one string.
       - name: command
         type: Optional<String>
@@ -160,6 +175,14 @@ entities:
         type: Optional<Integer>
       - name: session_name
         type: Optional<conductor.config.SessionName>
+      # The harness's id of the session whose `build run` made the request, from the environment
+      # the harness sets for its commands (Claude Code's `CLAUDE_CODE_SESSION_ID`)
+      # (story:build-run-session-bound). A request in `Requested` whose session the harness's
+      # session list no longer shows running is withdrawn at the next ledger pass, with
+      # `SessionStopped`. Absent when the caller is no harness session; such a request is bound
+      # to its process only.
+      - name: session_id
+        type: Optional<conductor.session.SessionId>
       # What a reclaim run freed before the reservation was granted, or before it was refused.
       - name: reclaimed_bytes
         type: Optional<Integer>
@@ -413,6 +436,8 @@ commands:
         type: Optional<conductor.observation.RepositoryName>
       - name: session_name
         type: Optional<conductor.config.SessionName>
+      - name: session_id
+        type: Optional<conductor.session.SessionId>
       - name: bytes
         type: Integer
         example: 8589934592
@@ -435,6 +460,7 @@ commands:
           instance: input.instance
           repository: input.repository
           session_name: input.session_name
+          session_id: input.session_id
           kind: Disk
           bytes: input.bytes
           command: input.command
@@ -600,6 +626,9 @@ commands:
       - name: peak_bytes
         type: Integer
         example: 6442450944
+      # How often the watchdog paused the run so far; absent, none is recorded.
+      - name: pauses
+        type: Optional<Integer>
     outcomes:
       - name: invalid-size
         when: peak_bytes < 0
@@ -614,6 +643,7 @@ commands:
         instance: grant_id
         sets:
           peak_bytes: input.peak_bytes
+          pauses: input.pauses
         emits:
           - conductor.host.PeakRecorded
         payload:
@@ -678,7 +708,9 @@ commands:
 
   # A request still waiting in the queue whose `build run` received SIGTERM, SIGINT or SIGHUP
   # (story:build-run-cancel-group): it leaves the queue, its command never runs, and `build run`
-  # exits with 128 + the signal. `released_at` is when it was withdrawn.
+  # exits with 128 + the signal. `released_at` is when it was withdrawn. A request whose session
+  # stopped (story:build-run-session-bound) is withdrawn by the next ledger pass with `reason`
+  # `SessionStopped`, and its `build run` exits 2 (`BuildRunWithdrawn`).
   - name: conductor.host.WithdrawDiskRequest
     naming:
       wire: withdraw-disk-request
@@ -688,12 +720,15 @@ commands:
         type: conductor.host.GrantId
       - name: withdrawn_at
         type: Timestamp
+      - name: reason
+        type: Optional<conductor.host.ReleaseReason>
     outcomes:
       - name: withdrawn
         moves: conductor.host.HostGrant.withdraw
         instance: grant_id
         sets:
           released_at: input.withdrawn_at
+          release_reason: input.reason
         emits:
           - conductor.host.DiskRequestWithdrawn
         payload:
@@ -813,12 +848,16 @@ views:
         type: Optional<Integer>
       - name: peak_bytes
         type: Optional<Integer>
+      - name: pauses
+        type: Optional<Integer>
       - name: command
         type: Optional<String>
       - name: process_group
         type: Optional<Integer>
       - name: session_name
         type: Optional<conductor.config.SessionName>
+      - name: session_id
+        type: Optional<conductor.session.SessionId>
       - name: reclaimed_bytes
         type: Optional<Integer>
       - name: shortfall_bytes

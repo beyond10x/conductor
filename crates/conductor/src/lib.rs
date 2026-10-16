@@ -28,6 +28,7 @@ pub mod guard;
 pub mod host;
 pub mod init;
 pub mod message;
+pub mod metric;
 pub mod records;
 pub mod repository;
 pub mod resource;

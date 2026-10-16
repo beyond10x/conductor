@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:build-run-session-bound
 kind: story
-status: draft
+status: implemented
 title: A build request ends when the session that made it stops
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T11:24:26Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T11:24:26Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T11:24:27Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: build-run-session-bound
 

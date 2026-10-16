@@ -236,6 +236,8 @@ fn adv_the_state_dir_given_before_and_after_the_subcommand_takes_the_later_value
             "state": "Draft",
             "title": "In second",
             "exit_evidence": "G2 is listed",
+            "evidence": null,
+            "reason": null,
         }]),
         "{infeasible}: {}",
         describe(&across)

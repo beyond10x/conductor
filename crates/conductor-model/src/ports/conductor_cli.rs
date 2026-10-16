@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 8edad738c6b5689ba394ca170ba4f1bdba8e03a517cceb3adee4fb4b6566a0df
-// contract digest b63ca81a4b13794d6772aed33575fa3e4e1ed6bca22c18a46e3a425a0ae59e38
+// model digest 6d653976692f5ee4c6fc02dec9822f5ba498946d6f3a4549131eb0a3881b5b9d
+// contract digest c90b09bc1a4fb6c7523648ca709e830ffb26234389d4e5db6be455884a5e49d3
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -110,6 +110,22 @@ pub enum PublishedEvent {
     ReclaimFloorNotReached(crate::host::ReclaimFloorNotReached),
     /// `conductor.host.RunStarted`.
     RunStarted(crate::host::RunStarted),
+    /// `conductor.improvement.FindingClosed`.
+    FindingClosed(crate::improvement::FindingClosed),
+    /// `conductor.improvement.FindingFiled`.
+    FindingFiled(crate::improvement::FindingFiled),
+    /// `conductor.improvement.FindingRaised`.
+    FindingRaised(crate::improvement::FindingRaised),
+    /// `conductor.improvement.FindingVerified`.
+    FindingVerified(crate::improvement::FindingVerified),
+    /// `conductor.improvement.MetricDefined`.
+    MetricDefined(crate::improvement::MetricDefined),
+    /// `conductor.improvement.MetricReadingRecorded`.
+    MetricReadingRecorded(crate::improvement::MetricReadingRecorded),
+    /// `conductor.improvement.MetricReadingSuperseded`.
+    MetricReadingSuperseded(crate::improvement::MetricReadingSuperseded),
+    /// `conductor.improvement.MetricTargetSet`.
+    MetricTargetSet(crate::improvement::MetricTargetSet),
     /// `conductor.observation.BlockerRecorded`.
     BlockerRecorded(crate::observation::BlockerRecorded),
     /// `conductor.observation.BoardPublished`.
@@ -178,7 +194,7 @@ impl<B> ConductorCli<B> {
 
 impl<B> ConductorCli<B>
 where
-    B: crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionForRequestBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::host::obligations::WithdrawDiskRequestBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSecretSyncBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordUsageBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SecretSyncsQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::UsageReadingsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::LeasesQuery,
+    B: crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionForRequestBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::host::obligations::WithdrawDiskRequestBehavior + crate::improvement::obligations::DefineMetricBehavior + crate::improvement::obligations::FileFindingBehavior + crate::improvement::obligations::RaiseFindingBehavior + crate::improvement::obligations::RecordMetricReadingBehavior + crate::improvement::obligations::SetMetricTargetBehavior + crate::improvement::obligations::SupersedeMetricReadingBehavior + crate::improvement::obligations::VerifyFindingBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSecretSyncBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordUsageBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::improvement::obligations::FindingsQuery + crate::improvement::obligations::KpiReadingsQuery + crate::improvement::obligations::KpisQuery + crate::improvement::obligations::MetricReadingsQuery + crate::improvement::obligations::MetricsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SecretSyncsQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::UsageReadingsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::LeasesQuery,
 {
     /// Accepts `conductor.decision.AnswerEscalatedRequest`: runs the behaviour obligation, then publishes the declared events
     /// the outcome carries.
@@ -1023,6 +1039,129 @@ where
         Ok(outcome)
     }
 
+    /// Accepts `conductor.improvement.DefineMetric`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn define_metric(&mut self, input: crate::improvement::DefineMetric) -> Result<crate::improvement::DefineMetricOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.define_metric(input)?;
+        match &outcome {
+            crate::improvement::DefineMetricOutcome::Defined { metric_defined, .. } => {
+                self.outbox.push(PublishedEvent::MetricDefined(metric_defined.clone()));
+            }
+            crate::improvement::DefineMetricOutcome::AlreadyDefined { .. } => {}
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.improvement.FileFinding`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn file_finding(&mut self, input: crate::improvement::FileFinding) -> Result<crate::improvement::FileFindingOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.file_finding(input)?;
+        match &outcome {
+            crate::improvement::FileFindingOutcome::Filed { finding_filed, .. } => {
+                self.outbox.push(PublishedEvent::FindingFiled(finding_filed.clone()));
+            }
+            crate::improvement::FileFindingOutcome::NoSuchFinding { .. } => {}
+            crate::improvement::FileFindingOutcome::WrongState { .. } => {}
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.improvement.RaiseFinding`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn raise_finding(&mut self, input: crate::improvement::RaiseFinding) -> Result<crate::improvement::RaiseFindingOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.raise_finding(input)?;
+        match &outcome {
+            crate::improvement::RaiseFindingOutcome::NoSuchMetric { .. } => {}
+            crate::improvement::RaiseFindingOutcome::AlreadyRaised { .. } => {}
+            crate::improvement::RaiseFindingOutcome::Raised { finding_raised, .. } => {
+                self.outbox.push(PublishedEvent::FindingRaised(finding_raised.clone()));
+            }
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.improvement.RecordMetricReading`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn record_metric_reading(&mut self, input: crate::improvement::RecordMetricReading) -> Result<crate::improvement::RecordMetricReadingOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.record_metric_reading(input)?;
+        match &outcome {
+            crate::improvement::RecordMetricReadingOutcome::NoSuchMetric { .. } => {}
+            crate::improvement::RecordMetricReadingOutcome::AlreadyRecorded { .. } => {}
+            crate::improvement::RecordMetricReadingOutcome::Recorded { metric_reading_recorded, .. } => {
+                self.outbox.push(PublishedEvent::MetricReadingRecorded(metric_reading_recorded.clone()));
+            }
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.improvement.SetMetricTarget`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn set_metric_target(&mut self, input: crate::improvement::SetMetricTarget) -> Result<crate::improvement::SetMetricTargetOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.set_metric_target(input)?;
+        match &outcome {
+            crate::improvement::SetMetricTargetOutcome::Targeted { metric_target_set, .. } => {
+                self.outbox.push(PublishedEvent::MetricTargetSet(metric_target_set.clone()));
+            }
+            crate::improvement::SetMetricTargetOutcome::Retargeted { metric_target_set, .. } => {
+                self.outbox.push(PublishedEvent::MetricTargetSet(metric_target_set.clone()));
+            }
+            crate::improvement::SetMetricTargetOutcome::NoSuchMetric { .. } => {}
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.improvement.SupersedeMetricReading`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn supersede_metric_reading(&mut self, input: crate::improvement::SupersedeMetricReading) -> Result<crate::improvement::SupersedeMetricReadingOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.supersede_metric_reading(input)?;
+        match &outcome {
+            crate::improvement::SupersedeMetricReadingOutcome::Superseded { metric_reading_superseded, .. } => {
+                self.outbox.push(PublishedEvent::MetricReadingSuperseded(metric_reading_superseded.clone()));
+            }
+            crate::improvement::SupersedeMetricReadingOutcome::NoSuchReading { .. } => {}
+            crate::improvement::SupersedeMetricReadingOutcome::WrongState { .. } => {}
+        }
+        Ok(outcome)
+    }
+
+    /// Accepts `conductor.improvement.VerifyFinding`: runs the behaviour obligation, then publishes the declared events
+    /// the outcome carries.
+    ///
+    /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
+    /// arrives as a variant of the outcome type, refusals included.
+    pub fn verify_finding(&mut self, input: crate::improvement::VerifyFinding) -> Result<crate::improvement::VerifyFindingOutcome, crate::obligation::UnmetObligation> {
+        let outcome = self.behaviors.verify_finding(input)?;
+        match &outcome {
+            crate::improvement::VerifyFindingOutcome::Verified { finding_verified, .. } => {
+                self.outbox.push(PublishedEvent::FindingVerified(finding_verified.clone()));
+            }
+            crate::improvement::VerifyFindingOutcome::Closed { finding_closed, .. } => {
+                self.outbox.push(PublishedEvent::FindingClosed(finding_closed.clone()));
+            }
+            crate::improvement::VerifyFindingOutcome::NoSuchFinding { .. } => {}
+            crate::improvement::VerifyFindingOutcome::WrongState { .. } => {}
+        }
+        Ok(outcome)
+    }
+
     /// Accepts `conductor.observation.CompleteSnapshot`: runs the behaviour obligation, then publishes the declared events
     /// the outcome carries.
     ///
@@ -1386,6 +1525,31 @@ where
     /// Serves `conductor.host.ReclaimRuns` at `read_your_writes` consistency, from the owed projection.
     pub fn reclaim_runs(&self) -> Result<Vec<crate::host::ReclaimRuns>, crate::obligation::UnmetObligation> {
         self.behaviors.reclaim_runs()
+    }
+
+    /// Serves `conductor.improvement.Findings` at `read_your_writes` consistency, from the owed projection.
+    pub fn findings(&self) -> Result<Vec<crate::improvement::Findings>, crate::obligation::UnmetObligation> {
+        self.behaviors.findings()
+    }
+
+    /// Serves `conductor.improvement.KpiReadings` at `read_your_writes` consistency, from the owed projection.
+    pub fn kpi_readings(&self) -> Result<Vec<crate::improvement::KpiReadings>, crate::obligation::UnmetObligation> {
+        self.behaviors.kpi_readings()
+    }
+
+    /// Serves `conductor.improvement.Kpis` at `read_your_writes` consistency, from the owed projection.
+    pub fn kpis(&self) -> Result<Vec<crate::improvement::Kpis>, crate::obligation::UnmetObligation> {
+        self.behaviors.kpis()
+    }
+
+    /// Serves `conductor.improvement.MetricReadings` at `read_your_writes` consistency, from the owed projection.
+    pub fn metric_readings(&self) -> Result<Vec<crate::improvement::MetricReadings>, crate::obligation::UnmetObligation> {
+        self.behaviors.metric_readings()
+    }
+
+    /// Serves `conductor.improvement.Metrics` at `read_your_writes` consistency, from the owed projection.
+    pub fn metrics(&self) -> Result<Vec<crate::improvement::Metrics>, crate::obligation::UnmetObligation> {
+        self.behaviors.metrics()
     }
 
     /// Serves `conductor.observation.Blockers` at `read_your_writes` consistency, from the owed projection.

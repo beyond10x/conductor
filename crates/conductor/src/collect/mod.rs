@@ -17,13 +17,17 @@
 use std::cell::Cell;
 use std::fmt;
 use std::io::Read;
+use std::os::unix::process::CommandExt as _;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::thread::{self, JoinHandle};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use conductor_model::config::{Checkouts, GitHubSource, Instance, LocalSource, Source};
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
 
 use crate::config;
 use crate::snapshot::Recorder;
@@ -503,15 +507,31 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
     let program = command.get_program().to_string_lossy().into_owned();
     let left = spent()?;
     let limit = left.map_or(bound, |left| left.min(bound));
+    // The command leads a process group of its own, so what it leaves running can be stopped
+    // with it when the bound is spent.
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn()
         .with_context(|| format!("start `{program}`"))?;
+    let group = i32::try_from(child.id()).ok().map(Pid::from_raw);
     let stdout = child.stdout.take().map(drain);
     let stderr = child.stderr.take().map(drain);
     let started = Instant::now();
+    let expired = |child: &mut Child| {
+        let _ = child.kill();
+        if let Some(group) = group {
+            let _ = killpg(group, Signal::SIGKILL);
+        }
+        let _ = child.wait();
+        if left.is_some_and(|left| left < bound) {
+            anyhow::Error::new(OverBudget)
+        } else {
+            anyhow::anyhow!("`{program}` gave no answer within {} s", bound.as_secs())
+        }
+    };
     let status = loop {
         if let Some(status) = child
             .try_wait()
@@ -520,36 +540,38 @@ pub fn run(command: &mut Command, bound: Duration) -> Result<Output> {
             break status;
         }
         if started.elapsed() >= limit {
-            let _ = child.kill();
-            let _ = child.wait();
-            if left.is_some_and(|left| left < bound) {
-                return Err(anyhow::Error::new(OverBudget));
-            }
-            bail!("`{program}` gave no answer within {} s", bound.as_secs());
+            return Err(expired(&mut child));
         }
         thread::sleep(Duration::from_millis(20));
     };
+    // The pipes close when every holder has exited: a descendant that outlives the command keeps
+    // them open, and the bound covers that wait too.
+    let read = |reader: Option<Receiver<Vec<u8>>>| match reader {
+        None => Some(Vec::new()),
+        Some(reader) => reader
+            .recv_timeout(limit.saturating_sub(started.elapsed()))
+            .ok(),
+    };
+    let (Some(stdout), Some(stderr)) = (read(stdout), read(stderr)) else {
+        return Err(expired(&mut child));
+    };
     Ok(Output {
         status,
-        stdout: collected(stdout),
-        stderr: collected(stderr),
+        stdout,
+        stderr,
     })
 }
 
-/// Reads `pipe` to its end on a thread of its own, so a full pipe never stalls the child.
-fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
+/// Reads `pipe` to its end on a thread of its own, so a full pipe never stalls the child; the
+/// bytes arrive on the returned channel.
+fn drain(mut pipe: impl Read + Send + 'static) -> Receiver<Vec<u8>> {
+    let (send, receive) = mpsc::channel();
     thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = pipe.read_to_end(&mut bytes);
-        bytes
-    })
-}
-
-/// What a [`drain`] thread read; nothing when there was no pipe or the thread panicked.
-fn collected(reader: Option<JoinHandle<Vec<u8>>>) -> Vec<u8> {
-    reader
-        .and_then(|reader| reader.join().ok())
-        .unwrap_or_default()
+        let _ = send.send(bytes);
+    });
+    receive
 }
 
 #[cfg(test)]

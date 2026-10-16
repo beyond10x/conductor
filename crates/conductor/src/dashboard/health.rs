@@ -35,8 +35,8 @@ use conductor_model::observation::obligations::{
     CollectorRunsQuery, MemberFailuresQuery, SnapshotsQuery,
 };
 use conductor_model::observation::{
-    CollectorRunObservationSnapshot, CollectorRuns, FailureClass, MemberFailureObservationSnapshot,
-    MemberFailures, ObservationId, SnapshotId, SnapshotSnapshot,
+    CollectorRunObservationSnapshot, CollectorRuns, DashboardMemory, FailureClass,
+    MemberFailureObservationSnapshot, MemberFailures, ObservationId, SnapshotId, SnapshotSnapshot,
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -269,7 +269,13 @@ fn fix(class: FailureClass) -> (&'static str, &'static str) {
 /// `/api/health` from `sources`, with the last disk-waste measurement `waste`, the doctor cache
 /// `doctor` and the newest snapshot with its rows `newest` ([`newest`], which the server keeps
 /// until the store is written), the home directory written `~`.
-pub(super) fn answer(sources: &Sources, doctor: &Doctor, waste: Value, newest: Newest) -> Value {
+pub(super) fn answer(
+    sources: &Sources,
+    doctor: &Doctor,
+    waste: Value,
+    newest: Newest,
+    memory: &DashboardMemory,
+) -> Value {
     let health = &sources.health;
     let (snapshot, collector_runs, member_failures, mut errors) = newest;
     let data = json!({
@@ -279,10 +285,36 @@ pub(super) fn answer(sources: &Sources, doctor: &Doctor, waste: Value, newest: N
         "collector_runs": collector_runs,
         "member_failures": member_failures,
         "disk": disk(health, waste, &mut errors),
+        "memory": memory_view(memory),
         "errors": errors,
     });
     let home = sources.home.display().to_string();
     tilde_all(data, home.trim_end_matches('/'))
+}
+
+/// The `memory` part of the answer: `conductor.observation.DashboardMemory`'s fields.
+fn memory_view(memory: &DashboardMemory) -> Value {
+    json!({
+        "rss_bytes": memory.rss_bytes,
+        "store_handles": memory.store_handles,
+        "store_replays": memory.store_replays,
+        "store_replays_peak": memory.store_replays_peak,
+        "store_bytes": memory.store_bytes,
+        "memo_entries": memory.memo_entries,
+        "memo_entries_peak_endpoint": memory.memo_entries_peak_endpoint,
+        "memo_bytes": memory.memo_bytes,
+    })
+}
+
+/// This process's resident set in bytes, `VmRSS` of `/proc/self/status`; none where the system
+/// does not report it there.
+pub(super) fn rss_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let line = status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))?;
+    let kib: u64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
+    kib.checked_mul(1024)
 }
 
 /// The newest snapshot, its collector runs, its member failures, and what could not be read.

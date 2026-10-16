@@ -139,6 +139,21 @@ Every command takes these, before or after its name.
 | [`conductor host grants`](#conductor-host-grants) | Host grants |
 | [`conductor host reclaim-runs`](#conductor-host-reclaim-runs) | Reclaim runs |
 | [`conductor host reclaim`](#conductor-host-reclaim) | Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached |
+| [`conductor metric`](#conductor-metric) | The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs |
+| [`conductor metric define-metric`](#conductor-metric-define-metric) | Define a metric |
+| [`conductor metric record-metric-reading`](#conductor-metric-record-metric-reading) | Record a metric's reading |
+| [`conductor metric set-metric-target`](#conductor-metric-set-metric-target) | Set a metric's target |
+| [`conductor metric supersede-metric-reading`](#conductor-metric-supersede-metric-reading) | Supersede a metric's reading |
+| [`conductor metric kpi-readings`](#conductor-metric-kpi-readings) | KPI readings |
+| [`conductor metric kpis`](#conductor-metric-kpis) | KPIs |
+| [`conductor metric metric-readings`](#conductor-metric-metric-readings) | Metric readings |
+| [`conductor metric metrics`](#conductor-metric-metrics) | Metrics |
+| [`conductor metric compute`](#conductor-metric-compute) | Compute one UTC day's readings of K1, K2, K4, K5, K6 and K12 from the records' decision and dispatch logs, the newest complete snapshot and the store's daily rollups, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value |
+| [`conductor finding`](#conductor-finding) | Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move |
+| [`conductor finding file-finding`](#conductor-finding-file-finding) | File a finding as a draft story |
+| [`conductor finding raise-finding`](#conductor-finding-raise-finding) | Raise a friction finding |
+| [`conductor finding verify-finding`](#conductor-finding-verify-finding) | Verify a filed finding |
+| [`conductor finding findings`](#conductor-finding-findings) | Friction findings |
 | [`conductor build`](#conductor-build) |  |
 | [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
@@ -418,7 +433,7 @@ Usage: conductor snapshot record-specification [OPTIONS]
 |---|---|---|---|
 | `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--presence <PRESENCE>` | no | none | SpecificationPresence One of `Present`, `OptedOut`, `Missing`. |
+| `--presence <PRESENCE>` | no | none | SpecificationPresence One of `Present`, `OptedOut`, `Missing`, `NotInWorkspace`. |
 | `--path <PATH>` | no | none | string, optional |
 | `--format <FORMAT>` | no | none | string, optional |
 | `--required-ess <REQUIRED_ESS>` | no | none | string, optional |
@@ -1628,6 +1643,7 @@ Usage: conductor host record-peak [OPTIONS]
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--peak-bytes <PEAK_BYTES>` | no | none | integer |
+| `--pauses <PAUSES>` | no | none | integer |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host release-grant`
@@ -1641,7 +1657,7 @@ Usage: conductor host release-grant [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
-| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`. |
+| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
 | `--released-at <RELEASED_AT>` | no | none | timestamp, RFC 3339 |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -1658,6 +1674,7 @@ Usage: conductor host request-disk [OPTIONS]
 | `--instance <INSTANCE>` | no | none | InstanceName |
 | `--repository <REPOSITORY>` | no | none | RepositoryName, optional |
 | `--session-name <SESSION_NAME>` | no | none | SessionName, optional |
+| `--session-id <SESSION_ID>` | no | none | SessionId, optional |
 | `--bytes <BYTES>` | no | none | integer |
 | `--command <COMMAND>` | no | none | string |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
@@ -1723,6 +1740,7 @@ Usage: conductor host withdraw-disk-request [OPTIONS]
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--withdrawn-at <WITHDRAWN_AT>` | no | none | timestamp, RFC 3339 |
+| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host grants`
@@ -1760,6 +1778,211 @@ Usage: conductor host reclaim [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the steps are printed: text or json. Default: text |
+
+## `conductor metric`
+
+The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs
+
+```text
+Usage: conductor metric [OPTIONS] <COMMAND>
+```
+
+## `conductor metric define-metric`
+
+Define a metric
+
+```text
+Usage: conductor metric define-metric [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--metric-id <METRIC_ID>` | no | none | MetricId |
+| `--name <NAME>` | no | none | string |
+| `--unit <UNIT>` | no | none | string |
+| `--instrument <INSTRUMENT>` | no | none | string |
+| `--definition <DEFINITION>` | no | none | string |
+| `--baseline <BASELINE>` | no | none | decimal, optional |
+| `--baseline-period <BASELINE_PERIOD>` | no | none | string, optional |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor metric record-metric-reading`
+
+Record a metric's reading
+
+```text
+Usage: conductor metric record-metric-reading [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--reading-id <READING_ID>` | no | none | MetricReadingId |
+| `--metric-id <METRIC_ID>` | no | none | MetricId |
+| `--day <DAY>` | no | none | string |
+| `--scope <SCOPE>` | no | none | string |
+| `--value <VALUE>` | no | none | decimal |
+| `--sources <SOURCES>` | no | none | list of string, a JSON array |
+| `--target <TARGET>` | no | none | decimal, optional |
+| `--met <MET>` | no | none | boolean, optional One of `true`, `false`. |
+| `--recorded-at <RECORDED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor metric set-metric-target`
+
+Set a metric's target
+
+```text
+Usage: conductor metric set-metric-target [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--metric-id <METRIC_ID>` | no | none | MetricId |
+| `--target <TARGET>` | no | none | decimal |
+| `--direction <DIRECTION>` | no | none | TargetDirection One of `AtMost`, `AtLeast`. |
+| `--target-owner <TARGET_OWNER>` | no | none | string |
+| `--target-set-at <TARGET_SET_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor metric supersede-metric-reading`
+
+Supersede a metric's reading
+
+```text
+Usage: conductor metric supersede-metric-reading [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--reading-id <READING_ID>` | no | none | MetricReadingId |
+| `--by <BY>` | no | none | MetricReadingId |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor metric kpi-readings`
+
+KPI readings
+
+```text
+Usage: conductor metric kpi-readings [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor metric kpis`
+
+KPIs
+
+```text
+Usage: conductor metric kpis [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor metric metric-readings`
+
+Metric readings
+
+```text
+Usage: conductor metric metric-readings [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor metric metrics`
+
+Metrics
+
+```text
+Usage: conductor metric metrics [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor metric compute`
+
+Compute one UTC day's readings of K1, K2, K4, K5, K6 and K12 from the records' decision and dispatch logs, the newest complete snapshot and the store's daily rollups, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value
+
+```text
+Usage: conductor metric compute [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--day <DAY>` | no | none | The UTC day to compute, YYYY-MM-DD |
+
+## `conductor finding`
+
+Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move
+
+```text
+Usage: conductor finding [OPTIONS] <COMMAND>
+```
+
+## `conductor finding file-finding`
+
+File a finding as a draft story
+
+```text
+Usage: conductor finding file-finding [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--finding-id <FINDING_ID>` | no | none | FindingId |
+| `--story <STORY>` | no | none | string |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor finding raise-finding`
+
+Raise a friction finding
+
+```text
+Usage: conductor finding raise-finding [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--finding-id <FINDING_ID>` | no | none | FindingId |
+| `--signature <SIGNATURE>` | no | none | string |
+| `--evidence <EVIDENCE>` | no | none | list of string, a JSON array |
+| `--metric-id <METRIC_ID>` | no | none | MetricId |
+| `--raised-at <RAISED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor finding verify-finding`
+
+Verify a filed finding
+
+```text
+Usage: conductor finding verify-finding [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--finding-id <FINDING_ID>` | no | none | FindingId |
+| `--moved <MOVED>` | no | none | boolean One of `true`, `false`. |
+| `--verdict <VERDICT>` | no | none | string |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor finding findings`
+
+Friction findings
+
+```text
+Usage: conductor finding findings [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
 ## `conductor build`
 

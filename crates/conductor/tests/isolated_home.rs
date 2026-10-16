@@ -363,8 +363,10 @@ fn the_helper_runs_the_binary_on_the_case_s_home_without_either_variable() {
             (OsStr::new("HOME"), Some(refused.as_os_str())),
             (OsStr::new(CONFIG_VARIABLE), None),
             (OsStr::new(INSTANCE_VARIABLE), None),
+            (OsStr::new("CLAUDE_CODE_SESSION_ID"), None),
         ]),
-        "the command sets HOME and removes both variables, and nothing else"
+        "the command sets HOME and removes both variables and the harness's session, and nothing \
+         else"
     );
 
     let show = |home: &Path| {

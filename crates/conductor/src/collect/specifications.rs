@@ -52,8 +52,10 @@
 //! error's first line ([`blockers::first_line`]), records no specification of it, and goes on with
 //! the others. So is a member [`blockers::read`] could not fetch or export when this collector's
 //! read made the exports; a repository an owner lists whose member has no export is not read. A
-//! repository an owner lists that is not archived and is no member of the workspace is an error
-//! naming it, raised before anything is recorded; a local source's repository needs no member.
+//! repository an owner lists that is not archived and is no member of the workspace is named on one
+//! standard-error line, `repository <name>: not in workspace, run conductor config workspace`,
+//! and recorded with presence `NotInWorkspace`, nothing read (`story:snapshot-unlisted-repository`);
+//! a local source's repository needs no member.
 
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
@@ -62,7 +64,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Output;
 use std::time::Duration;
 
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow};
 use conductor_model::observation::{
     RecordSpecification, RepositoryName, SnapshotId, SpecificationPresence, ValidationResult,
 };
@@ -217,8 +219,7 @@ pub fn collect(record: &mut Recorder<'_>) -> Result<()> {
 /// # Errors
 ///
 /// An owner's repository list failed twice or is not the JSON `gh` prints; a local directory
-/// cannot be listed; two origins list one name; a repository an owner lists is no member of the
-/// workspace; what [`blockers::read`] answers; or an observation or member failure the recorder
+/// cannot be listed; two origins list one name; what [`blockers::read`] answers; or an observation or member failure the recorder
 /// refused.
 pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> {
     let listed = enumerated(sources)?;
@@ -249,19 +250,29 @@ pub fn collect_from(sources: &Sources, record: &mut Recorder<'_>) -> Result<()> 
             !(matches!(origin, Origin::Owner(_)) && (absent(name) || not_exported(name)))
         })
         .collect();
-    // Every other repository an owner lists is a member: checked before anything is exported or
-    // recorded.
+    // Every other repository an owner lists is a member, or is recorded as `NotInWorkspace`
+    // (`story:snapshot-unlisted-repository`): named on standard error before anything is read.
+    let mut unlisted = BTreeSet::new();
     for (name, origin) in &listed {
         if matches!(origin, Origin::Owner(_)) && member(name).is_none() {
-            bail!(
-                "repository {name} is not archived, and no member of {} has it as its source",
-                sources.workspace.root.join(blockers::WORKSPACE).display()
-            );
+            eprintln!("repository {name}: not in workspace, run conductor config workspace");
+            unlisted.insert(name.clone());
         }
     }
     fs::create_dir_all(&sources.specs)
         .with_context(|| format!("create {}", sources.specs.display()))?;
     for (name, origin) in &listed {
+        if unlisted.contains(name) {
+            record
+                .specification(unread(
+                    name,
+                    SpecificationPresence::NotInWorkspace,
+                    None,
+                    &snapshot,
+                ))
+                .with_context(|| format!("record the specification of {name}"))?;
+            continue;
+        }
         let conformance_status =
             member(name).and_then(|member| conformance(&workspace, &member.name));
         let observed = match origin {

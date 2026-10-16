@@ -300,6 +300,27 @@ pub fn append_decision(line: &DecisionLogLine) -> Result<()> {
     append(DECISIONS, &line.at, &decision_object(line))
 }
 
+/// Whether the records' dispatch log holds a line of `event` for the dispatch `id`. Where no line
+/// is written (without a config file, a log directory `conductor init` did not make) every line
+/// counts as held, so nothing is appended later. A line that does not read is passed over.
+///
+/// # Errors
+///
+/// The log's directory cannot be made or read.
+pub fn dispatch_event_logged(id: &str, event: DispatchLogEvent) -> Result<bool> {
+    let Some(dir) = log_dir(DISPATCHES)? else {
+        return Ok(true);
+    };
+    let Some(records) = dir.parent() else {
+        return Ok(true);
+    };
+    let wanted = dispatch_event(event);
+    Ok(read_log(records, DISPATCHES)?
+        .iter()
+        .filter_map(|line| serde_json::from_str::<Value>(&line.text).ok())
+        .any(|line| line["id"] == id && line["event"] == wanted))
+}
+
 /// The directory of `log` under the active instance's records, or none where a line is not
 /// written: without a config file, a directory `conductor init` did not make.
 fn log_dir(log: &str) -> Result<Option<PathBuf>> {
@@ -478,6 +499,25 @@ fn read_log(records: &Path, log: &str) -> Result<Vec<Line>> {
         }
     }
     Ok(lines)
+}
+
+/// Every line of `log` (`dispatches` or `decisions`) under `records` that is a JSON object, files
+/// in name order, and the number of lines that are not one, which `records check` names. A log
+/// that is not there holds no line. `conductor metric compute` reads the logs through it.
+///
+/// # Errors
+///
+/// The log's directory or one of its files cannot be read.
+pub fn log_objects(records: &Path, log: &str) -> Result<(Vec<Map<String, Value>>, usize)> {
+    let mut objects = Vec::new();
+    let mut unread = 0;
+    for line in read_log(records, log)? {
+        match serde_json::from_str::<Value>(&line.text) {
+            Ok(Value::Object(object)) => objects.push(object),
+            _ => unread += 1,
+        }
+    }
+    Ok((objects, unread))
 }
 
 /// The ids of the decisions the store holds, or none when there is no store: a view creates

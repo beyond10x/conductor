@@ -183,6 +183,7 @@ impl Case {
             projects: self.projects(),
             dispatches: self.dir.join("dispatches"),
             organization: "fixture-org".to_owned(),
+            owners: Vec::new(),
             store: None,
             repositories: Vec::new(),
             runs: vec![

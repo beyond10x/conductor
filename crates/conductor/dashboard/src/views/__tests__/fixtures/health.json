@@ -109,5 +109,15 @@
       }
     ]
   },
+  "memory": {
+    "rss_bytes": 75587584,
+    "store_handles": 1,
+    "store_replays": 2,
+    "store_replays_peak": 1,
+    "store_bytes": 1607468,
+    "memo_entries": 29,
+    "memo_entries_peak_endpoint": 16,
+    "memo_bytes": 22023
+  },
   "errors": []
 }

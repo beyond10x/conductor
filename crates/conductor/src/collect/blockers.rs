@@ -108,6 +108,10 @@ const COLLECTOR: &str = "blockers";
 pub struct Sources {
     /// The directory holding [`WORKSPACE`], whose members are the checkouts.
     pub root: PathBuf,
+    /// The directory a member's repository name is taken relative to: the instance's
+    /// `checkouts.root`. `None`: [`Sources::root`]. A member outside it is named by the last
+    /// component of its `source`.
+    pub checkouts: Option<PathBuf>,
     /// The directory each member's `origin/main` is exported under, as `<repo>/`, beside the
     /// exports' own [`WORKSPACE`]. An absolute path.
     pub exports: PathBuf,
@@ -142,10 +146,12 @@ impl Sources {
     /// Without a config file, what [`root`] answers.
     pub fn of(active: &Active, state: &Path) -> Result<Self> {
         if active.from_file {
-            Ok(Self::exporting(
+            let mut sources = Self::exporting(
                 PathBuf::from(&active.instance.records),
                 PathBuf::from(&active.instance.cache).join("exports"),
-            ))
+            );
+            sources.checkouts = Some(PathBuf::from(&active.instance.checkouts.root));
+            Ok(sources)
         } else {
             Ok(Self::new(root()?, state))
         }
@@ -176,6 +182,7 @@ impl Sources {
             bound: collect::BOUND,
             exports,
             root,
+            checkouts: None,
         }
     }
 }
@@ -376,7 +383,7 @@ pub(crate) fn read(sources: &Sources, snapshot: &SnapshotId) -> Result<Workspace
         repository,
         checkout,
         state,
-    } in members_of(&listed)?
+    } in members_of(&listed, sources.checkouts.as_ref().unwrap_or(&sources.root))?
     {
         if let Some(other) = members
             .iter()
@@ -572,8 +579,40 @@ struct Listed<'a> {
     state: Option<&'a str>,
 }
 
-/// Each member `aep plan workspace members` printed.
-fn members_of(listed: &Value) -> Result<Vec<Listed<'_>>> {
+/// The repository of a member whose checkout is `checkout` and whose `source` is `source`: the
+/// checkout's path under `base` (`a/api`, so `a/api` and `b/api` stay two repositories), else, for
+/// a checkout outside `base` or `base` itself, the last component of `source`.
+fn identity(checkout: &Path, base: &Path, source: &str) -> Option<String> {
+    let under = |checkout: &Path, base: &Path| {
+        let relative = checkout.strip_prefix(base).ok()?;
+        let parts: Option<Vec<&str>> = relative
+            .components()
+            .map(|part| match part {
+                std::path::Component::Normal(part) => part.to_str(),
+                _ => None,
+            })
+            .collect();
+        let parts = parts?;
+        (!parts.is_empty()).then(|| parts.join("/"))
+    };
+    under(checkout, base)
+        .or_else(|| {
+            under(
+                &fs::canonicalize(checkout).ok()?,
+                &fs::canonicalize(base).ok()?,
+            )
+        })
+        .or_else(|| {
+            Path::new(source)
+                .file_name()
+                .and_then(OsStr::to_str)
+                .map(str::to_owned)
+        })
+}
+
+/// Each member `aep plan workspace members` printed; `base` is where its repository name is
+/// taken from ([`identity`]).
+fn members_of<'a>(listed: &'a Value, base: &Path) -> Result<Vec<Listed<'a>>> {
     listed["members"]
         .as_array()
         .ok_or_else(|| anyhow!("the member list has no `members` array"))?
@@ -581,14 +620,13 @@ fn members_of(listed: &Value) -> Result<Vec<Listed<'_>>> {
         .map(|member| {
             let name = field(member, "name")?;
             let source = field(member, "source")?;
-            let repository = Path::new(source)
-                .file_name()
-                .and_then(OsStr::to_str)
+            let checkout = PathBuf::from(field(member, "tree")?);
+            let repository = identity(&checkout, base, source)
                 .ok_or_else(|| anyhow!("the source {source:?} of {name} names no repository"))?;
             Ok(Listed {
                 name: name.to_owned(),
-                repository: repository.to_owned(),
-                checkout: PathBuf::from(field(member, "tree")?),
+                repository,
+                checkout,
                 state: member["state"].as_str(),
             })
         })
@@ -649,6 +687,9 @@ fn export(sources: &Sources, repository: &str, checkout: &Path, at: &str) -> Res
         return Ok(export);
     }
     let tar = sources.exports.join(format!("{repository}.tar"));
+    if let Some(parent) = tar.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
     let mut archive = words(&["git", "archive", "--format=tar", "-o"]);
     archive.push(tar.clone().into_os_string());
     archive.push(OsString::from(at));

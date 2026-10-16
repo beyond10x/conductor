@@ -47,7 +47,17 @@
 //!    its grant released as `Killed`. A request still waiting in the queue is withdrawn
 //!    (`WithdrawDiskRequest`), and one granted whose command has not started is released. Either
 //!    way `build run` exits with 128 + the signal it received.
+//! 6. **Session-bound** (`story:build-run-session-bound`). The request records the harness session
+//!    `build run` is a command of, from [`SESSION_VARIABLE`]. Each pass of a waiting run reads the
+//!    session list ([`Sources::sessions`], `claude agents --json`) when a waiting request names a
+//!    session, without the ledger's lock, and withdraws each such request whose session the list
+//!    no longer shows running (`WithdrawDiskRequest`, `SessionStopped`). The run whose request it
+//!    was says `withdrawn: session <id> stopped` and exits 2; its command never ran. A list that
+//!    does not read withdraws nothing. The list shows no paused session apart from a working one,
+//!    so a session paused on a usage limit keeps its requests until it stops.
 
+use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
@@ -137,6 +147,13 @@ fn signal_code(signal: Signal) -> u8 {
 /// How often the watchdog reads free disk when `thresholds.watchdog_every` does not read.
 const EVERY: Duration = Duration::from_secs(10);
 
+/// The variable the harness sets for the commands of a session, naming it: Claude Code's
+/// (`story:build-run-session-bound`). `build run` records it on its request.
+pub const SESSION_VARIABLE: &str = "CLAUDE_CODE_SESSION_ID";
+
+/// How long the session list ([`Sources::sessions`]) may take before it counts as unread.
+const SESSIONS_BOUND: Duration = Duration::from_secs(20);
+
 /// What the instance sets for a run: its name and its thresholds, in bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
@@ -155,6 +172,10 @@ pub struct Settings {
     /// How long a reservation waits for live reservations to release when they alone hold the
     /// space it lacks: such a shortfall ends when their runs end, and is not the operator's.
     pub wait: Duration,
+    /// The CPU cores of the host.
+    pub cores: u64,
+    /// The cores left to the desktop: `thresholds.cpu_reserve`.
+    pub cpu_reserve: u64,
 }
 
 impl Settings {
@@ -172,6 +193,8 @@ impl Settings {
             gate_stop: bytes(thresholds.gate_stop.0),
             gate_resume: bytes(thresholds.gate_resume.0),
             wait: WAIT_FOR_RESERVATIONS,
+            cores: std::thread::available_parallelism().map_or(1, |cores| cores.get() as u64),
+            cpu_reserve: u64::try_from(thresholds.cpu_reserve).unwrap_or(0),
         }
     }
 }
@@ -212,6 +235,13 @@ pub struct Sources {
     /// Writes one line of standard error, given the state directory: [`stderr`]. A case gives its
     /// own.
     pub say: fn(&Path, &str),
+    /// Reads a variable of `build run`'s own environment, which its command inherits.
+    pub env: fn(&str) -> Option<String>,
+    /// The program and arguments that print the harness's session list as one JSON array:
+    /// `claude agents --json`, as the `sessions` collector reads it. A session is running while
+    /// an entry with a `pid` names it by `id` or `sessionId`; the list keeps one that exited
+    /// without one. Empty: no list is read, and no request is withdrawn for its session.
+    pub sessions: Vec<OsString>,
 }
 
 /// Writes `line` to standard error.
@@ -238,6 +268,8 @@ impl Sources {
                 .filter(|home| home.is_absolute()),
             var_tmp: PathBuf::from("/var/tmp"),
             say: stderr,
+            env: |name| std::env::var(name).ok(),
+            sessions: ["claude", "agents", "--json"].map(OsString::from).to_vec(),
         }
     }
 }
@@ -285,6 +317,14 @@ pub enum Outcome {
         /// The signal received.
         signal: Signal,
     },
+    /// The request, still waiting in the queue, was withdrawn because the session that made it
+    /// is no longer running (`story:build-run-session-bound`): the command never ran.
+    Withdrawn {
+        /// The withdrawn grant.
+        grant: GrantId,
+        /// The session that stopped.
+        session: String,
+    },
     /// Reclaim could not reach the size: the command never ran.
     Refused {
         /// The refused grant.
@@ -303,13 +343,14 @@ pub enum Outcome {
 }
 
 impl Outcome {
-    /// The exit status of `build run`: the command's, or 2 when it was refused.
+    /// The exit status of `build run`: the command's, or 2 when it was refused or its session
+    /// stopped while it waited.
     #[must_use]
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Ran { code, .. } => *code,
             Self::Stopped { signal, .. } => signal_code(*signal),
-            Self::Refused { .. } => 2,
+            Self::Refused { .. } | Self::Withdrawn { .. } => 2,
         }
     }
 }
@@ -355,7 +396,7 @@ pub fn run(
     sources: &Sources,
     request: &Request,
 ) -> Result<Outcome> {
-    let Some((program, arguments)) = request.command.split_first() else {
+    let Some((program, _)) = request.command.split_first() else {
         bail!("build run: no command: write it after `--`");
     };
     let command = request.command.join(" ");
@@ -371,10 +412,13 @@ pub fn run(
             &format!("conductor: build run: the fall's operator item was not withdrawn: {error:#}"),
         );
     }
-    let grant = ledger.request(
+    // The harness session this run is a command of (`story:build-run-session-bound`).
+    let session = (sources.env)(SESSION_VARIABLE).filter(|id| !id.trim().is_empty());
+    let grant = ledger.request_of(
         &settings.instance,
         request.repository.as_deref(),
         request.session_name.as_deref(),
+        session.as_deref(),
         request.reserve,
         &command,
         &at,
@@ -402,6 +446,7 @@ pub fn run(
     let mut held = Duration::ZERO;
     let mut queued = Duration::ZERO;
     let mut told = None;
+    let mut unread_told = false;
     let pause = sources.every.max(Duration::from_millis(10));
     loop {
         // A signal while the request waits withdraws it: it leaves the queue, and the command
@@ -416,6 +461,17 @@ pub fn run(
                 grant.0
             ));
             return Ok(Outcome::Stopped { grant, signal });
+        }
+        // A ledger pass withdrew the request: the session that made it stopped.
+        if let Some(session) = ledger.stopped_session(&grant)? {
+            drop(ledger);
+            host::end_run(host, &grant, run_lock);
+            say(&format!(
+                "conductor: build run: withdrawn: session {session} stopped; the command did not \
+                 run (grant {})",
+                grant.0
+            ));
+            return Ok(Outcome::Withdrawn { grant, session });
         }
         let before = ledger.ahead_bytes(&grant)?;
         let ahead = before.len();
@@ -497,11 +553,27 @@ pub fn run(
             ));
             told = Some(ahead);
         }
+        // The ledger pass (`story:build-run-session-bound`): the requests waiting for a session
+        // the session list shows stopped are withdrawn. The list is read without the lock, and
+        // only a request that waited before it was read is withdrawn.
+        let bound = ledger.session_bound()?;
         drop(ledger);
-        pause_unless_received(pause);
-        queued += pause;
+        let stopped = stopped_sessions(sources, state, &bound, &mut unread_told);
+        if stopped.is_empty() {
+            pause_unless_received(pause);
+            queued += pause;
+        }
         ledger = Ledger::lock(host)?;
-        ledger.sweep(&host::now((sources.clock)()))?;
+        let at = host::now((sources.clock)());
+        ledger.sweep(&at)?;
+        for (stopped, session) in &stopped {
+            if ledger.withdraw_stopped(stopped, &at)? && *stopped != grant {
+                say(&format!(
+                    "conductor: build run: withdrew grant {}: session {session} stopped",
+                    stopped.0
+                ));
+            }
+        }
     }
     // Only a shortfall live reservations do not cover needs a person.
     let beyond_reservations = short > ledger.reserved(Some(&grant))?;
@@ -592,12 +664,12 @@ pub fn run(
         return Ok(Outcome::Stopped { grant, signal });
     }
 
-    let mut child = match Command::new(program)
-        .args(arguments)
-        .current_dir(&request.cwd)
-        .process_group(0)
-        .spawn()
-    {
+    let mut command = yielding(&request.command);
+    command.current_dir(&request.cwd).process_group(0);
+    for (name, value) in job_variables(settings, sources) {
+        command.env(name, value);
+    }
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             let at = host::now((sources.clock)());
@@ -635,6 +707,18 @@ pub fn run(
         .join()
         .map_err(|_| anyhow!("build run: the disk watchdog panicked"))?;
     let status = status.context("build run: wait for the command")?;
+    if watched.paused > 0 {
+        // A red run during a pause is recognised as one (story:build-run-pause-visible).
+        (sources.say)(
+            state,
+            &format!(
+                "conductor: build run: paused {} times for {}s during this run; a failure may \
+                 come from the pause",
+                watched.paused,
+                watched.paused_for.as_secs()
+            ),
+        );
+    }
 
     let (code, killed) = match (stopped_by, status.code(), status.signal()) {
         (Some(signal), _, _) => {
@@ -652,7 +736,7 @@ pub fn run(
         .peak
         .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
         .saturating_sub(watched.start);
-    if let Err(error) = host::record_peak_of(host, &grant, peak) {
+    if let Err(error) = host::record_run_of(host, &grant, peak, watched.paused) {
         (sources.say)(
             state,
             &format!("conductor: build run: the peak was not recorded: {error:#}"),
@@ -679,6 +763,38 @@ pub fn run(
         paused: watched.paused,
         resumed: watched.resumed,
     })
+}
+
+/// The command at the lowest priority: `nice -n 19`, and `ionice -c3` (idle I/O class) when the
+/// host has one. Both exec the command, so the process group and its leader stay the command's.
+fn yielding(command: &[String]) -> Command {
+    let mut argv: Vec<&str> = vec!["nice", "-n", "19"];
+    if on_path("ionice") {
+        argv.extend(["ionice", "-c3"]);
+    }
+    argv.extend(command.iter().map(String::as_str));
+    let mut wrapped = Command::new(argv[0]);
+    wrapped.args(&argv[1..]);
+    wrapped
+}
+
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+}
+
+/// The variables that keep the command's builds off the desktop's last cores: `CARGO_BUILD_JOBS`
+/// and `MAKEFLAGS=-j` of the cores less `thresholds.cpu_reserve` (at least one), each unless the
+/// environment of `build run` already holds it (`story:build-run-spare-cores`).
+fn job_variables(settings: &Settings, sources: &Sources) -> Vec<(&'static str, String)> {
+    let jobs = settings.cores.saturating_sub(settings.cpu_reserve).max(1);
+    [
+        ("CARGO_BUILD_JOBS", jobs.to_string()),
+        ("MAKEFLAGS", format!("-j{jobs}")),
+    ]
+    .into_iter()
+    .filter(|(name, _)| (sources.env)(name).is_none())
+    .collect()
 }
 
 /// Waits for the command `child`, the leader of the process group `group`, to end. A signal
@@ -761,6 +877,71 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
     Ok(ExitCode::from(outcome.exit_code()))
 }
 
+/// The requests of `bound` (waiting, each with the session that made it) whose session the
+/// session list ([`Sources::sessions`]) no longer shows running (`story:build-run-session-bound`).
+/// None while `bound` is empty, since then no list is read, and none when the list does not read:
+/// a request is withdrawn only for a session the list shows stopped. An unread list is named on
+/// standard error once per run (`told`).
+fn stopped_sessions(
+    sources: &Sources,
+    state: &Path,
+    bound: &[(GrantId, String)],
+    told: &mut bool,
+) -> Vec<(GrantId, String)> {
+    if bound.is_empty() || sources.sessions.is_empty() {
+        return Vec::new();
+    }
+    match running_sessions(&sources.sessions) {
+        Ok(running) => bound
+            .iter()
+            .filter(|(_, session)| !running.contains(session))
+            .cloned()
+            .collect(),
+        Err(error) => {
+            if !*told {
+                *told = true;
+                (sources.say)(
+                    state,
+                    &format!(
+                        "conductor: build run: the session list did not read, so no request is \
+                         withdrawn for its session: {error:#}"
+                    ),
+                );
+            }
+            Vec::new()
+        }
+    }
+}
+
+/// The ids of the sessions `list` prints running: each entry with a `pid`, by its `id` and its
+/// `sessionId`.
+fn running_sessions(list: &[OsString]) -> Result<HashSet<String>> {
+    let shown = list
+        .iter()
+        .map(|word| word.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let (program, arguments) = list.split_first().context("no session-list command")?;
+    let output = crate::collect::run(Command::new(program).args(arguments), SESSIONS_BOUND)
+        .with_context(|| format!("`{shown}`"))?;
+    if !output.status.success() {
+        bail!("`{shown}` exited {}", output.status);
+    }
+    let Value::Array(entries) = serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("`{shown}` printed no JSON"))?
+    else {
+        bail!("`{shown}` printed no JSON array");
+    };
+    Ok(entries
+        .iter()
+        .filter(|entry| !entry["pid"].is_null())
+        .flat_map(|entry| [entry["id"].as_str(), entry["sessionId"].as_str()])
+        .flatten()
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
 /// Names a refusal on standard error: the size, the shortfall and what reclaim freed, what reclaim
 /// left as the operator item names it ([`host::left_redacted`]: the `/var/tmp` entries as a count
 /// and a total size, the home directory as `~`), and the operator item when this refusal recorded
@@ -800,6 +981,8 @@ struct Watched {
     peak: u64,
     paused: u32,
     resumed: u32,
+    /// How long the run was stopped, over all its pauses.
+    paused_for: Duration,
 }
 
 /// The disk watchdog of one run.
@@ -825,12 +1008,12 @@ impl Watchdog {
             ..Watched::default()
         };
         let mut recorded = 0u64;
-        let mut stopped = false;
+        let mut stopped: Option<Instant> = None;
         while !wait(done, self.sources.every) {
             match free_bytes(&self.sources) {
-                Ok(free) if !stopped && free < self.settings.gate_stop => {
+                Ok(free) if stopped.is_none() && free < self.settings.gate_stop => {
                     signal(self.group, Signal::SIGSTOP);
-                    stopped = true;
+                    stopped = Some(Instant::now());
                     watched.paused += 1;
                     (self.sources.say)(
                         &self.state,
@@ -844,9 +1027,11 @@ impl Watchdog {
                     let need = self.settings.gate_resume;
                     reclaim(&self.sources, &self.state, &self.host, need);
                 }
-                Ok(free) if stopped && free >= self.settings.gate_resume => {
+                Ok(free) if stopped.is_some() && free >= self.settings.gate_resume => {
                     signal(self.group, Signal::SIGCONT);
-                    stopped = false;
+                    if let Some(since) = stopped.take() {
+                        watched.paused_for += since.elapsed();
+                    }
                     watched.resumed += 1;
                     (self.sources.say)(
                         &self.state,
@@ -869,7 +1054,7 @@ impl Watchdog {
             // only what this run has not written yet.
             let grown = watched.peak.saturating_sub(watched.start);
             if grown >= recorded.saturating_add(GIB) {
-                match host::record_peak_now(&self.host, &self.grant, grown) {
+                match host::record_peak_now(&self.host, &self.grant, grown, watched.paused) {
                     Ok(true) => recorded = grown,
                     Ok(false) => {}
                     Err(error) => {
@@ -878,8 +1063,9 @@ impl Watchdog {
                 }
             }
         }
-        if stopped {
+        if let Some(since) = stopped {
             signal(self.group, Signal::SIGCONT);
+            watched.paused_for += since.elapsed();
         }
         watched
     }

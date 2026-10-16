@@ -66,6 +66,7 @@ use conductor_model::host::{
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::{BoardId, ObservationId, RepositoryName, SnapshotId};
 use conductor_model::primitives::Timestamp;
+use conductor_model::session::SessionId;
 use nix::errno::Errno;
 use nix::sys::signal::killpg;
 use nix::unistd::Pid;
@@ -484,11 +485,33 @@ impl Ledger {
         command: &str,
         at: &Timestamp,
     ) -> Result<GrantId> {
+        self.request_of(instance, repository, session_name, None, bytes, command, at)
+    }
+
+    /// [`Ledger::request`], made by the harness session `session_id` when one is named
+    /// (`story:build-run-session-bound`): a ledger pass withdraws the request while it waits once
+    /// that session is no longer running.
+    ///
+    /// # Errors
+    ///
+    /// The specification refuses it (`InvalidSize`), or the store does not keep it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn request_of(
+        &mut self,
+        instance: &str,
+        repository: Option<&str>,
+        session_name: Option<&str>,
+        session_id: Option<&str>,
+        bytes: u64,
+        command: &str,
+        at: &Timestamp,
+    ) -> Result<GrantId> {
         const COMMAND: &str = "host request-disk";
         let input = RequestDisk {
             instance: InstanceName(instance.to_owned()),
             repository: repository.map(|name| RepositoryName(name.to_owned())),
             session_name: session_name.map(|name| SessionName(name.to_owned())),
+            session_id: session_id.map(|id| SessionId(id.to_owned())),
             bytes: i64::try_from(bytes).unwrap_or(i64::MAX),
             command: command.to_owned(),
             requested_at: at.clone(),
@@ -519,6 +542,58 @@ impl Ledger {
     /// The store does not read.
     pub fn ahead(&self, grant: &GrantId) -> Result<usize> {
         Ok(self.ahead_bytes(grant)?.len())
+    }
+
+    /// The disk requests still `Requested` that name the harness session which made them, with
+    /// that session's id (`story:build-run-session-bound`): the ones a ledger pass withdraws once
+    /// their session is no longer running.
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn session_bound(&self) -> Result<Vec<(GrantId, String)>> {
+        let grants = HostGrantStorage::list(&self.generated.ports);
+        kept("host ledger", &self.generated.ports.store)?;
+        Ok(grants
+            .into_iter()
+            .filter(|row| {
+                row.state == HostGrantState::Requested && row.data.kind == GrantKind::Disk
+            })
+            .filter_map(|row| Some((row.data.grant_id, row.data.session_id?.0)))
+            .collect())
+    }
+
+    /// The session of `grant` when the grant was withdrawn because that session stopped
+    /// (`SessionStopped`); `None` for any other grant, state or reason.
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn stopped_session(&self, grant: &GrantId) -> Result<Option<String>> {
+        let row = HostGrantStorage::get(&self.generated.ports, grant);
+        kept("host ledger", &self.generated.ports.store)?;
+        Ok(row.and_then(|row| {
+            (row.state == HostGrantState::Withdrawn
+                && row.data.release_reason == Some(ReleaseReason::SessionStopped))
+            .then_some(row.data.session_id?.0)
+        }))
+    }
+
+    /// Withdraws `grant`, `SessionStopped`, when it still waits in the queue: a request answered or
+    /// withdrawn since the session list was read is left as it is.
+    ///
+    /// # Errors
+    ///
+    /// The store does not read, or the specification refuses the move, or the store does not keep
+    /// it.
+    pub fn withdraw_stopped(&mut self, grant: &GrantId, at: &Timestamp) -> Result<bool> {
+        let row = HostGrantStorage::get(&self.generated.ports, grant);
+        kept("host ledger", &self.generated.ports.store)?;
+        if row.is_none_or(|row| row.state != HostGrantState::Requested) {
+            return Ok(false);
+        }
+        self.withdraw_because(grant, at, Some(ReleaseReason::SessionStopped))?;
+        Ok(true)
     }
 
     /// The bytes each request ahead of `grant` asks ([`Ledger::ahead`]), in arrival order: what
@@ -666,8 +741,17 @@ fn start_answer(command: &str, outcome: StartRunOutcome) -> Result<()> {
 ///
 /// The specification refuses it, or the store does not open or keep it.
 pub fn record_peak_of(state: &Path, grant: &GrantId, peak: u64) -> Result<()> {
+    record_run_of(state, grant, peak, 0)
+}
+
+/// [`record_peak_of`] with the number of times the watchdog paused the run.
+///
+/// # Errors
+///
+/// The specification refuses it, or the store does not open or keep it.
+pub fn record_run_of(state: &Path, grant: &GrantId, peak: u64, pauses: u32) -> Result<()> {
     let mut ledger = Ledger::lock(state)?;
-    record_peak_in(&mut ledger, grant, peak)
+    record_peak_in(&mut ledger, grant, peak, pauses)
 }
 
 /// [`record_peak_of`] while the run goes on: skipped, answering `false`, when another holder has
@@ -676,21 +760,22 @@ pub fn record_peak_of(state: &Path, grant: &GrantId, peak: u64) -> Result<()> {
 /// # Errors
 ///
 /// The specification refuses it, or the store does not open or keep it.
-pub fn record_peak_now(state: &Path, grant: &GrantId, peak: u64) -> Result<bool> {
+pub fn record_peak_now(state: &Path, grant: &GrantId, peak: u64, pauses: u32) -> Result<bool> {
     let Some(mut ledger) = Ledger::try_lock(state)? else {
         return Ok(false);
     };
-    record_peak_in(&mut ledger, grant, peak)?;
+    record_peak_in(&mut ledger, grant, peak, pauses)?;
     Ok(true)
 }
 
-fn record_peak_in(ledger: &mut Ledger, grant: &GrantId, peak: u64) -> Result<()> {
+fn record_peak_in(ledger: &mut Ledger, grant: &GrantId, peak: u64, pauses: u32) -> Result<()> {
     const COMMAND: &str = "host record-peak";
     let generated = &mut ledger.generated;
     let outcome = generated
         .record_peak(RecordPeak {
             grant_id: grant.clone(),
             peak_bytes: i64::try_from(peak).unwrap_or(i64::MAX),
+            pauses: Some(i64::from(pauses)),
         })
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
@@ -786,12 +871,28 @@ impl Ledger {
     ///
     /// The specification refuses it, or the store does not keep it.
     pub fn withdraw(&mut self, grant: &GrantId, at: &Timestamp) -> Result<()> {
+        self.withdraw_because(grant, at, None)
+    }
+
+    /// [`Ledger::withdraw`], recording `reason` (`SessionStopped`,
+    /// `story:build-run-session-bound`); a signal's withdrawal records none.
+    ///
+    /// # Errors
+    ///
+    /// The specification refuses it, or the store does not keep it.
+    pub fn withdraw_because(
+        &mut self,
+        grant: &GrantId,
+        at: &Timestamp,
+        reason: Option<ReleaseReason>,
+    ) -> Result<()> {
         const COMMAND: &str = "host withdraw-disk-request";
         let outcome = self
             .generated
             .withdraw_disk_request(WithdrawDiskRequest {
                 grant_id: grant.clone(),
                 withdrawn_at: at.clone(),
+                reason,
             })
             .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
         kept(COMMAND, &self.generated.ports.store)?;
@@ -1311,10 +1412,11 @@ pub fn request_disk(state: Option<&Path>, args: RequestDiskArgs) -> Result<ExitC
              nothing was requested"
         )
     })?;
-    let grant = ledger.request(
+    let grant = ledger.request_of(
         &instance,
         args.repository.as_deref(),
         args.session_name.as_deref(),
+        args.session_id.as_deref(),
         bytes,
         &command,
         &at,
@@ -1374,6 +1476,7 @@ pub fn record_peak(state: Option<&Path>, args: RecordPeakArgs) -> Result<ExitCod
     let input = RecordPeak {
         grant_id: GrantId(flag(COMMAND, "--grant-id", args.grant_id)?),
         peak_bytes: flag(COMMAND, "--peak-bytes", args.peak_bytes)?,
+        pauses: args.pauses,
     };
     let mut generated = Generated::new(Ports {
         store: crate::store::open(&dir(state)?)?,
@@ -1421,7 +1524,14 @@ pub fn withdraw_disk_request(
     flags_only(args.input_json, "host withdraw-disk-request --input-json")?;
     let grant = GrantId(flag(COMMAND, "--grant-id", args.grant_id)?);
     let at = Timestamp(flag(COMMAND, "--withdrawn-at", args.withdrawn_at)?);
-    withdraw(&dir(state)?, &grant, &at)?;
+    let reason = match args.reason {
+        Some(reason) => Some(
+            reason_named(&reason)
+                .ok_or_else(|| anyhow!("{COMMAND}: --reason {reason:?} is no ReleaseReason"))?,
+        ),
+        None => None,
+    };
+    Ledger::lock(&dir(state)?)?.withdraw_because(&grant, &at, reason)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1434,7 +1544,7 @@ pub fn withdraw_disk_request(
 /// There is no store, it does not open, a grant does not read, or the rows cannot be written.
 pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/host.yaml`).
-    const COLUMNS: [&str; 16] = [
+    const COLUMNS: [&str; 18] = [
         "grant_id",
         "state",
         "instance",
@@ -1442,9 +1552,11 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "kind",
         "bytes",
         "peak_bytes",
+        "pauses",
         "command",
         "process_group",
         "session_name",
+        "session_id",
         "reclaimed_bytes",
         "shortfall_bytes",
         "requested_at",
@@ -1470,9 +1582,11 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(kind_name(row.kind)),
                 Value::from(row.bytes),
                 Value::from(row.peak_bytes),
+                Value::from(row.pauses),
                 Value::from(row.command),
                 Value::from(row.process_group),
                 Value::from(row.session_name.map(|name| name.0)),
+                Value::from(row.session_id.map(|id| id.0)),
                 Value::from(row.reclaimed_bytes),
                 Value::from(row.shortfall_bytes),
                 Value::from(row.requested_at.0),
@@ -1547,6 +1661,7 @@ pub fn reason_name(reason: ReleaseReason) -> &'static str {
         ReleaseReason::Exited => "Exited",
         ReleaseReason::Killed => "Killed",
         ReleaseReason::ProcessGroupGone => "ProcessGroupGone",
+        ReleaseReason::SessionStopped => "SessionStopped",
     }
 }
 
@@ -1557,6 +1672,7 @@ pub fn reason_named(name: &str) -> Option<ReleaseReason> {
         ReleaseReason::Exited,
         ReleaseReason::Killed,
         ReleaseReason::ProcessGroupGone,
+        ReleaseReason::SessionStopped,
     ]
     .into_iter()
     .find(|reason| reason_name(*reason) == name)

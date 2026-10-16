@@ -99,6 +99,7 @@ fn adv_w03_u1_another_instance_s_conductor_dev_is_not_labelled_conductor() {
         projects: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/watch/context"),
         dispatches: dir.join("dispatches"),
         organization: "example-org".to_owned(),
+        owners: Vec::new(),
         store: None,
         repositories: Vec::new(),
         runs: vec!["false".to_owned()],

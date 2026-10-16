@@ -86,6 +86,9 @@ impl Case {
             home: Some(self.home()),
             var_tmp: self.var_tmp(),
             say: said_to_file,
+            env: |_| None,
+            // No session list: a library case names no harness session.
+            sessions: Vec::new(),
         }
     }
 
@@ -164,6 +167,8 @@ fn settings() -> Settings {
         gate_stop: 5 * GIB,
         gate_resume: 8 * GIB,
         wait: Duration::ZERO,
+        cores: 20,
+        cpu_reserve: 2,
     }
 }
 
@@ -321,6 +326,67 @@ fn a_reservation_that_fits_runs_the_command_and_is_released_with_its_peak() {
             .is_some_and(|command| command.starts_with("sh -c ")),
         "{row:?}"
     );
+}
+
+/// story:build-run-spare-cores: the command runs at nice 19 (field 19 of its /proc stat), in the
+/// idle I/O class, with the job counts of the cores less the reserve.
+#[test]
+fn the_command_runs_at_nice_19_with_the_spare_cores_as_its_job_count() {
+    let case = Case::new("spare-cores");
+    let script = "awk '{print $19}' /proc/self/stat > nice.txt; \
+                  echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt; \
+                  if command -v ionice >/dev/null; then ionice -p $$ > io.txt; fi";
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, script),
+    )
+    .expect("the run ends");
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    let read = |name: &str| fs::read_to_string(case.work().join(name)).unwrap_or_default();
+    assert_eq!(read("nice.txt").trim(), "19", "the command's own nice");
+    assert_eq!(read("jobs.txt").trim(), "18 -j18", "20 cores less 2");
+    if case.work().join("io.txt").exists() {
+        assert!(read("io.txt").starts_with("idle"), "{}", read("io.txt"));
+    }
+}
+
+/// A job count the run's environment already holds is kept, the other is set; a reserve over the
+/// cores leaves one job.
+#[test]
+fn a_job_count_the_environment_holds_is_kept_and_a_large_reserve_leaves_one() {
+    let case = Case::new("spare-cores-kept");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    let run = |settings: &Settings, sources: Sources| {
+        build::run(
+            &case.state(),
+            &case.host(),
+            settings,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends")
+    };
+    // The environment holds CARGO_BUILD_JOBS (as the child inherits it): it is left as it is.
+    let inherited = std::env::var("CARGO_BUILD_JOBS").unwrap_or_default();
+    let holding = Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "7".to_owned()),
+        ..case.sources(reclaim_nothing)
+    };
+    run(&settings(), holding);
+    // Trimmed on both sides: with no CARGO_BUILD_JOBS in this test's own environment the line
+    // starts with the empty value and a space.
+    assert_eq!(jobs().trim(), format!("{inherited} -j18").trim());
+    let tight = Settings {
+        cores: 2,
+        cpu_reserve: 5,
+        ..settings()
+    };
+    run(&tight, case.sources(reclaim_nothing));
+    assert_eq!(jobs().trim(), "1 -j1", "never fewer than one job");
 }
 
 #[test]
@@ -1130,6 +1196,65 @@ fn a_reading_under_gate_stop_pauses_the_group_and_one_over_gate_resume_resumes_i
     };
     assert_eq!(code, 0);
     assert_eq!((paused, resumed), (1, 1), "one pause, one resume");
+}
+
+/// story:build-run-pause-visible: a run the watchdog paused says so on exit, and its grant
+/// carries the count; a run that was never paused says nothing.
+#[test]
+fn a_paused_run_names_the_pause_on_exit_and_records_the_count_on_its_grant() {
+    let case = Case::new("pause-visible");
+    let (state, host) = (case.state(), case.host());
+    let sources = case.sources(reclaim_nothing);
+    let request = case.request(
+        GIB,
+        "while [ ! -e stop ]; do echo tick >> ticks; sleep 0.05; done",
+    );
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let ticks = case.work().join("ticks");
+    wait_until("the command ticks", || lines(&ticks) >= 3);
+    case.free(4 * GIB);
+    wait_until("reclaim runs for the paused run", || case.reclaims() >= 1);
+    thread::sleep(Duration::from_millis(300));
+    case.free(9 * GIB);
+    let before = lines(&ticks);
+    wait_until("the command ticks again", || lines(&ticks) > before + 2);
+    fs::write(case.work().join("stop"), "").expect("stop the command");
+    let outcome = runner
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
+    let Outcome::Ran { ref grant, .. } = outcome else {
+        panic!("the command ran: {outcome:?}");
+    };
+    let said = case.said();
+    let line = said
+        .lines()
+        .find(|line| line.contains("paused 1 times for"))
+        .unwrap_or_else(|| panic!("the exit names the pause: {said}"));
+    assert!(
+        line.starts_with("conductor: build run: paused 1 times for ")
+            && line.ends_with("s during this run; a failure may come from the pause"),
+        "{line}"
+    );
+    let row = case
+        .grants()
+        .into_iter()
+        .find(|row| row.grant_id == *grant)
+        .expect("the ledger holds the grant");
+    assert_eq!(row.pauses, Some(1), "{row:?}");
+
+    // A run that was never paused prints no such line and records none.
+    let calm = Case::new("pause-visible-calm");
+    build::run(
+        &calm.state(),
+        &calm.host(),
+        &settings(),
+        &calm.sources(reclaim_nothing),
+        &calm.request(GIB, "exit 0"),
+    )
+    .expect("the run ends");
+    assert!(!calm.said().contains("times for"), "{}", calm.said());
+    assert!(calm.grants().iter().all(|row| row.pauses == Some(0)));
 }
 
 #[test]
@@ -2133,6 +2258,225 @@ fn sigint_withdraws_a_queued_request() {
 #[test]
 fn sighup_withdraws_a_queued_request() {
     a_signal_withdraws_the_queued_request("withdraw-hup", Signal::SIGHUP);
+}
+
+/// The variable the harness sets for the commands of a session, naming it
+/// (`story:build-run-session-bound`): Claude Code's.
+const SESSION_VARIABLE: &str = "CLAUDE_CODE_SESSION_ID";
+
+impl Case {
+    /// Puts a fake `claude` first on the `PATH` of [`Case::in_session`]: `claude agents --json`
+    /// prints `list` and counts its call in `agents-calls.txt`; any other arguments exit 64. A
+    /// `list` of `None` makes the session list unreadable: the fake exits 1.
+    fn session_list(&self, list: Option<&str>) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let bin = self.dir.join("bin");
+        fs::create_dir_all(&bin).expect("create the case's bin");
+        let calls = self.dir.join("agents-calls.txt");
+        let answer = match list {
+            Some(list) => {
+                fs::write(self.dir.join("agents.json"), list).expect("write the session list");
+                format!("cat '{}'", self.dir.join("agents.json").display())
+            }
+            None => "echo 'claude: not logged in' >&2; exit 1".to_owned(),
+        };
+        let claude = bin.join("claude");
+        fs::write(
+            &claude,
+            format!(
+                "#!/bin/sh\n[ \"$*\" = 'agents --json' ] || exit 64\necho call >> '{}'\n{answer}\n",
+                calls.display()
+            ),
+        )
+        .expect("write the fake claude");
+        fs::set_permissions(&claude, fs::Permissions::from_mode(0o755))
+            .expect("make the fake claude executable");
+    }
+
+    /// How often `build run` read the session list.
+    fn session_list_reads(&self) -> usize {
+        lines(&self.dir.join("agents-calls.txt"))
+    }
+
+    /// [`Case::binary`] run as a command of the harness session `session`, with the fake
+    /// `claude` of [`Case::session_list`] first on its `PATH`.
+    fn in_session(&self, args: &[&str], session: &str) -> Command {
+        let path = std::env::var("PATH").unwrap_or_default();
+        let mut command = self.binary(args);
+        command
+            .env("PATH", format!("{}:{path}", self.dir.join("bin").display()))
+            .env(SESSION_VARIABLE, session);
+        command
+    }
+
+    /// A request recorded a minute ago by `host request-disk`, whose run lock the case holds as
+    /// its waiter would, so a `build run` started now waits behind it in the queue.
+    fn queue_head(&self) -> fs::File {
+        let before = (OffsetDateTime::now_utc() - time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("a time");
+        let head = self
+            .binary(&[
+                "host",
+                "request-disk",
+                "--instance",
+                "example-org",
+                "--bytes",
+                "1073741824",
+                "--command",
+                "sh -c head",
+                "--requested-at",
+                &before,
+            ])
+            .output()
+            .expect("conductor runs");
+        assert!(head.status.success(), "{head:?}");
+        let head = conductor_model::host::GrantId(
+            String::from_utf8(head.stdout)
+                .expect("a grant id")
+                .trim()
+                .to_owned(),
+        );
+        let host_dir = self
+            .dir
+            .join("home")
+            .join(".b10x")
+            .join("conductor")
+            .join("host");
+        host::hold_run(&host_dir, &head).expect("hold the head's run lock")
+    }
+}
+
+/// `story:build-run-session-bound`: `build run` records the session the harness names in its
+/// environment on its request, and `host grants` shows it, as JSON and as text.
+#[test]
+fn a_build_run_records_the_session_of_its_caller() {
+    let case = Case::new("session-recorded");
+    case.session_list(Some(
+        r#"[{"id":"example-session-live","sessionId":"example-session-live","pid":4242,"cwd":"/example","status":"busy"}]"#,
+    ));
+    let script = "touch ran";
+    let run = case
+        .in_session(
+            &["build", "run", "--reserve", "1G", "--", "sh", "-c", script],
+            "example-session-live",
+        )
+        .output()
+        .expect("conductor runs");
+    assert!(run.status.success(), "{run:?}");
+    let row = case.grant_row(script).expect("the grant is listed");
+    assert_eq!(row["session_id"], "example-session-live", "{row}");
+    assert_eq!(row["state"], "Released", "{row}");
+    let text = case
+        .binary(&["host", "grants"])
+        .output()
+        .expect("conductor runs");
+    assert!(text.status.success(), "{text:?}");
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        text.contains("session_id") && text.contains("example-session-live"),
+        "`host grants` shows each request's session:\n{text}"
+    );
+}
+
+/// `story:build-run-session-bound`: a request still waiting in the queue whose session the
+/// session list shows stopped (listed without a `pid`, as `claude agents` keeps an exited
+/// session) is withdrawn at the next ledger pass: the grant reads `Withdrawn` with
+/// `SessionStopped`, its command never ran, and `build run` exits 2 naming the session. The
+/// request ahead of it, which names no session, is left.
+#[test]
+fn a_queued_request_whose_session_stopped_is_withdrawn() {
+    use std::io::Read as _;
+    let case = Case::new("session-stopped");
+    case.session_list(Some(
+        r#"[{"id":"example-other","sessionId":"example-session-other","pid":4242,"cwd":"/example","status":"busy"},
+            {"sessionId":"example-session-stopped","cwd":"/example","status":"idle"}]"#,
+    ));
+    let _waiter = case.queue_head();
+    let script = "touch ran";
+    let child = case
+        .in_session(
+            &["build", "run", "--reserve", "1G", "--", "sh", "-c", script],
+            "example-session-stopped",
+        )
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("conductor runs");
+    let mut run = Running { child, group: None };
+    let status = run.exit();
+    let mut stderr = String::new();
+    run.child
+        .stderr
+        .take()
+        .expect("piped stderr")
+        .read_to_string(&mut stderr)
+        .expect("read build run's stderr");
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "build run exits 2: {status}\n{stderr}"
+    );
+    assert!(
+        stderr.contains("withdrawn: session example-session-stopped stopped"),
+        "{stderr}"
+    );
+    let row = case.grant_row(script).expect("the request is listed");
+    assert_eq!(row["state"], "Withdrawn", "{row}");
+    assert_eq!(row["release_reason"], "SessionStopped", "{row}");
+    assert_eq!(row["session_id"], "example-session-stopped", "{row}");
+    assert!(!case.work().join("ran").exists(), "the command never ran");
+    assert_eq!(
+        case.grant_row("head").map(|row| row["state"].clone()),
+        Some(Value::from("Requested")),
+        "the request ahead, of no session, is left"
+    );
+}
+
+/// A request whose session the list shows running, or whose session list does not read, stays
+/// in the queue after a ledger pass read the list.
+fn a_queued_request_stays(name: &str, list: Option<&str>) {
+    let case = Case::new(name);
+    case.session_list(list);
+    let _waiter = case.queue_head();
+    let script = "touch ran";
+    let child = case
+        .in_session(
+            &["build", "run", "--reserve", "1G", "--", "sh", "-c", script],
+            "example-session-live",
+        )
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("conductor runs");
+    let mut run = Running { child, group: None };
+    wait_until("a ledger pass reads the session list", || {
+        case.session_list_reads() > 0
+    });
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        run.child.try_wait().expect("wait for build run"),
+        None,
+        "build run still waits"
+    );
+    let row = case.grant_row(script).expect("the request is listed");
+    assert_eq!(row["state"], "Requested", "{row}");
+    assert_eq!(row["session_id"], "example-session-live", "{row}");
+}
+
+#[test]
+fn a_queued_request_whose_session_runs_stays_queued() {
+    a_queued_request_stays(
+        "session-live",
+        Some(
+            r#"[{"id":"example-session-live","sessionId":"example-session-live","pid":4242,"cwd":"/example","status":"waiting"}]"#,
+        ),
+    );
+}
+
+#[test]
+fn a_queued_request_stays_when_the_session_list_does_not_read() {
+    a_queued_request_stays("session-list-unread", None);
 }
 
 /// `story:build-run-backfill`: an 8G head at 5G available lacks 3G, more than the live

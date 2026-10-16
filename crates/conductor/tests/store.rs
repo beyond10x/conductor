@@ -46,6 +46,8 @@ fn g9_draft() -> Goals {
         state: GoalState::Draft,
         title: "Local store".to_owned(),
         exit_evidence: "a reopened store lists G9".to_owned(),
+        evidence: None,
+        reason: None,
     }
 }
 
@@ -122,6 +124,8 @@ fn the_store_refuses_a_creation_another_handle_made_first() {
         goal_id: g9(),
         title: "Late title".to_owned(),
         exit_evidence: "late evidence".to_owned(),
+        evidence: None,
+        reason: None,
     };
     GoalStorage::put(
         &mut late,
