@@ -25,7 +25,8 @@
 //! new. After recording, each metric and scope it touched keeps one `Recorded` reading, the
 //! newest (the latest day, then the latest recorded); compute supersedes every other one through
 //! `SupersedeMetricReading`, so computing an older day supersedes only the new older reading. A metric with nothing to measure on the day (no
-//! complete snapshot, no pull request merged, no item closed, no dispatch done) records no
+//! complete snapshot, no pull request merged, no item closed, no dispatch done, no release)
+//! records no
 //! reading and is named on standard output. The metrics, each in the unit its definition says:
 //!
 //! - **K1**, operator touches per merged PR: the `decisions/` lines of the day that are a
@@ -45,6 +46,22 @@
 //! - **K5.unreleased**: the pull requests the newest complete snapshot holds merged before the
 //!   day's end with no release of their repository published after them before then. Scope
 //!   `instance` and each repository with a pull request merged by then.
+//! - **K6.ci_failed**, rework: the CI runs that failed on the day over the pull requests merged
+//!   on the day, as the store's daily rollups count them (`ci_failed`, `prs_merged`), which keep
+//!   what every completed snapshot saw: a snapshot holds only each workflow's newest run. Scope
+//!   `instance` and each repository with a pull request merged on the day.
+//! - **K6.closed_unmerged**: of the pull requests closed on the day, merged or closed without a
+//!   merge (the rollups' `prs_merged` and `prs_closed_unmerged`), the percentage closed without a
+//!   merge. Scope `instance` and each repository with a pull request closed on the day.
+//! - **K6.quick_patches**: of the releases the newest complete snapshot holds published on the
+//!   day, the percentage that are a patch release (a tag ending in `x.y.z`, `z` above 0) published
+//!   at most 24 h after the release of their repository before it. Scope `instance` and each
+//!   repository with a release on the day.
+//! - **K12.fix_releases**, defects shipped: the patch releases published on the day over the
+//!   feature releases (`x.y.0`), as the rollups count them (`releases_patch`,
+//!   `releases_feature`). Scope `instance` and each repository with a feature release on the
+//!   day. K12's second quantity, issues labelled bug, has no instrument: no collector records
+//!   issues or their labels.
 //!
 //! A median of an even count is the mean of the two middle values; a p90 is the nearest rank,
 //! the ⌈0.9 n⌉-th smallest. Values are rounded to three decimals.
@@ -466,8 +483,8 @@ const DECISION_LOG: &str = "the records' decisions/ log";
 const DISPATCH_LOG: &str = "the records' dispatches/ log";
 const SNAPSHOT: &str = "the newest complete snapshot's merged pull requests and releases";
 
-/// The metrics `metric compute` records (design § 2: K1, K2, K4, K5).
-pub const METRICS: [Definition; 8] = [
+/// The metrics `metric compute` records (design § 2: K1, K2, K4, K5, K6, K12).
+pub const METRICS: [Definition; 12] = [
     Definition {
         id: "K1",
         name: "operator touches per merged PR",
@@ -531,6 +548,38 @@ pub const METRICS: [Definition; 8] = [
         instrument: SNAPSHOT,
         definition: "pull requests merged before the day's end with no release of their repository published after them before then",
         baseline: "44",
+    },
+    Definition {
+        id: "K6.ci_failed",
+        name: "failed CI runs per merged PR",
+        unit: "ratio",
+        instrument: "the store's daily rollups: ci_failed and prs_merged",
+        definition: "CI runs that failed on the day, divided by the pull requests merged on the day",
+        baseline: "0.18",
+    },
+    Definition {
+        id: "K6.closed_unmerged",
+        name: "PRs closed unmerged",
+        unit: "percent",
+        instrument: "the store's daily rollups: prs_closed_unmerged and prs_merged",
+        definition: "of the pull requests closed on the day, merged or closed without a merge, the share closed without a merge",
+        baseline: "1.5",
+    },
+    Definition {
+        id: "K6.quick_patches",
+        name: "patch releases within 24 h of a release",
+        unit: "percent",
+        instrument: "the newest complete snapshot's releases",
+        definition: "of the releases published on the day, the share that are a patch release published at most 24 h after the release of their repository before it",
+        baseline: "20",
+    },
+    Definition {
+        id: "K12.fix_releases",
+        name: "patch releases per feature release",
+        unit: "ratio",
+        instrument: "the store's daily rollups: releases_patch and releases_feature",
+        definition: "patch releases (x.y.z, z above 0) published on the day, divided by the feature releases (x.y.0) published on the day",
+        baseline: "0.45",
     },
 ];
 
@@ -633,6 +682,10 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
     measured.extend(k2(&day, &decisions));
     measured.extend(k4(&day, &dispatches));
     measured.extend(k5(&day, forge.as_ref()));
+    let rollups = Rollups::read(&generated.ports.store, &day);
+    kept(COMMAND, &generated.ports.store)?;
+    measured.extend(k6(&day, &rollups, forge.as_ref()));
+    measured.extend(k12(&rollups));
 
     for metric in &METRICS {
         let outcome = generated
@@ -986,6 +1039,163 @@ fn k5(day: &Day, forge: Option<&Forge>) -> Vec<Measured> {
     measured
 }
 
+/// The items the store's daily rollups count on the day, by series and repository.
+struct Rollups(BTreeMap<(String, String), BTreeSet<String>>);
+
+impl Rollups {
+    /// The rollups of `day` grouped `by` repository; a rollup that does not decode is left out
+    /// and kept for [`Store::check`].
+    fn read(store: &Store, day: &Day) -> Self {
+        let mut items: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
+        for row in store.daily_series() {
+            let data = row.data;
+            if data.day == day.text && data.by == "repository" {
+                items
+                    .entry((data.series, data.key))
+                    .or_default()
+                    .extend(data.items);
+            }
+        }
+        Self(items)
+    }
+
+    /// The items of `series`, by repository.
+    fn of(&self, series: &str) -> BTreeMap<&str, &BTreeSet<String>> {
+        self.0
+            .iter()
+            .filter(|((held, _), _)| held == series)
+            .map(|((_, repository), items)| (repository.as_str(), items))
+            .collect()
+    }
+}
+
+/// `metric` for the instance and each repository: the items of the series `part` over those of
+/// the series `whole` (and of `part` too, when `whole_holds_part`), times `scale`. A scope whose
+/// whole is empty has no value; the instance's names `none`, a repository's is left out.
+fn rollup_ratio(
+    metric: &'static str,
+    rollups: &Rollups,
+    (part, whole): (&str, &str),
+    whole_holds_part: bool,
+    scale: f64,
+    none: &str,
+) -> Vec<Measured> {
+    let part = rollups.of(part);
+    let whole = rollups.of(whole);
+    let repositories: BTreeSet<&str> = part.keys().chain(whole.keys()).copied().collect();
+    let mut scoped: Vec<(String, BTreeSet<String>, BTreeSet<String>)> = Vec::new();
+    let mut instance = (BTreeSet::new(), BTreeSet::new());
+    for repository in repositories {
+        let counted = part
+            .get(repository)
+            .map(|items| (*items).clone())
+            .unwrap_or_default();
+        let mut of = whole
+            .get(repository)
+            .map(|items| (*items).clone())
+            .unwrap_or_default();
+        if whole_holds_part {
+            of.extend(counted.iter().cloned());
+        }
+        instance.0.extend(counted.iter().cloned());
+        instance.1.extend(of.iter().cloned());
+        scoped.push((repository.to_owned(), counted, of));
+    }
+    scoped.insert(0, (INSTANCE.to_owned(), instance.0, instance.1));
+    let mut measured = Vec::new();
+    for (scope, counted, of) in scoped {
+        if of.is_empty() {
+            if scope == INSTANCE {
+                measured.push(Measured::none(metric, &scope, none));
+            }
+            continue;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let value = scale * counted.len() as f64 / of.len() as f64;
+        let sources = counted.union(&of).cloned().collect();
+        measured.push(Measured::value(metric, &scope, value, sources));
+    }
+    measured
+}
+
+/// K6.ci_failed, K6.closed_unmerged and K6.quick_patches, for the instance and each repository.
+fn k6(day: &Day, rollups: &Rollups, forge: Option<&Forge>) -> Vec<Measured> {
+    let mut measured = rollup_ratio(
+        "K6.ci_failed",
+        rollups,
+        ("ci_failed", "prs_merged"),
+        false,
+        1.0,
+        "no pull request merged on the day",
+    );
+    measured.extend(rollup_ratio(
+        "K6.closed_unmerged",
+        rollups,
+        ("prs_closed_unmerged", "prs_merged"),
+        true,
+        100.0,
+        "no pull request closed on the day",
+    ));
+    const QUICK: &str = "K6.quick_patches";
+    let Some(forge) = forge else {
+        measured.push(Measured::none(
+            QUICK,
+            INSTANCE,
+            "no complete snapshot in the store",
+        ));
+        return measured;
+    };
+    let mut samples = Vec::new();
+    for (repository, releases) in &forge.tagged {
+        let mut releases: Vec<&(OffsetDateTime, String)> = releases.iter().collect();
+        releases.sort();
+        for (at, (published_at, tag)) in releases.iter().enumerate() {
+            if !day.holds(*published_at) {
+                continue;
+            }
+            let quick = crate::rollup::patch_of(tag).is_some_and(|patch| patch > 0)
+                && at
+                    .checked_sub(1)
+                    .and_then(|before| releases.get(before))
+                    .is_some_and(|(before, _)| *published_at - *before <= Duration::hours(24));
+            samples.push((
+                repository.as_str(),
+                format!("{repository}@{tag}"),
+                if quick { 100.0 } else { 0.0 },
+            ));
+        }
+    }
+    let scoped = scopes(samples.into_iter());
+    for (scope, samples) in scoped {
+        if samples.is_empty() {
+            measured.push(Measured::none(
+                QUICK,
+                &scope,
+                "no release published on the day",
+            ));
+            continue;
+        }
+        let values: Vec<f64> = samples.iter().map(|(_, value)| *value).collect();
+        #[allow(clippy::cast_precision_loss)]
+        let value = values.iter().sum::<f64>() / values.len() as f64;
+        let sources = samples.into_iter().map(|(id, _)| id).collect();
+        measured.push(Measured::value(QUICK, &scope, value, sources));
+    }
+    measured
+}
+
+/// K12.fix_releases, for the instance and each repository.
+fn k12(rollups: &Rollups) -> Vec<Measured> {
+    rollup_ratio(
+        "K12.fix_releases",
+        rollups,
+        ("releases_patch", "releases_feature"),
+        false,
+        1.0,
+        "no feature release published on the day",
+    )
+}
+
 /// Samples `(repository, evidence id, value)` by scope: the instance first, then each
 /// repository in name order.
 fn scopes<'a>(
@@ -1049,6 +1259,8 @@ impl Pull {
 struct Forge {
     pulls: Vec<Pull>,
     releases: BTreeMap<String, Vec<OffsetDateTime>>,
+    /// Each repository's releases with their tags.
+    tagged: BTreeMap<String, Vec<(OffsetDateTime, String)>>,
 }
 
 impl Forge {
@@ -1070,12 +1282,18 @@ impl Forge {
             return Ok(None);
         };
         let mut releases: BTreeMap<String, Vec<OffsetDateTime>> = BTreeMap::new();
+        let mut tagged: BTreeMap<String, Vec<(OffsetDateTime, String)>> = BTreeMap::new();
         for row in generated.releases().map_err(|unmet| anyhow!("{unmet}"))? {
             if row.snapshot_id == snapshot {
+                let published_at = instant("a release's publication", &row.published_at.0)?;
                 releases
+                    .entry(row.repository.0.clone())
+                    .or_default()
+                    .push(published_at);
+                tagged
                     .entry(row.repository.0)
                     .or_default()
-                    .push(instant("a release's publication", &row.published_at.0)?);
+                    .push((published_at, row.tag));
             }
         }
         let mut seen = BTreeSet::new();
@@ -1099,7 +1317,11 @@ impl Forge {
             .ports
             .check()
             .map_err(|failure| anyhow!("read the newest complete snapshot: {failure}"))?;
-        Ok(Some(Self { pulls, releases }))
+        Ok(Some(Self {
+            pulls,
+            releases,
+            tagged,
+        }))
     }
 }
 

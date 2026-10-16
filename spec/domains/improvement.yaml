@@ -37,7 +37,9 @@ types:
 
   # The input of `conductor metric compute --day <date>` (story:kpi-records), the instrument of
   # the metrics computed from the store, the records' `decisions/` and `dispatches/` logs and the
-  # newest complete snapshot's merged pull requests and releases (design § 2: K1, K2, K4, K5). It
+  # newest complete snapshot's merged pull requests and releases (design § 2: K1, K2, K4, K5),
+  # and from the store's daily rollups (`conductor.observation.DailySeries`) of failed CI runs,
+  # merged and closed-unmerged pull requests and patch and feature releases (K6, K12). It
   # defines each metric it computes that is absent, and records one `MetricReading` per metric,
   # scope and day through `RecordMetricReading`, judging `met` against the target the metric
   # holds. `day` is a UTC date, `YYYY-MM-DD`, read by the handler.

@@ -28,6 +28,18 @@
 //!   alpha#4 (13:00, not released), beta#5 (10:00, v2.0 after 10 h), beta#6 (10-13 20:00, v2.0
 //!   after 24 h). An older complete snapshot holds one more merged pull request on the day,
 //!   which no metric counts: the newest complete snapshot is read.
+//!
+//! K6 and K12 read the daily rollups the completed snapshots write, and have their own fixture
+//! ([`Case::rework`]): two complete snapshots of the day, both observing alpha and beta.
+//!
+//! - **S1** (started 06:00): open alpha#20, alpha#21 and beta#30; alpha's `check` failed at 05:00
+//!   and beta's `check` the day before at 23:00; releases alpha v1.0.0 (10-13 10:00) and beta
+//!   v2.0.0 (10-12 09:00).
+//! - **S2** (started 18:00): open alpha#21 only, so alpha#20 was closed unmerged (beta#30 merged);
+//!   merged alpha#22 (09:00), alpha#23 (10:00), alpha#24 (13:00), beta#30 (12:00) and beta#31
+//!   (10-13 22:00); alpha's `check` failed at 09:30, alpha's `docs` passed at 11:00, beta's
+//!   `check` failed at 12:30; releases alpha v1.0.0, v1.0.1 (08:00, a patch 22 h after v1.0.0),
+//!   v1.1.0 (15:00), beta v2.0.0 and v2.0.1 (16:00, a patch 55 h after v2.0.0).
 
 mod active;
 mod common;
@@ -40,7 +52,9 @@ use conductor_cli::collect::Collector;
 use conductor_cli::snapshot::{self, Recorder};
 use conductor_cli::store;
 use conductor_model::observation::{
-    RecordMergedPullRequest, RecordRelease, RepositoryName, SnapshotState, StartSnapshot,
+    CommitSha, Mergeability, RecordMergedPullRequest, RecordPullRequest, RecordRelease,
+    RecordRepository, RecordWorkflowRun, RepositoryName, RunConclusion, SnapshotState,
+    StartSnapshot, Visibility,
 };
 use conductor_model::primitives::Timestamp;
 use serde_json::{Value, json};
@@ -96,6 +110,16 @@ const MERGED: [(&str, i64, &str); 6] = [
     ("beta", 5, "2026-10-14T10:00:00Z"),
     ("beta", 6, "2026-10-13T20:00:00Z"),
 ];
+
+/// What one snapshot of [`Case::rework`] holds besides alpha and beta: open pull requests
+/// (repository, number, opened at), merged ones (repository, number, merged at), workflow runs
+/// (repository, workflow, conclusion, run at) and releases (repository, tag, published at).
+struct Rows {
+    open: Vec<(&'static str, i64, &'static str)>,
+    merged: Vec<(&'static str, i64, &'static str)>,
+    runs: Vec<(&'static str, &'static str, RunConclusion, &'static str)>,
+    releases: Vec<(&'static str, &'static str, &'static str)>,
+}
 
 /// One case's directory: `home/`, `records/` (the working directory of every run), `state/` and
 /// the config file naming them.
@@ -158,6 +182,165 @@ impl Case {
         case
     }
 
+    /// A case holding the two snapshots of K6 and K12 the module documentation describes, S1 and
+    /// S2, and nothing in the records.
+    fn rework(name: &str) -> Self {
+        let case = Self::empty(name);
+        case.forge(
+            "2026-10-14T06:00:00Z",
+            Rows {
+                open: vec![
+                    ("alpha", 20, "2026-10-12T10:00:00Z"),
+                    ("alpha", 21, "2026-10-13T11:00:00Z"),
+                    ("beta", 30, "2026-10-13T09:00:00Z"),
+                ],
+                merged: vec![],
+                runs: vec![
+                    (
+                        "alpha",
+                        "check",
+                        RunConclusion::Failure,
+                        "2026-10-14T05:00:00Z",
+                    ),
+                    (
+                        "beta",
+                        "check",
+                        RunConclusion::Failure,
+                        "2026-10-13T23:00:00Z",
+                    ),
+                ],
+                releases: vec![
+                    ("alpha", "v1.0.0", "2026-10-13T10:00:00Z"),
+                    ("beta", "v2.0.0", "2026-10-12T09:00:00Z"),
+                ],
+            },
+        );
+        case.forge(
+            "2026-10-14T18:00:00Z",
+            Rows {
+                open: vec![("alpha", 21, "2026-10-13T11:00:00Z")],
+                merged: vec![
+                    ("alpha", 22, "2026-10-14T09:00:00Z"),
+                    ("alpha", 23, "2026-10-14T10:00:00Z"),
+                    ("alpha", 24, "2026-10-14T13:00:00Z"),
+                    ("beta", 30, "2026-10-14T12:00:00Z"),
+                    ("beta", 31, "2026-10-13T22:00:00Z"),
+                ],
+                runs: vec![
+                    (
+                        "alpha",
+                        "check",
+                        RunConclusion::Failure,
+                        "2026-10-14T09:30:00Z",
+                    ),
+                    (
+                        "alpha",
+                        "docs",
+                        RunConclusion::Success,
+                        "2026-10-14T11:00:00Z",
+                    ),
+                    (
+                        "beta",
+                        "check",
+                        RunConclusion::Failure,
+                        "2026-10-14T12:30:00Z",
+                    ),
+                ],
+                releases: vec![
+                    ("alpha", "v1.0.0", "2026-10-13T10:00:00Z"),
+                    ("alpha", "v1.0.1", "2026-10-14T08:00:00Z"),
+                    ("alpha", "v1.1.0", "2026-10-14T15:00:00Z"),
+                    ("beta", "v2.0.0", "2026-10-12T09:00:00Z"),
+                    ("beta", "v2.0.1", "2026-10-14T16:00:00Z"),
+                ],
+            },
+        );
+        case
+    }
+
+    /// Takes one complete snapshot started at `started_at` observing alpha and beta and holding
+    /// `rows`; completing it writes its daily rollups.
+    fn forge(&self, started_at: &str, rows: Rows) {
+        let forge = Collector::new("forge", move |record: &mut Recorder<'_>| {
+            let snapshot = record.snapshot().clone();
+            let name = |name: &str| RepositoryName(name.to_owned());
+            let at = |text: &str| Timestamp(text.to_owned());
+            for repository in ["alpha", "beta"] {
+                record.repository(RecordRepository {
+                    snapshot_id: snapshot.clone(),
+                    repository: name(repository),
+                    visibility: Visibility::Public,
+                    archived: false,
+                    local_checkout: true,
+                    main_head: CommitSha(format!("head-of-{repository}")),
+                    main_committed_at: at("2026-10-12T00:00:00Z"),
+                    main_commits_7d: 1,
+                    real_commits_7d: 1,
+                    behind_main: 0,
+                    dirty_files: 0,
+                    worktrees: 0,
+                    open_issues: 0,
+                    oldest_open_issue_at: None,
+                    latest_release: None,
+                    latest_release_at: None,
+                    unreleased_commits: None,
+                    planning_store_version: None,
+                    in_catalog: None,
+                    gates_hooks_version: None,
+                    gates_version: None,
+                    wave_width: None,
+                    wave_ready: None,
+                    wave_reason: None,
+                })?;
+            }
+            for (repository, number, opened_at) in &rows.open {
+                record.pull_request(RecordPullRequest {
+                    snapshot_id: snapshot.clone(),
+                    repository: name(repository),
+                    number: *number,
+                    title: format!("Change {number}"),
+                    draft: false,
+                    mergeability: Mergeability::Mergeable,
+                    failing_checks: 0,
+                    failing_check_names: Vec::new(),
+                    opened_at: at(opened_at),
+                    updated_at: at(opened_at),
+                    url: None,
+                })?;
+            }
+            for (repository, number, merged_at) in &rows.merged {
+                record.merged_pull_request(RecordMergedPullRequest {
+                    snapshot_id: snapshot.clone(),
+                    repository: name(repository),
+                    number: *number,
+                    title: format!("Change {number}"),
+                    merged_at: at(merged_at),
+                    url: format!("https://github.com/example-org/{repository}/pull/{number}"),
+                })?;
+            }
+            for (repository, workflow, conclusion, run_at) in &rows.runs {
+                record.workflow_run(RecordWorkflowRun {
+                    snapshot_id: snapshot.clone(),
+                    repository: name(repository),
+                    workflow: (*workflow).to_owned(),
+                    conclusion: *conclusion,
+                    run_at: at(run_at),
+                })?;
+            }
+            for (repository, tag, published_at) in &rows.releases {
+                record.release(RecordRelease {
+                    snapshot_id: snapshot.clone(),
+                    repository: name(repository),
+                    tag: (*tag).to_owned(),
+                    published_at: at(published_at),
+                    url: format!("https://github.com/example-org/{repository}/releases/tag/{tag}"),
+                })?;
+            }
+            Ok(())
+        });
+        self.take(started_at, forge);
+    }
+
     /// Takes one complete snapshot started at `started_at` holding `releases` and `merged`.
     fn snapshot(
         &self,
@@ -190,6 +373,11 @@ impl Case {
             }
             Ok(())
         });
+        self.take(started_at, forge);
+    }
+
+    /// Takes one snapshot started at `started_at` through `forge`, which must complete it.
+    fn take(&self, started_at: &str, forge: Collector) {
         let store = store::open(&self.state()).expect("open the store");
         let start = StartSnapshot {
             started_at: Timestamp(started_at.to_owned()),
@@ -413,6 +601,103 @@ fn k5_unreleased_counts_the_pull_requests_merged_and_not_released_by_the_end_of_
     );
 }
 
+/// The rework fixture ([`Case::rework`]), computed for [`DAY`].
+fn reworked(name: &str) -> Case {
+    let case = Case::rework(name);
+    case.compute();
+    case
+}
+
+/// K6.ci_failed: the CI runs that failed on the day (alpha's `check` at 05:00, seen by S1, and
+/// at 09:30, beta's `check` at 12:30; beta's 23:00 failure was the day before, alpha's `docs`
+/// passed) over the pull requests merged on the day (alpha#22, #23, #24, beta#30; beta#31 the
+/// day before): 3 / 4 = 0.75. alpha's 2 / 3 = 0.667; beta's 1 / 1 = 1.
+#[test]
+fn k6_ci_failed_is_the_failed_ci_runs_over_the_pull_requests_merged_that_day() {
+    let case = reworked("k6-ci-failed");
+    close(case.value("K6.ci_failed", "instance"), 0.75, "K6.ci_failed");
+    close(
+        case.value("K6.ci_failed", "alpha"),
+        0.667,
+        "K6.ci_failed of alpha",
+    );
+    close(
+        case.value("K6.ci_failed", "beta"),
+        1.0,
+        "K6.ci_failed of beta",
+    );
+}
+
+/// K6.closed_unmerged: of the pull requests closed on the day, merged (4) or closed without a
+/// merge (alpha#20, open in S1 and neither open nor merged in S2; beta#30 merged, alpha#21 still
+/// open), the share closed unmerged: 1 / 5 = 20 %. alpha's 1 / 4 = 25 %; beta's 0 / 1 = 0 %.
+#[test]
+fn k6_closed_unmerged_is_the_share_of_pull_requests_closed_that_day_without_a_merge() {
+    let case = reworked("k6-closed-unmerged");
+    close(
+        case.value("K6.closed_unmerged", "instance"),
+        20.0,
+        "K6.closed_unmerged",
+    );
+    close(
+        case.value("K6.closed_unmerged", "alpha"),
+        25.0,
+        "K6.closed_unmerged of alpha",
+    );
+    close(
+        case.value("K6.closed_unmerged", "beta"),
+        0.0,
+        "K6.closed_unmerged of beta",
+    );
+}
+
+/// K6.quick_patches: of the releases published on the day (alpha v1.0.1 and v1.1.0, beta
+/// v2.0.1), the share that are a patch release published within 24 h of the release of their
+/// repository before it: alpha v1.0.1, 22 h after v1.0.0, is; v1.1.0 is a feature release;
+/// beta v2.0.1 came 55 h after v2.0.0. 1 / 3 = 33.333 %; alpha's 1 / 2 = 50 %; beta's 0 %.
+#[test]
+fn k6_quick_patches_is_the_share_of_releases_that_day_patching_a_release_within_24_hours() {
+    let case = reworked("k6-quick-patches");
+    close(
+        case.value("K6.quick_patches", "instance"),
+        33.333,
+        "K6.quick_patches",
+    );
+    close(
+        case.value("K6.quick_patches", "alpha"),
+        50.0,
+        "K6.quick_patches of alpha",
+    );
+    close(
+        case.value("K6.quick_patches", "beta"),
+        0.0,
+        "K6.quick_patches of beta",
+    );
+}
+
+/// K12.fix_releases: the patch releases published on the day (alpha v1.0.1, beta v2.0.1) over
+/// the feature releases (alpha v1.1.0; v1.0.0 and v2.0.0 were before the day): 2 / 1 = 2.
+/// alpha's 1 / 1 = 1; beta published no feature release on the day, so it has no reading.
+#[test]
+fn k12_fix_releases_is_the_patch_releases_over_the_feature_releases_of_that_day() {
+    let case = reworked("k12-fix-releases");
+    close(
+        case.value("K12.fix_releases", "instance"),
+        2.0,
+        "K12.fix_releases",
+    );
+    close(
+        case.value("K12.fix_releases", "alpha"),
+        1.0,
+        "K12.fix_releases of alpha",
+    );
+    assert!(
+        case.reading("K12.fix_releases", "beta").is_none(),
+        "beta had no feature release on the day: {:#?}",
+        case.all()
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // The metrics compute defines, and what a second run does.
 // ---------------------------------------------------------------------------------------------
@@ -436,13 +721,17 @@ fn compute_defines_the_metrics_it_records_and_a_second_run_records_nothing_new()
         ids,
         [
             "K1",
+            "K12.fix_releases",
             "K2.H",
             "K2.O",
             "K4.median",
             "K4.p90",
             "K5.median",
             "K5.p90",
-            "K5.unreleased"
+            "K5.unreleased",
+            "K6.ci_failed",
+            "K6.closed_unmerged",
+            "K6.quick_patches"
         ]
     );
     let baseline = case

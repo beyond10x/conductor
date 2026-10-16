@@ -153,7 +153,7 @@ impl Seen {
 }
 
 /// Whether a release tag ends in a version, and that version's patch number.
-fn patch_of(tag: &str) -> Option<u64> {
+pub(crate) fn patch_of(tag: &str) -> Option<u64> {
     let start = tag
         .char_indices()
         .rev()

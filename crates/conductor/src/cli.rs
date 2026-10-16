@@ -1259,7 +1259,7 @@ pub enum MetricCommand {
     #[command(name = "metrics")]
     Metrics(ViewArgs),
 
-    /// Compute one UTC day's readings of K1, K2, K4 and K5 from the records' decision and dispatch logs and the newest complete snapshot, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value
+    /// Compute one UTC day's readings of K1, K2, K4, K5, K6 and K12 from the records' decision and dispatch logs, the newest complete snapshot and the store's daily rollups, define each such metric that is absent, and record one reading per metric and scope, judged against the metric's target; print one line per reading, and name what had no value
     #[command(name = "compute")]
     Compute(MetricComputeArgs),
 }
