@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest d579d41cf28810ad06737965df70904ef620ffb53729bb4dbb8a2ffd28e6c7e2
-// contract digest 8a1b8540182a24c5b2d60ea9aee70cc29c3f7c6f0489e4c0a7937503417e8f9e
+// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
+// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -478,7 +478,13 @@ impl ReclaimRunData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.reclaimed_bytes)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.reclaimed_bytes)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("reclaimed_bytes >= 0");
         }
         None
@@ -1150,7 +1156,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.host.Reclaim`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn reclaim(&mut self, input: super::Reclaim) -> Result<super::ReclaimOutcome, crate::obligation::UnmetObligation>;
+        fn reclaim(
+            &mut self,
+            input: super::Reclaim,
+        ) -> Result<super::ReclaimOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.host.RecordPeak` — generated.
@@ -1161,7 +1170,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.host.RecordPeak`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_peak(&mut self, input: super::RecordPeak) -> Result<super::RecordPeakOutcome, crate::obligation::UnmetObligation>;
+        fn record_peak(
+            &mut self,
+            input: super::RecordPeak,
+        ) -> Result<super::RecordPeakOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.host.ReleaseGrant` — generated.
@@ -1172,7 +1184,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.host.ReleaseGrant`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn release_grant(&mut self, input: super::ReleaseGrant) -> Result<super::ReleaseGrantOutcome, crate::obligation::UnmetObligation>;
+        fn release_grant(
+            &mut self,
+            input: super::ReleaseGrant,
+        ) -> Result<super::ReleaseGrantOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.host.RequestDisk` — generated.
@@ -1183,7 +1198,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.host.RequestDisk`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn request_disk(&mut self, input: super::RequestDisk) -> Result<super::RequestDiskOutcome, crate::obligation::UnmetObligation>;
+        fn request_disk(
+            &mut self,
+            input: super::RequestDisk,
+        ) -> Result<super::RequestDiskOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.host.ReserveDisk` — generated.
@@ -1194,7 +1212,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.host.ReserveDisk`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn reserve_disk(&mut self, input: super::ReserveDisk) -> Result<super::ReserveDiskOutcome, crate::obligation::UnmetObligation>;
+        fn reserve_disk(
+            &mut self,
+            input: super::ReserveDisk,
+        ) -> Result<super::ReserveDiskOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.host.StartRun` — generated.
@@ -1205,7 +1226,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.host.StartRun`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn start_run(&mut self, input: super::StartRun) -> Result<super::StartRunOutcome, crate::obligation::UnmetObligation>;
+        fn start_run(
+            &mut self,
+            input: super::StartRun,
+        ) -> Result<super::StartRunOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.host.TakeHostGrant` — generated.
@@ -1216,7 +1240,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.host.TakeHostGrant`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn take_host_grant(&mut self, input: super::TakeHostGrant) -> Result<super::TakeHostGrantOutcome, crate::obligation::UnmetObligation>;
+        fn take_host_grant(
+            &mut self,
+            input: super::TakeHostGrant,
+        ) -> Result<super::TakeHostGrantOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.host.Grants` — generated.
@@ -1238,7 +1265,8 @@ pub mod obligations {
         /// Serves `conductor.host.ReclaimRuns` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn reclaim_runs(&self) -> Result<Vec<super::ReclaimRuns>, crate::obligation::UnmetObligation>;
+        fn reclaim_runs(
+            &self,
+        ) -> Result<Vec<super::ReclaimRuns>, crate::obligation::UnmetObligation>;
     }
-
 }

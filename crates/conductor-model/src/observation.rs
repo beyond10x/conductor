@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest d579d41cf28810ad06737965df70904ef620ffb53729bb4dbb8a2ffd28e6c7e2
-// contract digest 8a1b8540182a24c5b2d60ea9aee70cc29c3f7c6f0489e4c0a7937503417e8f9e
+// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
+// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -639,10 +639,12 @@ impl BlockerObservationSnapshot {
     /// `BlockerObservationState` cannot spell one.
     pub fn refine(self) -> AnyBlockerObservation {
         match self.state {
-            BlockerObservationState::Recorded => AnyBlockerObservation::Recorded(BlockerObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            BlockerObservationState::Recorded => {
+                AnyBlockerObservation::Recorded(BlockerObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -699,7 +701,13 @@ impl BoardData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.deviation_rows)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.deviation_rows)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("deviation_rows >= 0");
         }
         None
@@ -855,7 +863,13 @@ impl CollectorRunObservationData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.duration_ms)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.duration_ms)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("duration_ms >= 0");
         }
         None
@@ -884,7 +898,8 @@ pub mod collector_run_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::CollectorRunObservationState = super::CollectorRunObservationState::Recorded;
+        const STATE: super::CollectorRunObservationState =
+            super::CollectorRunObservationState::Recorded;
     }
 }
 
@@ -951,10 +966,12 @@ impl CollectorRunObservationSnapshot {
     /// `CollectorRunObservationState` cannot spell one.
     pub fn refine(self) -> AnyCollectorRunObservation {
         match self.state {
-            CollectorRunObservationState::Recorded => AnyCollectorRunObservation::Recorded(CollectorRunObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            CollectorRunObservationState::Recorded => {
+                AnyCollectorRunObservation::Recorded(CollectorRunObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -1162,7 +1179,8 @@ pub mod member_failure_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::MemberFailureObservationState = super::MemberFailureObservationState::Recorded;
+        const STATE: super::MemberFailureObservationState =
+            super::MemberFailureObservationState::Recorded;
     }
 }
 
@@ -1229,10 +1247,12 @@ impl MemberFailureObservationSnapshot {
     /// `MemberFailureObservationState` cannot spell one.
     pub fn refine(self) -> AnyMemberFailureObservation {
         match self.state {
-            MemberFailureObservationState::Recorded => AnyMemberFailureObservation::Recorded(MemberFailureObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            MemberFailureObservationState::Recorded => {
+                AnyMemberFailureObservation::Recorded(MemberFailureObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -1291,7 +1311,13 @@ impl MergedPullRequestObservationData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.number)), iv::Op::Gt, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.number)),
+            iv::Op::Gt,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("number > 0");
         }
         None
@@ -1320,7 +1346,8 @@ pub mod merged_pull_request_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::MergedPullRequestObservationState = super::MergedPullRequestObservationState::Recorded;
+        const STATE: super::MergedPullRequestObservationState =
+            super::MergedPullRequestObservationState::Recorded;
     }
 }
 
@@ -1387,10 +1414,12 @@ impl MergedPullRequestObservationSnapshot {
     /// `MergedPullRequestObservationState` cannot spell one.
     pub fn refine(self) -> AnyMergedPullRequestObservation {
         match self.state {
-            MergedPullRequestObservationState::Recorded => AnyMergedPullRequestObservation::Recorded(MergedPullRequestObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            MergedPullRequestObservationState::Recorded => {
+                AnyMergedPullRequestObservation::Recorded(MergedPullRequestObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -1460,10 +1489,22 @@ impl PullRequestObservationData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.number)), iv::Op::Gt, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.number)),
+            iv::Op::Gt,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("number > 0");
         }
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.failing_checks)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.failing_checks)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("failing_checks >= 0");
         }
         None
@@ -1492,7 +1533,8 @@ pub mod pull_request_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::PullRequestObservationState = super::PullRequestObservationState::Recorded;
+        const STATE: super::PullRequestObservationState =
+            super::PullRequestObservationState::Recorded;
     }
 }
 
@@ -1559,10 +1601,12 @@ impl PullRequestObservationSnapshot {
     /// `PullRequestObservationState` cannot spell one.
     pub fn refine(self) -> AnyPullRequestObservation {
         match self.state {
-            PullRequestObservationState::Recorded => AnyPullRequestObservation::Recorded(PullRequestObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            PullRequestObservationState::Recorded => {
+                AnyPullRequestObservation::Recorded(PullRequestObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -1697,10 +1741,12 @@ impl ReleaseObservationSnapshot {
     /// `ReleaseObservationState` cannot spell one.
     pub fn refine(self) -> AnyReleaseObservation {
         match self.state {
-            ReleaseObservationState::Recorded => AnyReleaseObservation::Recorded(ReleaseObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            ReleaseObservationState::Recorded => {
+                AnyReleaseObservation::Recorded(ReleaseObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -1806,7 +1852,8 @@ pub mod repository_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::RepositoryObservationState = super::RepositoryObservationState::Recorded;
+        const STATE: super::RepositoryObservationState =
+            super::RepositoryObservationState::Recorded;
     }
 }
 
@@ -1873,10 +1920,12 @@ impl RepositoryObservationSnapshot {
     /// `RepositoryObservationState` cannot spell one.
     pub fn refine(self) -> AnyRepositoryObservation {
         match self.state {
-            RepositoryObservationState::Recorded => AnyRepositoryObservation::Recorded(RepositoryObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            RepositoryObservationState::Recorded => {
+                AnyRepositoryObservation::Recorded(RepositoryObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -1950,7 +1999,8 @@ pub mod secret_sync_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::SecretSyncObservationState = super::SecretSyncObservationState::Recorded;
+        const STATE: super::SecretSyncObservationState =
+            super::SecretSyncObservationState::Recorded;
     }
 }
 
@@ -2017,10 +2067,12 @@ impl SecretSyncObservationSnapshot {
     /// `SecretSyncObservationState` cannot spell one.
     pub fn refine(self) -> AnySecretSyncObservation {
         match self.state {
-            SecretSyncObservationState::Recorded => AnySecretSyncObservation::Recorded(SecretSyncObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            SecretSyncObservationState::Recorded => {
+                AnySecretSyncObservation::Recorded(SecretSyncObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -2175,10 +2227,12 @@ impl SessionObservationSnapshot {
     /// `SessionObservationState` cannot spell one.
     pub fn refine(self) -> AnySessionObservation {
         match self.state {
-            SessionObservationState::Recorded => AnySessionObservation::Recorded(SessionObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            SessionObservationState::Recorded => {
+                AnySessionObservation::Recorded(SessionObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -2229,7 +2283,13 @@ impl SnapshotData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.disk_free_bytes)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.disk_free_bytes)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("disk_free_bytes >= 0");
         }
         None
@@ -2453,7 +2513,13 @@ impl SpecificationObservationData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.validation_refusals)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.validation_refusals)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("validation_refusals >= 0");
         }
         None
@@ -2482,7 +2548,8 @@ pub mod specification_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::SpecificationObservationState = super::SpecificationObservationState::Recorded;
+        const STATE: super::SpecificationObservationState =
+            super::SpecificationObservationState::Recorded;
     }
 }
 
@@ -2549,10 +2616,12 @@ impl SpecificationObservationSnapshot {
     /// `SpecificationObservationState` cannot spell one.
     pub fn refine(self) -> AnySpecificationObservation {
         match self.state {
-            SpecificationObservationState::Recorded => AnySpecificationObservation::Recorded(SpecificationObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            SpecificationObservationState::Recorded => {
+                AnySpecificationObservation::Recorded(SpecificationObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -2615,7 +2684,13 @@ impl UsageObservationData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.used_percent)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.used_percent)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("used_percent >= 0");
         }
         None
@@ -2782,7 +2857,8 @@ pub mod workflow_run_observation_state {
     pub struct Recorded;
 
     impl Marker for Recorded {
-        const STATE: super::WorkflowRunObservationState = super::WorkflowRunObservationState::Recorded;
+        const STATE: super::WorkflowRunObservationState =
+            super::WorkflowRunObservationState::Recorded;
     }
 }
 
@@ -2849,10 +2925,12 @@ impl WorkflowRunObservationSnapshot {
     /// `WorkflowRunObservationState` cannot spell one.
     pub fn refine(self) -> AnyWorkflowRunObservation {
         match self.state {
-            WorkflowRunObservationState::Recorded => AnyWorkflowRunObservation::Recorded(WorkflowRunObservation {
-                data: self.data,
-                state: core::marker::PhantomData,
-            }),
+            WorkflowRunObservationState::Recorded => {
+                AnyWorkflowRunObservation::Recorded(WorkflowRunObservation {
+                    data: self.data,
+                    state: core::marker::PhantomData,
+                })
+            }
         }
     }
 }
@@ -4496,7 +4574,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.CompleteSnapshot`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn complete_snapshot(&mut self, input: super::CompleteSnapshot) -> Result<super::CompleteSnapshotOutcome, crate::obligation::UnmetObligation>;
+        fn complete_snapshot(
+            &mut self,
+            input: super::CompleteSnapshot,
+        ) -> Result<super::CompleteSnapshotOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.FailSnapshot` — generated.
@@ -4507,7 +4588,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.FailSnapshot`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn fail_snapshot(&mut self, input: super::FailSnapshot) -> Result<super::FailSnapshotOutcome, crate::obligation::UnmetObligation>;
+        fn fail_snapshot(
+            &mut self,
+            input: super::FailSnapshot,
+        ) -> Result<super::FailSnapshotOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.PublishBoard` — generated.
@@ -4518,7 +4602,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.PublishBoard`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn publish_board(&mut self, input: super::PublishBoard) -> Result<super::PublishBoardOutcome, crate::obligation::UnmetObligation>;
+        fn publish_board(
+            &mut self,
+            input: super::PublishBoard,
+        ) -> Result<super::PublishBoardOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordBlocker` — generated.
@@ -4529,7 +4616,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordBlocker`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_blocker(&mut self, input: super::RecordBlocker) -> Result<super::RecordBlockerOutcome, crate::obligation::UnmetObligation>;
+        fn record_blocker(
+            &mut self,
+            input: super::RecordBlocker,
+        ) -> Result<super::RecordBlockerOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordCollectorRun` — generated.
@@ -4540,7 +4630,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordCollectorRun`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_collector_run(&mut self, input: super::RecordCollectorRun) -> Result<super::RecordCollectorRunOutcome, crate::obligation::UnmetObligation>;
+        fn record_collector_run(
+            &mut self,
+            input: super::RecordCollectorRun,
+        ) -> Result<super::RecordCollectorRunOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordDailySeries` — generated.
@@ -4551,7 +4644,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordDailySeries`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_daily_series(&mut self, input: super::RecordDailySeries) -> Result<super::RecordDailySeriesOutcome, crate::obligation::UnmetObligation>;
+        fn record_daily_series(
+            &mut self,
+            input: super::RecordDailySeries,
+        ) -> Result<super::RecordDailySeriesOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordMemberFailure` — generated.
@@ -4562,7 +4658,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordMemberFailure`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_member_failure(&mut self, input: super::RecordMemberFailure) -> Result<super::RecordMemberFailureOutcome, crate::obligation::UnmetObligation>;
+        fn record_member_failure(
+            &mut self,
+            input: super::RecordMemberFailure,
+        ) -> Result<super::RecordMemberFailureOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordMergedPullRequest` — generated.
@@ -4573,7 +4672,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordMergedPullRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_merged_pull_request(&mut self, input: super::RecordMergedPullRequest) -> Result<super::RecordMergedPullRequestOutcome, crate::obligation::UnmetObligation>;
+        fn record_merged_pull_request(
+            &mut self,
+            input: super::RecordMergedPullRequest,
+        ) -> Result<super::RecordMergedPullRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordPullRequest` — generated.
@@ -4584,7 +4686,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordPullRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_pull_request(&mut self, input: super::RecordPullRequest) -> Result<super::RecordPullRequestOutcome, crate::obligation::UnmetObligation>;
+        fn record_pull_request(
+            &mut self,
+            input: super::RecordPullRequest,
+        ) -> Result<super::RecordPullRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordRelease` — generated.
@@ -4595,7 +4700,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordRelease`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_release(&mut self, input: super::RecordRelease) -> Result<super::RecordReleaseOutcome, crate::obligation::UnmetObligation>;
+        fn record_release(
+            &mut self,
+            input: super::RecordRelease,
+        ) -> Result<super::RecordReleaseOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordRepository` — generated.
@@ -4606,7 +4714,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordRepository`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_repository(&mut self, input: super::RecordRepository) -> Result<super::RecordRepositoryOutcome, crate::obligation::UnmetObligation>;
+        fn record_repository(
+            &mut self,
+            input: super::RecordRepository,
+        ) -> Result<super::RecordRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordSecretSync` — generated.
@@ -4617,7 +4728,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordSecretSync`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_secret_sync(&mut self, input: super::RecordSecretSync) -> Result<super::RecordSecretSyncOutcome, crate::obligation::UnmetObligation>;
+        fn record_secret_sync(
+            &mut self,
+            input: super::RecordSecretSync,
+        ) -> Result<super::RecordSecretSyncOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordSession` — generated.
@@ -4628,7 +4742,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordSession`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_session(&mut self, input: super::RecordSession) -> Result<super::RecordSessionOutcome, crate::obligation::UnmetObligation>;
+        fn record_session(
+            &mut self,
+            input: super::RecordSession,
+        ) -> Result<super::RecordSessionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordSpecification` — generated.
@@ -4639,7 +4756,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordSpecification`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_specification(&mut self, input: super::RecordSpecification) -> Result<super::RecordSpecificationOutcome, crate::obligation::UnmetObligation>;
+        fn record_specification(
+            &mut self,
+            input: super::RecordSpecification,
+        ) -> Result<super::RecordSpecificationOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordUsage` — generated.
@@ -4650,7 +4770,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordUsage`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_usage(&mut self, input: super::RecordUsage) -> Result<super::RecordUsageOutcome, crate::obligation::UnmetObligation>;
+        fn record_usage(
+            &mut self,
+            input: super::RecordUsage,
+        ) -> Result<super::RecordUsageOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.RecordWorkflowRun` — generated.
@@ -4661,7 +4784,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.RecordWorkflowRun`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_workflow_run(&mut self, input: super::RecordWorkflowRun) -> Result<super::RecordWorkflowRunOutcome, crate::obligation::UnmetObligation>;
+        fn record_workflow_run(
+            &mut self,
+            input: super::RecordWorkflowRun,
+        ) -> Result<super::RecordWorkflowRunOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.ReviseDailySeries` — generated.
@@ -4672,7 +4798,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.ReviseDailySeries`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn revise_daily_series(&mut self, input: super::ReviseDailySeries) -> Result<super::ReviseDailySeriesOutcome, crate::obligation::UnmetObligation>;
+        fn revise_daily_series(
+            &mut self,
+            input: super::ReviseDailySeries,
+        ) -> Result<super::ReviseDailySeriesOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.observation.StartSnapshot` — generated.
@@ -4683,7 +4812,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.observation.StartSnapshot`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn start_snapshot(&mut self, input: super::StartSnapshot) -> Result<super::StartSnapshotOutcome, crate::obligation::UnmetObligation>;
+        fn start_snapshot(
+            &mut self,
+            input: super::StartSnapshot,
+        ) -> Result<super::StartSnapshotOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.Blockers` — generated.
@@ -4716,7 +4848,9 @@ pub mod obligations {
         /// Serves `conductor.observation.CollectorRuns` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn collector_runs(&self) -> Result<Vec<super::CollectorRuns>, crate::obligation::UnmetObligation>;
+        fn collector_runs(
+            &self,
+        ) -> Result<Vec<super::CollectorRuns>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.MemberFailures` — generated.
@@ -4727,7 +4861,9 @@ pub mod obligations {
         /// Serves `conductor.observation.MemberFailures` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn member_failures(&self) -> Result<Vec<super::MemberFailures>, crate::obligation::UnmetObligation>;
+        fn member_failures(
+            &self,
+        ) -> Result<Vec<super::MemberFailures>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.MergedPullRequests` — generated.
@@ -4738,7 +4874,9 @@ pub mod obligations {
         /// Serves `conductor.observation.MergedPullRequests` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn merged_pull_requests(&self) -> Result<Vec<super::MergedPullRequests>, crate::obligation::UnmetObligation>;
+        fn merged_pull_requests(
+            &self,
+        ) -> Result<Vec<super::MergedPullRequests>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.PullRequests` — generated.
@@ -4749,7 +4887,9 @@ pub mod obligations {
         /// Serves `conductor.observation.PullRequests` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn pull_requests(&self) -> Result<Vec<super::PullRequests>, crate::obligation::UnmetObligation>;
+        fn pull_requests(
+            &self,
+        ) -> Result<Vec<super::PullRequests>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.Releases` — generated.
@@ -4771,7 +4911,9 @@ pub mod obligations {
         /// Serves `conductor.observation.Repositories` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn repositories(&self) -> Result<Vec<super::Repositories>, crate::obligation::UnmetObligation>;
+        fn repositories(
+            &self,
+        ) -> Result<Vec<super::Repositories>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.SecretSyncs` — generated.
@@ -4782,7 +4924,9 @@ pub mod obligations {
         /// Serves `conductor.observation.SecretSyncs` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn secret_syncs(&self) -> Result<Vec<super::SecretSyncs>, crate::obligation::UnmetObligation>;
+        fn secret_syncs(
+            &self,
+        ) -> Result<Vec<super::SecretSyncs>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.Sessions` — generated.
@@ -4815,7 +4959,9 @@ pub mod obligations {
         /// Serves `conductor.observation.Specifications` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn specifications(&self) -> Result<Vec<super::Specifications>, crate::obligation::UnmetObligation>;
+        fn specifications(
+            &self,
+        ) -> Result<Vec<super::Specifications>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.UsageReadings` — generated.
@@ -4826,7 +4972,9 @@ pub mod obligations {
         /// Serves `conductor.observation.UsageReadings` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn usage_readings(&self) -> Result<Vec<super::UsageReadings>, crate::obligation::UnmetObligation>;
+        fn usage_readings(
+            &self,
+        ) -> Result<Vec<super::UsageReadings>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.observation.WorkflowRuns` — generated.
@@ -4837,7 +4985,8 @@ pub mod obligations {
         /// Serves `conductor.observation.WorkflowRuns` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn workflow_runs(&self) -> Result<Vec<super::WorkflowRuns>, crate::obligation::UnmetObligation>;
+        fn workflow_runs(
+            &self,
+        ) -> Result<Vec<super::WorkflowRuns>, crate::obligation::UnmetObligation>;
     }
-
 }

@@ -128,3 +128,75 @@ fn report_done_can_recover_its_evidence_after_a_records_log_write_failure() {
         log
     );
 }
+
+#[test]
+fn a_successful_mark_goal_met_keeps_the_supplied_evidence() {
+    let case = Case::new("goal-evidence");
+    case.ok(&[
+        "goal",
+        "propose-goal",
+        "--goal-id",
+        "G1",
+        "--title",
+        "pilot",
+        "--exit-evidence",
+        "release passes",
+    ]);
+    case.ok(&["goal", "confirm-goal", "--goal-id", "G1"]);
+    let evidence = "unique-completion-evidence-839cda";
+    case.ok(&[
+        "goal",
+        "mark-goal-met",
+        "--goal-id",
+        "G1",
+        "--evidence",
+        evidence,
+    ]);
+    let mut pending = vec![case.records.clone(), case.root.join("state")];
+    let mut kept = false;
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            pending.extend(
+                fs::read_dir(path)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path()),
+            );
+        } else {
+            let bytes = fs::read(path).unwrap();
+            kept |= bytes
+                .windows(evidence.len())
+                .any(|window| window == evidence.as_bytes());
+        }
+    }
+    assert!(
+        kept,
+        "The accepted completion evidence exists in neither records nor the durable event store"
+    );
+    let goals = case.ok(&["goal", "goals", "--format", "json"]);
+    assert!(
+        goals.contains(evidence),
+        "The goals view does not show the evidence: {goals}"
+    );
+}
+
+#[test]
+fn a_dropped_goal_keeps_its_reason_and_shows_it() {
+    let case = Case::new("goal-reason");
+    case.ok(&[
+        "goal",
+        "propose-goal",
+        "--goal-id",
+        "G1",
+        "--title",
+        "pilot",
+        "--exit-evidence",
+        "release passes",
+    ]);
+    let reason = "unique-drop-reason-5b21e7";
+    case.ok(&["goal", "drop-goal", "--goal-id", "G1", "--reason", reason]);
+    let goals = case.ok(&["goal", "goals", "--format", "json"]);
+    assert!(
+        goals.contains(reason) && goals.contains("Dropped"),
+        "The goals view does not show the reason: {goals}"
+    );
+}

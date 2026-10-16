@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest d579d41cf28810ad06737965df70904ef620ffb53729bb4dbb8a2ffd28e6c7e2
-// contract digest 8a1b8540182a24c5b2d60ea9aee70cc29c3f7c6f0489e4c0a7937503417e8f9e
+// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
+// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -332,7 +332,13 @@ impl ControllerData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.charter_revision)), iv::Op::Gt, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.charter_revision)),
+            iv::Op::Gt,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("charter_revision > 0");
         }
         None
@@ -566,7 +572,13 @@ impl DispatchData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.priority)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.priority)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("priority >= 0");
         }
         None
@@ -1258,7 +1270,13 @@ impl ResourceRequestData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.amount)), iv::Op::Gt, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.amount)),
+            iv::Op::Gt,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("amount > 0");
         }
         None
@@ -2817,7 +2835,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.CancelDispatch`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn cancel_dispatch(&mut self, input: super::CancelDispatch) -> Result<super::CancelDispatchOutcome, crate::obligation::UnmetObligation>;
+        fn cancel_dispatch(
+            &mut self,
+            input: super::CancelDispatch,
+        ) -> Result<super::CancelDispatchOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.GrantResource` — generated.
@@ -2828,7 +2849,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.GrantResource`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn grant_resource(&mut self, input: super::GrantResource) -> Result<super::GrantResourceOutcome, crate::obligation::UnmetObligation>;
+        fn grant_resource(
+            &mut self,
+            input: super::GrantResource,
+        ) -> Result<super::GrantResourceOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.HandleMessage` — generated.
@@ -2839,7 +2863,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.HandleMessage`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn handle_message(&mut self, input: super::HandleMessage) -> Result<super::HandleMessageOutcome, crate::obligation::UnmetObligation>;
+        fn handle_message(
+            &mut self,
+            input: super::HandleMessage,
+        ) -> Result<super::HandleMessageOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.PauseController` — generated.
@@ -2850,7 +2877,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.PauseController`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn pause_controller(&mut self, input: super::PauseController) -> Result<super::PauseControllerOutcome, crate::obligation::UnmetObligation>;
+        fn pause_controller(
+            &mut self,
+            input: super::PauseController,
+        ) -> Result<super::PauseControllerOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReceiveMessage` — generated.
@@ -2861,7 +2891,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReceiveMessage`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn receive_message(&mut self, input: super::ReceiveMessage) -> Result<super::ReceiveMessageOutcome, crate::obligation::UnmetObligation>;
+        fn receive_message(
+            &mut self,
+            input: super::ReceiveMessage,
+        ) -> Result<super::ReceiveMessageOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.RecordGuardDecision` — generated.
@@ -2872,7 +2905,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.RecordGuardDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_guard_decision(&mut self, input: super::RecordGuardDecision) -> Result<super::RecordGuardDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn record_guard_decision(
+            &mut self,
+            input: super::RecordGuardDecision,
+        ) -> Result<super::RecordGuardDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.RefuseResource` — generated.
@@ -2883,7 +2919,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.RefuseResource`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn refuse_resource(&mut self, input: super::RefuseResource) -> Result<super::RefuseResourceOutcome, crate::obligation::UnmetObligation>;
+        fn refuse_resource(
+            &mut self,
+            input: super::RefuseResource,
+        ) -> Result<super::RefuseResourceOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.RejectMessage` — generated.
@@ -2894,7 +2933,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.RejectMessage`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn reject_message(&mut self, input: super::RejectMessage) -> Result<super::RejectMessageOutcome, crate::obligation::UnmetObligation>;
+        fn reject_message(
+            &mut self,
+            input: super::RejectMessage,
+        ) -> Result<super::RejectMessageOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReleaseResource` — generated.
@@ -2905,7 +2947,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReleaseResource`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn release_resource(&mut self, input: super::ReleaseResource) -> Result<super::ReleaseResourceOutcome, crate::obligation::UnmetObligation>;
+        fn release_resource(
+            &mut self,
+            input: super::ReleaseResource,
+        ) -> Result<super::ReleaseResourceOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReportBlocked` — generated.
@@ -2916,7 +2961,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReportBlocked`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn report_blocked(&mut self, input: super::ReportBlocked) -> Result<super::ReportBlockedOutcome, crate::obligation::UnmetObligation>;
+        fn report_blocked(
+            &mut self,
+            input: super::ReportBlocked,
+        ) -> Result<super::ReportBlockedOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReportDone` — generated.
@@ -2927,7 +2975,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReportDone`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn report_done(&mut self, input: super::ReportDone) -> Result<super::ReportDoneOutcome, crate::obligation::UnmetObligation>;
+        fn report_done(
+            &mut self,
+            input: super::ReportDone,
+        ) -> Result<super::ReportDoneOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReportFailed` — generated.
@@ -2938,7 +2989,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReportFailed`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn report_failed(&mut self, input: super::ReportFailed) -> Result<super::ReportFailedOutcome, crate::obligation::UnmetObligation>;
+        fn report_failed(
+            &mut self,
+            input: super::ReportFailed,
+        ) -> Result<super::ReportFailedOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReportStarted` — generated.
@@ -2949,7 +3003,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReportStarted`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn report_started(&mut self, input: super::ReportStarted) -> Result<super::ReportStartedOutcome, crate::obligation::UnmetObligation>;
+        fn report_started(
+            &mut self,
+            input: super::ReportStarted,
+        ) -> Result<super::ReportStartedOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReportUnblocked` — generated.
@@ -2960,7 +3017,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReportUnblocked`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn report_unblocked(&mut self, input: super::ReportUnblocked) -> Result<super::ReportUnblockedOutcome, crate::obligation::UnmetObligation>;
+        fn report_unblocked(
+            &mut self,
+            input: super::ReportUnblocked,
+        ) -> Result<super::ReportUnblockedOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.RequestResource` — generated.
@@ -2971,7 +3031,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.RequestResource`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn request_resource(&mut self, input: super::RequestResource) -> Result<super::RequestResourceOutcome, crate::obligation::UnmetObligation>;
+        fn request_resource(
+            &mut self,
+            input: super::RequestResource,
+        ) -> Result<super::RequestResourceOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ResumeController` — generated.
@@ -2982,7 +3045,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ResumeController`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn resume_controller(&mut self, input: super::ResumeController) -> Result<super::ResumeControllerOutcome, crate::obligation::UnmetObligation>;
+        fn resume_controller(
+            &mut self,
+            input: super::ResumeController,
+        ) -> Result<super::ResumeControllerOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.ReviseCharter` — generated.
@@ -2993,7 +3059,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.ReviseCharter`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn revise_charter(&mut self, input: super::ReviseCharter) -> Result<super::ReviseCharterOutcome, crate::obligation::UnmetObligation>;
+        fn revise_charter(
+            &mut self,
+            input: super::ReviseCharter,
+        ) -> Result<super::ReviseCharterOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.RouteNeed` — generated.
@@ -3004,7 +3073,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.RouteNeed`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn route_need(&mut self, input: super::RouteNeed) -> Result<super::RouteNeedOutcome, crate::obligation::UnmetObligation>;
+        fn route_need(
+            &mut self,
+            input: super::RouteNeed,
+        ) -> Result<super::RouteNeedOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.SendDispatch` — generated.
@@ -3015,7 +3087,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.SendDispatch`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn send_dispatch(&mut self, input: super::SendDispatch) -> Result<super::SendDispatchOutcome, crate::obligation::UnmetObligation>;
+        fn send_dispatch(
+            &mut self,
+            input: super::SendDispatch,
+        ) -> Result<super::SendDispatchOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.StartController` — an implementation obligation.
@@ -3028,7 +3103,10 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
-        fn start_controller(&mut self, input: super::StartController) -> Result<super::StartControllerOutcome, crate::obligation::UnmetObligation>;
+        fn start_controller(
+            &mut self,
+            input: super::StartController,
+        ) -> Result<super::StartControllerOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.dispatch.StopController` — generated.
@@ -3039,7 +3117,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.dispatch.StopController`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn stop_controller(&mut self, input: super::StopController) -> Result<super::StopControllerOutcome, crate::obligation::UnmetObligation>;
+        fn stop_controller(
+            &mut self,
+            input: super::StopController,
+        ) -> Result<super::StopControllerOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.dispatch.Controllers` — generated.
@@ -3050,7 +3131,9 @@ pub mod obligations {
         /// Serves `conductor.dispatch.Controllers` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn controllers(&self) -> Result<Vec<super::Controllers>, crate::obligation::UnmetObligation>;
+        fn controllers(
+            &self,
+        ) -> Result<Vec<super::Controllers>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.dispatch.Dispatches` — generated.
@@ -3072,7 +3155,9 @@ pub mod obligations {
         /// Serves `conductor.dispatch.GuardDecisions` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn guard_decisions(&self) -> Result<Vec<super::GuardDecisions>, crate::obligation::UnmetObligation>;
+        fn guard_decisions(
+            &self,
+        ) -> Result<Vec<super::GuardDecisions>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.dispatch.Messages` — generated.
@@ -3094,7 +3179,9 @@ pub mod obligations {
         /// Serves `conductor.dispatch.ResourceRequests` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn resource_requests(&self) -> Result<Vec<super::ResourceRequests>, crate::obligation::UnmetObligation>;
+        fn resource_requests(
+            &self,
+        ) -> Result<Vec<super::ResourceRequests>, crate::obligation::UnmetObligation>;
     }
 
     /// Every obligation of this bounded context, refused in the type system.
@@ -3104,8 +3191,14 @@ pub mod obligations {
     pub struct Unimplemented;
 
     impl StartControllerBehavior for Unimplemented {
-        fn start_controller(&mut self, _input: super::StartController) -> Result<super::StartControllerOutcome, crate::obligation::UnmetObligation> {
-            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.dispatch.StartController" })
+        fn start_controller(
+            &mut self,
+            _input: super::StartController,
+        ) -> Result<super::StartControllerOutcome, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation {
+                capability: "command behaviour",
+                source: "conductor.dispatch.StartController",
+            })
         }
     }
 }

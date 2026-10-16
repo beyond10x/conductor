@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest d579d41cf28810ad06737965df70904ef620ffb53729bb4dbb8a2ffd28e6c7e2
-// contract digest 8a1b8540182a24c5b2d60ea9aee70cc29c3f7c6f0489e4c0a7937503417e8f9e
+// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
+// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.
@@ -176,20 +176,117 @@ impl<B> ConductorCli<B> {
 
 impl<B> ConductorCli<B>
 where
-    B: crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSecretSyncBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordUsageBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SecretSyncsQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::UsageReadingsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::LeasesQuery,
+    B: crate::decision::obligations::AnswerEscalatedRequestBehavior
+        + crate::decision::obligations::AnswerRequestBehavior
+        + crate::decision::obligations::EscalateRequestBehavior
+        + crate::decision::obligations::RaiseDecisionRequestBehavior
+        + crate::decision::obligations::RecordConductorDecisionBehavior
+        + crate::decision::obligations::RecordOperatorDecisionBehavior
+        + crate::decision::obligations::ReverseConductorDecisionBehavior
+        + crate::decision::obligations::ReverseOperatorDecisionBehavior
+        + crate::decision::obligations::WithdrawRequestBehavior
+        + crate::direction::obligations::ActivateRepositoryBehavior
+        + crate::direction::obligations::AddServingBehavior
+        + crate::direction::obligations::ConfirmGoalBehavior
+        + crate::direction::obligations::DeactivateRepositoryBehavior
+        + crate::direction::obligations::DropGoalBehavior
+        + crate::direction::obligations::MarkGoalMetBehavior
+        + crate::direction::obligations::MarkRepositoryBehavior
+        + crate::direction::obligations::ProposeGoalBehavior
+        + crate::direction::obligations::RemoveServingBehavior
+        + crate::dispatch::obligations::CancelDispatchBehavior
+        + crate::dispatch::obligations::GrantResourceBehavior
+        + crate::dispatch::obligations::HandleMessageBehavior
+        + crate::dispatch::obligations::PauseControllerBehavior
+        + crate::dispatch::obligations::ReceiveMessageBehavior
+        + crate::dispatch::obligations::RecordGuardDecisionBehavior
+        + crate::dispatch::obligations::RefuseResourceBehavior
+        + crate::dispatch::obligations::RejectMessageBehavior
+        + crate::dispatch::obligations::ReleaseResourceBehavior
+        + crate::dispatch::obligations::ReportBlockedBehavior
+        + crate::dispatch::obligations::ReportDoneBehavior
+        + crate::dispatch::obligations::ReportFailedBehavior
+        + crate::dispatch::obligations::ReportStartedBehavior
+        + crate::dispatch::obligations::ReportUnblockedBehavior
+        + crate::dispatch::obligations::RequestResourceBehavior
+        + crate::dispatch::obligations::ResumeControllerBehavior
+        + crate::dispatch::obligations::ReviseCharterBehavior
+        + crate::dispatch::obligations::RouteNeedBehavior
+        + crate::dispatch::obligations::SendDispatchBehavior
+        + crate::dispatch::obligations::StartControllerBehavior
+        + crate::dispatch::obligations::StopControllerBehavior
+        + crate::host::obligations::ReclaimBehavior
+        + crate::host::obligations::RecordPeakBehavior
+        + crate::host::obligations::ReleaseGrantBehavior
+        + crate::host::obligations::RequestDiskBehavior
+        + crate::host::obligations::ReserveDiskBehavior
+        + crate::host::obligations::StartRunBehavior
+        + crate::host::obligations::TakeHostGrantBehavior
+        + crate::observation::obligations::CompleteSnapshotBehavior
+        + crate::observation::obligations::FailSnapshotBehavior
+        + crate::observation::obligations::PublishBoardBehavior
+        + crate::observation::obligations::RecordBlockerBehavior
+        + crate::observation::obligations::RecordCollectorRunBehavior
+        + crate::observation::obligations::RecordMemberFailureBehavior
+        + crate::observation::obligations::RecordMergedPullRequestBehavior
+        + crate::observation::obligations::RecordPullRequestBehavior
+        + crate::observation::obligations::RecordReleaseBehavior
+        + crate::observation::obligations::RecordRepositoryBehavior
+        + crate::observation::obligations::RecordSecretSyncBehavior
+        + crate::observation::obligations::RecordSessionBehavior
+        + crate::observation::obligations::RecordSpecificationBehavior
+        + crate::observation::obligations::RecordUsageBehavior
+        + crate::observation::obligations::RecordWorkflowRunBehavior
+        + crate::observation::obligations::StartSnapshotBehavior
+        + crate::session::obligations::ClaimLeaseBehavior
+        + crate::decision::obligations::DecisionsQuery
+        + crate::decision::obligations::HandsTodoQuery
+        + crate::decision::obligations::RequestsQuery
+        + crate::direction::obligations::GoalServingsQuery
+        + crate::direction::obligations::GoalsQuery
+        + crate::direction::obligations::RepositoryMarksQuery
+        + crate::dispatch::obligations::ControllersQuery
+        + crate::dispatch::obligations::DispatchesQuery
+        + crate::dispatch::obligations::GuardDecisionsQuery
+        + crate::dispatch::obligations::MessagesQuery
+        + crate::dispatch::obligations::ResourceRequestsQuery
+        + crate::host::obligations::GrantsQuery
+        + crate::host::obligations::ReclaimRunsQuery
+        + crate::observation::obligations::BlockersQuery
+        + crate::observation::obligations::BoardsQuery
+        + crate::observation::obligations::CollectorRunsQuery
+        + crate::observation::obligations::MemberFailuresQuery
+        + crate::observation::obligations::MergedPullRequestsQuery
+        + crate::observation::obligations::PullRequestsQuery
+        + crate::observation::obligations::ReleasesQuery
+        + crate::observation::obligations::RepositoriesQuery
+        + crate::observation::obligations::SecretSyncsQuery
+        + crate::observation::obligations::SessionsQuery
+        + crate::observation::obligations::SnapshotsQuery
+        + crate::observation::obligations::SpecificationsQuery
+        + crate::observation::obligations::UsageReadingsQuery
+        + crate::observation::obligations::WorkflowRunsQuery
+        + crate::session::obligations::LeasesQuery,
 {
     /// Accepts `conductor.decision.AnswerEscalatedRequest`: runs the behaviour obligation, then publishes the declared events
     /// the outcome carries.
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn answer_escalated_request(&mut self, input: crate::decision::AnswerEscalatedRequest) -> Result<crate::decision::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation> {
+    pub fn answer_escalated_request(
+        &mut self,
+        input: crate::decision::AnswerEscalatedRequest,
+    ) -> Result<crate::decision::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.answer_escalated_request(input)?;
         match &outcome {
             crate::decision::AnswerEscalatedRequestOutcome::NoSuchDecision { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::Reversed { .. } => {}
-            crate::decision::AnswerEscalatedRequestOutcome::Answered { request_answered, .. } => {
-                self.outbox.push(PublishedEvent::RequestAnswered(request_answered.clone()));
+            crate::decision::AnswerEscalatedRequestOutcome::Answered {
+                request_answered, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::RequestAnswered(request_answered.clone()));
             }
             crate::decision::AnswerEscalatedRequestOutcome::WrongState { .. } => {}
             crate::decision::AnswerEscalatedRequestOutcome::WrongStateUnknownInstance => {}
@@ -202,13 +299,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn answer_request(&mut self, input: crate::decision::AnswerRequest) -> Result<crate::decision::AnswerRequestOutcome, crate::obligation::UnmetObligation> {
+    pub fn answer_request(
+        &mut self,
+        input: crate::decision::AnswerRequest,
+    ) -> Result<crate::decision::AnswerRequestOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.answer_request(input)?;
         match &outcome {
             crate::decision::AnswerRequestOutcome::NoSuchDecision { .. } => {}
             crate::decision::AnswerRequestOutcome::Reversed { .. } => {}
-            crate::decision::AnswerRequestOutcome::Answered { request_answered, .. } => {
-                self.outbox.push(PublishedEvent::RequestAnswered(request_answered.clone()));
+            crate::decision::AnswerRequestOutcome::Answered {
+                request_answered, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::RequestAnswered(request_answered.clone()));
             }
             crate::decision::AnswerRequestOutcome::WrongState { .. } => {}
             crate::decision::AnswerRequestOutcome::WrongStateUnknownInstance => {}
@@ -221,13 +324,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn escalate_request(&mut self, input: crate::decision::EscalateRequest) -> Result<crate::decision::EscalateRequestOutcome, crate::obligation::UnmetObligation> {
+    pub fn escalate_request(
+        &mut self,
+        input: crate::decision::EscalateRequest,
+    ) -> Result<crate::decision::EscalateRequestOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.escalate_request(input)?;
         match &outcome {
             crate::decision::EscalateRequestOutcome::ClassC { .. } => {}
             crate::decision::EscalateRequestOutcome::Untested { .. } => {}
-            crate::decision::EscalateRequestOutcome::Escalated { request_escalated, .. } => {
-                self.outbox.push(PublishedEvent::RequestEscalated(request_escalated.clone()));
+            crate::decision::EscalateRequestOutcome::Escalated {
+                request_escalated, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::RequestEscalated(request_escalated.clone()));
             }
             crate::decision::EscalateRequestOutcome::NoSuchRequest { .. } => {}
             crate::decision::EscalateRequestOutcome::WrongState { .. } => {}
@@ -240,11 +349,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn raise_decision_request(&mut self, input: crate::decision::RaiseDecisionRequest) -> Result<crate::decision::RaiseDecisionRequestOutcome, crate::obligation::UnmetObligation> {
+    pub fn raise_decision_request(
+        &mut self,
+        input: crate::decision::RaiseDecisionRequest,
+    ) -> Result<crate::decision::RaiseDecisionRequestOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.raise_decision_request(input)?;
         match &outcome {
-            crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested, .. } => {
-                self.outbox.push(PublishedEvent::DecisionRequested(decision_requested.clone()));
+            crate::decision::RaiseDecisionRequestOutcome::Raised {
+                decision_requested, ..
+            } => {
+                self.outbox.push(PublishedEvent::DecisionRequested(
+                    decision_requested.clone(),
+                ));
             }
             crate::decision::RaiseDecisionRequestOutcome::AlreadyRaised { .. } => {}
         }
@@ -256,12 +373,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_conductor_decision(&mut self, input: crate::decision::RecordConductorDecision) -> Result<crate::decision::RecordConductorDecisionOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_conductor_decision(
+        &mut self,
+        input: crate::decision::RecordConductorDecision,
+    ) -> Result<crate::decision::RecordConductorDecisionOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_conductor_decision(input)?;
         match &outcome {
             crate::decision::RecordConductorDecisionOutcome::Reserved { .. } => {}
-            crate::decision::RecordConductorDecisionOutcome::Recorded { decision_recorded, .. } => {
-                self.outbox.push(PublishedEvent::DecisionRecorded(decision_recorded.clone()));
+            crate::decision::RecordConductorDecisionOutcome::Recorded {
+                decision_recorded, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::DecisionRecorded(decision_recorded.clone()));
             }
             crate::decision::RecordConductorDecisionOutcome::AlreadyRecorded { .. } => {}
         }
@@ -273,11 +397,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_operator_decision(&mut self, input: crate::decision::RecordOperatorDecision) -> Result<crate::decision::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_operator_decision(
+        &mut self,
+        input: crate::decision::RecordOperatorDecision,
+    ) -> Result<crate::decision::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_operator_decision(input)?;
         match &outcome {
-            crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded, .. } => {
-                self.outbox.push(PublishedEvent::DecisionRecorded(decision_recorded.clone()));
+            crate::decision::RecordOperatorDecisionOutcome::Recorded {
+                decision_recorded, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::DecisionRecorded(decision_recorded.clone()));
             }
             crate::decision::RecordOperatorDecisionOutcome::AlreadyRecorded { .. } => {}
         }
@@ -289,12 +420,21 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn reverse_conductor_decision(&mut self, input: crate::decision::ReverseConductorDecision) -> Result<crate::decision::ReverseConductorDecisionOutcome, crate::obligation::UnmetObligation> {
+    pub fn reverse_conductor_decision(
+        &mut self,
+        input: crate::decision::ReverseConductorDecision,
+    ) -> Result<crate::decision::ReverseConductorDecisionOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.reverse_conductor_decision(input)?;
         match &outcome {
             crate::decision::ReverseConductorDecisionOutcome::OperatorDecided { .. } => {}
-            crate::decision::ReverseConductorDecisionOutcome::Reversed { decision_reversed_event, .. } => {
-                self.outbox.push(PublishedEvent::DecisionReversedEvent(decision_reversed_event.clone()));
+            crate::decision::ReverseConductorDecisionOutcome::Reversed {
+                decision_reversed_event,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::DecisionReversedEvent(
+                    decision_reversed_event.clone(),
+                ));
             }
             crate::decision::ReverseConductorDecisionOutcome::NoSuchDecision { .. } => {}
             crate::decision::ReverseConductorDecisionOutcome::WrongState { .. } => {}
@@ -307,11 +447,20 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn reverse_operator_decision(&mut self, input: crate::decision::ReverseOperatorDecision) -> Result<crate::decision::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation> {
+    pub fn reverse_operator_decision(
+        &mut self,
+        input: crate::decision::ReverseOperatorDecision,
+    ) -> Result<crate::decision::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.reverse_operator_decision(input)?;
         match &outcome {
-            crate::decision::ReverseOperatorDecisionOutcome::Reversed { decision_reversed_event, .. } => {
-                self.outbox.push(PublishedEvent::DecisionReversedEvent(decision_reversed_event.clone()));
+            crate::decision::ReverseOperatorDecisionOutcome::Reversed {
+                decision_reversed_event,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::DecisionReversedEvent(
+                    decision_reversed_event.clone(),
+                ));
             }
             crate::decision::ReverseOperatorDecisionOutcome::NoSuchDecision { .. } => {}
             crate::decision::ReverseOperatorDecisionOutcome::WrongState { .. } => {}
@@ -324,11 +473,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn withdraw_request(&mut self, input: crate::decision::WithdrawRequest) -> Result<crate::decision::WithdrawRequestOutcome, crate::obligation::UnmetObligation> {
+    pub fn withdraw_request(
+        &mut self,
+        input: crate::decision::WithdrawRequest,
+    ) -> Result<crate::decision::WithdrawRequestOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.withdraw_request(input)?;
         match &outcome {
-            crate::decision::WithdrawRequestOutcome::Withdrawn { request_withdrawn, .. } => {
-                self.outbox.push(PublishedEvent::RequestWithdrawn(request_withdrawn.clone()));
+            crate::decision::WithdrawRequestOutcome::Withdrawn {
+                request_withdrawn, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::RequestWithdrawn(request_withdrawn.clone()));
             }
             crate::decision::WithdrawRequestOutcome::NoSuchRequest { .. } => {}
             crate::decision::WithdrawRequestOutcome::WrongState { .. } => {}
@@ -341,11 +496,20 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn activate_repository(&mut self, input: crate::direction::ActivateRepository) -> Result<crate::direction::ActivateRepositoryOutcome, crate::obligation::UnmetObligation> {
+    pub fn activate_repository(
+        &mut self,
+        input: crate::direction::ActivateRepository,
+    ) -> Result<crate::direction::ActivateRepositoryOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.activate_repository(input)?;
         match &outcome {
-            crate::direction::ActivateRepositoryOutcome::Activated { repository_activated, .. } => {
-                self.outbox.push(PublishedEvent::RepositoryActivated(repository_activated.clone()));
+            crate::direction::ActivateRepositoryOutcome::Activated {
+                repository_activated,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::RepositoryActivated(
+                    repository_activated.clone(),
+                ));
             }
             crate::direction::ActivateRepositoryOutcome::NoSuchMark { .. } => {}
             crate::direction::ActivateRepositoryOutcome::WrongState { .. } => {}
@@ -358,13 +522,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn add_serving(&mut self, input: crate::direction::AddServing) -> Result<crate::direction::AddServingOutcome, crate::obligation::UnmetObligation> {
+    pub fn add_serving(
+        &mut self,
+        input: crate::direction::AddServing,
+    ) -> Result<crate::direction::AddServingOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.add_serving(input)?;
         match &outcome {
             crate::direction::AddServingOutcome::NoSuchGoal { .. } => {}
             crate::direction::AddServingOutcome::GoalClosed { .. } => {}
             crate::direction::AddServingOutcome::Added { serving_added, .. } => {
-                self.outbox.push(PublishedEvent::ServingAdded(serving_added.clone()));
+                self.outbox
+                    .push(PublishedEvent::ServingAdded(serving_added.clone()));
             }
         }
         Ok(outcome)
@@ -375,12 +543,16 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn confirm_goal(&mut self, input: crate::direction::ConfirmGoal) -> Result<crate::direction::ConfirmGoalOutcome, crate::obligation::UnmetObligation> {
+    pub fn confirm_goal(
+        &mut self,
+        input: crate::direction::ConfirmGoal,
+    ) -> Result<crate::direction::ConfirmGoalOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.confirm_goal(input)?;
         match &outcome {
             crate::direction::ConfirmGoalOutcome::InvalidGoalId { .. } => {}
             crate::direction::ConfirmGoalOutcome::Confirmed { goal_confirmed, .. } => {
-                self.outbox.push(PublishedEvent::GoalConfirmed(goal_confirmed.clone()));
+                self.outbox
+                    .push(PublishedEvent::GoalConfirmed(goal_confirmed.clone()));
             }
             crate::direction::ConfirmGoalOutcome::NoSuchGoal { .. } => {}
             crate::direction::ConfirmGoalOutcome::WrongState { .. } => {}
@@ -393,11 +565,20 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn deactivate_repository(&mut self, input: crate::direction::DeactivateRepository) -> Result<crate::direction::DeactivateRepositoryOutcome, crate::obligation::UnmetObligation> {
+    pub fn deactivate_repository(
+        &mut self,
+        input: crate::direction::DeactivateRepository,
+    ) -> Result<crate::direction::DeactivateRepositoryOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.deactivate_repository(input)?;
         match &outcome {
-            crate::direction::DeactivateRepositoryOutcome::Deactivated { repository_deactivated, .. } => {
-                self.outbox.push(PublishedEvent::RepositoryDeactivated(repository_deactivated.clone()));
+            crate::direction::DeactivateRepositoryOutcome::Deactivated {
+                repository_deactivated,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::RepositoryDeactivated(
+                    repository_deactivated.clone(),
+                ));
             }
             crate::direction::DeactivateRepositoryOutcome::NoSuchMark { .. } => {}
             crate::direction::DeactivateRepositoryOutcome::WrongState { .. } => {}
@@ -410,12 +591,16 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn drop_goal(&mut self, input: crate::direction::DropGoal) -> Result<crate::direction::DropGoalOutcome, crate::obligation::UnmetObligation> {
+    pub fn drop_goal(
+        &mut self,
+        input: crate::direction::DropGoal,
+    ) -> Result<crate::direction::DropGoalOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.drop_goal(input)?;
         match &outcome {
             crate::direction::DropGoalOutcome::InvalidGoalId { .. } => {}
             crate::direction::DropGoalOutcome::Dropped { goal_dropped, .. } => {
-                self.outbox.push(PublishedEvent::GoalDropped(goal_dropped.clone()));
+                self.outbox
+                    .push(PublishedEvent::GoalDropped(goal_dropped.clone()));
             }
             crate::direction::DropGoalOutcome::NoSuchGoal { .. } => {}
             crate::direction::DropGoalOutcome::WrongState { .. } => {}
@@ -428,7 +613,10 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn mark_goal_met(&mut self, input: crate::direction::MarkGoalMet) -> Result<crate::direction::MarkGoalMetOutcome, crate::obligation::UnmetObligation> {
+    pub fn mark_goal_met(
+        &mut self,
+        input: crate::direction::MarkGoalMet,
+    ) -> Result<crate::direction::MarkGoalMetOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.mark_goal_met(input)?;
         match &outcome {
             crate::direction::MarkGoalMetOutcome::InvalidGoalId { .. } => {}
@@ -446,15 +634,24 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn mark_repository(&mut self, input: crate::direction::MarkRepository) -> Result<crate::direction::MarkRepositoryOutcome, crate::obligation::UnmetObligation> {
+    pub fn mark_repository(
+        &mut self,
+        input: crate::direction::MarkRepository,
+    ) -> Result<crate::direction::MarkRepositoryOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.mark_repository(input)?;
         match &outcome {
             crate::direction::MarkRepositoryOutcome::AlreadyMarked { .. } => {}
-            crate::direction::MarkRepositoryOutcome::MarkedActive { repository_marked, .. } => {
-                self.outbox.push(PublishedEvent::RepositoryMarked(repository_marked.clone()));
+            crate::direction::MarkRepositoryOutcome::MarkedActive {
+                repository_marked, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::RepositoryMarked(repository_marked.clone()));
             }
-            crate::direction::MarkRepositoryOutcome::MarkedInactive { repository_marked, .. } => {
-                self.outbox.push(PublishedEvent::RepositoryMarked(repository_marked.clone()));
+            crate::direction::MarkRepositoryOutcome::MarkedInactive {
+                repository_marked, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::RepositoryMarked(repository_marked.clone()));
             }
         }
         Ok(outcome)
@@ -465,12 +662,16 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn propose_goal(&mut self, input: crate::direction::ProposeGoal) -> Result<crate::direction::ProposeGoalOutcome, crate::obligation::UnmetObligation> {
+    pub fn propose_goal(
+        &mut self,
+        input: crate::direction::ProposeGoal,
+    ) -> Result<crate::direction::ProposeGoalOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.propose_goal(input)?;
         match &outcome {
             crate::direction::ProposeGoalOutcome::InvalidGoalId { .. } => {}
             crate::direction::ProposeGoalOutcome::Proposed { goal_proposed, .. } => {
-                self.outbox.push(PublishedEvent::GoalProposed(goal_proposed.clone()));
+                self.outbox
+                    .push(PublishedEvent::GoalProposed(goal_proposed.clone()));
             }
             crate::direction::ProposeGoalOutcome::AlreadyProposed { .. } => {}
         }
@@ -482,11 +683,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn remove_serving(&mut self, input: crate::direction::RemoveServing) -> Result<crate::direction::RemoveServingOutcome, crate::obligation::UnmetObligation> {
+    pub fn remove_serving(
+        &mut self,
+        input: crate::direction::RemoveServing,
+    ) -> Result<crate::direction::RemoveServingOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.remove_serving(input)?;
         match &outcome {
-            crate::direction::RemoveServingOutcome::Removed { serving_removed, .. } => {
-                self.outbox.push(PublishedEvent::ServingRemoved(serving_removed.clone()));
+            crate::direction::RemoveServingOutcome::Removed {
+                serving_removed, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::ServingRemoved(serving_removed.clone()));
             }
             crate::direction::RemoveServingOutcome::NoSuchServing { .. } => {}
             crate::direction::RemoveServingOutcome::WrongState { .. } => {}
@@ -499,11 +706,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn cancel_dispatch(&mut self, input: crate::dispatch::CancelDispatch) -> Result<crate::dispatch::CancelDispatchOutcome, crate::obligation::UnmetObligation> {
+    pub fn cancel_dispatch(
+        &mut self,
+        input: crate::dispatch::CancelDispatch,
+    ) -> Result<crate::dispatch::CancelDispatchOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.cancel_dispatch(input)?;
         match &outcome {
-            crate::dispatch::CancelDispatchOutcome::Cancelled { dispatch_cancelled, .. } => {
-                self.outbox.push(PublishedEvent::DispatchCancelled(dispatch_cancelled.clone()));
+            crate::dispatch::CancelDispatchOutcome::Cancelled {
+                dispatch_cancelled, ..
+            } => {
+                self.outbox.push(PublishedEvent::DispatchCancelled(
+                    dispatch_cancelled.clone(),
+                ));
             }
             crate::dispatch::CancelDispatchOutcome::NoSuchDispatch { .. } => {}
             crate::dispatch::CancelDispatchOutcome::WrongState { .. } => {}
@@ -516,12 +730,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn grant_resource(&mut self, input: crate::dispatch::GrantResource) -> Result<crate::dispatch::GrantResourceOutcome, crate::obligation::UnmetObligation> {
+    pub fn grant_resource(
+        &mut self,
+        input: crate::dispatch::GrantResource,
+    ) -> Result<crate::dispatch::GrantResourceOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.grant_resource(input)?;
         match &outcome {
             crate::dispatch::GrantResourceOutcome::BelowDiskFloor { .. } => {}
-            crate::dispatch::GrantResourceOutcome::Granted { resource_granted, .. } => {
-                self.outbox.push(PublishedEvent::ResourceGranted(resource_granted.clone()));
+            crate::dispatch::GrantResourceOutcome::Granted {
+                resource_granted, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::ResourceGranted(resource_granted.clone()));
             }
             crate::dispatch::GrantResourceOutcome::NoSuchRequest { .. } => {}
             crate::dispatch::GrantResourceOutcome::WrongState { .. } => {}
@@ -534,12 +754,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn handle_message(&mut self, input: crate::dispatch::HandleMessage) -> Result<crate::dispatch::HandleMessageOutcome, crate::obligation::UnmetObligation> {
+    pub fn handle_message(
+        &mut self,
+        input: crate::dispatch::HandleMessage,
+    ) -> Result<crate::dispatch::HandleMessageOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.handle_message(input)?;
         match &outcome {
             crate::dispatch::HandleMessageOutcome::NeedUnrouted { .. } => {}
-            crate::dispatch::HandleMessageOutcome::Handled { message_handled, .. } => {
-                self.outbox.push(PublishedEvent::MessageHandled(message_handled.clone()));
+            crate::dispatch::HandleMessageOutcome::Handled {
+                message_handled, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::MessageHandled(message_handled.clone()));
             }
             crate::dispatch::HandleMessageOutcome::NoSuchMessage { .. } => {}
             crate::dispatch::HandleMessageOutcome::WrongState { .. } => {}
@@ -552,11 +778,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn pause_controller(&mut self, input: crate::dispatch::PauseController) -> Result<crate::dispatch::PauseControllerOutcome, crate::obligation::UnmetObligation> {
+    pub fn pause_controller(
+        &mut self,
+        input: crate::dispatch::PauseController,
+    ) -> Result<crate::dispatch::PauseControllerOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.pause_controller(input)?;
         match &outcome {
-            crate::dispatch::PauseControllerOutcome::Paused { controller_paused, .. } => {
-                self.outbox.push(PublishedEvent::ControllerPaused(controller_paused.clone()));
+            crate::dispatch::PauseControllerOutcome::Paused {
+                controller_paused, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::ControllerPaused(controller_paused.clone()));
             }
             crate::dispatch::PauseControllerOutcome::NoSuchController { .. } => {}
             crate::dispatch::PauseControllerOutcome::WrongState { .. } => {}
@@ -569,14 +801,23 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn receive_message(&mut self, input: crate::dispatch::ReceiveMessage) -> Result<crate::dispatch::ReceiveMessageOutcome, crate::obligation::UnmetObligation> {
+    pub fn receive_message(
+        &mut self,
+        input: crate::dispatch::ReceiveMessage,
+    ) -> Result<crate::dispatch::ReceiveMessageOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.receive_message(input)?;
         match &outcome {
-            crate::dispatch::ReceiveMessageOutcome::Unparsed { message_received, .. } => {
-                self.outbox.push(PublishedEvent::MessageReceived(message_received.clone()));
+            crate::dispatch::ReceiveMessageOutcome::Unparsed {
+                message_received, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::MessageReceived(message_received.clone()));
             }
-            crate::dispatch::ReceiveMessageOutcome::Received { message_received, .. } => {
-                self.outbox.push(PublishedEvent::MessageReceived(message_received.clone()));
+            crate::dispatch::ReceiveMessageOutcome::Received {
+                message_received, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::MessageReceived(message_received.clone()));
             }
         }
         Ok(outcome)
@@ -587,11 +828,20 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_guard_decision(&mut self, input: crate::dispatch::RecordGuardDecision) -> Result<crate::dispatch::RecordGuardDecisionOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_guard_decision(
+        &mut self,
+        input: crate::dispatch::RecordGuardDecision,
+    ) -> Result<crate::dispatch::RecordGuardDecisionOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_guard_decision(input)?;
         match &outcome {
-            crate::dispatch::RecordGuardDecisionOutcome::Recorded { guard_decision_recorded, .. } => {
-                self.outbox.push(PublishedEvent::GuardDecisionRecorded(guard_decision_recorded.clone()));
+            crate::dispatch::RecordGuardDecisionOutcome::Recorded {
+                guard_decision_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::GuardDecisionRecorded(
+                    guard_decision_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -602,11 +852,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn refuse_resource(&mut self, input: crate::dispatch::RefuseResource) -> Result<crate::dispatch::RefuseResourceOutcome, crate::obligation::UnmetObligation> {
+    pub fn refuse_resource(
+        &mut self,
+        input: crate::dispatch::RefuseResource,
+    ) -> Result<crate::dispatch::RefuseResourceOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.refuse_resource(input)?;
         match &outcome {
-            crate::dispatch::RefuseResourceOutcome::Refused { resource_refused, .. } => {
-                self.outbox.push(PublishedEvent::ResourceRefused(resource_refused.clone()));
+            crate::dispatch::RefuseResourceOutcome::Refused {
+                resource_refused, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::ResourceRefused(resource_refused.clone()));
             }
             crate::dispatch::RefuseResourceOutcome::NoSuchRequest { .. } => {}
             crate::dispatch::RefuseResourceOutcome::WrongState { .. } => {}
@@ -619,11 +875,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn reject_message(&mut self, input: crate::dispatch::RejectMessage) -> Result<crate::dispatch::RejectMessageOutcome, crate::obligation::UnmetObligation> {
+    pub fn reject_message(
+        &mut self,
+        input: crate::dispatch::RejectMessage,
+    ) -> Result<crate::dispatch::RejectMessageOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.reject_message(input)?;
         match &outcome {
-            crate::dispatch::RejectMessageOutcome::Rejected { message_rejected, .. } => {
-                self.outbox.push(PublishedEvent::MessageRejected(message_rejected.clone()));
+            crate::dispatch::RejectMessageOutcome::Rejected {
+                message_rejected, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::MessageRejected(message_rejected.clone()));
             }
             crate::dispatch::RejectMessageOutcome::NoSuchMessage { .. } => {}
             crate::dispatch::RejectMessageOutcome::WrongState { .. } => {}
@@ -636,11 +898,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn release_resource(&mut self, input: crate::dispatch::ReleaseResource) -> Result<crate::dispatch::ReleaseResourceOutcome, crate::obligation::UnmetObligation> {
+    pub fn release_resource(
+        &mut self,
+        input: crate::dispatch::ReleaseResource,
+    ) -> Result<crate::dispatch::ReleaseResourceOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.release_resource(input)?;
         match &outcome {
-            crate::dispatch::ReleaseResourceOutcome::Released { resource_released, .. } => {
-                self.outbox.push(PublishedEvent::ResourceReleased(resource_released.clone()));
+            crate::dispatch::ReleaseResourceOutcome::Released {
+                resource_released, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::ResourceReleased(resource_released.clone()));
             }
             crate::dispatch::ReleaseResourceOutcome::NoSuchRequest { .. } => {}
             crate::dispatch::ReleaseResourceOutcome::WrongState { .. } => {}
@@ -653,11 +921,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn report_blocked(&mut self, input: crate::dispatch::ReportBlocked) -> Result<crate::dispatch::ReportBlockedOutcome, crate::obligation::UnmetObligation> {
+    pub fn report_blocked(
+        &mut self,
+        input: crate::dispatch::ReportBlocked,
+    ) -> Result<crate::dispatch::ReportBlockedOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.report_blocked(input)?;
         match &outcome {
-            crate::dispatch::ReportBlockedOutcome::Blocked { dispatch_blocked, .. } => {
-                self.outbox.push(PublishedEvent::DispatchBlocked(dispatch_blocked.clone()));
+            crate::dispatch::ReportBlockedOutcome::Blocked {
+                dispatch_blocked, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::DispatchBlocked(dispatch_blocked.clone()));
             }
             crate::dispatch::ReportBlockedOutcome::NoSuchDispatch { .. } => {}
             crate::dispatch::ReportBlockedOutcome::WrongState { .. } => {}
@@ -670,11 +944,15 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn report_done(&mut self, input: crate::dispatch::ReportDone) -> Result<crate::dispatch::ReportDoneOutcome, crate::obligation::UnmetObligation> {
+    pub fn report_done(
+        &mut self,
+        input: crate::dispatch::ReportDone,
+    ) -> Result<crate::dispatch::ReportDoneOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.report_done(input)?;
         match &outcome {
             crate::dispatch::ReportDoneOutcome::Done { dispatch_done, .. } => {
-                self.outbox.push(PublishedEvent::DispatchDone(dispatch_done.clone()));
+                self.outbox
+                    .push(PublishedEvent::DispatchDone(dispatch_done.clone()));
             }
             crate::dispatch::ReportDoneOutcome::NoSuchDispatch { .. } => {}
             crate::dispatch::ReportDoneOutcome::WrongState { .. } => {}
@@ -687,11 +965,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn report_failed(&mut self, input: crate::dispatch::ReportFailed) -> Result<crate::dispatch::ReportFailedOutcome, crate::obligation::UnmetObligation> {
+    pub fn report_failed(
+        &mut self,
+        input: crate::dispatch::ReportFailed,
+    ) -> Result<crate::dispatch::ReportFailedOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.report_failed(input)?;
         match &outcome {
-            crate::dispatch::ReportFailedOutcome::Failed { dispatch_failed, .. } => {
-                self.outbox.push(PublishedEvent::DispatchFailed(dispatch_failed.clone()));
+            crate::dispatch::ReportFailedOutcome::Failed {
+                dispatch_failed, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::DispatchFailed(dispatch_failed.clone()));
             }
             crate::dispatch::ReportFailedOutcome::NoSuchDispatch { .. } => {}
             crate::dispatch::ReportFailedOutcome::WrongState { .. } => {}
@@ -704,11 +988,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn report_started(&mut self, input: crate::dispatch::ReportStarted) -> Result<crate::dispatch::ReportStartedOutcome, crate::obligation::UnmetObligation> {
+    pub fn report_started(
+        &mut self,
+        input: crate::dispatch::ReportStarted,
+    ) -> Result<crate::dispatch::ReportStartedOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.report_started(input)?;
         match &outcome {
-            crate::dispatch::ReportStartedOutcome::Started { dispatch_started, .. } => {
-                self.outbox.push(PublishedEvent::DispatchStarted(dispatch_started.clone()));
+            crate::dispatch::ReportStartedOutcome::Started {
+                dispatch_started, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::DispatchStarted(dispatch_started.clone()));
             }
             crate::dispatch::ReportStartedOutcome::NoSuchDispatch { .. } => {}
             crate::dispatch::ReportStartedOutcome::WrongState { .. } => {}
@@ -721,11 +1011,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn report_unblocked(&mut self, input: crate::dispatch::ReportUnblocked) -> Result<crate::dispatch::ReportUnblockedOutcome, crate::obligation::UnmetObligation> {
+    pub fn report_unblocked(
+        &mut self,
+        input: crate::dispatch::ReportUnblocked,
+    ) -> Result<crate::dispatch::ReportUnblockedOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.report_unblocked(input)?;
         match &outcome {
-            crate::dispatch::ReportUnblockedOutcome::Unblocked { dispatch_unblocked, .. } => {
-                self.outbox.push(PublishedEvent::DispatchUnblocked(dispatch_unblocked.clone()));
+            crate::dispatch::ReportUnblockedOutcome::Unblocked {
+                dispatch_unblocked, ..
+            } => {
+                self.outbox.push(PublishedEvent::DispatchUnblocked(
+                    dispatch_unblocked.clone(),
+                ));
             }
             crate::dispatch::ReportUnblockedOutcome::NoSuchDispatch { .. } => {}
             crate::dispatch::ReportUnblockedOutcome::WrongState { .. } => {}
@@ -738,12 +1035,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn request_resource(&mut self, input: crate::dispatch::RequestResource) -> Result<crate::dispatch::RequestResourceOutcome, crate::obligation::UnmetObligation> {
+    pub fn request_resource(
+        &mut self,
+        input: crate::dispatch::RequestResource,
+    ) -> Result<crate::dispatch::RequestResourceOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.request_resource(input)?;
         match &outcome {
             crate::dispatch::RequestResourceOutcome::InvalidAmount { .. } => {}
-            crate::dispatch::RequestResourceOutcome::Requested { resource_requested, .. } => {
-                self.outbox.push(PublishedEvent::ResourceRequested(resource_requested.clone()));
+            crate::dispatch::RequestResourceOutcome::Requested {
+                resource_requested, ..
+            } => {
+                self.outbox.push(PublishedEvent::ResourceRequested(
+                    resource_requested.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -754,11 +1058,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn resume_controller(&mut self, input: crate::dispatch::ResumeController) -> Result<crate::dispatch::ResumeControllerOutcome, crate::obligation::UnmetObligation> {
+    pub fn resume_controller(
+        &mut self,
+        input: crate::dispatch::ResumeController,
+    ) -> Result<crate::dispatch::ResumeControllerOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.resume_controller(input)?;
         match &outcome {
-            crate::dispatch::ResumeControllerOutcome::Resumed { controller_resumed, .. } => {
-                self.outbox.push(PublishedEvent::ControllerResumed(controller_resumed.clone()));
+            crate::dispatch::ResumeControllerOutcome::Resumed {
+                controller_resumed, ..
+            } => {
+                self.outbox.push(PublishedEvent::ControllerResumed(
+                    controller_resumed.clone(),
+                ));
             }
             crate::dispatch::ResumeControllerOutcome::NoSuchController { .. } => {}
             crate::dispatch::ResumeControllerOutcome::WrongState { .. } => {}
@@ -771,14 +1082,23 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn revise_charter(&mut self, input: crate::dispatch::ReviseCharter) -> Result<crate::dispatch::ReviseCharterOutcome, crate::obligation::UnmetObligation> {
+    pub fn revise_charter(
+        &mut self,
+        input: crate::dispatch::ReviseCharter,
+    ) -> Result<crate::dispatch::ReviseCharterOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.revise_charter(input)?;
         match &outcome {
-            crate::dispatch::ReviseCharterOutcome::Revised { charter_revised, .. } => {
-                self.outbox.push(PublishedEvent::CharterRevised(charter_revised.clone()));
+            crate::dispatch::ReviseCharterOutcome::Revised {
+                charter_revised, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::CharterRevised(charter_revised.clone()));
             }
-            crate::dispatch::ReviseCharterOutcome::PausedRevised { charter_revised, .. } => {
-                self.outbox.push(PublishedEvent::CharterRevised(charter_revised.clone()));
+            crate::dispatch::ReviseCharterOutcome::PausedRevised {
+                charter_revised, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::CharterRevised(charter_revised.clone()));
             }
             crate::dispatch::ReviseCharterOutcome::NoSuchController { .. } => {}
             crate::dispatch::ReviseCharterOutcome::Stopped { .. } => {}
@@ -791,12 +1111,16 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn route_need(&mut self, input: crate::dispatch::RouteNeed) -> Result<crate::dispatch::RouteNeedOutcome, crate::obligation::UnmetObligation> {
+    pub fn route_need(
+        &mut self,
+        input: crate::dispatch::RouteNeed,
+    ) -> Result<crate::dispatch::RouteNeedOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.route_need(input)?;
         match &outcome {
             crate::dispatch::RouteNeedOutcome::NotANeed { .. } => {}
             crate::dispatch::RouteNeedOutcome::Routed { need_routed, .. } => {
-                self.outbox.push(PublishedEvent::NeedRouted(need_routed.clone()));
+                self.outbox
+                    .push(PublishedEvent::NeedRouted(need_routed.clone()));
             }
             crate::dispatch::RouteNeedOutcome::NoSuchMessage { .. } => {}
             crate::dispatch::RouteNeedOutcome::WrongState { .. } => {}
@@ -809,7 +1133,10 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn send_dispatch(&mut self, input: crate::dispatch::SendDispatch) -> Result<crate::dispatch::SendDispatchOutcome, crate::obligation::UnmetObligation> {
+    pub fn send_dispatch(
+        &mut self,
+        input: crate::dispatch::SendDispatch,
+    ) -> Result<crate::dispatch::SendDispatchOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.send_dispatch(input)?;
         match &outcome {
             crate::dispatch::SendDispatchOutcome::NegativePriority { .. } => {}
@@ -817,7 +1144,8 @@ where
             crate::dispatch::SendDispatchOutcome::NoSuchGoal { .. } => {}
             crate::dispatch::SendDispatchOutcome::GoalClosed { .. } => {}
             crate::dispatch::SendDispatchOutcome::Sent { dispatch_sent, .. } => {
-                self.outbox.push(PublishedEvent::DispatchSent(dispatch_sent.clone()));
+                self.outbox
+                    .push(PublishedEvent::DispatchSent(dispatch_sent.clone()));
             }
             crate::dispatch::SendDispatchOutcome::AlreadySent { .. } => {}
         }
@@ -829,12 +1157,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn start_controller(&mut self, input: crate::dispatch::StartController) -> Result<crate::dispatch::StartControllerOutcome, crate::obligation::UnmetObligation> {
+    pub fn start_controller(
+        &mut self,
+        input: crate::dispatch::StartController,
+    ) -> Result<crate::dispatch::StartControllerOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.start_controller(input)?;
         match &outcome {
             crate::dispatch::StartControllerOutcome::AlreadyRunning { .. } => {}
-            crate::dispatch::StartControllerOutcome::Started { controller_started, .. } => {
-                self.outbox.push(PublishedEvent::ControllerStarted(controller_started.clone()));
+            crate::dispatch::StartControllerOutcome::Started {
+                controller_started, ..
+            } => {
+                self.outbox.push(PublishedEvent::ControllerStarted(
+                    controller_started.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -845,11 +1180,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn stop_controller(&mut self, input: crate::dispatch::StopController) -> Result<crate::dispatch::StopControllerOutcome, crate::obligation::UnmetObligation> {
+    pub fn stop_controller(
+        &mut self,
+        input: crate::dispatch::StopController,
+    ) -> Result<crate::dispatch::StopControllerOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.stop_controller(input)?;
         match &outcome {
-            crate::dispatch::StopControllerOutcome::Stopped { controller_stopped, .. } => {
-                self.outbox.push(PublishedEvent::ControllerStopped(controller_stopped.clone()));
+            crate::dispatch::StopControllerOutcome::Stopped {
+                controller_stopped, ..
+            } => {
+                self.outbox.push(PublishedEvent::ControllerStopped(
+                    controller_stopped.clone(),
+                ));
             }
             crate::dispatch::StopControllerOutcome::NoSuchController { .. } => {}
             crate::dispatch::StopControllerOutcome::WrongState { .. } => {}
@@ -862,15 +1204,24 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn reclaim(&mut self, input: crate::host::Reclaim) -> Result<crate::host::ReclaimOutcome, crate::obligation::UnmetObligation> {
+    pub fn reclaim(
+        &mut self,
+        input: crate::host::Reclaim,
+    ) -> Result<crate::host::ReclaimOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.reclaim(input)?;
         match &outcome {
             crate::host::ReclaimOutcome::InvalidSize { .. } => {}
-            crate::host::ReclaimOutcome::FloorNotReached { reclaim_floor_not_reached, .. } => {
-                self.outbox.push(PublishedEvent::ReclaimFloorNotReached(reclaim_floor_not_reached.clone()));
+            crate::host::ReclaimOutcome::FloorNotReached {
+                reclaim_floor_not_reached,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::ReclaimFloorNotReached(
+                    reclaim_floor_not_reached.clone(),
+                ));
             }
             crate::host::ReclaimOutcome::Reclaimed { disk_reclaimed, .. } => {
-                self.outbox.push(PublishedEvent::DiskReclaimed(disk_reclaimed.clone()));
+                self.outbox
+                    .push(PublishedEvent::DiskReclaimed(disk_reclaimed.clone()));
             }
         }
         Ok(outcome)
@@ -881,12 +1232,16 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_peak(&mut self, input: crate::host::RecordPeak) -> Result<crate::host::RecordPeakOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_peak(
+        &mut self,
+        input: crate::host::RecordPeak,
+    ) -> Result<crate::host::RecordPeakOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_peak(input)?;
         match &outcome {
             crate::host::RecordPeakOutcome::InvalidSize { .. } => {}
             crate::host::RecordPeakOutcome::Recorded { peak_recorded, .. } => {
-                self.outbox.push(PublishedEvent::PeakRecorded(peak_recorded.clone()));
+                self.outbox
+                    .push(PublishedEvent::PeakRecorded(peak_recorded.clone()));
             }
             crate::host::RecordPeakOutcome::NoSuchGrant { .. } => {}
             crate::host::RecordPeakOutcome::NotRunning { .. } => {}
@@ -899,11 +1254,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn release_grant(&mut self, input: crate::host::ReleaseGrant) -> Result<crate::host::ReleaseGrantOutcome, crate::obligation::UnmetObligation> {
+    pub fn release_grant(
+        &mut self,
+        input: crate::host::ReleaseGrant,
+    ) -> Result<crate::host::ReleaseGrantOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.release_grant(input)?;
         match &outcome {
-            crate::host::ReleaseGrantOutcome::Released { host_grant_released, .. } => {
-                self.outbox.push(PublishedEvent::HostGrantReleased(host_grant_released.clone()));
+            crate::host::ReleaseGrantOutcome::Released {
+                host_grant_released,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::HostGrantReleased(
+                    host_grant_released.clone(),
+                ));
             }
             crate::host::ReleaseGrantOutcome::NoSuchGrant { .. } => {}
             crate::host::ReleaseGrantOutcome::WrongState { .. } => {}
@@ -916,12 +1279,16 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn request_disk(&mut self, input: crate::host::RequestDisk) -> Result<crate::host::RequestDiskOutcome, crate::obligation::UnmetObligation> {
+    pub fn request_disk(
+        &mut self,
+        input: crate::host::RequestDisk,
+    ) -> Result<crate::host::RequestDiskOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.request_disk(input)?;
         match &outcome {
             crate::host::RequestDiskOutcome::InvalidSize { .. } => {}
             crate::host::RequestDiskOutcome::Requested { disk_requested, .. } => {
-                self.outbox.push(PublishedEvent::DiskRequested(disk_requested.clone()));
+                self.outbox
+                    .push(PublishedEvent::DiskRequested(disk_requested.clone()));
             }
         }
         Ok(outcome)
@@ -932,18 +1299,28 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn reserve_disk(&mut self, input: crate::host::ReserveDisk) -> Result<crate::host::ReserveDiskOutcome, crate::obligation::UnmetObligation> {
+    pub fn reserve_disk(
+        &mut self,
+        input: crate::host::ReserveDisk,
+    ) -> Result<crate::host::ReserveDiskOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.reserve_disk(input)?;
         match &outcome {
             crate::host::ReserveDiskOutcome::InvalidSize { .. } => {}
-            crate::host::ReserveDiskOutcome::Refused { disk_reservation_refused, .. } => {
-                self.outbox.push(PublishedEvent::DiskReservationRefused(disk_reservation_refused.clone()));
+            crate::host::ReserveDiskOutcome::Refused {
+                disk_reservation_refused,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::DiskReservationRefused(
+                    disk_reservation_refused.clone(),
+                ));
             }
             crate::host::ReserveDiskOutcome::GrantedAfterReclaim { disk_reserved, .. } => {
-                self.outbox.push(PublishedEvent::DiskReserved(disk_reserved.clone()));
+                self.outbox
+                    .push(PublishedEvent::DiskReserved(disk_reserved.clone()));
             }
             crate::host::ReserveDiskOutcome::Granted { disk_reserved, .. } => {
-                self.outbox.push(PublishedEvent::DiskReserved(disk_reserved.clone()));
+                self.outbox
+                    .push(PublishedEvent::DiskReserved(disk_reserved.clone()));
             }
             crate::host::ReserveDiskOutcome::NoSuchGrant { .. } => {}
             crate::host::ReserveDiskOutcome::WrongState { .. } => {}
@@ -956,12 +1333,16 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn start_run(&mut self, input: crate::host::StartRun) -> Result<crate::host::StartRunOutcome, crate::obligation::UnmetObligation> {
+    pub fn start_run(
+        &mut self,
+        input: crate::host::StartRun,
+    ) -> Result<crate::host::StartRunOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.start_run(input)?;
         match &outcome {
             crate::host::StartRunOutcome::NotADiskGrant { .. } => {}
             crate::host::StartRunOutcome::Started { run_started, .. } => {
-                self.outbox.push(PublishedEvent::RunStarted(run_started.clone()));
+                self.outbox
+                    .push(PublishedEvent::RunStarted(run_started.clone()));
             }
             crate::host::StartRunOutcome::NoSuchGrant { .. } => {}
             crate::host::StartRunOutcome::WrongState { .. } => {}
@@ -974,12 +1355,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn take_host_grant(&mut self, input: crate::host::TakeHostGrant) -> Result<crate::host::TakeHostGrantOutcome, crate::obligation::UnmetObligation> {
+    pub fn take_host_grant(
+        &mut self,
+        input: crate::host::TakeHostGrant,
+    ) -> Result<crate::host::TakeHostGrantOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.take_host_grant(input)?;
         match &outcome {
             crate::host::TakeHostGrantOutcome::DiskThroughReservation { .. } => {}
-            crate::host::TakeHostGrantOutcome::Granted { host_grant_taken, .. } => {
-                self.outbox.push(PublishedEvent::HostGrantTaken(host_grant_taken.clone()));
+            crate::host::TakeHostGrantOutcome::Granted {
+                host_grant_taken, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::HostGrantTaken(host_grant_taken.clone()));
             }
         }
         Ok(outcome)
@@ -990,11 +1377,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn complete_snapshot(&mut self, input: crate::observation::CompleteSnapshot) -> Result<crate::observation::CompleteSnapshotOutcome, crate::obligation::UnmetObligation> {
+    pub fn complete_snapshot(
+        &mut self,
+        input: crate::observation::CompleteSnapshot,
+    ) -> Result<crate::observation::CompleteSnapshotOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.complete_snapshot(input)?;
         match &outcome {
-            crate::observation::CompleteSnapshotOutcome::Completed { snapshot_completed, .. } => {
-                self.outbox.push(PublishedEvent::SnapshotCompleted(snapshot_completed.clone()));
+            crate::observation::CompleteSnapshotOutcome::Completed {
+                snapshot_completed, ..
+            } => {
+                self.outbox.push(PublishedEvent::SnapshotCompleted(
+                    snapshot_completed.clone(),
+                ));
             }
             crate::observation::CompleteSnapshotOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::CompleteSnapshotOutcome::WrongState { .. } => {}
@@ -1007,11 +1402,17 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn fail_snapshot(&mut self, input: crate::observation::FailSnapshot) -> Result<crate::observation::FailSnapshotOutcome, crate::obligation::UnmetObligation> {
+    pub fn fail_snapshot(
+        &mut self,
+        input: crate::observation::FailSnapshot,
+    ) -> Result<crate::observation::FailSnapshotOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.fail_snapshot(input)?;
         match &outcome {
-            crate::observation::FailSnapshotOutcome::Failed { snapshot_failed, .. } => {
-                self.outbox.push(PublishedEvent::SnapshotFailed(snapshot_failed.clone()));
+            crate::observation::FailSnapshotOutcome::Failed {
+                snapshot_failed, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::SnapshotFailed(snapshot_failed.clone()));
             }
             crate::observation::FailSnapshotOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::FailSnapshotOutcome::WrongState { .. } => {}
@@ -1024,14 +1425,20 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn publish_board(&mut self, input: crate::observation::PublishBoard) -> Result<crate::observation::PublishBoardOutcome, crate::obligation::UnmetObligation> {
+    pub fn publish_board(
+        &mut self,
+        input: crate::observation::PublishBoard,
+    ) -> Result<crate::observation::PublishBoardOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.publish_board(input)?;
         match &outcome {
             crate::observation::PublishBoardOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::PublishBoardOutcome::NotComplete { .. } => {}
             crate::observation::PublishBoardOutcome::NegativeRows { .. } => {}
-            crate::observation::PublishBoardOutcome::Published { board_published, .. } => {
-                self.outbox.push(PublishedEvent::BoardPublished(board_published.clone()));
+            crate::observation::PublishBoardOutcome::Published {
+                board_published, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::BoardPublished(board_published.clone()));
             }
         }
         Ok(outcome)
@@ -1042,13 +1449,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_blocker(&mut self, input: crate::observation::RecordBlocker) -> Result<crate::observation::RecordBlockerOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_blocker(
+        &mut self,
+        input: crate::observation::RecordBlocker,
+    ) -> Result<crate::observation::RecordBlockerOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_blocker(input)?;
         match &outcome {
             crate::observation::RecordBlockerOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordBlockerOutcome::Closed { .. } => {}
-            crate::observation::RecordBlockerOutcome::Recorded { blocker_recorded, .. } => {
-                self.outbox.push(PublishedEvent::BlockerRecorded(blocker_recorded.clone()));
+            crate::observation::RecordBlockerOutcome::Recorded {
+                blocker_recorded, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::BlockerRecorded(blocker_recorded.clone()));
             }
         }
         Ok(outcome)
@@ -1059,14 +1472,23 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_collector_run(&mut self, input: crate::observation::RecordCollectorRun) -> Result<crate::observation::RecordCollectorRunOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_collector_run(
+        &mut self,
+        input: crate::observation::RecordCollectorRun,
+    ) -> Result<crate::observation::RecordCollectorRunOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_collector_run(input)?;
         match &outcome {
             crate::observation::RecordCollectorRunOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordCollectorRunOutcome::Closed { .. } => {}
             crate::observation::RecordCollectorRunOutcome::NegativeDuration { .. } => {}
-            crate::observation::RecordCollectorRunOutcome::Recorded { collector_run_recorded, .. } => {
-                self.outbox.push(PublishedEvent::CollectorRunRecorded(collector_run_recorded.clone()));
+            crate::observation::RecordCollectorRunOutcome::Recorded {
+                collector_run_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::CollectorRunRecorded(
+                    collector_run_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1077,13 +1499,22 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_member_failure(&mut self, input: crate::observation::RecordMemberFailure) -> Result<crate::observation::RecordMemberFailureOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_member_failure(
+        &mut self,
+        input: crate::observation::RecordMemberFailure,
+    ) -> Result<crate::observation::RecordMemberFailureOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_member_failure(input)?;
         match &outcome {
             crate::observation::RecordMemberFailureOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordMemberFailureOutcome::Closed { .. } => {}
-            crate::observation::RecordMemberFailureOutcome::Recorded { member_failure_recorded, .. } => {
-                self.outbox.push(PublishedEvent::MemberFailureRecorded(member_failure_recorded.clone()));
+            crate::observation::RecordMemberFailureOutcome::Recorded {
+                member_failure_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::MemberFailureRecorded(
+                    member_failure_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1094,14 +1525,25 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_merged_pull_request(&mut self, input: crate::observation::RecordMergedPullRequest) -> Result<crate::observation::RecordMergedPullRequestOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_merged_pull_request(
+        &mut self,
+        input: crate::observation::RecordMergedPullRequest,
+    ) -> Result<
+        crate::observation::RecordMergedPullRequestOutcome,
+        crate::obligation::UnmetObligation,
+    > {
         let outcome = self.behaviors.record_merged_pull_request(input)?;
         match &outcome {
             crate::observation::RecordMergedPullRequestOutcome::InvalidNumber { .. } => {}
             crate::observation::RecordMergedPullRequestOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordMergedPullRequestOutcome::Closed { .. } => {}
-            crate::observation::RecordMergedPullRequestOutcome::Recorded { merged_pull_request_recorded, .. } => {
-                self.outbox.push(PublishedEvent::MergedPullRequestRecorded(merged_pull_request_recorded.clone()));
+            crate::observation::RecordMergedPullRequestOutcome::Recorded {
+                merged_pull_request_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::MergedPullRequestRecorded(
+                    merged_pull_request_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1112,15 +1554,24 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_pull_request(&mut self, input: crate::observation::RecordPullRequest) -> Result<crate::observation::RecordPullRequestOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_pull_request(
+        &mut self,
+        input: crate::observation::RecordPullRequest,
+    ) -> Result<crate::observation::RecordPullRequestOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_pull_request(input)?;
         match &outcome {
             crate::observation::RecordPullRequestOutcome::InvalidNumber { .. } => {}
             crate::observation::RecordPullRequestOutcome::NegativeChecks { .. } => {}
             crate::observation::RecordPullRequestOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordPullRequestOutcome::Closed { .. } => {}
-            crate::observation::RecordPullRequestOutcome::Recorded { pull_request_recorded, .. } => {
-                self.outbox.push(PublishedEvent::PullRequestRecorded(pull_request_recorded.clone()));
+            crate::observation::RecordPullRequestOutcome::Recorded {
+                pull_request_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::PullRequestRecorded(
+                    pull_request_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1131,13 +1582,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_release(&mut self, input: crate::observation::RecordRelease) -> Result<crate::observation::RecordReleaseOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_release(
+        &mut self,
+        input: crate::observation::RecordRelease,
+    ) -> Result<crate::observation::RecordReleaseOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_release(input)?;
         match &outcome {
             crate::observation::RecordReleaseOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordReleaseOutcome::Closed { .. } => {}
-            crate::observation::RecordReleaseOutcome::Recorded { release_recorded, .. } => {
-                self.outbox.push(PublishedEvent::ReleaseRecorded(release_recorded.clone()));
+            crate::observation::RecordReleaseOutcome::Recorded {
+                release_recorded, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::ReleaseRecorded(release_recorded.clone()));
             }
         }
         Ok(outcome)
@@ -1148,13 +1605,22 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_repository(&mut self, input: crate::observation::RecordRepository) -> Result<crate::observation::RecordRepositoryOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_repository(
+        &mut self,
+        input: crate::observation::RecordRepository,
+    ) -> Result<crate::observation::RecordRepositoryOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_repository(input)?;
         match &outcome {
             crate::observation::RecordRepositoryOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordRepositoryOutcome::Closed { .. } => {}
-            crate::observation::RecordRepositoryOutcome::Recorded { repository_recorded, .. } => {
-                self.outbox.push(PublishedEvent::RepositoryRecorded(repository_recorded.clone()));
+            crate::observation::RecordRepositoryOutcome::Recorded {
+                repository_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::RepositoryRecorded(
+                    repository_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1165,13 +1631,22 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_secret_sync(&mut self, input: crate::observation::RecordSecretSync) -> Result<crate::observation::RecordSecretSyncOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_secret_sync(
+        &mut self,
+        input: crate::observation::RecordSecretSync,
+    ) -> Result<crate::observation::RecordSecretSyncOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_secret_sync(input)?;
         match &outcome {
             crate::observation::RecordSecretSyncOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordSecretSyncOutcome::Closed { .. } => {}
-            crate::observation::RecordSecretSyncOutcome::Recorded { secret_sync_recorded, .. } => {
-                self.outbox.push(PublishedEvent::SecretSyncRecorded(secret_sync_recorded.clone()));
+            crate::observation::RecordSecretSyncOutcome::Recorded {
+                secret_sync_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::SecretSyncRecorded(
+                    secret_sync_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1182,13 +1657,19 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_session(&mut self, input: crate::observation::RecordSession) -> Result<crate::observation::RecordSessionOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_session(
+        &mut self,
+        input: crate::observation::RecordSession,
+    ) -> Result<crate::observation::RecordSessionOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_session(input)?;
         match &outcome {
             crate::observation::RecordSessionOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordSessionOutcome::Closed { .. } => {}
-            crate::observation::RecordSessionOutcome::Recorded { session_recorded, .. } => {
-                self.outbox.push(PublishedEvent::SessionRecorded(session_recorded.clone()));
+            crate::observation::RecordSessionOutcome::Recorded {
+                session_recorded, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::SessionRecorded(session_recorded.clone()));
             }
         }
         Ok(outcome)
@@ -1199,14 +1680,23 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_specification(&mut self, input: crate::observation::RecordSpecification) -> Result<crate::observation::RecordSpecificationOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_specification(
+        &mut self,
+        input: crate::observation::RecordSpecification,
+    ) -> Result<crate::observation::RecordSpecificationOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_specification(input)?;
         match &outcome {
             crate::observation::RecordSpecificationOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordSpecificationOutcome::Closed { .. } => {}
             crate::observation::RecordSpecificationOutcome::NegativeRefusals { .. } => {}
-            crate::observation::RecordSpecificationOutcome::Recorded { specification_recorded, .. } => {
-                self.outbox.push(PublishedEvent::SpecificationRecorded(specification_recorded.clone()));
+            crate::observation::RecordSpecificationOutcome::Recorded {
+                specification_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::SpecificationRecorded(
+                    specification_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1217,14 +1707,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_usage(&mut self, input: crate::observation::RecordUsage) -> Result<crate::observation::RecordUsageOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_usage(
+        &mut self,
+        input: crate::observation::RecordUsage,
+    ) -> Result<crate::observation::RecordUsageOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_usage(input)?;
         match &outcome {
             crate::observation::RecordUsageOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordUsageOutcome::Closed { .. } => {}
             crate::observation::RecordUsageOutcome::NegativePercent { .. } => {}
             crate::observation::RecordUsageOutcome::Recorded { usage_recorded, .. } => {
-                self.outbox.push(PublishedEvent::UsageRecorded(usage_recorded.clone()));
+                self.outbox
+                    .push(PublishedEvent::UsageRecorded(usage_recorded.clone()));
             }
         }
         Ok(outcome)
@@ -1235,13 +1729,22 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_workflow_run(&mut self, input: crate::observation::RecordWorkflowRun) -> Result<crate::observation::RecordWorkflowRunOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_workflow_run(
+        &mut self,
+        input: crate::observation::RecordWorkflowRun,
+    ) -> Result<crate::observation::RecordWorkflowRunOutcome, crate::obligation::UnmetObligation>
+    {
         let outcome = self.behaviors.record_workflow_run(input)?;
         match &outcome {
             crate::observation::RecordWorkflowRunOutcome::NoSuchSnapshot { .. } => {}
             crate::observation::RecordWorkflowRunOutcome::Closed { .. } => {}
-            crate::observation::RecordWorkflowRunOutcome::Recorded { workflow_run_recorded, .. } => {
-                self.outbox.push(PublishedEvent::WorkflowRunRecorded(workflow_run_recorded.clone()));
+            crate::observation::RecordWorkflowRunOutcome::Recorded {
+                workflow_run_recorded,
+                ..
+            } => {
+                self.outbox.push(PublishedEvent::WorkflowRunRecorded(
+                    workflow_run_recorded.clone(),
+                ));
             }
         }
         Ok(outcome)
@@ -1252,12 +1755,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn start_snapshot(&mut self, input: crate::observation::StartSnapshot) -> Result<crate::observation::StartSnapshotOutcome, crate::obligation::UnmetObligation> {
+    pub fn start_snapshot(
+        &mut self,
+        input: crate::observation::StartSnapshot,
+    ) -> Result<crate::observation::StartSnapshotOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.start_snapshot(input)?;
         match &outcome {
             crate::observation::StartSnapshotOutcome::NegativeDisk { .. } => {}
-            crate::observation::StartSnapshotOutcome::Started { snapshot_started, .. } => {
-                self.outbox.push(PublishedEvent::SnapshotStarted(snapshot_started.clone()));
+            crate::observation::StartSnapshotOutcome::Started {
+                snapshot_started, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::SnapshotStarted(snapshot_started.clone()));
             }
         }
         Ok(outcome)
@@ -1268,75 +1777,105 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn claim_lease(&mut self, input: crate::session::ClaimLease) -> Result<crate::session::ClaimLeaseOutcome, crate::obligation::UnmetObligation> {
+    pub fn claim_lease(
+        &mut self,
+        input: crate::session::ClaimLease,
+    ) -> Result<crate::session::ClaimLeaseOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.claim_lease(input)?;
         match &outcome {
             crate::session::ClaimLeaseOutcome::Taken { lease_taken, .. } => {
-                self.outbox.push(PublishedEvent::LeaseTaken(lease_taken.clone()));
+                self.outbox
+                    .push(PublishedEvent::LeaseTaken(lease_taken.clone()));
             }
             crate::session::ClaimLeaseOutcome::Renewed { lease_taken, .. } => {
-                self.outbox.push(PublishedEvent::LeaseTaken(lease_taken.clone()));
+                self.outbox
+                    .push(PublishedEvent::LeaseTaken(lease_taken.clone()));
             }
             crate::session::ClaimLeaseOutcome::Held { .. } => {}
-            crate::session::ClaimLeaseOutcome::TakenOver { lease_taken_over, .. } => {
-                self.outbox.push(PublishedEvent::LeaseTakenOver(lease_taken_over.clone()));
+            crate::session::ClaimLeaseOutcome::TakenOver {
+                lease_taken_over, ..
+            } => {
+                self.outbox
+                    .push(PublishedEvent::LeaseTakenOver(lease_taken_over.clone()));
             }
         }
         Ok(outcome)
     }
 
     /// Serves `conductor.decision.Decisions` at `read_your_writes` consistency, from the owed projection.
-    pub fn decisions(&self) -> Result<Vec<crate::decision::Decisions>, crate::obligation::UnmetObligation> {
+    pub fn decisions(
+        &self,
+    ) -> Result<Vec<crate::decision::Decisions>, crate::obligation::UnmetObligation> {
         self.behaviors.decisions()
     }
 
     /// Serves `conductor.decision.HandsTodo` at `read_your_writes` consistency, from the owed projection.
-    pub fn hands_todo(&self) -> Result<Vec<crate::decision::HandsTodo>, crate::obligation::UnmetObligation> {
+    pub fn hands_todo(
+        &self,
+    ) -> Result<Vec<crate::decision::HandsTodo>, crate::obligation::UnmetObligation> {
         self.behaviors.hands_todo()
     }
 
     /// Serves `conductor.decision.Requests` at `read_your_writes` consistency, from the owed projection.
-    pub fn requests(&self) -> Result<Vec<crate::decision::Requests>, crate::obligation::UnmetObligation> {
+    pub fn requests(
+        &self,
+    ) -> Result<Vec<crate::decision::Requests>, crate::obligation::UnmetObligation> {
         self.behaviors.requests()
     }
 
     /// Serves `conductor.direction.GoalServings` at `read_your_writes` consistency, from the owed projection.
-    pub fn goal_servings(&self) -> Result<Vec<crate::direction::GoalServings>, crate::obligation::UnmetObligation> {
+    pub fn goal_servings(
+        &self,
+    ) -> Result<Vec<crate::direction::GoalServings>, crate::obligation::UnmetObligation> {
         self.behaviors.goal_servings()
     }
 
     /// Serves `conductor.direction.Goals` at `read_your_writes` consistency, from the owed projection.
-    pub fn goals(&self) -> Result<Vec<crate::direction::Goals>, crate::obligation::UnmetObligation> {
+    pub fn goals(
+        &self,
+    ) -> Result<Vec<crate::direction::Goals>, crate::obligation::UnmetObligation> {
         self.behaviors.goals()
     }
 
     /// Serves `conductor.direction.RepositoryMarks` at `read_your_writes` consistency, from the owed projection.
-    pub fn repository_marks(&self) -> Result<Vec<crate::direction::RepositoryMarks>, crate::obligation::UnmetObligation> {
+    pub fn repository_marks(
+        &self,
+    ) -> Result<Vec<crate::direction::RepositoryMarks>, crate::obligation::UnmetObligation> {
         self.behaviors.repository_marks()
     }
 
     /// Serves `conductor.dispatch.Controllers` at `read_your_writes` consistency, from the owed projection.
-    pub fn controllers(&self) -> Result<Vec<crate::dispatch::Controllers>, crate::obligation::UnmetObligation> {
+    pub fn controllers(
+        &self,
+    ) -> Result<Vec<crate::dispatch::Controllers>, crate::obligation::UnmetObligation> {
         self.behaviors.controllers()
     }
 
     /// Serves `conductor.dispatch.Dispatches` at `read_your_writes` consistency, from the owed projection.
-    pub fn dispatches(&self) -> Result<Vec<crate::dispatch::Dispatches>, crate::obligation::UnmetObligation> {
+    pub fn dispatches(
+        &self,
+    ) -> Result<Vec<crate::dispatch::Dispatches>, crate::obligation::UnmetObligation> {
         self.behaviors.dispatches()
     }
 
     /// Serves `conductor.dispatch.GuardDecisions` at `read_your_writes` consistency, from the owed projection.
-    pub fn guard_decisions(&self) -> Result<Vec<crate::dispatch::GuardDecisions>, crate::obligation::UnmetObligation> {
+    pub fn guard_decisions(
+        &self,
+    ) -> Result<Vec<crate::dispatch::GuardDecisions>, crate::obligation::UnmetObligation> {
         self.behaviors.guard_decisions()
     }
 
     /// Serves `conductor.dispatch.Messages` at `read_your_writes` consistency, from the owed projection.
-    pub fn messages(&self) -> Result<Vec<crate::dispatch::Messages>, crate::obligation::UnmetObligation> {
+    pub fn messages(
+        &self,
+    ) -> Result<Vec<crate::dispatch::Messages>, crate::obligation::UnmetObligation> {
         self.behaviors.messages()
     }
 
     /// Serves `conductor.dispatch.ResourceRequests` at `read_your_writes` consistency, from the owed projection.
-    pub fn resource_requests(&self) -> Result<Vec<crate::dispatch::ResourceRequests>, crate::obligation::UnmetObligation> {
+    pub fn resource_requests(
+        &self,
+    ) -> Result<Vec<crate::dispatch::ResourceRequests>, crate::obligation::UnmetObligation> {
         self.behaviors.resource_requests()
     }
 
@@ -1346,82 +1885,115 @@ where
     }
 
     /// Serves `conductor.host.ReclaimRuns` at `read_your_writes` consistency, from the owed projection.
-    pub fn reclaim_runs(&self) -> Result<Vec<crate::host::ReclaimRuns>, crate::obligation::UnmetObligation> {
+    pub fn reclaim_runs(
+        &self,
+    ) -> Result<Vec<crate::host::ReclaimRuns>, crate::obligation::UnmetObligation> {
         self.behaviors.reclaim_runs()
     }
 
     /// Serves `conductor.observation.Blockers` at `read_your_writes` consistency, from the owed projection.
-    pub fn blockers(&self) -> Result<Vec<crate::observation::Blockers>, crate::obligation::UnmetObligation> {
+    pub fn blockers(
+        &self,
+    ) -> Result<Vec<crate::observation::Blockers>, crate::obligation::UnmetObligation> {
         self.behaviors.blockers()
     }
 
     /// Serves `conductor.observation.Boards` at `read_your_writes` consistency, from the owed projection.
-    pub fn boards(&self) -> Result<Vec<crate::observation::Boards>, crate::obligation::UnmetObligation> {
+    pub fn boards(
+        &self,
+    ) -> Result<Vec<crate::observation::Boards>, crate::obligation::UnmetObligation> {
         self.behaviors.boards()
     }
 
     /// Serves `conductor.observation.CollectorRuns` at `read_your_writes` consistency, from the owed projection.
-    pub fn collector_runs(&self) -> Result<Vec<crate::observation::CollectorRuns>, crate::obligation::UnmetObligation> {
+    pub fn collector_runs(
+        &self,
+    ) -> Result<Vec<crate::observation::CollectorRuns>, crate::obligation::UnmetObligation> {
         self.behaviors.collector_runs()
     }
 
     /// Serves `conductor.observation.MemberFailures` at `read_your_writes` consistency, from the owed projection.
-    pub fn member_failures(&self) -> Result<Vec<crate::observation::MemberFailures>, crate::obligation::UnmetObligation> {
+    pub fn member_failures(
+        &self,
+    ) -> Result<Vec<crate::observation::MemberFailures>, crate::obligation::UnmetObligation> {
         self.behaviors.member_failures()
     }
 
     /// Serves `conductor.observation.MergedPullRequests` at `read_your_writes` consistency, from the owed projection.
-    pub fn merged_pull_requests(&self) -> Result<Vec<crate::observation::MergedPullRequests>, crate::obligation::UnmetObligation> {
+    pub fn merged_pull_requests(
+        &self,
+    ) -> Result<Vec<crate::observation::MergedPullRequests>, crate::obligation::UnmetObligation>
+    {
         self.behaviors.merged_pull_requests()
     }
 
     /// Serves `conductor.observation.PullRequests` at `read_your_writes` consistency, from the owed projection.
-    pub fn pull_requests(&self) -> Result<Vec<crate::observation::PullRequests>, crate::obligation::UnmetObligation> {
+    pub fn pull_requests(
+        &self,
+    ) -> Result<Vec<crate::observation::PullRequests>, crate::obligation::UnmetObligation> {
         self.behaviors.pull_requests()
     }
 
     /// Serves `conductor.observation.Releases` at `read_your_writes` consistency, from the owed projection.
-    pub fn releases(&self) -> Result<Vec<crate::observation::Releases>, crate::obligation::UnmetObligation> {
+    pub fn releases(
+        &self,
+    ) -> Result<Vec<crate::observation::Releases>, crate::obligation::UnmetObligation> {
         self.behaviors.releases()
     }
 
     /// Serves `conductor.observation.Repositories` at `read_your_writes` consistency, from the owed projection.
-    pub fn repositories(&self) -> Result<Vec<crate::observation::Repositories>, crate::obligation::UnmetObligation> {
+    pub fn repositories(
+        &self,
+    ) -> Result<Vec<crate::observation::Repositories>, crate::obligation::UnmetObligation> {
         self.behaviors.repositories()
     }
 
     /// Serves `conductor.observation.SecretSyncs` at `read_your_writes` consistency, from the owed projection.
-    pub fn secret_syncs(&self) -> Result<Vec<crate::observation::SecretSyncs>, crate::obligation::UnmetObligation> {
+    pub fn secret_syncs(
+        &self,
+    ) -> Result<Vec<crate::observation::SecretSyncs>, crate::obligation::UnmetObligation> {
         self.behaviors.secret_syncs()
     }
 
     /// Serves `conductor.observation.Sessions` at `read_your_writes` consistency, from the owed projection.
-    pub fn sessions(&self) -> Result<Vec<crate::observation::Sessions>, crate::obligation::UnmetObligation> {
+    pub fn sessions(
+        &self,
+    ) -> Result<Vec<crate::observation::Sessions>, crate::obligation::UnmetObligation> {
         self.behaviors.sessions()
     }
 
     /// Serves `conductor.observation.Snapshots` at `read_your_writes` consistency, from the owed projection.
-    pub fn snapshots(&self) -> Result<Vec<crate::observation::Snapshots>, crate::obligation::UnmetObligation> {
+    pub fn snapshots(
+        &self,
+    ) -> Result<Vec<crate::observation::Snapshots>, crate::obligation::UnmetObligation> {
         self.behaviors.snapshots()
     }
 
     /// Serves `conductor.observation.Specifications` at `read_your_writes` consistency, from the owed projection.
-    pub fn specifications(&self) -> Result<Vec<crate::observation::Specifications>, crate::obligation::UnmetObligation> {
+    pub fn specifications(
+        &self,
+    ) -> Result<Vec<crate::observation::Specifications>, crate::obligation::UnmetObligation> {
         self.behaviors.specifications()
     }
 
     /// Serves `conductor.observation.UsageReadings` at `read_your_writes` consistency, from the owed projection.
-    pub fn usage_readings(&self) -> Result<Vec<crate::observation::UsageReadings>, crate::obligation::UnmetObligation> {
+    pub fn usage_readings(
+        &self,
+    ) -> Result<Vec<crate::observation::UsageReadings>, crate::obligation::UnmetObligation> {
         self.behaviors.usage_readings()
     }
 
     /// Serves `conductor.observation.WorkflowRuns` at `read_your_writes` consistency, from the owed projection.
-    pub fn workflow_runs(&self) -> Result<Vec<crate::observation::WorkflowRuns>, crate::obligation::UnmetObligation> {
+    pub fn workflow_runs(
+        &self,
+    ) -> Result<Vec<crate::observation::WorkflowRuns>, crate::obligation::UnmetObligation> {
         self.behaviors.workflow_runs()
     }
 
     /// Serves `conductor.session.Leases` at `read_your_writes` consistency, from the owed projection.
-    pub fn leases(&self) -> Result<Vec<crate::session::Leases>, crate::obligation::UnmetObligation> {
+    pub fn leases(
+        &self,
+    ) -> Result<Vec<crate::session::Leases>, crate::obligation::UnmetObligation> {
         self.behaviors.leases()
     }
 }

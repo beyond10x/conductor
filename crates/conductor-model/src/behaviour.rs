@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest d579d41cf28810ad06737965df70904ef620ffb53729bb4dbb8a2ffd28e6c7e2
-// contract digest 8a1b8540182a24c5b2d60ea9aee70cc29c3f7c6f0489e4c0a7937503417e8f9e
+// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
+// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -25,7 +25,10 @@ use crate::obligation::UnmetObligation;
 /// Keyed by the identity `decision_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait DecisionStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::decision::DecisionId) -> Option<crate::decision::DecisionSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::decision::DecisionId,
+    ) -> Option<crate::decision::DecisionSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::decision::DecisionSnapshot);
@@ -43,7 +46,10 @@ pub trait DecisionStorage {
 /// Keyed by the identity `request_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait DecisionRequestStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::decision::RequestId) -> Option<crate::decision::DecisionRequestSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::decision::RequestId,
+    ) -> Option<crate::decision::DecisionRequestSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::decision::DecisionRequestSnapshot);
@@ -79,7 +85,10 @@ pub trait GoalStorage {
 /// Keyed by the identity `serving_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait GoalServingStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::direction::ServingId) -> Option<crate::direction::GoalServingSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::direction::ServingId,
+    ) -> Option<crate::direction::GoalServingSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::direction::GoalServingSnapshot);
@@ -97,7 +106,10 @@ pub trait GoalServingStorage {
 /// Keyed by the identity `repository`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait RepositoryMarkStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::direction::MarkedRepository) -> Option<crate::direction::RepositoryMarkSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::direction::MarkedRepository,
+    ) -> Option<crate::direction::RepositoryMarkSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::direction::RepositoryMarkSnapshot);
@@ -115,7 +127,10 @@ pub trait RepositoryMarkStorage {
 /// Keyed by the identity `controller_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait ControllerStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::dispatch::ControllerId) -> Option<crate::dispatch::ControllerSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::dispatch::ControllerId,
+    ) -> Option<crate::dispatch::ControllerSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::dispatch::ControllerSnapshot);
@@ -133,7 +148,10 @@ pub trait ControllerStorage {
 /// Keyed by the identity `dispatch_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait DispatchStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::dispatch::DispatchId) -> Option<crate::dispatch::DispatchSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::dispatch::DispatchId,
+    ) -> Option<crate::dispatch::DispatchSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::dispatch::DispatchSnapshot);
@@ -151,7 +169,10 @@ pub trait DispatchStorage {
 /// Keyed by the identity `guard_decision_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait GuardDecisionStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::dispatch::GuardDecisionId) -> Option<crate::dispatch::GuardDecisionSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::dispatch::GuardDecisionId,
+    ) -> Option<crate::dispatch::GuardDecisionSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::dispatch::GuardDecisionSnapshot);
@@ -169,7 +190,10 @@ pub trait GuardDecisionStorage {
 /// Keyed by the identity `message_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait MessageStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::dispatch::MessageId) -> Option<crate::dispatch::MessageSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::dispatch::MessageId,
+    ) -> Option<crate::dispatch::MessageSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::dispatch::MessageSnapshot);
@@ -187,7 +211,10 @@ pub trait MessageStorage {
 /// Keyed by the identity `resource_request_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait ResourceRequestStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::dispatch::ResourceRequestId) -> Option<crate::dispatch::ResourceRequestSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::dispatch::ResourceRequestId,
+    ) -> Option<crate::dispatch::ResourceRequestSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::dispatch::ResourceRequestSnapshot);
@@ -241,7 +268,10 @@ pub trait ReclaimRunStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait BlockerObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::BlockerObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::BlockerObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::BlockerObservationSnapshot);
@@ -259,7 +289,10 @@ pub trait BlockerObservationStorage {
 /// Keyed by the identity `board_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait BoardStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::BoardId) -> Option<crate::observation::BoardSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::BoardId,
+    ) -> Option<crate::observation::BoardSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::BoardSnapshot);
@@ -277,7 +310,10 @@ pub trait BoardStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait CollectorRunObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::CollectorRunObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::CollectorRunObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::CollectorRunObservationSnapshot);
@@ -295,7 +331,10 @@ pub trait CollectorRunObservationStorage {
 /// Keyed by the identity `daily_series_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait DailySeriesStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::DailySeriesId) -> Option<crate::observation::DailySeriesSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::DailySeriesId,
+    ) -> Option<crate::observation::DailySeriesSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::DailySeriesSnapshot);
@@ -309,7 +348,10 @@ pub trait DailySeriesStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait MemberFailureObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::MemberFailureObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::MemberFailureObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::MemberFailureObservationSnapshot);
@@ -327,7 +369,10 @@ pub trait MemberFailureObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait MergedPullRequestObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::MergedPullRequestObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::MergedPullRequestObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::MergedPullRequestObservationSnapshot);
@@ -345,7 +390,10 @@ pub trait MergedPullRequestObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait PullRequestObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::PullRequestObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::PullRequestObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::PullRequestObservationSnapshot);
@@ -363,7 +411,10 @@ pub trait PullRequestObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait ReleaseObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::ReleaseObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::ReleaseObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::ReleaseObservationSnapshot);
@@ -381,7 +432,10 @@ pub trait ReleaseObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait RepositoryObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::RepositoryObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::RepositoryObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::RepositoryObservationSnapshot);
@@ -399,7 +453,10 @@ pub trait RepositoryObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait SecretSyncObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SecretSyncObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::SecretSyncObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::SecretSyncObservationSnapshot);
@@ -417,7 +474,10 @@ pub trait SecretSyncObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait SessionObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SessionObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::SessionObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::SessionObservationSnapshot);
@@ -435,7 +495,10 @@ pub trait SessionObservationStorage {
 /// Keyed by the identity `snapshot_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait SnapshotStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::SnapshotId) -> Option<crate::observation::SnapshotSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::SnapshotId,
+    ) -> Option<crate::observation::SnapshotSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::SnapshotSnapshot);
@@ -453,7 +516,10 @@ pub trait SnapshotStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait SpecificationObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::SpecificationObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::SpecificationObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::SpecificationObservationSnapshot);
@@ -471,7 +537,10 @@ pub trait SpecificationObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait UsageObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::UsageObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::UsageObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::UsageObservationSnapshot);
@@ -489,7 +558,10 @@ pub trait UsageObservationStorage {
 /// Keyed by the identity `observation_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
 pub trait WorkflowRunObservationStorage {
     /// The instance with this identity, or `None` where none is stored.
-    fn get(&self, identity: &crate::observation::ObservationId) -> Option<crate::observation::WorkflowRunObservationSnapshot>;
+    fn get(
+        &self,
+        identity: &crate::observation::ObservationId,
+    ) -> Option<crate::observation::WorkflowRunObservationSnapshot>;
 
     /// Stores this instance under its identity, replacing what was held.
     fn put(&mut self, snapshot: crate::observation::WorkflowRunObservationSnapshot);
@@ -531,7 +603,8 @@ pub trait Context {
 
     /// A new `conductor.dispatch.GuardDecisionId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
-    fn generate_conductor_dispatch_guard_decision_id(&mut self) -> crate::dispatch::GuardDecisionId;
+    fn generate_conductor_dispatch_guard_decision_id(&mut self)
+        -> crate::dispatch::GuardDecisionId;
 
     /// A new `conductor.dispatch.MessageId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
@@ -539,7 +612,9 @@ pub trait Context {
 
     /// A new `conductor.dispatch.ResourceRequestId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
-    fn generate_conductor_dispatch_resource_request_id(&mut self) -> crate::dispatch::ResourceRequestId;
+    fn generate_conductor_dispatch_resource_request_id(
+        &mut self,
+    ) -> crate::dispatch::ResourceRequestId;
 
     /// A new `conductor.host.GrantId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
@@ -555,7 +630,9 @@ pub trait Context {
 
     /// A new `conductor.observation.ObservationId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
-    fn generate_conductor_observation_observation_id(&mut self) -> crate::observation::ObservationId;
+    fn generate_conductor_observation_observation_id(
+        &mut self,
+    ) -> crate::observation::ObservationId;
 
     /// A new `conductor.observation.SnapshotId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
@@ -565,40 +642,101 @@ pub trait Context {
 /// Context answers that may be unavailable, without fabricated values.
 /// Existing `Context` implementations receive the blanket adapter.
 pub trait TryContext {
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_direction_serving_id(&mut self) -> Result<crate::direction::ServingId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_dispatch_guard_decision_id(&mut self) -> Result<crate::dispatch::GuardDecisionId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_dispatch_message_id(&mut self) -> Result<crate::dispatch::MessageId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_dispatch_resource_request_id(&mut self) -> Result<crate::dispatch::ResourceRequestId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_host_grant_id(&mut self) -> Result<crate::host::GrantId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::ReclaimRunId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation>;
-/// Assigns the value, or names the unavailable answer.
-fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_direction_serving_id(
+        &mut self,
+    ) -> Result<crate::direction::ServingId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_dispatch_guard_decision_id(
+        &mut self,
+    ) -> Result<crate::dispatch::GuardDecisionId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_dispatch_message_id(
+        &mut self,
+    ) -> Result<crate::dispatch::MessageId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_dispatch_resource_request_id(
+        &mut self,
+    ) -> Result<crate::dispatch::ResourceRequestId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_host_grant_id(
+        &mut self,
+    ) -> Result<crate::host::GrantId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_host_reclaim_run_id(
+        &mut self,
+    ) -> Result<crate::host::ReclaimRunId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_observation_board_id(
+        &mut self,
+    ) -> Result<crate::observation::BoardId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_observation_observation_id(
+        &mut self,
+    ) -> Result<crate::observation::ObservationId, UnmetObligation>;
+    /// Assigns the value, or names the unavailable answer.
+    fn try_generate_conductor_observation_snapshot_id(
+        &mut self,
+    ) -> Result<crate::observation::SnapshotId, UnmetObligation>;
 }
 
 impl<T: Context + ?Sized> TryContext for T {
-fn try_generate_conductor_direction_serving_id(&mut self) -> Result<crate::direction::ServingId, UnmetObligation> { Ok(Context::generate_conductor_direction_serving_id(self)) }
-fn try_generate_conductor_dispatch_guard_decision_id(&mut self) -> Result<crate::dispatch::GuardDecisionId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_guard_decision_id(self)) }
-fn try_generate_conductor_dispatch_message_id(&mut self) -> Result<crate::dispatch::MessageId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_message_id(self)) }
-fn try_generate_conductor_dispatch_resource_request_id(&mut self) -> Result<crate::dispatch::ResourceRequestId, UnmetObligation> { Ok(Context::generate_conductor_dispatch_resource_request_id(self)) }
-fn try_generate_conductor_host_grant_id(&mut self) -> Result<crate::host::GrantId, UnmetObligation> { Ok(Context::generate_conductor_host_grant_id(self)) }
-fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::ReclaimRunId, UnmetObligation> { Ok(Context::generate_conductor_host_reclaim_run_id(self)) }
-fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation> { Ok(Context::generate_conductor_observation_board_id(self)) }
-fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation> { Ok(Context::generate_conductor_observation_observation_id(self)) }
-fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation> { Ok(Context::generate_conductor_observation_snapshot_id(self)) }
+    fn try_generate_conductor_direction_serving_id(
+        &mut self,
+    ) -> Result<crate::direction::ServingId, UnmetObligation> {
+        Ok(Context::generate_conductor_direction_serving_id(self))
+    }
+    fn try_generate_conductor_dispatch_guard_decision_id(
+        &mut self,
+    ) -> Result<crate::dispatch::GuardDecisionId, UnmetObligation> {
+        Ok(Context::generate_conductor_dispatch_guard_decision_id(self))
+    }
+    fn try_generate_conductor_dispatch_message_id(
+        &mut self,
+    ) -> Result<crate::dispatch::MessageId, UnmetObligation> {
+        Ok(Context::generate_conductor_dispatch_message_id(self))
+    }
+    fn try_generate_conductor_dispatch_resource_request_id(
+        &mut self,
+    ) -> Result<crate::dispatch::ResourceRequestId, UnmetObligation> {
+        Ok(Context::generate_conductor_dispatch_resource_request_id(
+            self,
+        ))
+    }
+    fn try_generate_conductor_host_grant_id(
+        &mut self,
+    ) -> Result<crate::host::GrantId, UnmetObligation> {
+        Ok(Context::generate_conductor_host_grant_id(self))
+    }
+    fn try_generate_conductor_host_reclaim_run_id(
+        &mut self,
+    ) -> Result<crate::host::ReclaimRunId, UnmetObligation> {
+        Ok(Context::generate_conductor_host_reclaim_run_id(self))
+    }
+    fn try_generate_conductor_observation_board_id(
+        &mut self,
+    ) -> Result<crate::observation::BoardId, UnmetObligation> {
+        Ok(Context::generate_conductor_observation_board_id(self))
+    }
+    fn try_generate_conductor_observation_observation_id(
+        &mut self,
+    ) -> Result<crate::observation::ObservationId, UnmetObligation> {
+        Ok(Context::generate_conductor_observation_observation_id(self))
+    }
+    fn try_generate_conductor_observation_snapshot_id(
+        &mut self,
+    ) -> Result<crate::observation::SnapshotId, UnmetObligation> {
+        Ok(Context::generate_conductor_observation_snapshot_id(self))
+    }
 }
 
 /// An unavailable runtime context answer, rather than a new planned capability.
-pub fn unmet_context(source: &'static str) -> UnmetObligation { UnmetObligation { capability: "context answer", source } }
+pub fn unmet_context(source: &'static str) -> UnmetObligation {
+    UnmetObligation {
+        capability: "context answer",
+        source,
+    }
+}
 
 /// Every generated behaviour of this workspace, over the ports `P` supplies.
 ///
@@ -622,7 +760,10 @@ impl<P> crate::decision::obligations::AnswerEscalatedRequestBehavior for Generat
 where
     P: DecisionStorage + DecisionRequestStorage,
 {
-    fn answer_escalated_request(&mut self, input: crate::decision::AnswerEscalatedRequest) -> Result<crate::decision::AnswerEscalatedRequestOutcome, UnmetObligation> {
+    fn answer_escalated_request(
+        &mut self,
+        input: crate::decision::AnswerEscalatedRequest,
+    ) -> Result<crate::decision::AnswerEscalatedRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.decision.Decision` row `input.decision_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -630,27 +771,55 @@ where
         let related = reference.and_then(|identity| DecisionStorage::get(&self.ports, identity));
         // `no-such-decision`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::decision::AnswerEscalatedRequestOutcome::NoSuchDecision { error: crate::decision::DecisionNotFound { decision_id: input.decision_id.clone() } });
+            return Ok(
+                crate::decision::AnswerEscalatedRequestOutcome::NoSuchDecision {
+                    error: crate::decision::DecisionNotFound {
+                        decision_id: input.decision_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // The addressed row's existence and held state, for the branch the request selects
         // before any present related row's refusal.
         {
-                {
+            {
                 let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
-                    return Ok(crate::decision::AnswerEscalatedRequestOutcome::WrongStateUnknownInstance);
+                    return Ok(
+                        crate::decision::AnswerEscalatedRequestOutcome::WrongStateUnknownInstance,
+                    );
                 };
                 let _ = &held;
                 if !matches!(held.state, crate::decision::DecisionRequestState::Escalated) {
-                    return Ok(crate::decision::AnswerEscalatedRequestOutcome::WrongState { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } });
+                    return Ok(crate::decision::AnswerEscalatedRequestOutcome::WrongState {
+                        error: crate::decision::RequestStateConflict {
+                            request_id: input.request_id.clone(),
+                        },
+                    });
                 }
-                }
+            }
         }
         // `reversed`: a present related row's refusal, before every accepting branch.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::decision::DecisionState::InForce => "InForce", crate::decision::DecisionState::Reversed => "Reversed" }.to_owned()), Some("Reversed".to_owned())), "conductor.decision.AnswerEscalatedRequest")? {
-            return Ok(crate::decision::AnswerEscalatedRequestOutcome::Reversed { error: crate::decision::DecisionReversed { decision_id: input.decision_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::decision::DecisionState::InForce => "InForce",
+                            crate::decision::DecisionState::Reversed => "Reversed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Reversed".to_owned()),
+                ),
+                "conductor.decision.AnswerEscalatedRequest",
+            )? {
+                return Ok(crate::decision::AnswerEscalatedRequestOutcome::Reversed {
+                    error: crate::decision::DecisionReversed {
+                        decision_id: input.decision_id.clone(),
+                    },
+                });
+            }
         }
         // `answered`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
@@ -658,12 +827,25 @@ where
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::decision::AnyDecisionRequest::Escalated(instance) => crate::decision::AnyDecisionRequest::Answered(instance.answer_escalated()),
-            _ => return Ok(crate::decision::AnswerEscalatedRequestOutcome::WrongState { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } }),
+            crate::decision::AnyDecisionRequest::Escalated(instance) => {
+                crate::decision::AnyDecisionRequest::Answered(instance.answer_escalated())
+            }
+            _ => {
+                return Ok(crate::decision::AnswerEscalatedRequestOutcome::WrongState {
+                    error: crate::decision::RequestStateConflict {
+                        request_id: input.request_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.decision_id = Some(input.decision_id.clone());
-        let answer = crate::decision::AnswerEscalatedRequestOutcome::Answered { request_answered: crate::decision::RequestAnswered { request_id: input.request_id.clone(), decision_id: input.decision_id.clone() } };
+        let answer = crate::decision::AnswerEscalatedRequestOutcome::Answered {
+            request_answered: crate::decision::RequestAnswered {
+                request_id: input.request_id.clone(),
+                decision_id: input.decision_id.clone(),
+            },
+        };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -674,7 +856,10 @@ impl<P> crate::decision::obligations::AnswerRequestBehavior for Generated<P>
 where
     P: DecisionStorage + DecisionRequestStorage,
 {
-    fn answer_request(&mut self, input: crate::decision::AnswerRequest) -> Result<crate::decision::AnswerRequestOutcome, UnmetObligation> {
+    fn answer_request(
+        &mut self,
+        input: crate::decision::AnswerRequest,
+    ) -> Result<crate::decision::AnswerRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.decision.Decision` row `input.decision_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -682,27 +867,51 @@ where
         let related = reference.and_then(|identity| DecisionStorage::get(&self.ports, identity));
         // `no-such-decision`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::decision::AnswerRequestOutcome::NoSuchDecision { error: crate::decision::DecisionNotFound { decision_id: input.decision_id.clone() } });
+            return Ok(crate::decision::AnswerRequestOutcome::NoSuchDecision {
+                error: crate::decision::DecisionNotFound {
+                    decision_id: input.decision_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // The addressed row's existence and held state, for the branch the request selects
         // before any present related row's refusal.
         {
-                {
+            {
                 let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
                     return Ok(crate::decision::AnswerRequestOutcome::WrongStateUnknownInstance);
                 };
                 let _ = &held;
                 if !matches!(held.state, crate::decision::DecisionRequestState::Open) {
-                    return Ok(crate::decision::AnswerRequestOutcome::WrongState { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } });
+                    return Ok(crate::decision::AnswerRequestOutcome::WrongState {
+                        error: crate::decision::RequestStateConflict {
+                            request_id: input.request_id.clone(),
+                        },
+                    });
                 }
-                }
+            }
         }
         // `reversed`: a present related row's refusal, before every accepting branch.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::decision::DecisionState::InForce => "InForce", crate::decision::DecisionState::Reversed => "Reversed" }.to_owned()), Some("Reversed".to_owned())), "conductor.decision.AnswerRequest")? {
-            return Ok(crate::decision::AnswerRequestOutcome::Reversed { error: crate::decision::DecisionReversed { decision_id: input.decision_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::decision::DecisionState::InForce => "InForce",
+                            crate::decision::DecisionState::Reversed => "Reversed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Reversed".to_owned()),
+                ),
+                "conductor.decision.AnswerRequest",
+            )? {
+                return Ok(crate::decision::AnswerRequestOutcome::Reversed {
+                    error: crate::decision::DecisionReversed {
+                        decision_id: input.decision_id.clone(),
+                    },
+                });
+            }
         }
         // `answered`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
@@ -710,12 +919,25 @@ where
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::decision::AnyDecisionRequest::Open(instance) => crate::decision::AnyDecisionRequest::Answered(instance.answer()),
-            _ => return Ok(crate::decision::AnswerRequestOutcome::WrongState { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } }),
+            crate::decision::AnyDecisionRequest::Open(instance) => {
+                crate::decision::AnyDecisionRequest::Answered(instance.answer())
+            }
+            _ => {
+                return Ok(crate::decision::AnswerRequestOutcome::WrongState {
+                    error: crate::decision::RequestStateConflict {
+                        request_id: input.request_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.decision_id = Some(input.decision_id.clone());
-        let answer = crate::decision::AnswerRequestOutcome::Answered { request_answered: crate::decision::RequestAnswered { request_id: input.request_id.clone(), decision_id: input.decision_id.clone() } };
+        let answer = crate::decision::AnswerRequestOutcome::Answered {
+            request_answered: crate::decision::RequestAnswered {
+                request_id: input.request_id.clone(),
+                decision_id: input.decision_id.clone(),
+            },
+        };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -726,31 +948,98 @@ impl<P> crate::decision::obligations::EscalateRequestBehavior for Generated<P>
 where
     P: DecisionRequestStorage,
 {
-    fn escalate_request(&mut self, input: crate::decision::EscalateRequest) -> Result<crate::decision::EscalateRequestOutcome, UnmetObligation> {
+    fn escalate_request(
+        &mut self,
+        input: crate::decision::EscalateRequest,
+    ) -> Result<crate::decision::EscalateRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `class-c`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("C".to_owned())), "conductor.decision.EscalateRequest")? {
-            return Ok(crate::decision::EscalateRequestOutcome::ClassC { error: crate::decision::NotEscalatable { request_id: input.request_id.clone() } });
+        if decided(
+            equal(
+                Some(&input.escalation_class).map(|value| {
+                    match value {
+                        crate::decision::DecisionClass::C => "C",
+                        crate::decision::DecisionClass::O => "O",
+                        crate::decision::DecisionClass::H => "H",
+                    }
+                    .to_owned()
+                }),
+                Some("C".to_owned()),
+            ),
+            "conductor.decision.EscalateRequest",
+        )? {
+            return Ok(crate::decision::EscalateRequestOutcome::ClassC {
+                error: crate::decision::NotEscalatable {
+                    request_id: input.request_id.clone(),
+                },
+            });
         }
         // `untested`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(all(&[equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), (Some(Some(&input.dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.no_dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value)]), "conductor.decision.EscalateRequest")? {
-            return Ok(crate::decision::EscalateRequestOutcome::Untested { error: crate::decision::DryRunMissing { request_id: input.request_id.clone() } });
+        if decided(
+            all(&[
+                equal(
+                    Some(&input.escalation_class).map(|value| {
+                        match value {
+                            crate::decision::DecisionClass::C => "C",
+                            crate::decision::DecisionClass::O => "O",
+                            crate::decision::DecisionClass::H => "H",
+                        }
+                        .to_owned()
+                    }),
+                    Some("H".to_owned()),
+                ),
+                (Some(
+                    Some(&input.dry_run)
+                        .and_then(|value| value.as_ref())
+                        .is_some(),
+                ))
+                .map(|value| !value),
+                (Some(
+                    Some(&input.no_dry_run)
+                        .and_then(|value| value.as_ref())
+                        .is_some(),
+                ))
+                .map(|value| !value),
+            ]),
+            "conductor.decision.EscalateRequest",
+        )? {
+            return Ok(crate::decision::EscalateRequestOutcome::Untested {
+                error: crate::decision::DryRunMissing {
+                    request_id: input.request_id.clone(),
+                },
+            });
         }
         // `escalated`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
-            return Ok(crate::decision::EscalateRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
+            return Ok(crate::decision::EscalateRequestOutcome::NoSuchRequest {
+                error: crate::decision::RequestNotFound {
+                    request_id: input.request_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::decision::AnyDecisionRequest::Open(instance) => crate::decision::AnyDecisionRequest::Escalated(instance.escalate()),
-            _ => return Ok(crate::decision::EscalateRequestOutcome::WrongState { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } }),
+            crate::decision::AnyDecisionRequest::Open(instance) => {
+                crate::decision::AnyDecisionRequest::Escalated(instance.escalate())
+            }
+            _ => {
+                return Ok(crate::decision::EscalateRequestOutcome::WrongState {
+                    error: crate::decision::RequestStateConflict {
+                        request_id: input.request_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.escalation_class = Some(input.escalation_class.clone());
         next.data.escalation_reason = Some(input.reason.clone());
         next.data.dry_run = input.dry_run.clone();
         next.data.no_dry_run = input.no_dry_run.clone();
-        let answer = crate::decision::EscalateRequestOutcome::Escalated { request_escalated: crate::decision::RequestEscalated { request_id: input.request_id.clone() } };
+        let answer = crate::decision::EscalateRequestOutcome::Escalated {
+            request_escalated: crate::decision::RequestEscalated {
+                request_id: input.request_id.clone(),
+            },
+        };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -761,11 +1050,20 @@ impl<P> crate::decision::obligations::RaiseDecisionRequestBehavior for Generated
 where
     P: DecisionRequestStorage,
 {
-    fn raise_decision_request(&mut self, input: crate::decision::RaiseDecisionRequest) -> Result<crate::decision::RaiseDecisionRequestOutcome, UnmetObligation> {
+    fn raise_decision_request(
+        &mut self,
+        input: crate::decision::RaiseDecisionRequest,
+    ) -> Result<crate::decision::RaiseDecisionRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `already-raised`: an identity a record already carries, before any branch is taken.
         if DecisionRequestStorage::get(&self.ports, &input.request_id).is_some() {
-            return Ok(crate::decision::RaiseDecisionRequestOutcome::AlreadyRaised { error: crate::decision::RequestExists { request_id: input.request_id.clone() } });
+            return Ok(
+                crate::decision::RaiseDecisionRequestOutcome::AlreadyRaised {
+                    error: crate::decision::RequestExists {
+                        request_id: input.request_id.clone(),
+                    },
+                },
+            );
         }
         // `raised`: the default.
         let identity: crate::decision::RequestId = input.request_id.clone();
@@ -783,8 +1081,17 @@ where
             no_dry_run: None,
             decision_id: None,
         };
-        let answer = crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested: crate::decision::DecisionRequested { request_id: identity.clone(), repository: input.repository.clone() } };
-        DecisionRequestStorage::put(&mut self.ports, crate::decision::AnyDecisionRequest::Open(crate::decision::DecisionRequest::new(data)).snapshot());
+        let answer = crate::decision::RaiseDecisionRequestOutcome::Raised {
+            decision_requested: crate::decision::DecisionRequested {
+                request_id: identity.clone(),
+                repository: input.repository.clone(),
+            },
+        };
+        DecisionRequestStorage::put(
+            &mut self.ports,
+            crate::decision::AnyDecisionRequest::Open(crate::decision::DecisionRequest::new(data))
+                .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -794,15 +1101,54 @@ impl<P> crate::decision::obligations::RecordConductorDecisionBehavior for Genera
 where
     P: DecisionStorage,
 {
-    fn record_conductor_decision(&mut self, input: crate::decision::RecordConductorDecision) -> Result<crate::decision::RecordConductorDecisionOutcome, UnmetObligation> {
+    fn record_conductor_decision(
+        &mut self,
+        input: crate::decision::RecordConductorDecision,
+    ) -> Result<crate::decision::RecordConductorDecisionOutcome, UnmetObligation> {
         let _ = &input;
         // `reserved`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(any(&[equal(Some(&input.decision_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("O".to_owned())), equal(Some(&input.decision_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned()))]), "conductor.decision.RecordConductorDecision")? {
-            return Ok(crate::decision::RecordConductorDecisionOutcome::Reserved { error: crate::decision::ReservedForOperator { decision_id: input.decision_id.clone() } });
+        if decided(
+            any(&[
+                equal(
+                    Some(&input.decision_class).map(|value| {
+                        match value {
+                            crate::decision::DecisionClass::C => "C",
+                            crate::decision::DecisionClass::O => "O",
+                            crate::decision::DecisionClass::H => "H",
+                        }
+                        .to_owned()
+                    }),
+                    Some("O".to_owned()),
+                ),
+                equal(
+                    Some(&input.decision_class).map(|value| {
+                        match value {
+                            crate::decision::DecisionClass::C => "C",
+                            crate::decision::DecisionClass::O => "O",
+                            crate::decision::DecisionClass::H => "H",
+                        }
+                        .to_owned()
+                    }),
+                    Some("H".to_owned()),
+                ),
+            ]),
+            "conductor.decision.RecordConductorDecision",
+        )? {
+            return Ok(crate::decision::RecordConductorDecisionOutcome::Reserved {
+                error: crate::decision::ReservedForOperator {
+                    decision_id: input.decision_id.clone(),
+                },
+            });
         }
         // `already-recorded`: an identity a record already carries, before any branch is taken.
         if DecisionStorage::get(&self.ports, &input.decision_id).is_some() {
-            return Ok(crate::decision::RecordConductorDecisionOutcome::AlreadyRecorded { error: crate::decision::DecisionExists { decision_id: input.decision_id.clone() } });
+            return Ok(
+                crate::decision::RecordConductorDecisionOutcome::AlreadyRecorded {
+                    error: crate::decision::DecisionExists {
+                        decision_id: input.decision_id.clone(),
+                    },
+                },
+            );
         }
         // `recorded`: the default.
         let identity: crate::decision::DecisionId = input.decision_id.clone();
@@ -820,8 +1166,17 @@ where
             operator_words: None,
             repository: input.repository.clone(),
         };
-        let answer = crate::decision::RecordConductorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Conductor } };
-        DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
+        let answer = crate::decision::RecordConductorDecisionOutcome::Recorded {
+            decision_recorded: crate::decision::DecisionRecorded {
+                decision_id: identity.clone(),
+                decision_class: input.decision_class.clone(),
+                decided_by: crate::decision::Decider::Conductor,
+            },
+        };
+        DecisionStorage::put(
+            &mut self.ports,
+            crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -831,11 +1186,20 @@ impl<P> crate::decision::obligations::RecordOperatorDecisionBehavior for Generat
 where
     P: DecisionStorage,
 {
-    fn record_operator_decision(&mut self, input: crate::decision::RecordOperatorDecision) -> Result<crate::decision::RecordOperatorDecisionOutcome, UnmetObligation> {
+    fn record_operator_decision(
+        &mut self,
+        input: crate::decision::RecordOperatorDecision,
+    ) -> Result<crate::decision::RecordOperatorDecisionOutcome, UnmetObligation> {
         let _ = &input;
         // `already-recorded`: an identity a record already carries, before any branch is taken.
         if DecisionStorage::get(&self.ports, &input.decision_id).is_some() {
-            return Ok(crate::decision::RecordOperatorDecisionOutcome::AlreadyRecorded { error: crate::decision::DecisionExists { decision_id: input.decision_id.clone() } });
+            return Ok(
+                crate::decision::RecordOperatorDecisionOutcome::AlreadyRecorded {
+                    error: crate::decision::DecisionExists {
+                        decision_id: input.decision_id.clone(),
+                    },
+                },
+            );
         }
         // `recorded`: the default.
         let identity: crate::decision::DecisionId = input.decision_id.clone();
@@ -853,8 +1217,17 @@ where
             operator_words: Some(input.operator_words.clone()),
             repository: input.repository.clone(),
         };
-        let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
-        DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
+        let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded {
+            decision_recorded: crate::decision::DecisionRecorded {
+                decision_id: identity.clone(),
+                decision_class: input.decision_class.clone(),
+                decided_by: crate::decision::Decider::Operator,
+            },
+        };
+        DecisionStorage::put(
+            &mut self.ports,
+            crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -864,28 +1237,88 @@ impl<P> crate::decision::obligations::ReverseConductorDecisionBehavior for Gener
 where
     P: DecisionStorage,
 {
-    fn reverse_conductor_decision(&mut self, input: crate::decision::ReverseConductorDecision) -> Result<crate::decision::ReverseConductorDecisionOutcome, UnmetObligation> {
+    fn reverse_conductor_decision(
+        &mut self,
+        input: crate::decision::ReverseConductorDecision,
+    ) -> Result<crate::decision::ReverseConductorDecisionOutcome, UnmetObligation> {
         let _ = &input;
         // The addressed row, read before the branches that select by it.
         let Some(held) = DecisionStorage::get(&self.ports, &input.decision_id) else {
-            return Ok(crate::decision::ReverseConductorDecisionOutcome::NoSuchDecision { error: crate::decision::DecisionNotFound { decision_id: input.decision_id.clone() } });
+            return Ok(
+                crate::decision::ReverseConductorDecisionOutcome::NoSuchDecision {
+                    error: crate::decision::DecisionNotFound {
+                        decision_id: input.decision_id.clone(),
+                    },
+                },
+            );
         };
         let _ = &held;
         // `operator-decided`: selected by the addressed row.
-        if decided(all(&[equal(Some(&held.data.decided_by).map(|value| match value { crate::decision::Decider::Conductor => "Conductor", crate::decision::Decider::Operator => "Operator" }.to_owned()), Some("Operator".to_owned())), equal(Some(&held.state).map(|value| match value { crate::decision::DecisionState::InForce => "InForce", crate::decision::DecisionState::Reversed => "Reversed" }.to_owned()), Some("InForce".to_owned()))]), "conductor.decision.ReverseConductorDecision")? {
-            return Ok(crate::decision::ReverseConductorDecisionOutcome::OperatorDecided { error: crate::decision::ReversalReservedForOperator { decision_id: input.decision_id.clone() } });
+        if decided(
+            all(&[
+                equal(
+                    Some(&held.data.decided_by).map(|value| {
+                        match value {
+                            crate::decision::Decider::Conductor => "Conductor",
+                            crate::decision::Decider::Operator => "Operator",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Operator".to_owned()),
+                ),
+                equal(
+                    Some(&held.state).map(|value| {
+                        match value {
+                            crate::decision::DecisionState::InForce => "InForce",
+                            crate::decision::DecisionState::Reversed => "Reversed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("InForce".to_owned()),
+                ),
+            ]),
+            "conductor.decision.ReverseConductorDecision",
+        )? {
+            return Ok(
+                crate::decision::ReverseConductorDecisionOutcome::OperatorDecided {
+                    error: crate::decision::ReversalReservedForOperator {
+                        decision_id: input.decision_id.clone(),
+                    },
+                },
+            );
         }
         // `reversed`: the default.
         let Some(held) = DecisionStorage::get(&self.ports, &input.decision_id) else {
-            return Ok(crate::decision::ReverseConductorDecisionOutcome::NoSuchDecision { error: crate::decision::DecisionNotFound { decision_id: input.decision_id.clone() } });
+            return Ok(
+                crate::decision::ReverseConductorDecisionOutcome::NoSuchDecision {
+                    error: crate::decision::DecisionNotFound {
+                        decision_id: input.decision_id.clone(),
+                    },
+                },
+            );
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::decision::AnyDecision::InForce(instance) => crate::decision::AnyDecision::Reversed(instance.reverse()),
-            _ => return Ok(crate::decision::ReverseConductorDecisionOutcome::WrongState { error: crate::decision::DecisionStateConflict { decision_id: input.decision_id.clone() } }),
+            crate::decision::AnyDecision::InForce(instance) => {
+                crate::decision::AnyDecision::Reversed(instance.reverse())
+            }
+            _ => {
+                return Ok(
+                    crate::decision::ReverseConductorDecisionOutcome::WrongState {
+                        error: crate::decision::DecisionStateConflict {
+                            decision_id: input.decision_id.clone(),
+                        },
+                    },
+                )
+            }
         };
         let next = moved.snapshot();
-        let answer = crate::decision::ReverseConductorDecisionOutcome::Reversed { decision_reversed_event: crate::decision::DecisionReversedEvent { decision_id: input.decision_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::decision::ReverseConductorDecisionOutcome::Reversed {
+            decision_reversed_event: crate::decision::DecisionReversedEvent {
+                decision_id: input.decision_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         DecisionStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -896,19 +1329,43 @@ impl<P> crate::decision::obligations::ReverseOperatorDecisionBehavior for Genera
 where
     P: DecisionStorage,
 {
-    fn reverse_operator_decision(&mut self, input: crate::decision::ReverseOperatorDecision) -> Result<crate::decision::ReverseOperatorDecisionOutcome, UnmetObligation> {
+    fn reverse_operator_decision(
+        &mut self,
+        input: crate::decision::ReverseOperatorDecision,
+    ) -> Result<crate::decision::ReverseOperatorDecisionOutcome, UnmetObligation> {
         let _ = &input;
         // `reversed`: the default.
         let Some(held) = DecisionStorage::get(&self.ports, &input.decision_id) else {
-            return Ok(crate::decision::ReverseOperatorDecisionOutcome::NoSuchDecision { error: crate::decision::DecisionNotFound { decision_id: input.decision_id.clone() } });
+            return Ok(
+                crate::decision::ReverseOperatorDecisionOutcome::NoSuchDecision {
+                    error: crate::decision::DecisionNotFound {
+                        decision_id: input.decision_id.clone(),
+                    },
+                },
+            );
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::decision::AnyDecision::InForce(instance) => crate::decision::AnyDecision::Reversed(instance.reverse()),
-            _ => return Ok(crate::decision::ReverseOperatorDecisionOutcome::WrongState { error: crate::decision::DecisionStateConflict { decision_id: input.decision_id.clone() } }),
+            crate::decision::AnyDecision::InForce(instance) => {
+                crate::decision::AnyDecision::Reversed(instance.reverse())
+            }
+            _ => {
+                return Ok(
+                    crate::decision::ReverseOperatorDecisionOutcome::WrongState {
+                        error: crate::decision::DecisionStateConflict {
+                            decision_id: input.decision_id.clone(),
+                        },
+                    },
+                )
+            }
         };
         let next = moved.snapshot();
-        let answer = crate::decision::ReverseOperatorDecisionOutcome::Reversed { decision_reversed_event: crate::decision::DecisionReversedEvent { decision_id: input.decision_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::decision::ReverseOperatorDecisionOutcome::Reversed {
+            decision_reversed_event: crate::decision::DecisionReversedEvent {
+                decision_id: input.decision_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         DecisionStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -919,20 +1376,42 @@ impl<P> crate::decision::obligations::WithdrawRequestBehavior for Generated<P>
 where
     P: DecisionRequestStorage,
 {
-    fn withdraw_request(&mut self, input: crate::decision::WithdrawRequest) -> Result<crate::decision::WithdrawRequestOutcome, UnmetObligation> {
+    fn withdraw_request(
+        &mut self,
+        input: crate::decision::WithdrawRequest,
+    ) -> Result<crate::decision::WithdrawRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `withdrawn`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
-            return Ok(crate::decision::WithdrawRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
+            return Ok(crate::decision::WithdrawRequestOutcome::NoSuchRequest {
+                error: crate::decision::RequestNotFound {
+                    request_id: input.request_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::decision::AnyDecisionRequest::Escalated(instance) => crate::decision::AnyDecisionRequest::Withdrawn(instance.withdraw()),
-            crate::decision::AnyDecisionRequest::Open(instance) => crate::decision::AnyDecisionRequest::Withdrawn(instance.withdraw()),
-            _ => return Ok(crate::decision::WithdrawRequestOutcome::WrongState { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } }),
+            crate::decision::AnyDecisionRequest::Escalated(instance) => {
+                crate::decision::AnyDecisionRequest::Withdrawn(instance.withdraw())
+            }
+            crate::decision::AnyDecisionRequest::Open(instance) => {
+                crate::decision::AnyDecisionRequest::Withdrawn(instance.withdraw())
+            }
+            _ => {
+                return Ok(crate::decision::WithdrawRequestOutcome::WrongState {
+                    error: crate::decision::RequestStateConflict {
+                        request_id: input.request_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
-        let answer = crate::decision::WithdrawRequestOutcome::Withdrawn { request_withdrawn: crate::decision::RequestWithdrawn { request_id: input.request_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::decision::WithdrawRequestOutcome::Withdrawn {
+            request_withdrawn: crate::decision::RequestWithdrawn {
+                request_id: input.request_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -943,22 +1422,42 @@ impl<P> crate::direction::obligations::ActivateRepositoryBehavior for Generated<
 where
     P: RepositoryMarkStorage,
 {
-    fn activate_repository(&mut self, input: crate::direction::ActivateRepository) -> Result<crate::direction::ActivateRepositoryOutcome, UnmetObligation> {
+    fn activate_repository(
+        &mut self,
+        input: crate::direction::ActivateRepository,
+    ) -> Result<crate::direction::ActivateRepositoryOutcome, UnmetObligation> {
         let _ = &input;
         // `activated`: the default.
         let Some(held) = RepositoryMarkStorage::get(&self.ports, &input.repository) else {
-            return Ok(crate::direction::ActivateRepositoryOutcome::NoSuchMark { error: crate::direction::RepositoryMarkNotFound { repository: input.repository.clone() } });
+            return Ok(crate::direction::ActivateRepositoryOutcome::NoSuchMark {
+                error: crate::direction::RepositoryMarkNotFound {
+                    repository: input.repository.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::direction::AnyRepositoryMark::Inactive(instance) => crate::direction::AnyRepositoryMark::Active(instance.activate()),
-            _ => return Ok(crate::direction::ActivateRepositoryOutcome::WrongState { error: crate::direction::RepositoryMarkConflict { repository: input.repository.clone() } }),
+            crate::direction::AnyRepositoryMark::Inactive(instance) => {
+                crate::direction::AnyRepositoryMark::Active(instance.activate())
+            }
+            _ => {
+                return Ok(crate::direction::ActivateRepositoryOutcome::WrongState {
+                    error: crate::direction::RepositoryMarkConflict {
+                        repository: input.repository.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.marked_by = input.marked_by.clone();
         next.data.session = input.session.clone();
         next.data.reason = input.reason.clone();
-        let answer = crate::direction::ActivateRepositoryOutcome::Activated { repository_activated: crate::direction::RepositoryActivated { repository: input.repository.clone(), marked_by: input.marked_by.clone() } };
+        let answer = crate::direction::ActivateRepositoryOutcome::Activated {
+            repository_activated: crate::direction::RepositoryActivated {
+                repository: input.repository.clone(),
+                marked_by: input.marked_by.clone(),
+            },
+        };
         RepositoryMarkStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -969,7 +1468,10 @@ impl<P> crate::direction::obligations::AddServingBehavior for Generated<P>
 where
     P: TryContext + GoalStorage + GoalServingStorage,
 {
-    fn add_serving(&mut self, input: crate::direction::AddServing) -> Result<crate::direction::AddServingOutcome, UnmetObligation> {
+    fn add_serving(
+        &mut self,
+        input: crate::direction::AddServing,
+    ) -> Result<crate::direction::AddServingOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.direction.Goal` row `input.goal_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -977,24 +1479,71 @@ where
         let related = reference.and_then(|identity| GoalStorage::get(&self.ports, identity));
         // `no-such-goal`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::direction::AddServingOutcome::NoSuchGoal { error: crate::direction::GoalNotFound { goal_id: input.goal_id.clone() } });
+            return Ok(crate::direction::AddServingOutcome::NoSuchGoal {
+                error: crate::direction::GoalNotFound {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // `goal-closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(any(&[equal(Some(&related.state).map(|value| match value { crate::direction::GoalState::Confirmed => "Confirmed", crate::direction::GoalState::Draft => "Draft", crate::direction::GoalState::Dropped => "Dropped", crate::direction::GoalState::Met => "Met" }.to_owned()), Some("Met".to_owned())), equal(Some(&related.state).map(|value| match value { crate::direction::GoalState::Confirmed => "Confirmed", crate::direction::GoalState::Draft => "Draft", crate::direction::GoalState::Dropped => "Dropped", crate::direction::GoalState::Met => "Met" }.to_owned()), Some("Dropped".to_owned()))]), "conductor.direction.AddServing")? {
-            return Ok(crate::direction::AddServingOutcome::GoalClosed { error: crate::direction::GoalStateConflict { goal_id: input.goal_id.clone() } });
-        }
+            if decided(
+                any(&[
+                    equal(
+                        Some(&related.state).map(|value| {
+                            match value {
+                                crate::direction::GoalState::Confirmed => "Confirmed",
+                                crate::direction::GoalState::Draft => "Draft",
+                                crate::direction::GoalState::Dropped => "Dropped",
+                                crate::direction::GoalState::Met => "Met",
+                            }
+                            .to_owned()
+                        }),
+                        Some("Met".to_owned()),
+                    ),
+                    equal(
+                        Some(&related.state).map(|value| {
+                            match value {
+                                crate::direction::GoalState::Confirmed => "Confirmed",
+                                crate::direction::GoalState::Draft => "Draft",
+                                crate::direction::GoalState::Dropped => "Dropped",
+                                crate::direction::GoalState::Met => "Met",
+                            }
+                            .to_owned()
+                        }),
+                        Some("Dropped".to_owned()),
+                    ),
+                ]),
+                "conductor.direction.AddServing",
+            )? {
+                return Ok(crate::direction::AddServingOutcome::GoalClosed {
+                    error: crate::direction::GoalStateConflict {
+                        goal_id: input.goal_id.clone(),
+                    },
+                });
+            }
         }
         // `added`: the default.
-        let identity: crate::direction::ServingId = self.ports.try_generate_conductor_direction_serving_id()?;
+        let identity: crate::direction::ServingId =
+            self.ports.try_generate_conductor_direction_serving_id()?;
         let data = crate::direction::GoalServingData {
             serving_id: identity.clone(),
             goal_id: input.goal_id.clone(),
             repository: input.repository.clone(),
         };
-        let answer = crate::direction::AddServingOutcome::Added { serving_added: crate::direction::ServingAdded { serving_id: identity.clone(), goal_id: input.goal_id.clone(), repository: input.repository.clone() } };
-        GoalServingStorage::put(&mut self.ports, crate::direction::AnyGoalServing::Serving(crate::direction::GoalServing::new(data)).snapshot());
+        let answer = crate::direction::AddServingOutcome::Added {
+            serving_added: crate::direction::ServingAdded {
+                serving_id: identity.clone(),
+                goal_id: input.goal_id.clone(),
+                repository: input.repository.clone(),
+            },
+        };
+        GoalServingStorage::put(
+            &mut self.ports,
+            crate::direction::AnyGoalServing::Serving(crate::direction::GoalServing::new(data))
+                .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1004,23 +1553,63 @@ impl<P> crate::direction::obligations::ConfirmGoalBehavior for Generated<P>
 where
     P: GoalStorage,
 {
-    fn confirm_goal(&mut self, input: crate::direction::ConfirmGoal) -> Result<crate::direction::ConfirmGoalOutcome, UnmetObligation> {
+    fn confirm_goal(
+        &mut self,
+        input: crate::direction::ConfirmGoal,
+    ) -> Result<crate::direction::ConfirmGoalOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(any(&[equal(Some(&input.goal_id).map(|value| &value.0).map(|value| value.clone()), Some("".to_owned())), compare_numbers(Some(&input.goal_id).map(|value| &value.0).map(|value| value.len().to_string()), Some("170".to_owned()), core::cmp::Ordering::is_gt)]), "conductor.direction.ConfirmGoal")? {
-            return Ok(crate::direction::ConfirmGoalOutcome::InvalidGoalId { error: crate::direction::InvalidGoalId { goal_id: input.goal_id.clone() } });
+        if decided(
+            any(&[
+                equal(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.clone()),
+                    Some("".to_owned()),
+                ),
+                compare_numbers(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.len().to_string()),
+                    Some("170".to_owned()),
+                    core::cmp::Ordering::is_gt,
+                ),
+            ]),
+            "conductor.direction.ConfirmGoal",
+        )? {
+            return Ok(crate::direction::ConfirmGoalOutcome::InvalidGoalId {
+                error: crate::direction::InvalidGoalId {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         }
         // `confirmed`: the default.
         let Some(held) = GoalStorage::get(&self.ports, &input.goal_id) else {
-            return Ok(crate::direction::ConfirmGoalOutcome::NoSuchGoal { error: crate::direction::GoalNotFound { goal_id: input.goal_id.clone() } });
+            return Ok(crate::direction::ConfirmGoalOutcome::NoSuchGoal {
+                error: crate::direction::GoalNotFound {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::direction::AnyGoal::Draft(instance) => crate::direction::AnyGoal::Confirmed(instance.confirm()),
-            _ => return Ok(crate::direction::ConfirmGoalOutcome::WrongState { error: crate::direction::GoalStateConflict { goal_id: input.goal_id.clone() } }),
+            crate::direction::AnyGoal::Draft(instance) => {
+                crate::direction::AnyGoal::Confirmed(instance.confirm())
+            }
+            _ => {
+                return Ok(crate::direction::ConfirmGoalOutcome::WrongState {
+                    error: crate::direction::GoalStateConflict {
+                        goal_id: input.goal_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
-        let answer = crate::direction::ConfirmGoalOutcome::Confirmed { goal_confirmed: crate::direction::GoalConfirmed { goal_id: input.goal_id.clone() } };
+        let answer = crate::direction::ConfirmGoalOutcome::Confirmed {
+            goal_confirmed: crate::direction::GoalConfirmed {
+                goal_id: input.goal_id.clone(),
+            },
+        };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1031,22 +1620,43 @@ impl<P> crate::direction::obligations::DeactivateRepositoryBehavior for Generate
 where
     P: RepositoryMarkStorage,
 {
-    fn deactivate_repository(&mut self, input: crate::direction::DeactivateRepository) -> Result<crate::direction::DeactivateRepositoryOutcome, UnmetObligation> {
+    fn deactivate_repository(
+        &mut self,
+        input: crate::direction::DeactivateRepository,
+    ) -> Result<crate::direction::DeactivateRepositoryOutcome, UnmetObligation> {
         let _ = &input;
         // `deactivated`: the default.
         let Some(held) = RepositoryMarkStorage::get(&self.ports, &input.repository) else {
-            return Ok(crate::direction::DeactivateRepositoryOutcome::NoSuchMark { error: crate::direction::RepositoryMarkNotFound { repository: input.repository.clone() } });
+            return Ok(crate::direction::DeactivateRepositoryOutcome::NoSuchMark {
+                error: crate::direction::RepositoryMarkNotFound {
+                    repository: input.repository.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::direction::AnyRepositoryMark::Active(instance) => crate::direction::AnyRepositoryMark::Inactive(instance.deactivate()),
-            _ => return Ok(crate::direction::DeactivateRepositoryOutcome::WrongState { error: crate::direction::RepositoryMarkConflict { repository: input.repository.clone() } }),
+            crate::direction::AnyRepositoryMark::Active(instance) => {
+                crate::direction::AnyRepositoryMark::Inactive(instance.deactivate())
+            }
+            _ => {
+                return Ok(crate::direction::DeactivateRepositoryOutcome::WrongState {
+                    error: crate::direction::RepositoryMarkConflict {
+                        repository: input.repository.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.marked_by = input.marked_by.clone();
         next.data.session = input.session.clone();
         next.data.reason = input.reason.clone();
-        let answer = crate::direction::DeactivateRepositoryOutcome::Deactivated { repository_deactivated: crate::direction::RepositoryDeactivated { repository: input.repository.clone(), marked_by: input.marked_by.clone(), reason: input.reason.clone() } };
+        let answer = crate::direction::DeactivateRepositoryOutcome::Deactivated {
+            repository_deactivated: crate::direction::RepositoryDeactivated {
+                repository: input.repository.clone(),
+                marked_by: input.marked_by.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         RepositoryMarkStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1057,24 +1667,68 @@ impl<P> crate::direction::obligations::DropGoalBehavior for Generated<P>
 where
     P: GoalStorage,
 {
-    fn drop_goal(&mut self, input: crate::direction::DropGoal) -> Result<crate::direction::DropGoalOutcome, UnmetObligation> {
+    fn drop_goal(
+        &mut self,
+        input: crate::direction::DropGoal,
+    ) -> Result<crate::direction::DropGoalOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(any(&[equal(Some(&input.goal_id).map(|value| &value.0).map(|value| value.clone()), Some("".to_owned())), compare_numbers(Some(&input.goal_id).map(|value| &value.0).map(|value| value.len().to_string()), Some("170".to_owned()), core::cmp::Ordering::is_gt)]), "conductor.direction.DropGoal")? {
-            return Ok(crate::direction::DropGoalOutcome::InvalidGoalId { error: crate::direction::InvalidGoalId { goal_id: input.goal_id.clone() } });
+        if decided(
+            any(&[
+                equal(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.clone()),
+                    Some("".to_owned()),
+                ),
+                compare_numbers(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.len().to_string()),
+                    Some("170".to_owned()),
+                    core::cmp::Ordering::is_gt,
+                ),
+            ]),
+            "conductor.direction.DropGoal",
+        )? {
+            return Ok(crate::direction::DropGoalOutcome::InvalidGoalId {
+                error: crate::direction::InvalidGoalId {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         }
         // `dropped`: the default.
         let Some(held) = GoalStorage::get(&self.ports, &input.goal_id) else {
-            return Ok(crate::direction::DropGoalOutcome::NoSuchGoal { error: crate::direction::GoalNotFound { goal_id: input.goal_id.clone() } });
+            return Ok(crate::direction::DropGoalOutcome::NoSuchGoal {
+                error: crate::direction::GoalNotFound {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::direction::AnyGoal::Confirmed(instance) => crate::direction::AnyGoal::Dropped(instance.drop()),
-            crate::direction::AnyGoal::Draft(instance) => crate::direction::AnyGoal::Dropped(instance.drop()),
-            _ => return Ok(crate::direction::DropGoalOutcome::WrongState { error: crate::direction::GoalStateConflict { goal_id: input.goal_id.clone() } }),
+            crate::direction::AnyGoal::Confirmed(instance) => {
+                crate::direction::AnyGoal::Dropped(instance.drop())
+            }
+            crate::direction::AnyGoal::Draft(instance) => {
+                crate::direction::AnyGoal::Dropped(instance.drop())
+            }
+            _ => {
+                return Ok(crate::direction::DropGoalOutcome::WrongState {
+                    error: crate::direction::GoalStateConflict {
+                        goal_id: input.goal_id.clone(),
+                    },
+                })
+            }
         };
-        let next = moved.snapshot();
-        let answer = crate::direction::DropGoalOutcome::Dropped { goal_dropped: crate::direction::GoalDropped { goal_id: input.goal_id.clone(), reason: input.reason.clone() } };
+        let mut next = moved.snapshot();
+        next.data.reason = Some(input.reason.clone());
+        let answer = crate::direction::DropGoalOutcome::Dropped {
+            goal_dropped: crate::direction::GoalDropped {
+                goal_id: input.goal_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1085,23 +1739,65 @@ impl<P> crate::direction::obligations::MarkGoalMetBehavior for Generated<P>
 where
     P: GoalStorage,
 {
-    fn mark_goal_met(&mut self, input: crate::direction::MarkGoalMet) -> Result<crate::direction::MarkGoalMetOutcome, UnmetObligation> {
+    fn mark_goal_met(
+        &mut self,
+        input: crate::direction::MarkGoalMet,
+    ) -> Result<crate::direction::MarkGoalMetOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(any(&[equal(Some(&input.goal_id).map(|value| &value.0).map(|value| value.clone()), Some("".to_owned())), compare_numbers(Some(&input.goal_id).map(|value| &value.0).map(|value| value.len().to_string()), Some("170".to_owned()), core::cmp::Ordering::is_gt)]), "conductor.direction.MarkGoalMet")? {
-            return Ok(crate::direction::MarkGoalMetOutcome::InvalidGoalId { error: crate::direction::InvalidGoalId { goal_id: input.goal_id.clone() } });
+        if decided(
+            any(&[
+                equal(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.clone()),
+                    Some("".to_owned()),
+                ),
+                compare_numbers(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.len().to_string()),
+                    Some("170".to_owned()),
+                    core::cmp::Ordering::is_gt,
+                ),
+            ]),
+            "conductor.direction.MarkGoalMet",
+        )? {
+            return Ok(crate::direction::MarkGoalMetOutcome::InvalidGoalId {
+                error: crate::direction::InvalidGoalId {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         }
         // `met`: the default.
         let Some(held) = GoalStorage::get(&self.ports, &input.goal_id) else {
-            return Ok(crate::direction::MarkGoalMetOutcome::NoSuchGoal { error: crate::direction::GoalNotFound { goal_id: input.goal_id.clone() } });
+            return Ok(crate::direction::MarkGoalMetOutcome::NoSuchGoal {
+                error: crate::direction::GoalNotFound {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::direction::AnyGoal::Confirmed(instance) => crate::direction::AnyGoal::Met(instance.meet()),
-            _ => return Ok(crate::direction::MarkGoalMetOutcome::WrongState { error: crate::direction::GoalStateConflict { goal_id: input.goal_id.clone() } }),
+            crate::direction::AnyGoal::Confirmed(instance) => {
+                crate::direction::AnyGoal::Met(instance.meet())
+            }
+            _ => {
+                return Ok(crate::direction::MarkGoalMetOutcome::WrongState {
+                    error: crate::direction::GoalStateConflict {
+                        goal_id: input.goal_id.clone(),
+                    },
+                })
+            }
         };
-        let next = moved.snapshot();
-        let answer = crate::direction::MarkGoalMetOutcome::Met { goal_met: crate::direction::GoalMet { goal_id: input.goal_id.clone(), evidence: input.evidence.clone() } };
+        let mut next = moved.snapshot();
+        next.data.evidence = Some(input.evidence.clone());
+        let answer = crate::direction::MarkGoalMetOutcome::Met {
+            goal_met: crate::direction::GoalMet {
+                goal_id: input.goal_id.clone(),
+                evidence: input.evidence.clone(),
+            },
+        };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1112,14 +1808,33 @@ impl<P> crate::direction::obligations::MarkRepositoryBehavior for Generated<P>
 where
     P: RepositoryMarkStorage,
 {
-    fn mark_repository(&mut self, input: crate::direction::MarkRepository) -> Result<crate::direction::MarkRepositoryOutcome, UnmetObligation> {
+    fn mark_repository(
+        &mut self,
+        input: crate::direction::MarkRepository,
+    ) -> Result<crate::direction::MarkRepositoryOutcome, UnmetObligation> {
         let _ = &input;
         // `already-marked`: an identity a record already carries, before any branch is taken.
         if RepositoryMarkStorage::get(&self.ports, &input.repository).is_some() {
-            return Ok(crate::direction::MarkRepositoryOutcome::AlreadyMarked { error: crate::direction::RepositoryAlreadyMarked { repository: input.repository.clone() } });
+            return Ok(crate::direction::MarkRepositoryOutcome::AlreadyMarked {
+                error: crate::direction::RepositoryAlreadyMarked {
+                    repository: input.repository.clone(),
+                },
+            });
         }
         // `marked-active`: an accepting branch, in declaration order.
-        if decided(equal(Some(&input.activity).map(|value| match value { crate::direction::Activity::Active => "Active", crate::direction::Activity::Inactive => "Inactive" }.to_owned()), Some("Active".to_owned())), "conductor.direction.MarkRepository")? {
+        if decided(
+            equal(
+                Some(&input.activity).map(|value| {
+                    match value {
+                        crate::direction::Activity::Active => "Active",
+                        crate::direction::Activity::Inactive => "Inactive",
+                    }
+                    .to_owned()
+                }),
+                Some("Active".to_owned()),
+            ),
+            "conductor.direction.MarkRepository",
+        )? {
             let identity: crate::direction::MarkedRepository = input.repository.clone();
             let data = crate::direction::RepositoryMarkData {
                 repository: identity.clone(),
@@ -1127,8 +1842,20 @@ where
                 session: input.session.clone(),
                 reason: input.reason.clone(),
             };
-            let answer = crate::direction::MarkRepositoryOutcome::MarkedActive { repository_marked: crate::direction::RepositoryMarked { repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
-            RepositoryMarkStorage::put(&mut self.ports, crate::direction::AnyRepositoryMark::Active(crate::direction::RepositoryMark::new_active(data)).snapshot());
+            let answer = crate::direction::MarkRepositoryOutcome::MarkedActive {
+                repository_marked: crate::direction::RepositoryMarked {
+                    repository: identity.clone(),
+                    activity: input.activity.clone(),
+                    marked_by: input.marked_by.clone(),
+                },
+            };
+            RepositoryMarkStorage::put(
+                &mut self.ports,
+                crate::direction::AnyRepositoryMark::Active(
+                    crate::direction::RepositoryMark::new_active(data),
+                )
+                .snapshot(),
+            );
             return Ok(answer);
         }
         // `marked-inactive`: the default.
@@ -1139,8 +1866,20 @@ where
             session: input.session.clone(),
             reason: input.reason.clone(),
         };
-        let answer = crate::direction::MarkRepositoryOutcome::MarkedInactive { repository_marked: crate::direction::RepositoryMarked { repository: identity.clone(), activity: input.activity.clone(), marked_by: input.marked_by.clone() } };
-        RepositoryMarkStorage::put(&mut self.ports, crate::direction::AnyRepositoryMark::Inactive(crate::direction::RepositoryMark::new(data)).snapshot());
+        let answer = crate::direction::MarkRepositoryOutcome::MarkedInactive {
+            repository_marked: crate::direction::RepositoryMarked {
+                repository: identity.clone(),
+                activity: input.activity.clone(),
+                marked_by: input.marked_by.clone(),
+            },
+        };
+        RepositoryMarkStorage::put(
+            &mut self.ports,
+            crate::direction::AnyRepositoryMark::Inactive(crate::direction::RepositoryMark::new(
+                data,
+            ))
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1150,15 +1889,43 @@ impl<P> crate::direction::obligations::ProposeGoalBehavior for Generated<P>
 where
     P: GoalStorage,
 {
-    fn propose_goal(&mut self, input: crate::direction::ProposeGoal) -> Result<crate::direction::ProposeGoalOutcome, UnmetObligation> {
+    fn propose_goal(
+        &mut self,
+        input: crate::direction::ProposeGoal,
+    ) -> Result<crate::direction::ProposeGoalOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-goal-id`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(any(&[equal(Some(&input.goal_id).map(|value| &value.0).map(|value| value.clone()), Some("".to_owned())), compare_numbers(Some(&input.goal_id).map(|value| &value.0).map(|value| value.len().to_string()), Some("170".to_owned()), core::cmp::Ordering::is_gt)]), "conductor.direction.ProposeGoal")? {
-            return Ok(crate::direction::ProposeGoalOutcome::InvalidGoalId { error: crate::direction::InvalidGoalId { goal_id: input.goal_id.clone() } });
+        if decided(
+            any(&[
+                equal(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.clone()),
+                    Some("".to_owned()),
+                ),
+                compare_numbers(
+                    Some(&input.goal_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.len().to_string()),
+                    Some("170".to_owned()),
+                    core::cmp::Ordering::is_gt,
+                ),
+            ]),
+            "conductor.direction.ProposeGoal",
+        )? {
+            return Ok(crate::direction::ProposeGoalOutcome::InvalidGoalId {
+                error: crate::direction::InvalidGoalId {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         }
         // `already-proposed`: an identity a record already carries, before any branch is taken.
         if GoalStorage::get(&self.ports, &input.goal_id).is_some() {
-            return Ok(crate::direction::ProposeGoalOutcome::AlreadyProposed { error: crate::direction::GoalExists { goal_id: input.goal_id.clone() } });
+            return Ok(crate::direction::ProposeGoalOutcome::AlreadyProposed {
+                error: crate::direction::GoalExists {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         }
         // `proposed`: the default.
         let identity: crate::direction::GoalId = input.goal_id.clone();
@@ -1166,9 +1933,19 @@ where
             goal_id: identity.clone(),
             title: input.title.clone(),
             exit_evidence: input.exit_evidence.clone(),
+            evidence: None,
+            reason: None,
         };
-        let answer = crate::direction::ProposeGoalOutcome::Proposed { goal_proposed: crate::direction::GoalProposed { goal_id: identity.clone(), title: input.title.clone() } };
-        GoalStorage::put(&mut self.ports, crate::direction::AnyGoal::Draft(crate::direction::Goal::new(data)).snapshot());
+        let answer = crate::direction::ProposeGoalOutcome::Proposed {
+            goal_proposed: crate::direction::GoalProposed {
+                goal_id: identity.clone(),
+                title: input.title.clone(),
+            },
+        };
+        GoalStorage::put(
+            &mut self.ports,
+            crate::direction::AnyGoal::Draft(crate::direction::Goal::new(data)).snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1178,19 +1955,39 @@ impl<P> crate::direction::obligations::RemoveServingBehavior for Generated<P>
 where
     P: GoalServingStorage,
 {
-    fn remove_serving(&mut self, input: crate::direction::RemoveServing) -> Result<crate::direction::RemoveServingOutcome, UnmetObligation> {
+    fn remove_serving(
+        &mut self,
+        input: crate::direction::RemoveServing,
+    ) -> Result<crate::direction::RemoveServingOutcome, UnmetObligation> {
         let _ = &input;
         // `removed`: the default.
         let Some(held) = GoalServingStorage::get(&self.ports, &input.serving_id) else {
-            return Ok(crate::direction::RemoveServingOutcome::NoSuchServing { error: crate::direction::ServingNotFound { serving_id: input.serving_id.clone() } });
+            return Ok(crate::direction::RemoveServingOutcome::NoSuchServing {
+                error: crate::direction::ServingNotFound {
+                    serving_id: input.serving_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::direction::AnyGoalServing::Serving(instance) => crate::direction::AnyGoalServing::Removed(instance.remove()),
-            _ => return Ok(crate::direction::RemoveServingOutcome::WrongState { error: crate::direction::ServingStateConflict { serving_id: input.serving_id.clone() } }),
+            crate::direction::AnyGoalServing::Serving(instance) => {
+                crate::direction::AnyGoalServing::Removed(instance.remove())
+            }
+            _ => {
+                return Ok(crate::direction::RemoveServingOutcome::WrongState {
+                    error: crate::direction::ServingStateConflict {
+                        serving_id: input.serving_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
-        let answer = crate::direction::RemoveServingOutcome::Removed { serving_removed: crate::direction::ServingRemoved { serving_id: input.serving_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::direction::RemoveServingOutcome::Removed {
+            serving_removed: crate::direction::ServingRemoved {
+                serving_id: input.serving_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         GoalServingStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1201,25 +1998,52 @@ impl<P> crate::dispatch::obligations::CancelDispatchBehavior for Generated<P>
 where
     P: DispatchStorage,
 {
-    fn cancel_dispatch(&mut self, input: crate::dispatch::CancelDispatch) -> Result<crate::dispatch::CancelDispatchOutcome, UnmetObligation> {
+    fn cancel_dispatch(
+        &mut self,
+        input: crate::dispatch::CancelDispatch,
+    ) -> Result<crate::dispatch::CancelDispatchOutcome, UnmetObligation> {
         let _ = &input;
         // `cancelled`: the default.
         let Some(held) = DispatchStorage::get(&self.ports, &input.dispatch_id) else {
-            return Ok(crate::dispatch::CancelDispatchOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+            return Ok(crate::dispatch::CancelDispatchOutcome::NoSuchDispatch {
+                error: crate::dispatch::DispatchNotFound {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyDispatch::Blocked(instance) => crate::dispatch::AnyDispatch::Cancelled(instance.cancel()),
-            crate::dispatch::AnyDispatch::Sent(instance) => crate::dispatch::AnyDispatch::Cancelled(instance.cancel()),
-            crate::dispatch::AnyDispatch::Started(instance) => crate::dispatch::AnyDispatch::Cancelled(instance.cancel()),
-            _ => return Ok(crate::dispatch::CancelDispatchOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
+            crate::dispatch::AnyDispatch::Blocked(instance) => {
+                crate::dispatch::AnyDispatch::Cancelled(instance.cancel())
+            }
+            crate::dispatch::AnyDispatch::Sent(instance) => {
+                crate::dispatch::AnyDispatch::Cancelled(instance.cancel())
+            }
+            crate::dispatch::AnyDispatch::Started(instance) => {
+                crate::dispatch::AnyDispatch::Cancelled(instance.cancel())
+            }
+            _ => {
+                return Ok(crate::dispatch::CancelDispatchOutcome::WrongState {
+                    error: crate::dispatch::DispatchStateConflict {
+                        dispatch_id: input.dispatch_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::CancelDispatchOutcome::Cancelled { dispatch_cancelled: crate::dispatch::DispatchCancelled { dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::CancelDispatchOutcome::Cancelled {
+            dispatch_cancelled: crate::dispatch::DispatchCancelled {
+                dispatch_id: input.dispatch_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1230,32 +2054,99 @@ impl<P> crate::dispatch::obligations::GrantResourceBehavior for Generated<P>
 where
     P: ResourceRequestStorage,
 {
-    fn grant_resource(&mut self, input: crate::dispatch::GrantResource) -> Result<crate::dispatch::GrantResourceOutcome, UnmetObligation> {
+    fn grant_resource(
+        &mut self,
+        input: crate::dispatch::GrantResource,
+    ) -> Result<crate::dispatch::GrantResourceOutcome, UnmetObligation> {
         let _ = &input;
         // The addressed row, read before the branches that select by it.
-        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id) else {
-            return Ok(crate::dispatch::GrantResourceOutcome::NoSuchRequest { error: crate::dispatch::ResourceRequestNotFound { resource_request_id: input.resource_request_id.clone() } });
+        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id)
+        else {
+            return Ok(crate::dispatch::GrantResourceOutcome::NoSuchRequest {
+                error: crate::dispatch::ResourceRequestNotFound {
+                    resource_request_id: input.resource_request_id.clone(),
+                },
+            });
         };
         let _ = &held;
         // `below-disk-floor`: selected by the addressed row.
-        if decided(all(&[all(&[equal(Some(&held.data.resource).map(|value| match value { crate::dispatch::ResourceKind::BuildSlot => "BuildSlot", crate::dispatch::ResourceKind::Disk => "Disk", crate::dispatch::ResourceKind::Usage => "Usage" }.to_owned()), Some("BuildSlot".to_owned())), equal(Some(&held.state).map(|value| match value { crate::dispatch::ResourceRequestState::Granted => "Granted", crate::dispatch::ResourceRequestState::Refused => "Refused", crate::dispatch::ResourceRequestState::Released => "Released", crate::dispatch::ResourceRequestState::Requested => "Requested" }.to_owned()), Some("Requested".to_owned()))]), compare_numbers(Some(&input.disk_free_bytes).map(|value| value.to_string()), Some("32212254720".to_owned()), core::cmp::Ordering::is_lt)]), "conductor.dispatch.GrantResource")? {
-            return Ok(crate::dispatch::GrantResourceOutcome::BelowDiskFloor { error: crate::dispatch::DiskBelowFloor { resource_request_id: input.resource_request_id.clone(), disk_free_bytes: input.disk_free_bytes.clone() } });
+        if decided(
+            all(&[
+                all(&[
+                    equal(
+                        Some(&held.data.resource).map(|value| {
+                            match value {
+                                crate::dispatch::ResourceKind::BuildSlot => "BuildSlot",
+                                crate::dispatch::ResourceKind::Disk => "Disk",
+                                crate::dispatch::ResourceKind::Usage => "Usage",
+                            }
+                            .to_owned()
+                        }),
+                        Some("BuildSlot".to_owned()),
+                    ),
+                    equal(
+                        Some(&held.state).map(|value| {
+                            match value {
+                                crate::dispatch::ResourceRequestState::Granted => "Granted",
+                                crate::dispatch::ResourceRequestState::Refused => "Refused",
+                                crate::dispatch::ResourceRequestState::Released => "Released",
+                                crate::dispatch::ResourceRequestState::Requested => "Requested",
+                            }
+                            .to_owned()
+                        }),
+                        Some("Requested".to_owned()),
+                    ),
+                ]),
+                compare_numbers(
+                    Some(&input.disk_free_bytes).map(|value| value.to_string()),
+                    Some("32212254720".to_owned()),
+                    core::cmp::Ordering::is_lt,
+                ),
+            ]),
+            "conductor.dispatch.GrantResource",
+        )? {
+            return Ok(crate::dispatch::GrantResourceOutcome::BelowDiskFloor {
+                error: crate::dispatch::DiskBelowFloor {
+                    resource_request_id: input.resource_request_id.clone(),
+                    disk_free_bytes: input.disk_free_bytes.clone(),
+                },
+            });
         }
         // `granted`: the default.
-        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id) else {
-            return Ok(crate::dispatch::GrantResourceOutcome::NoSuchRequest { error: crate::dispatch::ResourceRequestNotFound { resource_request_id: input.resource_request_id.clone() } });
+        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id)
+        else {
+            return Ok(crate::dispatch::GrantResourceOutcome::NoSuchRequest {
+                error: crate::dispatch::ResourceRequestNotFound {
+                    resource_request_id: input.resource_request_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyResourceRequest::Requested(instance) => crate::dispatch::AnyResourceRequest::Granted(instance.grant()),
-            _ => return Ok(crate::dispatch::GrantResourceOutcome::WrongState { error: crate::dispatch::ResourceRequestStateConflict { resource_request_id: input.resource_request_id.clone() } }),
+            crate::dispatch::AnyResourceRequest::Requested(instance) => {
+                crate::dispatch::AnyResourceRequest::Granted(instance.grant())
+            }
+            _ => {
+                return Ok(crate::dispatch::GrantResourceOutcome::WrongState {
+                    error: crate::dispatch::ResourceRequestStateConflict {
+                        resource_request_id: input.resource_request_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::GrantResourceOutcome::Granted { resource_granted: crate::dispatch::ResourceGranted { resource_request_id: input.resource_request_id.clone() } };
+        let answer = crate::dispatch::GrantResourceOutcome::Granted {
+            resource_granted: crate::dispatch::ResourceGranted {
+                resource_request_id: input.resource_request_id.clone(),
+            },
+        };
         ResourceRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1266,28 +2157,86 @@ impl<P> crate::dispatch::obligations::HandleMessageBehavior for Generated<P>
 where
     P: MessageStorage,
 {
-    fn handle_message(&mut self, input: crate::dispatch::HandleMessage) -> Result<crate::dispatch::HandleMessageOutcome, UnmetObligation> {
+    fn handle_message(
+        &mut self,
+        input: crate::dispatch::HandleMessage,
+    ) -> Result<crate::dispatch::HandleMessageOutcome, UnmetObligation> {
         let _ = &input;
         // The addressed row, read before the branches that select by it.
         let Some(held) = MessageStorage::get(&self.ports, &input.message_id) else {
-            return Ok(crate::dispatch::HandleMessageOutcome::NoSuchMessage { error: crate::dispatch::MessageNotFound { message_id: input.message_id.clone() } });
+            return Ok(crate::dispatch::HandleMessageOutcome::NoSuchMessage {
+                error: crate::dispatch::MessageNotFound {
+                    message_id: input.message_id.clone(),
+                },
+            });
         };
         let _ = &held;
         // `need-unrouted`: selected by the addressed row.
-        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.HandleMessage")? {
-            return Ok(crate::dispatch::HandleMessageOutcome::NeedUnrouted { error: crate::dispatch::NeedNotRouted { message_id: input.message_id.clone() } });
+        if decided(
+            all(&[
+                equal(
+                    Some(&held.data.kind).map(|value| {
+                        match value {
+                            crate::dispatch::MessageKind::Dispatch => "Dispatch",
+                            crate::dispatch::MessageKind::Report => "Report",
+                            crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest",
+                            crate::dispatch::MessageKind::Decision => "Decision",
+                            crate::dispatch::MessageKind::Need => "Need",
+                            crate::dispatch::MessageKind::Resource => "Resource",
+                            crate::dispatch::MessageKind::Escalation => "Escalation",
+                            crate::dispatch::MessageKind::Unknown => "Unknown",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Need".to_owned()),
+                ),
+                equal(
+                    Some(&held.state).map(|value| {
+                        match value {
+                            crate::dispatch::MessageState::Handled => "Handled",
+                            crate::dispatch::MessageState::Received => "Received",
+                            crate::dispatch::MessageState::Rejected => "Rejected",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Received".to_owned()),
+                ),
+            ]),
+            "conductor.dispatch.HandleMessage",
+        )? {
+            return Ok(crate::dispatch::HandleMessageOutcome::NeedUnrouted {
+                error: crate::dispatch::NeedNotRouted {
+                    message_id: input.message_id.clone(),
+                },
+            });
         }
         // `handled`: the default.
         let Some(held) = MessageStorage::get(&self.ports, &input.message_id) else {
-            return Ok(crate::dispatch::HandleMessageOutcome::NoSuchMessage { error: crate::dispatch::MessageNotFound { message_id: input.message_id.clone() } });
+            return Ok(crate::dispatch::HandleMessageOutcome::NoSuchMessage {
+                error: crate::dispatch::MessageNotFound {
+                    message_id: input.message_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyMessage::Received(instance) => crate::dispatch::AnyMessage::Handled(instance.handle()),
-            _ => return Ok(crate::dispatch::HandleMessageOutcome::WrongState { error: crate::dispatch::MessageStateConflict { message_id: input.message_id.clone() } }),
+            crate::dispatch::AnyMessage::Received(instance) => {
+                crate::dispatch::AnyMessage::Handled(instance.handle())
+            }
+            _ => {
+                return Ok(crate::dispatch::HandleMessageOutcome::WrongState {
+                    error: crate::dispatch::MessageStateConflict {
+                        message_id: input.message_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
-        let answer = crate::dispatch::HandleMessageOutcome::Handled { message_handled: crate::dispatch::MessageHandled { message_id: input.message_id.clone() } };
+        let answer = crate::dispatch::HandleMessageOutcome::Handled {
+            message_handled: crate::dispatch::MessageHandled {
+                message_id: input.message_id.clone(),
+            },
+        };
         MessageStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1298,23 +2247,45 @@ impl<P> crate::dispatch::obligations::PauseControllerBehavior for Generated<P>
 where
     P: ControllerStorage,
 {
-    fn pause_controller(&mut self, input: crate::dispatch::PauseController) -> Result<crate::dispatch::PauseControllerOutcome, UnmetObligation> {
+    fn pause_controller(
+        &mut self,
+        input: crate::dispatch::PauseController,
+    ) -> Result<crate::dispatch::PauseControllerOutcome, UnmetObligation> {
         let _ = &input;
         // `paused`: the default.
         let Some(held) = ControllerStorage::get(&self.ports, &input.controller_id) else {
-            return Ok(crate::dispatch::PauseControllerOutcome::NoSuchController { error: crate::dispatch::ControllerNotFound { controller_id: input.controller_id.clone() } });
+            return Ok(crate::dispatch::PauseControllerOutcome::NoSuchController {
+                error: crate::dispatch::ControllerNotFound {
+                    controller_id: input.controller_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyController::Running(instance) => crate::dispatch::AnyController::Paused(instance.pause()),
-            _ => return Ok(crate::dispatch::PauseControllerOutcome::WrongState { error: crate::dispatch::ControllerStateConflict { controller_id: input.controller_id.clone() } }),
+            crate::dispatch::AnyController::Running(instance) => {
+                crate::dispatch::AnyController::Paused(instance.pause())
+            }
+            _ => {
+                return Ok(crate::dispatch::PauseControllerOutcome::WrongState {
+                    error: crate::dispatch::ControllerStateConflict {
+                        controller_id: input.controller_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::PauseControllerOutcome::Paused { controller_paused: crate::dispatch::ControllerPaused { controller_id: input.controller_id.clone() } };
+        let answer = crate::dispatch::PauseControllerOutcome::Paused {
+            controller_paused: crate::dispatch::ControllerPaused {
+                controller_id: input.controller_id.clone(),
+            },
+        };
         ControllerStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1325,11 +2296,36 @@ impl<P> crate::dispatch::obligations::ReceiveMessageBehavior for Generated<P>
 where
     P: TryContext + MessageStorage,
 {
-    fn receive_message(&mut self, input: crate::dispatch::ReceiveMessage) -> Result<crate::dispatch::ReceiveMessageOutcome, UnmetObligation> {
+    fn receive_message(
+        &mut self,
+        input: crate::dispatch::ReceiveMessage,
+    ) -> Result<crate::dispatch::ReceiveMessageOutcome, UnmetObligation> {
         let _ = &input;
         // `unparsed`: an accepting branch, in declaration order.
-        if decided(any(&[equal(Some(&input.parsed).map(|value| *value), Some(false)), equal(Some(&input.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Unknown".to_owned()))]), "conductor.dispatch.ReceiveMessage")? {
-            let identity: crate::dispatch::MessageId = self.ports.try_generate_conductor_dispatch_message_id()?;
+        if decided(
+            any(&[
+                equal(Some(&input.parsed).map(|value| *value), Some(false)),
+                equal(
+                    Some(&input.kind).map(|value| {
+                        match value {
+                            crate::dispatch::MessageKind::Dispatch => "Dispatch",
+                            crate::dispatch::MessageKind::Report => "Report",
+                            crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest",
+                            crate::dispatch::MessageKind::Decision => "Decision",
+                            crate::dispatch::MessageKind::Need => "Need",
+                            crate::dispatch::MessageKind::Resource => "Resource",
+                            crate::dispatch::MessageKind::Escalation => "Escalation",
+                            crate::dispatch::MessageKind::Unknown => "Unknown",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Unknown".to_owned()),
+                ),
+            ]),
+            "conductor.dispatch.ReceiveMessage",
+        )? {
+            let identity: crate::dispatch::MessageId =
+                self.ports.try_generate_conductor_dispatch_message_id()?;
             let data = crate::dispatch::MessageData {
                 message_id: identity.clone(),
                 sender: input.sender.clone(),
@@ -1341,12 +2337,23 @@ where
                 body_path: input.body_path.clone(),
                 dispatch_id: None,
             };
-            let answer = crate::dispatch::ReceiveMessageOutcome::Unparsed { message_received: crate::dispatch::MessageReceived { message_id: identity.clone(), sender: input.sender.clone(), kind: input.kind.clone() } };
-            MessageStorage::put(&mut self.ports, crate::dispatch::AnyMessage::Rejected(crate::dispatch::Message::new_rejected(data)).snapshot());
+            let answer = crate::dispatch::ReceiveMessageOutcome::Unparsed {
+                message_received: crate::dispatch::MessageReceived {
+                    message_id: identity.clone(),
+                    sender: input.sender.clone(),
+                    kind: input.kind.clone(),
+                },
+            };
+            MessageStorage::put(
+                &mut self.ports,
+                crate::dispatch::AnyMessage::Rejected(crate::dispatch::Message::new_rejected(data))
+                    .snapshot(),
+            );
             return Ok(answer);
         }
         // `received`: the default.
-        let identity: crate::dispatch::MessageId = self.ports.try_generate_conductor_dispatch_message_id()?;
+        let identity: crate::dispatch::MessageId =
+            self.ports.try_generate_conductor_dispatch_message_id()?;
         let data = crate::dispatch::MessageData {
             message_id: identity.clone(),
             sender: input.sender.clone(),
@@ -1358,8 +2365,17 @@ where
             body_path: input.body_path.clone(),
             dispatch_id: None,
         };
-        let answer = crate::dispatch::ReceiveMessageOutcome::Received { message_received: crate::dispatch::MessageReceived { message_id: identity.clone(), sender: input.sender.clone(), kind: input.kind.clone() } };
-        MessageStorage::put(&mut self.ports, crate::dispatch::AnyMessage::Received(crate::dispatch::Message::new(data)).snapshot());
+        let answer = crate::dispatch::ReceiveMessageOutcome::Received {
+            message_received: crate::dispatch::MessageReceived {
+                message_id: identity.clone(),
+                sender: input.sender.clone(),
+                kind: input.kind.clone(),
+            },
+        };
+        MessageStorage::put(
+            &mut self.ports,
+            crate::dispatch::AnyMessage::Received(crate::dispatch::Message::new(data)).snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1369,10 +2385,15 @@ impl<P> crate::dispatch::obligations::RecordGuardDecisionBehavior for Generated<
 where
     P: TryContext + GuardDecisionStorage,
 {
-    fn record_guard_decision(&mut self, input: crate::dispatch::RecordGuardDecision) -> Result<crate::dispatch::RecordGuardDecisionOutcome, UnmetObligation> {
+    fn record_guard_decision(
+        &mut self,
+        input: crate::dispatch::RecordGuardDecision,
+    ) -> Result<crate::dispatch::RecordGuardDecisionOutcome, UnmetObligation> {
         let _ = &input;
         // `recorded`: the default.
-        let identity: crate::dispatch::GuardDecisionId = self.ports.try_generate_conductor_dispatch_guard_decision_id()?;
+        let identity: crate::dispatch::GuardDecisionId = self
+            .ports
+            .try_generate_conductor_dispatch_guard_decision_id()?;
         let data = crate::dispatch::GuardDecisionData {
             guard_decision_id: identity.clone(),
             repository: input.repository.clone(),
@@ -1383,8 +2404,19 @@ where
             reason: input.reason.clone(),
             decided_at: input.decided_at.clone(),
         };
-        let answer = crate::dispatch::RecordGuardDecisionOutcome::Recorded { guard_decision_recorded: crate::dispatch::GuardDecisionRecorded { guard_decision_id: identity.clone(), repository: input.repository.clone(), tool: input.tool.clone(), verdict: input.verdict.clone() } };
-        GuardDecisionStorage::put(&mut self.ports, crate::dispatch::AnyGuardDecision::Recorded(crate::dispatch::GuardDecision::new(data)).snapshot());
+        let answer = crate::dispatch::RecordGuardDecisionOutcome::Recorded {
+            guard_decision_recorded: crate::dispatch::GuardDecisionRecorded {
+                guard_decision_id: identity.clone(),
+                repository: input.repository.clone(),
+                tool: input.tool.clone(),
+                verdict: input.verdict.clone(),
+            },
+        };
+        GuardDecisionStorage::put(
+            &mut self.ports,
+            crate::dispatch::AnyGuardDecision::Recorded(crate::dispatch::GuardDecision::new(data))
+                .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1394,23 +2426,47 @@ impl<P> crate::dispatch::obligations::RefuseResourceBehavior for Generated<P>
 where
     P: ResourceRequestStorage,
 {
-    fn refuse_resource(&mut self, input: crate::dispatch::RefuseResource) -> Result<crate::dispatch::RefuseResourceOutcome, UnmetObligation> {
+    fn refuse_resource(
+        &mut self,
+        input: crate::dispatch::RefuseResource,
+    ) -> Result<crate::dispatch::RefuseResourceOutcome, UnmetObligation> {
         let _ = &input;
         // `refused`: the default.
-        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id) else {
-            return Ok(crate::dispatch::RefuseResourceOutcome::NoSuchRequest { error: crate::dispatch::ResourceRequestNotFound { resource_request_id: input.resource_request_id.clone() } });
+        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id)
+        else {
+            return Ok(crate::dispatch::RefuseResourceOutcome::NoSuchRequest {
+                error: crate::dispatch::ResourceRequestNotFound {
+                    resource_request_id: input.resource_request_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyResourceRequest::Requested(instance) => crate::dispatch::AnyResourceRequest::Refused(instance.refuse()),
-            _ => return Ok(crate::dispatch::RefuseResourceOutcome::WrongState { error: crate::dispatch::ResourceRequestStateConflict { resource_request_id: input.resource_request_id.clone() } }),
+            crate::dispatch::AnyResourceRequest::Requested(instance) => {
+                crate::dispatch::AnyResourceRequest::Refused(instance.refuse())
+            }
+            _ => {
+                return Ok(crate::dispatch::RefuseResourceOutcome::WrongState {
+                    error: crate::dispatch::ResourceRequestStateConflict {
+                        resource_request_id: input.resource_request_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::RefuseResourceOutcome::Refused { resource_refused: crate::dispatch::ResourceRefused { resource_request_id: input.resource_request_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::RefuseResourceOutcome::Refused {
+            resource_refused: crate::dispatch::ResourceRefused {
+                resource_request_id: input.resource_request_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         ResourceRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1421,19 +2477,39 @@ impl<P> crate::dispatch::obligations::RejectMessageBehavior for Generated<P>
 where
     P: MessageStorage,
 {
-    fn reject_message(&mut self, input: crate::dispatch::RejectMessage) -> Result<crate::dispatch::RejectMessageOutcome, UnmetObligation> {
+    fn reject_message(
+        &mut self,
+        input: crate::dispatch::RejectMessage,
+    ) -> Result<crate::dispatch::RejectMessageOutcome, UnmetObligation> {
         let _ = &input;
         // `rejected`: the default.
         let Some(held) = MessageStorage::get(&self.ports, &input.message_id) else {
-            return Ok(crate::dispatch::RejectMessageOutcome::NoSuchMessage { error: crate::dispatch::MessageNotFound { message_id: input.message_id.clone() } });
+            return Ok(crate::dispatch::RejectMessageOutcome::NoSuchMessage {
+                error: crate::dispatch::MessageNotFound {
+                    message_id: input.message_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyMessage::Received(instance) => crate::dispatch::AnyMessage::Rejected(instance.reject()),
-            _ => return Ok(crate::dispatch::RejectMessageOutcome::WrongState { error: crate::dispatch::MessageStateConflict { message_id: input.message_id.clone() } }),
+            crate::dispatch::AnyMessage::Received(instance) => {
+                crate::dispatch::AnyMessage::Rejected(instance.reject())
+            }
+            _ => {
+                return Ok(crate::dispatch::RejectMessageOutcome::WrongState {
+                    error: crate::dispatch::MessageStateConflict {
+                        message_id: input.message_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
-        let answer = crate::dispatch::RejectMessageOutcome::Rejected { message_rejected: crate::dispatch::MessageRejected { message_id: input.message_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::RejectMessageOutcome::Rejected {
+            message_rejected: crate::dispatch::MessageRejected {
+                message_id: input.message_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         MessageStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1444,23 +2520,46 @@ impl<P> crate::dispatch::obligations::ReleaseResourceBehavior for Generated<P>
 where
     P: ResourceRequestStorage,
 {
-    fn release_resource(&mut self, input: crate::dispatch::ReleaseResource) -> Result<crate::dispatch::ReleaseResourceOutcome, UnmetObligation> {
+    fn release_resource(
+        &mut self,
+        input: crate::dispatch::ReleaseResource,
+    ) -> Result<crate::dispatch::ReleaseResourceOutcome, UnmetObligation> {
         let _ = &input;
         // `released`: the default.
-        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id) else {
-            return Ok(crate::dispatch::ReleaseResourceOutcome::NoSuchRequest { error: crate::dispatch::ResourceRequestNotFound { resource_request_id: input.resource_request_id.clone() } });
+        let Some(held) = ResourceRequestStorage::get(&self.ports, &input.resource_request_id)
+        else {
+            return Ok(crate::dispatch::ReleaseResourceOutcome::NoSuchRequest {
+                error: crate::dispatch::ResourceRequestNotFound {
+                    resource_request_id: input.resource_request_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyResourceRequest::Granted(instance) => crate::dispatch::AnyResourceRequest::Released(instance.release()),
-            _ => return Ok(crate::dispatch::ReleaseResourceOutcome::WrongState { error: crate::dispatch::ResourceRequestStateConflict { resource_request_id: input.resource_request_id.clone() } }),
+            crate::dispatch::AnyResourceRequest::Granted(instance) => {
+                crate::dispatch::AnyResourceRequest::Released(instance.release())
+            }
+            _ => {
+                return Ok(crate::dispatch::ReleaseResourceOutcome::WrongState {
+                    error: crate::dispatch::ResourceRequestStateConflict {
+                        resource_request_id: input.resource_request_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::ReleaseResourceOutcome::Released { resource_released: crate::dispatch::ResourceReleased { resource_request_id: input.resource_request_id.clone() } };
+        let answer = crate::dispatch::ReleaseResourceOutcome::Released {
+            resource_released: crate::dispatch::ResourceReleased {
+                resource_request_id: input.resource_request_id.clone(),
+            },
+        };
         ResourceRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1471,23 +2570,46 @@ impl<P> crate::dispatch::obligations::ReportBlockedBehavior for Generated<P>
 where
     P: DispatchStorage,
 {
-    fn report_blocked(&mut self, input: crate::dispatch::ReportBlocked) -> Result<crate::dispatch::ReportBlockedOutcome, UnmetObligation> {
+    fn report_blocked(
+        &mut self,
+        input: crate::dispatch::ReportBlocked,
+    ) -> Result<crate::dispatch::ReportBlockedOutcome, UnmetObligation> {
         let _ = &input;
         // `blocked`: the default.
         let Some(held) = DispatchStorage::get(&self.ports, &input.dispatch_id) else {
-            return Ok(crate::dispatch::ReportBlockedOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+            return Ok(crate::dispatch::ReportBlockedOutcome::NoSuchDispatch {
+                error: crate::dispatch::DispatchNotFound {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyDispatch::Started(instance) => crate::dispatch::AnyDispatch::Blocked(instance.block()),
-            _ => return Ok(crate::dispatch::ReportBlockedOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
+            crate::dispatch::AnyDispatch::Started(instance) => {
+                crate::dispatch::AnyDispatch::Blocked(instance.block())
+            }
+            _ => {
+                return Ok(crate::dispatch::ReportBlockedOutcome::WrongState {
+                    error: crate::dispatch::DispatchStateConflict {
+                        dispatch_id: input.dispatch_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::ReportBlockedOutcome::Blocked { dispatch_blocked: crate::dispatch::DispatchBlocked { dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::ReportBlockedOutcome::Blocked {
+            dispatch_blocked: crate::dispatch::DispatchBlocked {
+                dispatch_id: input.dispatch_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1498,25 +2620,52 @@ impl<P> crate::dispatch::obligations::ReportDoneBehavior for Generated<P>
 where
     P: DispatchStorage,
 {
-    fn report_done(&mut self, input: crate::dispatch::ReportDone) -> Result<crate::dispatch::ReportDoneOutcome, UnmetObligation> {
+    fn report_done(
+        &mut self,
+        input: crate::dispatch::ReportDone,
+    ) -> Result<crate::dispatch::ReportDoneOutcome, UnmetObligation> {
         let _ = &input;
         // `done`: the default.
         let Some(held) = DispatchStorage::get(&self.ports, &input.dispatch_id) else {
-            return Ok(crate::dispatch::ReportDoneOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+            return Ok(crate::dispatch::ReportDoneOutcome::NoSuchDispatch {
+                error: crate::dispatch::DispatchNotFound {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyDispatch::Blocked(instance) => crate::dispatch::AnyDispatch::Done(instance.finish()),
-            crate::dispatch::AnyDispatch::Sent(instance) => crate::dispatch::AnyDispatch::Done(instance.finish()),
-            crate::dispatch::AnyDispatch::Started(instance) => crate::dispatch::AnyDispatch::Done(instance.finish()),
-            _ => return Ok(crate::dispatch::ReportDoneOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
+            crate::dispatch::AnyDispatch::Blocked(instance) => {
+                crate::dispatch::AnyDispatch::Done(instance.finish())
+            }
+            crate::dispatch::AnyDispatch::Sent(instance) => {
+                crate::dispatch::AnyDispatch::Done(instance.finish())
+            }
+            crate::dispatch::AnyDispatch::Started(instance) => {
+                crate::dispatch::AnyDispatch::Done(instance.finish())
+            }
+            _ => {
+                return Ok(crate::dispatch::ReportDoneOutcome::WrongState {
+                    error: crate::dispatch::DispatchStateConflict {
+                        dispatch_id: input.dispatch_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::ReportDoneOutcome::Done { dispatch_done: crate::dispatch::DispatchDone { dispatch_id: input.dispatch_id.clone(), evidence: input.evidence.clone() } };
+        let answer = crate::dispatch::ReportDoneOutcome::Done {
+            dispatch_done: crate::dispatch::DispatchDone {
+                dispatch_id: input.dispatch_id.clone(),
+                evidence: input.evidence.clone(),
+            },
+        };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1527,24 +2676,49 @@ impl<P> crate::dispatch::obligations::ReportFailedBehavior for Generated<P>
 where
     P: DispatchStorage,
 {
-    fn report_failed(&mut self, input: crate::dispatch::ReportFailed) -> Result<crate::dispatch::ReportFailedOutcome, UnmetObligation> {
+    fn report_failed(
+        &mut self,
+        input: crate::dispatch::ReportFailed,
+    ) -> Result<crate::dispatch::ReportFailedOutcome, UnmetObligation> {
         let _ = &input;
         // `failed`: the default.
         let Some(held) = DispatchStorage::get(&self.ports, &input.dispatch_id) else {
-            return Ok(crate::dispatch::ReportFailedOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+            return Ok(crate::dispatch::ReportFailedOutcome::NoSuchDispatch {
+                error: crate::dispatch::DispatchNotFound {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyDispatch::Blocked(instance) => crate::dispatch::AnyDispatch::Failed(instance.fail()),
-            crate::dispatch::AnyDispatch::Started(instance) => crate::dispatch::AnyDispatch::Failed(instance.fail()),
-            _ => return Ok(crate::dispatch::ReportFailedOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
+            crate::dispatch::AnyDispatch::Blocked(instance) => {
+                crate::dispatch::AnyDispatch::Failed(instance.fail())
+            }
+            crate::dispatch::AnyDispatch::Started(instance) => {
+                crate::dispatch::AnyDispatch::Failed(instance.fail())
+            }
+            _ => {
+                return Ok(crate::dispatch::ReportFailedOutcome::WrongState {
+                    error: crate::dispatch::DispatchStateConflict {
+                        dispatch_id: input.dispatch_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::ReportFailedOutcome::Failed { dispatch_failed: crate::dispatch::DispatchFailed { dispatch_id: input.dispatch_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::ReportFailedOutcome::Failed {
+            dispatch_failed: crate::dispatch::DispatchFailed {
+                dispatch_id: input.dispatch_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1555,23 +2729,45 @@ impl<P> crate::dispatch::obligations::ReportStartedBehavior for Generated<P>
 where
     P: DispatchStorage,
 {
-    fn report_started(&mut self, input: crate::dispatch::ReportStarted) -> Result<crate::dispatch::ReportStartedOutcome, UnmetObligation> {
+    fn report_started(
+        &mut self,
+        input: crate::dispatch::ReportStarted,
+    ) -> Result<crate::dispatch::ReportStartedOutcome, UnmetObligation> {
         let _ = &input;
         // `started`: the default.
         let Some(held) = DispatchStorage::get(&self.ports, &input.dispatch_id) else {
-            return Ok(crate::dispatch::ReportStartedOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+            return Ok(crate::dispatch::ReportStartedOutcome::NoSuchDispatch {
+                error: crate::dispatch::DispatchNotFound {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyDispatch::Sent(instance) => crate::dispatch::AnyDispatch::Started(instance.start()),
-            _ => return Ok(crate::dispatch::ReportStartedOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
+            crate::dispatch::AnyDispatch::Sent(instance) => {
+                crate::dispatch::AnyDispatch::Started(instance.start())
+            }
+            _ => {
+                return Ok(crate::dispatch::ReportStartedOutcome::WrongState {
+                    error: crate::dispatch::DispatchStateConflict {
+                        dispatch_id: input.dispatch_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::ReportStartedOutcome::Started { dispatch_started: crate::dispatch::DispatchStarted { dispatch_id: input.dispatch_id.clone() } };
+        let answer = crate::dispatch::ReportStartedOutcome::Started {
+            dispatch_started: crate::dispatch::DispatchStarted {
+                dispatch_id: input.dispatch_id.clone(),
+            },
+        };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1582,23 +2778,45 @@ impl<P> crate::dispatch::obligations::ReportUnblockedBehavior for Generated<P>
 where
     P: DispatchStorage,
 {
-    fn report_unblocked(&mut self, input: crate::dispatch::ReportUnblocked) -> Result<crate::dispatch::ReportUnblockedOutcome, UnmetObligation> {
+    fn report_unblocked(
+        &mut self,
+        input: crate::dispatch::ReportUnblocked,
+    ) -> Result<crate::dispatch::ReportUnblockedOutcome, UnmetObligation> {
         let _ = &input;
         // `unblocked`: the default.
         let Some(held) = DispatchStorage::get(&self.ports, &input.dispatch_id) else {
-            return Ok(crate::dispatch::ReportUnblockedOutcome::NoSuchDispatch { error: crate::dispatch::DispatchNotFound { dispatch_id: input.dispatch_id.clone() } });
+            return Ok(crate::dispatch::ReportUnblockedOutcome::NoSuchDispatch {
+                error: crate::dispatch::DispatchNotFound {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyDispatch::Blocked(instance) => crate::dispatch::AnyDispatch::Started(instance.unblock()),
-            _ => return Ok(crate::dispatch::ReportUnblockedOutcome::WrongState { error: crate::dispatch::DispatchStateConflict { dispatch_id: input.dispatch_id.clone() } }),
+            crate::dispatch::AnyDispatch::Blocked(instance) => {
+                crate::dispatch::AnyDispatch::Started(instance.unblock())
+            }
+            _ => {
+                return Ok(crate::dispatch::ReportUnblockedOutcome::WrongState {
+                    error: crate::dispatch::DispatchStateConflict {
+                        dispatch_id: input.dispatch_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::ReportUnblockedOutcome::Unblocked { dispatch_unblocked: crate::dispatch::DispatchUnblocked { dispatch_id: input.dispatch_id.clone() } };
+        let answer = crate::dispatch::ReportUnblockedOutcome::Unblocked {
+            dispatch_unblocked: crate::dispatch::DispatchUnblocked {
+                dispatch_id: input.dispatch_id.clone(),
+            },
+        };
         DispatchStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1609,14 +2827,30 @@ impl<P> crate::dispatch::obligations::RequestResourceBehavior for Generated<P>
 where
     P: TryContext + ResourceRequestStorage,
 {
-    fn request_resource(&mut self, input: crate::dispatch::RequestResource) -> Result<crate::dispatch::RequestResourceOutcome, UnmetObligation> {
+    fn request_resource(
+        &mut self,
+        input: crate::dispatch::RequestResource,
+    ) -> Result<crate::dispatch::RequestResourceOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-amount`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.amount).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_le), "conductor.dispatch.RequestResource")? {
-            return Ok(crate::dispatch::RequestResourceOutcome::InvalidAmount { error: crate::dispatch::InvalidAmount { amount: input.amount.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.amount).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_le,
+            ),
+            "conductor.dispatch.RequestResource",
+        )? {
+            return Ok(crate::dispatch::RequestResourceOutcome::InvalidAmount {
+                error: crate::dispatch::InvalidAmount {
+                    amount: input.amount.clone(),
+                },
+            });
         }
         // `requested`: the default.
-        let identity: crate::dispatch::ResourceRequestId = self.ports.try_generate_conductor_dispatch_resource_request_id()?;
+        let identity: crate::dispatch::ResourceRequestId = self
+            .ports
+            .try_generate_conductor_dispatch_resource_request_id()?;
         let data = crate::dispatch::ResourceRequestData {
             resource_request_id: identity.clone(),
             repository: input.repository.clone(),
@@ -1626,10 +2860,25 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::RequestResourceOutcome::Requested { resource_requested: crate::dispatch::ResourceRequested { resource_request_id: identity.clone(), repository: input.repository.clone(), resource: input.resource.clone() } };
-        ResourceRequestStorage::put(&mut self.ports, crate::dispatch::AnyResourceRequest::Requested(crate::dispatch::ResourceRequest::new(data)).snapshot());
+        let answer = crate::dispatch::RequestResourceOutcome::Requested {
+            resource_requested: crate::dispatch::ResourceRequested {
+                resource_request_id: identity.clone(),
+                repository: input.repository.clone(),
+                resource: input.resource.clone(),
+            },
+        };
+        ResourceRequestStorage::put(
+            &mut self.ports,
+            crate::dispatch::AnyResourceRequest::Requested(crate::dispatch::ResourceRequest::new(
+                data,
+            ))
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1639,23 +2888,45 @@ impl<P> crate::dispatch::obligations::ResumeControllerBehavior for Generated<P>
 where
     P: ControllerStorage,
 {
-    fn resume_controller(&mut self, input: crate::dispatch::ResumeController) -> Result<crate::dispatch::ResumeControllerOutcome, UnmetObligation> {
+    fn resume_controller(
+        &mut self,
+        input: crate::dispatch::ResumeController,
+    ) -> Result<crate::dispatch::ResumeControllerOutcome, UnmetObligation> {
         let _ = &input;
         // `resumed`: the default.
         let Some(held) = ControllerStorage::get(&self.ports, &input.controller_id) else {
-            return Ok(crate::dispatch::ResumeControllerOutcome::NoSuchController { error: crate::dispatch::ControllerNotFound { controller_id: input.controller_id.clone() } });
+            return Ok(crate::dispatch::ResumeControllerOutcome::NoSuchController {
+                error: crate::dispatch::ControllerNotFound {
+                    controller_id: input.controller_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyController::Paused(instance) => crate::dispatch::AnyController::Running(instance.resume()),
-            _ => return Ok(crate::dispatch::ResumeControllerOutcome::WrongState { error: crate::dispatch::ControllerStateConflict { controller_id: input.controller_id.clone() } }),
+            crate::dispatch::AnyController::Paused(instance) => {
+                crate::dispatch::AnyController::Running(instance.resume())
+            }
+            _ => {
+                return Ok(crate::dispatch::ResumeControllerOutcome::WrongState {
+                    error: crate::dispatch::ControllerStateConflict {
+                        controller_id: input.controller_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::ResumeControllerOutcome::Resumed { controller_resumed: crate::dispatch::ControllerResumed { controller_id: input.controller_id.clone() } };
+        let answer = crate::dispatch::ResumeControllerOutcome::Resumed {
+            controller_resumed: crate::dispatch::ControllerResumed {
+                controller_id: input.controller_id.clone(),
+            },
+        };
         ControllerStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1666,17 +2937,34 @@ impl<P> crate::dispatch::obligations::ReviseCharterBehavior for Generated<P>
 where
     P: ControllerStorage,
 {
-    fn revise_charter(&mut self, input: crate::dispatch::ReviseCharter) -> Result<crate::dispatch::ReviseCharterOutcome, UnmetObligation> {
+    fn revise_charter(
+        &mut self,
+        input: crate::dispatch::ReviseCharter,
+    ) -> Result<crate::dispatch::ReviseCharterOutcome, UnmetObligation> {
         let _ = &input;
         // The addressed row, read before the branches that select by it.
         let Some(held) = ControllerStorage::get(&self.ports, &input.controller_id) else {
-            return Ok(crate::dispatch::ReviseCharterOutcome::NoSuchController { error: crate::dispatch::ControllerNotFound { controller_id: input.controller_id.clone() } });
+            return Ok(crate::dispatch::ReviseCharterOutcome::NoSuchController {
+                error: crate::dispatch::ControllerNotFound {
+                    controller_id: input.controller_id.clone(),
+                },
+            });
         };
         let _ = &held;
         // `revised`: selected by the addressed row.
-        if decided(Some(matches!(held.state, crate::dispatch::ControllerState::Running)), "conductor.dispatch.ReviseCharter")? {
+        if decided(
+            Some(matches!(
+                held.state,
+                crate::dispatch::ControllerState::Running
+            )),
+            "conductor.dispatch.ReviseCharter",
+        )? {
             let Some(held) = ControllerStorage::get(&self.ports, &input.controller_id) else {
-                return Ok(crate::dispatch::ReviseCharterOutcome::NoSuchController { error: crate::dispatch::ControllerNotFound { controller_id: input.controller_id.clone() } });
+                return Ok(crate::dispatch::ReviseCharterOutcome::NoSuchController {
+                    error: crate::dispatch::ControllerNotFound {
+                        controller_id: input.controller_id.clone(),
+                    },
+                });
             };
             let _ = &held;
             let before = held.data.clone();
@@ -1684,16 +2972,33 @@ where
             next.data.charter_revision = before.charter_revision + 1;
             if let Some(broken) = next.data.broken_invariant() {
                 let capability = "entity invariant";
-                return Err(UnmetObligation { capability, source: broken });
+                return Err(UnmetObligation {
+                    capability,
+                    source: broken,
+                });
             }
-            let answer = crate::dispatch::ReviseCharterOutcome::Revised { charter_revised: crate::dispatch::CharterRevised { controller_id: input.controller_id.clone() } };
+            let answer = crate::dispatch::ReviseCharterOutcome::Revised {
+                charter_revised: crate::dispatch::CharterRevised {
+                    controller_id: input.controller_id.clone(),
+                },
+            };
             ControllerStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
         // `paused-revised`: selected by the addressed row.
-        if decided(Some(matches!(held.state, crate::dispatch::ControllerState::Paused)), "conductor.dispatch.ReviseCharter")? {
+        if decided(
+            Some(matches!(
+                held.state,
+                crate::dispatch::ControllerState::Paused
+            )),
+            "conductor.dispatch.ReviseCharter",
+        )? {
             let Some(held) = ControllerStorage::get(&self.ports, &input.controller_id) else {
-                return Ok(crate::dispatch::ReviseCharterOutcome::NoSuchController { error: crate::dispatch::ControllerNotFound { controller_id: input.controller_id.clone() } });
+                return Ok(crate::dispatch::ReviseCharterOutcome::NoSuchController {
+                    error: crate::dispatch::ControllerNotFound {
+                        controller_id: input.controller_id.clone(),
+                    },
+                });
             };
             let _ = &held;
             let before = held.data.clone();
@@ -1701,14 +3006,25 @@ where
             next.data.charter_revision = before.charter_revision + 1;
             if let Some(broken) = next.data.broken_invariant() {
                 let capability = "entity invariant";
-                return Err(UnmetObligation { capability, source: broken });
+                return Err(UnmetObligation {
+                    capability,
+                    source: broken,
+                });
             }
-            let answer = crate::dispatch::ReviseCharterOutcome::PausedRevised { charter_revised: crate::dispatch::CharterRevised { controller_id: input.controller_id.clone() } };
+            let answer = crate::dispatch::ReviseCharterOutcome::PausedRevised {
+                charter_revised: crate::dispatch::CharterRevised {
+                    controller_id: input.controller_id.clone(),
+                },
+            };
             ControllerStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
         // `stopped`: the default.
-        return Ok(crate::dispatch::ReviseCharterOutcome::Stopped { error: crate::dispatch::ControllerStateConflict { controller_id: input.controller_id.clone() } });
+        return Ok(crate::dispatch::ReviseCharterOutcome::Stopped {
+            error: crate::dispatch::ControllerStateConflict {
+                controller_id: input.controller_id.clone(),
+            },
+        });
     }
 }
 
@@ -1717,29 +3033,89 @@ impl<P> crate::dispatch::obligations::RouteNeedBehavior for Generated<P>
 where
     P: MessageStorage,
 {
-    fn route_need(&mut self, input: crate::dispatch::RouteNeed) -> Result<crate::dispatch::RouteNeedOutcome, UnmetObligation> {
+    fn route_need(
+        &mut self,
+        input: crate::dispatch::RouteNeed,
+    ) -> Result<crate::dispatch::RouteNeedOutcome, UnmetObligation> {
         let _ = &input;
         // The addressed row, read before the branches that select by it.
         let Some(held) = MessageStorage::get(&self.ports, &input.message_id) else {
-            return Ok(crate::dispatch::RouteNeedOutcome::NoSuchMessage { error: crate::dispatch::MessageNotFound { message_id: input.message_id.clone() } });
+            return Ok(crate::dispatch::RouteNeedOutcome::NoSuchMessage {
+                error: crate::dispatch::MessageNotFound {
+                    message_id: input.message_id.clone(),
+                },
+            });
         };
         let _ = &held;
         // `not-a-need`: selected by the addressed row.
-        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())).map(|value| !value), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.RouteNeed")? {
-            return Ok(crate::dispatch::RouteNeedOutcome::NotANeed { error: crate::dispatch::NotANeed { message_id: input.message_id.clone() } });
+        if decided(
+            all(&[
+                equal(
+                    Some(&held.data.kind).map(|value| {
+                        match value {
+                            crate::dispatch::MessageKind::Dispatch => "Dispatch",
+                            crate::dispatch::MessageKind::Report => "Report",
+                            crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest",
+                            crate::dispatch::MessageKind::Decision => "Decision",
+                            crate::dispatch::MessageKind::Need => "Need",
+                            crate::dispatch::MessageKind::Resource => "Resource",
+                            crate::dispatch::MessageKind::Escalation => "Escalation",
+                            crate::dispatch::MessageKind::Unknown => "Unknown",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Need".to_owned()),
+                )
+                .map(|value| !value),
+                equal(
+                    Some(&held.state).map(|value| {
+                        match value {
+                            crate::dispatch::MessageState::Handled => "Handled",
+                            crate::dispatch::MessageState::Received => "Received",
+                            crate::dispatch::MessageState::Rejected => "Rejected",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Received".to_owned()),
+                ),
+            ]),
+            "conductor.dispatch.RouteNeed",
+        )? {
+            return Ok(crate::dispatch::RouteNeedOutcome::NotANeed {
+                error: crate::dispatch::NotANeed {
+                    message_id: input.message_id.clone(),
+                },
+            });
         }
         // `routed`: the default.
         let Some(held) = MessageStorage::get(&self.ports, &input.message_id) else {
-            return Ok(crate::dispatch::RouteNeedOutcome::NoSuchMessage { error: crate::dispatch::MessageNotFound { message_id: input.message_id.clone() } });
+            return Ok(crate::dispatch::RouteNeedOutcome::NoSuchMessage {
+                error: crate::dispatch::MessageNotFound {
+                    message_id: input.message_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyMessage::Received(instance) => crate::dispatch::AnyMessage::Handled(instance.handle()),
-            _ => return Ok(crate::dispatch::RouteNeedOutcome::WrongState { error: crate::dispatch::MessageStateConflict { message_id: input.message_id.clone() } }),
+            crate::dispatch::AnyMessage::Received(instance) => {
+                crate::dispatch::AnyMessage::Handled(instance.handle())
+            }
+            _ => {
+                return Ok(crate::dispatch::RouteNeedOutcome::WrongState {
+                    error: crate::dispatch::MessageStateConflict {
+                        message_id: input.message_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.dispatch_id = Some(input.dispatch_id.clone());
-        let answer = crate::dispatch::RouteNeedOutcome::Routed { need_routed: crate::dispatch::NeedRouted { message_id: input.message_id.clone(), dispatch_id: input.dispatch_id.clone() } };
+        let answer = crate::dispatch::RouteNeedOutcome::Routed {
+            need_routed: crate::dispatch::NeedRouted {
+                message_id: input.message_id.clone(),
+                dispatch_id: input.dispatch_id.clone(),
+            },
+        };
         MessageStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1750,11 +3126,18 @@ impl<P> crate::dispatch::obligations::SendDispatchBehavior for Generated<P>
 where
     P: GoalStorage + DispatchStorage,
 {
-    fn send_dispatch(&mut self, input: crate::dispatch::SendDispatch) -> Result<crate::dispatch::SendDispatchOutcome, UnmetObligation> {
+    fn send_dispatch(
+        &mut self,
+        input: crate::dispatch::SendDispatch,
+    ) -> Result<crate::dispatch::SendDispatchOutcome, UnmetObligation> {
         let _ = &input;
         // `already-sent`: an identity a record already carries, before any branch is taken.
         if DispatchStorage::get(&self.ports, &input.dispatch_id).is_some() {
-            return Ok(crate::dispatch::SendDispatchOutcome::AlreadySent { error: crate::dispatch::DispatchExists { dispatch_id: input.dispatch_id.clone() } });
+            return Ok(crate::dispatch::SendDispatchOutcome::AlreadySent {
+                error: crate::dispatch::DispatchExists {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         }
         // `when_related:` reads the `conductor.direction.Goal` row `input.goal_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -1762,22 +3145,92 @@ where
         let related = reference.and_then(|identity| GoalStorage::get(&self.ports, identity));
         // `no-such-goal`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::dispatch::SendDispatchOutcome::NoSuchGoal { error: crate::dispatch::GoalNotFound { goal_id: input.goal_id.clone() } });
+            return Ok(crate::dispatch::SendDispatchOutcome::NoSuchGoal {
+                error: crate::dispatch::GoalNotFound {
+                    goal_id: input.goal_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // `negative-priority`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.priority).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.dispatch.SendDispatch")? {
-            return Ok(crate::dispatch::SendDispatchOutcome::NegativePriority { error: crate::dispatch::InvalidPriority { priority: input.priority.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.priority).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.dispatch.SendDispatch",
+        )? {
+            return Ok(crate::dispatch::SendDispatchOutcome::NegativePriority {
+                error: crate::dispatch::InvalidPriority {
+                    priority: input.priority.clone(),
+                },
+            });
         }
         // `waits-on-itself`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(all(&[Some(Some(&input.waits_on).and_then(|value| value.as_ref()).map(|value| &value.0).is_some()), equal(Some(&input.waits_on).and_then(|value| value.as_ref()).map(|value| &value.0).map(|value| value.clone()), Some(&input.dispatch_id).map(|value| &value.0).map(|value| value.clone()))]), "conductor.dispatch.SendDispatch")? {
-            return Ok(crate::dispatch::SendDispatchOutcome::WaitsOnItself { error: crate::dispatch::WaitsOnItself { dispatch_id: input.dispatch_id.clone() } });
+        if decided(
+            all(&[
+                Some(
+                    Some(&input.waits_on)
+                        .and_then(|value| value.as_ref())
+                        .map(|value| &value.0)
+                        .is_some(),
+                ),
+                equal(
+                    Some(&input.waits_on)
+                        .and_then(|value| value.as_ref())
+                        .map(|value| &value.0)
+                        .map(|value| value.clone()),
+                    Some(&input.dispatch_id)
+                        .map(|value| &value.0)
+                        .map(|value| value.clone()),
+                ),
+            ]),
+            "conductor.dispatch.SendDispatch",
+        )? {
+            return Ok(crate::dispatch::SendDispatchOutcome::WaitsOnItself {
+                error: crate::dispatch::WaitsOnItself {
+                    dispatch_id: input.dispatch_id.clone(),
+                },
+            });
         }
         // `goal-closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(any(&[equal(Some(&related.state).map(|value| match value { crate::direction::GoalState::Confirmed => "Confirmed", crate::direction::GoalState::Draft => "Draft", crate::direction::GoalState::Dropped => "Dropped", crate::direction::GoalState::Met => "Met" }.to_owned()), Some("Met".to_owned())), equal(Some(&related.state).map(|value| match value { crate::direction::GoalState::Confirmed => "Confirmed", crate::direction::GoalState::Draft => "Draft", crate::direction::GoalState::Dropped => "Dropped", crate::direction::GoalState::Met => "Met" }.to_owned()), Some("Dropped".to_owned()))]), "conductor.dispatch.SendDispatch")? {
-            return Ok(crate::dispatch::SendDispatchOutcome::GoalClosed { error: crate::dispatch::GoalClosed { goal_id: input.goal_id.clone() } });
-        }
+            if decided(
+                any(&[
+                    equal(
+                        Some(&related.state).map(|value| {
+                            match value {
+                                crate::direction::GoalState::Confirmed => "Confirmed",
+                                crate::direction::GoalState::Draft => "Draft",
+                                crate::direction::GoalState::Dropped => "Dropped",
+                                crate::direction::GoalState::Met => "Met",
+                            }
+                            .to_owned()
+                        }),
+                        Some("Met".to_owned()),
+                    ),
+                    equal(
+                        Some(&related.state).map(|value| {
+                            match value {
+                                crate::direction::GoalState::Confirmed => "Confirmed",
+                                crate::direction::GoalState::Draft => "Draft",
+                                crate::direction::GoalState::Dropped => "Dropped",
+                                crate::direction::GoalState::Met => "Met",
+                            }
+                            .to_owned()
+                        }),
+                        Some("Dropped".to_owned()),
+                    ),
+                ]),
+                "conductor.dispatch.SendDispatch",
+            )? {
+                return Ok(crate::dispatch::SendDispatchOutcome::GoalClosed {
+                    error: crate::dispatch::GoalClosed {
+                        goal_id: input.goal_id.clone(),
+                    },
+                });
+            }
         }
         // `sent`: the default.
         let identity: crate::dispatch::DispatchId = input.dispatch_id.clone();
@@ -1792,17 +3245,37 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::SendDispatchOutcome::Sent { dispatch_sent: crate::dispatch::DispatchSent { dispatch_id: identity.clone(), repository: input.repository.clone(), goal_id: input.goal_id.clone() } };
-        DispatchStorage::put(&mut self.ports, crate::dispatch::AnyDispatch::Sent(crate::dispatch::Dispatch::new(data)).snapshot());
+        let answer = crate::dispatch::SendDispatchOutcome::Sent {
+            dispatch_sent: crate::dispatch::DispatchSent {
+                dispatch_id: identity.clone(),
+                repository: input.repository.clone(),
+                goal_id: input.goal_id.clone(),
+            },
+        };
+        DispatchStorage::put(
+            &mut self.ports,
+            crate::dispatch::AnyDispatch::Sent(crate::dispatch::Dispatch::new(data)).snapshot(),
+        );
         return Ok(answer);
     }
 }
 
-impl<P: crate::dispatch::obligations::StartControllerBehavior> crate::dispatch::obligations::StartControllerBehavior for Generated<P> {
-    fn start_controller(&mut self, input: crate::dispatch::StartController) -> Result<crate::dispatch::StartControllerOutcome, UnmetObligation> {
-        crate::dispatch::obligations::StartControllerBehavior::start_controller(&mut self.ports, input)
+impl<P: crate::dispatch::obligations::StartControllerBehavior>
+    crate::dispatch::obligations::StartControllerBehavior for Generated<P>
+{
+    fn start_controller(
+        &mut self,
+        input: crate::dispatch::StartController,
+    ) -> Result<crate::dispatch::StartControllerOutcome, UnmetObligation> {
+        crate::dispatch::obligations::StartControllerBehavior::start_controller(
+            &mut self.ports,
+            input,
+        )
     }
 }
 
@@ -1811,24 +3284,49 @@ impl<P> crate::dispatch::obligations::StopControllerBehavior for Generated<P>
 where
     P: ControllerStorage,
 {
-    fn stop_controller(&mut self, input: crate::dispatch::StopController) -> Result<crate::dispatch::StopControllerOutcome, UnmetObligation> {
+    fn stop_controller(
+        &mut self,
+        input: crate::dispatch::StopController,
+    ) -> Result<crate::dispatch::StopControllerOutcome, UnmetObligation> {
         let _ = &input;
         // `stopped`: the default.
         let Some(held) = ControllerStorage::get(&self.ports, &input.controller_id) else {
-            return Ok(crate::dispatch::StopControllerOutcome::NoSuchController { error: crate::dispatch::ControllerNotFound { controller_id: input.controller_id.clone() } });
+            return Ok(crate::dispatch::StopControllerOutcome::NoSuchController {
+                error: crate::dispatch::ControllerNotFound {
+                    controller_id: input.controller_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::dispatch::AnyController::Paused(instance) => crate::dispatch::AnyController::Stopped(instance.stop()),
-            crate::dispatch::AnyController::Running(instance) => crate::dispatch::AnyController::Stopped(instance.stop()),
-            _ => return Ok(crate::dispatch::StopControllerOutcome::WrongState { error: crate::dispatch::ControllerStateConflict { controller_id: input.controller_id.clone() } }),
+            crate::dispatch::AnyController::Paused(instance) => {
+                crate::dispatch::AnyController::Stopped(instance.stop())
+            }
+            crate::dispatch::AnyController::Running(instance) => {
+                crate::dispatch::AnyController::Stopped(instance.stop())
+            }
+            _ => {
+                return Ok(crate::dispatch::StopControllerOutcome::WrongState {
+                    error: crate::dispatch::ControllerStateConflict {
+                        controller_id: input.controller_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::dispatch::StopControllerOutcome::Stopped { controller_stopped: crate::dispatch::ControllerStopped { controller_id: input.controller_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::dispatch::StopControllerOutcome::Stopped {
+            controller_stopped: crate::dispatch::ControllerStopped {
+                controller_id: input.controller_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         ControllerStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1839,15 +3337,44 @@ impl<P> crate::host::obligations::ReclaimBehavior for Generated<P>
 where
     P: TryContext + ReclaimRunStorage,
 {
-    fn reclaim(&mut self, input: crate::host::Reclaim) -> Result<crate::host::ReclaimOutcome, UnmetObligation> {
+    fn reclaim(
+        &mut self,
+        input: crate::host::Reclaim,
+    ) -> Result<crate::host::ReclaimOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(any(&[compare_numbers(Some(&input.reclaimed_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt)]), "conductor.host.Reclaim")? {
-            return Ok(crate::host::ReclaimOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.reclaimed_bytes.clone() } });
+        if decided(
+            any(&[
+                compare_numbers(
+                    Some(&input.reclaimed_bytes).map(|value| value.to_string()),
+                    Some("0".to_owned()),
+                    core::cmp::Ordering::is_lt,
+                ),
+                compare_numbers(
+                    Some(&input.shortfall_bytes).map(|value| value.to_string()),
+                    Some("0".to_owned()),
+                    core::cmp::Ordering::is_lt,
+                ),
+            ]),
+            "conductor.host.Reclaim",
+        )? {
+            return Ok(crate::host::ReclaimOutcome::InvalidSize {
+                error: crate::host::InvalidSize {
+                    bytes: input.reclaimed_bytes.clone(),
+                },
+            });
         }
         // `floor-not-reached`: an accepting branch, in declaration order.
-        if decided(compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_gt), "conductor.host.Reclaim")? {
-            let identity: crate::host::ReclaimRunId = self.ports.try_generate_conductor_host_reclaim_run_id()?;
+        if decided(
+            compare_numbers(
+                Some(&input.shortfall_bytes).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_gt,
+            ),
+            "conductor.host.Reclaim",
+        )? {
+            let identity: crate::host::ReclaimRunId =
+                self.ports.try_generate_conductor_host_reclaim_run_id()?;
             let data = crate::host::ReclaimRunData {
                 reclaim_run_id: identity.clone(),
                 instance: input.instance.clone(),
@@ -1860,14 +3387,27 @@ where
             };
             if let Some(broken) = data.broken_invariant() {
                 let capability = "entity invariant";
-                return Err(UnmetObligation { capability, source: broken });
+                return Err(UnmetObligation {
+                    capability,
+                    source: broken,
+                });
             }
-            let answer = crate::host::ReclaimOutcome::FloorNotReached { reclaim_floor_not_reached: crate::host::ReclaimFloorNotReached { reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
-            ReclaimRunStorage::put(&mut self.ports, crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot());
+            let answer = crate::host::ReclaimOutcome::FloorNotReached {
+                reclaim_floor_not_reached: crate::host::ReclaimFloorNotReached {
+                    reclaim_run_id: identity.clone(),
+                    reclaimed_bytes: input.reclaimed_bytes.clone(),
+                    shortfall_bytes: input.shortfall_bytes.clone(),
+                },
+            };
+            ReclaimRunStorage::put(
+                &mut self.ports,
+                crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot(),
+            );
             return Ok(answer);
         }
         // `reclaimed`: the default.
-        let identity: crate::host::ReclaimRunId = self.ports.try_generate_conductor_host_reclaim_run_id()?;
+        let identity: crate::host::ReclaimRunId =
+            self.ports.try_generate_conductor_host_reclaim_run_id()?;
         let data = crate::host::ReclaimRunData {
             reclaim_run_id: identity.clone(),
             instance: input.instance.clone(),
@@ -1880,10 +3420,21 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::host::ReclaimOutcome::Reclaimed { disk_reclaimed: crate::host::DiskReclaimed { reclaim_run_id: identity.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
-        ReclaimRunStorage::put(&mut self.ports, crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot());
+        let answer = crate::host::ReclaimOutcome::Reclaimed {
+            disk_reclaimed: crate::host::DiskReclaimed {
+                reclaim_run_id: identity.clone(),
+                reclaimed_bytes: input.reclaimed_bytes.clone(),
+            },
+        };
+        ReclaimRunStorage::put(
+            &mut self.ports,
+            crate::host::AnyReclaimRun::Recorded(crate::host::ReclaimRun::new(data)).snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1893,31 +3444,65 @@ impl<P> crate::host::obligations::RecordPeakBehavior for Generated<P>
 where
     P: HostGrantStorage,
 {
-    fn record_peak(&mut self, input: crate::host::RecordPeak) -> Result<crate::host::RecordPeakOutcome, UnmetObligation> {
+    fn record_peak(
+        &mut self,
+        input: crate::host::RecordPeak,
+    ) -> Result<crate::host::RecordPeakOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.peak_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.host.RecordPeak")? {
-            return Ok(crate::host::RecordPeakOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.peak_bytes.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.peak_bytes).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.host.RecordPeak",
+        )? {
+            return Ok(crate::host::RecordPeakOutcome::InvalidSize {
+                error: crate::host::InvalidSize {
+                    bytes: input.peak_bytes.clone(),
+                },
+            });
         }
         // The addressed row, read before the branches that select by it.
         let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-            return Ok(crate::host::RecordPeakOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            return Ok(crate::host::RecordPeakOutcome::NoSuchGrant {
+                error: crate::host::HostGrantNotFound {
+                    grant_id: input.grant_id.clone(),
+                },
+            });
         };
         let _ = &held;
         // `recorded`: selected by the addressed row.
-        if decided(Some(matches!(held.state, crate::host::HostGrantState::Running)), "conductor.host.RecordPeak")? {
+        if decided(
+            Some(matches!(held.state, crate::host::HostGrantState::Running)),
+            "conductor.host.RecordPeak",
+        )? {
             let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-                return Ok(crate::host::RecordPeakOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+                return Ok(crate::host::RecordPeakOutcome::NoSuchGrant {
+                    error: crate::host::HostGrantNotFound {
+                        grant_id: input.grant_id.clone(),
+                    },
+                });
             };
             let _ = &held;
             let mut next = held;
             next.data.peak_bytes = Some(input.peak_bytes.clone());
-            let answer = crate::host::RecordPeakOutcome::Recorded { peak_recorded: crate::host::PeakRecorded { grant_id: input.grant_id.clone(), peak_bytes: input.peak_bytes.clone() } };
+            let answer = crate::host::RecordPeakOutcome::Recorded {
+                peak_recorded: crate::host::PeakRecorded {
+                    grant_id: input.grant_id.clone(),
+                    peak_bytes: input.peak_bytes.clone(),
+                },
+            };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
         // `not-running`: the default.
-        return Ok(crate::host::RecordPeakOutcome::NotRunning { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } });
+        return Ok(crate::host::RecordPeakOutcome::NotRunning {
+            error: crate::host::HostGrantStateConflict {
+                grant_id: input.grant_id.clone(),
+            },
+        });
     }
 }
 
@@ -1926,22 +3511,44 @@ impl<P> crate::host::obligations::ReleaseGrantBehavior for Generated<P>
 where
     P: HostGrantStorage,
 {
-    fn release_grant(&mut self, input: crate::host::ReleaseGrant) -> Result<crate::host::ReleaseGrantOutcome, UnmetObligation> {
+    fn release_grant(
+        &mut self,
+        input: crate::host::ReleaseGrant,
+    ) -> Result<crate::host::ReleaseGrantOutcome, UnmetObligation> {
         let _ = &input;
         // `released`: the default.
         let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-            return Ok(crate::host::ReleaseGrantOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            return Ok(crate::host::ReleaseGrantOutcome::NoSuchGrant {
+                error: crate::host::HostGrantNotFound {
+                    grant_id: input.grant_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::host::AnyHostGrant::Granted(instance) => crate::host::AnyHostGrant::Released(instance.release()),
-            crate::host::AnyHostGrant::Running(instance) => crate::host::AnyHostGrant::Released(instance.release()),
-            _ => return Ok(crate::host::ReleaseGrantOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+            crate::host::AnyHostGrant::Granted(instance) => {
+                crate::host::AnyHostGrant::Released(instance.release())
+            }
+            crate::host::AnyHostGrant::Running(instance) => {
+                crate::host::AnyHostGrant::Released(instance.release())
+            }
+            _ => {
+                return Ok(crate::host::ReleaseGrantOutcome::WrongState {
+                    error: crate::host::HostGrantStateConflict {
+                        grant_id: input.grant_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.released_at = Some(input.released_at.clone());
         next.data.release_reason = input.reason.clone();
-        let answer = crate::host::ReleaseGrantOutcome::Released { host_grant_released: crate::host::HostGrantReleased { grant_id: input.grant_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::host::ReleaseGrantOutcome::Released {
+            host_grant_released: crate::host::HostGrantReleased {
+                grant_id: input.grant_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -1952,11 +3559,25 @@ impl<P> crate::host::obligations::RequestDiskBehavior for Generated<P>
 where
     P: TryContext + HostGrantStorage,
 {
-    fn request_disk(&mut self, input: crate::host::RequestDisk) -> Result<crate::host::RequestDiskOutcome, UnmetObligation> {
+    fn request_disk(
+        &mut self,
+        input: crate::host::RequestDisk,
+    ) -> Result<crate::host::RequestDiskOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_le), "conductor.host.RequestDisk")? {
-            return Ok(crate::host::RequestDiskOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.bytes.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.bytes).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_le,
+            ),
+            "conductor.host.RequestDisk",
+        )? {
+            return Ok(crate::host::RequestDiskOutcome::InvalidSize {
+                error: crate::host::InvalidSize {
+                    bytes: input.bytes.clone(),
+                },
+            });
         }
         // `requested`: the default.
         let identity: crate::host::GrantId = self.ports.try_generate_conductor_host_grant_id()?;
@@ -1977,8 +3598,17 @@ where
             released_at: None,
             release_reason: None,
         };
-        let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { grant_id: identity.clone(), instance: input.instance.clone(), bytes: input.bytes.clone() } };
-        HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Requested(crate::host::HostGrant::new(data)).snapshot());
+        let answer = crate::host::RequestDiskOutcome::Requested {
+            disk_requested: crate::host::DiskRequested {
+                grant_id: identity.clone(),
+                instance: input.instance.clone(),
+                bytes: input.bytes.clone(),
+            },
+        };
+        HostGrantStorage::put(
+            &mut self.ports,
+            crate::host::AnyHostGrant::Requested(crate::host::HostGrant::new(data)).snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -1988,60 +3618,149 @@ impl<P> crate::host::obligations::ReserveDiskBehavior for Generated<P>
 where
     P: HostGrantStorage,
 {
-    fn reserve_disk(&mut self, input: crate::host::ReserveDisk) -> Result<crate::host::ReserveDiskOutcome, UnmetObligation> {
+    fn reserve_disk(
+        &mut self,
+        input: crate::host::ReserveDisk,
+    ) -> Result<crate::host::ReserveDiskOutcome, UnmetObligation> {
         let _ = &input;
         // `invalid-size`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(any(&[compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), compare_numbers(Some(&input.reclaimed_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt)]), "conductor.host.ReserveDisk")? {
-            return Ok(crate::host::ReserveDiskOutcome::InvalidSize { error: crate::host::InvalidSize { bytes: input.shortfall_bytes.clone() } });
+        if decided(
+            any(&[
+                compare_numbers(
+                    Some(&input.shortfall_bytes).map(|value| value.to_string()),
+                    Some("0".to_owned()),
+                    core::cmp::Ordering::is_lt,
+                ),
+                compare_numbers(
+                    Some(&input.reclaimed_bytes).map(|value| value.to_string()),
+                    Some("0".to_owned()),
+                    core::cmp::Ordering::is_lt,
+                ),
+            ]),
+            "conductor.host.ReserveDisk",
+        )? {
+            return Ok(crate::host::ReserveDiskOutcome::InvalidSize {
+                error: crate::host::InvalidSize {
+                    bytes: input.shortfall_bytes.clone(),
+                },
+            });
         }
         // `refused`: an accepting branch, in declaration order.
-        if decided(compare_numbers(Some(&input.shortfall_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_gt), "conductor.host.ReserveDisk")? {
+        if decided(
+            compare_numbers(
+                Some(&input.shortfall_bytes).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_gt,
+            ),
+            "conductor.host.ReserveDisk",
+        )? {
             let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-                return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+                return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant {
+                    error: crate::host::HostGrantNotFound {
+                        grant_id: input.grant_id.clone(),
+                    },
+                });
             };
             let _ = &held;
             let before = held.data.clone();
             let moved = match held.refine() {
-                crate::host::AnyHostGrant::Requested(instance) => crate::host::AnyHostGrant::Refused(instance.refuse()),
-                _ => return Ok(crate::host::ReserveDiskOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+                crate::host::AnyHostGrant::Requested(instance) => {
+                    crate::host::AnyHostGrant::Refused(instance.refuse())
+                }
+                _ => {
+                    return Ok(crate::host::ReserveDiskOutcome::WrongState {
+                        error: crate::host::HostGrantStateConflict {
+                            grant_id: input.grant_id.clone(),
+                        },
+                    })
+                }
             };
             let mut next = moved.snapshot();
             next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
             next.data.shortfall_bytes = Some(input.shortfall_bytes.clone());
-            let answer = crate::host::ReserveDiskOutcome::Refused { disk_reservation_refused: crate::host::DiskReservationRefused { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), shortfall_bytes: input.shortfall_bytes.clone() } };
+            let answer = crate::host::ReserveDiskOutcome::Refused {
+                disk_reservation_refused: crate::host::DiskReservationRefused {
+                    grant_id: input.grant_id.clone(),
+                    bytes: before.bytes.clone(),
+                    shortfall_bytes: input.shortfall_bytes.clone(),
+                },
+            };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
         // `granted-after-reclaim`: an accepting branch, in declaration order.
-        if decided(compare_numbers(Some(&input.reclaimed_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_gt), "conductor.host.ReserveDisk")? {
+        if decided(
+            compare_numbers(
+                Some(&input.reclaimed_bytes).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_gt,
+            ),
+            "conductor.host.ReserveDisk",
+        )? {
             let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-                return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+                return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant {
+                    error: crate::host::HostGrantNotFound {
+                        grant_id: input.grant_id.clone(),
+                    },
+                });
             };
             let _ = &held;
             let before = held.data.clone();
             let moved = match held.refine() {
-                crate::host::AnyHostGrant::Requested(instance) => crate::host::AnyHostGrant::Granted(instance.grant()),
-                _ => return Ok(crate::host::ReserveDiskOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+                crate::host::AnyHostGrant::Requested(instance) => {
+                    crate::host::AnyHostGrant::Granted(instance.grant())
+                }
+                _ => {
+                    return Ok(crate::host::ReserveDiskOutcome::WrongState {
+                        error: crate::host::HostGrantStateConflict {
+                            grant_id: input.grant_id.clone(),
+                        },
+                    })
+                }
             };
             let mut next = moved.snapshot();
             next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
-            let answer = crate::host::ReserveDiskOutcome::GrantedAfterReclaim { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
+            let answer = crate::host::ReserveDiskOutcome::GrantedAfterReclaim {
+                disk_reserved: crate::host::DiskReserved {
+                    grant_id: input.grant_id.clone(),
+                    bytes: before.bytes.clone(),
+                    reclaimed_bytes: input.reclaimed_bytes.clone(),
+                },
+            };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
         // `granted`: the default.
         let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-            return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            return Ok(crate::host::ReserveDiskOutcome::NoSuchGrant {
+                error: crate::host::HostGrantNotFound {
+                    grant_id: input.grant_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let before = held.data.clone();
         let moved = match held.refine() {
-            crate::host::AnyHostGrant::Requested(instance) => crate::host::AnyHostGrant::Granted(instance.grant()),
-            _ => return Ok(crate::host::ReserveDiskOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+            crate::host::AnyHostGrant::Requested(instance) => {
+                crate::host::AnyHostGrant::Granted(instance.grant())
+            }
+            _ => {
+                return Ok(crate::host::ReserveDiskOutcome::WrongState {
+                    error: crate::host::HostGrantStateConflict {
+                        grant_id: input.grant_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.reclaimed_bytes = Some(0);
-        let answer = crate::host::ReserveDiskOutcome::Granted { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: 0 } };
+        let answer = crate::host::ReserveDiskOutcome::Granted {
+            disk_reserved: crate::host::DiskReserved {
+                grant_id: input.grant_id.clone(),
+                bytes: before.bytes.clone(),
+                reclaimed_bytes: 0,
+            },
+        };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2052,30 +3771,72 @@ impl<P> crate::host::obligations::StartRunBehavior for Generated<P>
 where
     P: HostGrantStorage,
 {
-    fn start_run(&mut self, input: crate::host::StartRun) -> Result<crate::host::StartRunOutcome, UnmetObligation> {
+    fn start_run(
+        &mut self,
+        input: crate::host::StartRun,
+    ) -> Result<crate::host::StartRunOutcome, UnmetObligation> {
         let _ = &input;
         // The addressed row, read before the branches that select by it.
         let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-            return Ok(crate::host::StartRunOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            return Ok(crate::host::StartRunOutcome::NoSuchGrant {
+                error: crate::host::HostGrantNotFound {
+                    grant_id: input.grant_id.clone(),
+                },
+            });
         };
         let _ = &held;
         // `not-a-disk-grant`: selected by the addressed row.
-        if decided(equal(Some(&held.data.kind).map(|value| match value { crate::host::GrantKind::ControllerSlot => "ControllerSlot", crate::host::GrantKind::BuildSlot => "BuildSlot", crate::host::GrantKind::Disk => "Disk" }.to_owned()), Some("Disk".to_owned())).map(|value| !value), "conductor.host.StartRun")? {
-            return Ok(crate::host::StartRunOutcome::NotADiskGrant { error: crate::host::NotADiskGrant { grant_id: input.grant_id.clone() } });
+        if decided(
+            equal(
+                Some(&held.data.kind).map(|value| {
+                    match value {
+                        crate::host::GrantKind::ControllerSlot => "ControllerSlot",
+                        crate::host::GrantKind::BuildSlot => "BuildSlot",
+                        crate::host::GrantKind::Disk => "Disk",
+                    }
+                    .to_owned()
+                }),
+                Some("Disk".to_owned()),
+            )
+            .map(|value| !value),
+            "conductor.host.StartRun",
+        )? {
+            return Ok(crate::host::StartRunOutcome::NotADiskGrant {
+                error: crate::host::NotADiskGrant {
+                    grant_id: input.grant_id.clone(),
+                },
+            });
         }
         // `started`: the default.
         let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
-            return Ok(crate::host::StartRunOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+            return Ok(crate::host::StartRunOutcome::NoSuchGrant {
+                error: crate::host::HostGrantNotFound {
+                    grant_id: input.grant_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::host::AnyHostGrant::Granted(instance) => crate::host::AnyHostGrant::Running(instance.start()),
-            _ => return Ok(crate::host::StartRunOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+            crate::host::AnyHostGrant::Granted(instance) => {
+                crate::host::AnyHostGrant::Running(instance.start())
+            }
+            _ => {
+                return Ok(crate::host::StartRunOutcome::WrongState {
+                    error: crate::host::HostGrantStateConflict {
+                        grant_id: input.grant_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.process_group = Some(input.process_group.clone());
         next.data.started_at = Some(input.started_at.clone());
-        let answer = crate::host::StartRunOutcome::Started { run_started: crate::host::RunStarted { grant_id: input.grant_id.clone(), process_group: input.process_group.clone() } };
+        let answer = crate::host::StartRunOutcome::Started {
+            run_started: crate::host::RunStarted {
+                grant_id: input.grant_id.clone(),
+                process_group: input.process_group.clone(),
+            },
+        };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2086,11 +3847,31 @@ impl<P> crate::host::obligations::TakeHostGrantBehavior for Generated<P>
 where
     P: TryContext + HostGrantStorage,
 {
-    fn take_host_grant(&mut self, input: crate::host::TakeHostGrant) -> Result<crate::host::TakeHostGrantOutcome, UnmetObligation> {
+    fn take_host_grant(
+        &mut self,
+        input: crate::host::TakeHostGrant,
+    ) -> Result<crate::host::TakeHostGrantOutcome, UnmetObligation> {
         let _ = &input;
         // `disk-through-reservation`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(equal(Some(&input.kind).map(|value| match value { crate::host::GrantKind::ControllerSlot => "ControllerSlot", crate::host::GrantKind::BuildSlot => "BuildSlot", crate::host::GrantKind::Disk => "Disk" }.to_owned()), Some("Disk".to_owned())), "conductor.host.TakeHostGrant")? {
-            return Ok(crate::host::TakeHostGrantOutcome::DiskThroughReservation { error: crate::host::DiskThroughReservation { kind: input.kind.clone() } });
+        if decided(
+            equal(
+                Some(&input.kind).map(|value| {
+                    match value {
+                        crate::host::GrantKind::ControllerSlot => "ControllerSlot",
+                        crate::host::GrantKind::BuildSlot => "BuildSlot",
+                        crate::host::GrantKind::Disk => "Disk",
+                    }
+                    .to_owned()
+                }),
+                Some("Disk".to_owned()),
+            ),
+            "conductor.host.TakeHostGrant",
+        )? {
+            return Ok(crate::host::TakeHostGrantOutcome::DiskThroughReservation {
+                error: crate::host::DiskThroughReservation {
+                    kind: input.kind.clone(),
+                },
+            });
         }
         // `granted`: the default.
         let identity: crate::host::GrantId = self.ports.try_generate_conductor_host_grant_id()?;
@@ -2111,8 +3892,18 @@ where
             released_at: None,
             release_reason: None,
         };
-        let answer = crate::host::TakeHostGrantOutcome::Granted { host_grant_taken: crate::host::HostGrantTaken { grant_id: identity.clone(), instance: input.instance.clone(), kind: input.kind.clone() } };
-        HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Granted(crate::host::HostGrant::new_granted(data)).snapshot());
+        let answer = crate::host::TakeHostGrantOutcome::Granted {
+            host_grant_taken: crate::host::HostGrantTaken {
+                grant_id: identity.clone(),
+                instance: input.instance.clone(),
+                kind: input.kind.clone(),
+            },
+        };
+        HostGrantStorage::put(
+            &mut self.ports,
+            crate::host::AnyHostGrant::Granted(crate::host::HostGrant::new_granted(data))
+                .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2122,23 +3913,47 @@ impl<P> crate::observation::obligations::CompleteSnapshotBehavior for Generated<
 where
     P: SnapshotStorage,
 {
-    fn complete_snapshot(&mut self, input: crate::observation::CompleteSnapshot) -> Result<crate::observation::CompleteSnapshotOutcome, UnmetObligation> {
+    fn complete_snapshot(
+        &mut self,
+        input: crate::observation::CompleteSnapshot,
+    ) -> Result<crate::observation::CompleteSnapshotOutcome, UnmetObligation> {
         let _ = &input;
         // `completed`: the default.
         let Some(held) = SnapshotStorage::get(&self.ports, &input.snapshot_id) else {
-            return Ok(crate::observation::CompleteSnapshotOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::CompleteSnapshotOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::observation::AnySnapshot::Collecting(instance) => crate::observation::AnySnapshot::Complete(instance.complete()),
-            _ => return Ok(crate::observation::CompleteSnapshotOutcome::WrongState { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } }),
+            crate::observation::AnySnapshot::Collecting(instance) => {
+                crate::observation::AnySnapshot::Complete(instance.complete())
+            }
+            _ => {
+                return Ok(crate::observation::CompleteSnapshotOutcome::WrongState {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                })
+            }
         };
         let next = moved.snapshot();
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::CompleteSnapshotOutcome::Completed { snapshot_completed: crate::observation::SnapshotCompleted { snapshot_id: input.snapshot_id.clone() } };
+        let answer = crate::observation::CompleteSnapshotOutcome::Completed {
+            snapshot_completed: crate::observation::SnapshotCompleted {
+                snapshot_id: input.snapshot_id.clone(),
+            },
+        };
         SnapshotStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2149,24 +3964,47 @@ impl<P> crate::observation::obligations::FailSnapshotBehavior for Generated<P>
 where
     P: SnapshotStorage,
 {
-    fn fail_snapshot(&mut self, input: crate::observation::FailSnapshot) -> Result<crate::observation::FailSnapshotOutcome, UnmetObligation> {
+    fn fail_snapshot(
+        &mut self,
+        input: crate::observation::FailSnapshot,
+    ) -> Result<crate::observation::FailSnapshotOutcome, UnmetObligation> {
         let _ = &input;
         // `failed`: the default.
         let Some(held) = SnapshotStorage::get(&self.ports, &input.snapshot_id) else {
-            return Ok(crate::observation::FailSnapshotOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(crate::observation::FailSnapshotOutcome::NoSuchSnapshot {
+                error: crate::observation::SnapshotNotFound {
+                    snapshot_id: input.snapshot_id.clone(),
+                },
+            });
         };
         let _ = &held;
         let moved = match held.refine() {
-            crate::observation::AnySnapshot::Collecting(instance) => crate::observation::AnySnapshot::Failed(instance.fail()),
-            _ => return Ok(crate::observation::FailSnapshotOutcome::WrongState { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } }),
+            crate::observation::AnySnapshot::Collecting(instance) => {
+                crate::observation::AnySnapshot::Failed(instance.fail())
+            }
+            _ => {
+                return Ok(crate::observation::FailSnapshotOutcome::WrongState {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                })
+            }
         };
         let mut next = moved.snapshot();
         next.data.failure_reason = Some(input.reason.clone());
         if let Some(broken) = next.data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::FailSnapshotOutcome::Failed { snapshot_failed: crate::observation::SnapshotFailed { snapshot_id: input.snapshot_id.clone(), reason: input.reason.clone() } };
+        let answer = crate::observation::FailSnapshotOutcome::Failed {
+            snapshot_failed: crate::observation::SnapshotFailed {
+                snapshot_id: input.snapshot_id.clone(),
+                reason: input.reason.clone(),
+            },
+        };
         SnapshotStorage::put(&mut self.ports, next);
         return Ok(answer);
     }
@@ -2177,7 +4015,10 @@ impl<P> crate::observation::obligations::PublishBoardBehavior for Generated<P>
 where
     P: TryContext + BoardStorage + SnapshotStorage,
 {
-    fn publish_board(&mut self, input: crate::observation::PublishBoard) -> Result<crate::observation::PublishBoardOutcome, UnmetObligation> {
+    fn publish_board(
+        &mut self,
+        input: crate::observation::PublishBoard,
+    ) -> Result<crate::observation::PublishBoardOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2185,21 +4026,55 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::PublishBoardOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(crate::observation::PublishBoardOutcome::NoSuchSnapshot {
+                error: crate::observation::SnapshotNotFound {
+                    snapshot_id: input.snapshot_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // `negative-rows`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.deviation_rows).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.PublishBoard")? {
-            return Ok(crate::observation::PublishBoardOutcome::NegativeRows { error: crate::observation::InvalidCount { count: input.deviation_rows.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.deviation_rows).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.observation.PublishBoard",
+        )? {
+            return Ok(crate::observation::PublishBoardOutcome::NegativeRows {
+                error: crate::observation::InvalidCount {
+                    count: input.deviation_rows.clone(),
+                },
+            });
         }
         // `not-complete`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Complete".to_owned())).map(|value| !value), "conductor.observation.PublishBoard")? {
-            return Ok(crate::observation::PublishBoardOutcome::NotComplete { error: crate::observation::SnapshotNotComplete { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Complete".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.PublishBoard",
+            )? {
+                return Ok(crate::observation::PublishBoardOutcome::NotComplete {
+                    error: crate::observation::SnapshotNotComplete {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `published`: the default.
-        let identity: crate::observation::BoardId = self.ports.try_generate_conductor_observation_board_id()?;
+        let identity: crate::observation::BoardId =
+            self.ports.try_generate_conductor_observation_board_id()?;
         let data = crate::observation::BoardData {
             board_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2209,10 +4084,23 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::PublishBoardOutcome::Published { board_published: crate::observation::BoardPublished { board_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), deviation_rows: input.deviation_rows.clone() } };
-        BoardStorage::put(&mut self.ports, crate::observation::AnyBoard::Published(crate::observation::Board::new(data)).snapshot());
+        let answer = crate::observation::PublishBoardOutcome::Published {
+            board_published: crate::observation::BoardPublished {
+                board_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                deviation_rows: input.deviation_rows.clone(),
+            },
+        };
+        BoardStorage::put(
+            &mut self.ports,
+            crate::observation::AnyBoard::Published(crate::observation::Board::new(data))
+                .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2222,7 +4110,10 @@ impl<P> crate::observation::obligations::RecordBlockerBehavior for Generated<P>
 where
     P: TryContext + BlockerObservationStorage + SnapshotStorage,
 {
-    fn record_blocker(&mut self, input: crate::observation::RecordBlocker) -> Result<crate::observation::RecordBlockerOutcome, UnmetObligation> {
+    fn record_blocker(
+        &mut self,
+        input: crate::observation::RecordBlocker,
+    ) -> Result<crate::observation::RecordBlockerOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2230,17 +4121,41 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordBlockerOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(crate::observation::RecordBlockerOutcome::NoSuchSnapshot {
+                error: crate::observation::SnapshotNotFound {
+                    snapshot_id: input.snapshot_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordBlocker")? {
-            return Ok(crate::observation::RecordBlockerOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordBlocker",
+            )? {
+                return Ok(crate::observation::RecordBlockerOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::BlockerObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2249,8 +4164,21 @@ where
             blocker_kind: input.blocker_kind.clone(),
             title: input.title.clone(),
         };
-        let answer = crate::observation::RecordBlockerOutcome::Recorded { blocker_recorded: crate::observation::BlockerRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), reference: input.reference.clone() } };
-        BlockerObservationStorage::put(&mut self.ports, crate::observation::AnyBlockerObservation::Recorded(crate::observation::BlockerObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordBlockerOutcome::Recorded {
+            blocker_recorded: crate::observation::BlockerRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                repository: input.repository.clone(),
+                reference: input.reference.clone(),
+            },
+        };
+        BlockerObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyBlockerObservation::Recorded(
+                crate::observation::BlockerObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2260,7 +4188,10 @@ impl<P> crate::observation::obligations::RecordCollectorRunBehavior for Generate
 where
     P: TryContext + CollectorRunObservationStorage + SnapshotStorage,
 {
-    fn record_collector_run(&mut self, input: crate::observation::RecordCollectorRun) -> Result<crate::observation::RecordCollectorRunOutcome, UnmetObligation> {
+    fn record_collector_run(
+        &mut self,
+        input: crate::observation::RecordCollectorRun,
+    ) -> Result<crate::observation::RecordCollectorRunOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2268,21 +4199,60 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordCollectorRunOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordCollectorRunOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `negative-duration`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.duration_ms).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.RecordCollectorRun")? {
-            return Ok(crate::observation::RecordCollectorRunOutcome::NegativeDuration { error: crate::observation::InvalidCount { count: input.duration_ms.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.duration_ms).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.observation.RecordCollectorRun",
+        )? {
+            return Ok(
+                crate::observation::RecordCollectorRunOutcome::NegativeDuration {
+                    error: crate::observation::InvalidCount {
+                        count: input.duration_ms.clone(),
+                    },
+                },
+            );
         }
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordCollectorRun")? {
-            return Ok(crate::observation::RecordCollectorRunOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordCollectorRun",
+            )? {
+                return Ok(crate::observation::RecordCollectorRunOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::CollectorRunObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2293,10 +4263,27 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::RecordCollectorRunOutcome::Recorded { collector_run_recorded: crate::observation::CollectorRunRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), collector: input.collector.clone(), duration_ms: input.duration_ms.clone(), outcome: input.outcome.clone() } };
-        CollectorRunObservationStorage::put(&mut self.ports, crate::observation::AnyCollectorRunObservation::Recorded(crate::observation::CollectorRunObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordCollectorRunOutcome::Recorded {
+            collector_run_recorded: crate::observation::CollectorRunRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                collector: input.collector.clone(),
+                duration_ms: input.duration_ms.clone(),
+                outcome: input.outcome.clone(),
+            },
+        };
+        CollectorRunObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyCollectorRunObservation::Recorded(
+                crate::observation::CollectorRunObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2306,11 +4293,20 @@ impl<P> crate::observation::obligations::RecordDailySeriesBehavior for Generated
 where
     P: DailySeriesStorage,
 {
-    fn record_daily_series(&mut self, input: crate::observation::RecordDailySeries) -> Result<crate::observation::RecordDailySeriesOutcome, UnmetObligation> {
+    fn record_daily_series(
+        &mut self,
+        input: crate::observation::RecordDailySeries,
+    ) -> Result<crate::observation::RecordDailySeriesOutcome, UnmetObligation> {
         let _ = &input;
         // `already-recorded`: an identity a record already carries, before any branch is taken.
         if DailySeriesStorage::get(&self.ports, &input.daily_series_id).is_some() {
-            return Ok(crate::observation::RecordDailySeriesOutcome::AlreadyRecorded { error: crate::observation::DailySeriesExists { daily_series_id: input.daily_series_id.clone() } });
+            return Ok(
+                crate::observation::RecordDailySeriesOutcome::AlreadyRecorded {
+                    error: crate::observation::DailySeriesExists {
+                        daily_series_id: input.daily_series_id.clone(),
+                    },
+                },
+            );
         }
         // `recorded`: the default.
         let identity: crate::observation::DailySeriesId = input.daily_series_id.clone();
@@ -2324,8 +4320,19 @@ where
             items: input.items.clone(),
             snapshot_id: input.snapshot_id.clone(),
         };
-        let answer = crate::observation::RecordDailySeriesOutcome::Recorded { daily_series_recorded: crate::observation::DailySeriesRecorded { daily_series_id: identity.clone(), snapshot_id: input.snapshot_id.clone() } };
-        DailySeriesStorage::put(&mut self.ports, crate::observation::AnyDailySeries::Recorded(crate::observation::DailySeries::new(data)).snapshot());
+        let answer = crate::observation::RecordDailySeriesOutcome::Recorded {
+            daily_series_recorded: crate::observation::DailySeriesRecorded {
+                daily_series_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+            },
+        };
+        DailySeriesStorage::put(
+            &mut self.ports,
+            crate::observation::AnyDailySeries::Recorded(crate::observation::DailySeries::new(
+                data,
+            ))
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2335,7 +4342,10 @@ impl<P> crate::observation::obligations::RecordMemberFailureBehavior for Generat
 where
     P: TryContext + MemberFailureObservationStorage + SnapshotStorage,
 {
-    fn record_member_failure(&mut self, input: crate::observation::RecordMemberFailure) -> Result<crate::observation::RecordMemberFailureOutcome, UnmetObligation> {
+    fn record_member_failure(
+        &mut self,
+        input: crate::observation::RecordMemberFailure,
+    ) -> Result<crate::observation::RecordMemberFailureOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2343,17 +4353,43 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordMemberFailureOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordMemberFailureOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordMemberFailure")? {
-            return Ok(crate::observation::RecordMemberFailureOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordMemberFailure",
+            )? {
+                return Ok(crate::observation::RecordMemberFailureOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::MemberFailureObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2361,8 +4397,21 @@ where
             collector: input.collector.clone(),
             error_line: input.error_line.clone(),
         };
-        let answer = crate::observation::RecordMemberFailureOutcome::Recorded { member_failure_recorded: crate::observation::MemberFailureRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), member: input.member.clone(), collector: input.collector.clone() } };
-        MemberFailureObservationStorage::put(&mut self.ports, crate::observation::AnyMemberFailureObservation::Recorded(crate::observation::MemberFailureObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordMemberFailureOutcome::Recorded {
+            member_failure_recorded: crate::observation::MemberFailureRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                member: input.member.clone(),
+                collector: input.collector.clone(),
+            },
+        };
+        MemberFailureObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyMemberFailureObservation::Recorded(
+                crate::observation::MemberFailureObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2372,7 +4421,10 @@ impl<P> crate::observation::obligations::RecordMergedPullRequestBehavior for Gen
 where
     P: TryContext + MergedPullRequestObservationStorage + SnapshotStorage,
 {
-    fn record_merged_pull_request(&mut self, input: crate::observation::RecordMergedPullRequest) -> Result<crate::observation::RecordMergedPullRequestOutcome, UnmetObligation> {
+    fn record_merged_pull_request(
+        &mut self,
+        input: crate::observation::RecordMergedPullRequest,
+    ) -> Result<crate::observation::RecordMergedPullRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2380,21 +4432,60 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordMergedPullRequestOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordMergedPullRequestOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `invalid-number`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.number).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_le), "conductor.observation.RecordMergedPullRequest")? {
-            return Ok(crate::observation::RecordMergedPullRequestOutcome::InvalidNumber { error: crate::observation::InvalidPullRequestNumber { number: input.number.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.number).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_le,
+            ),
+            "conductor.observation.RecordMergedPullRequest",
+        )? {
+            return Ok(
+                crate::observation::RecordMergedPullRequestOutcome::InvalidNumber {
+                    error: crate::observation::InvalidPullRequestNumber {
+                        number: input.number.clone(),
+                    },
+                },
+            );
         }
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordMergedPullRequest")? {
-            return Ok(crate::observation::RecordMergedPullRequestOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordMergedPullRequest",
+            )? {
+                return Ok(crate::observation::RecordMergedPullRequestOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::MergedPullRequestObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2406,10 +4497,26 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::RecordMergedPullRequestOutcome::Recorded { merged_pull_request_recorded: crate::observation::MergedPullRequestRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), number: input.number.clone() } };
-        MergedPullRequestObservationStorage::put(&mut self.ports, crate::observation::AnyMergedPullRequestObservation::Recorded(crate::observation::MergedPullRequestObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordMergedPullRequestOutcome::Recorded {
+            merged_pull_request_recorded: crate::observation::MergedPullRequestRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                repository: input.repository.clone(),
+                number: input.number.clone(),
+            },
+        };
+        MergedPullRequestObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyMergedPullRequestObservation::Recorded(
+                crate::observation::MergedPullRequestObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2419,7 +4526,10 @@ impl<P> crate::observation::obligations::RecordPullRequestBehavior for Generated
 where
     P: TryContext + PullRequestObservationStorage + SnapshotStorage,
 {
-    fn record_pull_request(&mut self, input: crate::observation::RecordPullRequest) -> Result<crate::observation::RecordPullRequestOutcome, UnmetObligation> {
+    fn record_pull_request(
+        &mut self,
+        input: crate::observation::RecordPullRequest,
+    ) -> Result<crate::observation::RecordPullRequestOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2427,25 +4537,77 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordPullRequestOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordPullRequestOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `invalid-number`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.number).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_le), "conductor.observation.RecordPullRequest")? {
-            return Ok(crate::observation::RecordPullRequestOutcome::InvalidNumber { error: crate::observation::InvalidPullRequestNumber { number: input.number.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.number).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_le,
+            ),
+            "conductor.observation.RecordPullRequest",
+        )? {
+            return Ok(
+                crate::observation::RecordPullRequestOutcome::InvalidNumber {
+                    error: crate::observation::InvalidPullRequestNumber {
+                        number: input.number.clone(),
+                    },
+                },
+            );
         }
         // `negative-checks`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.failing_checks).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.RecordPullRequest")? {
-            return Ok(crate::observation::RecordPullRequestOutcome::NegativeChecks { error: crate::observation::InvalidCount { count: input.failing_checks.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.failing_checks).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.observation.RecordPullRequest",
+        )? {
+            return Ok(
+                crate::observation::RecordPullRequestOutcome::NegativeChecks {
+                    error: crate::observation::InvalidCount {
+                        count: input.failing_checks.clone(),
+                    },
+                },
+            );
         }
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordPullRequest")? {
-            return Ok(crate::observation::RecordPullRequestOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordPullRequest",
+            )? {
+                return Ok(crate::observation::RecordPullRequestOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::PullRequestObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2462,10 +4624,26 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::RecordPullRequestOutcome::Recorded { pull_request_recorded: crate::observation::PullRequestRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), number: input.number.clone() } };
-        PullRequestObservationStorage::put(&mut self.ports, crate::observation::AnyPullRequestObservation::Recorded(crate::observation::PullRequestObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordPullRequestOutcome::Recorded {
+            pull_request_recorded: crate::observation::PullRequestRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                repository: input.repository.clone(),
+                number: input.number.clone(),
+            },
+        };
+        PullRequestObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyPullRequestObservation::Recorded(
+                crate::observation::PullRequestObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2475,7 +4653,10 @@ impl<P> crate::observation::obligations::RecordReleaseBehavior for Generated<P>
 where
     P: TryContext + ReleaseObservationStorage + SnapshotStorage,
 {
-    fn record_release(&mut self, input: crate::observation::RecordRelease) -> Result<crate::observation::RecordReleaseOutcome, UnmetObligation> {
+    fn record_release(
+        &mut self,
+        input: crate::observation::RecordRelease,
+    ) -> Result<crate::observation::RecordReleaseOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2483,17 +4664,41 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordReleaseOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(crate::observation::RecordReleaseOutcome::NoSuchSnapshot {
+                error: crate::observation::SnapshotNotFound {
+                    snapshot_id: input.snapshot_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordRelease")? {
-            return Ok(crate::observation::RecordReleaseOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordRelease",
+            )? {
+                return Ok(crate::observation::RecordReleaseOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::ReleaseObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2502,8 +4707,21 @@ where
             published_at: input.published_at.clone(),
             url: input.url.clone(),
         };
-        let answer = crate::observation::RecordReleaseOutcome::Recorded { release_recorded: crate::observation::ReleaseRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), tag: input.tag.clone() } };
-        ReleaseObservationStorage::put(&mut self.ports, crate::observation::AnyReleaseObservation::Recorded(crate::observation::ReleaseObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordReleaseOutcome::Recorded {
+            release_recorded: crate::observation::ReleaseRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                repository: input.repository.clone(),
+                tag: input.tag.clone(),
+            },
+        };
+        ReleaseObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyReleaseObservation::Recorded(
+                crate::observation::ReleaseObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2513,7 +4731,10 @@ impl<P> crate::observation::obligations::RecordRepositoryBehavior for Generated<
 where
     P: TryContext + RepositoryObservationStorage + SnapshotStorage,
 {
-    fn record_repository(&mut self, input: crate::observation::RecordRepository) -> Result<crate::observation::RecordRepositoryOutcome, UnmetObligation> {
+    fn record_repository(
+        &mut self,
+        input: crate::observation::RecordRepository,
+    ) -> Result<crate::observation::RecordRepositoryOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2521,17 +4742,43 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordRepositoryOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordRepositoryOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordRepository")? {
-            return Ok(crate::observation::RecordRepositoryOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordRepository",
+            )? {
+                return Ok(crate::observation::RecordRepositoryOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::RepositoryObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2559,8 +4806,20 @@ where
             wave_ready: input.wave_ready.clone(),
             wave_reason: input.wave_reason.clone(),
         };
-        let answer = crate::observation::RecordRepositoryOutcome::Recorded { repository_recorded: crate::observation::RepositoryRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone() } };
-        RepositoryObservationStorage::put(&mut self.ports, crate::observation::AnyRepositoryObservation::Recorded(crate::observation::RepositoryObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordRepositoryOutcome::Recorded {
+            repository_recorded: crate::observation::RepositoryRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                repository: input.repository.clone(),
+            },
+        };
+        RepositoryObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyRepositoryObservation::Recorded(
+                crate::observation::RepositoryObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2570,7 +4829,10 @@ impl<P> crate::observation::obligations::RecordSecretSyncBehavior for Generated<
 where
     P: TryContext + SecretSyncObservationStorage + SnapshotStorage,
 {
-    fn record_secret_sync(&mut self, input: crate::observation::RecordSecretSync) -> Result<crate::observation::RecordSecretSyncOutcome, UnmetObligation> {
+    fn record_secret_sync(
+        &mut self,
+        input: crate::observation::RecordSecretSync,
+    ) -> Result<crate::observation::RecordSecretSyncOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2578,17 +4840,43 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordSecretSyncOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordSecretSyncOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordSecretSync")? {
-            return Ok(crate::observation::RecordSecretSyncOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordSecretSync",
+            )? {
+                return Ok(crate::observation::RecordSecretSyncOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::SecretSyncObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2600,8 +4888,21 @@ where
             secrets_updated_at: input.secrets_updated_at.clone(),
             error_line: input.error_line.clone(),
         };
-        let answer = crate::observation::RecordSecretSyncOutcome::Recorded { secret_sync_recorded: crate::observation::SecretSyncRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), sync: input.sync.clone(), repository: input.repository.clone() } };
-        SecretSyncObservationStorage::put(&mut self.ports, crate::observation::AnySecretSyncObservation::Recorded(crate::observation::SecretSyncObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordSecretSyncOutcome::Recorded {
+            secret_sync_recorded: crate::observation::SecretSyncRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                sync: input.sync.clone(),
+                repository: input.repository.clone(),
+            },
+        };
+        SecretSyncObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnySecretSyncObservation::Recorded(
+                crate::observation::SecretSyncObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2611,7 +4912,10 @@ impl<P> crate::observation::obligations::RecordSessionBehavior for Generated<P>
 where
     P: TryContext + SessionObservationStorage + SnapshotStorage,
 {
-    fn record_session(&mut self, input: crate::observation::RecordSession) -> Result<crate::observation::RecordSessionOutcome, UnmetObligation> {
+    fn record_session(
+        &mut self,
+        input: crate::observation::RecordSession,
+    ) -> Result<crate::observation::RecordSessionOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2619,17 +4923,41 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordSessionOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(crate::observation::RecordSessionOutcome::NoSuchSnapshot {
+                error: crate::observation::SnapshotNotFound {
+                    snapshot_id: input.snapshot_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordSession")? {
-            return Ok(crate::observation::RecordSessionOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordSession",
+            )? {
+                return Ok(crate::observation::RecordSessionOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::SessionObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2648,8 +4976,21 @@ where
             envelope_writable: input.envelope_writable.clone(),
             envelope_unboxed: input.envelope_unboxed.clone(),
         };
-        let answer = crate::observation::RecordSessionOutcome::Recorded { session_recorded: crate::observation::SessionRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), harness: input.harness.clone(), session_ref: input.session_ref.clone() } };
-        SessionObservationStorage::put(&mut self.ports, crate::observation::AnySessionObservation::Recorded(crate::observation::SessionObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordSessionOutcome::Recorded {
+            session_recorded: crate::observation::SessionRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                harness: input.harness.clone(),
+                session_ref: input.session_ref.clone(),
+            },
+        };
+        SessionObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnySessionObservation::Recorded(
+                crate::observation::SessionObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2659,7 +5000,10 @@ impl<P> crate::observation::obligations::RecordSpecificationBehavior for Generat
 where
     P: TryContext + SnapshotStorage + SpecificationObservationStorage,
 {
-    fn record_specification(&mut self, input: crate::observation::RecordSpecification) -> Result<crate::observation::RecordSpecificationOutcome, UnmetObligation> {
+    fn record_specification(
+        &mut self,
+        input: crate::observation::RecordSpecification,
+    ) -> Result<crate::observation::RecordSpecificationOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2667,21 +5011,60 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordSpecificationOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordSpecificationOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `negative-refusals`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.validation_refusals).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.RecordSpecification")? {
-            return Ok(crate::observation::RecordSpecificationOutcome::NegativeRefusals { error: crate::observation::InvalidCount { count: input.validation_refusals.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.validation_refusals).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.observation.RecordSpecification",
+        )? {
+            return Ok(
+                crate::observation::RecordSpecificationOutcome::NegativeRefusals {
+                    error: crate::observation::InvalidCount {
+                        count: input.validation_refusals.clone(),
+                    },
+                },
+            );
         }
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordSpecification")? {
-            return Ok(crate::observation::RecordSpecificationOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordSpecification",
+            )? {
+                return Ok(crate::observation::RecordSpecificationOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::SpecificationObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2698,10 +5081,27 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::RecordSpecificationOutcome::Recorded { specification_recorded: crate::observation::SpecificationRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), presence: input.presence.clone(), validation: input.validation.clone() } };
-        SpecificationObservationStorage::put(&mut self.ports, crate::observation::AnySpecificationObservation::Recorded(crate::observation::SpecificationObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordSpecificationOutcome::Recorded {
+            specification_recorded: crate::observation::SpecificationRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                repository: input.repository.clone(),
+                presence: input.presence.clone(),
+                validation: input.validation.clone(),
+            },
+        };
+        SpecificationObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnySpecificationObservation::Recorded(
+                crate::observation::SpecificationObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2711,7 +5111,10 @@ impl<P> crate::observation::obligations::RecordUsageBehavior for Generated<P>
 where
     P: TryContext + SnapshotStorage + UsageObservationStorage,
 {
-    fn record_usage(&mut self, input: crate::observation::RecordUsage) -> Result<crate::observation::RecordUsageOutcome, UnmetObligation> {
+    fn record_usage(
+        &mut self,
+        input: crate::observation::RecordUsage,
+    ) -> Result<crate::observation::RecordUsageOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2719,21 +5122,56 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordUsageOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(crate::observation::RecordUsageOutcome::NoSuchSnapshot {
+                error: crate::observation::SnapshotNotFound {
+                    snapshot_id: input.snapshot_id.clone(),
+                },
+            });
         }
         let _ = &related;
         // `negative-percent`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.used_percent).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.RecordUsage")? {
-            return Ok(crate::observation::RecordUsageOutcome::NegativePercent { error: crate::observation::InvalidCount { count: input.used_percent.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.used_percent).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.observation.RecordUsage",
+        )? {
+            return Ok(crate::observation::RecordUsageOutcome::NegativePercent {
+                error: crate::observation::InvalidCount {
+                    count: input.used_percent.clone(),
+                },
+            });
         }
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordUsage")? {
-            return Ok(crate::observation::RecordUsageOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordUsage",
+            )? {
+                return Ok(crate::observation::RecordUsageOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::UsageObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2747,10 +5185,27 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::RecordUsageOutcome::Recorded { usage_recorded: crate::observation::UsageRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), account: input.account.clone(), window: input.window.clone(), used_percent: input.used_percent.clone() } };
-        UsageObservationStorage::put(&mut self.ports, crate::observation::AnyUsageObservation::Recorded(crate::observation::UsageObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordUsageOutcome::Recorded {
+            usage_recorded: crate::observation::UsageRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                account: input.account.clone(),
+                window: input.window.clone(),
+                used_percent: input.used_percent.clone(),
+            },
+        };
+        UsageObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyUsageObservation::Recorded(
+                crate::observation::UsageObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2760,7 +5215,10 @@ impl<P> crate::observation::obligations::RecordWorkflowRunBehavior for Generated
 where
     P: TryContext + SnapshotStorage + WorkflowRunObservationStorage,
 {
-    fn record_workflow_run(&mut self, input: crate::observation::RecordWorkflowRun) -> Result<crate::observation::RecordWorkflowRunOutcome, UnmetObligation> {
+    fn record_workflow_run(
+        &mut self,
+        input: crate::observation::RecordWorkflowRun,
+    ) -> Result<crate::observation::RecordWorkflowRunOutcome, UnmetObligation> {
         let _ = &input;
         // `when_related:` reads the `conductor.observation.Snapshot` row `input.snapshot_id` names, through its storage port; an absent
         // reference reads no row and selects no related branch.
@@ -2768,17 +5226,43 @@ where
         let related = reference.and_then(|identity| SnapshotStorage::get(&self.ports, identity));
         // `no-such-snapshot`: the reference names an identity no row carries.
         if reference.is_some() && related.is_none() {
-            return Ok(crate::observation::RecordWorkflowRunOutcome::NoSuchSnapshot { error: crate::observation::SnapshotNotFound { snapshot_id: input.snapshot_id.clone() } });
+            return Ok(
+                crate::observation::RecordWorkflowRunOutcome::NoSuchSnapshot {
+                    error: crate::observation::SnapshotNotFound {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                },
+            );
         }
         let _ = &related;
         // `closed`: selected by the present related row, in declaration order.
         if let Some(related) = &related {
-        if decided(equal(Some(&related.state).map(|value| match value { crate::observation::SnapshotState::Collecting => "Collecting", crate::observation::SnapshotState::Complete => "Complete", crate::observation::SnapshotState::Failed => "Failed" }.to_owned()), Some("Collecting".to_owned())).map(|value| !value), "conductor.observation.RecordWorkflowRun")? {
-            return Ok(crate::observation::RecordWorkflowRunOutcome::Closed { error: crate::observation::SnapshotNotCollecting { snapshot_id: input.snapshot_id.clone() } });
-        }
+            if decided(
+                equal(
+                    Some(&related.state).map(|value| {
+                        match value {
+                            crate::observation::SnapshotState::Collecting => "Collecting",
+                            crate::observation::SnapshotState::Complete => "Complete",
+                            crate::observation::SnapshotState::Failed => "Failed",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Collecting".to_owned()),
+                )
+                .map(|value| !value),
+                "conductor.observation.RecordWorkflowRun",
+            )? {
+                return Ok(crate::observation::RecordWorkflowRunOutcome::Closed {
+                    error: crate::observation::SnapshotNotCollecting {
+                        snapshot_id: input.snapshot_id.clone(),
+                    },
+                });
+            }
         }
         // `recorded`: the default.
-        let identity: crate::observation::ObservationId = self.ports.try_generate_conductor_observation_observation_id()?;
+        let identity: crate::observation::ObservationId = self
+            .ports
+            .try_generate_conductor_observation_observation_id()?;
         let data = crate::observation::WorkflowRunObservationData {
             observation_id: identity.clone(),
             snapshot_id: input.snapshot_id.clone(),
@@ -2787,8 +5271,21 @@ where
             conclusion: input.conclusion.clone(),
             run_at: input.run_at.clone(),
         };
-        let answer = crate::observation::RecordWorkflowRunOutcome::Recorded { workflow_run_recorded: crate::observation::WorkflowRunRecorded { observation_id: identity.clone(), snapshot_id: input.snapshot_id.clone(), repository: input.repository.clone(), workflow: input.workflow.clone() } };
-        WorkflowRunObservationStorage::put(&mut self.ports, crate::observation::AnyWorkflowRunObservation::Recorded(crate::observation::WorkflowRunObservation::new(data)).snapshot());
+        let answer = crate::observation::RecordWorkflowRunOutcome::Recorded {
+            workflow_run_recorded: crate::observation::WorkflowRunRecorded {
+                observation_id: identity.clone(),
+                snapshot_id: input.snapshot_id.clone(),
+                repository: input.repository.clone(),
+                workflow: input.workflow.clone(),
+            },
+        };
+        WorkflowRunObservationStorage::put(
+            &mut self.ports,
+            crate::observation::AnyWorkflowRunObservation::Recorded(
+                crate::observation::WorkflowRunObservation::new(data),
+            )
+            .snapshot(),
+        );
         return Ok(answer);
     }
 }
@@ -2798,24 +5295,46 @@ impl<P> crate::observation::obligations::ReviseDailySeriesBehavior for Generated
 where
     P: DailySeriesStorage,
 {
-    fn revise_daily_series(&mut self, input: crate::observation::ReviseDailySeries) -> Result<crate::observation::ReviseDailySeriesOutcome, UnmetObligation> {
+    fn revise_daily_series(
+        &mut self,
+        input: crate::observation::ReviseDailySeries,
+    ) -> Result<crate::observation::ReviseDailySeriesOutcome, UnmetObligation> {
         let _ = &input;
         // The addressed row, read before the branches that select by it.
         let Some(held) = DailySeriesStorage::get(&self.ports, &input.daily_series_id) else {
-            return Ok(crate::observation::ReviseDailySeriesOutcome::NoSuchRollup { error: crate::observation::DailySeriesNotFound { daily_series_id: input.daily_series_id.clone() } });
+            return Ok(crate::observation::ReviseDailySeriesOutcome::NoSuchRollup {
+                error: crate::observation::DailySeriesNotFound {
+                    daily_series_id: input.daily_series_id.clone(),
+                },
+            });
         };
         let _ = &held;
         // `revised`: selected by the addressed row.
-        if decided(Some(matches!(held.state, crate::observation::DailySeriesState::Recorded)), "conductor.observation.ReviseDailySeries")? {
+        if decided(
+            Some(matches!(
+                held.state,
+                crate::observation::DailySeriesState::Recorded
+            )),
+            "conductor.observation.ReviseDailySeries",
+        )? {
             let Some(held) = DailySeriesStorage::get(&self.ports, &input.daily_series_id) else {
-                return Ok(crate::observation::ReviseDailySeriesOutcome::NoSuchRollup { error: crate::observation::DailySeriesNotFound { daily_series_id: input.daily_series_id.clone() } });
+                return Ok(crate::observation::ReviseDailySeriesOutcome::NoSuchRollup {
+                    error: crate::observation::DailySeriesNotFound {
+                        daily_series_id: input.daily_series_id.clone(),
+                    },
+                });
             };
             let _ = &held;
             let mut next = held;
             next.data.value = input.value.clone();
             next.data.items = input.items.clone();
             next.data.snapshot_id = input.snapshot_id.clone();
-            let answer = crate::observation::ReviseDailySeriesOutcome::Revised { daily_series_revised: crate::observation::DailySeriesRevised { daily_series_id: input.daily_series_id.clone(), snapshot_id: input.snapshot_id.clone() } };
+            let answer = crate::observation::ReviseDailySeriesOutcome::Revised {
+                daily_series_revised: crate::observation::DailySeriesRevised {
+                    daily_series_id: input.daily_series_id.clone(),
+                    snapshot_id: input.snapshot_id.clone(),
+                },
+            };
             DailySeriesStorage::put(&mut self.ports, next);
             return Ok(answer);
         }
@@ -2829,14 +5348,30 @@ impl<P> crate::observation::obligations::StartSnapshotBehavior for Generated<P>
 where
     P: TryContext + SnapshotStorage,
 {
-    fn start_snapshot(&mut self, input: crate::observation::StartSnapshot) -> Result<crate::observation::StartSnapshotOutcome, UnmetObligation> {
+    fn start_snapshot(
+        &mut self,
+        input: crate::observation::StartSnapshot,
+    ) -> Result<crate::observation::StartSnapshotOutcome, UnmetObligation> {
         let _ = &input;
         // `negative-disk`: an input-guarded refusal, before the addressed subject is loaded.
-        if decided(compare_numbers(Some(&input.disk_free_bytes).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.observation.StartSnapshot")? {
-            return Ok(crate::observation::StartSnapshotOutcome::NegativeDisk { error: crate::observation::InvalidCount { count: input.disk_free_bytes.clone() } });
+        if decided(
+            compare_numbers(
+                Some(&input.disk_free_bytes).map(|value| value.to_string()),
+                Some("0".to_owned()),
+                core::cmp::Ordering::is_lt,
+            ),
+            "conductor.observation.StartSnapshot",
+        )? {
+            return Ok(crate::observation::StartSnapshotOutcome::NegativeDisk {
+                error: crate::observation::InvalidCount {
+                    count: input.disk_free_bytes.clone(),
+                },
+            });
         }
         // `started`: the default.
-        let identity: crate::observation::SnapshotId = self.ports.try_generate_conductor_observation_snapshot_id()?;
+        let identity: crate::observation::SnapshotId = self
+            .ports
+            .try_generate_conductor_observation_snapshot_id()?;
         let data = crate::observation::SnapshotData {
             snapshot_id: identity.clone(),
             started_at: input.started_at.clone(),
@@ -2845,16 +5380,33 @@ where
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
-            return Err(UnmetObligation { capability, source: broken });
+            return Err(UnmetObligation {
+                capability,
+                source: broken,
+            });
         }
-        let answer = crate::observation::StartSnapshotOutcome::Started { snapshot_started: crate::observation::SnapshotStarted { snapshot_id: identity.clone(), started_at: input.started_at.clone() } };
-        SnapshotStorage::put(&mut self.ports, crate::observation::AnySnapshot::Collecting(crate::observation::Snapshot::new(data)).snapshot());
+        let answer = crate::observation::StartSnapshotOutcome::Started {
+            snapshot_started: crate::observation::SnapshotStarted {
+                snapshot_id: identity.clone(),
+                started_at: input.started_at.clone(),
+            },
+        };
+        SnapshotStorage::put(
+            &mut self.ports,
+            crate::observation::AnySnapshot::Collecting(crate::observation::Snapshot::new(data))
+                .snapshot(),
+        );
         return Ok(answer);
     }
 }
 
-impl<P: crate::session::obligations::ClaimLeaseBehavior> crate::session::obligations::ClaimLeaseBehavior for Generated<P> {
-    fn claim_lease(&mut self, input: crate::session::ClaimLease) -> Result<crate::session::ClaimLeaseOutcome, UnmetObligation> {
+impl<P: crate::session::obligations::ClaimLeaseBehavior>
+    crate::session::obligations::ClaimLeaseBehavior for Generated<P>
+{
+    fn claim_lease(
+        &mut self,
+        input: crate::session::ClaimLease,
+    ) -> Result<crate::session::ClaimLeaseOutcome, UnmetObligation> {
         crate::session::obligations::ClaimLeaseBehavior::claim_lease(&mut self.ports, input)
     }
 }
@@ -2895,7 +5447,35 @@ where
     fn hands_todo(&self) -> Result<Vec<crate::decision::HandsTodo>, UnmetObligation> {
         let mut admitted = DecisionRequestStorage::list(&self.ports);
         // `filter:` shows a row where it holds; false or unknown hides it.
-        admitted.retain(|held| all(&[equal(Some(&held.data.escalation_class).and_then(|value| value.as_ref()).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), equal(Some(&held.state).map(|value| match value { crate::decision::DecisionRequestState::Answered => "Answered", crate::decision::DecisionRequestState::Escalated => "Escalated", crate::decision::DecisionRequestState::Open => "Open", crate::decision::DecisionRequestState::Withdrawn => "Withdrawn" }.to_owned()), Some("Escalated".to_owned()))]) == Some(true));
+        admitted.retain(|held| {
+            all(&[
+                equal(
+                    Some(&held.data.escalation_class)
+                        .and_then(|value| value.as_ref())
+                        .map(|value| {
+                            match value {
+                                crate::decision::DecisionClass::C => "C",
+                                crate::decision::DecisionClass::O => "O",
+                                crate::decision::DecisionClass::H => "H",
+                            }
+                            .to_owned()
+                        }),
+                    Some("H".to_owned()),
+                ),
+                equal(
+                    Some(&held.state).map(|value| {
+                        match value {
+                            crate::decision::DecisionRequestState::Answered => "Answered",
+                            crate::decision::DecisionRequestState::Escalated => "Escalated",
+                            crate::decision::DecisionRequestState::Open => "Open",
+                            crate::decision::DecisionRequestState::Withdrawn => "Withdrawn",
+                        }
+                        .to_owned()
+                    }),
+                    Some("Escalated".to_owned()),
+                ),
+            ]) == Some(true)
+        });
         Ok(admitted
             .into_iter()
             .map(|held| crate::decision::HandsTodo {
@@ -2976,6 +5556,8 @@ where
                 state: held.state,
                 title: held.data.title,
                 exit_evidence: held.data.exit_evidence,
+                evidence: held.data.evidence,
+                reason: held.data.reason,
             })
             .collect())
     }
@@ -3256,7 +5838,9 @@ impl<P> crate::observation::obligations::MergedPullRequestsQuery for Generated<P
 where
     P: MergedPullRequestObservationStorage,
 {
-    fn merged_pull_requests(&self) -> Result<Vec<crate::observation::MergedPullRequests>, UnmetObligation> {
+    fn merged_pull_requests(
+        &self,
+    ) -> Result<Vec<crate::observation::MergedPullRequests>, UnmetObligation> {
         let admitted = MergedPullRequestObservationStorage::list(&self.ports);
         Ok(admitted
             .into_iter()
@@ -3579,7 +6163,11 @@ fn number_parts(text: &str) -> Option<(bool, String, String)> {
     if whole.is_empty() && fraction.is_empty() {
         return None;
     }
-    if !whole.bytes().chain(fraction.bytes()).all(|byte| byte.is_ascii_digit()) {
+    if !whole
+        .bytes()
+        .chain(fraction.bytes())
+        .all(|byte| byte.is_ascii_digit())
+    {
         return None;
     }
     let whole = whole.trim_start_matches('0').to_owned();
