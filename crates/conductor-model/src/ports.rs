@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 7550bf1865317faf569ae692a77f78f85deb91c97eb60a6a6fa2949ddf3148c6
-// contract digest 330056d4ec2a994a2b1d891ec78741d11dbb548b07dfa4a801d9bf6afd20781c
+// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
+// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The component ports of `conductor` v1: one module per component, each its accepted commands,

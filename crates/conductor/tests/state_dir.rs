@@ -59,6 +59,8 @@ fn draft(goal: &str, title: &str) -> Value {
         "state": "Draft",
         "title": title,
         "exit_evidence": format!("{goal} is listed"),
+        "evidence": null,
+        "reason": null,
     })
 }
 
@@ -285,18 +287,18 @@ fn goals_render_in_every_format_the_view_offers() {
 
     assert_eq!(
         goals("text"),
-        "goal_id  state  title                    exit_evidence\n\
-         G1       Draft  First                    G1 is listed\n\
-         G10      Draft  Second | piped line two  G10 is listed\n"
+        "goal_id  state  title                    exit_evidence  evidence  reason\n\
+         G1       Draft  First                    G1 is listed   null      null\n\
+         G10      Draft  Second | piped line two  G10 is listed  null      null\n"
     );
     assert_eq!(goals("text"), goals_default(&work, &elsewhere));
 
     assert_eq!(
         goals("markdown"),
-        "| goal_id | state | title | exit_evidence |\n\
-         |---|---|---|---|\n\
-         | G1 | Draft | First | G1 is listed |\n\
-         | G10 | Draft | Second \\| piped<br>line two | G10 is listed |\n"
+        "| goal_id | state | title | exit_evidence | evidence | reason |\n\
+         |---|---|---|---|---|---|\n\
+         | G1 | Draft | First | G1 is listed | null | null |\n\
+         | G10 | Draft | Second \\| piped<br>line two | G10 is listed | null | null |\n"
     );
 }
 

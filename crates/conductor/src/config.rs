@@ -714,8 +714,19 @@ pub fn set_active(flag: Option<&Path>) -> Result<()> {
     let _ = CONFIG_FILE.set(environment.cwd.join(file));
     let active = resolve(flag, &environment)?;
     let _ = ACTIVE.set(active);
+    let _ = EXPLICIT.set(flag.map(|flag| environment.cwd.join(flag)));
     Ok(())
 }
+
+/// The config file the global `--config` named, as an absolute path, when [`set_active`] was
+/// given one: what a part of this process that loads the config again, as the dashboard's
+/// doctor does, must be told rather than left to find the default file.
+#[must_use]
+pub fn explicit() -> Option<&'static Path> {
+    EXPLICIT.get().and_then(Option::as_deref)
+}
+
+static EXPLICIT: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// The config file [`set_active`] located, absolute.
 static CONFIG_FILE: OnceLock<PathBuf> = OnceLock::new();

@@ -289,7 +289,14 @@ pub fn goals(state: Option<&std::path::Path>, view: ViewArgs) -> Result<ExitCode
     use serde_json::Value;
 
     /// The view's fields, in the specification's order (`spec/domains/direction.yaml`).
-    const COLUMNS: [&str; 4] = ["goal_id", "state", "title", "exit_evidence"];
+    const COLUMNS: [&str; 6] = [
+        "goal_id",
+        "state",
+        "title",
+        "exit_evidence",
+        "evidence",
+        "reason",
+    ];
 
     /// The state's name as the specification spells it. Exhaustive, so a state the specification
     /// adds fails to compile here rather than rendering under a guessed name.
@@ -314,6 +321,8 @@ pub fn goals(state: Option<&std::path::Path>, view: ViewArgs) -> Result<ExitCode
                 Value::from(state_name(row.state)),
                 Value::from(row.title),
                 Value::from(row.exit_evidence),
+                Value::from(row.evidence),
+                Value::from(row.reason),
             ]
         })
         .collect();

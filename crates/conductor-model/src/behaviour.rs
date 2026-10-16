@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 7550bf1865317faf569ae692a77f78f85deb91c97eb60a6a6fa2949ddf3148c6
-// contract digest 330056d4ec2a994a2b1d891ec78741d11dbb548b07dfa4a801d9bf6afd20781c
+// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
+// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -1147,7 +1147,8 @@ where
             crate::direction::AnyGoal::Draft(instance) => crate::direction::AnyGoal::Dropped(instance.drop()),
             _ => return Ok(crate::direction::DropGoalOutcome::WrongState { error: crate::direction::GoalStateConflict { goal_id: input.goal_id.clone() } }),
         };
-        let next = moved.snapshot();
+        let mut next = moved.snapshot();
+        next.data.reason = Some(input.reason.clone());
         let answer = crate::direction::DropGoalOutcome::Dropped { goal_dropped: crate::direction::GoalDropped { goal_id: input.goal_id.clone(), reason: input.reason.clone() } };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -1174,7 +1175,8 @@ where
             crate::direction::AnyGoal::Confirmed(instance) => crate::direction::AnyGoal::Met(instance.meet()),
             _ => return Ok(crate::direction::MarkGoalMetOutcome::WrongState { error: crate::direction::GoalStateConflict { goal_id: input.goal_id.clone() } }),
         };
-        let next = moved.snapshot();
+        let mut next = moved.snapshot();
+        next.data.evidence = Some(input.evidence.clone());
         let answer = crate::direction::MarkGoalMetOutcome::Met { goal_met: crate::direction::GoalMet { goal_id: input.goal_id.clone(), evidence: input.evidence.clone() } };
         GoalStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -1240,6 +1242,8 @@ where
             goal_id: identity.clone(),
             title: input.title.clone(),
             exit_evidence: input.exit_evidence.clone(),
+            evidence: None,
+            reason: None,
         };
         let answer = crate::direction::ProposeGoalOutcome::Proposed { goal_proposed: crate::direction::GoalProposed { goal_id: identity.clone(), title: input.title.clone() } };
         GoalStorage::put(&mut self.ports, crate::direction::AnyGoal::Draft(crate::direction::Goal::new(data)).snapshot());
@@ -3283,6 +3287,8 @@ where
                 state: held.state,
                 title: held.data.title,
                 exit_evidence: held.data.exit_evidence,
+                evidence: held.data.evidence,
+                reason: held.data.reason,
             })
             .collect())
     }

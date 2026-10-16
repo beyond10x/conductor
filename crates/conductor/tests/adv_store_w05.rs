@@ -437,6 +437,8 @@ fn adv_w05_two_handles_inside_a_runtime_keep_exists_and_moved() {
                     goal_id: id("G1"),
                     title: "From the second handle".to_owned(),
                     exit_evidence: "e".to_owned(),
+                    evidence: None,
+                    reason: None,
                 },
             },
         );
@@ -699,6 +701,8 @@ fn adv_w05_a_get_on_an_id_no_stream_can_carry_answers_absent_on_every_port() {
                     goal_id: id("G1"),
                     title: "After".to_owned(),
                     exit_evidence: "e".to_owned(),
+                    evidence: None,
+                    reason: None,
                 },
             },
         );

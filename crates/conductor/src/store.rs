@@ -1124,6 +1124,8 @@ fn encode_goal(goal: &GoalSnapshot) -> Value {
         "goal_id": goal.data.goal_id.0,
         "title": goal.data.title,
         "exit_evidence": goal.data.exit_evidence,
+        "evidence": goal.data.evidence,
+        "reason": goal.data.reason,
     })
 }
 
@@ -1135,8 +1137,20 @@ fn decode_goal(body: &Value) -> Result<GoalSnapshot, String> {
             goal_id: GoalId(text(body, "goal_id")?),
             title: text(body, "title")?,
             exit_evidence: text(body, "exit_evidence")?,
+            evidence: goal_note(body, "evidence")?,
+            reason: goal_note(body, "reason")?,
         },
     })
+}
+
+/// A goal's `evidence` or `reason`: absent or null when the goal was not met or dropped, as every
+/// goal recorded before the store kept them is.
+fn goal_note(body: &Value, field: &str) -> Result<Option<String>, String> {
+    match body.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(note)) => Ok(Some(note.clone())),
+        Some(other) => Err(format!("{field} is {other}, not a string")),
+    }
 }
 
 /// The state's name as the specification spells it. Exhaustive, so a state the specification adds
