@@ -24,6 +24,11 @@ The operator's process-supervision plan of 2026-10-16. On the host that day, ses
 - **C3:** a Processes panel on the dashboard, from `proc ls --json`. The owner links to its session; expired leases and `--keep` records older than 24 h are highlighted.
 - **C4:** the controller and worker profiles require `conductor proc` for anything that outlives one tool call.
 - **C6:** the watch sweeps `proc stop --expired` and reports `--keep` records.
+- **C7 watchers:** `conductor watch add --on <trigger> --deadline <dur> [--notify <session>]`. The triggers are `exit:<proc>`, `log:<proc>:<regex>`, `file:<path>:<regex>` and `port:<n>`. A watcher always resolves exactly once: it matched, the process exited without a match, or the deadline passed. A watcher without a deadline is refused. It comes after C1 and Substrate's S12, the per-process event stream.
+- **C8:** the resolution arrives in the owning session as a message over the cross-session route. It carries the watcher id, the outcome, the matched line or exit code, the elapsed time, and on failure the last 20 log lines.
+- **C9:** the controller and worker profiles forbid `until`/`sleep`/`inotifywait`/`tail --pid` wait loops. A session registers a watcher and ends its turn. This is the product form of rules items 139 and 143.
+
+Evidence for C7–C9, 2026-10-15 and 2026-10-16: 23 wait loops of conductor-dev's sub-agents ran for a day, and one loop spun on a missing `inotifywait`.
 
 ## Depends on
 
