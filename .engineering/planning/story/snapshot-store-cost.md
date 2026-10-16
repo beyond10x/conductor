@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:snapshot-store-cost
 kind: story
-status: draft
+status: implemented
 title: A snapshot reads the store in proportion to what changed, not all of it
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T15:45:11Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T15:45:11Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T15:45:11Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: snapshot-store-cost
 

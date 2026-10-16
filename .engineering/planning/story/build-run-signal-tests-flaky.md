@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:build-run-signal-tests-flaky
 kind: story
-status: draft
+status: implemented
 title: The build-run signal tests never time out at random
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T15:45:11Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T15:45:11Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T15:45:12Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: build-run-signal-tests-flaky
 

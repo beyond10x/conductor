@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:need-id-unique
 kind: story
-status: draft
+status: implemented
 title: Each NEED carries an id that was never used before
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T15:45:12Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T15:45:12Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T15:45:12Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: need-id-unique
 

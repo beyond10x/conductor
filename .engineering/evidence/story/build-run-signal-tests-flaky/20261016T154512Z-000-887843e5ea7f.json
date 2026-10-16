@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-16T15:45:12Z",
+  "actor": "human:timo",
+  "artifact": "story:build-run-signal-tests-flaky",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "local task check green at fb9a675f (wave/38-r4, gate-r4-3.log: 1230 passed, conformance 391/391); CI on PR #66"
+  }
+}
