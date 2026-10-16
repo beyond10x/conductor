@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5ddb8df81a2c0e205847c6f6cb31e77e262166eb7053522580896870e3a376ce
-// contract digest 038e16f0bac76ad1e4983cd58c36c8c3f8384b04da2a8965b7cc9f309c169434
+// model digest 7550bf1865317faf569ae692a77f78f85deb91c97eb60a6a6fa2949ddf3148c6
+// contract digest 330056d4ec2a994a2b1d891ec78741d11dbb548b07dfa4a801d9bf6afd20781c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -234,6 +234,60 @@ pub trait ReclaimRunStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::host::ReclaimRunSnapshot>;
+}
+
+/// Where `conductor.improvement.FrictionFinding` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `finding_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait FrictionFindingStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::improvement::FindingId) -> Option<crate::improvement::FrictionFindingSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::improvement::FrictionFindingSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::improvement::FindingId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::improvement::FrictionFindingSnapshot>;
+}
+
+/// Where `conductor.improvement.Metric` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `metric_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait MetricStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::improvement::MetricId) -> Option<crate::improvement::MetricSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::improvement::MetricSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::improvement::MetricId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::improvement::MetricSnapshot>;
+}
+
+/// Where `conductor.improvement.MetricReading` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `reading_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait MetricReadingStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::improvement::MetricReadingId) -> Option<crate::improvement::MetricReadingSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::improvement::MetricReadingSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::improvement::MetricReadingId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::improvement::MetricReadingSnapshot>;
 }
 
 /// Where `conductor.observation.BlockerObservation` is stored — a port the implementor provides.
@@ -2164,6 +2218,207 @@ where
     }
 }
 
+/// `conductor.improvement.DefineMetric`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::DefineMetricBehavior for Generated<P>
+where
+    P: MetricStorage,
+{
+    fn define_metric(&mut self, input: crate::improvement::DefineMetric) -> Result<crate::improvement::DefineMetricOutcome, UnmetObligation> {
+        let _ = &input;
+        // `already-defined`: an identity a record already carries, before any branch is taken.
+        if MetricStorage::get(&self.ports, &input.metric_id).is_some() {
+            return Ok(crate::improvement::DefineMetricOutcome::AlreadyDefined { error: crate::improvement::MetricExists { metric_id: input.metric_id.clone() } });
+        }
+        // `defined`: the default.
+        let identity: crate::improvement::MetricId = input.metric_id.clone();
+        let data = crate::improvement::MetricData {
+            metric_id: identity.clone(),
+            name: input.name.clone(),
+            unit: input.unit.clone(),
+            instrument: input.instrument.clone(),
+            definition: input.definition.clone(),
+            baseline: input.baseline.clone(),
+            baseline_period: input.baseline_period.clone(),
+            target: None,
+            direction: None,
+            target_owner: None,
+            target_set_at: None,
+        };
+        let answer = crate::improvement::DefineMetricOutcome::Defined { metric_defined: crate::improvement::MetricDefined { metric_id: identity.clone(), name: input.name.clone(), unit: input.unit.clone() } };
+        MetricStorage::put(&mut self.ports, crate::improvement::AnyMetric::Untargeted(crate::improvement::Metric::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.improvement.FileFinding`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::FileFindingBehavior for Generated<P>
+where
+    P: FrictionFindingStorage,
+{
+    fn file_finding(&mut self, input: crate::improvement::FileFinding) -> Result<crate::improvement::FileFindingOutcome, UnmetObligation> {
+        let _ = &input;
+        // `filed`: the default.
+        let Some(held) = FrictionFindingStorage::get(&self.ports, &input.finding_id) else {
+            return Ok(crate::improvement::FileFindingOutcome::NoSuchFinding { error: crate::improvement::FindingNotFound { finding_id: input.finding_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::improvement::AnyFrictionFinding::Open(instance) => crate::improvement::AnyFrictionFinding::Filed(instance.file()),
+            _ => return Ok(crate::improvement::FileFindingOutcome::WrongState { error: crate::improvement::FindingStateConflict { finding_id: input.finding_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.story = Some(input.story.clone());
+        let answer = crate::improvement::FileFindingOutcome::Filed { finding_filed: crate::improvement::FindingFiled { finding_id: input.finding_id.clone(), story: input.story.clone() } };
+        FrictionFindingStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.improvement.RaiseFinding`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::RaiseFindingBehavior for Generated<P>
+where
+    P: FrictionFindingStorage + MetricStorage,
+{
+    fn raise_finding(&mut self, input: crate::improvement::RaiseFinding) -> Result<crate::improvement::RaiseFindingOutcome, UnmetObligation> {
+        let _ = &input;
+        // `already-raised`: an identity a record already carries, before any branch is taken.
+        if FrictionFindingStorage::get(&self.ports, &input.finding_id).is_some() {
+            return Ok(crate::improvement::RaiseFindingOutcome::AlreadyRaised { error: crate::improvement::FindingExists { finding_id: input.finding_id.clone() } });
+        }
+        // `when_related:` reads the `conductor.improvement.Metric` row `input.metric_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.metric_id);
+        let related = reference.and_then(|identity| MetricStorage::get(&self.ports, identity));
+        // `no-such-metric`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::improvement::RaiseFindingOutcome::NoSuchMetric { error: crate::improvement::MetricNotFound { metric_id: input.metric_id.clone() } });
+        }
+        let _ = &related;
+        // `raised`: the default.
+        let identity: crate::improvement::FindingId = input.finding_id.clone();
+        let data = crate::improvement::FrictionFindingData {
+            finding_id: identity.clone(),
+            signature: input.signature.clone(),
+            evidence: input.evidence.clone(),
+            metric_id: input.metric_id.clone(),
+            raised_at: input.raised_at.clone(),
+            story: None,
+            verdict: None,
+        };
+        let answer = crate::improvement::RaiseFindingOutcome::Raised { finding_raised: crate::improvement::FindingRaised { finding_id: identity.clone(), signature: input.signature.clone(), evidence: input.evidence.clone(), metric_id: input.metric_id.clone() } };
+        FrictionFindingStorage::put(&mut self.ports, crate::improvement::AnyFrictionFinding::Open(crate::improvement::FrictionFinding::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.improvement.RecordMetricReading`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::RecordMetricReadingBehavior for Generated<P>
+where
+    P: MetricStorage + MetricReadingStorage,
+{
+    fn record_metric_reading(&mut self, input: crate::improvement::RecordMetricReading) -> Result<crate::improvement::RecordMetricReadingOutcome, UnmetObligation> {
+        let _ = &input;
+        // `already-recorded`: an identity a record already carries, before any branch is taken.
+        if MetricReadingStorage::get(&self.ports, &input.reading_id).is_some() {
+            return Ok(crate::improvement::RecordMetricReadingOutcome::AlreadyRecorded { error: crate::improvement::MetricReadingExists { reading_id: input.reading_id.clone() } });
+        }
+        // `when_related:` reads the `conductor.improvement.Metric` row `input.metric_id` names, through its storage port; an absent
+        // reference reads no row and selects no related branch.
+        let reference = Some(&input.metric_id);
+        let related = reference.and_then(|identity| MetricStorage::get(&self.ports, identity));
+        // `no-such-metric`: the reference names an identity no row carries.
+        if reference.is_some() && related.is_none() {
+            return Ok(crate::improvement::RecordMetricReadingOutcome::NoSuchMetric { error: crate::improvement::MetricNotFound { metric_id: input.metric_id.clone() } });
+        }
+        let _ = &related;
+        // `recorded`: the default.
+        let identity: crate::improvement::MetricReadingId = input.reading_id.clone();
+        let data = crate::improvement::MetricReadingData {
+            reading_id: identity.clone(),
+            metric_id: input.metric_id.clone(),
+            day: input.day.clone(),
+            scope: input.scope.clone(),
+            value: input.value.clone(),
+            sources: input.sources.clone(),
+            target: input.target.clone(),
+            met: input.met.clone(),
+            recorded_at: input.recorded_at.clone(),
+        };
+        let answer = crate::improvement::RecordMetricReadingOutcome::Recorded { metric_reading_recorded: crate::improvement::MetricReadingRecorded { reading_id: identity.clone(), metric_id: input.metric_id.clone(), day: input.day.clone(), scope: input.scope.clone(), value: input.value.clone() } };
+        MetricReadingStorage::put(&mut self.ports, crate::improvement::AnyMetricReading::Recorded(crate::improvement::MetricReading::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+impl<P: crate::improvement::obligations::SetMetricTargetBehavior> crate::improvement::obligations::SetMetricTargetBehavior for Generated<P> {
+    fn set_metric_target(&mut self, input: crate::improvement::SetMetricTarget) -> Result<crate::improvement::SetMetricTargetOutcome, UnmetObligation> {
+        crate::improvement::obligations::SetMetricTargetBehavior::set_metric_target(&mut self.ports, input)
+    }
+}
+
+/// `conductor.improvement.SupersedeMetricReading`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::SupersedeMetricReadingBehavior for Generated<P>
+where
+    P: MetricReadingStorage,
+{
+    fn supersede_metric_reading(&mut self, input: crate::improvement::SupersedeMetricReading) -> Result<crate::improvement::SupersedeMetricReadingOutcome, UnmetObligation> {
+        let _ = &input;
+        // `superseded`: the default.
+        let Some(held) = MetricReadingStorage::get(&self.ports, &input.reading_id) else {
+            return Ok(crate::improvement::SupersedeMetricReadingOutcome::NoSuchReading { error: crate::improvement::MetricReadingNotFound { reading_id: input.reading_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::improvement::AnyMetricReading::Recorded(instance) => crate::improvement::AnyMetricReading::Superseded(instance.supersede()),
+            _ => return Ok(crate::improvement::SupersedeMetricReadingOutcome::WrongState { error: crate::improvement::MetricReadingStateConflict { reading_id: input.reading_id.clone() } }),
+        };
+        let next = moved.snapshot();
+        let answer = crate::improvement::SupersedeMetricReadingOutcome::Superseded { metric_reading_superseded: crate::improvement::MetricReadingSuperseded { reading_id: input.reading_id.clone(), by: input.by.clone() } };
+        MetricReadingStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
+/// `conductor.improvement.VerifyFinding`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::VerifyFindingBehavior for Generated<P>
+where
+    P: FrictionFindingStorage,
+{
+    fn verify_finding(&mut self, input: crate::improvement::VerifyFinding) -> Result<crate::improvement::VerifyFindingOutcome, UnmetObligation> {
+        let _ = &input;
+        // `verified`: an accepting branch, in declaration order.
+        if decided(equal(Some(&input.moved).map(|value| *value), Some(true)), "conductor.improvement.VerifyFinding")? {
+            let Some(held) = FrictionFindingStorage::get(&self.ports, &input.finding_id) else {
+                return Ok(crate::improvement::VerifyFindingOutcome::NoSuchFinding { error: crate::improvement::FindingNotFound { finding_id: input.finding_id.clone() } });
+            };
+            let _ = &held;
+            let moved = match held.refine() {
+                crate::improvement::AnyFrictionFinding::Filed(instance) => crate::improvement::AnyFrictionFinding::Verified(instance.verify()),
+                _ => return Ok(crate::improvement::VerifyFindingOutcome::WrongState { error: crate::improvement::FindingStateConflict { finding_id: input.finding_id.clone() } }),
+            };
+            let mut next = moved.snapshot();
+            next.data.verdict = Some(input.verdict.clone());
+            let answer = crate::improvement::VerifyFindingOutcome::Verified { finding_verified: crate::improvement::FindingVerified { finding_id: input.finding_id.clone(), verdict: input.verdict.clone() } };
+            FrictionFindingStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `closed`: the default.
+        let Some(held) = FrictionFindingStorage::get(&self.ports, &input.finding_id) else {
+            return Ok(crate::improvement::VerifyFindingOutcome::NoSuchFinding { error: crate::improvement::FindingNotFound { finding_id: input.finding_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::improvement::AnyFrictionFinding::Filed(instance) => crate::improvement::AnyFrictionFinding::Closed(instance.close()),
+            _ => return Ok(crate::improvement::VerifyFindingOutcome::WrongState { error: crate::improvement::FindingStateConflict { finding_id: input.finding_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.verdict = Some(input.verdict.clone());
+        let answer = crate::improvement::VerifyFindingOutcome::Closed { finding_closed: crate::improvement::FindingClosed { finding_id: input.finding_id.clone(), verdict: input.verdict.clone() } };
+        FrictionFindingStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
 /// `conductor.observation.CompleteSnapshot`, generated: every outcome is one the specification fully determines.
 impl<P> crate::observation::obligations::CompleteSnapshotBehavior for Generated<P>
 where
@@ -3217,6 +3472,132 @@ where
                 shortfall_bytes: held.data.shortfall_bytes,
                 left: held.data.left,
                 ran_at: held.data.ran_at,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.improvement.Findings`, generated: every row is one the specification fully determines from the stored `conductor.improvement.FrictionFinding`s.
+impl<P> crate::improvement::obligations::FindingsQuery for Generated<P>
+where
+    P: FrictionFindingStorage,
+{
+    fn findings(&self) -> Result<Vec<crate::improvement::Findings>, UnmetObligation> {
+        let admitted = FrictionFindingStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::improvement::Findings {
+                finding_id: held.data.finding_id,
+                state: held.state,
+                signature: held.data.signature,
+                evidence: held.data.evidence,
+                metric_id: held.data.metric_id,
+                raised_at: held.data.raised_at,
+                story: held.data.story,
+                verdict: held.data.verdict,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.improvement.KpiReadings`, generated: every row is one the specification fully determines from the stored `conductor.improvement.MetricReading`s.
+impl<P> crate::improvement::obligations::KpiReadingsQuery for Generated<P>
+where
+    P: MetricReadingStorage,
+{
+    fn kpi_readings(&self) -> Result<Vec<crate::improvement::KpiReadings>, UnmetObligation> {
+        let mut admitted = MetricReadingStorage::list(&self.ports);
+        // `filter:` shows a row where it holds; false or unknown hides it.
+        admitted.retain(|held| all(&[equal(Some(&held.state).map(|value| match value { crate::improvement::MetricReadingState::Recorded => "Recorded", crate::improvement::MetricReadingState::Superseded => "Superseded" }.to_owned()), Some("Recorded".to_owned())), equal(Some(&held.data.scope).map(|value| value.clone()), Some("instance".to_owned())), Some(Some(&held.data.target).and_then(|value| value.as_ref()).is_some())]) == Some(true));
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::improvement::KpiReadings {
+                metric_id: held.data.metric_id,
+                scope: held.data.scope,
+                day: held.data.day,
+                value: held.data.value,
+                target: held.data.target,
+                met: held.data.met,
+                reading_id: held.data.reading_id,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.improvement.Kpis`, generated: every row is one the specification fully determines from the stored `conductor.improvement.Metric`s.
+impl<P> crate::improvement::obligations::KpisQuery for Generated<P>
+where
+    P: MetricStorage,
+{
+    fn kpis(&self) -> Result<Vec<crate::improvement::Kpis>, UnmetObligation> {
+        let mut admitted = MetricStorage::list(&self.ports);
+        // `filter:` shows a row where it holds; false or unknown hides it.
+        admitted.retain(|held| equal(Some(&held.state).map(|value| match value { crate::improvement::MetricState::Targeted => "Targeted", crate::improvement::MetricState::Untargeted => "Untargeted" }.to_owned()), Some("Targeted".to_owned())) == Some(true));
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::improvement::Kpis {
+                metric_id: held.data.metric_id,
+                state: held.state,
+                name: held.data.name,
+                unit: held.data.unit,
+                instrument: held.data.instrument,
+                baseline: held.data.baseline,
+                target: held.data.target,
+                direction: held.data.direction,
+                target_owner: held.data.target_owner,
+                target_set_at: held.data.target_set_at,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.improvement.MetricReadings`, generated: every row is one the specification fully determines from the stored `conductor.improvement.MetricReading`s.
+impl<P> crate::improvement::obligations::MetricReadingsQuery for Generated<P>
+where
+    P: MetricReadingStorage,
+{
+    fn metric_readings(&self) -> Result<Vec<crate::improvement::MetricReadings>, UnmetObligation> {
+        let admitted = MetricReadingStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::improvement::MetricReadings {
+                reading_id: held.data.reading_id,
+                state: held.state,
+                metric_id: held.data.metric_id,
+                day: held.data.day,
+                scope: held.data.scope,
+                value: held.data.value,
+                sources: held.data.sources,
+                target: held.data.target,
+                met: held.data.met,
+                recorded_at: held.data.recorded_at,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.improvement.Metrics`, generated: every row is one the specification fully determines from the stored `conductor.improvement.Metric`s.
+impl<P> crate::improvement::obligations::MetricsQuery for Generated<P>
+where
+    P: MetricStorage,
+{
+    fn metrics(&self) -> Result<Vec<crate::improvement::Metrics>, UnmetObligation> {
+        let admitted = MetricStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::improvement::Metrics {
+                metric_id: held.data.metric_id,
+                state: held.state,
+                name: held.data.name,
+                unit: held.data.unit,
+                instrument: held.data.instrument,
+                definition: held.data.definition,
+                baseline: held.data.baseline,
+                baseline_period: held.data.baseline_period,
+                target: held.data.target,
+                direction: held.data.direction,
+                target_owner: held.data.target_owner,
+                target_set_at: held.data.target_set_at,
             })
             .collect())
     }

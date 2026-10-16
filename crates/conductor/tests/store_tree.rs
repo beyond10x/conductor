@@ -386,13 +386,22 @@ fn file_store_counts(root: &Path) -> BTreeMap<String, (usize, usize)> {
 /// `a_member_whose_fetch_fails_is_a_member_failure_and_the_others_are_read` reads `snapshot
 /// member-failures`, and `snapshot-collector-runs` by `tests/snapshot.rs`, whose
 /// `each_collectors_run_is_recorded_with_its_duration` reads `snapshot collector-runs`. `host-grants`
-/// is read by `tests/build_run.rs`; `host-reclaim-runs` has no handler yet.
-const NOT_IN_FIXTURE: [&str; 5] = [
+/// is read by `tests/build_run.rs`. `metric-metrics`, `metric-kpis`, `metric-metric-readings` and
+/// `metric-kpi-readings` are read by `tests/metric.rs` (`story:kpi-records`), whose
+/// `a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_target` and
+/// `the_metric_commands_answer_their_declared_refusals` read all four. `host-reclaim-runs` and
+/// `finding-findings` have no handler yet.
+const NOT_IN_FIXTURE: [&str; 10] = [
     "session-leases",
     "snapshot-member-failures",
     "snapshot-collector-runs",
     "host-grants",
     "host-reclaim-runs",
+    "metric-metrics",
+    "metric-kpis",
+    "metric-metric-readings",
+    "metric-kpi-readings",
+    "finding-findings",
 ];
 
 /// The fixture covers every view of the `cli:` block that reads the store, but those
