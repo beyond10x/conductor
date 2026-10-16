@@ -335,6 +335,7 @@ fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
                     command: Some("cargo test".to_owned()),
                     process_group: None,
                     session_name: None,
+                    session_id: None,
                     reclaimed_bytes: None,
                     shortfall_bytes: None,
                     requested_at: at(requested),

@@ -1657,7 +1657,7 @@ Usage: conductor host release-grant [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
-| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`. |
+| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
 | `--released-at <RELEASED_AT>` | no | none | timestamp, RFC 3339 |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
@@ -1674,6 +1674,7 @@ Usage: conductor host request-disk [OPTIONS]
 | `--instance <INSTANCE>` | no | none | InstanceName |
 | `--repository <REPOSITORY>` | no | none | RepositoryName, optional |
 | `--session-name <SESSION_NAME>` | no | none | SessionName, optional |
+| `--session-id <SESSION_ID>` | no | none | SessionId, optional |
 | `--bytes <BYTES>` | no | none | integer |
 | `--command <COMMAND>` | no | none | string |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
@@ -1739,6 +1740,7 @@ Usage: conductor host withdraw-disk-request [OPTIONS]
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--withdrawn-at <WITHDRAWN_AT>` | no | none | timestamp, RFC 3339 |
+| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host grants`

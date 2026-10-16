@@ -306,6 +306,7 @@ impl Case {
                         command: Some("cargo test".to_owned()),
                         process_group: None,
                         session_name: None,
+                        session_id: None,
                         reclaimed_bytes: None,
                         shortfall_bytes: None,
                         requested_at: at(requested),

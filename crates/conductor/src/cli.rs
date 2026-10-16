@@ -1876,7 +1876,7 @@ pub struct ReleaseGrantArgs {
     #[arg(long)]
     pub grant_id: Option<String>,
     /// ReleaseReason, optional
-    #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone"])]
+    #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone", "SessionStopped"])]
     pub reason: Option<String>,
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
@@ -1898,6 +1898,9 @@ pub struct RequestDiskArgs {
     /// SessionName, optional
     #[arg(long)]
     pub session_name: Option<String>,
+    /// SessionId, optional
+    #[arg(long)]
+    pub session_id: Option<String>,
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub bytes: Option<i64>,
@@ -2136,6 +2139,9 @@ pub struct WithdrawDiskRequestArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub withdrawn_at: Option<String>,
+    /// ReleaseReason, optional
+    #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone", "SessionStopped"])]
+    pub reason: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

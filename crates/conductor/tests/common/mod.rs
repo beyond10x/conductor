@@ -12,12 +12,15 @@ use conductor_cli::config::{CONFIG_VARIABLE, INSTANCE_VARIABLE};
 /// the tests run in, decides what it reads. A case that wants a config file sets
 /// `CONDUCTOR_CONFIG` on the command afterwards; one that clears the environment sets `HOME`
 /// again after `env_clear`. A case that needs only the binary's path, to put it on a `PATH`,
-/// reads it as the command's program.
+/// reads it as the command's program. The harness session the tests run in is not named either
+/// (`CLAUDE_CODE_SESSION_ID`), so no `build run` binds its request to it and reads the real
+/// session list (`story:build-run-session-bound`); a case that wants one sets it.
 pub fn conductor(home: impl AsRef<Path>) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_conductor"));
     command
         .env("HOME", home.as_ref())
         .env_remove(CONFIG_VARIABLE)
-        .env_remove(INSTANCE_VARIABLE);
+        .env_remove(INSTANCE_VARIABLE)
+        .env_remove("CLAUDE_CODE_SESSION_ID");
     command
 }

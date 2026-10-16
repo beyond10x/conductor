@@ -8,6 +8,7 @@ use conductor_model::config::{InstanceName, SessionName};
 use conductor_model::host::{GrantId, HostGrantData, HostGrantSnapshot};
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::Timestamp;
+use conductor_model::session::SessionId;
 use serde_json::{Value, json};
 
 use super::{DELETED, STORED, Store, StoreError, text, undecodable};
@@ -78,6 +79,7 @@ fn encode(grant: &HostGrantSnapshot) -> Value {
         "command": data.command,
         "process_group": data.process_group,
         "session_name": data.session_name.as_ref().map(|name| &name.0),
+        "session_id": data.session_id.as_ref().map(|id| &id.0),
         "reclaimed_bytes": data.reclaimed_bytes,
         "shortfall_bytes": data.shortfall_bytes,
         "requested_at": data.requested_at.0,
@@ -103,6 +105,7 @@ fn decode(body: &Value) -> Result<HostGrantSnapshot, String> {
             command: optional_text(body, "command")?,
             process_group: optional_integer(body, "process_group")?,
             session_name: optional_text(body, "session_name")?.map(SessionName),
+            session_id: optional_text(body, "session_id")?.map(SessionId),
             reclaimed_bytes: optional_integer(body, "reclaimed_bytes")?,
             shortfall_bytes: optional_integer(body, "shortfall_bytes")?,
             requested_at: Timestamp(text(body, "requested_at")?),
