@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 7fffacab87d5c8b1fbe8203d67e3221d7bea0b955c7147bae232169725464120
-  contract digest 0370fde147cddf13ea0c3d738fe924b0e63892ab2a0aa0aa4b376914d5159e8c
+  model digest 9a6703b0827f819c67385c1d2f48a0a266da464975a9c677ca4f1cc577e59c6d
+  contract digest 4c9d1ece3a6a3f1887eb30feb4485b2fb67bd24b424ad0dcad73c377cf04299f
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-589 capabilities: **573 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+592 capabilities: **576 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -240,6 +240,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.observation.UsageObservation` |
 | entity lifecycle | `conductor.observation.WorkflowRunObservation` |
 | entity lifecycle | `conductor.session.Lease` |
+| command contract | `conductor.decision.AmendEscalatedRequest` |
+| command behaviour | `conductor.decision.AmendEscalatedRequest` |
 | command contract | `conductor.decision.AnswerEscalatedRequest` |
 | command behaviour | `conductor.decision.AnswerEscalatedRequest` |
 | command contract | `conductor.decision.AnswerRequest` |
@@ -387,6 +389,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | event type | `conductor.decision.DecisionRecorded` |
 | event type | `conductor.decision.DecisionRequested` |
 | event type | `conductor.decision.DecisionReversedEvent` |
+| event type | `conductor.decision.RequestAmended` |
 | event type | `conductor.decision.RequestAnswered` |
 | event type | `conductor.decision.RequestEscalated` |
 | event type | `conductor.decision.RequestWithdrawn` |
@@ -610,7 +613,7 @@ What the specification fully determines is generated; what it cannot determine i
 
 | capability | source | stage | why |
 | --- | --- | --- | --- |
-| actor grants | `conductor.decision.Conductor` | planning | may invoke `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.decision.Conductor` | planning | may invoke `conductor.decision.AmendEscalatedRequest`, `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.decision.Operator` | planning | may invoke `conductor.decision.AnswerEscalatedRequest`, `conductor.decision.RecordOperatorDecision`, `conductor.decision.RecordOperatorDecisionForRequest`, `conductor.decision.ReverseOperatorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.decision.RepositoryController` | planning | may invoke `conductor.decision.RaiseDecisionRequest`, `conductor.decision.WithdrawRequest`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.direction.Conductor` | planning | may invoke `conductor.direction.ActivateRepository`, `conductor.direction.AddServing`, `conductor.direction.DeactivateRepository`, `conductor.direction.MarkGoalMet`, `conductor.direction.MarkRepository`, `conductor.direction.ProposeGoal`, `conductor.direction.RemoveServing`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |

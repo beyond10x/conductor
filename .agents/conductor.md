@@ -213,6 +213,12 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   `,` for `several-of`) and `--deadline` (RFC 3339: when the default stands). A class-O
   escalation without them is refused; give a class-H one them as well. The dashboard's
   Decisions page shows each open item with them.
+- **Complete an escalated item in place.** Complete an escalated item with `conductor decision
+  amend-escalated-request --request-id <id> --reason <r>`, not by text and not by withdrawing and
+  raising it again: add `--kind`, `--lettered-options` (the JSON array; the options given replace
+  the held ones), `--recommended-letters`, `--default-letters`, `--deadline` (RFC 3339) and
+  `--dry-run <text>` (the text, not a file). A field left out stays as escalated; a default or
+  recommended letter that names no option is refused, as is a request that is not escalated.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.

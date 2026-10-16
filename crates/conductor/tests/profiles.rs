@@ -313,6 +313,29 @@ fn conductor_gives_every_escalation_its_kind_options_costs_recommendation_defaul
     );
 }
 
+/// `story:request-amend-escalated`: conductor completes an escalated item in place with
+/// `decision amend-escalated-request`, not by sending it again as text.
+#[test]
+fn conductor_completes_an_escalated_item_with_amend_escalated_request() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "Complete an escalated item with `conductor decision amend-escalated-request \
+             --request-id <id> --reason <r>`, not by text"
+        ),
+        "conductor.md: an escalated item is completed with the command"
+    );
+    for flag in [
+        "`--lettered-options`",
+        "`--recommended-letters`",
+        "`--default-letters`",
+        "`--deadline`",
+        "`--dry-run <text>`",
+    ] {
+        assert!(text.contains(flag), "conductor.md: names {flag}");
+    }
+}
+
 /// `story:self-arming-restart`: the restart prompt arms the jobs and the watch, so a hand-over
 /// keeps only open work.
 #[test]

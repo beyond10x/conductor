@@ -244,7 +244,7 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
 /// `tests/usage_probe.rs` (`story:usage-probe`); the `metric` leaves by `tests/metric.rs`
 /// (`story:kpi-records`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 98] = [
+const IMPLEMENTED: [&str; 99] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -287,6 +287,7 @@ const IMPLEMENTED: [&str; 98] = [
     "repository deactivate-repository",
     "repository mark-repository",
     "repository repository-marks",
+    "decision amend-escalated-request",
     "decision answer-escalated-request",
     "decision answer-request",
     "decision escalate-request",

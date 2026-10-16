@@ -130,17 +130,19 @@ pub const fn decision_event(event: DecisionLogEvent) -> &'static str {
         DecisionLogEvent::Requested => "requested",
         DecisionLogEvent::Answered => "answered",
         DecisionLogEvent::Escalated => "escalated",
+        DecisionLogEvent::Amended => "amended",
         DecisionLogEvent::Withdrawn => "withdrawn",
         DecisionLogEvent::Reversed => "reversed",
     }
 }
 
 /// Every event of the decision log, for telling a decision line in the dispatch log.
-const DECISION_EVENTS: [DecisionLogEvent; 6] = [
+const DECISION_EVENTS: [DecisionLogEvent; 7] = [
     DecisionLogEvent::Decided,
     DecisionLogEvent::Requested,
     DecisionLogEvent::Answered,
     DecisionLogEvent::Escalated,
+    DecisionLogEvent::Amended,
     DecisionLogEvent::Withdrawn,
     DecisionLogEvent::Reversed,
 ];

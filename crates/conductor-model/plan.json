@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "7fffacab87d5c8b1fbe8203d67e3221d7bea0b955c7147bae232169725464120",
-    "contract_digest": "0370fde147cddf13ea0c3d738fe924b0e63892ab2a0aa0aa4b376914d5159e8c"
+    "source_digest": "9a6703b0827f819c67385c1d2f48a0a266da464975a9c677ca4f1cc577e59c6d",
+    "contract_digest": "4c9d1ece3a6a3f1887eb30feb4485b2fb67bd24b424ad0dcad73c377cf04299f"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -1594,6 +1594,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.decision.AmendEscalatedRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.decision.AmendEscalatedRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.decision.AnswerEscalatedRequest",
       "disposition": {
         "disposition": "generated"
@@ -2665,6 +2679,13 @@
     {
       "kind": "event_type",
       "source": "conductor.decision.DecisionReversedEvent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.decision.RequestAmended",
       "disposition": {
         "disposition": "generated"
       }
@@ -4069,7 +4090,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.decision.AmendEscalatedRequest`, `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {

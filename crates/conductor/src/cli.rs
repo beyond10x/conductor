@@ -286,6 +286,9 @@ impl Cli {
                     decide::answer_escalated_request(state, args)
                 }
                 DecisionCommand::EscalateRequest(args) => decide::escalate_request(state, args),
+                DecisionCommand::AmendEscalatedRequest(args) => {
+                    decide::amend_escalated_request(state, args)
+                }
                 DecisionCommand::WithdrawRequest(args) => decide::withdraw_request(state, args),
                 DecisionCommand::ReverseConductorDecision(args) => {
                     decide::reverse_conductor_decision(state, args)
@@ -659,6 +662,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     ),
     (&["decision", "answer-request"], Access::Writes),
     (&["decision", "escalate-request"], Access::Writes),
+    (&["decision", "amend-escalated-request"], Access::Writes),
     (&["decision", "raise-decision-request"], Access::Writes),
     (&["decision", "record-conductor-decision"], Access::Writes),
     (&["decision", "record-operator-decision"], Access::Writes),
@@ -960,6 +964,10 @@ pub enum RepositoryCommand {
 /// `conductor decision`: decision requests and the decisions that answer them.
 #[derive(Debug, Subcommand)]
 pub enum DecisionCommand {
+    /// Amend an escalated decision request
+    #[command(name = "amend-escalated-request")]
+    AmendEscalatedRequest(AmendEscalatedRequestArgs),
+
     /// Answer an escalated decision request
     #[command(name = "answer-escalated-request")]
     AnswerEscalatedRequest(AnswerEscalatedRequestArgs),
@@ -3040,6 +3048,40 @@ pub struct EscalateRequestArgs {
     /// timestamp, RFC 3339: when the default stands. Required for class O
     #[arg(long, value_parser = timestamp)]
     pub deadline: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.decision.AmendEscalatedRequest` (`story:request-amend-escalated`). A
+/// field given replaces the held one; a field left out stays.
+#[derive(Debug, Clone, Args)]
+pub struct AmendEscalatedRequestArgs {
+    /// RequestId of the escalated request
+    #[arg(long)]
+    pub request_id: Option<String>,
+    /// Why the request is completed
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// RequestKind: how the operator answers
+    #[arg(long, value_parser = ["yes-no", "one-of", "several-of"])]
+    pub kind: Option<String>,
+    /// list of RequestOption, a JSON array of `{letter, label, cost}`; replaces the held options
+    #[arg(long, value_parser = json_list)]
+    pub lettered_options: Option<String>,
+    /// The letter conductor recommends, or several joined by `,` for `several-of`
+    #[arg(long, value_name = "LETTERS")]
+    pub recommended_letters: Option<String>,
+    /// The letter that stands when the operator has not answered by the deadline, or several
+    /// joined by `,` for `several-of`
+    #[arg(long, value_name = "LETTERS")]
+    pub default_letters: Option<String>,
+    /// timestamp, RFC 3339: when the default stands
+    #[arg(long, value_parser = timestamp)]
+    pub deadline: Option<String>,
+    /// The dry run of a class-H item, as text (not a file, unlike `escalate-request`)
+    #[arg(long, value_name = "TEXT")]
+    pub dry_run: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

@@ -48,17 +48,19 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage, Generated};
 use conductor_model::decision::obligations::{
-    AnswerEscalatedRequestBehavior, AnswerRequestBehavior, DecisionsQuery, EscalateRequestBehavior,
-    HandsTodoQuery, RaiseDecisionRequestBehavior, RecordConductorDecisionBehavior,
-    RecordOperatorDecisionBehavior, RecordOperatorDecisionForRequestBehavior, RequestsQuery,
-    ReverseConductorDecisionBehavior, ReverseOperatorDecisionBehavior, WithdrawRequestBehavior,
+    AmendEscalatedRequestBehavior, AnswerEscalatedRequestBehavior, AnswerRequestBehavior,
+    DecisionsQuery, EscalateRequestBehavior, HandsTodoQuery, RaiseDecisionRequestBehavior,
+    RecordConductorDecisionBehavior, RecordOperatorDecisionBehavior,
+    RecordOperatorDecisionForRequestBehavior, RequestsQuery, ReverseConductorDecisionBehavior,
+    ReverseOperatorDecisionBehavior, WithdrawRequestBehavior,
 };
 use conductor_model::decision::{
-    AnswerEscalatedRequest, AnswerEscalatedRequestOutcome, AnswerRequest, AnswerRequestOutcome,
-    Decider, DecisionClass, DecisionId, DecisionLogEvent, DecisionLogLine, DecisionRequestSnapshot,
-    DecisionRequestState, DecisionSnapshot, DecisionState, EscalateRequest, EscalateRequestOutcome,
-    RaiseDecisionRequest, RaiseDecisionRequestOutcome, RecordConductorDecision,
-    RecordConductorDecisionOutcome, RecordOperatorDecision, RecordOperatorDecisionForRequest,
+    AmendEscalatedRequest, AmendEscalatedRequestOutcome, AnswerEscalatedRequest,
+    AnswerEscalatedRequestOutcome, AnswerRequest, AnswerRequestOutcome, Decider, DecisionClass,
+    DecisionId, DecisionLogEvent, DecisionLogLine, DecisionRequestSnapshot, DecisionRequestState,
+    DecisionSnapshot, DecisionState, EscalateRequest, EscalateRequestOutcome, RaiseDecisionRequest,
+    RaiseDecisionRequestOutcome, RecordConductorDecision, RecordConductorDecisionOutcome,
+    RecordOperatorDecision, RecordOperatorDecisionForRequest,
     RecordOperatorDecisionForRequestOutcome, RecordOperatorDecisionOutcome, RequestId, RequestKind,
     RequestOption, ReverseConductorDecision, ReverseConductorDecisionOutcome,
     ReverseOperatorDecision, ReverseOperatorDecisionOutcome, ShowDecision, WithdrawRequest,
@@ -72,9 +74,9 @@ use time::format_description::well_known::Rfc3339;
 use time::{Date, Month, OffsetDateTime, UtcOffset};
 
 use crate::cli::{
-    AnswerEscalatedRequestArgs, AnswerRequestArgs, EscalateRequestArgs, Format, JsonInput,
-    RaiseDecisionRequestArgs, RecordConductorDecisionArgs, RecordOperatorDecisionArgs,
-    RecordOperatorDecisionForRequestArgs, ReverseConductorDecisionArgs,
+    AmendEscalatedRequestArgs, AnswerEscalatedRequestArgs, AnswerRequestArgs, EscalateRequestArgs,
+    Format, JsonInput, RaiseDecisionRequestArgs, RecordConductorDecisionArgs,
+    RecordOperatorDecisionArgs, RecordOperatorDecisionForRequestArgs, ReverseConductorDecisionArgs,
     ReverseOperatorDecisionArgs, ShowDecisionArgs, ViewArgs, WithdrawRequestArgs,
 };
 use crate::not_implemented;
@@ -1056,6 +1058,107 @@ fn escalate(
     }
 }
 
+/// `conductor decision amend-escalated-request`: the command
+/// `conductor.decision.AmendEscalatedRequest` (`story:request-amend-escalated`).
+///
+/// A field given replaces the held one and a field left out stays; the result is checked as an
+/// escalation is, before anything is written.
+///
+/// # Errors
+///
+/// `--reason` is missing, the store does not open or keep the change, the options do not fit
+/// (`OptionsInvalid`), or the specification refuses it: `RequestNotFound`,
+/// `RequestStateConflict` (the request is not escalated).
+pub fn amend_escalated_request(
+    state: Option<&Path>,
+    args: AmendEscalatedRequestArgs,
+) -> Result<ExitCode> {
+    const COMMAND: &str = "decision amend-escalated-request";
+    flags_only(
+        args.input_json,
+        "decision amend-escalated-request --input-json",
+    )?;
+    let request_id = RequestId(flag(COMMAND, "--request-id", args.request_id)?);
+    let reason = flag(COMMAND, "--reason", args.reason)?;
+    let invalid = |problem: String| {
+        anyhow!(
+            "{COMMAND}: OptionsInvalid: {problem}; request {:?} is unchanged",
+            request_id.0
+        )
+    };
+    let kind = args
+        .kind
+        .as_deref()
+        .map(|name| kind_named(name).ok_or_else(|| invalid(format!("{name:?} is no RequestKind"))))
+        .transpose()?;
+    let options = args
+        .lettered_options
+        .as_deref()
+        .map(lettered_options)
+        .transpose()
+        .map_err(invalid)?;
+    let mut input = AmendEscalatedRequest {
+        request_id: request_id.clone(),
+        reason: reason.clone(),
+        kind,
+        lettered_options: options,
+        recommended_letters: args.recommended_letters,
+        default_letters: args.default_letters,
+        deadline: args.deadline.map(Timestamp),
+        dry_run: args.dry_run,
+    };
+    let mut generated = record(COMMAND, state)?;
+    let held = DecisionRequestStorage::get(&generated.ports, &request_id);
+    kept(COMMAND, &generated.ports.store)?;
+    // The specification sets every field from the input, so a field left out is filled from the
+    // held request; a request that is not escalated is left to the specification's refusal.
+    if let Some(held) = held.filter(|held| held.state == DecisionRequestState::Escalated) {
+        let held = held.data;
+        input.kind = input.kind.or(held.kind);
+        input.lettered_options = input.lettered_options.or(held.lettered_options);
+        input.recommended_letters = input.recommended_letters.or(held.recommended_letters);
+        input.default_letters = input.default_letters.or(held.default_letters);
+        input.deadline = input.deadline.or(held.deadline);
+        input.dry_run = input.dry_run.or(held.dry_run);
+        let checked = Choices::check(
+            held.escalation_class.unwrap_or(DecisionClass::O),
+            input.kind,
+            input.lettered_options.clone(),
+            input.recommended_letters.as_deref(),
+            input.default_letters.as_deref(),
+            ["--recommended-letters", "--default-letters"],
+        )
+        .map_err(invalid)?;
+        input.recommended_letters = checked.recommended;
+        input.default_letters = checked.default;
+    }
+    let outcome = generated
+        .amend_escalated_request(input)
+        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+    kept(COMMAND, &generated.ports.store)?;
+    match outcome {
+        AmendEscalatedRequestOutcome::Amended { request_amended } => request_logged(
+            COMMAND,
+            &generated.ports,
+            &request_amended.request_id,
+            DecisionLogEvent::Amended,
+            |line| line.reason = Some(reason),
+        ),
+        AmendEscalatedRequestOutcome::NoSuchRequest { error } => {
+            refused(COMMAND, "RequestNotFound", &no_request(&error.request_id))
+        }
+        AmendEscalatedRequestOutcome::NotEscalated { error } => refused(
+            COMMAND,
+            "RequestStateConflict",
+            &format!(
+                "request {:?} is not escalated, and only an escalated request is amended; it is \
+                 unchanged",
+                error.request_id.0
+            ),
+        ),
+    }
+}
+
 /// What the dry run in `file` printed (`story:hand-item-dry-run`), its trailing whitespace dropped;
 /// a file that cannot be read is named, before any store is opened.
 fn dry_run_of(command: &str, file: &str) -> Result<String> {
@@ -1091,6 +1194,26 @@ impl Choices {
             .map(|name| kind_named(name).ok_or_else(|| format!("{name:?} is no RequestKind")))
             .transpose()?;
         let options = options.map(lettered_options).transpose()?;
+        Self::check(
+            class,
+            kind,
+            options,
+            recommended,
+            default,
+            ["--recommended-letters", "--default-letters"],
+        )
+    }
+
+    /// [`Self::read`] on options already parsed; `flags` name the recommended and the default
+    /// letters in what it says.
+    fn check(
+        class: DecisionClass,
+        kind: Option<RequestKind>,
+        options: Option<Vec<RequestOption>>,
+        recommended: Option<&str>,
+        default: Option<&str>,
+        flags: [&str; 2],
+    ) -> std::result::Result<Self, String> {
         if let Some(options) = &options {
             let mut seen = std::collections::BTreeSet::new();
             for option in options {
@@ -1130,9 +1253,7 @@ impl Choices {
                 if class == DecisionClass::O {
                     return Ok(Some(letters.join(",")));
                 }
-                return Err(format!(
-                    "{flag} names letters, and no --lettered-options are given"
-                ));
+                return Err(format!("{flag} names letters, and no options are given"));
             };
             if let Some(stray) = letters
                 .iter()
@@ -1144,8 +1265,8 @@ impl Choices {
             }
             Ok(Some(letters.join(",")))
         };
-        let recommended = letters("--recommended-letters", recommended)?;
-        let default = letters("--default-letters", default)?;
+        let recommended = letters(flags[0], recommended)?;
+        let default = letters(flags[1], default)?;
         Ok(Self {
             kind,
             options,

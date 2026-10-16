@@ -57,11 +57,11 @@ types:
   # kept the record; nobody writes such a line by hand. The line's `event` is the variant in lower
   # case: `decided` (`RecordConductorDecision`, `RecordOperatorDecision`), `requested`
   # (`RaiseDecisionRequest`), `answered` (`AnswerRequest`, `AnswerEscalatedRequest`), `escalated`
-  # (`EscalateRequest`), `withdrawn` (`WithdrawRequest`) and `reversed`
-  # (`ReverseConductorDecision`, `ReverseOperatorDecision`).
+  # (`EscalateRequest`), `amended` (`AmendEscalatedRequest`), `withdrawn` (`WithdrawRequest`) and
+  # `reversed` (`ReverseConductorDecision`, `ReverseOperatorDecision`).
   - name: conductor.decision.DecisionLogEvent
     kind: enum
-    variants: [Decided, Requested, Answered, Escalated, Withdrawn, Reversed]
+    variants: [Decided, Requested, Answered, Escalated, Amended, Withdrawn, Reversed]
 
   # One line of `<records>/decisions/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -72,7 +72,7 @@ types:
   #   `evidence`, and for the operator's `recorded_by` and `operator_words`;
   # - `requested`: `id`, `question`, `options`, `recommendation`, and `blocker` when given;
   # - `answered`: `id`, `decision_id`;
-  # - `escalated`: `id`, `escalation_class`, `reason`; `withdrawn`: `id`, `reason`;
+  # - `escalated`: `id`, `escalation_class`, `reason`; `amended`: `id`, `reason`; `withdrawn`: `id`, `reason`;
   # - `reversed`: `id`, `decided_by` (who reversed it), `reason`.
   - name: conductor.decision.DecisionLogLine
     kind: struct
@@ -222,6 +222,7 @@ actors:
       - conductor.decision.RecordConductorDecision
       - conductor.decision.AnswerRequest
       - conductor.decision.EscalateRequest
+      - conductor.decision.AmendEscalatedRequest
       - conductor.decision.ReverseConductorDecision
     naming:
       display: Conductor
@@ -827,6 +828,63 @@ commands:
             request_id: input.request_id
         summary: Only an open request is escalated.
 
+  # Records line (`DecisionLogLine`): `amended`, with `id` and `reason`. An escalated request is
+  # completed in place (story:request-amend-escalated): each field given replaces the held one,
+  # each absent field leaves it as held (the command reads the held request and fills them in, as
+  # the specification cannot keep a field for an absent input). The command refuses options that
+  # do not fit their kind (`OptionsInvalid`) before it opens the store.
+  - name: conductor.decision.AmendEscalatedRequest
+    naming:
+      wire: amend-escalated-request
+      display: Amend an escalated decision request
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: reason
+        type: String
+      - name: kind
+        type: Optional<conductor.decision.RequestKind>
+      - name: lettered_options
+        type: Optional<List<conductor.decision.RequestOption>>
+      - name: recommended_letters
+        type: Optional<String>
+      - name: default_letters
+        type: Optional<String>
+      - name: deadline
+        type: Optional<Timestamp>
+      - name: dry_run
+        type: Optional<String>
+    outcomes:
+      - name: amended
+        when_subject_state: Escalated
+        updates: conductor.decision.DecisionRequest
+        instance: request_id
+        sets:
+          kind: input.kind
+          lettered_options: input.lettered_options
+          recommended_letters: input.recommended_letters
+          default_letters: input.default_letters
+          deadline: input.deadline
+          dry_run: input.dry_run
+        emits:
+          - conductor.decision.RequestAmended
+        payload:
+          conductor.decision.RequestAmended:
+            request_id: input.request_id
+        summary: The escalated request carries the fields given and waits for the operator.
+      - name: no-such-request
+        unknown_instance: true
+        error: conductor.decision.RequestNotFound
+        payload:
+          conductor.decision.RequestNotFound:
+            request_id: input.request_id
+      - name: not-escalated
+        error: conductor.decision.RequestStateConflict
+        payload:
+          conductor.decision.RequestStateConflict:
+            request_id: input.request_id
+        summary: Only an escalated request is amended; an open, answered or withdrawn one is unchanged.
+
   # Records line (`DecisionLogLine`): `withdrawn`, with `id` and `reason`.
   - name: conductor.decision.WithdrawRequest
     naming:
@@ -970,6 +1028,11 @@ events:
         type: conductor.decision.DecisionId
 
   - name: conductor.decision.RequestEscalated
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.RequestAmended
     fields:
       - name: request_id
         type: conductor.decision.RequestId

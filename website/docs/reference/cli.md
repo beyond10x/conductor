@@ -76,6 +76,7 @@ Every command takes these, before or after its name.
 | [`conductor repository refresh-hooks`](#conductor-repository-refresh-hooks) | List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after |
 | [`conductor repository shipped`](#conductor-repository-shipped) | What shipped since an instant, from the newest complete snapshot's GitHub observations |
 | [`conductor decision`](#conductor-decision) | Decision requests and the decisions that answer them |
+| [`conductor decision amend-escalated-request`](#conductor-decision-amend-escalated-request) | Amend an escalated decision request |
 | [`conductor decision answer-escalated-request`](#conductor-decision-answer-escalated-request) | Answer an escalated decision request |
 | [`conductor decision answer-request`](#conductor-decision-answer-request) | Answer a decision request |
 | [`conductor decision escalate-request`](#conductor-decision-escalate-request) | Escalate a decision request |
@@ -897,6 +898,26 @@ Decision requests and the decisions that answer them
 ```text
 Usage: conductor decision [OPTIONS] <COMMAND>
 ```
+
+## `conductor decision amend-escalated-request`
+
+Amend an escalated decision request
+
+```text
+Usage: conductor decision amend-escalated-request [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--request-id <REQUEST_ID>` | no | none | RequestId of the escalated request |
+| `--reason <REASON>` | no | none | Why the request is completed |
+| `--kind <KIND>` | no | none | RequestKind: how the operator answers One of `yes-no`, `one-of`, `several-of`. |
+| `--lettered-options <LETTERED_OPTIONS>` | no | none | list of RequestOption, a JSON array of `{letter, label, cost}`; replaces the held options |
+| `--recommended-letters <LETTERS>` | no | none | The letter conductor recommends, or several joined by `,` for `several-of` |
+| `--default-letters <LETTERS>` | no | none | The letter that stands when the operator has not answered by the deadline, or several joined by `,` for `several-of` |
+| `--deadline <DEADLINE>` | no | none | timestamp, RFC 3339: when the default stands |
+| `--dry-run <TEXT>` | no | none | The dry run of a class-H item, as text (not a file, unlike `escalate-request`) |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision answer-escalated-request`
 
