@@ -6,7 +6,7 @@ status: draft
 title: A build reserves its command's measured peak, not a guess
 relations:
 - decomposes: epic:disk-protocol
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -29,6 +29,7 @@ reserve was left to each brief (rules item 103).
   refused for disk names the repository's measured peak beside the shortfall. Source: conductor's
   NEED N-20261014-29, 2026-10-14: aep and connectors asked the guard's 8G and were refused "8G
   short" at 23-25G free while their ledger peaks were 0.49-0.69G and 0.2-2.1G.
+- The recorded peak is a real measurement (conductor's NEED N-20261016-11, 2026-10-16: `peak_bytes` 0 for connectors' journey builds). The size walk runs on its own thread with a deadline of at least 60 s, not one watchdog interval (`build.rs:1137`), and keeps its last complete reading when a walk times out. `--measure <dir>` (repeatable) names what a script builds outside `<cwd>/target`, and `CARGO_TARGET_DIR`, when set, is measured. A peak never measured is recorded as unknown, not 0, and `auto` ignores it. Tests cover a slow walk, a script building into `--measure`, and an unknown peak.
 
 ## Scope
 
