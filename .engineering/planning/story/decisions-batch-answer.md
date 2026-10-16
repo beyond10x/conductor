@@ -2,12 +2,16 @@
 format: aep.planning-md/3
 id: story:decisions-batch-answer
 kind: story
-status: draft
+status: implemented
 title: The operator answers several decisions at once by clicking options
 summary: 'Write path: one guarded endpoint records answers as the operator''s'
 relations:
 - decomposes: epic:dashboard-decisions
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:07Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:07Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:08Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

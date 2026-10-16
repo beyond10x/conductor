@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-16T01:54:05Z",
+  "actor": "human:timo",
+  "artifact": "story:sandbox-spec",
+  "kind": "story",
+  "revision": 19,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check exit 0 on 61b16082 (wave/37); CI check, docs and Gates green on 18468f2f (PR #62)"
+  }
+}

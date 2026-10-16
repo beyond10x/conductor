@@ -258,6 +258,10 @@ types:
   # binding returns holds no `Uuid` or `Timestamp`. `usage` is the usage line the watch prints,
   # `usage: pool runs out ~<time>, next reset <time>`, from the newest usage readings of the
   # complete snapshots (story:usage-probe); absent when no complete snapshot holds one.
+  # `unanswered_operator_items` counts the decision requests escalated as class O or H and not
+  # answered or withdrawn yet (story:decisions-notify); `oldest_unanswered_request_id` and
+  # `oldest_unanswered_age_seconds` name the one raised first and how long ago it was raised,
+  # both absent when the count is 0.
   - name: conductor.observation.StatusReport
     kind: struct
     fields:
@@ -270,6 +274,9 @@ types:
       - {name: waits, type: List<String>}
       - {name: requests, type: List<conductor.observation.StatusRequest>}
       - {name: usage, type: Optional<String>}
+      - {name: unanswered_operator_items, type: Integer}
+      - {name: oldest_unanswered_request_id, type: Optional<String>}
+      - {name: oldest_unanswered_age_seconds, type: Optional<Integer>}
 
 entities:
   - name: conductor.observation.Snapshot

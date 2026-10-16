@@ -80,7 +80,7 @@ export async function loadSeriesList(
   fetcher: Fetch = defaultFetch,
 ): Promise<{ list: SeriesInfo[]; error: string | null }> {
   try {
-    const answer = await fetcher('/api/series', { cache: 'no-store' });
+    const answer = await fetcher('/api/series', { cache: 'no-cache' });
     if (!answer.ok) {
       return { list: [], error: `could not read /api/series: ${answer.status}` };
     }
@@ -98,7 +98,7 @@ export async function loadSeries(
 ): Promise<SeriesRead> {
   const url = seriesUrl(series, by, days);
   try {
-    const answer = await fetcher(url, { cache: 'no-store' });
+    const answer = await fetcher(url, { cache: 'no-cache' });
     if (answer.status === 404) {
       let story: string | null = null;
       try {

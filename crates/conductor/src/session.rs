@@ -434,8 +434,9 @@ lease check of your profile, arm what wakes you; the hand-over does not list it.
 then CronCreate each recurring job it does not show: one every cadence.cycle, one at \
 cadence.daily (UTC) for the daily cycle, both values from conductor config show, with the prompts \
 your profile gives. Start the watch once with the Monitor tool: conductor watch run --follow. \
-Then read the hand-over committed last (git log -1 --name-only --format= -- docs/handoff/), act \
-on its first task, then run one cycle.";
+Then act on the first task of the hand-over your start reading opened, the one committed last \
+(git log -1 --name-only --format= -- docs/handoff/), without reading it again, then run one \
+cycle.";
 
 /// The first prompt of conductor-dev's session (`session start --role conductor-dev`).
 pub const DEV_PROMPT: &str = "Start of session. Read your profile's start-of-session list in its \
@@ -525,7 +526,7 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 /// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's own name),
 /// its model, bypass permissions, no user settings, and its settings file; conductor's defaults to
 /// [`CONDUCTOR_SETTINGS`] under `cwd`.
-fn harness_args(role: &Role, name: &SessionName, cwd: &Path) -> Vec<String> {
+fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Vec<String> {
     let mut args = vec!["-n".to_owned(), name.0.clone()];
     match (&role.profile, &role.agent) {
         (Some(profile), _) => {
@@ -545,22 +546,60 @@ fn harness_args(role: &Role, name: &SessionName, cwd: &Path) -> Vec<String> {
         ]
         .map(str::to_owned),
     );
-    let settings = role
-        .settings
-        .as_ref()
-        .map(|settings| settings.0.clone())
-        .or_else(|| {
-            (role.role == "conductor").then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
-        });
     if let Some(settings) = settings {
         args.extend(["--settings".to_owned(), settings]);
     }
     args
 }
 
+/// The settings a session of `role`, which names no settings file of its own, starts with under
+/// a config file (`story:instance-isolation`): the role's default ([`role_settings`]: for
+/// `conductor` [`CONDUCTOR_SETTINGS`] under `cwd`, an empty one for `conductor-dev`) pinned to
+/// `instance` ([`config::pinned`]), written to `<state>/sessions/<session name>.settings.json`,
+/// whose path it answers. The harness does not pass the environment it is started with on to the
+/// session it forks, so only the settings select the instance the session's hooks act for.
+///
+/// # Errors
+///
+/// The default is there and is no JSON, or the file cannot be written.
+fn write_pinned(
+    role: &Role,
+    cwd: &Path,
+    instance: &str,
+    state: &Path,
+    name: &SessionName,
+) -> Result<String> {
+    let base = match role_settings(role, cwd) {
+        Some(default) => match fs::read_to_string(&default) {
+            Ok(text) => serde_json::from_str(&text)
+                .with_context(|| format!("the settings {default} are no JSON"))?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => serde_json::json!({}),
+            Err(error) => {
+                return Err(error).with_context(|| format!("read the settings {default}"));
+            }
+        },
+        None => serde_json::json!({}),
+    };
+    Ok(config::write_pinned(base, instance, state, &name.0)?
+        .display()
+        .to_string())
+}
+
+/// The settings file a session of `role` starts with: its `settings`, else for `conductor`
+/// [`CONDUCTOR_SETTINGS`] under `cwd`, else none.
+fn role_settings(role: &Role, cwd: &Path) -> Option<String> {
+    role.settings
+        .as_ref()
+        .map(|settings| settings.0.clone())
+        .or_else(|| {
+            (role.role == "conductor").then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
+        })
+}
+
 /// Answers a refusal of `session start`: one line naming its `SessionStartRefusal`, and exit 1.
 fn start_refused(answer: &SessionStartRefused) -> Result<ExitCode> {
     let refusal = match answer.refusal {
+        SessionStartRefusal::InstanceNotPinned => "InstanceNotPinned",
         SessionStartRefusal::ProviderUnavailable => "ProviderUnavailable",
         SessionStartRefusal::MeasurementShort => "MeasurementShort",
         SessionStartRefusal::UnknownRole => "UnknownRole",
@@ -594,8 +633,12 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 /// harness printed, then one line naming the session started, its provider and its id.
 ///
 /// In order, it refuses: a role that is not `conductor` or `conductor-dev`, not named by the
-/// instance, or not on `claude` (`UnknownRole`); a live session holding the session name
-/// (`SessionRunning`); under `strict` a provider not available (`ProviderUnavailable`); a start
+/// instance, or not on `claude` (`UnknownRole`); under a config file, a role whose own settings
+/// file is not there, is no JSON or pins another instance (`InstanceNotPinned`,
+/// `story:instance-isolation`; one that pins no instance starts with a pinned copy,
+/// [`config::session_settings`], and a role with none with its default written pinned,
+/// [`write_pinned`]); a live session holding the
+/// session name (`SessionRunning`); under `strict` a provider not available (`ProviderUnavailable`); a start
 /// or first prompt that fails (`LaunchFailed`); under `strict` a box short of the request, which
 /// is stopped again (`MeasurementShort`).
 ///
@@ -627,6 +670,18 @@ pub fn start(
         Ok(found) => found,
         Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
     };
+    let environment = Environment::from_process().context("session start")?;
+    // The settings select the instance the session's hooks act for (`story:instance-isolation`):
+    // a role's own settings file must not pin another.
+    if active.from_file
+        && let Some(settings) = &found.settings
+        && let Some(problem) = config::pin_refusal(Path::new(&settings.0), &instance.name.0)
+    {
+        return refuse(
+            SessionStartRefusal::InstanceNotPinned,
+            format!("its settings {} {problem}", settings.0),
+        );
+    }
     let name = role_session_name(instance, found);
     if let Some(id) = confine::live_session(&name.0).context("session start")? {
         return refuse(
@@ -638,7 +693,6 @@ pub fn start(
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_start(&refuse, refusal),
     };
-    let environment = Environment::from_process().context("session start")?;
     let home = environment.home().context("session start")?;
     let cwd = &environment.cwd;
     let mut env = Vec::new();
@@ -653,18 +707,32 @@ pub fn start(
             cwd.join(file).display().to_string(),
         ));
     }
+    let state_dir = crate::state::dir(state)?;
+    let settings = match (&found.settings, active.from_file) {
+        (None, true) => Some(
+            write_pinned(found, cwd, &instance.name.0, &state_dir, &name)
+                .context("session start")?,
+        ),
+        (Some(own), true) => Some(
+            config::session_settings(Path::new(&own.0), &instance.name.0, &state_dir, &name.0)
+                .context("session start")?,
+        ),
+        _ => role_settings(found, cwd),
+    };
     let launch = Launch {
         request: request(instance, found, cwd, home),
         program: confine::CLAUDE.to_owned(),
-        args: harness_args(found, &name, cwd),
+        args: harness_args(found, &name, settings),
         env,
+        session_prefix: instance.session_prefix.clone(),
+        instance_limits: instance.confinement.limits.clone(),
+        state: state_dir.clone(),
     };
     let prompt = if found.role == "conductor" {
         CONDUCTOR_PROMPT
     } else {
         DEV_PROMPT
     };
-    let state_dir = crate::state::dir(state)?;
     match chosen.start(&launch, prompt, &state_dir) {
         Ok(started) => {
             confine::pass_through(&started.said)?;
@@ -774,4 +842,23 @@ pub fn stop(
     writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
         .context("write the stopped session")?;
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CONDUCTOR_PROMPT;
+
+    /// `story:conductor-context-budget`: the profile's start reading opens the newest hand-over,
+    /// so the first prompt acts on it and does not have it read a second time.
+    #[test]
+    fn the_first_prompt_does_not_read_the_hand_over_again() {
+        assert!(
+            !CONDUCTOR_PROMPT.contains("read the hand-over"),
+            "{CONDUCTOR_PROMPT}"
+        );
+        assert!(
+            CONDUCTOR_PROMPT.contains("act on the first task of the hand-over"),
+            "{CONDUCTOR_PROMPT}"
+        );
+    }
 }

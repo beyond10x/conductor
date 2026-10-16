@@ -22,6 +22,21 @@ types:
     of: String
     prefix: "DEC-"
 
+  # How the operator answers an escalated request (story:decisions-page): `yes-no`, Yes or No;
+  # `one-of`, exactly one of its lettered options; `several-of`, any number of them, at least one.
+  - name: conductor.decision.RequestKind
+    kind: enum
+    variants: [yes-no, one-of, several-of]
+
+  # One lettered option of an escalated request (story:decisions-page): its letter (`A`, `B`, …;
+  # `Y` and `N` for a `yes-no` request), what it does, and what it costs, in words.
+  - name: conductor.decision.RequestOption
+    kind: struct
+    fields:
+      - {name: letter, type: String}
+      - {name: label, type: String}
+      - {name: cost, type: String}
+
   - name: conductor.decision.DecisionClass
     kind: enum
     variants: [C, O, H]
@@ -111,6 +126,21 @@ entities:
         type: Optional<String>
       - name: no_dry_run
         type: Optional<String>
+      # What the Decisions page shows of an escalated request (story:decisions-page): its kind,
+      # its lettered options with their cost, the letters conductor recommends and the ones that
+      # stand when the operator does not answer by the deadline. Each is set by
+      # `EscalateRequest`, required for class O and optional for class H; absent on a request
+      # escalated before them, which the page shows as `one-of` with no options.
+      - name: kind
+        type: Optional<conductor.decision.RequestKind>
+      - name: lettered_options
+        type: Optional<List<conductor.decision.RequestOption>>
+      - name: recommended_letters
+        type: Optional<String>
+      - name: default_letters
+        type: Optional<String>
+      - name: deadline
+        type: Optional<Timestamp>
       - name: decision_id
         type: Optional<conductor.decision.DecisionId>
     relations:
@@ -200,6 +230,7 @@ actors:
     may:
       - conductor.decision.RecordOperatorDecision
       - conductor.decision.AnswerEscalatedRequest
+      - conductor.decision.RecordOperatorDecisionForRequest
       - conductor.decision.ReverseOperatorDecision
     naming:
       display: Operator
@@ -209,6 +240,36 @@ errors:
     summary: >
       A class-H item carries its dry run (`--dry-run`) or why it has none (`--no-dry-run`), and
       this one carries neither.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.EscalationIncomplete
+    summary: >
+      A class-O escalation carries its kind, its lettered options with their cost, the
+      recommended letters, the default letters and the deadline (story:decisions-page), and this
+      one lacks at least one of them.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  # The command checks what the specification cannot before it opens the store: the letters are
+  # unique and non-empty, a `yes-no` request's are `Y` and `N`, the recommended and default
+  # letters are among them, one letter for `yes-no` and `one-of` and at least one for
+  # `several-of`, and every option carries a label and a cost (story:decisions-page).
+  - name: conductor.decision.OptionsInvalid
+    summary: The escalation's options, recommended letters or default letters do not fit its kind.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  # `RecordOperatorDecisionForRequest` checks the choice against the request it answers before it
+  # records (story:decisions-batch-answer): one letter for `yes-no` (`Y` or `N`) and `one-of`, one
+  # or more distinct letters for `several-of`, each one of the request's lettered options; `done`
+  # for a class-H item. A class-O request escalated without lettered options is answered in
+  # conductor's session, not by letter.
+  - name: conductor.decision.ChoiceInvalid
+    summary: The choice does not fit the escalated request's kind and lettered options.
     fields:
       - name: request_id
         type: conductor.decision.RequestId
@@ -551,7 +612,114 @@ commands:
             request_id: input.request_id
         summary: Only an escalated request is answered here.
 
+  # The operator's answer to an escalated request, as one command (story:decisions-batch-answer):
+  # the Decisions page sends it for each answer of a batch, and `conductor decision
+  # answer-escalated-as-operator` relays one, so both take one path. It records the operator's
+  # decision, as `RecordOperatorDecision` does, only while the request it answers is escalated,
+  # and the handler then moves that request to Answered with `AnswerEscalatedRequest`, over the
+  # same store handle; a request answered or withdrawn meanwhile is refused here and no decision
+  # is recorded. The command reads the request's class, question, options and repository from
+  # the store, and checks the choice against the request's kind and lettered options before it
+  # records (`ChoiceInvalid`): one letter for `yes-no` (`Y` or `N`) and `one-of`, one or more
+  # distinct letters for `several-of`, each an option's letter; `done` for class H, which the
+  # operator acts on. Records lines (`DecisionLogLine`): `decided`, as `RecordOperatorDecision`'s,
+  # then `answered`, as `AnswerEscalatedRequest`'s. The qualified name sorts after
+  # `RecordOperatorDecision`: ess 0.59 builds the decision a synthesized case needs with the first
+  # command by name that creates one, and this one, which needs an escalated request, would leave
+  # twenty cases unbuilt.
+  - name: conductor.decision.RecordOperatorDecisionForRequest
+    naming:
+      wire: answer-escalated-as-operator
+      display: Answer an escalated request as the operator
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: decision_id
+        type: conductor.decision.DecisionId
+      - name: decision_class
+        type: conductor.decision.DecisionClass
+      - name: question
+        type: String
+      - name: options
+        type: String
+      # The letters chosen, joined by `,`; `done` for class H.
+      - name: choice
+        type: String
+      - name: reason
+        type: String
+      - name: evidence
+        type: String
+      - name: decided_at
+        type: Timestamp
+      # The session that records the answer: `dashboard` for the Decisions page.
+      - name: recorded_by
+        type: String
+      # The operator's words, or "chosen on the Decisions page" when he gave none.
+      - name: operator_words
+        type: String
+      - name: repository
+        type: Optional<conductor.observation.RepositoryName>
+    outcomes:
+      - name: no-such-request
+        when_related:
+          entity: conductor.decision.DecisionRequest
+          where: request_id == input.request_id
+          exists: false
+        error: conductor.decision.RequestNotFound
+        payload:
+          conductor.decision.RequestNotFound:
+            request_id: input.request_id
+        summary: No request has this id, and no decision was recorded.
+      - name: not-escalated
+        when_related:
+          entity: conductor.decision.DecisionRequest
+          where:
+            all:
+              - request_id == input.request_id
+              - state != Escalated
+          exists: true
+        error: conductor.decision.RequestStateConflict
+        payload:
+          conductor.decision.RequestStateConflict:
+            request_id: input.request_id
+        summary: >
+          The request is open, answered or withdrawn, so it is not the operator's to answer, and
+          no decision was recorded.
+      - name: recorded
+        creates: conductor.decision.Decision
+        instance: decision_id
+        sets:
+          decision_class: input.decision_class
+          decided_by: Operator
+          question: input.question
+          options: input.options
+          choice: input.choice
+          reason: input.reason
+          evidence: input.evidence
+          decided_at: input.decided_at
+          recorded_by: input.recorded_by
+          operator_words: input.operator_words
+          repository: input.repository
+        emits:
+          - conductor.decision.DecisionRecorded
+        payload:
+          conductor.decision.DecisionRecorded:
+            decision_id: input.decision_id
+            decision_class: input.decision_class
+            decided_by: Operator
+        summary: The operator's answer is in force; the request moves to Answered with it.
+      - name: already-recorded
+        existing_instance: true
+        error: conductor.decision.DecisionExists
+        payload:
+          conductor.decision.DecisionExists:
+            decision_id: input.decision_id
+        summary: A decision already has this id; the held decision is unchanged.
+
   # Records line (`DecisionLogLine`): `escalated`, with `id`, `escalation_class` and `reason`.
+  # A class-O escalation names what the operator chooses from (story:decisions-page); the
+  # command also refuses options that do not fit their kind (`OptionsInvalid`) before it opens
+  # the store.
   - name: conductor.decision.EscalateRequest
     naming:
       wire: escalate-request
@@ -573,6 +741,21 @@ commands:
         type: Optional<String>
       - name: no_dry_run
         type: Optional<String>
+      # What the operator chooses from (story:decisions-page): the kind, the lettered options
+      # with their cost (a JSON array of `{letter, label, cost}` on the command line), the
+      # recommended letters and the default letters (one letter, or several joined by `,` for a
+      # `several-of` request), and the deadline, after which the default stands. Required for
+      # class O, optional for class H.
+      - name: kind
+        type: Optional<conductor.decision.RequestKind>
+      - name: lettered_options
+        type: Optional<List<conductor.decision.RequestOption>>
+      - name: recommended_letters
+        type: Optional<String>
+      - name: default_letters
+        type: Optional<String>
+      - name: deadline
+        type: Optional<Timestamp>
     outcomes:
       - name: class-c
         when: escalation_class == C
@@ -594,6 +777,23 @@ commands:
         summary: >
           A class-H item without its dry run or a reason for none is not handed over, and the
           request stays open.
+      - name: incomplete
+        when:
+          all:
+            - escalation_class == O
+            - any:
+                - missing(kind)
+                - missing(lettered_options)
+                - missing(recommended_letters)
+                - missing(default_letters)
+                - missing(deadline)
+        error: conductor.decision.EscalationIncomplete
+        payload:
+          conductor.decision.EscalationIncomplete:
+            request_id: input.request_id
+        summary: >
+          A class-O item without its kind, options, recommendation, default or deadline is not
+          handed over, and the request stays open.
       - name: escalated
         moves: conductor.decision.DecisionRequest.escalate
         instance: request_id
@@ -602,6 +802,11 @@ commands:
           escalation_reason: input.reason
           dry_run: input.dry_run
           no_dry_run: input.no_dry_run
+          kind: input.kind
+          lettered_options: input.lettered_options
+          recommended_letters: input.recommended_letters
+          default_letters: input.default_letters
+          deadline: input.deadline
         emits:
           - conductor.decision.RequestEscalated
         payload:
@@ -810,6 +1015,18 @@ views:
         type: Timestamp
       - name: blocker
         type: Optional<String>
+      # What the Decisions page shows of an escalated request (story:decisions-page); null on a
+      # request escalated before them, or not escalated.
+      - name: kind
+        type: Optional<conductor.decision.RequestKind>
+      - name: lettered_options
+        type: Optional<List<conductor.decision.RequestOption>>
+      - name: recommended_letters
+        type: Optional<String>
+      - name: default_letters
+        type: Optional<String>
+      - name: deadline
+        type: Optional<Timestamp>
     naming:
       wire: requests
       display: Decision requests

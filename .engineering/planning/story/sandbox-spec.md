@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:sandbox-spec
 kind: story
-status: draft
+status: implemented
 title: The sandbox's commands, refusals and records are specified first
 relations:
 - decomposes: epic:session-confinement
@@ -36,7 +36,11 @@ scope:
   path: website/docs/reference/cli.md
 - confidence: cited
   path: website/docs/reference/config.md
-revision: 17
+revision: 20
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:05Z", actor: "human:timo", revision: 18, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:05Z", actor: "human:timo", revision: 19, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:05Z", actor: "human:timo", revision: 20, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 

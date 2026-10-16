@@ -18,7 +18,7 @@ on a repository you have: [one task in an existing repository](https://beyond10x
   operator.
 - The `conductor` CLI, written in Rust. It reads the repositories, keeps the records in an
   append-only store, guards every tool call of the sessions, watches for events, and serves a
-  read-only dashboard.
+  dashboard where the operator reads the state and answers decisions.
 - Three generic profiles in [`.agents/`](.agents/) that tell each session what to do. The rules of
   one organization go in its own `rules.md`; this repository ships none.
 
@@ -84,7 +84,7 @@ A `gitlab` source names the host its group is on, such as `host: gitlab.example.
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.14.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.15.0 --locked conductor-cli
 conductor doctor
 ```
 
@@ -94,7 +94,7 @@ from the release instead: each GitHub Release from `v0.6.0` on carries
 `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
 
 ```console
-version=0.14.0 target=x86_64-unknown-linux-gnu
+version=0.15.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -112,7 +112,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 `conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
 `tar` and `sha256sum` (or `shasum` on macOS).
 
-`conductor --version` prints the installed version, `conductor 0.14.0`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 0.15.0`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.
@@ -180,7 +180,7 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
    refuses until one is in place.
 5. `task conductor:start` starts conductor in the background in the records directory;
    `task conductor:attach` opens it in this terminal. `task sessions` lists the sessions and
-   `task dashboard` serves a read-only page on http://127.0.0.1:7313/.
+   `task dashboard` serves the dashboard on http://127.0.0.1:7313/.
 
 Sessions start with `--setting-sources project,local`, so your user-level settings and agents are
 not loaded; the role's settings file carries what the session needs.

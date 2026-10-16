@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bd374d05aebdad9cfd84e358bc50cdd3b8070f4db77ae34b48568c0946ac9a17
-// contract digest a7fdf8006d631e5e44d566ce1e1544c42d1efc547026550b51eaa0b490dafefd
+// model digest dbd2a0daaf9f3c2b75f578f7a499b8647b1bb70f7c5f0f51817c13c2cddf7a2c
+// contract digest b6a26f3b93fe2c883e16ed3ebe7d5f0dd69bc54559227cf3c130249566ca4a79
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -790,6 +790,10 @@ where
         if decided(all(&[equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("H".to_owned())), (Some(Some(&input.dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.no_dry_run).and_then(|value| value.as_ref()).is_some())).map(|value| !value)]), "conductor.decision.EscalateRequest")? {
             return Ok(crate::decision::EscalateRequestOutcome::Untested { error: crate::decision::DryRunMissing { request_id: input.request_id.clone() } });
         }
+        // `incomplete`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.escalation_class).map(|value| match value { crate::decision::DecisionClass::C => "C", crate::decision::DecisionClass::O => "O", crate::decision::DecisionClass::H => "H" }.to_owned()), Some("O".to_owned())), any(&[(Some(Some(&input.kind).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.lettered_options).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.recommended_letters).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.default_letters).and_then(|value| value.as_ref()).is_some())).map(|value| !value), (Some(Some(&input.deadline).and_then(|value| value.as_ref()).is_some())).map(|value| !value)])]), "conductor.decision.EscalateRequest")? {
+            return Ok(crate::decision::EscalateRequestOutcome::Incomplete { error: crate::decision::EscalationIncomplete { request_id: input.request_id.clone() } });
+        }
         // `escalated`: the default.
         let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
             return Ok(crate::decision::EscalateRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
@@ -804,6 +808,11 @@ where
         next.data.escalation_reason = Some(input.reason.clone());
         next.data.dry_run = input.dry_run.clone();
         next.data.no_dry_run = input.no_dry_run.clone();
+        next.data.kind = input.kind.clone();
+        next.data.lettered_options = input.lettered_options.clone();
+        next.data.recommended_letters = input.recommended_letters.clone();
+        next.data.default_letters = input.default_letters.clone();
+        next.data.deadline = input.deadline.clone();
         let answer = crate::decision::EscalateRequestOutcome::Escalated { request_escalated: crate::decision::RequestEscalated { request_id: input.request_id.clone() } };
         DecisionRequestStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -835,6 +844,11 @@ where
             escalation_reason: None,
             dry_run: None,
             no_dry_run: None,
+            kind: None,
+            lettered_options: None,
+            recommended_letters: None,
+            default_letters: None,
+            deadline: None,
             decision_id: None,
         };
         let answer = crate::decision::RaiseDecisionRequestOutcome::Raised { decision_requested: crate::decision::DecisionRequested { request_id: identity.clone(), repository: input.repository.clone() } };
@@ -910,6 +924,12 @@ where
         let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
         return Ok(answer);
+    }
+}
+
+impl<P: crate::decision::obligations::RecordOperatorDecisionForRequestBehavior> crate::decision::obligations::RecordOperatorDecisionForRequestBehavior for Generated<P> {
+    fn record_operator_decision_for_request(&mut self, input: crate::decision::RecordOperatorDecisionForRequest) -> Result<crate::decision::RecordOperatorDecisionForRequestOutcome, UnmetObligation> {
+        crate::decision::obligations::RecordOperatorDecisionForRequestBehavior::record_operator_decision_for_request(&mut self.ports, input)
     }
 }
 
@@ -2171,6 +2191,30 @@ where
     }
 }
 
+/// `conductor.host.WithdrawDiskRequest`, generated: every outcome is one the specification fully determines.
+impl<P> crate::host::obligations::WithdrawDiskRequestBehavior for Generated<P>
+where
+    P: HostGrantStorage,
+{
+    fn withdraw_disk_request(&mut self, input: crate::host::WithdrawDiskRequest) -> Result<crate::host::WithdrawDiskRequestOutcome, UnmetObligation> {
+        let _ = &input;
+        // `withdrawn`: the default.
+        let Some(held) = HostGrantStorage::get(&self.ports, &input.grant_id) else {
+            return Ok(crate::host::WithdrawDiskRequestOutcome::NoSuchGrant { error: crate::host::HostGrantNotFound { grant_id: input.grant_id.clone() } });
+        };
+        let _ = &held;
+        let moved = match held.refine() {
+            crate::host::AnyHostGrant::Requested(instance) => crate::host::AnyHostGrant::Withdrawn(instance.withdraw()),
+            _ => return Ok(crate::host::WithdrawDiskRequestOutcome::WrongState { error: crate::host::HostGrantStateConflict { grant_id: input.grant_id.clone() } }),
+        };
+        let mut next = moved.snapshot();
+        next.data.released_at = Some(input.withdrawn_at.clone());
+        let answer = crate::host::WithdrawDiskRequestOutcome::Withdrawn { disk_request_withdrawn: crate::host::DiskRequestWithdrawn { grant_id: input.grant_id.clone() } };
+        HostGrantStorage::put(&mut self.ports, next);
+        return Ok(answer);
+    }
+}
+
 /// `conductor.improvement.DefineMetric`, generated: every outcome is one the specification fully determines.
 impl<P> crate::improvement::obligations::DefineMetricBehavior for Generated<P>
 where
@@ -3193,6 +3237,11 @@ where
                 recommendation: held.data.recommendation,
                 raised_at: held.data.raised_at,
                 blocker: held.data.blocker,
+                kind: held.data.kind,
+                lettered_options: held.data.lettered_options,
+                recommended_letters: held.data.recommended_letters,
+                default_letters: held.data.default_letters,
+                deadline: held.data.deadline,
             })
             .collect())
     }

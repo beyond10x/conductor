@@ -70,13 +70,13 @@ instances:
         settings: ~/example-org/controller-settings.json
         profile: ~/example-org/repo-controller.md
         read_only_tools: [mcp__example__read]
+        forge_token_env: [EXAMPLE_FORGE_TOKEN]
         limits:
           memory_max: 8G
           cpu_weight: 50
           tasks_max: 512
         writable: [checkout, ~/example-org/shared]
         network: open
-        forge_token_env: [EXAMPLE_FORGE_TOKEN]
     confinement:
       mode: strict
       provider: none

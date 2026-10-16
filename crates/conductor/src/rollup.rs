@@ -420,7 +420,7 @@ fn seen(store: &Store, snapshot: &SnapshotId, records: &Path) -> Result<Seen> {
             );
         }
     }
-    for grant in HostGrantStorage::list(store) {
+    for grant in grants(store) {
         let data = &grant.data;
         if data.kind != GrantKind::Disk {
             continue;
@@ -458,10 +458,36 @@ fn seen(store: &Store, snapshot: &SnapshotId, records: &Path) -> Result<Seen> {
                 }
                 seen.add("disk_granted", &groups, &data.requested_at.0, id);
             }
-            HostGrantState::Requested => {}
+            // A withdrawn request was neither answered nor run: its `build run` was stopped while
+            // it waited.
+            HostGrantState::Requested | HostGrantState::Withdrawn => {}
         }
     }
     Ok(seen)
+}
+
+/// The grants the disk rollups count: those of `store`, kept there by a binary before the host
+/// ledger moved to the host directory, and the instance's own of the host ledger
+/// ([`crate::config::host_dir`], `story:instance-isolation`), which is read only when it is
+/// there. Another instance's grants are not counted.
+fn grants(store: &Store) -> Vec<conductor_model::host::HostGrantSnapshot> {
+    let mut grants = HostGrantStorage::list(store);
+    let instance = &crate::config::active().instance.name;
+    let host = crate::config::host_dir()
+        .ok()
+        .and_then(|host| crate::store::open_existing(&host).ok());
+    if let Some(host) = host {
+        for grant in HostGrantStorage::list(&host) {
+            if grant.data.instance == *instance
+                && !grants
+                    .iter()
+                    .any(|held| held.data.grant_id == grant.data.grant_id)
+            {
+                grants.push(grant);
+            }
+        }
+    }
+    grants
 }
 
 /// The rollups' port over a store a caller holds.

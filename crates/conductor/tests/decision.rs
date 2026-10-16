@@ -264,16 +264,22 @@ fn a_class_o_decision_recorded_as_conductor_is_refused_and_nothing_is_kept() {
 fn a_request_is_escalated_and_answered_by_the_operator() {
     let case = Case::new("escalate-and-answer");
     case.raise("cortex-1", "cortex");
-    case.quiet(&[
-        "decision",
-        "escalate-request",
-        "--request-id",
-        "cortex-1",
-        "--escalation-class",
-        "O",
-        "--reason",
-        "it changes who decides releases",
-    ]);
+    case.quiet(
+        &[
+            &[
+                "decision",
+                "escalate-request",
+                "--request-id",
+                "cortex-1",
+                "--escalation-class",
+                "O",
+                "--reason",
+                "it changes who decides releases",
+            ][..],
+            &O_CHOICES[..],
+        ]
+        .concat(),
+    );
     let escalated = case.request("cortex-1");
     assert_eq!(escalated["state"], "Escalated");
     assert_eq!(escalated["escalation_class"], "O");
@@ -368,15 +374,19 @@ fn a_request_is_escalated_and_answered_by_the_operator() {
     );
     case.refused(
         &[
-            "decision",
-            "escalate-request",
-            "--request-id",
-            "no-such-request",
-            "--escalation-class",
-            "O",
-            "--reason",
-            "unclear",
-        ],
+            &[
+                "decision",
+                "escalate-request",
+                "--request-id",
+                "no-such-request",
+                "--escalation-class",
+                "O",
+                "--reason",
+                "unclear",
+            ][..],
+            &O_CHOICES[..],
+        ]
+        .concat(),
         "RequestNotFound",
     );
 }
@@ -531,7 +541,7 @@ fn a_request_escalated_as_class_h_is_on_the_hands_todo_until_answered() {
     case.raise("llm-2", "llm");
     case.raise("llm-3", "llm");
     for (request, class) in [("llm-1", "H"), ("llm-2", "O")] {
-        case.quiet(&[
+        let mut args = vec![
             "decision",
             "escalate-request",
             "--request-id",
@@ -542,7 +552,11 @@ fn a_request_escalated_as_class_h_is_on_the_hands_todo_until_answered() {
             "the operator's",
             "--no-dry-run",
             "no step runs without the operator",
-        ]);
+        ];
+        if class == "O" {
+            args.extend_from_slice(&O_CHOICES);
+        }
+        case.quiet(&args);
     }
     let todo = case.rows("hands-todo");
     let ids: Vec<&Value> = todo.iter().map(|row| &row["request_id"]).collect();
@@ -703,8 +717,9 @@ fn a_class_h_escalation_carries_its_dry_run_or_why_it_has_none() {
         &["--no-dry-run", "every step needs the operator's login"],
     )));
 
-    // A class-O escalation needs neither.
-    case.quiet(&strs(&escalate("o-plain", "O", &[])));
+    // A class-O escalation needs neither (it names what the operator chooses from instead,
+    // story:decisions-page).
+    case.quiet(&strs(&escalate("o-plain", "O", &O_CHOICES)));
 
     // A dry-run file that does not exist is named, and nothing moved.
     let missing = case.work.join("no-such-dry-run.txt");
@@ -897,15 +912,20 @@ fn an_allocated_decision_id_is_free_in_the_hand_written_decision_files() {
     )
     .expect("write a file that is not jsonl");
     let config = root.join("conductor.yaml");
+    // The instance's `state` is the one `--state-dir` names: a command that writes records takes
+    // no other (`story:instance-isolation`).
     fs::write(
         &config,
-        "version: conductor.config/1\n\
-         instances:\n\
-         \x20 - name: example-org\n\
-         \x20   sources: [{github: example-org}]\n\
-         \x20   checkouts: {root: ~/checkouts, trees: ~/trees}\n\
-         \x20   records: ~/records\n\
-         \x20   state: ~/state\n",
+        format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: example-org\n\
+             \x20   sources: [{{github: example-org}}]\n\
+             \x20   checkouts: {{root: ~/checkouts, trees: ~/trees}}\n\
+             \x20   records: ~/records\n\
+             \x20   state: {:?}\n",
+            case.state
+        ),
     )
     .expect("write the config file");
 
@@ -1100,6 +1120,16 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
         "O",
         "--reason",
         "the operator's",
+        "--kind",
+        "one-of",
+        "--lettered-options",
+        LETTERED,
+        "--recommended-letters",
+        "A",
+        "--default-letters",
+        "B",
+        "--deadline",
+        DEADLINE,
     ]);
 
     for view in ["decisions", "requests", "hands-todo"] {
@@ -1138,7 +1168,8 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
         .expect("a JSON object")
         .keys()
         .collect();
-    assert_eq!(keys.len(), 11);
+    // Eleven fields, and the five of what the operator chooses from (story:decisions-page).
+    assert_eq!(keys.len(), 16);
     assert_eq!(requests[1]["blocker"], Value::Null);
     assert_eq!(requests[1]["escalation_class"], Value::Null);
     let raw = case.ok(&["decision", "requests", "--format", "jsonl"]);
@@ -1558,4 +1589,195 @@ fn a_decision_names_its_repository_and_the_decisions_view_reads_it_back() {
         Some("repository: beta"),
         "`decision show` prints it last: {shown:?}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// What the operator chooses from (story:decisions-page)
+// ---------------------------------------------------------------------------------------------
+
+/// The lettered options a class-O escalation here names: two, each with its cost.
+const LETTERED: &str = r#"[{"letter":"A","label":"one way","cost":"an hour of one controller"},{"letter":"B","label":"the other","cost":"nothing now"}]"#;
+
+/// The deadline a class-O escalation here names.
+const DEADLINE: &str = "2026-10-08T10:00:00Z";
+
+/// What a class-O escalation carries besides its class and reason (`story:decisions-page`): a
+/// `one-of` with [`LETTERED`], `A` recommended, `B` the default, and [`DEADLINE`].
+const O_CHOICES: [&str; 10] = [
+    "--kind",
+    "one-of",
+    "--lettered-options",
+    LETTERED,
+    "--recommended-letters",
+    "A",
+    "--default-letters",
+    "B",
+    "--deadline",
+    DEADLINE,
+];
+
+/// The arguments of `escalate-request` of `request` as `class`, with `more` after them.
+fn escalation<'a>(request: &'a str, class: &'a str, more: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec![
+        "decision",
+        "escalate-request",
+        "--request-id",
+        request,
+        "--escalation-class",
+        class,
+        "--reason",
+        "the operator's call",
+    ];
+    args.extend_from_slice(more);
+    args
+}
+
+/// `story:decisions-page`: a class-O escalation carries its kind, its lettered options with their
+/// cost, the recommended and default letters and its deadline; without any one of them it is
+/// refused with `EscalationIncomplete`, naming the flags, and the request stays open. With them
+/// the `requests` view carries each, last in its row.
+#[test]
+fn a_class_o_escalation_names_its_kind_options_recommendation_default_and_deadline() {
+    let case = Case::new("escalation-choices");
+    case.raise("o-1", "alpha");
+    for left_out in 0..5 {
+        let mut more: Vec<&str> = Vec::new();
+        for (pair, flag) in O_CHOICES.chunks(2).enumerate() {
+            if pair != left_out {
+                more.extend_from_slice(flag);
+            }
+        }
+        let stderr = case.refused(&escalation("o-1", "O", &more), "EscalationIncomplete");
+        for flag in [
+            "--kind",
+            "--lettered-options",
+            "--recommended-letters",
+            "--default-letters",
+            "--deadline",
+        ] {
+            assert!(
+                stderr.contains(flag),
+                "the refusal names {flag}: {stderr:?}"
+            );
+        }
+        assert_eq!(case.request("o-1")["state"], "Open", "nothing moved");
+    }
+
+    case.quiet(&escalation("o-1", "O", &O_CHOICES));
+    let row = case.request("o-1");
+    assert_eq!(row["state"], "Escalated");
+    assert_eq!(row["kind"], "one-of");
+    assert_eq!(
+        row["lettered_options"],
+        serde_json::from_str::<Value>(LETTERED).expect("the options are JSON")
+    );
+    assert_eq!(row["recommended_letters"], "A");
+    assert_eq!(row["default_letters"], "B");
+    assert_eq!(row["deadline"], DEADLINE);
+    let raw = case.ok(&["decision", "requests", "--format", "jsonl"]);
+    assert!(
+        raw.lines()
+            .next()
+            .is_some_and(|line| line.ends_with(&format!("\"deadline\":\"{DEADLINE}\"}}"))),
+        "the deadline is the view's last field: {raw:?}"
+    );
+}
+
+/// `story:decisions-page`: a class-H escalation may carry the same, and needs none of it; a
+/// request escalated without them reads them back as `null`.
+#[test]
+fn a_class_h_escalation_may_name_its_options_and_needs_none() {
+    let case = Case::new("escalation-choices-h");
+    case.raise("h-bare", "alpha");
+    case.raise("h-full", "alpha");
+    case.quiet(&escalation(
+        "h-bare",
+        "H",
+        &["--no-dry-run", "a login has no step that runs without it"],
+    ));
+    let full = escalation(
+        "h-full",
+        "H",
+        &[
+            "--no-dry-run",
+            "a login has no step that runs without it",
+            "--kind",
+            "yes-no",
+            "--lettered-options",
+            r#"[{"letter":"Y","label":"log in now","cost":"five minutes of the operator"},{"letter":"N","label":"leave it","cost":"the release waits"}]"#,
+            "--recommended-letters",
+            "Y",
+        ],
+    );
+    case.quiet(&full);
+
+    let bare = case.request("h-bare");
+    for field in [
+        "kind",
+        "lettered_options",
+        "recommended_letters",
+        "default_letters",
+        "deadline",
+    ] {
+        assert_eq!(bare[field], Value::Null, "{field}: {bare}");
+    }
+    let full = case.request("h-full");
+    assert_eq!(full["kind"], "yes-no");
+    assert_eq!(full["recommended_letters"], "Y");
+    assert_eq!(full["default_letters"], Value::Null);
+    assert_eq!(full["lettered_options"][1]["letter"], "N");
+}
+
+/// `story:decisions-page`: options that do not fit their kind are refused with `OptionsInvalid`
+/// before any store is opened, naming what is wrong, and the request stays open.
+#[test]
+fn options_that_do_not_fit_their_kind_are_refused() {
+    let case = Case::new("escalation-choices-invalid");
+    case.raise("o-bad", "alpha");
+    let with = |kind: &'static str,
+                options: &'static str,
+                recommended: &'static str,
+                default: &'static str| {
+        vec![
+            "--kind",
+            kind,
+            "--lettered-options",
+            options,
+            "--recommended-letters",
+            recommended,
+            "--default-letters",
+            default,
+            "--deadline",
+            DEADLINE,
+        ]
+    };
+    let two = LETTERED;
+    let doubled =
+        r#"[{"letter":"A","label":"one","cost":"x"},{"letter":"A","label":"two","cost":"y"}]"#;
+    let costless =
+        r#"[{"letter":"A","label":"one","cost":""},{"letter":"B","label":"two","cost":"y"}]"#;
+    let unlabelled = r#"[{"letter":"A","cost":"x"}]"#;
+    for (more, says) in [
+        (with("one-of", two, "C", "B"), "C"),
+        (with("one-of", two, "A", "Z"), "Z"),
+        (with("one-of", two, "A,B", "B"), "one letter"),
+        (with("yes-no", two, "A", "B"), "Y and N"),
+        (with("several-of", two, "", "B"), "at least one"),
+        (with("one-of", doubled, "A", "A"), "\"A\" twice"),
+        (with("one-of", costless, "A", "B"), "cost"),
+        (with("one-of", unlabelled, "A", "A"), "label"),
+        (with("one-of", "[]", "A", "A"), "no option"),
+    ] {
+        let stderr = case.refused(&escalation("o-bad", "O", &more), "OptionsInvalid");
+        assert!(stderr.contains(says), "says {says:?}: {stderr:?}");
+        assert_eq!(case.request("o-bad")["state"], "Open", "nothing moved");
+    }
+
+    // Several letters fit a several-of request.
+    case.quiet(&escalation(
+        "o-bad",
+        "O",
+        &with("several-of", two, "A,B", "A"),
+    ));
+    assert_eq!(case.request("o-bad")["recommended_letters"], "A,B");
 }

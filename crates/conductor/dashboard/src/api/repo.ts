@@ -260,7 +260,7 @@ export async function loadRepo(
   const repository = encodeURIComponent(name);
   async function read<T>(path: string, empty: T): Promise<T> {
     try {
-      const answer = await fetcher(path, { cache: 'no-store' });
+      const answer = await fetcher(path, { cache: 'no-cache' });
       if (!answer.ok) {
         errors.push(`could not read ${path}: ${answer.status}`);
         return empty;

@@ -244,7 +244,7 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
 /// `tests/usage_probe.rs` (`story:usage-probe`); the `metric` leaves by `tests/metric.rs`
 /// (`story:kpi-records`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 96] = [
+const IMPLEMENTED: [&str; 98] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -293,6 +293,7 @@ const IMPLEMENTED: [&str; 96] = [
     "decision raise-decision-request",
     "decision record-conductor-decision",
     "decision record-operator-decision",
+    "decision answer-escalated-as-operator",
     "decision reverse-conductor-decision",
     "decision reverse-operator-decision",
     "decision withdraw-request",
@@ -332,6 +333,7 @@ const IMPLEMENTED: [&str; 96] = [
     "host reserve-disk",
     "host start-run",
     "host take-host-grant",
+    "host withdraw-disk-request",
     "host grants",
     "metric define-metric",
     "metric record-metric-reading",

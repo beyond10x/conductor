@@ -183,7 +183,9 @@ impl Case {
             .collect()
     }
 
-    /// A config file with `retention` as the instance's, under the case's directory.
+    /// A config file with `retention` as the instance's, under the case's directory. The
+    /// instance's `state` is the case's, which `--state-dir` names: a snapshot takes no other
+    /// (`story:instance-isolation`).
     fn config(&self, retention: &str) -> PathBuf {
         let file = self.root.join("conductor.yaml");
         fs::write(
@@ -194,7 +196,9 @@ impl Case {
                  \x20 - name: case\n\
                  \x20   sources: [{{github: case}}]\n\
                  \x20   checkouts: {{root: ~/case, trees: ~/trees}}\n\
-                 {retention}"
+                 \x20   state: {state:?}\n\
+                 {retention}",
+                state = self.state
             ),
         )
         .expect("write the config file");

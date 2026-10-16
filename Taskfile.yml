@@ -3,6 +3,8 @@ version: '3'
 vars:
   SESSION_ID: claude agents --json | jq -r '.[] | select(.kind=="background" and .name==$n and .pid != null) | .id'
   SESSION_COUNT: claude agents --json | jq '[.[] | select(.kind=="background" and .name==$n and .pid != null)] | length'
+  # The ess binary; ESS=<path> runs a release other than the one on PATH (rules item 132).
+  ESS: '{{.ESS | default "ess"}}'
 
 tasks:
   sessions:
@@ -326,10 +328,11 @@ tasks:
       - dir="$(dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}")/profiles" && mkdir -p "$dir" && install -m 0644 .agents/conductor.md .agents/conductor-dev.md .agents/repo-controller.md "$dir/" && echo "profiles installed in $dir"
 
   measure:
-    desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio and the guard latency); run it on a quiet host
+    desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio, the guard latency and the dashboard's warm answers); run it on a quiet host
     cmds:
       - cargo test --release --locked -p conductor-cli --test store_tree -- --ignored --nocapture appends_at_5000_events_cost_less_than_three_times_appends_at_500
       - cargo test --release --locked -p conductor-cli --test guard_latency -- --ignored --nocapture
+      - cargo test --release --locked -p conductor-cli --test dashboard_fast -- --ignored --nocapture
 
   ui:
     desc: Build the dashboard app (crates/conductor/dashboard, Vue 3 and Vite on the Node version of its .nvmrc) into crates/conductor/dashboard/dist/, which is committed and which the conductor binary embeds; installs the locked packages first (npm ci)
@@ -338,16 +341,22 @@ tasks:
       - npm ci
       - npm run build
 
+  ui:dev:
+    desc: Serve the dashboard app from source with hot reload on http://127.0.0.1:5173/ (Vite dev mode); its data and answers come from the running dashboard, CONDUCTOR_DASHBOARD (default http://127.0.0.1:7313), so start that first with task dashboard
+    dir: crates/conductor/dashboard
+    cmds:
+      - npm run dev
+
   check:
     desc: Scan every tracked file with Gates (when B10X_GATES_POLICY names a policy), validate and run the specification, hold crates/conductor-model to it, test the dashboard app and hold crates/conductor/dashboard/dist to a fresh build, then format, lint and test
     cmds:
       - if [ -n "${B10X_GATES_POLICY:-}" ]; then git ls-files -z | xargs -0 b10x-gates scan-text; else echo "B10X_GATES_POLICY is not set; the Gates scan is skipped" >&2; fi
-      - ess specify validate --path spec
+      - "{{shellQuote .ESS}} specify validate --path spec"
       - mkdir -p .check
       - echo '*' > .check/.gitignore
-      - ess verify conform run --path spec --scenarios spec/scenarios --target interpreted --report-format 2 --report-out .check/conformance.json
+      - "{{shellQuote .ESS}} verify conform run --path spec --scenarios spec/scenarios --target interpreted --report-format 2 --report-out .check/conformance.json"
       - rm -rf .check/conductor-model
-      - ess generate synthesize --path spec --target rust --layout crate --out .check/conductor-model
+      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --out .check/conductor-model"
       - diff -r --exclude=.ess-output crates/conductor-model .check/conductor-model
       - npm --prefix crates/conductor/dashboard ci
       - npm --prefix crates/conductor/dashboard test
@@ -373,4 +382,4 @@ tasks:
     desc: Regenerate crates/conductor-model from spec/; every byte of it is generated
     cmds:
       - rm -rf crates/conductor-model
-      - ess generate synthesize --path spec --target rust --layout crate --out crates/conductor-model
+      - "{{shellQuote .ESS}} generate synthesize --path spec --target rust --layout crate --out crates/conductor-model"

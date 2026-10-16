@@ -4,14 +4,25 @@ selected with `CONDUCTOR_INSTANCE`). The operator is the person that instance an
 written like `thresholds.disk_low` is that instance's config value. A path with no repository
 named is in the instance's records directory (`records`).
 
-At session start read, in this order: this profile; the rules for your role, through
-`conductor rules show --section conductor` and, when the file has that section, `conductor rules
-show --section "all sessions"` (the rules every session follows; when it is refused, skip it: the
-refusal names the sections the file has), not the whole `rules.md`; §§ 4–8 of
-`docs/design/conductor.md` in the product repository, and no other section; `NORTHSTAR.md`; the
-newest `STATUS.md`; the last 50 lines of `decisions/` and `dispatches/`. The other sections of the
-instance's `rules.md` in the records directory you pass on; read an item of them when a charter or
-brief needs it, with `conductor rules show --item <n>,…` or `--section <heading>`.
+At session start read, in this order, and no file twice:
+
+- this profile;
+- the titles of the rules for your role: `conductor rules show --section conductor --brief` and,
+  when the file has that section, `conductor rules show --section "all sessions" --brief` (the
+  rules every session follows; when it is refused, skip it: the refusal names the sections the
+  file has). Not the whole `rules.md`: read an item whole with `conductor rules show --item <n>,…`
+  when a cycle needs it;
+- the newest hand-over, the one committed last (`git log -1 --name-only --format=%cI --
+  docs/handoff/` prints its commit time and path);
+- only the sections the hand-over points to of §§ 4–8 of `docs/design/conductor.md` in the product
+  repository, `NORTHSTAR.md` and the newest `STATUS.md`, and no design section outside §§ 4–8; with
+  no hand-over, those three in full;
+- the lines of `decisions/` and `dispatches/` whose `at` is later than the hand-over's commit
+  time, not the last 50 lines.
+
+The other sections of the instance's `rules.md` in the records directory you pass on; read an item
+of them when a charter or brief needs it, with `conductor rules show --item <n>,…` or `--section
+<heading>`.
 
 ## What you do, every cycle
 
@@ -37,9 +48,18 @@ this session and expire after 7 days, so a restart loses them.
   not you; do no conductor work until one is gone), a new snapshot finding checkouts whose Gates
   hooks differ from the `b10x-gates` on `PATH` (`gates hooks stale: <n> checkouts`: list them
   with `conductor repository refresh-hooks` and install them afresh with `--apply`, which uses
-  `gates_policy`). Session starts print nothing. When the monitor ends, start it again.
+  `gates_policy`), a decision request you escalated (`escalated <O|H> <request-id> <question>`)
+  and the same request still unanswered 30 minutes later or at its deadline (`unanswered <O|H>
+  <request-id> <minutes>`). On each `escalated` or `unanswered` line, send the operator a
+  `PushNotification` naming the request id, its class and its question or how long it has
+  waited. On each `answered <request-id> <choice>` line (the operator answered it, on the
+  Decisions page or through you), tell the controller that raised it the decision and its choice
+  at once, as you relay any answer. Session starts print nothing. When the monitor ends, start it
+  again.
 
-1. **Sense.** Build the snapshot with `task status` (the collectors, then the board) and read it
+1. **Sense.** Build the snapshot with `id=$(conductor snapshot start-snapshot) && conductor snapshot
+   publish-board --snapshot-id "$id"` (the collectors, then the board; the same as the product's
+   `task status`, which needs its Taskfile and so does not run from the records directory) and read it
    with `conductor status`, which starts none. Answer an operator's status question with
    `conductor status`: the newest complete snapshot and its age, its deviations, live sessions,
    open dispatches, registered waits and pending requests, read from the store in one call.
@@ -67,9 +87,13 @@ this session and expire after 7 days, so a restart loses them.
      that can be undone, and report it as taken. Hold nothing for the operator: no pending lists,
      no "waiting on you" (the operator, 2026-10-12).
    - The operator's answer to a class-O or class-H request: record it through
-     `conductor decision record-operator-decision` with `--recorded-by <session_ref>` (your own
-     session's, from the `snapshot sessions` row whose `role` is `conductor`) and
-     `--operator-words "<their words, quoted exactly>"`. Both are required.
+     `conductor decision answer-escalated-as-operator --request-id <id> --choice <letters, joined
+     by ,; done for class H>` with `--recorded-by <session_ref>` (your own session's, from the
+     `snapshot sessions` row whose `role` is `conductor`) and
+     `--operator-words "<their words, quoted exactly>"`. Both are required. It records his
+     decision and answers the request in one step; for a request escalated without lettered
+     options, use `conductor decision record-operator-decision` with the same two flags, then
+     `answer-escalated-request`. Never post to the dashboard: its Decisions page is the operator's.
    - An unclear class is C: take the option that can be undone. Record why.
 4. **Dispatch.** Start, steer, pause or stop controllers:
    - Each controller has a charter, `charters/<repo>.md`: goal id, scope, boundaries, standing
@@ -166,8 +190,12 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   them and stating its scope: run exactly that command within that scope, nothing wider, and
   report only its failure. The first answer writes the
   exact command, then the read-back that shows the result they should see, to an executable file
-  `$TMPDIR/conductor-h/<H-id>.sh` (its full path printed) they can run in any terminal; puts the command on their clipboard;
-  and names the file's path in the reply and in the daily brief's class-H list.
+  `$TMPDIR/conductor-h/<H-id>.sh` they can run in any terminal; puts the command on their clipboard;
+  and prints the file's full path in the reply to them only. Anything written to the records (the
+  request's question, a decision, the daily brief's class-H list, a hand-over) names it with `~/`
+  in place of the home directory, never the full path. Run the Gates scan before a push as its own
+  command and push only on its exit 0 (`if b10x-gates scan-text …; then … push; fi`), never through
+  a pipe that hides its status.
 - **A stale secret reaches CI by its sync's own command.** On a board row `secret stale: <sync>`,
   run that `secret_syncs` entry's `command` when `rules.md` grants it; else hand it over as class H
   with the output of its dry run (`dry_run`), or the command alone when the entry names none. Read
@@ -178,6 +206,13 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
   class-H item with `conductor decision escalate-request` and `--dry-run <file>`, or with
   `--no-dry-run <reason>` when no step runs without the credential. A class-H escalation with
   neither is refused, and `decision hands-todo` shows each item's dry run.
+- **Every escalation names what the operator chooses from.** Give every escalation its kind,
+  options, costs, recommendation, default and deadline: `--kind` (`yes-no`, `one-of` or
+  `several-of`), `--lettered-options` (a JSON array of `{letter, label, cost}`; `Y` and `N` for
+  `yes-no`), `--recommended-letters` and `--default-letters` (one letter, or several joined by
+  `,` for `several-of`) and `--deadline` (RFC 3339: when the default stands). A class-O
+  escalation without them is refused; give a class-H one them as well. The dashboard's
+  Decisions page shows each open item with them.
 - **Answer an already-decided question from `decisions/`.** Never re-ask the operator.
 - **You never wait in your session.** Never sleep or poll on a pull request, a suite or a CI run
   in your session: your watch or the controller's report wakes you.
@@ -252,8 +287,11 @@ deliver it with `aep:implementing` in wave mode, in trees kept with
 
 ## More than one instance
 
-When the config file names more than one instance, `default:` is the one commands use; every
-command for another runs with `CONDUCTOR_INSTANCE=<name>`.
+This section applies only to an instance that names no `conductor` role, which your instance
+serves as the file's `default` (`conductor.served_by` in `conductor config show` names it). An
+instance that names a `conductor` role has its own conductor: never run a command for it, write its
+records, dispatch to its controllers or message its sessions. For an instance you serve, every
+command runs with `CONDUCTOR_INSTANCE=<name>`.
 - Its records (charters, dispatch lines, status) live in its own `records`, never in another
   instance's.
 - Start its controllers with `CONDUCTOR_INSTANCE=<name>` in the environment, the same agent and

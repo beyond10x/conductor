@@ -1,11 +1,12 @@
 // generated from conductor v1
-// model digest bd374d05aebdad9cfd84e358bc50cdd3b8070f4db77ae34b48568c0946ac9a17
-// contract digest a7fdf8006d631e5e44d566ce1e1544c42d1efc547026550b51eaa0b490dafefd
+// model digest dbd2a0daaf9f3c2b75f578f7a499b8647b1bb70f7c5f0f51817c13c2cddf7a2c
+// contract digest b6a26f3b93fe2c883e16ed3ebe7d5f0dd69bc54559227cf3c130249566ca4a79
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
 //!
 //! The machine several conductor instances share (story:multi-instance-host), and the protocol its disk runs under (epic:disk-protocol, story:disk-protocol-spec). Each instance keeps its own records, state, cache and sessions; what they share is one disk, one CPU and memory budget, and one machine-wide namespace of harness session names. The host ledger holds every grant an instance's conductor or a `conductor build run` takes: a controller slot, a build slot, or a disk reservation for a run's expected peak, so two instances or two runs cannot each grant the same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records each step with the bytes it freed, or what is left when it cannot reach the floor.
+//! The host directory (story:instance-isolation) is `host/` beside the config file, one for every instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the marker of the open fall of free disk `host.fall`, which names the item's instance: only that instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its `state` before is moved there once, at its first host command: every grant of its store, its run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that it was moved, and nothing is moved again.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -62,6 +63,8 @@ pub enum HostGrantState {
     Requested,
     /// `Running`.
     Running,
+    /// `Withdrawn`.
+    Withdrawn,
 }
 
 /// LeftOver — `conductor.host.LeftOver`.
@@ -208,6 +211,7 @@ pub mod host_grant_state {
         impl Sealed for super::Released {}
         impl Sealed for super::Requested {}
         impl Sealed for super::Running {}
+        impl Sealed for super::Withdrawn {}
     }
 
     /// A declared state of `HostGrant`, as a type.
@@ -249,6 +253,13 @@ pub mod host_grant_state {
 
     impl Marker for Running {
         const STATE: super::HostGrantState = super::HostGrantState::Running;
+    }
+
+    /// `Withdrawn`. Terminal: an instance may rest here forever.
+    pub struct Withdrawn;
+
+    impl Marker for Withdrawn {
+        const STATE: super::HostGrantState = super::HostGrantState::Withdrawn;
     }
 }
 
@@ -335,6 +346,14 @@ impl HostGrant<host_grant_state::Requested> {
             state: core::marker::PhantomData,
         }
     }
+
+    /// `withdraw` — `Requested` → `Withdrawn`. Taken by the `withdrawn` outcome of `conductor.host.WithdrawDiskRequest`.
+    pub fn withdraw(self) -> HostGrant<host_grant_state::Withdrawn> {
+        HostGrant {
+            data: self.data,
+            state: core::marker::PhantomData,
+        }
+    }
 }
 
 impl HostGrant<host_grant_state::Running> {
@@ -371,6 +390,8 @@ pub enum AnyHostGrant {
     Requested(HostGrant<host_grant_state::Requested>),
     /// Resting in `Running`.
     Running(HostGrant<host_grant_state::Running>),
+    /// Resting in `Withdrawn`.
+    Withdrawn(HostGrant<host_grant_state::Withdrawn>),
 }
 
 impl HostGrantSnapshot {
@@ -400,6 +421,10 @@ impl HostGrantSnapshot {
                 data: self.data,
                 state: core::marker::PhantomData,
             }),
+            HostGrantState::Withdrawn => AnyHostGrant::Withdrawn(HostGrant {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
         }
     }
 }
@@ -413,6 +438,7 @@ impl AnyHostGrant {
             Self::Released(_) => HostGrantState::Released,
             Self::Requested(_) => HostGrantState::Requested,
             Self::Running(_) => HostGrantState::Running,
+            Self::Withdrawn(_) => HostGrantState::Withdrawn,
         }
     }
 
@@ -437,6 +463,10 @@ impl AnyHostGrant {
             },
             Self::Running(instance) => HostGrantSnapshot {
                 state: HostGrantState::Running,
+                data: instance.into_data(),
+            },
+            Self::Withdrawn(instance) => HostGrantSnapshot {
+                state: HostGrantState::Withdrawn,
                 data: instance.into_data(),
             },
         }
@@ -933,6 +963,47 @@ pub enum TakeHostGrantOutcome {
     },
 }
 
+/// Withdraw a waiting disk request — the input of `conductor.host.WithdrawDiskRequest`.
+///
+/// Everything it can result in is [`WithdrawDiskRequestOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WithdrawDiskRequest {
+    /// `grant_id` — `conductor.host.GrantId`.
+    pub grant_id: GrantId,
+    /// `withdrawn_at` — `Timestamp`.
+    pub withdrawn_at: crate::primitives::Timestamp,
+}
+
+/// Everything `conductor.host.WithdrawDiskRequest` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WithdrawDiskRequestOutcome {
+    /// `withdrawn` — otherwise.
+    ///
+    /// The request leaves the queue; the requests behind it move up.
+    Withdrawn {
+        /// The `conductor.host.DiskRequestWithdrawn` this outcome publishes.
+        disk_request_withdrawn: DiskRequestWithdrawn,
+    },
+    /// `no-such-grant` — for an identity no record carries.
+    ///
+    /// No grant with that id.
+    NoSuchGrant {
+        /// Why it was refused: `conductor.host.HostGrantNotFound`.
+        error: HostGrantNotFound,
+    },
+    /// `wrong-state` — from a state no declared move starts in.
+    ///
+    /// Only a request still waiting is withdrawn; an answered one is released or was refused.
+    WrongState {
+        /// Why it was refused: `conductor.host.HostGrantStateConflict`.
+        error: HostGrantStateConflict,
+    },
+}
+
 /// DiskReclaimed — the event `conductor.host.DiskReclaimed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskReclaimed {
@@ -940,6 +1011,13 @@ pub struct DiskReclaimed {
     pub reclaim_run_id: ReclaimRunId,
     /// `reclaimed_bytes` — `Integer`.
     pub reclaimed_bytes: i64,
+}
+
+/// DiskRequestWithdrawn — the event `conductor.host.DiskRequestWithdrawn`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskRequestWithdrawn {
+    /// `grant_id` — `conductor.host.GrantId`.
+    pub grant_id: GrantId,
 }
 
 /// DiskRequested — the event `conductor.host.DiskRequested`.
@@ -1217,6 +1295,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
         fn take_host_grant(&mut self, input: super::TakeHostGrant) -> Result<super::TakeHostGrantOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.host.WithdrawDiskRequest` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait WithdrawDiskRequestBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.host.WithdrawDiskRequest`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn withdraw_disk_request(&mut self, input: super::WithdrawDiskRequest) -> Result<super::WithdrawDiskRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.host.Grants` — generated.

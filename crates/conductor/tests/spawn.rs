@@ -16,8 +16,8 @@
 //!
 //! `story:session-envelope-seam`: spawn starts the controller through a confinement provider. The
 //! cases that name a fake provider run the command over it ([`fake_provider`]); the others run
-//! the built binary, whose `systemd` provider is not written yet, so the default `report` starts
-//! every controller through `none`, with the start form above.
+//! the built binary with the instance's `confinement` the `none` provider ([`UNBOXED`]), which
+//! starts every controller with the start form above.
 
 mod common;
 mod fake_provider;
@@ -46,6 +46,12 @@ fn child() {
 
 /// The id the stand-in prints for a session it started.
 const SESSION_ID: &str = "bg-session-0001";
+
+/// The `confinement` the config file writes until a case sets its own ([`Case::confine`]): the
+/// `none` provider, so the built binary launches the case's `claude` itself and never reaches the
+/// host's `systemd-run`, whatever cgroup controllers the host delegates
+/// (`story:session-limits-systemd`).
+const UNBOXED: &str = "\x20   confinement: {provider: none}\n";
 
 /// A charter whose text a shell would expand: a `$(…)`, a backtick, both quotes and a line break.
 /// It reaches `claude` as one argument, byte for byte, and nothing in it runs.
@@ -142,7 +148,8 @@ impl Case {
                  \x20   state: {state}\n\
                  \x20   roles:\n\
                  \x20     - {{role: conductor, harness: claude, model: opus}}\n\
-                 \x20     - {controller}\n",
+                 \x20     - {controller}\n\
+                 {UNBOXED}",
                 root = self.root().display(),
                 trees = self.dir.join("trees").display(),
                 records = self.records().display(),
@@ -179,7 +186,8 @@ impl Case {
         write(&self.checkout().join(".git/HEAD"), "ref: refs/heads/main\n");
         write(&self.charter(), CHARTER);
         write(&self.profile(), "# Repository controller\n");
-        write(&self.settings(), "{}\n");
+        // The settings pin the instance (`story:instance-isolation`).
+        write(&self.settings(), &pinned("example-org"));
         fs::create_dir_all(self.state()).expect("create the state directory");
         self.write_config(&self.full_role());
         self.trust(true);
@@ -238,9 +246,11 @@ impl Case {
         self.dir.join("fake")
     }
 
-    /// Adds `confinement` to the instance of the config file.
+    /// Sets the instance's `confinement` in the config file, in place of [`UNBOXED`].
     fn confine(&self, confinement: &str) {
-        let text = fs::read_to_string(self.config()).expect("read the config file");
+        let text = fs::read_to_string(self.config())
+            .expect("read the config file")
+            .replace(UNBOXED, "");
         write(
             &self.config(),
             &format!("{text}\x20   confinement: {confinement}\n"),
@@ -261,6 +271,19 @@ impl Case {
         .env("PATH", path)
         .output()
         .expect("the child runs");
+        fake_provider::without_harness(output)
+    }
+
+    /// `conductor <args>` as [`Case::spawn_fake`] runs spawn, over the fake providers.
+    fn run_fake(&self, args: &[&str]) -> Output {
+        fs::create_dir_all(self.fake()).expect("create the fake's directory");
+        let path = format!("{}:/usr/bin:/bin", self.dir.join("bin").display());
+        let output = fake_provider::command(&self.home(), &self.fake(), args)
+            .current_dir(self.records())
+            .env("CONDUCTOR_CONFIG", self.config())
+            .env("PATH", path)
+            .output()
+            .expect("the child runs");
         fake_provider::without_harness(output)
     }
 
@@ -305,6 +328,22 @@ impl Case {
     fn recorded(&self) -> bool {
         self.state().join("tree").exists()
     }
+}
+
+/// A settings file that pins `instance`: its `env` names it, and its hook command runs
+/// `conductor` with it first (`story:instance-isolation`).
+fn pinned(instance: &str) -> String {
+    json!({
+        "env": {"CONDUCTOR_INSTANCE": instance},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": format!(
+                "CONDUCTOR_INSTANCE={instance} conductor guard record-guard-decision \
+                 --from-pre-tool-use || exit 2"
+            ),
+        }]}]},
+    })
+    .to_string()
 }
 
 fn describe(output: &Output) -> String {
@@ -478,7 +517,7 @@ fn spawn_refuses_a_repository_whose_controller_is_recorded_running() {
 #[test]
 fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
     type Setup = fn(&Case);
-    let cases: [(&str, &str, Setup); 9] = [
+    let cases: [(&str, &str, Setup); 11] = [
         ("no-charter", "NoCharter", |case| {
             fs::remove_file(case.charter()).expect("remove the charter");
         }),
@@ -506,6 +545,29 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
                 "{{role: controller, harness: claude, model: sonnet, profile: {}}}",
                 case.profile().display()
             ));
+        }),
+        // `story:instance-isolation`, item 1: settings that pin another instance. Settings that
+        // pin none start with a pinned copy (`spawn_starts_unpinned_settings_with_a_pinned_copy`).
+        (
+            "settings-of-another-instance",
+            "InstanceNotPinned",
+            |case| {
+                write(&case.settings(), &pinned("other-org"));
+            },
+        ),
+        ("hook-of-another-instance", "InstanceNotPinned", |case| {
+            write(
+                &case.settings(),
+                &json!({
+                    "env": {"CONDUCTOR_INSTANCE": "example-org"},
+                    "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+                        "type": "command",
+                        "command": "CONDUCTOR_INSTANCE=other-org conductor guard \
+                                    record-guard-decision --from-pre-tool-use",
+                    }]}]},
+                })
+                .to_string(),
+            );
         }),
         ("codex", "NotClaude", |case| {
             case.write_config(
@@ -537,6 +599,67 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// `story:instance-isolation`, item 1: a controller role whose settings file pins no instance, as
+/// the shipped `.claude/controller-settings.json` the guides name does, starts with a copy of it
+/// pinned to the instance, `<state>/sessions/<session name>.settings.json`; the file itself is
+/// not changed. A file whose env pins the instance and one hook does not is pinned the same way.
+#[test]
+fn spawn_starts_unpinned_settings_with_a_pinned_copy() {
+    let shipped = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/controller-settings.json"),
+    )
+    .expect("the shipped controller settings");
+    let hook_only = json!({
+        "env": {"CONDUCTOR_INSTANCE": "example-org"},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": "conductor guard record-guard-decision --from-pre-tool-use",
+        }]}]},
+    })
+    .to_string();
+    for (name, text) in [("unpinned-shipped", shipped), ("unpinned-hook", hook_only)] {
+        let case = Case::new(name);
+        write(&case.settings(), &text);
+        let output = case.spawn();
+        assert!(output.status.success(), "{name}: {}", describe(&output));
+        let copy = case.state().join("sessions/ex-alpha.settings.json");
+        let argv = case.argv();
+        let at = argv
+            .iter()
+            .position(|arg| arg == "--settings")
+            .expect("a --settings argument");
+        assert_eq!(
+            argv[at + 1],
+            copy.display().to_string(),
+            "{name}: the controller starts with the pinned copy: {argv:?}"
+        );
+        let pinned: Value =
+            serde_json::from_str(&fs::read_to_string(&copy).expect("the pinned copy"))
+                .expect("JSON");
+        assert_eq!(
+            pinned["env"]["CONDUCTOR_INSTANCE"], "example-org",
+            "{pinned}"
+        );
+        assert_eq!(
+            pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+                .as_str()
+                .map(|command| command.starts_with("CONDUCTOR_INSTANCE=example-org conductor ")),
+            Some(true),
+            "{name}: {pinned}"
+        );
+        let original: Value = serde_json::from_str(&text).expect("JSON");
+        assert_eq!(
+            pinned["disableAllHooks"], original["disableAllHooks"],
+            "{name}: {pinned}"
+        );
+        assert_eq!(
+            fs::read_to_string(case.settings()).expect("the role's settings"),
+            text,
+            "{name}: the role's own file is not changed"
+        );
+    }
 }
 
 #[test]
@@ -800,6 +923,79 @@ fn spawn_starts_through_the_provider_with_one_start_and_one_prompt() {
     let rows = case.controllers();
     assert_eq!(rows.len(), 1, "{rows:#?}");
     assert_eq!(rows[0]["state"], "Running", "{}", rows[0]);
+}
+
+/// The controller commands stop and resume the session through the provider: `pause-controller`
+/// stops a live session through the provider its measurement names and records it `Paused`;
+/// `resume-controller` resumes it through the instance's provider from the recorded id and
+/// records it `Running`; `stop-controller` stops nothing once the session list shows none of the
+/// name, and records it `Stopped`.
+#[test]
+fn the_controller_commands_stop_and_resume_the_session_through_the_provider() {
+    let case = Case::new("provider-lifecycle");
+    let spawned = case.spawn_fake();
+    assert_eq!(spawned.status.code(), Some(0), "{}", describe(&spawned));
+    let controller = case.controllers()[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    let live = json!([{"id": "fake-ex-alpha", "name": "ex-alpha", "pid": 4242}]);
+
+    case.sessions(&live);
+    let paused = case.run_fake(&[
+        "controller",
+        "pause-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(paused.status.code(), Some(0), "{}", describe(&paused));
+    assert_eq!(
+        String::from_utf8_lossy(&paused.stdout),
+        "stopped ex-alpha (fake-ex-alpha)\n"
+    );
+    let logged = calls(&case.fake());
+    let stop = logged.last().expect("a call");
+    assert_eq!(stop["call"], "stop", "{stop}");
+    assert_eq!(stop["provider"], "none", "{stop}");
+    assert_eq!(stop["session_id"], "fake-ex-alpha", "{stop}");
+    assert_eq!(case.controllers()[0]["state"], "Paused");
+
+    case.sessions(&json!([]));
+    let resumed = case.run_fake(&[
+        "controller",
+        "resume-controller",
+        "--controller-id",
+        &controller,
+    ]);
+    assert_eq!(resumed.status.code(), Some(0), "{}", describe(&resumed));
+    assert_eq!(
+        String::from_utf8_lossy(&resumed.stdout),
+        "resumed ex-alpha (fake-ex-alpha)\n"
+    );
+    let names = call_names(&case.fake());
+    assert_eq!(
+        &names[names.len() - 2..],
+        ["resume", "measure"],
+        "{names:?}"
+    );
+    assert_eq!(case.controllers()[0]["state"], "Running");
+
+    let before = call_names(&case.fake()).len();
+    let stopped = case.run_fake(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        &controller,
+        "--reason",
+        "the wave closed",
+    ]);
+    assert_eq!(stopped.status.code(), Some(0), "{}", describe(&stopped));
+    assert_eq!(
+        call_names(&case.fake()).len(),
+        before,
+        "no live session, nothing to stop"
+    );
+    assert_eq!(case.controllers()[0]["state"], "Stopped");
 }
 
 /// With `confinement.provider: none`, spawn launches today's start form, and the measurement it

@@ -129,7 +129,21 @@ Denied in every guarded session:
   named here makes only writes.
 - a command that writes a `.claude/` settings file or a role's settings file
   ([write targets](#write-targets));
-- a command that writes a role's profile file.
+- a command that writes a role's profile file;
+- a command that answers for the operator through the dashboard: it names `/api/answers`, the
+  Decisions page's write endpoint, or names the instance's `dashboard_port` as `:<port>`
+  (whatever spells the loopback address before it: `127.0.0.1`, `localhost`, `[::1]`,
+  `0x7f000001`, none) and sends a POST or a body: an HTTP client's own command (`curl`, `wget`,
+  `http`, `https`, `xh`, after any launcher) holds `-X POST`, `-XPOST`, `--request POST`,
+  `--method=POST`, httpie's `POST` or a request item (`name=value`), or a body flag (`-d…`,
+  `--data…`, `--json`, `-F`, `--form…`, `-T`, `--upload-file`, `--post-data`, `--post-file`); or
+  the line holds an interpreter's POST or body (`data=`, `json=`, `.post(`, `'POST'`, `body:`), as
+  a Python or node one-liner sends one. A flag of another program on the line (`tr -d`, `cut -d`,
+  `date -d`) is no body. The denial names
+  `conductor decision answer-escalated-as-operator`, the command conductor relays an answer the
+  operator gave it with. Reading the dashboard stays allowed. This is a substring test and a speed
+  bump, not a boundary: a script the command runs, a port or path held in a variable, or a
+  percent-encoded path is not caught ([residual risk](/docs/security/overview#the-decisions-page-writes)).
 
 Denied in a controller's session, in addition:
 
@@ -298,8 +312,17 @@ Claude Code treats any exit status other than 0 and 2 as "proceed". The wired co
 `|| exit 2`, so a missing `conductor` binary, or a guard killed before it answered, still blocks
 the call.
 
-A config file that does not load leaves the hook on the built-in instance's places. What is
-denied without a file stays denied; the places the broken file names grant nothing.
+A config file that does not load denies every call, naming the problem (`ConfigUnloaded`), until
+the file loads again: the hook never decides by the built-in instance's places in its stead, so a
+broken file cannot hand one instance's sessions another's paths. A call a rule denies anyway names
+that rule's reason too.
+
+A settings file pins its instance: `"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and each hook command
+that runs `conductor` starts `CONDUCTOR_INSTANCE=<name> conductor guard …`. The harness does not
+pass on the environment of the process that starts a session, so a hook without the pin acts for
+whatever instance its environment selects. A settings file that pins no instance, as the shipped
+ones do, is started as a copy pinned to the session's instance; one that pins another instance is
+refused.
 
 ## What is recorded
 

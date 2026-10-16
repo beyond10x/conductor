@@ -1300,12 +1300,13 @@ fn a_controller_s_bash_writes_no_project_settings() {
 }
 
 // -------------------------------------------------------------------------------------------------
-// Correction 2, decision 2: `gh` reads are allowed, everything else from `gh` is a GitHub write;
-// the bot route is left alone.
+// Correction 2, decision 2: `gh` reads are allowed, everything else from `gh` is a GitHub write.
+// The bot route, `b10x-gates gh`, was left alone there; since the operator's decision of
+// 2026-10-15 it carries only the session's own release and CI re-runs (the cases after these).
 // -------------------------------------------------------------------------------------------------
 
 #[test]
-fn gh_reads_and_the_bot_route_are_allowed() {
+fn gh_reads_are_allowed() {
     let home = home("gh-allow-list-reads");
     for cwd in [PROBE, CONDUCTOR] {
         for command in [
@@ -1321,8 +1322,6 @@ fn gh_reads_and_the_bot_route_are_allowed() {
             "gh --version",
             "gh help pr",
             "gh search issues --repo o/r x",
-            "b10x-gates gh -- pr create --fill",
-            "b10x-gates gh -- pr merge 3 --squash",
             "which gh",
             "command -v gh && gh pr list",
         ] {
@@ -1349,6 +1348,131 @@ fn everything_else_from_gh_is_a_github_write() {
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Deny, "GitHub write");
         }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// The operator's decision of 2026-10-15: the bot route, `b10x-gates gh [opts] -- <gh args>`,
+// carries a controller's release of its own repository, `release create|upload|edit|view` with
+// `--repository` naming the repository its checkout's `origin` names; and, by the coordinator's
+// decision the same day, a re-run of its CI, `run rerun` and `workflow run`; nothing else.
+// -------------------------------------------------------------------------------------------------
+
+/// A controller's checkout, `~/example-org/widget`, whose `origin` is
+/// `github.com/example-org/widget`, under a home of its own; the session runs in it.
+fn release_home(case: &str) -> (Home, &'static str) {
+    let home = home(case);
+    let git = home.join("example-org/widget/.git");
+    fs::create_dir_all(&git).expect("create the checkout's .git");
+    fs::write(
+        git.join("config"),
+        "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = https://github.com/example-org/widget.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+    )
+    .expect("write the checkout's git config");
+    (home, "~/example-org/widget")
+}
+
+#[test]
+fn the_bot_route_admits_a_release_of_the_controllers_own_repository() {
+    let (home, widget) = release_home("bot-route-own-release");
+    for command in [
+        "b10x-gates gh --repo . --repository example-org/widget --policy p.json -- release create v1.0.0 --draft --notes-file notes.md",
+        "b10x-gates gh --repository example-org/widget -- release upload v1.0.0 dist/a.tar.gz SHA256SUMS",
+        "b10x-gates gh --repository=example-org/widget -- release edit v1.0.0 --draft=false",
+        "B10X_GATES_POLICY=p.json b10x-gates gh --repository Example-Org/Widget -- release view v1.0.0",
+        "b10x-gates gh --repository example-org/widget -- release create v1.0.0 --repo example-org/widget",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Allow, "");
+    }
+}
+
+#[test]
+fn a_bare_gh_release_write_is_still_denied() {
+    let (home, widget) = release_home("bot-route-bare-gh");
+    for command in [
+        "gh release create v1.0.0 --draft",
+        "gh --repo example-org/widget release upload v1.0.0 a.tar.gz",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Deny, "GitHub write");
+    }
+}
+
+#[test]
+fn the_bot_route_naming_another_repository_is_denied() {
+    let (home, widget) = release_home("bot-route-other-repository");
+    for command in [
+        "b10x-gates gh --repository example-org/other -- release create v1.0.0",
+        "b10x-gates gh --repository=other-org/widget -- release upload v1.0.0 a.tar.gz",
+        "b10x-gates gh --repository example-org/widget -- release create v1.0.0 --repo example-org/other",
+        "b10x-gates gh --repository example-org/widget -- -R example-org/other release edit v1.0.0",
+        "b10x-gates gh -- release create v1.0.0",
+    ] {
+        assert_verdict(
+            &bash(&home, widget, command),
+            Verdict::Deny,
+            "the bot route",
+        );
+    }
+}
+
+#[test]
+fn the_bot_route_denies_every_other_gh_subcommand() {
+    let (home, widget) = release_home("bot-route-other-subcommand");
+    for command in [
+        "b10x-gates gh --repository example-org/widget -- pr merge 3 --squash",
+        "b10x-gates gh --repository example-org/widget -- pr create --fill",
+        "b10x-gates gh --repository example-org/widget -- repo delete example-org/widget --yes",
+        "b10x-gates gh --repository example-org/widget -- release delete v1.0.0 --yes",
+        "b10x-gates gh --repository example-org/widget -- run cancel 1",
+        "b10x-gates gh --repository example-org/widget -- workflow disable ci.yml",
+        "b10x-gates gh --repository example-org/widget -- secret set TOKEN --body x",
+        "b10x-gates gh --repository example-org/widget -- run --flag rerun 1",
+    ] {
+        assert_verdict(
+            &bash(&home, widget, command),
+            Verdict::Deny,
+            "the bot route",
+        );
+    }
+}
+
+/// The coordinator's decision of 2026-10-15: a controller re-runs its own repository's CI
+/// through the bot route, so `run rerun` and `workflow run` are carried as its release is.
+#[test]
+fn the_bot_route_admits_a_rerun_of_the_controllers_own_ci() {
+    let (home, widget) = release_home("bot-route-own-rerun");
+    for command in [
+        "b10x-gates gh --repository example-org/widget -- run rerun 1 --failed",
+        "b10x-gates gh --repository example-org/widget -- run rerun 1 --repo example-org/widget",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Allow, "");
+    }
+}
+
+#[test]
+fn the_bot_route_admits_a_workflow_run_of_the_controllers_own_repository() {
+    let (home, widget) = release_home("bot-route-own-workflow-run");
+    for command in [
+        "b10x-gates gh --repository example-org/widget -- workflow run ci.yml --ref main",
+        "b10x-gates gh --repository=example-org/widget -- workflow run release.yml -f tag=v1.0.0",
+    ] {
+        assert_verdict(&bash(&home, widget, command), Verdict::Allow, "");
+    }
+}
+
+#[test]
+fn the_bot_route_denies_a_rerun_naming_another_repository() {
+    let (home, widget) = release_home("bot-route-other-rerun");
+    for command in [
+        "b10x-gates gh --repository example-org/other -- run rerun 1 --failed",
+        "b10x-gates gh --repository example-org/widget -- run rerun 1 -R example-org/other",
+        "b10x-gates gh -- run rerun 1 --failed",
+    ] {
+        assert_verdict(
+            &bash(&home, widget, command),
+            Verdict::Deny,
+            "the bot route",
+        );
     }
 }
 
@@ -3591,7 +3715,7 @@ fn the_guard_s_code_names_no_organization() {
         "the guard's code names the organization:\n  - {}",
         named.join("\n  - ")
     );
-    assert_eq!(still, 1, "{STILL_NAMED} is named once, in GH_NOT_RUN");
+    assert_eq!(still, 1, "{STILL_NAMED} is named once, in BOT_ROUTE");
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -5608,5 +5732,92 @@ fn conductor_s_bash_is_not_held_to_conductor_build_run() {
         "cargo build --release",
     ] {
         assert_verdict(&bash(&home, CONDUCTOR, command), Verdict::Allow, "");
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// The Decisions page's write endpoint (story:decisions-batch-answer).
+// -------------------------------------------------------------------------------------------------
+
+/// No session answers for the operator through the dashboard: a Bash call of conductor or of a
+/// controller that names `/api/answers`, or the instance's dashboard port (7313 without a config
+/// file) with a POST or a body, is denied, however the loopback address is spelt.
+#[test]
+fn no_session_posts_to_the_dashboard() {
+    let home = home("dashboard-answers");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "curl -s -X POST http://127.0.0.1:7313/api/answers -d '{}'",
+            "curl http://localhost:7313/api/answers",
+            "wget -qO- 'http://[::1]:7313/api/answers'",
+            "curl -XPOST http://0x7f000001:7313/api/decisions",
+            "curl --data @answers.json http://127.0.0.1:7313/",
+            "curl -d '{\"answers\":[]}' http://localhost:7313/x",
+            "curl --request POST 'http://[::1]:7313/'",
+            "curl --json '{}' http://127.1:7313/",
+            "wget --post-data=x http://2130706433:7313/",
+            "http POST :7313/api/x answers:='[]'",
+            "u=http://127.0.0.1:7313; curl -X POST $u/api/answers",
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                "the operator's answers",
+            );
+        }
+    }
+}
+
+/// Reading the dashboard stays allowed, and a POST to another port is not this rule's.
+#[test]
+fn a_session_still_reads_the_dashboard() {
+    let home = home("dashboard-reads");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "curl -s http://127.0.0.1:7313/api/decisions",
+            "curl -s http://localhost:7313/data.json | head",
+            "curl -s -X POST -d x http://127.0.0.1:8080/",
+            "curl -s http://127.0.0.1:73130/",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// Adversary, story:decisions-batch-answer: the rule against posting to the dashboard.
+// -------------------------------------------------------------------------------------------------
+
+/// A read of the dashboard piped through a filter whose flag starts `-d` (`tr -d`, `cut -d`,
+/// `date -d`) is still a read: it posts nothing, and the rule is to leave it allowed.
+#[test]
+fn adv_a_dashboard_read_piped_through_tr_or_cut_is_allowed() {
+    let home = home("adv-dashboard-read-filters");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "curl -s http://127.0.0.1:7313/api/decisions | tr -d '\\n'",
+            "curl -s http://localhost:7313/api/unanswered | cut -d' ' -f1",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+/// A Python one-liner that names the dashboard's port and sends a body (`data=`, which urllib
+/// sends as a POST; `requests.post`) holds a POST or a body, which the rule's doc says is denied.
+#[test]
+fn adv_a_python_one_liner_posting_a_body_to_the_port_is_denied() {
+    let home = home("adv-dashboard-python");
+    for cwd in [CONDUCTOR, PROBE] {
+        for command in [
+            "python3 -c \"import urllib.request as r; r.urlopen(r.Request('http://127.0.0.1:7313/api/answer' 's', data=open('a.json','rb').read(), headers={'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin', 'X-Conductor-Token': open('t').read()}))\"",
+            "python3 -c \"import requests; requests.post('http://localhost:7313/api/answer' 's', json={'answers': []})\"",
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                "the operator's answers",
+            );
+        }
     }
 }

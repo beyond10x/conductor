@@ -7,7 +7,9 @@ summary: >
   checkouts are, where conductor keeps its records, state and cache, which harness and model each
   role runs on, its cadence, thresholds, reports, and who decides each decision class. These types
   hold the effective config, after defaults; the file may leave out every key of an instance but
-  its name, its sources and its checkouts. No field takes a secret.
+  its name, its sources and its checkouts. No field takes a secret. What the instances of one file
+  share lives in the host directory, `host/` beside the file (`conductor.host`), not under any
+  instance's `state`.
 
 naming:
   wire: config
@@ -166,6 +168,17 @@ types:
   # use: each a name of capital letters, digits and `_`, not starting with a digit. It is carried
   # on the session request a provider receives (`conductor.session.SessionRequest`); the variables'
   # values are never part of the config. Absent, it is empty.
+  # A settings file pins its instance (story:instance-isolation): its `env.CONDUCTOR_INSTANCE` is
+  # the instance's name, and each of its hook commands that runs `conductor` names the instance
+  # first, `CONDUCTOR_INSTANCE=<name> conductor guard …`, since the harness does not pass the
+  # environment its starter set on to a session it forks. A role's own settings file that pins
+  # no instance (no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor` without the
+  # prefix), as the shipped ones do, starts pinned: `session start` and `spawn` write its content
+  # with the pin set to `<state>/sessions/<session name>.settings.json` and start the session with
+  # that copy, and `config validate` reports it, by its `settings` path, as a note. A settings file
+  # that pins another instance, or cannot be read as JSON, is a problem `config validate` names by
+  # its `settings` path, and `session start` and `spawn` refuse it (`InstanceNotPinned`). A role
+  # that names none starts with its default written pinned (`conductor.session.SessionStartRefusal`).
   - name: conductor.config.Role
     kind: struct
     fields:
@@ -661,6 +674,34 @@ types:
     fields:
       - {name: check, type: Optional<Boolean>}
       - {name: release, type: Optional<String>}
+
+  # Why a command refused to act for an instance (story:instance-isolation); a refusal reads and
+  # writes nothing of any instance, names its refusal on one line of standard error, and exits 1.
+  # The instance is `CONDUCTOR_INSTANCE`; without it, the instance whose records, state, checkouts
+  # root or managed trees hold the working directory, the deepest when one lies inside another's;
+  # under none of them, the file's `default`, else its only instance. A command run in another
+  # instance's tree never falls back to the default.
+  # `AmbiguousInstance`: without `CONDUCTOR_INSTANCE`, two instances' trees hold the working
+  # directory at the same depth, so neither is chosen.
+  # `StateDirNotInstance`: a command that writes the instance's records (`snapshot publish-board`
+  # and the snapshot's rollups, the decision, dispatch and message logs, and every other command
+  # that writes the store) was given a `--state-dir` other than the instance's `state`, whose
+  # records it would not write beside it.
+  # `ConfigUnloaded`: the config file does not load; the guard denies every call and names the
+  # reason, rather than deciding by the built-in paths.
+  - name: conductor.config.InstanceRefusal
+    kind: enum
+    variants:
+      - AmbiguousInstance
+      - StateDirNotInstance
+      - ConfigUnloaded
+
+  # A refusal to act for an instance: why, and what was found.
+  - name: conductor.config.InstanceRefused
+    kind: struct
+    fields:
+      - {name: refusal, type: conductor.config.InstanceRefusal}
+      - {name: detail, type: String}
 
   # What `conductor upgrade` found or did (story:conductor-upgrade): `UpgradeAvailable`, with
   # `--check`, the release is newer than the installed version; `NoneAvailable`, with `--check`,

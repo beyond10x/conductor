@@ -571,8 +571,8 @@ fn the_hook_reads_claude_agents_json_for_a_socket_address() {
 
 // -------------------------------------------------------------------------------------------------
 // The instance's places. The hook decides by the instance the process runs: with a config file,
-// checkouts under its `checkouts` and conductor's session in its `records`; without one, or with
-// one that does not load, the built-in instance's, today's.
+// checkouts under its `checkouts` and conductor's session in its `records`; without one, the
+// built-in instance's, today's. One that does not load denies every call.
 // -------------------------------------------------------------------------------------------------
 
 /// A config file of one instance whose checkouts are under the case's `root/`, managed worktrees
@@ -915,11 +915,12 @@ fn with_a_config_file_a_controller_writing_into_records_is_denied() {
 }
 
 /// The guard is a security boundary: a config file that does not load (a key the specification
-/// does not declare, two instances and none chosen, a named file that is not there) leaves the hook
-/// on the built-in places, so every call denied without a file is still denied, and the file's
-/// places give nothing.
+/// does not declare, two instances and none chosen, a named file that is not there) denies every
+/// call, naming why (`story:instance-isolation`, `ConfigUnloaded`): a call the built-in places
+/// would allow is denied too, every call denied without a file is still denied for its own reason
+/// as well, and the file's places give nothing.
 #[test]
-fn a_config_file_that_does_not_load_leaves_the_hook_on_the_built_in_places() {
+fn a_config_file_that_does_not_load_denies_every_call() {
     let case = case_dir("config-unloadable");
     let home = case.join("home");
     let root = PathBuf::from(config::built_in(&home, &home).checkouts.root);
@@ -955,9 +956,9 @@ fn a_config_file_that_does_not_load_leaves_the_hook_on_the_built_in_places() {
                 "file_path",
                 &conductor.join("decisions/2026-10.jsonl"),
             ),
-            0,
-            "",
-            &format!("{how}: conductor writes its records"),
+            2,
+            "ConfigUnloaded: the config file does not load",
+            &format!("{how}: not even conductor writes its records"),
         );
         assert_answer(
             &decide(&conductor, "write", "file_path", &conductor.join("src/x")),
@@ -1366,6 +1367,38 @@ fn conductor_settings_wire_the_guard_and_keep_background_isolation_off() {
     );
     assert_eq!(conductor["worktree"]["bgIsolation"], "none");
     assert_eq!(conductor["disableAllHooks"], Value::Bool(false));
+}
+
+/// The tools conductor never calls, which its settings deny so their definitions stop filling
+/// its first-turn context (`story:conductor-context-budget`, measured in
+/// `docs/analysis/conductor-context-budget.md`).
+const CONDUCTOR_DENIED_TOOLS: [&str; 7] = [
+    "Artifact",
+    "Workflow",
+    "ScheduleWakeup",
+    "EnterWorktree",
+    "AskUserQuestion",
+    "ReportFindings",
+    "ShareOnboardingGuide",
+];
+
+#[test]
+fn conductor_settings_deny_the_tools_conductor_never_calls() {
+    let conductor = settings("conductor-settings.json");
+    let denied: Vec<&str> = conductor["permissions"]["deny"]
+        .as_array()
+        .unwrap_or_else(|| panic!("conductor's settings deny a list of tools: {conductor:#}"))
+        .iter()
+        .map(|tool| tool.as_str().expect("a tool name"))
+        .collect();
+    assert_eq!(denied, CONDUCTOR_DENIED_TOOLS);
+    // The controllers' settings are not conductor's to narrow.
+    let controller = settings("controller-settings.json");
+    assert_eq!(
+        controller["permissions"]["deny"],
+        Value::Null,
+        "{controller:#}"
+    );
 }
 
 /// Both files run the guard under `sh`, as Claude Code does: with the built binary on `PATH` a

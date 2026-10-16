@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bd374d05aebdad9cfd84e358bc50cdd3b8070f4db77ae34b48568c0946ac9a17
-// contract digest a7fdf8006d631e5e44d566ce1e1544c42d1efc547026550b51eaa0b490dafefd
+// model digest dbd2a0daaf9f3c2b75f578f7a499b8647b1bb70f7c5f0f51817c13c2cddf7a2c
+// contract digest b6a26f3b93fe2c883e16ed3ebe7d5f0dd69bc54559227cf3c130249566ca4a79
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.
@@ -82,6 +82,8 @@ pub struct SessionRequest {
 /// SessionStartRefusal — `conductor.session.SessionStartRefusal`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStartRefusal {
+    /// `InstanceNotPinned`.
+    InstanceNotPinned,
     /// `ProviderUnavailable`.
     ProviderUnavailable,
     /// `MeasurementShort`.

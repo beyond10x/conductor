@@ -18,6 +18,8 @@ describe('SummaryTiles', () => {
     const view = overview();
     const wrapper = mount(SummaryTiles, { props: { tiles: summary(view) } });
     expect(shown(wrapper)).toEqual({
+      // `/api/unanswered`: two requests escalated as O or H; the oldest raised two hours ago.
+      'unanswered O/H': ['2', 'oldest 2h · REQ-OLD'],
       // One awaiting_operator row and two repositories with a red main (alpha, delta).
       'needs you': ['3', '1 decision · 2 red CI'],
       'red CI on main': ['2', 'alpha, delta'],
@@ -50,5 +52,15 @@ describe('SummaryTiles', () => {
     expect(tiles['free disk']).toBe('—');
     expect(tiles['spend today']).toBe('—');
     expect(tiles['open PRs / MRs']).toBe('—');
+  });
+
+  it('shows no unanswered O/H item as 0 and an unread count as a dash', () => {
+    const view = overview();
+    view.unanswered = { count: 0, oldest: null };
+    const none = summary(view).find((tile) => tile.label === 'unanswered O/H')!;
+    expect([none.value, none.sub, none.tone]).toEqual(['0', 'none', 'green']);
+    view.unanswered = null;
+    const unread = summary(view).find((tile) => tile.label === 'unanswered O/H')!;
+    expect(unread.value).toBe('—');
   });
 });

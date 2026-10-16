@@ -82,6 +82,7 @@ Every command takes these, before or after its name.
 | [`conductor decision raise-decision-request`](#conductor-decision-raise-decision-request) | Raise a decision request |
 | [`conductor decision record-conductor-decision`](#conductor-decision-record-conductor-decision) | Record a decision taken by conductor |
 | [`conductor decision record-operator-decision`](#conductor-decision-record-operator-decision) | Record a decision taken by the operator |
+| [`conductor decision answer-escalated-as-operator`](#conductor-decision-answer-escalated-as-operator) | Answer an escalated request as the operator |
 | [`conductor decision reverse-conductor-decision`](#conductor-decision-reverse-conductor-decision) | Reverse a decision taken by conductor |
 | [`conductor decision reverse-operator-decision`](#conductor-decision-reverse-operator-decision) | Reverse a decision as the operator |
 | [`conductor decision withdraw-request`](#conductor-decision-withdraw-request) | Withdraw a decision request |
@@ -134,6 +135,7 @@ Every command takes these, before or after its name.
 | [`conductor host reserve-disk`](#conductor-host-reserve-disk) | Answer a disk request |
 | [`conductor host start-run`](#conductor-host-start-run) | Start the reserved run |
 | [`conductor host take-host-grant`](#conductor-host-take-host-grant) | Take a host grant |
+| [`conductor host withdraw-disk-request`](#conductor-host-withdraw-disk-request) | Withdraw a waiting disk request |
 | [`conductor host grants`](#conductor-host-grants) | Host grants |
 | [`conductor host reclaim-runs`](#conductor-host-reclaim-runs) | Reclaim runs |
 | [`conductor host reclaim`](#conductor-host-reclaim) | Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached |
@@ -936,6 +938,11 @@ Usage: conductor decision escalate-request [OPTIONS]
 | `--reason <REASON>` | no | none | string |
 | `--dry-run <FILE>` | no | none | The file holding the dry run: what every step of the operator's script that needs no credential printed. A class-H escalation carries this or `--no-dry-run` |
 | `--no-dry-run <REASON>` | no | none | Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run` |
+| `--kind <KIND>` | no | none | RequestKind: how the operator answers. Required for class O One of `yes-no`, `one-of`, `several-of`. |
+| `--lettered-options <LETTERED_OPTIONS>` | no | none | list of RequestOption, a JSON array of `{letter, label, cost}`; `Y` and `N` for `yes-no`. Required for class O |
+| `--recommended-letters <LETTERS>` | no | none | The letter conductor recommends, or several joined by `,` for `several-of`. Required for class O |
+| `--default-letters <LETTERS>` | no | none | The letter that stands when the operator has not answered by the deadline, or several joined by `,` for `several-of`. Required for class O |
+| `--deadline <DEADLINE>` | no | none | timestamp, RFC 3339: when the default stands. Required for class O |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision raise-decision-request`
@@ -988,6 +995,30 @@ Usage: conductor decision record-operator-decision [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
+| `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
+| `--decision-class <DECISION_CLASS>` | no | none | DecisionClass One of `C`, `O`, `H`. |
+| `--question <QUESTION>` | no | none | string |
+| `--options <OPTIONS>` | no | none | string |
+| `--choice <CHOICE>` | no | none | string |
+| `--reason <REASON>` | no | none | string |
+| `--evidence <EVIDENCE>` | no | none | string |
+| `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
+| `--recorded-by <RECORDED_BY>` | no | none | string |
+| `--operator-words <OPERATOR_WORDS>` | no | none | string |
+| `--repository <REPOSITORY>` | no | none | RepositoryName |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor decision answer-escalated-as-operator`
+
+Answer an escalated request as the operator
+
+```text
+Usage: conductor decision answer-escalated-as-operator [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--request-id <REQUEST_ID>` | no | none | RequestId |
 | `--decision-id <DECISION_ID>` | no | none | DecisionId, starting with `DEC-` |
 | `--decision-class <DECISION_CLASS>` | no | none | DecisionClass One of `C`, `O`, `H`. |
 | `--question <QUESTION>` | no | none | string |
@@ -1695,6 +1726,20 @@ Usage: conductor host take-host-grant [OPTIONS]
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor host withdraw-disk-request`
+
+Withdraw a waiting disk request
+
+```text
+Usage: conductor host withdraw-disk-request [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--grant-id <GRANT_ID>` | no | none | GrantId |
+| `--withdrawn-at <WITHDRAWN_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
 ## `conductor host grants`
 
 Host grants
@@ -2089,6 +2134,7 @@ Usage: conductor rules show [OPTIONS]
 | `--item <ITEM>` | no | none | The item numbers to print, comma-separated (43,49,51), in the order given |
 | `--section <SECTION>` | no | none | A heading of rules.md, any case: print every item under each heading of that text |
 | `--format <FORMAT>` | no | none | How the items are printed: text (verbatim) or json. Default: text |
+| `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
 
 ## `conductor setup`
 

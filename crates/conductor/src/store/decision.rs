@@ -5,7 +5,7 @@
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage};
 use conductor_model::decision::{
     Decider, DecisionClass, DecisionData, DecisionId, DecisionRequestData, DecisionRequestSnapshot,
-    DecisionRequestState, DecisionSnapshot, DecisionState, RequestId,
+    DecisionRequestState, DecisionSnapshot, DecisionState, RequestId, RequestOption,
 };
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::Timestamp;
@@ -169,6 +169,13 @@ fn encode_request(request: &DecisionRequestSnapshot) -> Value {
         "escalation_reason": data.escalation_reason,
         "dry_run": data.dry_run,
         "no_dry_run": data.no_dry_run,
+        "kind": data.kind.map(crate::decide::kind_name),
+        "lettered_options": data.lettered_options.as_ref().map(|options| {
+            options.iter().map(crate::decide::option_value).collect::<Vec<Value>>()
+        }),
+        "recommended_letters": data.recommended_letters,
+        "default_letters": data.default_letters,
+        "deadline": data.deadline.as_ref().map(|deadline| &deadline.0),
         "decision_id": data.decision_id.as_ref().map(|id| &id.0),
     })
 }
@@ -193,9 +200,41 @@ fn decode_request(body: &Value) -> Result<DecisionRequestSnapshot, String> {
             // Added by `story:hand-item-dry-run`: a request escalated before it carries neither.
             dry_run: added_text(body, "dry_run")?,
             no_dry_run: added_text(body, "no_dry_run")?,
+            // Added by `story:decisions-page`: a request escalated before it carries none.
+            kind: added_text(body, "kind")?
+                .map(|kind| {
+                    crate::decide::kind_named(&kind)
+                        .ok_or_else(|| format!("unknown RequestKind {kind:?}"))
+                })
+                .transpose()?,
+            lettered_options: added_options(body)?,
+            recommended_letters: added_text(body, "recommended_letters")?,
+            default_letters: added_text(body, "default_letters")?,
+            deadline: added_text(body, "deadline")?.map(Timestamp),
             decision_id: optional_text(body, "decision_id")?.map(DecisionId),
         },
     })
+}
+
+/// The lettered options of a request (`story:decisions-page`): absent or `null` is `None`; an
+/// array of `{letter, label, cost}` objects of text is the options; anything else does not decode.
+fn added_options(body: &Value) -> Result<Option<Vec<RequestOption>>, String> {
+    let options = match body.get("lettered_options") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::Array(options)) => options,
+        Some(_) => return Err("no array or null field \"lettered_options\"".to_owned()),
+    };
+    options
+        .iter()
+        .map(|option| {
+            Ok(RequestOption {
+                letter: text(option, "letter")?,
+                label: text(option, "label")?,
+                cost: text(option, "cost")?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(Some)
 }
 
 /// The value `field` names through `named`, which answers `None` for a name it does not know.

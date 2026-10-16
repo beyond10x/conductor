@@ -49,10 +49,21 @@ types:
   # provider's start, or the delivery of the first prompt, failed; `MeasurementShort`,
   # `confinement.mode` is `strict` and the box the provider measured at the session's boundary is
   # short of the request (`conductor.session.EnvelopeMeasurement`), so the session it started is
-  # stopped again.
+  # stopped again. `InstanceNotPinned` (story:instance-isolation), found before anything is
+  # launched, under a config file: the role's own settings file is not there, is no JSON, or pins
+  # another instance than the role's (its `env.CONDUCTOR_INSTANCE`, or a hook command prefixed
+  # `CONDUCTOR_INSTANCE=<other>`), so its hooks would act for that instance. A settings file that
+  # pins no instance (no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor` without
+  # the prefix) is not refused: the session starts with its content pinned to the role's instance
+  # (`env.CONDUCTOR_INSTANCE` the instance's name, and each hook command that runs `conductor`
+  # prefixed `CONDUCTOR_INSTANCE=<name>`), written as `<state>/sessions/<session name>.settings.json`.
+  # A role that names no settings file starts with its default (`.claude/conductor-settings.json`
+  # of the working directory for `conductor`, an empty one for `conductor-dev`) written pinned the
+  # same way.
   - name: conductor.session.SessionStartRefusal
     kind: enum
     variants:
+      - InstanceNotPinned
       - ProviderUnavailable
       - MeasurementShort
       - UnknownRole

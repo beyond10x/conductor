@@ -11,6 +11,8 @@ mod common;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 use serde_json::{Value, json};
 
@@ -283,14 +285,20 @@ fn a_start_keeps_its_record_under_the_state_dir_flag_and_nothing_in_the_working_
 fn a_controller_s_session_name_carries_the_instance_s_prefix() {
     let case = Case::new("session-prefix");
     let config = case.work.with_file_name("conductor.yaml");
+    // The instance's `state` is the one `--state-dir` names: a command that writes records takes
+    // no other (`story:instance-isolation`).
     fs::write(
         &config,
-        "version: conductor.config/1\n\
-         instances:\n\
-         \x20 - name: alpha\n\
-         \x20   session_prefix: a\n\
-         \x20   sources: [{github: alpha}]\n\
-         \x20   checkouts: {root: /srv/alpha, trees: /srv/alpha-trees}\n",
+        format!(
+            "version: conductor.config/1\n\
+             instances:\n\
+             \x20 - name: alpha\n\
+             \x20   session_prefix: a\n\
+             \x20   sources: [{{github: alpha}}]\n\
+             \x20   checkouts: {{root: /srv/alpha, trees: /srv/alpha-trees}}\n\
+             \x20   state: {:?}\n",
+            case.state
+        ),
     )
     .expect("write the config file");
     let start = |more: &[&str]| {
@@ -341,4 +349,78 @@ fn a_controller_s_session_name_carries_the_instance_s_prefix() {
     let bare = Case::new("session-prefix-none");
     let id = started(&bare.start("x"), "start x without a config file");
     assert_eq!(bare.controllers(), json!([row(&id, "Running", "x", 1)]));
+}
+
+/// `story:controller-start-atomic`, the external review's probe: 16 starts of one repository at
+/// once leave exactly one Running controller. The one start that won prints its id; each of the
+/// other 15 is refused with `ControllerAlreadyRunning`, naming the Running controller. Three
+/// rounds, each a repository of its own, over one store.
+#[test]
+fn concurrent_controller_starts_must_keep_one_running_record() {
+    const STARTS: usize = 16;
+    let case = Case::new("start-race");
+    for round in 0..3 {
+        let repository = format!("example-{round}");
+        let barrier = Arc::new(Barrier::new(STARTS));
+        let workers: Vec<_> = (0..STARTS)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                let mut command = case.command(&[
+                    "controller",
+                    "start-controller",
+                    "--repository",
+                    &repository,
+                    "--harness",
+                    "Claude",
+                ]);
+                thread::spawn(move || {
+                    barrier.wait();
+                    command.output().expect("the conductor binary runs")
+                })
+            })
+            .collect();
+        let outputs: Vec<Output> = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("a start's thread ends"))
+            .collect();
+        let rows = case.controllers();
+        let running: Vec<&Value> = rows
+            .as_array()
+            .expect("an array of rows")
+            .iter()
+            .filter(|row| row["repository"] == repository.as_str() && row["state"] == "Running")
+            .collect();
+        assert_eq!(
+            running.len(),
+            1,
+            "round {round}: one Running controller of {repository}: {rows}"
+        );
+        let id = running[0]["controller_id"]
+            .as_str()
+            .expect("a controller id");
+        let (won, lost): (Vec<&Output>, Vec<&Output>) =
+            outputs.iter().partition(|output| output.status.success());
+        assert_eq!(
+            won.len(),
+            1,
+            "round {round}: one start succeeds: {:?}",
+            won.iter()
+                .map(|output| describe(output))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(started(won[0], "the start that won"), id);
+        assert_eq!(lost.len(), STARTS - 1, "round {round}");
+        for output in lost {
+            refused(
+                output,
+                "a start that lost the race",
+                "ControllerAlreadyRunning",
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(id),
+                "round {round}: a refused start names the Running controller {id}: {}",
+                describe(output)
+            );
+        }
+    }
 }

@@ -54,6 +54,7 @@ components:
         - conductor.decision.RecordOperatorDecision
         - conductor.decision.AnswerRequest
         - conductor.decision.AnswerEscalatedRequest
+        - conductor.decision.RecordOperatorDecisionForRequest
         - conductor.decision.EscalateRequest
         - conductor.decision.WithdrawRequest
         - conductor.decision.ReverseConductorDecision
@@ -86,6 +87,7 @@ components:
         - conductor.host.StartRun
         - conductor.host.RecordPeak
         - conductor.host.ReleaseGrant
+        - conductor.host.WithdrawDiskRequest
         - conductor.host.Reclaim
         - conductor.improvement.DefineMetric
         - conductor.improvement.SetMetricTarget
@@ -157,6 +159,7 @@ components:
         - conductor.host.RunStarted
         - conductor.host.PeakRecorded
         - conductor.host.HostGrantReleased
+        - conductor.host.DiskRequestWithdrawn
         - conductor.host.DiskReclaimed
         - conductor.host.ReclaimFloorNotReached
         - conductor.improvement.MetricDefined
@@ -233,6 +236,7 @@ components:
             - conductor.decision.RecordOperatorDecision
             - conductor.decision.AnswerRequest
             - conductor.decision.AnswerEscalatedRequest
+            - conductor.decision.RecordOperatorDecisionForRequest
             - conductor.decision.EscalateRequest
             - conductor.decision.WithdrawRequest
             - conductor.decision.ReverseConductorDecision
@@ -302,6 +306,7 @@ components:
             - conductor.host.StartRun
             - conductor.host.RecordPeak
             - conductor.host.ReleaseGrant
+            - conductor.host.WithdrawDiskRequest
             - conductor.host.Reclaim
           views:
             - conductor.host.Grants

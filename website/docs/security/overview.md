@@ -3,7 +3,7 @@ title: Security model
 sidebar_position: 1
 description: What conductor protects, from whom, the five guarantees the code gives, the two it does not, and which rules are enforced in code and which are asked of the model.
 lede: Sessions run unattended with no permission prompts. One hook, the guard, decides every tool call; it catches a session's mistakes, and it is not a sandbox.
-source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; .claude/conductor-settings.json, .claude/controller-settings.json; Taskfile.yml; crates/conductor/src/decide.rs, crates/conductor/src/config.rs; docs/design/conductor.md sections 5 and 7
+source: crates/conductor/src/guard.rs, crates/conductor/src/guard/rules.rs; .claude/conductor-settings.json, .claude/controller-settings.json; Taskfile.yml; crates/conductor/src/decide.rs, crates/conductor/src/config.rs, crates/conductor/src/dashboard/answers.rs; docs/design/conductor.md sections 5 and 7
 ---
 
 Conductor starts Claude Code sessions with `--permission-mode bypassPermissions`. No tool call
@@ -95,13 +95,49 @@ the model.
    to the operator. A controller messages only its own conductor and its own sub-agents.
 5. **Conductor cannot take the operator's decisions as its own.** The store refuses a class O or
    class H decision recorded as conductor's. An operator decision has its own command, which
-   conductor's session may still run to record an answer the operator gave it; the record does
-   not yet say which session wrote it (planned).
+   conductor's session may still run to record an answer the operator gave it; the record names
+   the session that wrote it (`recorded_by`) and the operator's words. The Decisions page records
+   his answers itself, as `recorded_by` `dashboard`
+   ([below](#the-decisions-page-writes)).
 
 **The guard does not confine where a shell command writes, and does not check `git push`.** A
 controller's Bash can write, overwrite or delete any file its user can, through a command the
 heuristic does not recognise, and can push to any branch its credentials reach. Branch
 protection and a scoped token are the controls for that ([limits](/docs/security/limits)).
+
+## The Decisions page writes
+
+The dashboard (`conductor dashboard serve`) reads, with one exception: on its Decisions page the
+operator answers open escalated requests and sends them as a batch, `POST /api/answers`. Each
+answer is recorded as his decision (`decided_by` Operator, `recorded_by` `dashboard`, his words or
+"chosen on the Decisions page") and its request moves to Answered, through the same path
+`conductor decision answer-escalated-as-operator` takes when conductor relays an answer. The
+server takes a batch only:
+
+- on `127.0.0.1`, naming the server's own `Host`, from its own `Origin` (or none, with
+  `Sec-Fetch-Site: same-origin`);
+- with the token the page was served with: 32 random bytes minted when the server starts, put in
+  the page's `<meta name="conductor-token">`, sent back in `X-Conductor-Token` and compared in
+  constant time. It is never logged, echoed or set as a cookie;
+- as `application/json`, with a `Content-Length` of at most 64 KiB and no chunked body, and at
+  most 50 answers;
+- for open escalated requests, each choice fitting its request's kind and lettered options. A
+  request answered or withdrawn meanwhile is refused and records nothing.
+
+The guard denies a Bash call of conductor or a controller that names `/api/answers` or posts to
+the dashboard's port ([the guard](/docs/security/the-guard#bash-and-monitor)).
+
+**Residual risk.** The boundary keeps a page from another site and a careless session out; it does
+not keep out a local process. Anything running as the operator's user, or able to reach
+`127.0.0.1` and read the page, can read the token from `/` and post answers, and **whoever holds
+the token is recorded as the operator**. The guard's check is a substring test, a speed bump and
+not a boundary: a script a session writes and then runs, a port or path held in a variable, or a
+percent-encoded path gets past it. A session that writes and runs such a script is outside what
+the guard confines (it does not confine where a shell command writes). Treat the dashboard's port
+like the operator's terminal: do not forward it, and do not run the dashboard where another user
+can reach `127.0.0.1`. The decision log names `recorded_by` `dashboard` on every answer sent this
+way, so an answer the operator did not give can be found and reversed
+(`conductor decision reverse-operator-decision`).
 
 ## Enforced in code, and asked of the model
 
@@ -115,6 +151,7 @@ protection and a scoped token are the controls for that ([limits](/docs/security
 | a controller runs only `conductor`'s read commands | one controller session per repository (the store keeps one running controller record per repository; it does not stop a second session) |
 | a controller messages only its conductor and its own sub-agents | message format and length |
 | the store refuses class O and H decisions recorded by conductor | asking for a build slot when disk is low |
+| the dashboard takes answers only with its page's token, from its own origin, as JSON; a Bash call that posts to it is denied (a heuristic) | relaying only the operator's own words with `answer-escalated-as-operator` |
 | the config file refuses a value that looks like a token, and never prints it | handing a session over before its context runs out |
 | `task conductor:start` refuses while a session of that name runs | not starting or resuming a conductor by hand |
 

@@ -26,6 +26,10 @@
 //! `story:pr-check-names` added the pull-requests view's `failing_check_names` column after
 //! `failing_checks`: `snapshot-pull-requests.json` holds it as `[]` in every row, which is what
 //! this build reads from an observation recorded without one.
+//! `story:decisions-page` added the requests view's `kind`, `lettered_options`,
+//! `recommended_letters`, `default_letters` and `deadline` columns, last in each row:
+//! `decision-requests.json` holds them as `null`, which is what this build reads from a request
+//! escalated, or not escalated, without them.
 //! `story:policy-secret-drift` and `story:usage-probe` added the secret-syncs and usage-readings
 //! views, which no build before them could record. The committed store stays as it was;
 //! [`fixture_store`] appends one observation of each to a copy of it, in the first snapshot,

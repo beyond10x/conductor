@@ -292,6 +292,33 @@ fn get(port: u16, path: &str) -> Value {
     serde_json::from_str(&body).unwrap_or_else(|error| panic!("GET {path}: {error}: {body}"))
 }
 
+/// `GET path` with the extra header lines `headers`, asked again while the answer is a kept one
+/// served stale (`X-Conductor-Age`): after a write the kept answer is served at once while it is
+/// computed again, which starts at most once per debounce (`cache::DEBOUNCE`); up to a minute.
+/// The status, the head and the body.
+fn revalidated(port: u16, path: &str, headers: &str) -> (u16, String, String) {
+    let since = std::time::Instant::now();
+    loop {
+        let answer = exchange(port, path, headers);
+        if header(&answer.1, "X-Conductor-Age").is_none() {
+            return answer;
+        }
+        assert!(
+            since.elapsed() < Duration::from_secs(60),
+            "GET {path} is still stale after a minute: {}",
+            answer.1
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// [`get`] of the answer [`revalidated`] gives: the one computed after the last write.
+fn fresh(port: u16, path: &str) -> Value {
+    let (status, _, body) = revalidated(port, path, "");
+    assert_eq!(status, 200, "GET {path}: {body}");
+    serde_json::from_str(&body).unwrap_or_else(|error| panic!("GET {path}: {error}: {body}"))
+}
+
 /// `/api/events` since [`SINCE`].
 fn events(port: u16) -> Vec<Value> {
     let answer = get(port, "/api/events?since=2026-10-13T00%3A00%3A00Z");
@@ -866,7 +893,7 @@ fn the_reviews_endpoint_answers_what_waits_for_review_oldest_first() {
 
     let (id, state) = case.take(EARLIER, reviews_fixture());
     assert_eq!(state, SnapshotState::Complete);
-    let reviews = get(port, "/api/reviews");
+    let reviews = fresh(port, "/api/reviews");
     assert_eq!(
         reviews["snapshot"],
         json!({"id": id, "started_at": EARLIER})
@@ -895,6 +922,355 @@ fn the_reviews_endpoint_answers_what_waits_for_review_oldest_first() {
     assert_eq!(keys(&fixture), keys(&reviews), "the answer's keys");
     assert_eq!(keys(&fixture["snapshot"]), keys(&reviews["snapshot"]));
     assert_eq!(row_keys(&fixture), row_keys(&reviews), "the rows' keys");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Unanswered operator items (story:decisions-notify)
+// ---------------------------------------------------------------------------------------------
+
+impl Case {
+    /// Runs the built binary with `args` over the case's store; asserts it succeeded.
+    fn decide(&self, args: &[&str]) {
+        let output = common::conductor(self.home())
+            .current_dir(self.dir.join("work"))
+            .arg("--state-dir")
+            .arg(self.state())
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the conductor binary runs");
+        assert!(
+            output.status.success(),
+            "`{}`: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Raises the decision request `id` at `raised_at` and escalates it as `class` when given.
+    fn request(&self, id: &str, raised_at: &str, class: Option<&str>) {
+        self.decide(&[
+            "decision",
+            "raise-decision-request",
+            "--request-id",
+            id,
+            "--repository",
+            "alpha",
+            "--question",
+            "Release now?",
+            "--options",
+            "A: now; B: later",
+            "--recommendation",
+            "A",
+            "--raised-at",
+            raised_at,
+        ]);
+        if let Some(class) = class {
+            let mut args = vec![
+                "decision",
+                "escalate-request",
+                "--request-id",
+                id,
+                "--escalation-class",
+                class,
+                "--reason",
+                "the operator's call",
+            ];
+            if class == "H" {
+                args.extend(["--no-dry-run", "the step needs the operator's login"]);
+            } else {
+                args.extend(O_CHOICES);
+            }
+            self.decide(&args);
+        }
+    }
+}
+
+/// What a class-O escalation here carries besides its class and reason (`story:decisions-page`):
+/// a `one-of` of two lettered options with their cost, `A` recommended, `B` the default, and a
+/// deadline.
+const O_CHOICES: [&str; 10] = [
+    "--kind",
+    "one-of",
+    "--lettered-options",
+    r#"[{"letter":"A","label":"now","cost":"an hour of one controller"},{"letter":"B","label":"later","cost":"nothing now"}]"#,
+    "--recommended-letters",
+    "A",
+    "--default-letters",
+    "B",
+    "--deadline",
+    "2026-10-14T12:00:00Z",
+];
+
+/// `/api/unanswered` answers the count of the requests escalated as class O or H and not
+/// answered, and the oldest of them with its age in seconds; `{count: 0, oldest: null}` without a
+/// store or such a request; 405 to a POST. The overview's fixture has the keys it answers.
+#[test]
+fn the_unanswered_endpoint_counts_the_operator_items_and_ages_the_oldest() {
+    let case = Case::new("unanswered");
+    let port = case.start();
+    assert_eq!(
+        get(port, overview::UNANSWERED_PATH),
+        json!({"count": 0, "oldest": null})
+    );
+
+    case.request("REQ-OPEN", EARLIER, None);
+    case.request("REQ-NEW", LATER, Some("O"));
+    case.request("REQ-OLD", EARLIER, Some("H"));
+    let raised = OffsetDateTime::parse(EARLIER, &Rfc3339).expect("a fixed instant");
+    let before = (OffsetDateTime::now_utc() - raised).whole_seconds();
+    let answer = fresh(port, overview::UNANSWERED_PATH);
+    let after = (OffsetDateTime::now_utc() - raised).whole_seconds();
+
+    assert_eq!(answer["count"], 2, "{answer:#}");
+    let oldest = &answer["oldest"];
+    assert_eq!(oldest["request_id"], "REQ-OLD", "{answer:#}");
+    assert_eq!(oldest["class"], "H", "{answer:#}");
+    assert_eq!(oldest["raised_at"], EARLIER, "{answer:#}");
+    let age = oldest["age_seconds"].as_i64().expect("an age in seconds");
+    assert!(
+        (before..=after).contains(&age),
+        "{age} not in {before}..={after}"
+    );
+    let (status, body) = request(port, "POST", overview::UNANSWERED_PATH);
+    assert_eq!(status, 405, "{body}");
+
+    let fixture = app_fixture("overview-unanswered.json");
+    assert_eq!(keys(&fixture), keys(&answer), "the answer's keys");
+    assert_eq!(
+        keys(&fixture["oldest"]),
+        keys(&answer["oldest"]),
+        "the oldest item's keys"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Decisions page (story:decisions-page)
+// ---------------------------------------------------------------------------------------------
+
+/// `METHOD path` with the extra header lines `headers`; the status, the head and the body.
+fn exchange(port: u16, path: &str, headers: &str) -> (u16, String, String) {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .expect("set a read timeout");
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n{headers}\r\n"
+    )
+    .expect("send the request");
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).expect("read the answer");
+    let (head, body) = raw.split_once("\r\n\r\n").expect("a head and a body");
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or_else(|| panic!("no status in {head:?}"));
+    (status, head.to_owned(), body.to_owned())
+}
+
+/// The value of the header `name` in `head`.
+fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
+    head.split("\r\n")
+        .filter_map(|line| line.split_once(':'))
+        .find(|(key, _)| key.trim().eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.trim())
+}
+
+/// The case's decision log, `decisions/2026-10.jsonl` under its records: `lines`, one each.
+fn decision_log(case: &Case, lines: &[Value]) {
+    let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    case.write("home/example-org/conductor/decisions/2026-10.jsonl", &text);
+}
+
+/// `/api/decisions` answers every open class-O and class-H request, oldest first, with its
+/// question, kind, lettered options with their cost, the recommended and default letters and the
+/// deadline; a request escalated before those were recorded reads as `one-of` with no options,
+/// keeping its options text and reason. Below them, `history`: every line of the records'
+/// decision log, newest first. An open request that was never escalated, and a withdrawn one,
+/// are not listed; a POST is refused. The page's fixture has the keys it answers.
+#[test]
+fn the_decisions_endpoint_lists_the_open_operator_items_and_the_history() {
+    let case = Case::new("decisions-page");
+    let port = case.start();
+    let empty = get(port, "/api/decisions");
+    assert_eq!(empty["open"], json!([]), "{empty:#}");
+    assert_eq!(empty["history"], json!([]), "{empty:#}");
+
+    case.request("REQ-OPEN", EARLIER, None);
+    case.request("REQ-NEW", LATER, Some("O"));
+    case.request("REQ-OLD", EARLIER, Some("H"));
+    case.request("REQ-GONE", EARLIER, Some("O"));
+    case.decide(&[
+        "decision",
+        "withdraw-request",
+        "--request-id",
+        "REQ-GONE",
+        "--reason",
+        "no longer needed",
+    ]);
+    decision_log(
+        &case,
+        &[
+            json!({"at": "2026-10-13T07:00:00Z", "event": "decided", "repo": "alpha",
+                   "id": "DEC-20261013-01", "class": "C", "decided_by": "Conductor",
+                   "question": "Rebase first?", "options": "A: yes; B: no", "choice": "A",
+                   "reason": "it is reversible", "evidence": "the diff"}),
+            json!({"at": "2026-10-13T09:00:00Z", "event": "escalated", "repo": "alpha",
+                   "id": "REQ-NEW", "escalation_class": "O", "reason": "the operator's call"}),
+            json!({"at": "2026-10-13T08:00:00Z", "event": "requested", "repo": "alpha",
+                   "id": "REQ-NEW", "question": "Release now?", "options": "A: now; B: later",
+                   "recommendation": "A"}),
+        ],
+    );
+
+    let answer = fresh(port, "/api/decisions");
+    let open = answer["open"].as_array().expect("open rows");
+    let ids: Vec<&Value> = open.iter().map(|row| &row["request_id"]).collect();
+    assert_eq!(ids, [&json!("REQ-OLD"), &json!("REQ-NEW")], "{answer:#}");
+
+    let new = &open[1];
+    assert_eq!(new["class"], "O");
+    assert_eq!(new["repository"], "alpha");
+    assert_eq!(new["question"], "Release now?");
+    assert_eq!(new["kind"], "one-of");
+    assert_eq!(
+        new["options"],
+        json!([
+            {"letter": "A", "label": "now", "cost": "an hour of one controller"},
+            {"letter": "B", "label": "later", "cost": "nothing now"},
+        ])
+    );
+    assert_eq!(new["recommended"], json!(["A"]));
+    assert_eq!(new["default"], json!(["B"]));
+    assert_eq!(new["deadline"], "2026-10-14T12:00:00Z");
+    assert_eq!(new["raised_at"], LATER);
+    assert_eq!(new["reason"], "the operator's call");
+
+    let old = &open[0];
+    assert_eq!(old["class"], "H");
+    assert_eq!(old["kind"], "one-of", "an older escalation reads as one-of");
+    assert_eq!(old["options"], json!([]));
+    assert_eq!(old["recommended"], json!([]));
+    assert_eq!(old["default"], json!([]));
+    assert_eq!(old["deadline"], Value::Null);
+    assert_eq!(old["options_text"], "A: now; B: later");
+    assert_eq!(old["reason"], "the operator's call");
+
+    let history = answer["history"].as_array().expect("history rows");
+    let order: Vec<(&Value, &Value)> = history
+        .iter()
+        .map(|row| (&row["at"], &row["event"]))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            (&json!("2026-10-13T09:00:00Z"), &json!("escalated")),
+            (&json!("2026-10-13T08:00:00Z"), &json!("requested")),
+            (&json!("2026-10-13T07:00:00Z"), &json!("decided")),
+        ],
+        "{answer:#}"
+    );
+    assert_eq!(history[0]["class"], "O", "an escalation's class");
+    assert_eq!(history[2]["choice"], "A");
+    assert_eq!(history[2]["decided_by"], "Conductor");
+    assert_eq!(history[2]["repo"], "alpha");
+
+    let (status, body) = request(port, "POST", "/api/decisions");
+    assert_eq!(status, 405, "{body}");
+
+    let fixture = app_fixture("decisions.json");
+    assert_eq!(keys(&fixture), keys(&answer), "the answer's keys");
+    let open_keys = |value: &Value| -> BTreeSet<String> {
+        value["open"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(keys)
+            .collect()
+    };
+    let history_keys = |value: &Value| -> BTreeSet<String> {
+        value["history"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(keys)
+            .collect()
+    };
+    assert_eq!(
+        open_keys(&fixture),
+        open_keys(&answer),
+        "an open row's keys"
+    );
+    assert_eq!(
+        history_keys(&fixture),
+        history_keys(&answer),
+        "a history row's keys"
+    );
+}
+
+/// `/api/decisions` is computed once per write to the store or the decision log and served from
+/// memory with an `ETag`: a repeat request carrying it is answered `304` with no body; a write to
+/// the store, or a line added to the log, gives a new answer and a new `ETag`.
+#[test]
+fn the_decisions_endpoint_answers_304_until_the_store_or_the_log_changes() {
+    let case = Case::new("decisions-etag");
+    case.request("REQ-1", EARLIER, Some("O"));
+    let port = case.start();
+
+    let (status, head, body) = exchange(port, "/api/decisions", "");
+    assert_eq!(status, 200, "{body}");
+    let first = header(&head, "ETag")
+        .unwrap_or_else(|| panic!("no ETag: {head}"))
+        .to_owned();
+    let (status, again, _) = exchange(port, "/api/decisions", "");
+    assert_eq!(status, 200);
+    assert_eq!(
+        header(&again, "ETag"),
+        Some(first.as_str()),
+        "the same answer"
+    );
+
+    let (status, head, body) = exchange(
+        port,
+        "/api/decisions",
+        &format!("If-None-Match: {first}\r\n"),
+    );
+    assert_eq!(status, 304, "{head}");
+    assert_eq!(body, "", "a 304 has no body");
+    assert_eq!(header(&head, "ETag"), Some(first.as_str()));
+
+    case.request("REQ-2", LATER, Some("H"));
+    let (status, head, body) = revalidated(
+        port,
+        "/api/decisions",
+        &format!("If-None-Match: {first}\r\n"),
+    );
+    assert_eq!(status, 200, "a store write changes the answer: {head}");
+    let second = header(&head, "ETag").expect("an ETag").to_owned();
+    assert_ne!(second, first);
+    let answer: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        answer["open"].as_array().map(Vec::len),
+        Some(2),
+        "{answer:#}"
+    );
+
+    decision_log(
+        &case,
+        &[
+            json!({"at": "2026-10-13T09:00:00Z", "event": "withdrawn", "repo": "alpha",
+                 "id": "REQ-0", "reason": "gone"}),
+        ],
+    );
+    let (status, head, _) = revalidated(
+        port,
+        "/api/decisions",
+        &format!("If-None-Match: {second}\r\n"),
+    );
+    assert_eq!(status, 200, "a log line changes the answer: {head}");
+    assert_ne!(header(&head, "ETag"), Some(second.as_str()));
 }
 
 // ---------------------------------------------------------------------------------------------
