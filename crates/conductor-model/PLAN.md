@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest c7a400dd0778e5076d21a29762ae666f240b19f0559ada9a788ea1044ffa3f9a
-  contract digest 09a75fd598f74b773a3cdd6f97222132becf654ce3ccd648ad0a31723f5935cb
+  model digest 7fffacab87d5c8b1fbe8203d67e3221d7bea0b955c7147bae232169725464120
+  contract digest 0370fde147cddf13ea0c3d738fe924b0e63892ab2a0aa0aa4b376914d5159e8c
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-587 capabilities: **571 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+589 capabilities: **573 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -129,6 +129,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.GrantKind` |
 | domain type | `conductor.host.HostGrant.State` |
 | domain type | `conductor.host.LeftOver` |
+| domain type | `conductor.host.ListSlices` |
 | domain type | `conductor.host.ReclaimDisk` |
 | domain type | `conductor.host.ReclaimFellShort` |
 | domain type | `conductor.host.ReclaimKind` |
@@ -138,6 +139,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.ReclaimStep` |
 | domain type | `conductor.host.ReleaseReason` |
 | domain type | `conductor.host.ShowGrants` |
+| domain type | `conductor.host.SliceRow` |
 | domain type | `conductor.improvement.ComputeMetrics` |
 | domain type | `conductor.improvement.FindingId` |
 | domain type | `conductor.improvement.FrictionFinding.State` |

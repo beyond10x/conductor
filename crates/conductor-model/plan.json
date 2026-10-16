@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "c7a400dd0778e5076d21a29762ae666f240b19f0559ada9a788ea1044ffa3f9a",
-    "contract_digest": "09a75fd598f74b773a3cdd6f97222132becf654ce3ccd648ad0a31723f5935cb"
+    "source_digest": "7fffacab87d5c8b1fbe8203d67e3221d7bea0b955c7147bae232169725464120",
+    "contract_digest": "0370fde147cddf13ea0c3d738fe924b0e63892ab2a0aa0aa4b376914d5159e8c"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -817,6 +817,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.host.ListSlices",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.host.ReclaimDisk",
       "disposition": {
         "disposition": "generated"
@@ -874,6 +881,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.ShowGrants",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.SliceRow",
       "disposition": {
         "disposition": "generated"
       }

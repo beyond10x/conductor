@@ -369,6 +369,7 @@ impl Cli {
                 HostCommand::Reclaim(args) => {
                     crate::gc::reclaim::run_reclaim(state, args.format.as_deref())
                 }
+                HostCommand::Slices(args) => crate::slices::host_slices(&args),
             },
             // The metrics and their readings (story:kpi-records).
             Group::Metric(command) => match command {
@@ -714,6 +715,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["host", "reclaim-runs"], Access::Reads),
     // Removes what needs no decision until free disk is back over the floor (story:disk-reclaim).
     (&["host", "reclaim"], Access::Writes),
+    // Lists the user manager's conductor slices; --gc stops an empty one no instance names
+    // (story:slice-remove).
+    (&["host", "slices"], Access::Writes),
     (&["metric", "define-metric"], Access::Writes),
     (&["metric", "record-metric-reading"], Access::Writes),
     (&["metric", "set-metric-target"], Access::Writes),
@@ -1231,6 +1235,10 @@ pub enum HostCommand {
     /// Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
     #[command(name = "reclaim")]
     Reclaim(HostReclaimArgs),
+
+    /// List each systemd user slice of conductor, conductor.slice or conductor_<prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
+    #[command(name = "slices")]
+    Slices(HostSlicesArgs),
 }
 
 /// `conductor metric`: the measured quantities of the self-improvement loop, their daily
@@ -1312,6 +1320,19 @@ pub struct HostReclaimArgs {
     /// How the steps are printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+}
+
+/// The input of the binding's `host-slices` callable, `conductor.host.ListSlices`. The format is
+/// text the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct HostSlicesArgs {
+    /// How the slices are printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
+    /// Stop each slice that holds no unit and that no instance of the config file names.
+    /// `--gc` alone is `--gc true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub gc: Option<bool>,
 }
 
 // `conductor build`: the command the binding declares over the `local` callable `build-run`

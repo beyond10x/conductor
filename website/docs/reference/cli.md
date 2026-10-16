@@ -139,6 +139,7 @@ Every command takes these, before or after its name.
 | [`conductor host grants`](#conductor-host-grants) | Host grants |
 | [`conductor host reclaim-runs`](#conductor-host-reclaim-runs) | Reclaim runs |
 | [`conductor host reclaim`](#conductor-host-reclaim) | Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached |
+| [`conductor host slices`](#conductor-host-slices) | List each systemd user slice of conductor, conductor.slice or conductor_&lt;prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit |
 | [`conductor metric`](#conductor-metric) | The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs |
 | [`conductor metric define-metric`](#conductor-metric-define-metric) | Define a metric |
 | [`conductor metric record-metric-reading`](#conductor-metric-record-metric-reading) | Record a metric's reading |
@@ -1780,6 +1781,19 @@ Usage: conductor host reclaim [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the steps are printed: text or json. Default: text |
+
+## `conductor host slices`
+
+List each systemd user slice of conductor, conductor.slice or conductor_&lt;prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
+
+```text
+Usage: conductor host slices [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | none | How the slices are printed: text or json. Default: text |
+| `--gc <BOOL>` | no | none | Stop each slice that holds no unit and that no instance of the config file names. `--gc` alone is `--gc true` One of `true`, `false`. |
 
 ## `conductor metric`
 

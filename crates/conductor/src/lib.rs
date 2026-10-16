@@ -38,6 +38,7 @@ pub mod rules;
 pub mod session;
 pub mod setup;
 pub mod shipped;
+pub mod slices;
 pub mod snapshot;
 pub mod spawn;
 pub mod state;

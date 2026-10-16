@@ -73,6 +73,32 @@ types:
       - {name: kind, type: conductor.host.ReclaimKind}
       - {name: bytes, type: Integer}
 
+  # One row of `conductor host slices` (story:slice-remove): a systemd user slice of the
+  # `conductor` family (`conductor.slice`, `conductor_<prefix>.slice`) the user manager has
+  # loaded, read when asked for and never stored. `units` counts the units loaded in it, running
+  # or not. `instance` names the config file's instance whose `session_prefix` makes that slice's
+  # name, and is absent for a slice no instance of the file names: the leftover of an instance
+  # that is gone or renamed. `stopped` is true when `--gc` stopped the slice in this call.
+  - name: conductor.host.SliceRow
+    kind: struct
+    fields:
+      - {name: slice, type: String}
+      - {name: instance, type: Optional<String>}
+      - {name: units, type: Integer}
+      - {name: stopped, type: Boolean}
+
+  # The input of `conductor host slices`: it lists each slice of the `conductor` family with its
+  # unit count and the instance it belongs to. With `gc` it stops, with `systemctl --user stop`,
+  # each slice that holds no unit and that no instance of the config file names, and never one
+  # that still holds a unit or belongs to an instance. `format` is text or json (a list of
+  # `SliceRow`), read by the handler, which refuses another value. It reads the user manager
+  # only, opens no store and writes no record.
+  - name: conductor.host.ListSlices
+    kind: struct
+    fields:
+      - {name: format, type: Optional<String>}
+      - {name: gc, type: Optional<Boolean>}
+
   # What a reclaim run left on the disk that only a person may remove: its path and its size.
   - name: conductor.host.LeftOver
     kind: struct

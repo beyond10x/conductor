@@ -175,6 +175,11 @@ callables:
     input: conductor.host.ShowGrants
     result: String
     errors: {}
+  host-slices:
+    target: {kind: local, owner: conductor-cli, action: host_slices}
+    input: conductor.host.ListSlices
+    result: List<conductor.host.SliceRow>
+    errors: {}
   gc-reclaim:
     target: {kind: local, owner: conductor-cli, action: gc_reclaim}
     input: conductor.host.ReclaimDisk
@@ -380,6 +385,14 @@ commands:
     arguments:
       - field: day
         source: {kind: option, long: day}
+  - path: [host, slices]
+    callable: host-slices
+    about: List each systemd user slice of conductor, conductor.slice or conductor_<prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
+    arguments:
+      - field: format
+        source: {kind: option, long: format}
+      - field: gc
+        source: {kind: option, long: gc}
   - path: [host, reclaim]
     callable: gc-reclaim
     about: Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
