@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-16T09:40:57Z",
+  "actor": "human:timo",
+  "artifact": "story:review-p2-0-14",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "wave/38 gate: all lanes green except a test-only environment assumption fixed in 0.16.0; build_run 39/39"
+  }
+}

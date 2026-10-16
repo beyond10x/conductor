@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:review-p2-0-14
 kind: story
-status: draft
+status: implemented
 title: The eight P2 defects of the 0.14.0 external review are fixed
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T09:40:57Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T09:40:57Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T09:40:57Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: review-p2-0-14
 
