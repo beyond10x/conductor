@@ -2491,9 +2491,10 @@ fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
     }
 }
 
-/// A name that more than one live background session holds is refused by every task that
-/// resolves it: `conductor:restart` stops nothing, the attach tasks attach nothing, and `task
-/// sessions` exits 1 naming it.
+/// A name that more than one live session holds is refused by every task that resolves it:
+/// `conductor:restart` stops nothing, the attach tasks attach nothing, and `task sessions` exits 1
+/// naming it. `conductor:restart` and `task sessions` count a live session of any kind (one the
+/// systemd provider started lists as interactive), the attach tasks a background one.
 #[test]
 fn a_name_more_than_one_live_session_holds_is_refused() {
     let Some(case) = Case::new("scoped-ambiguous") else {
@@ -2511,19 +2512,18 @@ fn a_name_more_than_one_live_session_holds_is_refused() {
         ],
     );
     let before = live_sessions(&case);
-    for (task, name) in [
-        ("conductor:restart", "a-conductor"),
-        ("conductor:attach", "a-conductor"),
-        ("dev:attach", "a-conductor-dev"),
-        ("sessions", "a-conductor"),
-        ("sessions", "a-conductor-dev"),
+    for (task, name, kind) in [
+        ("conductor:restart", "a-conductor", "live session"),
+        ("conductor:attach", "a-conductor", "live background session"),
+        ("dev:attach", "a-conductor-dev", "live background session"),
+        ("sessions", "a-conductor", "live session"),
+        ("sessions", "a-conductor-dev", "live session"),
     ] {
         let output = instance_task(&case, task, &config, "alpha");
         assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains(&format!(
-                "more than one live background session is named {name}"
-            )),
+            String::from_utf8_lossy(&output.stderr)
+                .contains(&format!("more than one {kind} is named {name}")),
             "{task}: the refusal names {name}: {}",
             shown(&output)
         );
