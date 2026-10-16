@@ -8,6 +8,11 @@ summary: >
   it is refused and names that holder, and a claim over a holder whose process is gone takes the
   lease over and records whom it took it from. Design: docs/design/conductor.md § 7.
 
+  It also holds how conductor starts and stops the sessions of an instance's roles in the box
+  the instance's `confinement` asks for (story:sandbox-spec, story:session-envelope-seam): the
+  request a provider is given, the identity of the session it started, and the measurement it
+  takes at the box's boundary, kept per session under the instance's state directory.
+
 naming:
   wire: session
   display: Session
@@ -17,6 +22,152 @@ types:
   - name: conductor.session.SessionId
     kind: newtype
     of: String
+
+  # The input of `conductor session start` (story:sandbox-spec): `role` is `conductor` or
+  # `conductor-dev`, a role of the instance whose session is started under its `session_name`. A
+  # controller is started by `conductor spawn` only. Conductor's session starts in the instance's
+  # records directory, conductor-dev's in the working directory, the checkout `task dev:start`
+  # runs in.
+  - name: conductor.session.StartSession
+    kind: struct
+    fields:
+      - {name: role, type: Optional<String>}
+
+  # The input of `conductor session stop` (story:sandbox-spec): `role` as for `session start`. It
+  # stops the role's live session through the provider that started it.
+  - name: conductor.session.StopSession
+    kind: struct
+    fields:
+      - {name: role, type: Optional<String>}
+
+  # Why `conductor session start` started no session (story:sandbox-spec), each found before
+  # anything is launched but the last two: `UnknownRole`, the role is not `conductor` or
+  # `conductor-dev`, or the instance names no such role or a role on another harness than
+  # `claude`; `SessionRunning`, a live session holds the role's session name in the session list
+  # (`claude agents --json`); `ProviderUnavailable`, `confinement.mode` is `strict` and the
+  # instance's provider is not available on this host, so nothing starts; `LaunchFailed`, the
+  # provider's start, or the delivery of the first prompt, failed; `MeasurementShort`,
+  # `confinement.mode` is `strict` and the box the provider measured at the session's boundary is
+  # short of the request (`conductor.session.EnvelopeMeasurement`), so the session it started is
+  # stopped again. `InstanceNotPinned` (story:instance-isolation), found before anything is
+  # launched, under a config file: the role's own settings file is not there, is no JSON, or pins
+  # another instance than the role's (its `env.CONDUCTOR_INSTANCE`, or a hook command prefixed
+  # `CONDUCTOR_INSTANCE=<other>`), so its hooks would act for that instance. A settings file that
+  # pins no instance (no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor` without
+  # the prefix) is not refused: the session starts with its content pinned to the role's instance
+  # (`env.CONDUCTOR_INSTANCE` the instance's name, and each hook command that runs `conductor`
+  # prefixed `CONDUCTOR_INSTANCE=<name>`), written as `<state>/sessions/<session name>.settings.json`.
+  # A role that names no settings file starts with its default (`.claude/conductor-settings.json`
+  # of the working directory for `conductor`, an empty one for `conductor-dev`) written pinned the
+  # same way.
+  - name: conductor.session.SessionStartRefusal
+    kind: enum
+    variants:
+      - InstanceNotPinned
+      - ProviderUnavailable
+      - MeasurementShort
+      - UnknownRole
+      - SessionRunning
+      - LaunchFailed
+
+  # A refusal of `conductor session start`: the role it was asked to start, why, and what it
+  # found.
+  - name: conductor.session.SessionStartRefused
+    kind: struct
+    fields:
+      - {name: role, type: String}
+      - {name: refusal, type: conductor.session.SessionStartRefusal}
+      - {name: detail, type: String}
+
+  # Why `conductor session stop` stopped nothing (story:sandbox-spec): `UnknownRole`, as for
+  # `session start`; `NotRunning`, no live session holds the role's session name.
+  - name: conductor.session.SessionStopRefusal
+    kind: enum
+    variants:
+      - UnknownRole
+      - NotRunning
+
+  # A refusal of `conductor session stop`: the role, why, and what it found.
+  - name: conductor.session.SessionStopRefused
+    kind: struct
+    fields:
+      - {name: role, type: String}
+      - {name: refusal, type: conductor.session.SessionStopRefusal}
+      - {name: detail, type: String}
+
+  # One writable place of a session resolved for its start (story:sandbox-spec): the place as the
+  # role's `writable` writes it, a place word (`checkout`, `trees`, `build-cache`, `scratch`,
+  # `harness-state`, `records`) or a path, and the absolute paths it stands for, in order. A path
+  # is resolved whether or not it exists; the provider checks existence.
+  - name: conductor.session.PlaceResolved
+    kind: struct
+    fields:
+      - {name: place, type: conductor.config.Writable}
+      - {name: paths, type: List<String>}
+
+  # What a provider is asked to start a session in (story:sandbox-spec): the role and its
+  # session name; the absolute directory the session starts in; the role's `limits`; its
+  # `writable` places, each resolved to absolute paths; its `network`; and its `forge_token_env`,
+  # the names of the environment variables that carry the forge tokens the session may use. The
+  # harness command itself (program, model, profile, settings) is not part of the box and is not
+  # modelled here.
+  - name: conductor.session.SessionRequest
+    kind: struct
+    fields:
+      - {name: role, type: String}
+      - {name: session_name, type: conductor.config.SessionName}
+      - {name: cwd, type: String}
+      - {name: limits, type: conductor.config.Limits}
+      - {name: writable, type: List<conductor.session.PlaceResolved>}
+      - {name: network, type: conductor.config.Network}
+      - {name: forge_token_env, type: List<String>}
+
+  # The session a provider started (story:sandbox-spec): its role and session name; `provider`,
+  # the provider that started it as `confinement.provider` writes it (`systemd`, or `none` for a
+  # session started with the harness's own commands, unboxed); `unit`, the systemd unit it runs
+  # in, where there is one; and `session_id`, the harness's id of it, once the harness printed
+  # one. It is what `conductor session start` prints.
+  - name: conductor.session.StartedSession
+    kind: struct
+    fields:
+      - {name: role, type: String}
+      - {name: session_name, type: conductor.config.SessionName}
+      - {name: provider, type: String}
+      - {name: unit, type: Optional<String>}
+      - {name: session_id, type: Optional<String>}
+
+  # The box measured for one started session at its boundary (story:sandbox-spec), the record
+  # written to `<state>/sessions/<session name>.envelope.json` and read by the sessions collector
+  # into the session's `envelope_*` fields (`conductor.observation.SessionObservation`): the
+  # session; when it was measured; the provider that set the box up; the cgroup the session runs
+  # in; the limits read back from that cgroup, each absent where none is set; `places`, the
+  # writable places the request resolved; and `writable`, the paths the box lets the session
+  # write, absolute, joined by `:`, in the order applied. Three forms:
+  # - a full box: `provider`, `cgroup`, the limits and `writable`;
+  # - a partial box, under `confinement.mode: report` only: the limits applied, no write fence:
+  #   `writable` absent and `fence_missing` the reason, such as a host without `bwrap`;
+  # - unboxed, under `report` only: `unboxed` the reason, such as a provider not available on
+  #   the host, and every other measured field absent.
+  # The three forms exclude each other as written; they are not declared as invariants, since no
+  # view publishes a measurement for a synthesized scenario to check them against.
+  # A measurement is short of its request when a limit the request sets reads back absent or
+  # different, when the box has no write fence, or when the fence lets the session write a path
+  # the request's places do not name; under `strict` a short box is stopped
+  # (`SessionStartRefusal.MeasurementShort`).
+  - name: conductor.session.EnvelopeMeasurement
+    kind: struct
+    fields:
+      - {name: session, type: conductor.session.StartedSession}
+      - {name: measured_at, type: Timestamp}
+      - {name: provider, type: Optional<conductor.observation.EnvelopeProvider>}
+      - {name: cgroup, type: Optional<String>}
+      - {name: memory_max, type: Optional<Integer>}
+      - {name: cpu_weight, type: Optional<Integer>}
+      - {name: tasks_max, type: Optional<Integer>}
+      - {name: places, type: List<conductor.session.PlaceResolved>}
+      - {name: writable, type: Optional<String>}
+      - {name: fence_missing, type: Optional<String>}
+      - {name: unboxed, type: Optional<String>}
 
 entities:
   # One per instance, keyed by the instance's name. `pid` is the process of the session that holds

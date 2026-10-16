@@ -6,9 +6,12 @@
 //! `conductor-instance` settings the `conductor-cli` component declares in `spec/components.yaml`.
 //! A file `--config` or `CONDUCTOR_CONFIG` names must be there; when the default file is not,
 //! the built-in defaults apply ([`built_in`]), and they equal today's constants: nothing changes
-//! until a file exists. The instance is `--instance`, else `CONDUCTOR_INSTANCE`, else the file's
-//! `default` (`story:grouped-instance`), else the only one, else an error naming the instances
-//! ([`select`]).
+//! until a file exists. The instance is `--instance`, else `CONDUCTOR_INSTANCE`, else the instance
+//! whose tree holds the working directory ([`by_directory`], `story:instance-isolation`), else the
+//! file's `default` (`story:grouped-instance`), else the only one, else an error naming the
+//! instances ([`select`]). What the instances of the file share is in the host directory beside it
+//! ([`host_dir`]), and a role's settings file that pins another instance is refused
+//! ([`pin_refusal`]); one that pins none starts pinned ([`session_settings`]).
 //!
 //! The file is read into `serde_json::Value` and converted into the generated
 //! `conductor.config` types ([`parse`]), which do not derive `serde`; what the types cannot say
@@ -255,7 +258,7 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 11] = [
+const ROLE_KEYS: [&str; 12] = [
     "role",
     "harness",
     "model",
@@ -267,6 +270,7 @@ const ROLE_KEYS: [&str; 11] = [
     "limits",
     "writable",
     "network",
+    "forge_token_env",
 ];
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
@@ -520,13 +524,15 @@ pub fn load(flag: Option<&Path>, environment: &Environment) -> Result<Loaded> {
     }
 }
 
-/// The instance a command runs: `flag`, else [`INSTANCE_VARIABLE`], else the file's `default`,
-/// else the config's only one.
+/// The instance a command runs: `flag`, else [`INSTANCE_VARIABLE`], else the instance whose tree
+/// holds the working directory ([`by_directory`], `story:instance-isolation`), else the file's
+/// `default`, else the config's only one.
 ///
 /// # Errors
 ///
-/// The name given is not an instance of the config, or none is given, the file names no
-/// `default` and the config names more than one; the error names the instances there are.
+/// The name given is not an instance of the config; two instances' trees hold the working
+/// directory alike (`AmbiguousInstance`); or none is given, the file names no `default` and the
+/// config names more than one; the error names the instances there are.
 pub fn select<'c>(
     loaded: &'c Loaded,
     flag: Option<&str>,
@@ -539,11 +545,11 @@ pub fn select<'c>(
         .collect();
     let asked = match flag {
         Some(name) => Some(name.to_owned()),
-        None => environment
-            .instance
-            .as_ref()
-            .map(|name| name.to_string_lossy().into_owned())
-            .or_else(|| loaded.config.default.as_ref().map(|name| name.0.clone())),
+        None => match &environment.instance {
+            Some(name) => Some(name.to_string_lossy().into_owned()),
+            None => by_directory(instances, &environment.cwd)?
+                .or_else(|| loaded.config.default.as_ref().map(|name| name.0.clone())),
+        },
     };
     match asked {
         Some(name) => instances
@@ -566,6 +572,57 @@ pub fn select<'c>(
                 names.join(", ")
             ),
         },
+    }
+}
+
+/// The instance whose tree holds `cwd` (`story:instance-isolation`): its `records`, `state`,
+/// `checkouts.root` or `checkouts.trees` is `cwd` or an ancestor of it, read as written and as
+/// the file system resolves it. Where the trees of several instances hold it, the one whose tree
+/// lies deepest; none where it lies in no instance's tree.
+///
+/// # Errors
+///
+/// `AmbiguousInstance`: two instances' trees hold `cwd` at the same depth, so neither is chosen
+/// and the default is not taken either.
+pub fn by_directory(instances: &[Instance], cwd: &Path) -> Result<Option<String>> {
+    let real = fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    let mut best: Option<(usize, Vec<&str>)> = None;
+    for instance in instances {
+        let roots = [
+            &instance.records,
+            &instance.state,
+            &instance.checkouts.root,
+            &instance.checkouts.trees,
+        ];
+        let depth = roots
+            .iter()
+            .flat_map(|root| {
+                let root = PathBuf::from(root);
+                let resolved = fs::canonicalize(&root).ok();
+                [Some(root), resolved]
+            })
+            .flatten()
+            .filter(|root| cwd.starts_with(root) || real.starts_with(root))
+            .map(|root| root.components().count())
+            .max();
+        let Some(depth) = depth else { continue };
+        let name = instance.name.0.as_str();
+        match &mut best {
+            Some((deepest, names)) if *deepest == depth => names.push(name),
+            Some((deepest, _)) if *deepest > depth => {}
+            _ => best = Some((depth, vec![name])),
+        }
+    }
+    match best {
+        None => Ok(None),
+        Some((_, names)) if names.len() == 1 => Ok(Some(names[0].to_owned())),
+        Some((_, names)) => bail!(
+            "AmbiguousInstance: the working directory {} lies in the trees of the instances {} \
+             alike, so none is chosen and the default is not taken; choose one with \
+             {INSTANCE_VARIABLE}",
+            cwd.display(),
+            names.join(" and ")
+        ),
     }
 }
 
@@ -650,6 +707,8 @@ pub fn resolve(flag: Option<&Path>, environment: &Environment) -> Result<Active>
 /// What [`resolve`] answers.
 pub fn set_active(flag: Option<&Path>) -> Result<()> {
     let environment = Environment::from_process()?;
+    let (file, _) = locate(flag, &environment)?;
+    let _ = CONFIG_FILE.set(environment.cwd.join(file));
     let active = resolve(flag, &environment)?;
     let _ = ACTIVE.set(active);
     let _ = EXPLICIT.set(flag.map(|flag| environment.cwd.join(flag)));
@@ -665,6 +724,287 @@ pub fn explicit() -> Option<&'static Path> {
 }
 
 static EXPLICIT: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// The config file [`set_active`] located, absolute.
+static CONFIG_FILE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Why the settings file `file` does not pin the instance `instance` (`story:instance-isolation`),
+/// or none when it does: its `env.CONDUCTOR_INSTANCE` is `instance`, and each of its hook commands
+/// that runs `conductor` starts `CONDUCTOR_INSTANCE=<instance> `. The harness does not pass the
+/// environment of the process that starts a session on to the session it forks, so only the
+/// settings select the instance the session's hooks and commands act for. The reason ends with
+/// what to write.
+#[must_use]
+pub fn pin_problem(file: &Path, instance: &str) -> Option<String> {
+    let fix = pin_fix(instance);
+    let settings = match read_settings(file) {
+        Ok(settings) => settings,
+        Err(reason) => return Some(format!("{reason}: {fix}")),
+    };
+    foreign_pin(&settings, instance)
+        .or_else(|| unpinned(&settings, instance))
+        .map(|reason| format!("{reason}: {fix}"))
+}
+
+/// Why a session cannot start with the settings file `file` for the instance `instance`
+/// (`story:instance-isolation`), or none when it can, pinned or not: it cannot be read, is no
+/// JSON, or pins another instance (its `env.CONDUCTOR_INSTANCE`, or a hook command that starts
+/// `CONDUCTOR_INSTANCE=<other>`), whose hooks would act for that instance. A file that pins no
+/// instance is no refusal: a session starts with it pinned ([`session_settings`]). The reason
+/// ends with what to write.
+#[must_use]
+pub fn pin_refusal(file: &Path, instance: &str) -> Option<String> {
+    let fix = pin_fix(instance);
+    match read_settings(file) {
+        Ok(settings) => foreign_pin(&settings, instance).map(|reason| format!("{reason}: {fix}")),
+        Err(reason) => Some(format!("{reason}: {fix}")),
+    }
+}
+
+/// What a settings file writes to pin the instance `instance`.
+fn pin_fix(instance: &str) -> String {
+    format!(
+        "write \"env\": {{\"{INSTANCE_VARIABLE}\": \"{instance}\"}} and start every hook command \
+         that runs conductor with `{INSTANCE_VARIABLE}={instance} conductor`"
+    )
+}
+
+/// The settings file `file` as JSON, or why it is not.
+fn read_settings(file: &Path) -> Result<Value, String> {
+    let text = fs::read_to_string(file).map_err(|error| format!("cannot be read ({error})"))?;
+    serde_json::from_str(&text).map_err(|error| format!("is no JSON ({error})"))
+}
+
+/// Why `settings` pins another instance than `instance`, or none when it does not: its
+/// `env.CONDUCTOR_INSTANCE` names another, or one of its hook commands starts
+/// `CONDUCTOR_INSTANCE=<another> `.
+fn foreign_pin(settings: &Value, instance: &str) -> Option<String> {
+    if let Some(name) = settings["env"][INSTANCE_VARIABLE].as_str()
+        && name != instance
+    {
+        return Some(format!("pins the instance {name:?}, not {instance:?}"));
+    }
+    let prefix = format!("{INSTANCE_VARIABLE}=");
+    hook_commands(settings).into_iter().find_map(|command| {
+        let name = command
+            .trim_start()
+            .strip_prefix(&prefix)?
+            .split(char::is_whitespace)
+            .next()
+            .unwrap_or_default();
+        (name != instance).then(|| {
+            format!(
+                "has the hook command {command:?}, which runs for the instance {name:?}, not \
+                 {instance:?}"
+            )
+        })
+    })
+}
+
+/// Why `settings` does not pin `instance` although it pins no other ([`foreign_pin`]), or none
+/// when it pins it: it has no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor`
+/// does not start `CONDUCTOR_INSTANCE=<instance> `.
+fn unpinned(settings: &Value, instance: &str) -> Option<String> {
+    if settings["env"][INSTANCE_VARIABLE].as_str().is_none() {
+        return Some("pins no instance".to_owned());
+    }
+    let prefix = format!("{INSTANCE_VARIABLE}={instance} ");
+    hook_commands(settings)
+        .into_iter()
+        .find(|command| runs_conductor(command) && !command.trim_start().starts_with(&prefix))
+        .map(|command| {
+            format!("has the hook command {command:?}, which runs conductor for no instance")
+        })
+}
+
+/// The pinned copy of a session's settings (`story:instance-isolation`):
+/// `<state>/sessions/<session>.settings.json`.
+#[must_use]
+pub fn pinned_copy(state: &Path, session: &str) -> PathBuf {
+    state
+        .join("sessions")
+        .join(format!("{session}.settings.json"))
+}
+
+/// Writes `settings` pinned to `instance` ([`pinned`]) to the session's pinned copy
+/// ([`pinned_copy`]) and answers its path.
+///
+/// # Errors
+///
+/// The directory or the file cannot be written.
+pub fn write_pinned(
+    settings: Value,
+    instance: &str,
+    state: &Path,
+    session: &str,
+) -> Result<PathBuf> {
+    let file = pinned_copy(state, session);
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    }
+    let text = serde_json::to_string_pretty(&pinned(settings, instance))
+        .context("write the pinned settings")?;
+    fs::write(&file, format!("{text}\n")).with_context(|| format!("write {}", file.display()))?;
+    Ok(file)
+}
+
+/// The settings file a session `session` of the instance `instance` starts with when its role
+/// names `file` (`story:instance-isolation`): `file` itself when it pins the instance
+/// ([`pin_problem`] finds none), else a copy of its content pinned to the instance
+/// ([`write_pinned`]), so a role may name a settings file that pins no instance, as the shipped
+/// ones do. The caller has refused a file [`pin_refusal`] names.
+///
+/// # Errors
+///
+/// The file cannot be read or is no JSON, or the copy cannot be written.
+pub fn session_settings(
+    file: &Path,
+    instance: &str,
+    state: &Path,
+    session: &str,
+) -> Result<String> {
+    if pin_problem(file, instance).is_none() {
+        return Ok(file.display().to_string());
+    }
+    let settings = read_settings(file)
+        .map_err(|reason| anyhow!("the settings {} {reason}", file.display()))?;
+    Ok(write_pinned(settings, instance, state, session)?
+        .display()
+        .to_string())
+}
+
+/// `settings` pinned to `instance` (`story:instance-isolation`): its `env.CONDUCTOR_INSTANCE`
+/// set to `instance`, and each hook command that runs `conductor` started with
+/// `CONDUCTOR_INSTANCE=<instance> ` in place of any instance it named, so [`pin_problem`] finds
+/// none. Settings that are no JSON object become one holding only the pin.
+#[must_use]
+pub fn pinned(mut settings: Value, instance: &str) -> Value {
+    if !settings.is_object() {
+        settings = Value::Object(Map::new());
+    }
+    let env = &mut settings["env"];
+    if !env.is_object() {
+        *env = Value::Object(Map::new());
+    }
+    env[INSTANCE_VARIABLE] = Value::String(instance.to_owned());
+    let prefix = format!("{INSTANCE_VARIABLE}=");
+    if let Some(events) = settings["hooks"].as_object_mut() {
+        for matchers in events.values_mut().filter_map(Value::as_array_mut) {
+            for matcher in matchers.iter_mut() {
+                let Some(hooks) = matcher["hooks"].as_array_mut() else {
+                    continue;
+                };
+                for hook in hooks {
+                    let Some(command) = hook["command"].as_str() else {
+                        continue;
+                    };
+                    if !runs_conductor(command) {
+                        continue;
+                    }
+                    let mut rest = command.trim_start();
+                    while let Some(after) = rest.strip_prefix(&prefix) {
+                        rest = after
+                            .split_once(char::is_whitespace)
+                            .map_or("", |(_, more)| more.trim_start());
+                    }
+                    hook["command"] = Value::String(format!("{prefix}{instance} {rest}"));
+                }
+            }
+        }
+    }
+    settings
+}
+
+/// Every hook command of a settings file: `hooks.<event>[].hooks[].command`.
+fn hook_commands(settings: &Value) -> Vec<&str> {
+    settings["hooks"]
+        .as_object()
+        .into_iter()
+        .flat_map(|events| events.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|matcher| matcher["hooks"].as_array())
+        .flatten()
+        .filter_map(|hook| hook["command"].as_str())
+        .collect()
+}
+
+/// Whether `command` runs the `conductor` binary: one of its words is `conductor` or a path to it.
+fn runs_conductor(command: &str) -> bool {
+    command.split_whitespace().any(|word| {
+        let word = word.trim_matches(|c| c == '"' || c == '\'');
+        word == "conductor" || word.ends_with("/conductor")
+    })
+}
+
+/// The roles of `config` whose settings file is there and does not pin its instance, each by its
+/// `settings` path: as problems, the files a session cannot start with ([`pin_refusal`]); as
+/// notes, the files that pin no instance, which a session starts with pinned
+/// ([`session_settings`]).
+fn pin_problems(config: &Config) -> (Vec<Problem>, Vec<Problem>) {
+    let mut problems = Vec::new();
+    let mut notes = Vec::new();
+    for (index, instance) in config.instances.iter().enumerate() {
+        for (at, role) in instance.roles.iter().enumerate() {
+            let Some(settings) = &role.settings else {
+                continue;
+            };
+            let file = Path::new(&settings.0);
+            if !file.is_file() {
+                continue;
+            }
+            let path = format!("instances[{index}].roles[{at}].settings");
+            let name = &instance.name.0;
+            if let Some(problem) = pin_refusal(file, name) {
+                problems.push(Problem {
+                    path,
+                    message: format!("the settings file {} {problem}", file.display()),
+                });
+            } else if let Ok(settings) = read_settings(file)
+                && let Some(reason) = unpinned(&settings, name)
+            {
+                notes.push(Problem {
+                    path,
+                    message: format!(
+                        "the settings file {} {reason}; session start and spawn start the role \
+                         with a copy pinned to {name:?}, {}",
+                        file.display(),
+                        pinned_copy(Path::new(&instance.state), "<session name>").display()
+                    ),
+                });
+            }
+        }
+    }
+    (problems, notes)
+}
+
+/// The host directory's name beside the config file.
+pub const HOST_DIR: &str = "host";
+
+/// The host directory of the config file `file` (`story:instance-isolation`): `host/` beside it.
+/// What every instance of the file shares lives there, never under an instance's `state`: the
+/// host ledger, its locks, the reclaim record and the fall's marker (`crate::host`).
+#[must_use]
+pub fn host_of(file: &Path) -> PathBuf {
+    file.parent()
+        .map_or_else(|| PathBuf::from(HOST_DIR), |parent| parent.join(HOST_DIR))
+}
+
+/// The host directory of this process's config file ([`host_of`]): of the file [`set_active`]
+/// located, else of the one [`locate`] finds without a flag, `~/.b10x/conductor/host` when no
+/// variable names one. A `--state-dir` does not move it.
+///
+/// # Errors
+///
+/// No file was located and the working directory or the home directory cannot be read.
+pub fn host_dir() -> Result<PathBuf> {
+    if let Some(file) = CONFIG_FILE.get() {
+        return Ok(host_of(file));
+    }
+    let environment = Environment::from_process()?;
+    let (file, _) = locate(None, &environment)?;
+    Ok(host_of(&environment.cwd.join(file)))
+}
 
 /// The instance this process runs. [`crate::cli::Cli::run`] fixes it with [`set_active`]; a
 /// caller that did not (a library test) gets what [`resolve`] finds without a flag, and the
@@ -805,6 +1145,7 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
             limits: no_limits(),
             writable: default_writable(role),
             network: Network::Open,
+            forge_token_env: Vec::new(),
         })
         .collect()
 }
@@ -2199,6 +2540,12 @@ impl Reader<'_> {
             Some(value) => self.word(value, &join(path, "network"), &NETWORKS),
             None => Some(Network::Open),
         };
+        // The environment variables that carry the forge tokens the role's sessions may use
+        // (`story:sandbox-spec`): each a variable name. Absent, none.
+        let forge_token_env = match Self::get(map, "forge_token_env") {
+            Some(value) => self.list(value, &join(path, "forge_token_env"), Self::variable_name),
+            None => Some(Vec::new()),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
@@ -2211,7 +2558,31 @@ impl Reader<'_> {
             limits: limits?,
             writable: writable?,
             network: network?,
+            forge_token_env: forge_token_env?,
         })
+    }
+
+    /// One entry of a role's `forge_token_env`: an environment variable name, capital letters,
+    /// digits and `_`, not starting with a digit.
+    fn variable_name(&mut self, value: &Value, path: &str) -> Option<String> {
+        let name = self.text(value, path)?;
+        let well_formed = name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            && !name.starts_with(|c: char| c.is_ascii_digit());
+        if well_formed {
+            Some(name)
+        } else {
+            self.problem(
+                path,
+                format!(
+                    "{} is not an environment variable name: write capital letters, digits and \
+                     `_`, not starting with a digit, such as GH_TOKEN",
+                    echo(value)
+                ),
+            );
+            None
+        }
     }
 
     /// One entry of a role's `writable`: a place's word ([`PLACES`]), kept as it is, or a path,
@@ -2774,6 +3145,10 @@ pub fn document(instance: &Instance) -> Yaml {
                         Network::Open => "open",
                     }),
                 ),
+                (
+                    "forge_token_env",
+                    Yaml::Sequence(role.forge_token_env.iter().map(|name| text(name)).collect()),
+                ),
             ])
         })
         .collect();
@@ -3069,6 +3444,29 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     };
     if args.instance.is_some() || environment.instance.is_some() {
         select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
+    }
+    // No role's settings pin another instance (`story:instance-isolation`); one that pins none is
+    // a note, since its sessions start with it pinned.
+    let (problems, notes) = pin_problems(&loaded.config);
+    if loaded.read {
+        for note in &notes {
+            eprintln!(
+                "conductor: {WHAT}: {}: note: {}: {}",
+                loaded.path.display(),
+                note.path,
+                note.message
+            );
+        }
+    }
+    if loaded.read && !problems.is_empty() {
+        report(
+            WHAT,
+            &Invalid {
+                file: loaded.path.clone(),
+                problems,
+            },
+        );
+        return Ok(ExitCode::FAILURE);
     }
     let names: Vec<&str> = loaded
         .config

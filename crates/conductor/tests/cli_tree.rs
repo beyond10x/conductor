@@ -1401,3 +1401,43 @@ fn version_prints_the_crate_version() {
 fn derive_tree_is_well_formed() {
     Cli::command().debug_assert();
 }
+
+/// `story:sandbox-spec`: the binding presents `session start` and `session stop`, each with its
+/// one flag `--role`, through its own handler. They answered "not implemented" (exit 2) until
+/// `story:session-envelope-seam` filled them; now each refuses a role it does not start with the
+/// specification's `UnknownRole`, exit 1, before it reads the session list or starts anything.
+#[test]
+fn session_start_and_stop_are_placed_and_answer_through_their_handlers() {
+    let binding = read_binding();
+    for wire in ["start", "stop"] {
+        let command = binding
+            .commands
+            .iter()
+            .find(|command| command.path == ["session", wire])
+            .unwrap_or_else(|| panic!("the binding declares no `session {wire}`"));
+        let flags: Vec<&str> = command
+            .flags
+            .iter()
+            .map(|flag| flag.long.as_str())
+            .collect();
+        assert_eq!(flags, ["role"], "`session {wire}` takes exactly `--role`");
+    }
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("cli_tree-session");
+    fs::create_dir_all(&home).expect("create the case's home");
+    for wire in ["start", "stop"] {
+        let output = common::conductor(&home)
+            .args(["session", wire, "--role", "nobody"])
+            .current_dir(&home)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("the conductor binary runs");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "session {wire}: {stderr}");
+        assert!(
+            stderr.starts_with(&format!(
+                "conductor: session {wire}: refused: UnknownRole: role \"nobody\": "
+            )),
+            "session {wire}: {stderr}"
+        );
+    }
+}

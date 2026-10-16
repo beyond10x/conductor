@@ -1,0 +1,111 @@
+{
+  "open": [
+    {
+      "request_id": "REQ-legacy",
+      "class": "H",
+      "repository": "beta",
+      "question": "Renew the registry token?",
+      "kind": "one-of",
+      "options": [],
+      "recommended": [],
+      "default": [],
+      "deadline": null,
+      "raised_at": "2026-10-12T09:30:00Z",
+      "reason": "only the operator holds the registry login",
+      "options_text": "A: renew it; B: drop the job",
+      "recommendation_text": "A"
+    },
+    {
+      "request_id": "REQ-release",
+      "class": "O",
+      "repository": "alpha",
+      "question": "Release v2.0 today?",
+      "kind": "yes-no",
+      "options": [
+        { "letter": "Y", "label": "release today", "cost": "an hour of one controller" },
+        { "letter": "N", "label": "wait for the next wave", "cost": "a day later for users" }
+      ],
+      "recommended": ["Y"],
+      "default": ["N"],
+      "deadline": "2026-10-13T18:00:00Z",
+      "raised_at": "2026-10-13T07:30:00Z",
+      "reason": "a release cannot be undone",
+      "options_text": "Y: release; N: wait",
+      "recommendation_text": "Y"
+    },
+    {
+      "request_id": "REQ-store",
+      "class": "O",
+      "repository": "alpha",
+      "question": "Which store backs the cache?",
+      "kind": "one-of",
+      "options": [
+        { "letter": "A", "label": "keep the file store", "cost": "nothing now" },
+        { "letter": "B", "label": "move to the tree store", "cost": "half a day of one controller" },
+        { "letter": "C", "label": "drop the cache", "cost": "slower snapshots" }
+      ],
+      "recommended": ["B"],
+      "default": ["A"],
+      "deadline": "2026-10-14T09:00:00Z",
+      "raised_at": "2026-10-13T08:00:00Z",
+      "reason": "an architecture choice",
+      "options_text": "A: file; B: tree; C: none",
+      "recommendation_text": "B"
+    },
+    {
+      "request_id": "REQ-checks",
+      "class": "O",
+      "repository": "gamma",
+      "question": "Which checks gate a merge?",
+      "kind": "several-of",
+      "options": [
+        { "letter": "A", "label": "unit tests", "cost": "4 minutes per run" },
+        { "letter": "B", "label": "integration tests", "cost": "12 minutes per run" },
+        { "letter": "C", "label": "the docs build", "cost": "2 minutes per run" }
+      ],
+      "recommended": ["A", "B"],
+      "default": ["A"],
+      "deadline": "2026-10-14T12:00:00Z",
+      "raised_at": "2026-10-13T09:00:00Z",
+      "reason": "it changes what every pull request waits for",
+      "options_text": "A: unit; B: integration; C: docs",
+      "recommendation_text": "A,B"
+    }
+  ],
+  "history": [
+    {
+      "at": "2026-10-13T09:00:00Z",
+      "event": "escalated",
+      "id": "REQ-checks",
+      "repo": "gamma",
+      "class": "O",
+      "decided_by": null,
+      "question": null,
+      "choice": null,
+      "reason": "it changes what every pull request waits for"
+    },
+    {
+      "at": "2026-10-13T08:30:00Z",
+      "event": "decided",
+      "id": "DEC-20261013-02",
+      "repo": "alpha",
+      "class": "O",
+      "decided_by": "Operator",
+      "question": "Rename the alpha service?",
+      "choice": "B",
+      "reason": "the operator: keep the name"
+    },
+    {
+      "at": "2026-10-13T07:00:00Z",
+      "event": "decided",
+      "id": "DEC-20261013-01",
+      "repo": "alpha",
+      "class": "C",
+      "decided_by": "Conductor",
+      "question": "Rebase before the merge?",
+      "choice": "A",
+      "reason": "it is reversible"
+    }
+  ],
+  "errors": []
+}

@@ -105,7 +105,7 @@ export async function loadHealth(
   fetcher: Fetch = (input, init) => fetch(input, init),
 ): Promise<HealthRead> {
   try {
-    const answer = await fetcher('/api/health', { cache: 'no-store' });
+    const answer = await fetcher('/api/health', { cache: 'no-cache' });
     if (!answer.ok) {
       return { health: null, error: `could not read /api/health: ${answer.status}` };
     }

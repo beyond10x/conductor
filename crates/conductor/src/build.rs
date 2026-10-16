@@ -12,15 +12,19 @@
 //!    would fit, and names its position in the queue on standard error once it has waited
 //!    `thresholds.watchdog_every`. The head waits for live reservations at most
 //!    [`Settings::wait`], then is refused; one whose shortfall they do not cover is answered at
-//!    once.
+//!    once. When every request ahead lacks more than the live reservations hold together, so each
+//!    can only be refused, a run that fits beside the floor and the live reservations is granted
+//!    past them ([`host::Ledger::ahead_bytes`], `story:build-run-backfill`).
 //! 2. **Reclaim.** When it does not fit, one reclaim run frees what needs no decision
 //!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The reclaim never runs under
 //!    the ledger's lock: the run lets it go, reclaims, takes it again and counts from the start,
 //!    so the queue never waits on one run's walk of the disk; the requests behind it stay behind
-//!    it meanwhile. One reclaim walks the disk at a time (`host.reclaim.lock` in the state
-//!    directory), and a run that finds one started within [`RECLAIM_REUSE`] (`host.reclaim`: when
+//!    it meanwhile. One reclaim walks the disk at a time (`host.reclaim.lock` in the host
+//!    directory, `host/` beside the config file, which every instance shares), and a run that finds one started within [`RECLAIM_REUSE`] (`host.reclaim`: when
 //!    it started and ended, what it was asked to reach, freed and left, or why it failed) reuses
-//!    its result instead of walking again ([`shared_reclaim`]). The answer (`ReserveDisk`) is
+//!    its result instead of walking again ([`shared_reclaim`]). When that run ended and freed
+//!    nothing, the head takes no reclaim lock and walks nothing: it is answered at once, naming
+//!    that run ([`barren_reclaim`]). The answer (`ReserveDisk`) is
 //!    granted, granted after reclaim, or refused with the shortfall: the command never runs, the
 //!    shortfall and what is left are printed on standard error as the operator item names them
 //!    (`/var/tmp` entries as a count and a size, the home as `~`), one operator item is recorded
@@ -36,14 +40,21 @@
 //! 4. **Release.** When the command ends, its peak is recorded (`RecordPeak`) and the grant
 //!    released (`ReleaseGrant`: `Exited`, or `Killed` by a signal), and `build run` exits with the
 //!    command's status, 128 + the signal for a killed one.
+//! 5. **Stop** (`story:build-run-cancel-group`). SIGTERM, SIGINT or SIGHUP to `build run` itself
+//!    ([`catch`]) never leaves a build behind it: while the command runs, the signal is forwarded
+//!    to its whole process group (and SIGCONT after it, for a group the watchdog stopped); a group
+//!    with a process left after [`GRACE`] is sent SIGKILL; the run is reaped, its peak recorded and
+//!    its grant released as `Killed`. A request still waiting in the queue is withdrawn
+//!    (`WithdrawDiskRequest`), and one granted whose command has not started is released. Either
+//!    way `build run` exits with 128 + the signal it received.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -61,6 +72,67 @@ use crate::host::{self, Answer, Ledger, Shortfall, gib};
 
 /// One GiB.
 const GIB: u64 = 1 << 30;
+
+/// The signals that stop `build run`, each forwarded to its command's process group.
+pub const STOPPING: [Signal; 3] = [Signal::SIGTERM, Signal::SIGINT, Signal::SIGHUP];
+
+/// How long the command's process group has to end after the forwarded signal before it is sent
+/// SIGKILL.
+pub const GRACE: Duration = Duration::from_secs(10);
+
+/// How often a run that waits, in the queue or on its command, looks for a signal it received.
+const SIGNAL_POLL: Duration = Duration::from_millis(20);
+
+/// The signal this process received of [`STOPPING`], 0 while none, once [`catch`] installed its
+/// handlers.
+static RECEIVED: OnceLock<Arc<AtomicUsize>> = OnceLock::new();
+
+/// Installs the handlers that note SIGTERM, SIGINT and SIGHUP instead of ending this process, so
+/// [`run`] stops its build first. A command `build run` starts gets the default handlers back
+/// when it executes.
+///
+/// # Errors
+///
+/// A handler cannot be installed.
+pub fn catch() -> Result<()> {
+    let received = RECEIVED.get_or_init(|| Arc::new(AtomicUsize::new(0)));
+    for signal in STOPPING {
+        let number = signal as i32;
+        signal_hook::flag::register_usize(
+            number,
+            Arc::clone(received),
+            usize::try_from(number).unwrap_or(0),
+        )
+        .with_context(|| format!("build run: catch {signal}"))?;
+    }
+    Ok(())
+}
+
+/// The signal of [`STOPPING`] this process received, if [`catch`] installed its handlers and one
+/// arrived.
+fn received() -> Option<Signal> {
+    let number = RECEIVED.get()?.load(Ordering::SeqCst);
+    Signal::try_from(i32::try_from(number).ok()?)
+        .ok()
+        .filter(|signal| STOPPING.contains(signal))
+}
+
+/// Sleeps `pause`, waking early once a signal was received ([`received`]).
+fn pause_unless_received(pause: Duration) {
+    let until = Instant::now() + pause;
+    while received().is_none() {
+        let now = Instant::now();
+        if now >= until {
+            return;
+        }
+        thread::sleep((until - now).min(SIGNAL_POLL));
+    }
+}
+
+/// 128 + `signal`, the exit of a run `signal` stopped.
+fn signal_code(signal: Signal) -> u8 {
+    u8::try_from(128 + signal as i32).unwrap_or(1)
+}
 
 /// How often the watchdog reads free disk when `thresholds.watchdog_every` does not read.
 const EVERY: Duration = Duration::from_secs(10);
@@ -112,10 +184,10 @@ pub const WAIT_FOR_RESERVATIONS: Duration = Duration::from_secs(3600);
 /// once each; a walk of a full disk takes minutes.
 pub const RECLAIM_REUSE: Duration = Duration::from_secs(5 * 60);
 
-/// The lock one reclaim run holds while it walks the disk, in the state directory.
+/// The lock one reclaim run holds while it walks the disk, in the host directory.
 const RECLAIM_LOCK: &str = "host.reclaim.lock";
 
-/// The last reclaim run of the host, in the state directory: when it started and ended, the bytes
+/// The last reclaim run of the host, in the host directory: when it started and ended, the bytes
 /// it was asked to reach, whether it reached them, what it freed and left, or why it failed.
 const RECLAIM_RECORD: &str = "host.reclaim";
 
@@ -205,6 +277,14 @@ pub enum Outcome {
         /// How often the watchdog continued it.
         resumed: u32,
     },
+    /// A signal stopped `build run` before its command ran ([`STOPPING`]): the request, still
+    /// waiting in the queue, was withdrawn, or the grant was released.
+    Stopped {
+        /// The grant.
+        grant: GrantId,
+        /// The signal received.
+        signal: Signal,
+    },
     /// Reclaim could not reach the size: the command never ran.
     Refused {
         /// The refused grant.
@@ -228,6 +308,7 @@ impl Outcome {
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::Ran { code, .. } => *code,
+            Self::Stopped { signal, .. } => signal_code(*signal),
             Self::Refused { .. } => 2,
         }
     }
@@ -258,7 +339,9 @@ pub fn shortfall(bytes: u64, free: u64, reserved: u64, floor: u64) -> u64 {
     bytes.saturating_sub(available)
 }
 
-/// Runs `request` over the ledger in the state directory `state`.
+/// Runs `request` over the ledger in the host directory `host` (`story:instance-isolation`), for
+/// the instance whose state directory is `state`: its reclaim and its operator item are that
+/// instance's.
 ///
 /// # Errors
 ///
@@ -267,6 +350,7 @@ pub fn shortfall(bytes: u64, free: u64, reserved: u64, floor: u64) -> u64 {
 /// freeing nothing.
 pub fn run(
     state: &Path,
+    host: &Path,
     settings: &Settings,
     sources: &Sources,
     request: &Request,
@@ -277,11 +361,11 @@ pub fn run(
     let command = request.command.join(" ");
     let at = host::now((sources.clock)());
 
-    let mut ledger = Ledger::lock(state)?;
+    let mut ledger = Ledger::lock(host)?;
     ledger.sweep(&at)?;
     // Free disk back at `disk_clear` ends the fall: its operator item is withdrawn.
     let clear = settings.clear.max(settings.floor);
-    if let Err(error) = ledger.clear_fall(free_bytes(sources)?, clear) {
+    if let Err(error) = ledger.clear_fall(state, &settings.instance, free_bytes(sources)?, clear) {
         (sources.say)(
             state,
             &format!("conductor: build run: the fall's operator item was not withdrawn: {error:#}"),
@@ -296,7 +380,7 @@ pub fn run(
         &at,
     )?;
     // Held from the request to the release, so a sweep closes this grant only once this run is gone.
-    let run_lock = host::hold_run(state, &grant)?;
+    let run_lock = host::hold_run(host, &grant)?;
     let lacking = |ledger: &Ledger| -> Result<u64> {
         let free = free_bytes(sources)?;
         Ok(shortfall(
@@ -311,19 +395,46 @@ pub fn run(
     let mut reclaimed = 0;
     let mut left = Vec::new();
     let mut reclaim_ran = false;
-    // The queue (`story:build-run-queue`): only its head is answered, so a request made later never
+    // The queue (`story:build-run-queue`): the head is answered, and a request made later never
     // takes the space an earlier one waits for. The head waits for live reservations at most
-    // `settings.wait` (`held`); since nothing behind it is granted meanwhile, they only shrink.
+    // `settings.wait` (`held`); since nothing behind it is granted meanwhile, they only shrink. A
+    // request behind heads that can only be refused is granted when it fits (backfill).
     let mut held = Duration::ZERO;
     let mut queued = Duration::ZERO;
     let mut told = None;
     let pause = sources.every.max(Duration::from_millis(10));
     loop {
-        let ahead = ledger.ahead(&grant)?;
+        // A signal while the request waits withdraws it: it leaves the queue, and the command
+        // never runs.
+        if let Some(signal) = received() {
+            ledger.withdraw(&grant, &host::now((sources.clock)()))?;
+            drop(ledger);
+            host::end_run(host, &grant, run_lock);
+            say(&format!(
+                "conductor: build run: {signal}: the request was withdrawn from the queue; the \
+                 command did not run (grant {})",
+                grant.0
+            ));
+            return Ok(Outcome::Stopped { grant, signal });
+        }
+        let before = ledger.ahead_bytes(&grant)?;
+        let ahead = before.len();
         if ahead == 0 {
             short = lacking(&ledger)?;
             if short > 0 && !reclaim_ran {
                 reclaim_ran = true;
+                // A reclaim run that ended a moment ago and freed nothing is not walked again:
+                // the head is answered now, naming that run (`story:build-run-backfill`).
+                if let Some(barren) = barren_reclaim(sources, host) {
+                    say(&format!(
+                        "conductor: build run: reclaim: the reclaim run started {}s ago freed \
+                         nothing; no reclaim walks the disk again until it is {}s old",
+                        barren.age,
+                        RECLAIM_REUSE.as_secs()
+                    ));
+                    left = barren.left;
+                    continue;
+                }
                 // Reclaim frees until this many bytes are free: where the request fits beside the
                 // floor and every live reservation.
                 let fits = settings
@@ -333,10 +444,10 @@ pub fn run(
                 // Never under the ledger's lock: every other run would wait on this walk. The
                 // requests behind this one stay behind it meanwhile, as its request is held.
                 drop(ledger);
-                let report = reclaim(sources, state, fits);
+                let report = reclaim(sources, state, host, fits);
                 reclaimed = report.reclaimed_bytes;
                 left = report.left;
-                ledger = Ledger::lock(state)?;
+                ledger = Ledger::lock(host)?;
                 ledger.sweep(&host::now((sources.clock)()))?;
                 // Count again from the start, under the lock.
                 continue;
@@ -356,6 +467,24 @@ pub fn run(
                 ));
             }
             held += pause;
+        } else {
+            // Backfill (`story:build-run-backfill`): when every request ahead lacks more than the
+            // live reservations hold together, each can only be refused, so one that fits beside
+            // the floor and the live reservations is granted past them. While any one ahead lacks
+            // no more than they hold, it waits for them, and nothing behind it is granted.
+            let free = free_bytes(sources)?;
+            let holding = ledger.reserved(Some(&grant))?;
+            let refused_only = before
+                .iter()
+                .all(|&bytes| shortfall(bytes, free, holding, settings.floor) > holding);
+            if refused_only && shortfall(request.reserve, free, holding, settings.floor) == 0 {
+                short = 0;
+                say(&format!(
+                    "conductor: build run: granted past {ahead} request(s) ahead, each short of \
+                     more than the live reservations hold"
+                ));
+                break;
+            }
         }
         // Waiting longer than `thresholds.watchdog_every` names the position, and again when it
         // moves.
@@ -369,15 +498,30 @@ pub fn run(
             told = Some(ahead);
         }
         drop(ledger);
-        thread::sleep(pause);
+        pause_unless_received(pause);
         queued += pause;
-        ledger = Ledger::lock(state)?;
+        ledger = Ledger::lock(host)?;
         ledger.sweep(&host::now((sources.clock)()))?;
     }
     // Only a shortfall live reservations do not cover needs a person.
     let beyond_reservations = short > ledger.reserved(Some(&grant))?;
     let answer = ledger.reserve(&grant, short, reclaimed)?;
     if answer == Answer::Refused {
+        // The operator item goes into the instance's store, under `host.lock`, which keeps one
+        // item per fall. Its writer lock is never waited for under `host.lock`
+        // (`story:store-readers-hold-no-writer-lock`): while another writer holds it, the run lets
+        // `host.lock` go, waits, and takes it again.
+        let _ledger = if beyond_reservations && crate::store::tree_held(state).unwrap_or(false) {
+            drop(ledger);
+            if let Err(error) = crate::store::wait_for_tree(state) {
+                say(&format!(
+                    "conductor: build run: wait for the store's writer lock: {error}"
+                ));
+            }
+            Ledger::lock(host)?
+        } else {
+            ledger
+        };
         let escalate = |shortfall: &Shortfall<'_>| {
             if !beyond_reservations {
                 return Ok(None);
@@ -389,7 +533,7 @@ pub fn run(
                 );
                 return Ok(None);
             }
-            host::escalate(state, shortfall)
+            host::escalate(host, state, shortfall)
         };
         let shortfall = Shortfall {
             instance: &settings.instance,
@@ -410,7 +554,7 @@ pub fn run(
             );
             None
         });
-        host::end_run(state, &grant, run_lock);
+        host::end_run(host, &grant, run_lock);
         say_refused(
             sources,
             state,
@@ -431,6 +575,22 @@ pub fn run(
     drop(ledger);
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
     let start = size(&measured(&request.cwd), sources.every).unwrap_or(0);
+    // A signal before the command starts: the granted reservation is released, and nothing runs.
+    if let Some(signal) = received() {
+        host::release(
+            host,
+            &grant,
+            Some(ReleaseReason::Killed),
+            &host::now((sources.clock)()),
+        )?;
+        host::end_run(host, &grant, run_lock);
+        say(&format!(
+            "conductor: build run: {signal}: the grant was released; the command did not run \
+             (grant {})",
+            grant.0
+        ));
+        return Ok(Outcome::Stopped { grant, signal });
+    }
 
     let mut child = match Command::new(program)
         .args(arguments)
@@ -441,16 +601,16 @@ pub fn run(
         Ok(child) => child,
         Err(error) => {
             let at = host::now((sources.clock)());
-            host::release(state, &grant, Some(ReleaseReason::Exited), &at)?;
+            host::release(host, &grant, Some(ReleaseReason::Exited), &at)?;
             return Err(error).with_context(|| format!("build run: start {program:?}"));
         }
     };
     let group = i64::from(child.id());
-    if let Err(error) = host::start_run(state, &grant, group, &host::now((sources.clock)())) {
+    if let Err(error) = host::start_run(host, &grant, group, &host::now((sources.clock)())) {
         signal(group, Signal::SIGKILL);
         let _ = child.wait();
         let at = host::now((sources.clock)());
-        let _ = host::release(state, &grant, Some(ReleaseReason::Killed), &at);
+        let _ = host::release(host, &grant, Some(ReleaseReason::Killed), &at);
         return Err(error);
     }
 
@@ -461,6 +621,7 @@ pub fn run(
             grant: grant.clone(),
             start,
             state: state.to_owned(),
+            host: host.to_owned(),
             sources: sources.clone(),
             settings: settings.clone(),
             group,
@@ -468,24 +629,30 @@ pub fn run(
         };
         thread::spawn(move || watch.run(&done))
     };
-    let status = child.wait();
+    let (status, stopped_by) = supervise(&mut child, group);
     done.store(true, Ordering::SeqCst);
     let watched = watchdog
         .join()
         .map_err(|_| anyhow!("build run: the disk watchdog panicked"))?;
     let status = status.context("build run: wait for the command")?;
 
-    let (code, killed) = match (status.code(), status.signal()) {
-        (Some(code), _) => (u8::try_from(code & 0xff).unwrap_or(1), false),
-        (None, Some(signal)) => (u8::try_from(128 + (signal & 0x7f)).unwrap_or(1), true),
-        (None, None) => (1, true),
+    let (code, killed) = match (stopped_by, status.code(), status.signal()) {
+        (Some(signal), _, _) => {
+            say(&format!(
+                "conductor: build run: {signal}: the command's process group {group} was stopped"
+            ));
+            (signal_code(signal), true)
+        }
+        (None, Some(code), _) => (u8::try_from(code & 0xff).unwrap_or(1), false),
+        (None, None, Some(signal)) => (u8::try_from(128 + (signal & 0x7f)).unwrap_or(1), true),
+        (None, None, None) => (1, true),
     };
     // The run's growth: what it wrote beyond the size it started from.
     let peak = watched
         .peak
         .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
         .saturating_sub(watched.start);
-    if let Err(error) = host::record_peak_of(state, &grant, peak) {
+    if let Err(error) = host::record_peak_of(host, &grant, peak) {
         (sources.say)(
             state,
             &format!("conductor: build run: the peak was not recorded: {error:#}"),
@@ -496,13 +663,13 @@ pub fn run(
     } else {
         ReleaseReason::Exited
     };
-    if let Err(error) = host::release(state, &grant, Some(reason), &host::now((sources.clock)())) {
+    if let Err(error) = host::release(host, &grant, Some(reason), &host::now((sources.clock)())) {
         (sources.say)(
             state,
             &format!("conductor: build run: the grant was not released: {error:#}"),
         );
     }
-    host::end_run(state, &grant, run_lock);
+    host::end_run(host, &grant, run_lock);
     Ok(Outcome::Ran {
         grant,
         code,
@@ -514,14 +681,61 @@ pub fn run(
     })
 }
 
-/// `conductor build run`: [`run`] for the active instance, in the working directory. Exits with
-/// the command's status, or 2 when it was refused ([`run`] names the shortfall on standard error).
+/// Waits for the command `child`, the leader of the process group `group`, to end. A signal
+/// `build run` receives meanwhile ([`received`]) is forwarded to the whole group, with SIGCONT
+/// after it; once the leader has ended, the wait goes on until no process of the group is left,
+/// and a group with one left [`GRACE`] after the signal is sent SIGKILL. Answers the leader's
+/// status and the signal that stopped the run, if one did.
+fn supervise(
+    child: &mut std::process::Child,
+    group: i64,
+) -> (std::io::Result<std::process::ExitStatus>, Option<Signal>) {
+    let mut forwarded: Option<(Signal, Instant)> = None;
+    let mut killed = false;
+    let mut status = None;
+    loop {
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(Some(exited)) => status = Some(Ok(exited)),
+                Ok(None) => {}
+                Err(error) => status = Some(Err(error)),
+            }
+        }
+        if forwarded.is_none()
+            && let Some(received) = received()
+        {
+            signal(group, received);
+            signal(group, Signal::SIGCONT);
+            forwarded = Some((received, Instant::now()));
+        }
+        match (&status, forwarded) {
+            (Some(_), None) => break,
+            (Some(_), Some(_)) if !host::alive(group) => break,
+            _ => {}
+        }
+        if let Some((_, since)) = forwarded
+            && !killed
+            && since.elapsed() >= GRACE
+        {
+            signal(group, Signal::SIGKILL);
+            killed = true;
+        }
+        thread::sleep(SIGNAL_POLL);
+    }
+    let status = status.unwrap_or_else(|| child.wait());
+    (status, forwarded.map(|(signal, _)| signal))
+}
+
+/// `conductor build run`: [`run`] for the active instance, in the working directory, over the
+/// host directory ([`host::dir`]), with the handlers of [`catch`] installed. Exits with the command's status, 2 when it was refused
+/// ([`run`] names the shortfall on standard error), or 128 + the signal that stopped it.
 ///
 /// # Errors
 ///
-/// `--reserve` or the command is missing, or [`run`] fails.
+/// `--reserve` or the command is missing, a handler cannot be installed, or [`run`] fails.
 pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> {
     const COMMAND: &str = "build run";
+    catch()?;
     let reserve = args
         .reserve
         .ok_or_else(|| anyhow!("{COMMAND}: --reserve is missing"))?;
@@ -536,8 +750,10 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
         command: args.command.clone(),
         cwd: std::env::current_dir().context("build run: read the working directory")?,
     };
+    let host = host::dir(state)?;
     let outcome = run(
         &crate::state::dir(state)?,
+        &host,
         &Settings::of(instance),
         &Sources::of(instance),
         &request,
@@ -591,6 +807,8 @@ struct Watchdog {
     grant: GrantId,
     start: u64,
     state: PathBuf,
+    /// The host directory.
+    host: PathBuf,
     sources: Sources,
     settings: Settings,
     group: i64,
@@ -624,7 +842,7 @@ impl Watchdog {
                         ),
                     );
                     let need = self.settings.gate_resume;
-                    reclaim(&self.sources, &self.state, need);
+                    reclaim(&self.sources, &self.state, &self.host, need);
                 }
                 Ok(free) if stopped && free >= self.settings.gate_resume => {
                     signal(self.group, Signal::SIGCONT);
@@ -651,7 +869,7 @@ impl Watchdog {
             // only what this run has not written yet.
             let grown = watched.peak.saturating_sub(watched.start);
             if grown >= recorded.saturating_add(GIB) {
-                match host::record_peak_now(&self.state, &self.grant, grown) {
+                match host::record_peak_now(&self.host, &self.grant, grown) {
                     Ok(true) => recorded = grown,
                     Ok(false) => {}
                     Err(error) => {
@@ -697,8 +915,8 @@ fn free_bytes(sources: &Sources) -> Result<u64> {
 
 /// One reclaim for `need` bytes, shared by the host ([`shared_reclaim`]); a failing one is named
 /// on standard error and frees nothing. The caller holds no ledger lock.
-fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
-    shared_reclaim(sources, state, need).unwrap_or_else(|error| {
+fn reclaim(sources: &Sources, state: &Path, host: &Path, need: u64) -> ReclaimReport {
+    shared_reclaim(sources, state, host, need).unwrap_or_else(|error| {
         (sources.say)(state, &format!("conductor: build run: reclaim: {error:#}"));
         ReclaimReport {
             reclaimed_bytes: 0,
@@ -709,8 +927,43 @@ fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
     })
 }
 
+/// A reclaim run that ended and freed nothing ([`barren_reclaim`]).
+struct Barren {
+    /// Seconds since it started.
+    age: u64,
+    /// What it left, by path and size.
+    left: Vec<(String, u64)>,
+}
+
+/// The last reclaim run of the host (`host.reclaim` in the host directory `host`, where
+/// [`shared_reclaim`] writes it), when it started within [`RECLAIM_REUSE`], ended without failing
+/// and freed nothing: a head that does not fit is answered at once rather than wait for the next
+/// walk (`story:build-run-backfill`). Read without the reclaim lock: the record is replaced whole,
+/// and a walk under way has not ended.
+fn barren_reclaim(sources: &Sources, host: &Path) -> Option<Barren> {
+    let text = fs::read_to_string(host.join(RECLAIM_RECORD)).ok()?;
+    let last = serde_json::from_str::<Value>(&text).ok()?;
+    let started = last["started"].as_i64()?;
+    let ended = last["finished"].as_i64().is_some();
+    if !ended || last["error"].is_string() || last["reclaimed"].as_u64()? != 0 {
+        return None;
+    }
+    let now = (sources.clock)().unix_timestamp();
+    let age = u64::try_from(now.saturating_sub(started)).ok()?;
+    if age >= RECLAIM_REUSE.as_secs() {
+        return None;
+    }
+    let left = last["left"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| Some((row[0].as_str()?.to_owned(), row[1].as_u64()?)))
+        .collect();
+    Some(Barren { age, left })
+}
+
 /// A reclaim for `need` bytes, one at a time on the host: waits while another run walks the disk
-/// (`host.reclaim.lock`), then reuses the last run's result when it started within
+/// (`host.reclaim.lock` in the host directory `host`), then reuses the last run's result when it started within
 /// [`RECLAIM_REUSE`] and ended: its failure, or what it left and nothing freed by this run, when
 /// it did not reach what it was asked (it freed all it could) or was asked at least `need`.
 /// Otherwise it records its start in `host.reclaim`, runs [`Sources::reclaim`] and records its
@@ -720,9 +973,14 @@ fn reclaim(sources: &Sources, state: &Path, need: u64) -> ReclaimReport {
 /// # Errors
 ///
 /// The lock or the record cannot be written, the reclaim fails, or the reused one failed.
-fn shared_reclaim(sources: &Sources, state: &Path, need: u64) -> Result<ReclaimReport> {
-    fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
-    let path = state.join(RECLAIM_LOCK);
+fn shared_reclaim(
+    sources: &Sources,
+    state: &Path,
+    host: &Path,
+    need: u64,
+) -> Result<ReclaimReport> {
+    fs::create_dir_all(host).with_context(|| format!("create {}", host.display()))?;
+    let path = host.join(RECLAIM_LOCK);
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -731,7 +989,7 @@ fn shared_reclaim(sources: &Sources, state: &Path, need: u64) -> Result<ReclaimR
         .with_context(|| format!("open {}", path.display()))?;
     lock.lock()
         .with_context(|| format!("lock {}", path.display()))?;
-    let record = state.join(RECLAIM_RECORD);
+    let record = host.join(RECLAIM_RECORD);
     let now = (sources.clock)().unix_timestamp();
     if let Some(last) = fs::read_to_string(&record)
         .ok()

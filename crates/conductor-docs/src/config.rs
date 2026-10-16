@@ -70,6 +70,7 @@ instances:
         settings: ~/example-org/controller-settings.json
         profile: ~/example-org/repo-controller.md
         read_only_tools: [mcp__example__read]
+        forge_token_env: [EXAMPLE_FORGE_TOKEN]
         limits:
           memory_max: 8G
           cpu_weight: 50

@@ -258,6 +258,10 @@ types:
   # binding returns holds no `Uuid` or `Timestamp`. `usage` is the usage line the watch prints,
   # `usage: pool runs out ~<time>, next reset <time>`, from the newest usage readings of the
   # complete snapshots (story:usage-probe); absent when no complete snapshot holds one.
+  # `unanswered_operator_items` counts the decision requests escalated as class O or H and not
+  # answered or withdrawn yet (story:decisions-notify); `oldest_unanswered_request_id` and
+  # `oldest_unanswered_age_seconds` name the one raised first and how long ago it was raised,
+  # both absent when the count is 0.
   - name: conductor.observation.StatusReport
     kind: struct
     fields:
@@ -270,6 +274,9 @@ types:
       - {name: waits, type: List<String>}
       - {name: requests, type: List<conductor.observation.StatusRequest>}
       - {name: usage, type: Optional<String>}
+      - {name: unanswered_operator_items, type: Integer}
+      - {name: oldest_unanswered_request_id, type: Optional<String>}
+      - {name: oldest_unanswered_age_seconds, type: Optional<Integer>}
 
 entities:
   - name: conductor.observation.Snapshot
@@ -551,8 +558,12 @@ entities:
       # write, absolute paths in the order applied, joined by `:` as `PATH` joins directories.
       # `envelope_unboxed` is the reason a session runs unboxed, such as a host without the
       # provider under `confinement.mode: report`; beside it every other envelope field is
-      # absent. A session with no envelope field at all was not measured: conductor did not start
-      # it in a box, or nothing measures it yet.
+      # absent. A partial box, under `report` only, has the provider, cgroup and limits and no
+      # `envelope_writable`: no write fence was set up, and its measurement record names why
+      # (`fence_missing` of `conductor.session.EnvelopeMeasurement`). The fields are read from
+      # that record, `<state>/sessions/<name>.envelope.json`, for the session of that name
+      # (story:session-envelope-seam). A session with no envelope field at all was not measured:
+      # conductor did not start it, or started it before it measured.
       - name: envelope_provider
         type: Optional<conductor.observation.EnvelopeProvider>
       - name: envelope_cgroup

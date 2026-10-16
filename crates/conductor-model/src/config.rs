@@ -1,11 +1,11 @@
 // generated from conductor v1
-// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
-// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
+// model digest 40c20bbb4d63acca3906f077da8263de079c43e223f125be650cca4b9f7ce9b1
+// contract digest 58855859c8a79b4b6b8ca4a0fe7788d8c440ead165d3edeacd1fd23ed81d80a9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
 //!
-//! The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An instance is one organization conductor runs: where its repositories come from, where their checkouts are, where conductor keeps its records, state and cache, which harness and model each role runs on, its cadence, thresholds, reports, and who decides each decision class. These types hold the effective config, after defaults; the file may leave out every key of an instance but its name, its sources and its checkouts. No field takes a secret.
+//! The one file that names conductor's instances, `conductor.config/1`, read from `--config`, else the `conductor-config` setting, else ~/.b10x/conductor/conductor.yaml (story:config-file). An instance is one organization conductor runs: where its repositories come from, where their checkouts are, where conductor keeps its records, state and cache, which harness and model each role runs on, its cadence, thresholds, reports, and who decides each decision class. These types hold the effective config, after defaults; the file may leave out every key of an instance but its name, its sources and its checkouts. No field takes a secret. What the instances of one file share lives in the host directory, `host/` beside the file (`conductor.host`), not under any instance's `state`.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -145,6 +145,8 @@ pub struct DoctorReport {
     pub prerequisites: Vec<Prerequisite>,
     /// `logins` — `List<conductor.config.ForgeLogin>`.
     pub logins: Vec<ForgeLogin>,
+    /// `providers` — `List<conductor.config.ProviderAvailability>`.
+    pub providers: Vec<ProviderAvailability>,
     /// `verdict` — `String`.
     pub verdict: String,
 }
@@ -278,6 +280,26 @@ pub struct Instance {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceName(pub String);
 
+/// InstanceRefusal — `conductor.config.InstanceRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceRefusal {
+    /// `AmbiguousInstance`.
+    AmbiguousInstance,
+    /// `StateDirNotInstance`.
+    StateDirNotInstance,
+    /// `ConfigUnloaded`.
+    ConfigUnloaded,
+}
+
+/// InstanceRefused — `conductor.config.InstanceRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceRefused {
+    /// `refusal` — `conductor.config.InstanceRefusal`.
+    pub refusal: InstanceRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
+
 /// Limits — `conductor.config.Limits`.
 ///
 /// Every value satisfies `(not (defined(cpu_weight)) or cpu_weight >= 1)` — declared here, enforced by whatever behaviour constructs one.
@@ -354,6 +376,17 @@ pub enum PrerequisiteState {
     NotNeeded,
 }
 
+/// ProviderAvailability — `conductor.config.ProviderAvailability`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAvailability {
+    /// `provider` — `String`.
+    pub provider: String,
+    /// `available` — `Boolean`.
+    pub available: bool,
+    /// `reason` — `Optional<String>`.
+    pub reason: Option<String>,
+}
+
 /// Report — `conductor.config.Report`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
@@ -421,6 +454,8 @@ pub struct Role {
     pub writable: Vec<Writable>,
     /// `network` — `conductor.config.Network`.
     pub network: Network,
+    /// `forge_token_env` — `List<String>`.
+    pub forge_token_env: Vec<String>,
 }
 
 /// SecretSource — `conductor.config.SecretSource`.

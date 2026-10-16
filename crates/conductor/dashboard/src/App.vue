@@ -16,13 +16,15 @@ import Repo from './views/Repo.vue';
 import Health from './views/Health.vue';
 import Metrics from './views/Metrics.vue';
 import Kpis from './views/Kpis.vue';
+import Decisions from './views/Decisions.vue';
 
 /**
- * The view a hash names: `#/` the overview, `#/repo/<name>`, `#/metrics`, `#/kpis`, `#/health`,
- * `#/sessions`.
+ * The view a hash names: `#/` the overview, `#/decisions` (story:decisions-page), `#/repo/<name>`,
+ * `#/metrics`, `#/kpis`, `#/health`, `#/sessions`.
  */
 type Route =
   | { view: 'overview' }
+  | { view: 'decisions' }
   | { view: 'repo'; name: string }
   | { view: 'metrics' }
   | { view: 'kpis' }
@@ -36,6 +38,8 @@ function routeOf(hash: string): Route {
     return { view: 'repo', name: decodeURIComponent(repo[1] ?? '') };
   }
   switch (path) {
+    case '/decisions':
+      return { view: 'decisions' };
     case '/metrics':
       return { view: 'metrics' };
     case '/kpis':
@@ -70,7 +74,7 @@ let timer: ReturnType<typeof setInterval> | undefined;
 
 async function load(): Promise<void> {
   try {
-    const answer = await fetch('/data.json', { cache: 'no-store' });
+    const answer = await fetch('/data.json', { cache: 'no-cache' });
     if (!answer.ok) {
       failure.value = `could not read /data.json: ${answer.status}`;
       return;
@@ -147,6 +151,7 @@ onBeforeUnmount(() => {
     </div>
     <nav class="views" aria-label="Views">
       <a href="#/" :aria-current="route.view === 'overview' ? 'page' : undefined">Overview</a>
+      <a href="#/decisions" :aria-current="route.view === 'decisions' ? 'page' : undefined">Decisions</a>
       <a href="#/metrics" :aria-current="route.view === 'metrics' ? 'page' : undefined">Metrics</a>
       <a href="#/kpis" :aria-current="route.view === 'kpis' ? 'page' : undefined">KPIs</a>
       <a href="#/sessions" :aria-current="route.view === 'sessions' ? 'page' : undefined">Sessions</a>
@@ -171,6 +176,7 @@ onBeforeUnmount(() => {
   </header>
   <main id="main" tabindex="-1">
     <Overview v-if="route.view === 'overview'" />
+    <Decisions v-else-if="route.view === 'decisions'" />
     <Repo v-else-if="route.view === 'repo'" :name="route.name" />
     <Metrics v-else-if="route.view === 'metrics'" />
     <Kpis v-else-if="route.view === 'kpis'" />

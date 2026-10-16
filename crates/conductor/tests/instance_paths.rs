@@ -226,25 +226,60 @@ fn with_a_config_file_a_decision_lands_in_the_instance_state_and_its_views_read_
     );
 }
 
+/// `story:instance-isolation`, item 3: with a config file, a command that writes the instance's
+/// records refuses a `--state-dir` other than the instance's `state` (`StateDirNotInstance`) and
+/// creates nothing, since its records would go to the instance's `records` beside another store;
+/// the instance's own `state` named by the flag is taken, and read back by a view through it.
 #[test]
-fn the_state_dir_flag_beats_the_instance_state() {
+fn the_state_dir_flag_is_refused_for_records_beside_another_store() {
     let case = Case::new("flag");
     let config = case.config();
     let work = case.work();
     let flag = case.dir.join("flag");
 
-    assert_eq!(
-        case.record(&work, Some(&config), &["--state-dir", text(&flag)]),
-        FIRST
+    let refused = case.run(
+        &work,
+        Some(&config),
+        &[
+            "--state-dir",
+            text(&flag),
+            "decision",
+            "record-conductor-decision",
+            "--decision-class",
+            "C",
+            "--question",
+            "which way?",
+            "--options",
+            "A: one way; B: the other",
+            "--choice",
+            "A",
+            "--reason",
+            "A is reversible",
+            "--evidence",
+            "the request's own text",
+            "--decided-at",
+            AT,
+        ],
     );
-    assert!(flag.is_dir(), "the flag's directory holds the store");
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
     assert!(
-        !case.home().join("state").exists(),
-        "the instance's state directory is not created"
+        String::from_utf8_lossy(&refused.stderr).contains("refused: StateDirNotInstance"),
+        "{refused:?}"
+    );
+    assert!(!flag.exists(), "the flag's directory is not created");
+    assert!(
+        !case.home().join("state").exists() && !case.home().join("records").exists(),
+        "nothing of the instance is written"
     );
     assert_eq!(entries(&work), Vec::<String>::new());
+
+    let own = case.home().join("state");
     assert_eq!(
-        case.decision_ids(&work, Some(&config), &["--state-dir", text(&flag)]),
+        case.record(&work, Some(&config), &["--state-dir", text(&own)]),
+        FIRST
+    );
+    assert_eq!(
+        case.decision_ids(&work, Some(&config), &["--state-dir", text(&own)]),
         [FIRST]
     );
 }

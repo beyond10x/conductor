@@ -21,6 +21,8 @@ instances:
         agent: repo-controller
         settings: ~/example-org/conductor/.claude/controller-settings.json
         profile: ~/.b10x/conductor/profiles/repo-controller.md
+        # The variables that carry the forge tokens a controller may use: names only.
+        forge_token_env: [GH_TOKEN]
     catalog:
       repository: registry
       path: catalog/entries

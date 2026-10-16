@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
-// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
+// model digest 40c20bbb4d63acca3906f077da8263de079c43e223f125be650cca4b9f7ce9b1
+// contract digest 58855859c8a79b4b6b8ca4a0fe7788d8c440ead165d3edeacd1fd23ed81d80a9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -76,6 +76,7 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
         Actor::DecisionOperator => &[
             "conductor.decision.AnswerEscalatedRequest",
             "conductor.decision.RecordOperatorDecision",
+            "conductor.decision.RecordOperatorDecisionForRequest",
             "conductor.decision.ReverseOperatorDecision",
         ],
         Actor::DecisionRepositoryController => &[
@@ -146,7 +147,9 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.observation.ReviseDailySeries",
             "conductor.observation.StartSnapshot",
         ],
-        Actor::SessionConductor => &["conductor.session.ClaimLease"],
+        Actor::SessionConductor => &[
+            "conductor.session.ClaimLease",
+        ],
     }
 }
 

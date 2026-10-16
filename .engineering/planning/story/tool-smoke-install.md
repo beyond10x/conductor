@@ -15,6 +15,7 @@ On 2026-10-13 a gates release crashed every bot API call on the machine one hour
 ## Acceptance
 
 - `conductor tools check <tool> <binary>` runs the given binary read-only from a scratch directory against every consumer the instance knows (aep: `plan artifact validate` in every store `aep plan workspace list` names; ess: `specify validate` in every specification of the newest snapshot; gates: one `api GET` of a repository; worktree: `doctor`), runs the installed binary on the same consumers, and prints one row per consumer whose answer is a new refusal; it exits 1 when one is new and 0 when none is; tests with fake tools.
+- The check runs each consumer's own gate form, as its `Taskfile.yml` calls the tool: for example `ess specify validate --strict-requires`. A spec whose `requires` names an older minor is a refusal under that form. Test: a fake consumer whose Taskfile passes `--strict-requires`, and a new binary that passes the bare command but fails that form, exits 1 (conductor's NEED N-20261015-05: ess 0.60.0 passed the bare probe and eight gates refused it, DEC-20261015-19).
 - `task tools:install <tool> <version>` (or a conductor command) downloads, verifies the checksum, runs the check above, installs only when it exits 0, keeps the previous binary, and `tools:rollback <tool>` restores it; tests with fake tools.
 
 ## Scope

@@ -444,7 +444,7 @@ the `cli:` block of `spec/components.yaml` plus the local commands of `crates/co
 | `goal` | propose, confirm, drop or meet goals; which repositories serve each |
 | `repository` | activity marks; `activity`; `shipped` |
 | `decision` | requests, escalations, decisions, reversals; `hands-todo`; `show` |
-| `controller` | start, pause, resume, stop a controller; `revise-charter` |
+| `controller` | start, pause, resume, stop a controller; pause and stop end the session `conductor spawn` started, and resume resumes it, through the instance's confinement provider; `revise-charter` |
 | `dispatch` | send, cancel and report on dispatches |
 | `message` | receive, handle, reject and route messages |
 | `resource` | request, grant, refuse and release resources; `usage` (token spend from transcripts) |
@@ -462,9 +462,8 @@ Not implemented yet; each answers exit 2:
 - `snapshot publish-board` and `snapshot boards` (the generated `STATUS.md`);
 - `--input-json -` on every command that offers it;
 - `guard record-guard-decision` without `--from-pre-tool-use`;
-- starting and ending the controller's session: `controller start-controller` and
-  `stop-controller` record the controller only. Conductor starts the session itself, with the
-  controller role's model, agent and settings.
+- starting the controller's session from `controller start-controller`, which records the
+  controller only: `conductor spawn` starts the session and records it.
 
 ### Profiles
 
@@ -538,7 +537,8 @@ because conductor-dev is unreachable, conductor writes its hand-over and runs `t
 conductor:restart` itself, from its records directory and detached from the session the task
 stops.
 
-Both sessions run in the background (`claude --bg`). A session whose permission mode holds
+Both sessions start in the background with `conductor session start`, in the box the instance's
+`confinement` asks for. A session whose permission mode holds
 incoming messages for approval stalls the loop, so both run in a mode that does not. The operator
 reaches them with `task conductor:attach` and `task dev:attach`.
 

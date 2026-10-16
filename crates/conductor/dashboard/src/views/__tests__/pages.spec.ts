@@ -15,6 +15,7 @@ import sessions from './fixtures/sessions.json';
 import blockers from './fixtures/blockers.json';
 import specifications from './fixtures/specifications.json';
 import health from './fixtures/health.json';
+import decisions from './fixtures/decisions.json';
 
 /** The app's sources, read from disk: Vite hands a test no CSS, even as `?raw`. */
 const SRC = join(process.cwd(), 'src');
@@ -29,6 +30,7 @@ function everything(): Record<string, unknown> {
     '/api/blockers': blockers,
     '/api/specifications': specifications,
     '/api/health': health,
+    '/api/decisions': decisions,
   };
 }
 
@@ -47,6 +49,7 @@ function fixtureFetch() {
 
 const PAGES: [string, string][] = [
   ['overview', '#/'],
+  ['decisions', '#/decisions'],
   ['repository', '#/repo/alpha'],
   ['metrics', '#/metrics'],
   ['kpis', '#/kpis'],

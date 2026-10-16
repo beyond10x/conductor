@@ -3,12 +3,15 @@
 
 use std::process::ExitCode;
 
-use clap::Parser;
-use conductor_cli::cli::Cli;
+use clap::{CommandFactory as _, FromArgMatches as _};
+use conductor_cli::cli::{Cli, leaf_of};
 use conductor_cli::{NOT_IMPLEMENTED_EXIT, NotImplemented};
 
 fn main() -> ExitCode {
-    match Cli::parse().run() {
+    let matches = Cli::command().get_matches();
+    let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    cli.leaf = leaf_of(&matches);
+    match cli.run() {
         Ok(code) => code,
         Err(error) => {
             eprintln!("conductor: {error:#}");

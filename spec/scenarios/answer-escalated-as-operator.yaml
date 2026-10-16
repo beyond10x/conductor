@@ -1,0 +1,123 @@
+# story:decisions-batch-answer: the operator's answer from the Decisions page, or relayed by
+# conductor, records his decision only while the request it answers is escalated. On an open
+# request it is refused and records nothing; on an escalated one it records the decision, and the
+# request then moves to Answered with it; once answered, a second answer is refused and records
+# nothing.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: answer-escalated-as-operator
+summary: An operator's answer records his decision only while its request is escalated; on an open or an answered request it is refused.
+
+timeline:
+  - at: 2026-10-15T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-batch-o1
+      repository: cortex
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      recommendation: B
+      raised_at: 2026-10-15T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-15T09:00:01Z
+    command: conductor.decision.RecordOperatorDecisionForRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-batch-o1
+      decision_id: DEC-batch-o0
+      decision_class: O
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      choice: B
+      reason: chosen on the Decisions page
+      evidence: request REQ-batch-o1, recorded by dashboard
+      decided_at: 2026-10-15T09:00:01Z
+      recorded_by: dashboard
+      operator_words: chosen on the Decisions page
+      repository: cortex
+    outcome: not-escalated
+    error:
+      name: conductor.decision.RequestStateConflict
+
+  - at: 2026-10-15T09:00:02Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-batch-o1
+      escalation_class: O
+      reason: an architecture choice
+      kind: one-of
+      lettered_options:
+        - {letter: A, label: keep the file store, cost: nothing now}
+        - {letter: B, label: move to the tree store, cost: half a day of one controller}
+      recommended_letters: B
+      default_letters: A
+      deadline: 2026-10-16T09:00:00Z
+    outcome: escalated
+
+  - at: 2026-10-15T09:00:03Z
+    command: conductor.decision.RecordOperatorDecisionForRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-batch-o1
+      decision_id: DEC-batch-o1
+      decision_class: O
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      choice: B
+      reason: chosen on the Decisions page
+      evidence: request REQ-batch-o1, recorded by dashboard
+      decided_at: 2026-10-15T09:00:03Z
+      recorded_by: dashboard
+      operator_words: chosen on the Decisions page
+      repository: cortex
+    outcome: recorded
+
+  - at: 2026-10-15T09:00:04Z
+    command: conductor.decision.AnswerEscalatedRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-batch-o1
+      decision_id: DEC-batch-o1
+    outcome: answered
+
+  - at: 2026-10-15T09:00:05Z
+    command: conductor.decision.RecordOperatorDecisionForRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-batch-o1
+      decision_id: DEC-batch-o2
+      decision_class: O
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      choice: A
+      reason: chosen on the Decisions page
+      evidence: request REQ-batch-o1, recorded by dashboard
+      decided_at: 2026-10-15T09:00:05Z
+      recorded_by: dashboard
+      operator_words: chosen on the Decisions page
+      repository: cortex
+    outcome: not-escalated
+    error:
+      name: conductor.decision.RequestStateConflict
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-batch-o1
+      state: Answered
+      decision_id: DEC-batch-o1
+  - view: conductor.decision.Decisions
+    contains:
+      decision_id: DEC-batch-o1
+      decided_by: Operator
+      choice: B
+      recorded_by: dashboard
+  - view: conductor.decision.Decisions
+    excludes:
+      decision_id: DEC-batch-o0
+  - view: conductor.decision.Decisions
+    excludes:
+      decision_id: DEC-batch-o2

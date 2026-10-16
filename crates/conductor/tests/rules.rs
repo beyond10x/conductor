@@ -291,6 +291,38 @@ fn json_rows_carry_item_title_section_source_and_text() {
     );
 }
 
+/// `story:conductor-context-budget`: `--brief` prints one line per item, its number and its first
+/// sentence as written, so conductor's start reads a section's titles and fetches an item whole
+/// with `--item` when it needs it.
+#[test]
+fn brief_prints_each_item_s_number_and_first_sentence_on_one_line() {
+    let case = Case::new("brief");
+    assert_eq!(
+        case.ok(&["--section", "conductor", "--brief"]),
+        "1. Read the newest hand-over first, then the open dispatches.\n\
+         43. **Never discard uncommitted changes.**\n\
+         2. Answer a report within one cycle.\n\
+         51. **Builds and disk.**\n\
+         102. **A decision never waits on a session that is gone.**\n"
+    );
+    assert_eq!(
+        case.ok(&["--item", "49,3", "--brief"]),
+        "49. **No work files in `/tmp`.**\n\
+         3. Report `started` before the first change.\n"
+    );
+    // The fixture's seven items: 1, 43, 2, 51, 49, 3 and 102.
+    assert_eq!(
+        case.ok(&["--brief"]).lines().count(),
+        7,
+        "every item, one line each"
+    );
+    let error = case.refused(&["--brief", "--format", "json"]);
+    assert!(
+        error.contains("--brief") && error.contains("json"),
+        "json rows already carry the title: {error}"
+    );
+}
+
 #[test]
 fn it_reads_rules_md_only_and_creates_nothing() {
     let case = Case::new("reads-only");

@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a",
-    "contract_digest": "1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2"
+    "source_digest": "40c20bbb4d63acca3906f077da8263de079c43e223f125be650cca4b9f7ce9b1",
+    "contract_digest": "58855859c8a79b4b6b8ca4a0fe7788d8c440ead165d3edeacd1fd23ed81d80a9"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -173,6 +173,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.InstanceRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.InstanceRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Limits",
       "disposition": {
         "disposition": "generated"
@@ -209,6 +223,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.PrerequisiteState",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ProviderAvailability",
       "disposition": {
         "disposition": "generated"
       }
@@ -454,6 +475,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.decision.RequestId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.decision.RequestKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.decision.RequestOption",
       "disposition": {
         "disposition": "generated"
       }
@@ -1167,6 +1202,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.EnvelopeMeasurement",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.Lease.State",
       "disposition": {
         "disposition": "generated"
@@ -1174,7 +1216,70 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.PlaceResolved",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.SessionId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStartRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStartRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStopRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionStopRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.StartSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.StartedSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.StopSession",
       "disposition": {
         "disposition": "generated"
       }
@@ -1457,6 +1562,25 @@
       "source": "conductor.decision.RecordOperatorDecision",
       "disposition": {
         "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.decision.RecordOperatorDecisionForRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.decision.RecordOperatorDecisionForRequest",
+      "disposition": {
+        "disposition": "obligation",
+        "reason": {
+          "class": "undetermined",
+          "construct": "a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `no-such-request`"
+        },
+        "contract": "given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists`"
       }
     },
     {
@@ -2026,6 +2150,20 @@
     },
     {
       "kind": "command_contract",
+      "source": "conductor.host.WithdrawDiskRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.host.WithdrawDiskRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
       "source": "conductor.observation.CompleteSnapshot",
       "disposition": {
         "disposition": "generated"
@@ -2556,6 +2694,13 @@
     },
     {
       "kind": "event_type",
+      "source": "conductor.host.DiskRequestWithdrawn",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
       "source": "conductor.host.DiskRequested",
       "disposition": {
         "disposition": "generated"
@@ -2752,6 +2897,13 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.decision.ChoiceInvalid",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.decision.DecisionExists",
       "disposition": {
         "disposition": "generated"
@@ -2787,7 +2939,21 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.decision.EscalationIncomplete",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.decision.NotEscalatable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.decision.OptionsInvalid",
       "disposition": {
         "disposition": "generated"
       }
@@ -3516,7 +3682,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.decision.AnswerEscalatedRequest`, `conductor.decision.RecordOperatorDecision`, `conductor.decision.ReverseOperatorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.decision.AnswerEscalatedRequest`, `conductor.decision.RecordOperatorDecision`, `conductor.decision.RecordOperatorDecisionForRequest`, `conductor.decision.ReverseOperatorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
-// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
+// model digest 40c20bbb4d63acca3906f077da8263de079c43e223f125be650cca4b9f7ce9b1
+// contract digest 58855859c8a79b4b6b8ca4a0fe7788d8c440ead165d3edeacd1fd23ed81d80a9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -122,6 +122,28 @@ pub enum DecisionRequestState {
 /// RequestId — `conductor.decision.RequestId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestId(pub String);
+
+/// RequestKind — `conductor.decision.RequestKind`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestKind {
+    /// `yes-no`.
+    YesNo,
+    /// `one-of`.
+    OneOf,
+    /// `several-of`.
+    SeveralOf,
+}
+
+/// RequestOption — `conductor.decision.RequestOption`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestOption {
+    /// `letter` — `String`.
+    pub letter: String,
+    /// `label` — `String`.
+    pub label: String,
+    /// `cost` — `String`.
+    pub cost: String,
+}
 
 /// ShowDecision — `conductor.decision.ShowDecision`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,6 +359,16 @@ pub struct DecisionRequestData {
     pub dry_run: Option<String>,
     /// `no_dry_run` — `Optional<String>`.
     pub no_dry_run: Option<String>,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
     /// `decision_id` — `Optional<conductor.decision.DecisionId>`.
     ///
     /// Carries `decision`: `conductor.decision.DecisionRequest` references one `conductor.decision.Decision`.
@@ -681,6 +713,16 @@ pub struct EscalateRequest {
     pub dry_run: Option<String>,
     /// `no_dry_run` — `Optional<String>`.
     pub no_dry_run: Option<String>,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
 }
 
 /// Everything `conductor.decision.EscalateRequest` can result in — one variant per declared outcome.
@@ -703,6 +745,13 @@ pub enum EscalateRequestOutcome {
     Untested {
         /// Why it was refused: `conductor.decision.DryRunMissing`.
         error: DryRunMissing,
+    },
+    /// `incomplete` — when `(escalation_class == O and (not (defined(kind)) or not (defined(lettered_options)) or not (defined(recommended_letters)) or not (defined(default_letters)) or not (defined(deadline))))`.
+    ///
+    /// A class-O item without its kind, options, recommendation, default or deadline is not handed over, and the request stays open.
+    Incomplete {
+        /// Why it was refused: `conductor.decision.EscalationIncomplete`.
+        error: EscalationIncomplete,
     },
     /// `escalated` — otherwise.
     ///
@@ -863,6 +912,74 @@ pub enum RecordOperatorDecisionOutcome {
     /// `recorded` — otherwise.
     ///
     /// The operator's decision of any class is in force.
+    Recorded {
+        /// The `conductor.decision.DecisionRecorded` this outcome publishes.
+        decision_recorded: DecisionRecorded,
+    },
+    /// `already-recorded` — for an identity a record already carries.
+    ///
+    /// A decision already has this id; the held decision is unchanged.
+    AlreadyRecorded {
+        /// Why it was refused: `conductor.decision.DecisionExists`.
+        error: DecisionExists,
+    },
+}
+
+/// Answer an escalated request as the operator — the input of `conductor.decision.RecordOperatorDecisionForRequest`.
+///
+/// Everything it can result in is [`RecordOperatorDecisionForRequestOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordOperatorDecisionForRequest {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+    /// `decision_id` — `conductor.decision.DecisionId`.
+    pub decision_id: DecisionId,
+    /// `decision_class` — `conductor.decision.DecisionClass`.
+    pub decision_class: DecisionClass,
+    /// `question` — `String`.
+    pub question: String,
+    /// `options` — `String`.
+    pub options: String,
+    /// `choice` — `String`.
+    pub choice: String,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `evidence` — `String`.
+    pub evidence: String,
+    /// `decided_at` — `Timestamp`.
+    pub decided_at: crate::primitives::Timestamp,
+    /// `recorded_by` — `String`.
+    pub recorded_by: String,
+    /// `operator_words` — `String`.
+    pub operator_words: String,
+    /// `repository` — `Optional<conductor.observation.RepositoryName>`.
+    pub repository: Option<crate::observation::RepositoryName>,
+}
+
+/// Everything `conductor.decision.RecordOperatorDecisionForRequest` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordOperatorDecisionForRequestOutcome {
+    /// `no-such-request` — when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected.
+    ///
+    /// No request has this id, and no decision was recorded.
+    NoSuchRequest {
+        /// Why it was refused: `conductor.decision.RequestNotFound`.
+        error: RequestNotFound,
+    },
+    /// `not-escalated` — when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected.
+    ///
+    /// The request is open, answered or withdrawn, so it is not the operator's to answer, and no decision was recorded.
+    NotEscalated {
+        /// Why it was refused: `conductor.decision.RequestStateConflict`.
+        error: RequestStateConflict,
+    },
+    /// `recorded` — otherwise.
+    ///
+    /// The operator's answer is in force; the request moves to Answered with it.
     Recorded {
         /// The `conductor.decision.DecisionRecorded` this outcome publishes.
         decision_recorded: DecisionRecorded,
@@ -1054,6 +1171,15 @@ pub struct RequestWithdrawn {
     pub reason: String,
 }
 
+/// The declared error `conductor.decision.ChoiceInvalid`.
+///
+/// The choice does not fit the escalated request's kind and lettered options.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChoiceInvalid {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
 /// The declared error `conductor.decision.DecisionExists`.
 ///
 /// A decision already has this id, so nothing was recorded.
@@ -1099,11 +1225,29 @@ pub struct DryRunMissing {
     pub request_id: RequestId,
 }
 
+/// The declared error `conductor.decision.EscalationIncomplete`.
+///
+/// A class-O escalation carries its kind, its lettered options with their cost, the recommended letters, the default letters and the deadline (story:decisions-page), and this one lacks at least one of them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EscalationIncomplete {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
 /// The declared error `conductor.decision.NotEscalatable`.
 ///
 /// The request is class C; conductor decides it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotEscalatable {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
+/// The declared error `conductor.decision.OptionsInvalid`.
+///
+/// The escalation's options, recommended letters or default letters do not fit its kind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptionsInvalid {
     /// `request_id` — `conductor.decision.RequestId`.
     pub request_id: RequestId,
 }
@@ -1252,12 +1396,23 @@ pub struct Requests {
     pub raised_at: crate::primitives::Timestamp,
     /// `blocker` — `Optional<String>`.
     pub blocker: Option<String>,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
 }
 
 /// What this bounded context owes its implementor, and the seams of what is generated.
 ///
 /// One trait per obligation in the synthesis plan, each carrying the plan's own contract, and one
 /// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
+/// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
 pub mod obligations {
     /// The behaviour `conductor.decision.AnswerEscalatedRequest` — generated.
     ///
@@ -1267,10 +1422,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.AnswerEscalatedRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn answer_escalated_request(
-            &mut self,
-            input: super::AnswerEscalatedRequest,
-        ) -> Result<super::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
+        fn answer_escalated_request(&mut self, input: super::AnswerEscalatedRequest) -> Result<super::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.AnswerRequest` — generated.
@@ -1281,10 +1433,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.AnswerRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn answer_request(
-            &mut self,
-            input: super::AnswerRequest,
-        ) -> Result<super::AnswerRequestOutcome, crate::obligation::UnmetObligation>;
+        fn answer_request(&mut self, input: super::AnswerRequest) -> Result<super::AnswerRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.EscalateRequest` — generated.
@@ -1295,10 +1444,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.EscalateRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn escalate_request(
-            &mut self,
-            input: super::EscalateRequest,
-        ) -> Result<super::EscalateRequestOutcome, crate::obligation::UnmetObligation>;
+        fn escalate_request(&mut self, input: super::EscalateRequest) -> Result<super::EscalateRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.RaiseDecisionRequest` — generated.
@@ -1309,10 +1455,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.RaiseDecisionRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn raise_decision_request(
-            &mut self,
-            input: super::RaiseDecisionRequest,
-        ) -> Result<super::RaiseDecisionRequestOutcome, crate::obligation::UnmetObligation>;
+        fn raise_decision_request(&mut self, input: super::RaiseDecisionRequest) -> Result<super::RaiseDecisionRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.RecordConductorDecision` — generated.
@@ -1323,10 +1466,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.RecordConductorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_conductor_decision(
-            &mut self,
-            input: super::RecordConductorDecision,
-        ) -> Result<super::RecordConductorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn record_conductor_decision(&mut self, input: super::RecordConductorDecision) -> Result<super::RecordConductorDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.RecordOperatorDecision` — generated.
@@ -1337,10 +1477,20 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.RecordOperatorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_operator_decision(
-            &mut self,
-            input: super::RecordOperatorDecision,
-        ) -> Result<super::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn record_operator_decision(&mut self, input: super::RecordOperatorDecision) -> Result<super::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.decision.RecordOperatorDecisionForRequest` — an implementation obligation.
+    ///
+    /// Why it is not generated: kept an obligation by a guard over the rows a selector selects (`when_related: {entity, where, exists | count | forall}`), in `no-such-request`.
+    ///
+    /// Contract: given `conductor.decision.RecordOperatorDecisionForRequest` input, decide and enact exactly one outcome. Declared outcomes (declaration order, not selection precedence): `no-such-request` when, of the `conductor.decision.DecisionRequest` rows satisfying `request_id == input.request_id`, no row is selected, error `conductor.decision.RequestNotFound`; `not-escalated` when, of the `conductor.decision.DecisionRequest` rows satisfying `(request_id == input.request_id and state != Escalated)`, at least one row is selected, error `conductor.decision.RequestStateConflict`; `recorded` otherwise, creates `conductor.decision.Decision`, emits `conductor.decision.DecisionRecorded`; `already-recorded` for an identity a record already carries, error `conductor.decision.DecisionExists`.
+    pub trait RecordOperatorDecisionForRequestBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.decision.RecordOperatorDecisionForRequest`.
+        ///
+        /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
+        /// implementation never returns it.
+        fn record_operator_decision_for_request(&mut self, input: super::RecordOperatorDecisionForRequest) -> Result<super::RecordOperatorDecisionForRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.ReverseConductorDecision` — generated.
@@ -1351,10 +1501,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.ReverseConductorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn reverse_conductor_decision(
-            &mut self,
-            input: super::ReverseConductorDecision,
-        ) -> Result<super::ReverseConductorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn reverse_conductor_decision(&mut self, input: super::ReverseConductorDecision) -> Result<super::ReverseConductorDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.ReverseOperatorDecision` — generated.
@@ -1365,10 +1512,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.ReverseOperatorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn reverse_operator_decision(
-            &mut self,
-            input: super::ReverseOperatorDecision,
-        ) -> Result<super::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn reverse_operator_decision(&mut self, input: super::ReverseOperatorDecision) -> Result<super::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.WithdrawRequest` — generated.
@@ -1379,10 +1523,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.WithdrawRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn withdraw_request(
-            &mut self,
-            input: super::WithdrawRequest,
-        ) -> Result<super::WithdrawRequestOutcome, crate::obligation::UnmetObligation>;
+        fn withdraw_request(&mut self, input: super::WithdrawRequest) -> Result<super::WithdrawRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.decision.Decisions` — generated.
@@ -1416,5 +1557,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn requests(&self) -> Result<Vec<super::Requests>, crate::obligation::UnmetObligation>;
+    }
+
+    /// Every obligation of this bounded context, refused in the type system.
+    ///
+    /// Each method returns the typed refusal naming what is owed — never a panic, never a guessed
+    /// value — so a workspace built on this stub compiles and reports its own gaps.
+    pub struct Unimplemented;
+
+    impl RecordOperatorDecisionForRequestBehavior for Unimplemented {
+        fn record_operator_decision_for_request(&mut self, _input: super::RecordOperatorDecisionForRequest) -> Result<super::RecordOperatorDecisionForRequestOutcome, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.decision.RecordOperatorDecisionForRequest" })
+        }
     }
 }

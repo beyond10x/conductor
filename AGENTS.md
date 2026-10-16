@@ -63,7 +63,7 @@ Each session commits only the files it writes, with a pathspec.
 |---|---|
 | `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check`, and for the dashboard app (`crates/conductor/dashboard`, Node as `.nvmrc` pins) `npm ci`, Vitest and a check that the committed `dist/` equals a fresh `task ui` build |
 | `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton; trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
-| `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency); run alone on a quiet host |
+| `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency, the dashboard's warm answers); run alone on a quiet host |
 | `task regen` | regenerates `crates/conductor-model` from `spec/` |
 | `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
@@ -209,7 +209,7 @@ its sessions by their full names, its dashboard by its port and unit.
 | `task conductor:restart` | stop the active instance's conductor, by its full name, and start a new one that reads the newest hand-over; another instance's conductor keeps running. Stops nothing when more than one live session holds the name. conductor-dev runs it after `[RESTART conductor]` |
 | `task sessions` | list the active instance's two sessions by their full names; exit 1 naming each name more than one live background session holds |
 | `task trust` | mark every checkout under `checkouts.root` and the instance's `records` directory as trusted Claude Code workspaces, so conductor and each controller can start there |
-| `task dashboard`, `task dashboard:stop` | the active instance's read-only page on 127.0.0.1 at its `dashboard_port` (7313 plus the instance's position in the file, unless the file writes one); where systemctl is on PATH the user service `<session_prefix>-conductor-dashboard` (`conductor-dashboard` without a prefix), elsewhere a background process whose pid is in `dashboard.pid` of the instance's `state` directory |
+| `task dashboard`, `task dashboard:stop` | the active instance's page on 127.0.0.1, read-only except the Decisions page's answers (a per-process token, same origin) at its `dashboard_port` (7313 plus the instance's position in the file, unless the file writes one); where systemctl is on PATH the user service `<session_prefix>-conductor-dashboard` (`conductor-dashboard` without a prefix), elsewhere a background process whose pid is in `dashboard.pid` of the instance's `state` directory |
 
 ## CLI quick reference
 

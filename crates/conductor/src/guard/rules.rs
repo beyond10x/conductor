@@ -24,7 +24,7 @@
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
 //! recipient whose name carries another instance's prefix is named with both instances.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -158,6 +158,9 @@ pub struct Places {
     /// (`story:guard-all-tools`): the tools each rule set allows beyond the built-in read-only
     /// allowlist.
     read_only: [Vec<String>; 2],
+    /// The instance's `dashboard_port`: a Bash call that posts to it is denied
+    /// (`story:decisions-batch-answer`).
+    dashboard_port: i64,
 }
 
 impl Places {
@@ -244,7 +247,25 @@ impl Places {
                     .flat_map(|role| role.read_only_tools.iter().cloned())
                     .collect()
             }),
+            dashboard_port: instance.dashboard_port,
         }
+    }
+
+    /// Whether the Bash `command` answers for the operator through the dashboard
+    /// (`story:decisions-batch-answer`): it names the answers endpoint, `/api/answers`, or names the
+    /// instance's dashboard port as `:<port>` (whatever spells the loopback address before it:
+    /// `127.0.0.1`, `localhost`, `[::1]`, `0x7f000001`, none) and sends a POST or a body by any client
+    /// ([`posts`]). A substring test, a speed bump and not a boundary: a script the command runs, a
+    /// port or path a variable holds, or a percent-encoded path is not caught.
+    fn posts_to_dashboard(&self, command: &str) -> bool {
+        let port = format!(":{}", self.dashboard_port);
+        let names_port = command.match_indices(&port).any(|(at, _)| {
+            !command[at + port.len()..]
+                .chars()
+                .next()
+                .is_some_and(|next| next.is_ascii_digit())
+        });
+        command.contains(crate::dashboard::ANSWERS_PATH) || (names_port && posts(command))
     }
 
     /// The tools `rules` allows beyond the built-in read-only allowlist: its role's
@@ -653,8 +674,75 @@ const GLAB_CREDENTIAL_GROUPS: [&str; 8] = [
 ];
 
 /// Commands that name `gh` or `glab` without running it, or run it through the bot route, which
-/// this rule leaves alone: only as the simple command's program ([`names_without_running`]).
-const GH_NOT_RUN: [&str; 6] = ["b10x-gates", "which", "type", "whereis", "man", "hash"];
+/// this rule leaves to [`bot_route`]: only as the simple command's program
+/// ([`names_without_running`]).
+const GH_NOT_RUN: [&str; 6] = [BOT_ROUTE, "which", "type", "whereis", "man", "hash"];
+
+/// The program of the bot route, which a `gh` call is left to ([`bot_route`]).
+const BOT_ROUTE: &str = "b10x-gates";
+
+/// The `gh` calls the bot route carries, each group with its verbs, for the session's own
+/// repository only: its release (the operator's decision of 2026-10-15) and a re-run of its CI
+/// (the coordinator's decision the same day: a controller re-runs failed CI through the route).
+const ROUTE_CARRIES: [(&str, &[&str]); 3] = [
+    ("release", &["create", "upload", "edit", "view"]),
+    ("run", &["rerun"]),
+    ("workflow", &["run"]),
+];
+
+/// The options of `b10x-gates gh` that take the next word as their value.
+const ROUTE_VALUES: [&str; 5] = ["--repo", "--repository", "--policy", "--key", "--gitleaks"];
+
+/// A run of the bot route `b10x-gates gh [opts] -- <gh args>`: the repository its
+/// `--repository` names, the `gh` arguments, and whether it asks for its own help.
+struct BotRoute<'w> {
+    repository: Option<&'w str>,
+    args: Vec<String>,
+    help: bool,
+}
+
+/// The bot route the simple command `words` runs, if it runs one: its program, after reserved
+/// words and assignments, is `b10x-gates`, and its subcommand, the first word after it that is no
+/// flag, is `gh`. The `gh` arguments are the words after `--`, and before it every word that is
+/// no option nor an option's value.
+fn bot_route(words: &[String]) -> Option<BotRoute<'_>> {
+    let words = command_words(words);
+    let (program, rest) = words.split_first()?;
+    if shell::program(program) != BOT_ROUTE {
+        return None;
+    }
+    let at = rest.iter().position(|word| !word.starts_with('-'))?;
+    if rest[at] != "gh" {
+        return None;
+    }
+    let rest = &rest[at + 1..];
+    let mut route = BotRoute {
+        repository: None,
+        args: Vec::new(),
+        help: false,
+    };
+    let mut next = 0;
+    while let Some(word) = rest.get(next) {
+        next += 1;
+        if word == "--" {
+            route.args.extend(rest[next..].iter().cloned());
+            break;
+        }
+        if let Some(value) = word.strip_prefix("--repository=") {
+            route.repository = Some(value);
+        } else if word == "--repository" {
+            route.repository = rest.get(next).map(String::as_str);
+            next += 1;
+        } else if ROUTE_VALUES.contains(&word.as_str()) {
+            next += 1;
+        } else if word == "-h" || word == "--help" {
+            route.help = true;
+        } else if !word.starts_with('-') {
+            route.args.push(word.clone());
+        }
+    }
+    Some(route)
+}
 
 /// A forge whose command-line tool the guard reads: `gh` for GitHub, `glab` for GitLab. A write
 /// through either is held alike for each role ([`forge_write`]).
@@ -1292,6 +1380,11 @@ impl Session<'_> {
             })
         };
         for words in &commands {
+            if let Some(gh) = bot_route(words)
+                && let Some(reason) = self.bot_route_denial(&gh)
+            {
+                return (Verdict::Deny, reason);
+            }
             for forge in Forge::ALL {
                 let Some(write) = forge_write(words, forge, assigned(forge)) else {
                     continue;
@@ -1323,6 +1416,18 @@ impl Session<'_> {
                     ),
                 );
             }
+        }
+        if self.places.posts_to_dashboard(command) {
+            return (
+                Verdict::Deny,
+                format!(
+                    "the command posts to the dashboard (it names {} or posts to port {}): only \
+                     the operator sends the operator's answers, from the Decisions page; relay \
+                     his words with `conductor decision answer-escalated-as-operator`",
+                    crate::dashboard::ANSWERS_PATH,
+                    self.places.dashboard_port
+                ),
+            );
         }
         if self.places.writes_settings(command) {
             return (
@@ -1447,6 +1552,96 @@ impl Session<'_> {
              checkout and managed worktrees, and no GitHub or GitLab write"
                 .to_owned(),
         )
+    }
+
+    /// Why a run of the bot route, `b10x-gates gh`, is denied, if it is (the operator's decision
+    /// of 2026-10-15): the route carries only `release create|upload|edit|view`, `run rerun` and
+    /// `workflow run` ([`ROUTE_CARRIES`]) of the session's own repository, the `<owner>/<name>` the
+    /// `origin` of its checkout names (conductor's: of its records), which `--repository` names
+    /// and any `-R`/`--repo` among the `gh` arguments names too. A credential group is class H,
+    /// as a bare `gh` write of one is. No `gh` arguments, or a help request, runs nothing on the
+    /// forge.
+    fn bot_route_denial(&self, gh: &BotRoute) -> Option<String> {
+        let shown = format!("b10x-gates gh -- {}", gh.args.join(" "));
+        let mut operands: Vec<&str> = Vec::new();
+        let mut repos: Vec<&str> = Vec::new();
+        let mut help = gh.help;
+        // A flag between the group and the verb may take the verb's place as its value, as in
+        // [`forge_write`]: the verb read would not be the one that runs.
+        let mut flag_before_verb = false;
+        let mut next = 0;
+        while let Some(word) = gh.args.get(next) {
+            next += 1;
+            if word == "-R" || word == "--repo" {
+                repos.extend(gh.args.get(next).map(String::as_str));
+                next += 1;
+            } else if let Some(repo) = word.strip_prefix("--repo=") {
+                repos.push(repo);
+            } else if word == "--help" {
+                help = true;
+            } else if word.starts_with('-') && word.len() > 1 {
+                flag_before_verb |= operands.len() == 1;
+            } else {
+                operands.push(word);
+            }
+        }
+        if help || operands.is_empty() {
+            return None;
+        }
+        let group = operands[0];
+        let verb = operands.get(1).copied().unwrap_or_default();
+        if Forge::GitHub.credential_groups().contains(&group) {
+            return Some(format!(
+                "`{shown}` is a GitHub write of a credential through the bot route: class H, the \
+                 operator's hands, whoever authorized it; no session runs it by any route"
+            ));
+        }
+        let calls: Vec<String> = ROUTE_CARRIES
+            .iter()
+            .map(|(group, verbs)| format!("`{group} {}`", verbs.join("|")))
+            .collect();
+        let carried = format!(
+            "the bot route carries only {} of the session's own repository",
+            calls.join(", ")
+        );
+        let carries = ROUTE_CARRIES
+            .iter()
+            .any(|(name, verbs)| *name == group && verbs.contains(&verb));
+        if !carries || flag_before_verb {
+            return Some(format!(
+                "`gh {group} {verb}` through the bot route is denied: {carried}, written with \
+                 no flag between the group and the verb"
+            ));
+        }
+        let checkout = match self.rules {
+            Rules::Controller => self.checkout(),
+            Rules::Conductor => self.places.records(),
+        };
+        let Some((host, own)) = collect::gitlab::origin(&checkout) else {
+            return Some(format!(
+                "`{shown}` is denied: {carried}, the one the origin of {} names, and it names \
+                 none",
+                self.places.shown(&checkout)
+            ));
+        };
+        let is_own = |named: &str| {
+            named.eq_ignore_ascii_case(&own) || named.eq_ignore_ascii_case(&format!("{host}/{own}"))
+        };
+        let Some(repository) = gh.repository else {
+            return Some(format!(
+                "`{shown}` names no --repository: {carried}, named as `b10x-gates gh --repository \
+                 {own} -- release …`"
+            ));
+        };
+        if let Some(other) = std::iter::once(repository)
+            .chain(repos)
+            .find(|r| !is_own(r))
+        {
+            return Some(format!(
+                "`{shown}` names the repository {other}: {carried}, {own}"
+            ));
+        }
+        None
     }
 
     /// Why a `git` command, `words` from the program word on and `env` the `GIT_DIR=` and
@@ -2247,6 +2442,67 @@ fn names_path(command: &str, spelling: &str, under: bool) -> bool {
             || rest
                 .strip_prefix('/')
                 .is_some_and(|rest| under || ends(rest))
+    })
+}
+
+/// The programs whose own words a POST or a body is read from: curl, wget and the httpie family.
+const HTTP_CLIENTS: [&str; 6] = ["curl", "wget", "wget2", "http", "https", "xh"];
+
+/// Text that sends a body or a POST from an interpreter's client, compared without case: Python's
+/// urllib (`data=`) and requests (`.post(`, `json=`), and a `fetch` or an axios call
+/// (`method: 'POST'`, `body:`).
+const INTERPRETER_POSTS: [&str; 8] = [
+    "data=",
+    "json=",
+    ".post(",
+    "'post'",
+    "\"post\"",
+    "body:",
+    "body=",
+    "method=post",
+];
+
+/// Whether the Bash `command` sends an HTTP POST or a request body
+/// (`story:decisions-batch-answer`): an HTTP client's own simple command ([`HTTP_CLIENTS`], after
+/// any launcher such as `timeout` or `env`) holds `POST` (`-X POST`, `--request POST`, httpie's
+/// `http POST`), `-XPOST`, `--request=POST` or `--method=POST`, a body flag (`-d…`, `--data…`,
+/// `--json`, `-F`, `--form…`, `-T`, `--upload-file`, `--post-data`, `--post-file`), or, for the
+/// httpie family, a request item (`name=value`, `name:=json`); or the line holds an interpreter's
+/// POST or body ([`INTERPRETER_POSTS`]). A flag of another program (`tr -d`, `cut -d`, `date -d`,
+/// `sort -d`) is no body.
+fn posts(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    if INTERPRETER_POSTS.iter().any(|post| lower.contains(post)) {
+        return true;
+    }
+    shell::commands(command).iter().any(|words| {
+        let words = command_words(words);
+        let Some(at) = words
+            .iter()
+            .position(|word| HTTP_CLIENTS.contains(&shell::program(word)))
+        else {
+            return false;
+        };
+        let httpie = !matches!(shell::program(&words[at]), "curl" | "wget" | "wget2");
+        words[at + 1..].iter().any(|word| {
+            let upper = word.to_ascii_uppercase();
+            upper == "POST"
+                || upper == "-XPOST"
+                || upper.ends_with("=POST")
+                || (word.starts_with("-d") && !word.starts_with("--"))
+                || [
+                    "--data",
+                    "--json",
+                    "--form",
+                    "--upload-file",
+                    "--post-data",
+                    "--post-file",
+                ]
+                .iter()
+                .any(|flag| word.starts_with(flag))
+                || matches!(word.as_str(), "-F" | "-T")
+                || (httpie && !word.starts_with('-') && !word.contains("://") && word.contains('='))
+        })
     })
 }
 

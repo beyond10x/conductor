@@ -33,7 +33,8 @@
 //! (`story:repository-marks`), `repository refresh-hooks` (`story:gates-hooks-fresh`), `resource
 //! usage` (`story:token-spend`), `store migrate` (`story:store-on-eventlog-tree`), `records check`
 //! (`story:records-from-commands`) and `rules show` (`story:rules-show`).
-//! `host reclaim` (`story:disk-reclaim`) joins the `host` group; `build run` (`story:build-run`)
+//! `host reclaim` (`story:disk-reclaim`) joins the `host` group, and `session start` and `session
+//! stop` (`story:sandbox-spec`) the `session` group; `build run` (`story:build-run`)
 //! alone also takes the words after `--`, as written: the command it runs.
 //!
 //! `config validate` and `config show` (`story:config-file`) are such commands too, and the only
@@ -86,6 +87,67 @@ pub struct Cli {
     /// The group the command belongs to.
     #[command(subcommand)]
     pub group: Group,
+
+    /// The words that name the leaf run, after `conductor`, as [`leaf_of`] reads them from the
+    /// parsed arguments; empty when the caller did not give them. No flag: the binary fills it.
+    #[arg(skip)]
+    pub leaf: Vec<String>,
+}
+
+/// The words that name the leaf `matches` parsed, after `conductor`: `["decision",
+/// "raise-decision-request"]`, `["doctor"]`.
+#[must_use]
+pub fn leaf_of(matches: &clap::ArgMatches) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut at = matches;
+    while let Some((name, sub)) = at.subcommand() {
+        words.push(name.to_owned());
+        at = sub;
+    }
+    words
+}
+
+/// The [`Access`] [`LEAVES`] declares of the leaf `words` names, if any.
+#[must_use]
+pub fn access_of(words: &[String]) -> Option<Access> {
+    access_of_words(&words.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// Whether the leaf `words` names writes the instance's records, or reads them into what it
+/// writes (`story:instance-isolation`): every writing leaf of `decision`, `dispatch`, `message`,
+/// `resource` and `controller`, whose events are lines of the decision and dispatch logs; `spawn`;
+/// `snapshot publish-board`; `snapshot start-snapshot` and `complete-snapshot`, whose rollups read
+/// the dispatch log; and `build run`, whose shortfall raises an operator item. Such a leaf writes
+/// its records to the instance's `records`, so its store is the instance's `state` too
+/// ([`crate::state::refuse_other`]).
+#[must_use]
+pub fn writes_records(words: &[String]) -> bool {
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let writes = matches!(
+        access_of_words(&words),
+        Some(Access::Writes | Access::RunWrites)
+    );
+    writes
+        && matches!(
+            words.as_slice(),
+            [
+                "decision" | "dispatch" | "message" | "resource" | "controller",
+                _
+            ] | ["spawn"]
+                | ["build", "run"]
+                | [
+                    "snapshot",
+                    "publish-board" | "start-snapshot" | "complete-snapshot"
+                ]
+        )
+}
+
+/// [`access_of`] over borrowed words.
+fn access_of_words(words: &[&str]) -> Option<Access> {
+    LEAVES
+        .iter()
+        .find(|(leaf, _)| *leaf == words)
+        .map(|(_, access)| *access)
 }
 
 impl Cli {
@@ -97,9 +159,21 @@ impl Cli {
     /// Whatever the handler answers: [`NotImplemented`](crate::NotImplemented) until the story
     /// that fills it lands.
     pub fn run(self) -> Result<ExitCode> {
+        self.run_with(&crate::confine::Host::default())
+    }
+
+    /// [`Cli::run`], with the sessions `spawn`, `session start`, `session stop` and the controller
+    /// commands `pause-controller`, `resume-controller` and `stop-controller` start, stop and resume
+    /// going through `providers`, and `doctor` reporting them.
+    ///
+    /// # Errors
+    ///
+    /// What [`Cli::run`] answers.
+    pub fn run_with(self, providers: &dyn crate::confine::Providers) -> Result<ExitCode> {
         // The instance every handler reads (`crate::config::active`). The two config leaves read
-        // the file themselves, to report each problem; the guard hook falls back to the built-in
-        // instance rather than deny every tool call over a file that does not load.
+        // the file themselves, to report each problem; the guard hook answers a file that does
+        // not load by denying every call and naming it (`story:instance-isolation`).
+        let mut unloaded = None;
         match &self.group {
             Group::Config(_)
             | Group::Trust(_)
@@ -108,9 +182,14 @@ impl Cli {
             | Group::Setup(_)
             | Group::Upgrade(_) => {}
             Group::Guard(_) => {
-                let _ = crate::config::set_active(self.config.as_deref());
+                unloaded = crate::config::set_active(self.config.as_deref())
+                    .err()
+                    .map(|error| format!("{error:#}"));
             }
             _ => crate::config::set_active(self.config.as_deref())?,
+        }
+        if let Some(dir) = &self.state_dir {
+            crate::state::refuse_other(&self.leaf, dir)?;
         }
         let state = self.state_dir.as_deref();
         match self.group {
@@ -199,6 +278,9 @@ impl Cli {
                 DecisionCommand::RecordOperatorDecision(args) => {
                     decide::record_operator_decision(state, args)
                 }
+                DecisionCommand::AnswerEscalatedAsOperator(args) => {
+                    decide::answer_escalated_as_operator(state, args)
+                }
                 DecisionCommand::AnswerRequest(args) => decide::answer_request(state, args),
                 DecisionCommand::AnswerEscalatedRequest(args) => {
                     decide::answer_escalated_request(state, args)
@@ -221,12 +303,14 @@ impl Cli {
                     controller::start_controller(state, args)
                 }
                 ControllerCommand::PauseController(args) => {
-                    controller::pause_controller(state, args)
+                    controller::pause_controller(state, args, providers)
                 }
                 ControllerCommand::ResumeController(args) => {
-                    controller::resume_controller(state, args)
+                    controller::resume_controller(self.config.as_deref(), state, args, providers)
                 }
-                ControllerCommand::StopController(args) => controller::stop_controller(state, args),
+                ControllerCommand::StopController(args) => {
+                    controller::stop_controller(state, args, providers)
+                }
                 ControllerCommand::ReviseCharter(args) => controller::revise_charter(state, args),
                 ControllerCommand::Controllers(view) => controller::controllers(state, view),
             },
@@ -257,13 +341,17 @@ impl Cli {
             },
             Group::Guard(command) => match command {
                 GuardCommand::RecordGuardDecision(args) => {
-                    guard::record_guard_decision(state, args)
+                    guard::record_guard_decision(state, args, unloaded.as_deref())
                 }
                 GuardCommand::GuardDecisions(view) => guard::guard_decisions(state, view),
             },
             Group::Session(command) => match command {
                 SessionCommand::Claim(args) => session::claim(state, args),
                 SessionCommand::Leases(view) => session::leases(state, view),
+                SessionCommand::Start(args) => {
+                    session::start(self.config.as_deref(), state, &args, providers)
+                }
+                SessionCommand::Stop(args) => session::stop(state, &args, providers),
             },
             Group::Host(command) => match command {
                 // `host reclaim` records its own runs (`crate::gc::reclaim`); the placed
@@ -275,6 +363,7 @@ impl Cli {
                 HostCommand::ReserveDisk(args) => host::reserve_disk(state, args),
                 HostCommand::StartRun(args) => host::start_run_command(state, args),
                 HostCommand::TakeHostGrant(args) => host::take_host_grant(state, args),
+                HostCommand::WithdrawDiskRequest(args) => host::withdraw_disk_request(state, args),
                 HostCommand::Grants(view) => host::grants(state, view),
                 HostCommand::ReclaimRuns(_) => crate::not_implemented("host reclaim-runs"),
                 HostCommand::Reclaim(args) => {
@@ -296,7 +385,7 @@ impl Cli {
             Group::Dashboard(command) => match command {
                 DashboardCommand::Serve(args) => dashboard::dashboard_serve(&args),
             },
-            Group::Doctor => crate::doctor::doctor_with(self.config.as_deref()),
+            Group::Doctor => crate::doctor::doctor_with(self.config.as_deref(), providers),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
             Group::Records(command) => match command {
@@ -306,7 +395,9 @@ impl Cli {
                 RulesCommand::Show(args) => crate::rules::rules_show(&args),
             },
             Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
-            Group::Spawn(args) => crate::spawn::spawn(self.config.as_deref(), state, &args),
+            Group::Spawn(args) => {
+                crate::spawn::spawn(self.config.as_deref(), state, &args, providers)
+            }
             Group::Status(args) => status::status(state, &args),
             Group::Trust(args) => crate::trust::trust(self.config.as_deref(), &args),
             Group::Upgrade(args) => crate::upgrade::upgrade(&args),
@@ -520,6 +611,10 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Installs the Gates hooks of the instance's checkouts with --apply (story:gates-hooks-fresh).
     (&["repository", "refresh-hooks"], Access::Writes),
     (&["decision", "answer-escalated-request"], Access::Writes),
+    (
+        &["decision", "answer-escalated-as-operator"],
+        Access::Writes,
+    ),
     (&["decision", "answer-request"], Access::Writes),
     (&["decision", "escalate-request"], Access::Writes),
     (&["decision", "raise-decision-request"], Access::Writes),
@@ -563,6 +658,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // taken for the instance's conductor.
     (&["session", "claim"], Access::Writes),
     (&["session", "leases"], Access::Reads),
+    // Starts or stops the session of the role conductor or conductor-dev (story:sandbox-spec).
+    (&["session", "start"], Access::Writes),
+    (&["session", "stop"], Access::Writes),
     (&["host", "record-reclaim"], Access::Writes),
     (&["host", "record-peak"], Access::Writes),
     (&["host", "release-grant"], Access::Writes),
@@ -570,6 +668,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["host", "reserve-disk"], Access::Writes),
     (&["host", "start-run"], Access::Writes),
     (&["host", "take-host-grant"], Access::Writes),
+    (&["host", "withdraw-disk-request"], Access::Writes),
     (&["host", "grants"], Access::Reads),
     (&["host", "reclaim-runs"], Access::Reads),
     // Removes what needs no decision until free disk is back over the floor (story:disk-reclaim).
@@ -823,6 +922,10 @@ pub enum DecisionCommand {
     #[command(name = "record-operator-decision")]
     RecordOperatorDecision(RecordOperatorDecisionArgs),
 
+    /// Answer an escalated request as the operator
+    #[command(name = "answer-escalated-as-operator")]
+    AnswerEscalatedAsOperator(RecordOperatorDecisionForRequestArgs),
+
     /// Reverse a decision taken by conductor
     #[command(name = "reverse-conductor-decision")]
     ReverseConductorDecision(ReverseConductorDecisionArgs),
@@ -1013,6 +1116,14 @@ pub enum SessionCommand {
     /// Conductor leases
     #[command(name = "leases")]
     Leases(ViewArgs),
+
+    /// Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    #[command(name = "start")]
+    Start(SessionRoleArgs),
+
+    /// Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+    #[command(name = "stop")]
+    Stop(SessionRoleArgs),
 }
 
 /// `conductor host`: the host ledger of slots and disk reservations every instance shares, and
@@ -1046,6 +1157,10 @@ pub enum HostCommand {
     /// Take a host grant
     #[command(name = "take-host-grant")]
     TakeHostGrant(TakeHostGrantArgs),
+
+    /// Withdraw a waiting disk request
+    #[command(name = "withdraw-disk-request")]
+    WithdrawDiskRequest(WithdrawDiskRequestArgs),
 
     /// Host grants
     #[command(name = "grants")]
@@ -1198,6 +1313,11 @@ pub struct RulesShowArgs {
     /// How the items are printed: text (verbatim) or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+
+    /// One line per item instead: its number and its first sentence. `--brief` alone is
+    /// `--brief true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub brief: Option<bool>,
 }
 
 // `conductor store`: the command the binding declares over the `local` callable `store-migrate`
@@ -1347,6 +1467,15 @@ pub struct SpawnArgs {
     /// `<repo>` or `<group>/<repo>`, and its charter `<records>/charters/<repo>.md`
     #[arg(long, value_name = "NAME")]
     pub repository: Option<String>,
+}
+
+/// The input of the binding's `session-start` and `session-stop` callables,
+/// `conductor.session.StartSession` and `conductor.session.StopSession`.
+#[derive(Debug, Clone, Args)]
+pub struct SessionRoleArgs {
+    /// The role whose session starts or stops: conductor or conductor-dev
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
 }
 
 /// The input of the binding's `upgrade` callable, `conductor.config.UpgradeBinary`.
@@ -1706,6 +1835,20 @@ pub struct TakeHostGrantArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.host.WithdrawDiskRequest`.
+#[derive(Debug, Clone, Args)]
+pub struct WithdrawDiskRequestArgs {
+    /// GrantId
+    #[arg(long)]
+    pub grant_id: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub withdrawn_at: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2442,6 +2585,53 @@ pub struct RecordOperatorDecisionArgs {
     pub input_json: Option<JsonInput>,
 }
 
+/// The input of `conductor.decision.RecordOperatorDecisionForRequest` (`story:decisions-batch-answer`):
+/// the operator's answer to an escalated request. `--request-id`, `--choice` (the letters, joined
+/// by `,`; `done` for class H), `--recorded-by` and `--operator-words` are required; the rest
+/// default to the request's, or now, or are allocated.
+#[derive(Debug, Clone, Args)]
+pub struct RecordOperatorDecisionForRequestArgs {
+    /// RequestId
+    #[arg(long)]
+    pub request_id: Option<String>,
+    /// DecisionId, starting with `DEC-`
+    #[arg(long, value_parser = prefixed("DEC-"))]
+    pub decision_id: Option<String>,
+    /// DecisionClass
+    #[arg(long, value_parser = ["C", "O", "H"])]
+    pub decision_class: Option<String>,
+    /// string
+    #[arg(long)]
+    pub question: Option<String>,
+    /// string
+    #[arg(long)]
+    pub options: Option<String>,
+    /// string
+    #[arg(long)]
+    pub choice: Option<String>,
+    /// string
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// string
+    #[arg(long)]
+    pub evidence: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub decided_at: Option<String>,
+    /// string
+    #[arg(long)]
+    pub recorded_by: Option<String>,
+    /// string
+    #[arg(long)]
+    pub operator_words: Option<String>,
+    /// RepositoryName
+    #[arg(long)]
+    pub repository: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
 /// The input of `conductor.decision.AnswerRequest`.
 #[derive(Debug, Clone, Args)]
 pub struct AnswerRequestArgs {
@@ -2489,6 +2679,24 @@ pub struct EscalateRequestArgs {
     /// Why the operator's script has no dry run. A class-H escalation carries this or `--dry-run`
     #[arg(long, value_name = "REASON")]
     pub no_dry_run: Option<String>,
+    /// RequestKind: how the operator answers. Required for class O.
+    #[arg(long, value_parser = ["yes-no", "one-of", "several-of"])]
+    pub kind: Option<String>,
+    /// list of RequestOption, a JSON array of `{letter, label, cost}`; `Y` and `N` for `yes-no`.
+    /// Required for class O
+    #[arg(long, value_parser = json_list)]
+    pub lettered_options: Option<String>,
+    /// The letter conductor recommends, or several joined by `,` for `several-of`. Required for
+    /// class O
+    #[arg(long, value_name = "LETTERS")]
+    pub recommended_letters: Option<String>,
+    /// The letter that stands when the operator has not answered by the deadline, or several
+    /// joined by `,` for `several-of`. Required for class O
+    #[arg(long, value_name = "LETTERS")]
+    pub default_letters: Option<String>,
+    /// timestamp, RFC 3339: when the default stands. Required for class O
+    #[arg(long, value_parser = timestamp)]
+    pub deadline: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

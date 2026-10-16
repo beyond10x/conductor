@@ -10,11 +10,27 @@
 //! `PATH` holds only the fake programs the case writes, each printing a fixed version line.
 
 mod common;
+mod fake_provider;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
+
+use conductor_cli::config;
+use fake_provider::Child;
+
+/// The child run of this test binary ([`fake_provider::command`]); a plain run of the suite
+/// passes it at once.
+#[test]
+fn child() {
+    if let Some(run) = Child::from_env() {
+        if let Some(file) = run.config_file() {
+            config::set_active(Some(&file)).expect("the case's config loads");
+        }
+        run.exit();
+    }
+}
 
 /// Each program conductor starts, with the version line its fake prints. `aep`, `worktree` and
 /// `ess` print a version newer than any pin a build carries (`story:doctor-minimum-versions`), so
@@ -724,10 +740,13 @@ fn start_snapshot_refuses_at_start_naming_a_missing_program() {
              \x20   checkouts:\n\
              \x20     root: {root}\n\
              \x20     trees: {trees}\n\
-             \x20   records: {records}\n",
+             \x20   records: {records}\n\
+             \x20   state: {state}\n",
             root = case.dir.join("checkouts").display(),
             trees = case.dir.join("trees").display(),
             records = case.dir.join("records").display(),
+            // The `--state-dir` below: a snapshot takes no other (`story:instance-isolation`).
+            state = case.dir.join("state").display(),
         ),
     )
     .expect("write the config file");
@@ -1006,5 +1025,53 @@ fn doctor_names_a_checkouts_root_in_an_activated_worktree_workspace_ready() {
         "{}",
         shown(&output)
     );
+    assert_eq!(last(&output), "ready", "{}", shown(&output));
+}
+
+/// `story:session-envelope-seam`: doctor prints one row per confinement provider after the
+/// program rows and before the verdict, which stays last; a provider that is not available names
+/// why and changes no verdict. Two fake providers, one available and one not.
+#[test]
+fn doctor_prints_one_row_per_provider_before_the_verdict() {
+    let case = Case::new("providers");
+    case.programs_but(&[]);
+    let fake = case.dir.join("fake");
+    fs::create_dir_all(&fake).expect("create the fake's directory");
+    fs::write(fake.join("providers"), "alpha\nbeta\n").expect("name the providers");
+    fs::write(fake.join("beta.unavailable"), "no cgroup delegation\n").expect("beta is not");
+    let output = fake_provider::without_harness(
+        fake_provider::command_in_clear_env(&case.home(), &fake, &["doctor"])
+            .current_dir(case.work())
+            .env("PATH", case.bin())
+            .output()
+            .expect("the child runs"),
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let lines = stdout(&output);
+    let at = |line: &str| {
+        lines
+            .iter()
+            .position(|shown| shown == line)
+            .unwrap_or_else(|| panic!("no line {line:?}: {}", shown(&output)))
+    };
+    let alpha = at("provider alpha: available");
+    let beta = at("provider beta: not available: no cgroup delegation");
+    assert_eq!(
+        (alpha + 1, beta + 2),
+        (beta, lines.len()),
+        "{}",
+        shown(&output)
+    );
+    for (program, _) in PROGRAMS {
+        let row = lines
+            .iter()
+            .position(|line| line.starts_with(&format!("{program}: ")))
+            .unwrap_or_else(|| panic!("no row for {program}: {}", shown(&output)));
+        assert!(
+            row < alpha,
+            "{program} after the providers: {}",
+            shown(&output)
+        );
+    }
     assert_eq!(last(&output), "ready", "{}", shown(&output));
 }

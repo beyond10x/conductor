@@ -27,6 +27,7 @@
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //! | usage | the usage readings of the complete snapshots of the store under the state directory ([`crate::collect::usage::Forecast`], [`Watch::with_usage`]) | `usage: pool runs out ~<hour>, next reset <minute>`, once per change of the forecast hour (`usage.hour`; `story:usage-probe`) |
+//! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`), and once more in the first pass at or after the deadline its escalation recorded, `<minutes>` counted from the pass that printed its escalation (`story:decisions-page`); `answered <request-id> <choice>` once, in the first pass after a printed request was answered, from the Decisions page or by conductor, its decision's choice on one line, and nothing for one withdrawn (`story:decisions-batch-answer`) |
 //!
 //! `<id>` is the first eight characters of a session's `sessionId`. A session is reported:
 //! - **exited** when it turns `blocked` without a `pid`, which is how the list keeps a session
@@ -93,7 +94,9 @@
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
-//! (the id of the snapshot the Gates hooks probe read last), `usage.hour` (the forecast hour the
+//! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
+//! request printed, when, whether its 30-minute unanswered line was, and whether its line at the
+//! deadline was), `usage.hour` (the forecast hour the
 //! usage line was last printed for),
 //! `limit.reported` (`<instant> <text>`, the last report of each limit text), `disk-low`,
 //! `disk-admit`, `gate-stop`, `disk.free` (the bytes free the last pass read), and, in the
@@ -119,8 +122,9 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
 
-use conductor_model::behaviour::SnapshotStorage;
+use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage, SnapshotStorage};
 use conductor_model::config::{Instance, Source};
+use conductor_model::decision::RequestId;
 use conductor_model::direction::Activity;
 use conductor_model::observation::{RunConclusion, SnapshotState};
 
@@ -195,6 +199,16 @@ const GATES_HOOKS_READ: &str = "gates-hooks.snapshot";
 
 /// The forecast hour the usage line was last printed for (`story:usage-probe`).
 const USAGE_HOUR: &str = "usage.hour";
+
+/// The escalated requests the watch has printed, one per line: `<request-id>\t<instant of the
+/// pass that printed its escalation, RFC 3339>\t<1 once its unanswered line was printed, else 0>`
+/// (`story:decisions-notify`)`\t<1 once its line at the deadline was printed, else 0>`
+/// (`story:decisions-page`; a line without it reads 0).
+const ESCALATED_SEEN: &str = "escalated.seen";
+
+/// How long an escalated request waits from the pass that printed its escalation before it is
+/// printed unanswered (`story:decisions-notify`).
+pub const UNANSWERED_AFTER: Duration = Duration::from_secs(30 * 60);
 
 /// The states of the session list in which a live controller is expected to write to its
 /// transcripts.
@@ -447,6 +461,7 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
         .context("HOME is not an absolute path; the watch reads the transcripts under ~/.claude")?;
     let active = config::active();
     let options = Options::of(&active.instance, args);
+    let host = crate::host::dir(state)?;
     let state = state::dir(state)?;
     let mut watch = Watch::new(
         Sources::new(home, active, state.clone()),
@@ -455,7 +470,9 @@ pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> 
     .with_settings(Settings::of(&active.instance))
     .with_gitlab(Forge::all(&active.instance))
     .with_usage(state.clone())
-    .with_reclaim(state, crate::gc::reclaim::reclaim);
+    .with_decisions(state.clone())
+    .with_reclaim(state, crate::gc::reclaim::reclaim)
+    .with_host(host);
     watch.run(&options, &mut io::stdout().lock(), &mut io::stderr().lock())?;
     Ok(ExitCode::SUCCESS)
 }
@@ -473,9 +490,15 @@ pub struct Watch {
     /// The state directory a reclaim run is recorded under, and the reclaim run once per fall
     /// under `disk_admit`; none: no reclaim.
     reclaim: Option<(PathBuf, Reclaimer)>,
+    /// The host directory whose fall of free disk an instance's pass ends
+    /// (`story:instance-isolation`); none: the pass ends none.
+    host: Option<PathBuf>,
     /// The state directory whose store's usage readings the usage probe reads; none: no usage
     /// line (`story:usage-probe`).
     usage: Option<PathBuf>,
+    /// The state directory whose store's escalated decision requests the decisions probe reads;
+    /// none: no `escalated` or `unanswered` line (`story:decisions-notify`).
+    decisions: Option<PathBuf>,
 }
 
 /// A reclaim run to a floor, recorded under a state directory: [`crate::gc::reclaim::reclaim`],
@@ -574,8 +597,18 @@ impl Watch {
             dir,
             failing: BTreeSet::new(),
             reclaim: None,
+            host: None,
             usage: None,
+            decisions: None,
         }
+    }
+
+    /// This watch printing the `escalated` and `unanswered` lines of the decision requests of the
+    /// store under the state directory `state` (`story:decisions-notify`).
+    #[must_use]
+    pub fn with_decisions(mut self, state: PathBuf) -> Self {
+        self.decisions = Some(state);
+        self
     }
 
     /// This watch running `reclaim` once per fall under `disk_admit`, to the instance's floor
@@ -583,6 +616,14 @@ impl Watch {
     #[must_use]
     pub fn with_reclaim(mut self, state: PathBuf, reclaim: Reclaimer) -> Self {
         self.reclaim = Some((state, reclaim));
+        self
+    }
+
+    /// This watch ending, once free disk is back at `disk_clear`, the fall its instance recorded
+    /// an operator item for in the host directory `host` ([`crate::host::clear_fall`]).
+    #[must_use]
+    pub fn with_host(mut self, host: PathBuf) -> Self {
+        self.host = Some(host);
         self
     }
 
@@ -614,7 +655,10 @@ impl Watch {
     /// Passes every `options.every` (`main`'s CI on the first and then every
     /// `options.ci_every`), writing each change as a line to `out`, until the first pass that
     /// found one; with `options.follow`, for ever. A source that does not answer is named on
-    /// `notes`.
+    /// `notes`. Each probe that reads the store opens it as a reader
+    /// ([`crate::store::open_reader`]), which never takes a tree's writer lock, and drops it
+    /// within the pass: nothing is held across a sleep
+    /// (`story:store-readers-hold-no-writer-lock`).
     ///
     /// # Errors
     ///
@@ -675,6 +719,7 @@ impl Watch {
         }
         self.disk(&mut lines, notes)?;
         self.usage(&mut lines)?;
+        self.decisions(now, &mut lines)?;
         Ok(lines)
     }
 
@@ -1260,7 +1305,7 @@ impl Watch {
             return Ok(self.sources.repositories.clone());
         };
         let what = "no snapshot yet; main CI is read of no repository";
-        let store = state::open_existing(Some(state)).context(what)?;
+        let store = crate::store::open_reader(state).context(what)?;
         let complete = SnapshotStorage::list(&store)
             .iter()
             .any(|snapshot| snapshot.state == SnapshotState::Complete);
@@ -1306,7 +1351,7 @@ impl Watch {
             }
             return Ok(());
         }
-        let Ok(store) = state::open_existing(Some(state)) else {
+        let Ok(store) = crate::store::open_reader(state) else {
             return Ok(());
         };
         let snapshots = SnapshotStorage::list(&store);
@@ -1347,7 +1392,7 @@ impl Watch {
         let Some(state) = &self.sources.store else {
             return Ok(());
         };
-        let Ok(store) = state::open_existing(Some(state)) else {
+        let Ok(store) = crate::store::open_reader(state) else {
             return Ok(());
         };
         let snapshots = SnapshotStorage::list(&store);
@@ -1378,7 +1423,7 @@ impl Watch {
         let Some(state) = &self.usage else {
             return Ok(());
         };
-        let Ok(store) = state::open_existing(Some(state)) else {
+        let Ok(store) = crate::store::open_reader(state) else {
             return Ok(());
         };
         let Some(forecast) = crate::collect::usage::Forecast::of(&store) else {
@@ -1391,6 +1436,103 @@ impl Watch {
         }
         lines.push(forecast.line());
         replace(&file, &format!("{hour}\n"))
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Escalated decision requests
+    // -----------------------------------------------------------------------------------------
+
+    /// The decision requests escalated as class O or H and not answered or withdrawn
+    /// ([`crate::status::unanswered`], `story:decisions-notify`): `escalated <O|H> <request-id>
+    /// <question>` in the first pass that finds one, and `unanswered <O|H> <request-id>
+    /// <minutes>` once, in the first pass [`UNANSWERED_AFTER`] or more after it, and once in the
+    /// first pass at or after the deadline its escalation recorded (`story:decisions-page`); one
+    /// line when both fall in the same pass. A request that leaves `Escalated` is forgotten, after
+    /// `answered <request-id> <choice>` when it was answered (`story:decisions-batch-answer`).
+    /// Without a store nothing is printed.
+    fn decisions(&self, now: OffsetDateTime, lines: &mut Vec<String>) -> Result<()> {
+        let Some(state) = &self.decisions else {
+            return Ok(());
+        };
+        let Ok(store) = crate::store::open_reader(state) else {
+            return Ok(());
+        };
+        let items = crate::status::unanswered(&store);
+        let file = self.state(ESCALATED_SEEN);
+        let before = read_optional(&file)?.unwrap_or_default();
+        let kept: BTreeMap<&str, (&str, bool, bool)> = before
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split('\t');
+                let id = fields.next()?;
+                let seen = fields.next()?;
+                let reported = fields.next()? == "1";
+                // A line written before deadlines were recorded has no fourth field.
+                let at_deadline = fields.next() == Some("1");
+                Some((id, (seen, reported, at_deadline)))
+            })
+            .collect();
+        let after = i64::try_from(UNANSWERED_AFTER.as_secs() / 60).unwrap_or(i64::MAX);
+        let mut next = String::new();
+        for item in &items {
+            let id = one_line(&item.request_id);
+            let (seen, reported, at_deadline) = match kept.get(id.as_str()) {
+                Some(&(seen, reported, at_deadline)) => (seen.to_owned(), reported, at_deadline),
+                None => {
+                    lines.push(format!(
+                        "escalated {} {id} {}",
+                        item.class,
+                        one_line(&item.question)
+                    ));
+                    (now.format(&Rfc3339)?, false, false)
+                }
+            };
+            let waited = OffsetDateTime::parse(&seen, &Rfc3339)
+                .ok()
+                .map(|at| (now - at).whole_minutes());
+            let due = !reported && waited.is_some_and(|minutes| minutes >= after);
+            // The deadline its escalation recorded (`story:decisions-page`): once, at or after it.
+            let deadline_due = !at_deadline
+                && item
+                    .deadline
+                    .as_deref()
+                    .and_then(|deadline| OffsetDateTime::parse(deadline, &Rfc3339).ok())
+                    .is_some_and(|deadline| now >= deadline);
+            if let (true, Some(minutes)) = (due || deadline_due, waited) {
+                lines.push(format!("unanswered {} {id} {minutes}", item.class));
+            }
+            let flag = |set: bool| if set { "1" } else { "0" };
+            next.push_str(&format!(
+                "{id}\t{seen}\t{}\t{}\n",
+                flag(reported || due),
+                flag(at_deadline || deadline_due)
+            ));
+        }
+        // A printed request that left `Escalated` is forgotten; one that left it answered is
+        // printed `answered <request-id> <choice>` first, once, so conductor relays the answer
+        // (`story:decisions-batch-answer`). A withdrawn one prints nothing.
+        for (gone, _) in kept
+            .iter()
+            .filter(|(id, _)| !items.iter().any(|item| one_line(&item.request_id) == **id))
+        {
+            let request = DecisionRequestStorage::get(&store, &RequestId((*gone).to_owned()));
+            let Some(request) = request.filter(|request| {
+                request.state == conductor_model::decision::DecisionRequestState::Answered
+            }) else {
+                continue;
+            };
+            let choice = request
+                .data
+                .decision_id
+                .as_ref()
+                .and_then(|decision| DecisionStorage::get(&store, decision))
+                .map_or_else(String::new, |decision| one_line(&decision.data.choice));
+            lines.push(format!("answered {gone} {choice}").trim_end().to_owned());
+        }
+        if next != before {
+            replace(&file, &next)?;
+        }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1471,13 +1613,17 @@ impl Watch {
         }
         // Free disk back at `disk_clear` ends a fall `conductor build run` recorded an operator
         // item for, which is withdrawn (`story:disk-item-per-fall`).
-        if let Some(state) = self.reclaim.as_ref().map(|(state, _)| state.clone()) {
+        if let (Some(state), Some(host)) = (
+            self.reclaim.as_ref().map(|(state, _)| state.clone()),
+            self.host.clone(),
+        ) {
             let clear = self
                 .settings
                 .disk_clear
                 .saturating_mul(1 << 30)
                 .max(crate::gc::reclaim::floor_bytes(self.settings.disk_admit));
-            match crate::host::clear_fall(&state, bytes, clear) {
+            let instance = self.settings.instance.clone();
+            match crate::host::clear_fall(&host, &state, &instance, bytes, clear) {
                 Ok(_) => self.answered("disk item"),
                 Err(error) => {
                     let error = error.context("withdraw the operator item of a fall that is over");

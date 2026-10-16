@@ -51,6 +51,7 @@ function nothing(): Record<string, unknown> {
     '/api/workflow-runs': none,
     '/api/releases': none,
     '/api/reviews': none,
+    '/api/unanswered': { count: 0, oldest: null },
     '/api/events': { rows: [] },
     '/api/waiting-on': { rows: [] },
     '/api/blockers': none,

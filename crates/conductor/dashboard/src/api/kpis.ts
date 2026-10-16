@@ -27,7 +27,7 @@ export async function loadKpis(
   fetcher: Fetch = (input, init) => fetch(input, init),
 ): Promise<{ kpis: Kpi[]; error: string | null }> {
   try {
-    const answer = await fetcher('/api/kpis', { cache: 'no-store' });
+    const answer = await fetcher('/api/kpis', { cache: 'no-cache' });
     if (!answer.ok) {
       return { kpis: [], error: `could not read /api/kpis: ${answer.status}` };
     }

@@ -59,7 +59,7 @@ $ conductor doctor
 host: workstation
 system: Linux 6.18.0
 architecture: x86_64
-conductor 0.14.0
+conductor 0.15.0
 git: present, git version 2.55.0
 gh: present, gh version 2.80.0
 glab: not needed
@@ -92,9 +92,13 @@ instance in the config file, then validate it:
 ```yaml
     roles:
       - role: conductor
+        harness: claude
+        model: opus
         profile: ~/.b10x/conductor/profiles/conductor.md
         settings: ~/example-org/conductor/.claude/conductor-settings.json
       - role: controller
+        harness: claude
+        model: opus
         profile: ~/.b10x/conductor/profiles/repo-controller.md
         settings: ~/example-org/conductor/.claude/controller-settings.json
 ```
@@ -104,6 +108,8 @@ conductor config validate
 conductor config show
 ```
 
+The shipped settings files pin no instance, so `conductor config validate` prints a note for each:
+`conductor session start` and `conductor spawn` start the role with a copy pinned to the instance.
 `conductor config validate` names each problem by its YAML path and exits 1;
 `conductor config show` prints the instance with its defaults, the `records` directory among them.
 
@@ -186,5 +192,6 @@ dispatch and reports the goal's state.
 | `conductor spawn` refused | the refusal names its cause; [troubleshoot](./troubleshoot.md) lists the fixes |
 | the controller asks to merge under `merge: human` | conductor answers "a person merges here"; merge it yourself |
 
-To stop a controller, `claude stop <id>` ends its session and
-`conductor controller stop-controller` records it stopped.
+To stop a controller, `conductor controller stop-controller` ends the session `conductor spawn`
+started, through the instance's confinement provider, and records it stopped;
+`pause-controller` and `resume-controller` stop it and resume it from its transcript.

@@ -79,20 +79,21 @@ accepted, defaulted and shown by `config show`.
 | `roles[].harness` | `claude` \| `codex` | required | | the harness the role runs on; the start tasks start `claude` only |
 | `roles[].model` | string | required | | the model name passed to the harness |
 | `roles[].agent` | string | none | `task conductor:start` | the harness agent the role starts with when it names no `profile`, found only in the start directory's `.claude/agents/` (`--setting-sources project,local` loads no user-level agent); for the `conductor` role the start task defaults to `conductor`, for `conductor-dev` to `conductor-dev`. The `controller` role starts from its `profile`, never with `--agent`: `conductor config validate` refuses a controller role that names an `agent` and no `profile` |
-| `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below) |
+| `roles[].settings` | path | none | conductor profile, `task conductor:start`, `task dev:start` | the settings file the role starts with, such as the repository's `.claude/controller-settings.json`, which wires the guard. Sessions start without the user's settings, so this file carries everything else they need (below). Under a config file a file that pins no instance (no `env.CONDUCTOR_INSTANCE`) starts as a copy pinned to the instance, `<state>/sessions/<session name>.settings.json`, and `conductor config validate` notes it; one that pins another instance is refused (`InstanceNotPinned`) |
 | `roles[].profile` | path | none; required for a `controller` role that names an `agent` | conductor profile, `task conductor:start`, `task dev:start` | the profile file the role's session starts with through `--append-system-prompt-file`, such as this repository's `.agents/repo-controller.md`; when it is set the session starts with no `--agent`, so no adapter is needed. A `controller` role the file writes with an `agent` and without a profile is refused by this path |
 | `roles[].session_name` | string | derived | `task conductor:start`, `task conductor:restart`, `task dev:start`, `task conductor:attach`, `task dev:attach`, `task sessions` | the name the role's session starts under: `<session_prefix>-<role>`, or `<role>` without a prefix; none for `controller`, whose sessions are named per repository. Derived, never chosen: a file may write only that value. The session tasks act on the active instance's sessions by this full name and refuse a name more than one live background session holds |
 | `roles[].read_only_tools` | list of tool names | empty | guard | the tools, beyond the guard's built-in read-only allowlist (`Read`, `Glob`, `Grep`, `WebFetch`, the session's own task and schedule tools and the like; `READ_ONLY` in `crates/conductor/src/guard.rs`), that the guard allows this role's sessions, such as a read-only MCP tool `mcp__<server>__<tool>`. Read for the `conductor` and `controller` roles. Every other tool without a rule of its own is denied; `Edit`, `Write`, `NotebookEdit`, `SendMessage`, `Bash` and `Monitor` keep their rules whatever the list says |
-| `roles[].limits.memory_max` | GiB ≥ 1G | none | nothing yet | the most memory one session of the role may use (its cgroup's `MemoryMax`); at or under `confinement.limits.memory_max`, where that is set |
-| `roles[].limits.cpu_weight` | integer 1–10000 | none | nothing yet | the CPU weight of one session of the role (`CPUWeight`); at or under `confinement.limits.cpu_weight`, where that is set |
-| `roles[].limits.tasks_max` | integer ≥ 1 | none | nothing yet | the most processes and threads one session of the role runs at once (`TasksMax`); at or under `confinement.limits.tasks_max`, where that is set |
-| `roles[].writable` | list of places and paths | `checkout`, `trees`, `build-cache`, `scratch`, `harness-state`; for `conductor` also `records` | nothing yet | where a session of the role may write (below); a list given replaces the default |
-| `roles[].network` | `open` | `open` | nothing yet | the session's network: the host's, the only one there is |
-| `confinement.mode` | `strict` \| `report` | `report` | nothing yet | what happens when a session's box cannot be set up: `strict` starts no session, `report` starts it unboxed and records why |
-| `confinement.provider` | `systemd` \| `none` | `systemd` | nothing yet | what sets up the box: `systemd`, a `systemd-run --user` unit per session under the instance's slice; `none`, a host with no provider, where `strict` starts no session and `report` starts every one unboxed |
-| `confinement.limits.memory_max` | GiB ≥ 1G | none | nothing yet | the most memory the instance's sessions use together (the slice's `MemoryMax`) |
-| `confinement.limits.cpu_weight` | integer 1–10000 | none | nothing yet | the CPU weight of the instance's slice (`CPUWeight`) |
-| `confinement.limits.tasks_max` | integer ≥ 1 | none | nothing yet | the most processes and threads the instance's sessions run at once (`TasksMax`) |
+| `roles[].limits.memory_max` | GiB ≥ 1G | none | `session start`, `spawn` (the request); the systemd provider, as the session's unit's `-p MemoryMax=` | the most memory one session of the role may use (its cgroup's `MemoryMax`); at or under `confinement.limits.memory_max`, where that is set |
+| `roles[].limits.cpu_weight` | integer 1–10000 | none | `session start`, `spawn` (the request); the systemd provider, as the session's unit's `-p CPUWeight=` | the CPU weight of one session of the role (`CPUWeight`); at or under `confinement.limits.cpu_weight`, where that is set |
+| `roles[].limits.tasks_max` | integer ≥ 1 | none | `session start`, `spawn` (the request); the systemd provider, as the session's unit's `-p TasksMax=` | the most processes and threads one session of the role runs at once (`TasksMax`); at or under `confinement.limits.tasks_max`, where that is set |
+| `roles[].writable` | list of places and paths | `checkout`, `trees`, `build-cache`, `scratch`, `harness-state`; for `conductor` also `records` | `session start`, `spawn` (the request) | where a session of the role may write (below); a list given replaces the default |
+| `roles[].network` | `open` | `open` | `session start`, `spawn` (the request) | the session's network: the host's, the only one there is |
+| `roles[].forge_token_env` | list of variable names | empty | `session start`, `spawn` (the request) | the environment variables that carry the forge tokens a session of the role may use, such as `GH_TOKEN` or `GITLAB_TOKEN`: names only, capital letters, digits and `_`, not starting with a digit; the values are never part of the config |
+| `confinement.mode` | `strict` \| `report` | `report` | `conductor session start`, `conductor spawn` | what happens when a session's box cannot be set up: `strict` starts no session, and stops one whose measured box is short of the request; `report` starts it unboxed and records why |
+| `confinement.provider` | `systemd` \| `none` | `systemd` | `conductor session start`, `conductor spawn`, `conductor controller resume-controller`, `conductor doctor` | what sets up the box: `systemd`, a `systemd-run --user` unit `conductor_<session name>.service` per session in the instance's slice `conductor_<session_prefix>.slice` (`conductor.slice` without a prefix; a `-` of the prefix written `\x2d`, since systemd reads a `-` in a slice name as nesting, so every instance's slice is a sibling of every other's and no instance's limits cap another's), available where the user manager delegates the `cpu`, `memory` and `pids` controllers (its `cgroup.controllers`); it sets the limits and sets up no write fence yet, so its box is partial: `report` records it, `strict` stops it; `none`, a host with no provider, where `strict` starts no session and `report` starts every one unboxed |
+| `confinement.limits.memory_max` | GiB ≥ 1G | none | the systemd provider (`session start`, `spawn`), as the slice's `MemoryMax` (`infinity` when unset) | the most memory the instance's sessions use together (the slice's `MemoryMax`) |
+| `confinement.limits.cpu_weight` | integer 1–10000 | none | the systemd provider (`session start`, `spawn`), as the slice's `CPUWeight` (reset when unset) | the CPU weight of the instance's slice (`CPUWeight`) |
+| `confinement.limits.tasks_max` | integer ≥ 1 | none | the systemd provider (`session start`, `spawn`), as the slice's `TasksMax` (`infinity` when unset) | the most processes and threads the instance's sessions run at once (`TasksMax`) |
 | `conductor.served_by` | instance name | derived | conductor profile, controller profile | the `default` instance whose conductor serves this one, when this one names no `conductor` role; otherwise none. Derived, never chosen: a file may write only that value |
 | `conductor.session_name` | string | derived | controller profile, guard | the session name of the conductor that serves the instance: its own `<session_prefix>-conductor` (or `conductor`), or the serving instance's; none when no conductor serves it. Derived, never chosen |
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
@@ -168,21 +169,21 @@ accounts; `conductor doctor` prints `usage watcher: <unit> running`, or `not run
 Each session conductor starts is meant to run in a box set up and measured from outside: a
 cgroup with the role's limits inside the instance's slice, and writes allowed only to the role's
 `writable` places. `confinement` and each role's `limits`, `writable` and `network` are that
-request; nothing starts a session in a box yet, so no command reads them beyond `config validate`
-and `config show`. `conductor config validate` refuses an unknown `mode` or `provider`, a limit
+request. `conductor session start` and `conductor spawn` resolve them into the request a session's
+provider is given, and record what the provider measured. `conductor config validate` refuses an unknown `mode` or `provider`, a limit
 that is no limit (a size under 1G, a weight outside 1 to 10000, a `tasks_max` under 1), and a role
 limit above the instance's limit of the same key, each by its YAML path.
 
-A `writable` entry is a path, absolute or under `~`, or one of these places, resolved for each
-session when it starts:
+A `writable` entry is a path, absolute or under `~`, or one of these places, resolved to absolute
+paths for each session when it starts, whether or not they exist:
 
 | place | where |
 |---|---|
-| `checkout` | the checkout the session starts in: a controller's repository's, conductor-dev's this repository's |
-| `trees` | the managed worktrees of that checkout, under `checkouts.trees` |
-| `build-cache` | the build tools' caches under the home directory, cargo's among them |
-| `scratch` | the session's scratch: under `$TMPDIR`, and for a controller `~/.cache/<repo>-*` |
-| `harness-state` | the harness's own state directory, `~/.claude` or `~/.codex` |
+| `checkout` | the directory the session starts in: a controller's repository's checkout, conductor's records directory, conductor-dev's working directory |
+| `trees` | the managed worktrees of that checkout, `<checkouts.trees>/<repository>` |
+| `build-cache` | the build tools' caches under the home directory: `~/.cargo` and `~/.npm` |
+| `scratch` | the session's scratch: `$TMPDIR` (else `/tmp`), and for a controller `~/.cache/<repo>-*` |
+| `harness-state` | the harness's own state: `~/.claude` and `~/.claude.json`, or `~/.codex` |
 | `records` | the instance's `records` directory |
 
 The request leaves out readable paths (the box binds the root read-only), the programs a session

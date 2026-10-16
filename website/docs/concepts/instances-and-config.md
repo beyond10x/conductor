@@ -27,14 +27,27 @@ An instance may leave out every key but `name`, `sources` and `checkouts`. The
 | what | order |
 |---|---|
 | file | `--config`, else `$CONDUCTOR_CONFIG`, else `~/.b10x/conductor/conductor.yaml` |
-| instance | `--instance` (on `config validate`, `config show`, `config workspace`, `init` and `trust`), else `$CONDUCTOR_INSTANCE`, else the file's `default`, else its only instance |
+| instance | `--instance` (on `config validate`, `config show`, `config workspace`, `init` and `trust`), else `$CONDUCTOR_INSTANCE`, else the instance whose `records`, `state`, `checkouts.root` or `checkouts.trees` holds the working directory (the deepest, when one lies inside another's), else the file's `default`, else its only instance |
 
 A file named by `--config` or `$CONDUCTOR_CONFIG` must exist. Without the default file, a
 built-in instance applies, with placeholder values; write a config file before you run conductor
 for real.
 
 Every command resolves the instance before it runs, and a file that does not validate stops the
-command with its problems. `conductor config validate` names each problem by its YAML path and
+command with its problems. A command run without `$CONDUCTOR_INSTANCE` inside another instance's
+tree never falls back to the `default`: it acts for that instance, and is refused
+(`AmbiguousInstance`) where two instances' trees meet at the same depth. The guard denies every
+call while the file does not load (`ConfigUnloaded`), naming the problem, rather than deciding by
+built-in paths.
+
+A command that writes the instance's records (the store, the decision, dispatch and message logs,
+the board and the snapshot's rollups) refuses a `--state-dir` other than the instance's `state`
+(`StateDirNotInstance`): its records would otherwise be written beside another store.
+
+What the instances of one file share lives in the host directory, `host/` beside the config file:
+the host ledger of disk reservations, its locks, the last reclaim run and the marker of a fall of
+free disk. An instance whose `state` held them before has them moved there once, at its first
+host command, and `host.migrated` in its `state` records the move. `conductor config validate` names each problem by its YAML path and
 exits 1. `conductor config show` prints the effective instance after defaults, every path absolute,
 as `text` (one `path: value` line each), `json` or `yaml`.
 
@@ -57,7 +70,7 @@ Each entry of `roles` names a role (`conductor`, `conductor-dev`, `controller`),
 | key | what |
 |---|---|
 | `profile` | the profile file the session starts with, through `--append-system-prompt-file` |
-| `settings` | the settings file the session starts with, through `--settings`; the shipped ones wire the guard |
+| `settings` | the settings file the session starts with, through `--settings`; the shipped ones wire the guard. Under a config file the session's settings pin the role's instance: `"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and every hook command that runs `conductor` starts `CONDUCTOR_INSTANCE=<name> conductor …`. The harness does not pass the environment of `conductor session start` or `spawn` on to the session it forks, so only the settings select the instance its hooks act for. A settings file that pins no instance, as the shipped ones do, starts pinned: `session start` and `spawn` write its content with `env.CONDUCTOR_INSTANCE` set and each such hook command prefixed to `<state>/sessions/<session name>.settings.json` and start the session with that copy, and `config validate` reports it as a note. `config validate` names a role whose settings file pins another instance, and `session start` and `spawn` refuse it (`InstanceNotPinned`). A `conductor` or `conductor-dev` role without `settings` starts with its default (`.claude/conductor-settings.json` of the working directory for `conductor`) written pinned to the instance as `<state>/sessions/<session name>.settings.json` |
 | `agent` | a harness agent, used only by a role without a `profile`; a controller role that names an `agent` must name a `profile` too, or `config validate` refuses it ([roles](./roles.md#profiles-and-rules)) |
 | `read_only_tools` | tool names, as the harness names them (such as `mcp__server__tool`), that the guard allows this role's sessions beyond its built-in read-only list; empty by default |
 
@@ -92,7 +105,7 @@ instance's. The dashboard takes the same care with its port and its service:
 
 - each instance's dashboard serves on its own `dashboard_port`, by default 7313 plus the
   instance's position in the file (7313 for the first), and `config validate` refuses two
-  instances that share one;
+  instances that share one; `conductor dashboard serve` without `--port` listens on it;
 - where `systemctl` is on `PATH`, `task dashboard` runs it as the user service
   `<session_prefix>-conductor-dashboard`, or `conductor-dashboard` without a prefix;
 - elsewhere it runs in the background, with its pid in `dashboard.pid` of the instance's `state`

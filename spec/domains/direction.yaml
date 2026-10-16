@@ -85,13 +85,18 @@ types:
   # file order; without either it prints every item, and both together are refused. `format` is
   # text (the items verbatim, one blank line between two) or json (a list of `RulesRow`). A number
   # no item holds, or a heading the file does not hold, is refused (`RulesRefused`) and nothing is
-  # printed.
+  # printed. `brief` prints, instead of each item verbatim, one line per item: its number, `. ` and
+  # its first sentence as the file writes it, on one line (up to the first `.`, `?` or `!` followed,
+  # after any closing `*`, `_`, `` ` ``, `)` or quote, by white space or the item's end; else its
+  # first line), so a session reads a section's titles and asks for an item whole with `item`;
+  # with `format` json it is refused, a row already carrying its `title`.
   - name: conductor.direction.Rules
     kind: struct
     fields:
       - {name: item, type: Optional<String>}
       - {name: section, type: Optional<String>}
       - {name: format, type: Optional<String>}
+      - {name: brief, type: Optional<Boolean>}
 
   # Why `conductor rules show` printed nothing and exited 1: `RuleItemNotFound`, no item of
   # rules.md has a number it was given; `RuleSectionNotFound`, no heading has the text it was

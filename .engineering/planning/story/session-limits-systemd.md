@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:session-limits-systemd
 kind: story
-status: draft
+status: implemented
 title: Each instance and session runs under systemd limits
 relations:
 - decomposes: epic:session-confinement
@@ -21,7 +21,11 @@ scope:
   path: docs/analysis/session-limits-run.md
 - confidence: cited
   path: docs/config.md
-revision: 14
+revision: 17
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T01:54:06Z", actor: "human:timo", revision: 15, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "proposed", to: "active", at: "2026-10-16T01:54:06Z", actor: "human:timo", revision: 16, decided_on: {"recorded":{"review_outcome":4}}}
+- {from: "active", to: "implemented", at: "2026-10-16T01:54:06Z", actor: "human:timo", revision: 17, decided_on: {"recorded":{"test_result":1,"review_outcome":4}}}
 ---
 ## Why
 
@@ -34,8 +38,8 @@ spike used (`docs/analysis/session-box-spike.md`).
 ## Acceptance
 
 - The `systemd` provider implements `story:session-envelope-seam`'s trait: each instance has a user
-  slice `conductor-<prefix>.slice`, or `conductor.slice` without a prefix, carrying the instance's
-  `limits`; `start` runs the session in a unit `conductor-<session name>.service` inside it, through
+  slice `conductor_<prefix>.slice` (no `-`, so instances are siblings; the live run of 2026-10-15 found `-` nests them), or `conductor.slice` without a prefix, carrying the instance's
+  `limits`; `start` runs the session in a unit `conductor_<session name>.service` inside it, through
   `systemd-run --user --unit … --slice … -p MemoryMax= -p CPUWeight= -p TasksMax=` from the role's
   `limits`, with the spike's PTY and FIFO launcher; `prompt` writes to the FIFO; `stop` is
   `systemctl --user stop`; `resume` starts a new unit running `claude --resume <id>`. Tests in

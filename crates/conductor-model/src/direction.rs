@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
-// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
+// model digest 40c20bbb4d63acca3906f077da8263de079c43e223f125be650cca4b9f7ce9b1
+// contract digest 58855859c8a79b4b6b8ca4a0fe7788d8c440ead165d3edeacd1fd23ed81d80a9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -117,6 +117,8 @@ pub struct Rules {
     pub section: Option<String>,
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
+    /// `brief` — `Optional<Boolean>`.
+    pub brief: Option<bool>,
 }
 
 /// RulesRefusal — `conductor.direction.RulesRefusal`: one of a closed set of names.
@@ -1354,10 +1356,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.ActivateRepository`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn activate_repository(
-            &mut self,
-            input: super::ActivateRepository,
-        ) -> Result<super::ActivateRepositoryOutcome, crate::obligation::UnmetObligation>;
+        fn activate_repository(&mut self, input: super::ActivateRepository) -> Result<super::ActivateRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.AddServing` — generated.
@@ -1368,10 +1367,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.AddServing`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn add_serving(
-            &mut self,
-            input: super::AddServing,
-        ) -> Result<super::AddServingOutcome, crate::obligation::UnmetObligation>;
+        fn add_serving(&mut self, input: super::AddServing) -> Result<super::AddServingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.ConfirmGoal` — generated.
@@ -1382,10 +1378,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.ConfirmGoal`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn confirm_goal(
-            &mut self,
-            input: super::ConfirmGoal,
-        ) -> Result<super::ConfirmGoalOutcome, crate::obligation::UnmetObligation>;
+        fn confirm_goal(&mut self, input: super::ConfirmGoal) -> Result<super::ConfirmGoalOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.DeactivateRepository` — generated.
@@ -1396,10 +1389,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.DeactivateRepository`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn deactivate_repository(
-            &mut self,
-            input: super::DeactivateRepository,
-        ) -> Result<super::DeactivateRepositoryOutcome, crate::obligation::UnmetObligation>;
+        fn deactivate_repository(&mut self, input: super::DeactivateRepository) -> Result<super::DeactivateRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.DropGoal` — generated.
@@ -1410,10 +1400,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.DropGoal`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn drop_goal(
-            &mut self,
-            input: super::DropGoal,
-        ) -> Result<super::DropGoalOutcome, crate::obligation::UnmetObligation>;
+        fn drop_goal(&mut self, input: super::DropGoal) -> Result<super::DropGoalOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.MarkGoalMet` — generated.
@@ -1424,10 +1411,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.MarkGoalMet`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn mark_goal_met(
-            &mut self,
-            input: super::MarkGoalMet,
-        ) -> Result<super::MarkGoalMetOutcome, crate::obligation::UnmetObligation>;
+        fn mark_goal_met(&mut self, input: super::MarkGoalMet) -> Result<super::MarkGoalMetOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.MarkRepository` — generated.
@@ -1438,10 +1422,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.MarkRepository`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn mark_repository(
-            &mut self,
-            input: super::MarkRepository,
-        ) -> Result<super::MarkRepositoryOutcome, crate::obligation::UnmetObligation>;
+        fn mark_repository(&mut self, input: super::MarkRepository) -> Result<super::MarkRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.ProposeGoal` — generated.
@@ -1452,10 +1433,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.ProposeGoal`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn propose_goal(
-            &mut self,
-            input: super::ProposeGoal,
-        ) -> Result<super::ProposeGoalOutcome, crate::obligation::UnmetObligation>;
+        fn propose_goal(&mut self, input: super::ProposeGoal) -> Result<super::ProposeGoalOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.RemoveServing` — generated.
@@ -1466,10 +1444,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.RemoveServing`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn remove_serving(
-            &mut self,
-            input: super::RemoveServing,
-        ) -> Result<super::RemoveServingOutcome, crate::obligation::UnmetObligation>;
+        fn remove_serving(&mut self, input: super::RemoveServing) -> Result<super::RemoveServingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.direction.GoalServings` — generated.
@@ -1480,9 +1455,7 @@ pub mod obligations {
         /// Serves `conductor.direction.GoalServings` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn goal_servings(
-            &self,
-        ) -> Result<Vec<super::GoalServings>, crate::obligation::UnmetObligation>;
+        fn goal_servings(&self) -> Result<Vec<super::GoalServings>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.direction.Goals` — generated.
@@ -1504,8 +1477,7 @@ pub mod obligations {
         /// Serves `conductor.direction.RepositoryMarks` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn repository_marks(
-            &self,
-        ) -> Result<Vec<super::RepositoryMarks>, crate::obligation::UnmetObligation>;
+        fn repository_marks(&self) -> Result<Vec<super::RepositoryMarks>, crate::obligation::UnmetObligation>;
     }
+
 }

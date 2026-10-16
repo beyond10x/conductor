@@ -353,7 +353,9 @@ fn asset(index: &str, attribute: &str, extension: &str) -> String {
 const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'";
 
 /// `story:dashboard-spa`: `GET /` answers the app's `index.html` as the build wrote it, which
-/// loads its script and its style from this server and carries no data of its own.
+/// loads its script and its style from this server and carries no data of its own; since
+/// `story:decisions-batch-answer` it carries one thing more, the token a batch of answers is taken
+/// with, as `<meta name="conductor-token" content="<64 hex digits>">` before `</head>`.
 #[test]
 fn get_slash_answers_the_embedded_index_html() {
     let case = Case::new("index");
@@ -368,7 +370,32 @@ fn get_slash_answers_the_embedded_index_html() {
         index.head
     );
     let built = fs::read_to_string(dist().join("index.html")).expect("read the built index.html");
-    assert_eq!(index.body, built, "GET / is not the embedded index.html");
+    let opening = r#"<meta name="conductor-token" content=""#;
+    let token: String = index
+        .body
+        .find(opening)
+        .map(|at| {
+            index.body[at + opening.len()..]
+                .chars()
+                .take_while(char::is_ascii_hexdigit)
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        token.len(),
+        64,
+        "the page carries no token:\n{}",
+        index.body
+    );
+    let head_end = built
+        .find("</head>")
+        .expect("the built index.html has a head");
+    let expected = format!(
+        r#"{}<meta name="conductor-token" content="{token}">{}"#,
+        &built[..head_end],
+        &built[head_end..]
+    );
+    assert_eq!(index.body, expected, "GET / is not the embedded index.html");
     assert!(
         index.body.contains("<div id=\"app\">"),
         "index.html mounts no app:\n{}",

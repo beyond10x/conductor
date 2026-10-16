@@ -1,13 +1,41 @@
 // generated from conductor v1
-// model digest 95b5fdc5ee5741275f8a04a2f6016eb24b70c0ff5b80322a60f5b0055f62a86a
-// contract digest 1789a9b905c75f131dca1e163c77a262d0b9c2e7074436f1f368cf17a6a6b3d2
+// model digest 40c20bbb4d63acca3906f077da8263de079c43e223f125be650cca4b9f7ce9b1
+// contract digest 58855859c8a79b4b6b8ca4a0fe7788d8c440ead165d3edeacd1fd23ed81d80a9
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.
 //!
 //! The one conductor of an instance (story:single-conductor-lease). The lease, kept in the store under the instance's state directory, names the session id and the process id of the conductor session that holds it. Every conductor session started with the instance's settings claims it at its start, through the settings' SessionStart hook; a claim while another live process holds it is refused and names that holder, and a claim over a holder whose process is gone takes the lease over and records whom it took it from. Design: docs/design/conductor.md § 7.
+//! It also holds how conductor starts and stops the sessions of an instance's roles in the box the instance's `confinement` asks for (story:sandbox-spec, story:session-envelope-seam): the request a provider is given, the identity of the session it started, and the measurement it takes at the box's boundary, kept per session under the instance's state directory.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// EnvelopeMeasurement — `conductor.session.EnvelopeMeasurement`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvelopeMeasurement {
+    /// `session` — `conductor.session.StartedSession`.
+    pub session: StartedSession,
+    /// `measured_at` — `Timestamp`.
+    pub measured_at: crate::primitives::Timestamp,
+    /// `provider` — `Optional<conductor.observation.EnvelopeProvider>`.
+    pub provider: Option<crate::observation::EnvelopeProvider>,
+    /// `cgroup` — `Optional<String>`.
+    pub cgroup: Option<String>,
+    /// `memory_max` — `Optional<Integer>`.
+    pub memory_max: Option<i64>,
+    /// `cpu_weight` — `Optional<Integer>`.
+    pub cpu_weight: Option<i64>,
+    /// `tasks_max` — `Optional<Integer>`.
+    pub tasks_max: Option<i64>,
+    /// `places` — `List<conductor.session.PlaceResolved>`.
+    pub places: Vec<PlaceResolved>,
+    /// `writable` — `Optional<String>`.
+    pub writable: Option<String>,
+    /// `fence_missing` — `Optional<String>`.
+    pub fence_missing: Option<String>,
+    /// `unboxed` — `Optional<String>`.
+    pub unboxed: Option<String>,
+}
 
 /// The states of `conductor.session.Lease`, as runtime values.
 ///
@@ -19,9 +47,114 @@ pub enum LeaseState {
     Held,
 }
 
+/// PlaceResolved — `conductor.session.PlaceResolved`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaceResolved {
+    /// `place` — `conductor.config.Writable`.
+    pub place: crate::config::Writable,
+    /// `paths` — `List<String>`.
+    pub paths: Vec<String>,
+}
+
 /// SessionId — `conductor.session.SessionId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionId(pub String);
+
+/// SessionRequest — `conductor.session.SessionRequest`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRequest {
+    /// `role` — `String`.
+    pub role: String,
+    /// `session_name` — `conductor.config.SessionName`.
+    pub session_name: crate::config::SessionName,
+    /// `cwd` — `String`.
+    pub cwd: String,
+    /// `limits` — `conductor.config.Limits`.
+    pub limits: crate::config::Limits,
+    /// `writable` — `List<conductor.session.PlaceResolved>`.
+    pub writable: Vec<PlaceResolved>,
+    /// `network` — `conductor.config.Network`.
+    pub network: crate::config::Network,
+    /// `forge_token_env` — `List<String>`.
+    pub forge_token_env: Vec<String>,
+}
+
+/// SessionStartRefusal — `conductor.session.SessionStartRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStartRefusal {
+    /// `InstanceNotPinned`.
+    InstanceNotPinned,
+    /// `ProviderUnavailable`.
+    ProviderUnavailable,
+    /// `MeasurementShort`.
+    MeasurementShort,
+    /// `UnknownRole`.
+    UnknownRole,
+    /// `SessionRunning`.
+    SessionRunning,
+    /// `LaunchFailed`.
+    LaunchFailed,
+}
+
+/// SessionStartRefused — `conductor.session.SessionStartRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionStartRefused {
+    /// `role` — `String`.
+    pub role: String,
+    /// `refusal` — `conductor.session.SessionStartRefusal`.
+    pub refusal: SessionStartRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
+
+/// SessionStopRefusal — `conductor.session.SessionStopRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStopRefusal {
+    /// `UnknownRole`.
+    UnknownRole,
+    /// `NotRunning`.
+    NotRunning,
+}
+
+/// SessionStopRefused — `conductor.session.SessionStopRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionStopRefused {
+    /// `role` — `String`.
+    pub role: String,
+    /// `refusal` — `conductor.session.SessionStopRefusal`.
+    pub refusal: SessionStopRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
+
+/// StartSession — `conductor.session.StartSession`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartSession {
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
+}
+
+/// StartedSession — `conductor.session.StartedSession`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartedSession {
+    /// `role` — `String`.
+    pub role: String,
+    /// `session_name` — `conductor.config.SessionName`.
+    pub session_name: crate::config::SessionName,
+    /// `provider` — `String`.
+    pub provider: String,
+    /// `unit` — `Optional<String>`.
+    pub unit: Option<String>,
+    /// `session_id` — `Optional<String>`.
+    pub session_id: Option<String>,
+}
+
+/// StopSession — `conductor.session.StopSession`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StopSession {
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
+}
 
 /// What Lease — `conductor.session.Lease` — holds, apart from where it is in its lifecycle.
 ///
@@ -54,13 +187,7 @@ impl LeaseData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(
-            Some(iv::Fact::integer(self.pid)),
-            iv::Op::Gt,
-            iv::Fact::number("0"),
-            false,
-            true,
-        )) {
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.pid)), iv::Op::Gt, iv::Fact::number("0"), false, true)) {
             return Some("pid > 0");
         }
         None
@@ -313,10 +440,7 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
-        fn claim_lease(
-            &mut self,
-            input: super::ClaimLease,
-        ) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation>;
+        fn claim_lease(&mut self, input: super::ClaimLease) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.session.Leases` — generated.
@@ -337,14 +461,8 @@ pub mod obligations {
     pub struct Unimplemented;
 
     impl ClaimLeaseBehavior for Unimplemented {
-        fn claim_lease(
-            &mut self,
-            _input: super::ClaimLease,
-        ) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation> {
-            Err(crate::obligation::UnmetObligation {
-                capability: "command behaviour",
-                source: "conductor.session.ClaimLease",
-            })
+        fn claim_lease(&mut self, _input: super::ClaimLease) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.session.ClaimLease" })
         }
     }
 }

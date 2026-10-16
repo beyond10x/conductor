@@ -1,0 +1,57 @@
+# story:decisions-page: a class-O escalation names what the operator chooses from. Escalated
+# without its kind, lettered options, recommended and default letters and deadline, the request is
+# refused and stays open; with them it waits for the operator, carrying each. A class-H escalation
+# needs none of them.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: escalate-o-with-options
+summary: A class-O escalation without its kind, options, recommendation, default or deadline is refused; with them it waits for the operator.
+
+timeline:
+  - at: 2026-10-15T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-page-o1
+      repository: cortex
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      recommendation: B
+      raised_at: 2026-10-15T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-15T09:00:01Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-page-o1
+      escalation_class: O
+      reason: an architecture choice
+    outcome: incomplete
+    error:
+      name: conductor.decision.EscalationIncomplete
+
+  - at: 2026-10-15T09:00:02Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-page-o1
+      escalation_class: O
+      reason: an architecture choice
+      kind: one-of
+      lettered_options:
+        - {letter: A, label: keep the file store, cost: nothing now}
+        - {letter: B, label: move to the tree store, cost: half a day of one controller}
+      recommended_letters: B
+      default_letters: A
+      deadline: 2026-10-16T09:00:00Z
+    outcome: escalated
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-page-o1
+      state: Escalated
+      kind: one-of
+      recommended_letters: B
+      default_letters: A

@@ -50,7 +50,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, bail};
 use conductor_model::config::{
     Config, DoctorReport, ForgeLogin, ForgeLoginState, Instance, Machine, Prerequisite,
-    PrerequisiteState, Source,
+    PrerequisiteState, ProviderAvailability, Source,
 };
 
 use crate::collect;
@@ -925,7 +925,7 @@ fn read_config(
 ///
 /// What [`doctor_with`] answers.
 pub fn doctor() -> Result<ExitCode> {
-    doctor_with(None)
+    doctor_with(None, &crate::confine::Host::default())
 }
 
 /// What `conductor doctor` found, before it is printed ([`check`]).
@@ -946,6 +946,9 @@ pub struct Doctor {
     pub watchers: Vec<Watcher>,
     /// The `b10x.toml` read, if any.
     pub pin_file: Option<PathBuf>,
+    /// One row per confinement provider (`story:session-envelope-seam`), which does not change
+    /// the verdict.
+    pub providers: Vec<ProviderAvailability>,
     /// The pins of that file, which win over the build's.
     project: Vec<(String, String)>,
     /// The package manager found for the machine's system ([`manager`]).
@@ -1011,6 +1014,7 @@ impl Doctor {
         {
             out.extend(lines(row, its(row.program.as_str())).into_iter().skip(1));
         }
+        out.extend(self.providers.iter().map(provider_line));
         out
     }
 
@@ -1064,6 +1068,7 @@ impl Doctor {
             machine: self.machine.clone(),
             prerequisites: self.rows.clone(),
             logins: self.logins.clone(),
+            providers: self.providers.clone(),
             verdict: verdict_of(&self.failures()),
         }
     }
@@ -1175,22 +1180,43 @@ pub fn check_in(
         workspaces,
         watchers,
         pin_file,
+        providers: crate::confine::availability(&crate::confine::Host::default()),
         project,
         manager,
     })
 }
 
-/// `conductor doctor`: every line of [`Doctor::lines`] for what [`check`] finds, and last the
-/// verdict, `ready` or `not ready: ` with what failed ([`verdict_of`]). Exits 1 when the config
-/// does not load, a program is missing, older than its pin, or pinned with a pin or version that
-/// does not read, or a forge CLI is not logged in to a host of the config file's sources; 0
-/// otherwise. Writes nothing.
+/// One confinement provider's row (`story:session-envelope-seam`): `provider <name>: available`,
+/// or `provider <name>: not available: <reason>`.
+#[must_use]
+pub fn provider_line(row: &ProviderAvailability) -> String {
+    if row.available {
+        format!("provider {}: available", row.provider)
+    } else {
+        format!(
+            "provider {}: not available: {}",
+            row.provider,
+            row.reason.as_deref().unwrap_or("no reason given")
+        )
+    }
+}
+
+/// `conductor doctor`: every line of [`Doctor::lines`] for what [`check`] finds, its provider rows
+/// those of `providers` ([`provider_line`]), and last the verdict, `ready` or `not ready: ` with
+/// what failed ([`verdict_of`]). Exits 1 when the config does not load, a program is missing,
+/// older than its pin, or pinned with a pin or version that does not read, or a forge CLI is not
+/// logged in to a host of the config file's sources; 0 otherwise. A provider that is not
+/// available changes no verdict. Writes nothing.
 ///
 /// # Errors
 ///
 /// What [`check`] answers.
-pub fn doctor_with(flag: Option<&Path>) -> Result<ExitCode> {
-    let doctor = check(flag)?;
+pub fn doctor_with(
+    flag: Option<&Path>,
+    providers: &dyn crate::confine::Providers,
+) -> Result<ExitCode> {
+    let mut doctor = check(flag)?;
+    doctor.providers = crate::confine::availability(providers);
     for line in doctor.lines() {
         println!("{line}");
     }

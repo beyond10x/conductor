@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-16T01:54:10Z",
+  "actor": "human:timo",
+  "artifact": "story:build-run-backfill",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check exit 0 on 61b16082 (wave/37); CI check, docs and Gates green on 18468f2f (PR #62)"
+  }
+}

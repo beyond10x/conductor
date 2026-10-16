@@ -10,6 +10,16 @@ summary: >
   same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records
   each step with the bytes it freed, or what is left when it cannot reach the floor.
 
+  The host directory (story:instance-isolation) is `host/` beside the config file, one for every
+  instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an
+  instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks
+  `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the
+  marker of the open fall of free disk `host.fall`, which names the item's instance: only that
+  instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its
+  `state` before is moved there once, at its first host command: every grant of its store, its run
+  locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
+  it was moved, and nothing is moved again.
+
 naming:
   wire: host
   display: Host
@@ -114,8 +124,10 @@ entities:
   # reservation runs its command in its own process group, records the peak the run measured, and is
   # released when the command exits or is killed. Nothing expires by time: a live grant whose
   # process group is gone is released, with `ProcessGroupGone`, by the next command that reads the
-  # ledger, before that command answers. The ledger's state names map onto the lifecycle as written
-  # (`Requested`, `Granted`, `Running`, `Released`, `Refused`).
+  # ledger, before that command answers. A request whose `build run` is stopped by a signal while
+  # it still waits in the queue is withdrawn (story:build-run-cancel-group). The ledger's state
+  # names map onto the lifecycle as written (`Requested`, `Granted`, `Running`, `Released`,
+  # `Refused`, `Withdrawn`).
   - name: conductor.host.HostGrant
     identity:
       name: grant_id
@@ -164,8 +176,8 @@ entities:
         type: Optional<conductor.host.ReleaseReason>
     lifecycle:
       initial: Requested
-      states: [Requested, Granted, Running, Released, Refused]
-      terminal: [Released, Refused]
+      states: [Requested, Granted, Running, Released, Refused, Withdrawn]
+      terminal: [Released, Refused, Withdrawn]
       transitions:
         - name: grant
           from: [Requested]
@@ -173,6 +185,9 @@ entities:
         - name: refuse
           from: [Requested]
           to: Refused
+        - name: withdraw
+          from: [Requested]
+          to: Withdrawn
         - name: start
           from: [Granted]
           to: Running
@@ -301,6 +316,11 @@ events:
       - name: reason
         type: Optional<conductor.host.ReleaseReason>
 
+  - name: conductor.host.DiskRequestWithdrawn
+    fields:
+      - name: grant_id
+        type: conductor.host.GrantId
+
   - name: conductor.host.DiskReclaimed
     fields:
       - name: reclaim_run_id
@@ -372,13 +392,16 @@ commands:
   # ReserveDisk; nobody is asked.
   #
   # The requests in `Requested` whose run still waits form the host's queue, in arrival order
-  # (`requested_at`, then `grant_id`) (story:build-run-queue). Only the head is answered: a later
-  # request waits behind it even when it alone would fit, so a small build never overtakes a large
-  # one made before it. The head is answered once it fits, once what it lacks exceeds what the
-  # live reservations hold (refused: their release cannot cover it), or once it has waited the
-  # run's bound for them (refused); since nothing behind it is granted meanwhile, the live
-  # reservations only shrink while it waits. A request that has waited longer than
-  # `thresholds.watchdog_every` names its position in the queue on standard error.
+  # (`requested_at`, then `grant_id`) (story:build-run-queue). The head is answered once it fits,
+  # once what it lacks exceeds what the live reservations hold (refused: their release cannot
+  # cover it), or once it has waited the run's bound for them (refused). A later request waits
+  # behind it, even when it alone would fit, while any request ahead of it lacks no more than the
+  # live reservations hold: that one waits for them, and since nothing behind it is granted
+  # meanwhile, they only shrink while it waits. When every request ahead lacks more than the live
+  # reservations hold together, so each can only be refused, a later request that fits beside the
+  # floor and the live reservations is granted at once (story:build-run-backfill). A request that
+  # has waited longer than `thresholds.watchdog_every` names its position in the queue on standard
+  # error.
   - name: conductor.host.RequestDisk
     naming:
       wire: request-disk
@@ -429,7 +452,9 @@ commands:
   # ledger's lock, what the disk lacks for the requested bytes once free disk, the live reservations
   # of every instance and the floor are counted (`shortfall_bytes`, 0 when it fits). When it does
   # not fit it runs a reclaim run first (`Reclaim`), counts again, and passes what that run freed as
-  # `reclaimed_bytes`.
+  # `reclaimed_bytes`. When a reclaim run that finished within the last five minutes freed nothing,
+  # it runs none and answers at once with `reclaimed_bytes` 0, naming that run
+  # (story:build-run-backfill).
   - name: conductor.host.ReserveDisk
     naming:
       wire: reserve-disk
@@ -650,6 +675,45 @@ commands:
           conductor.host.HostGrantStateConflict:
             grant_id: input.grant_id
         summary: The grant was released before, or refused; nothing changes.
+
+  # A request still waiting in the queue whose `build run` received SIGTERM, SIGINT or SIGHUP
+  # (story:build-run-cancel-group): it leaves the queue, its command never runs, and `build run`
+  # exits with 128 + the signal. `released_at` is when it was withdrawn.
+  - name: conductor.host.WithdrawDiskRequest
+    naming:
+      wire: withdraw-disk-request
+      display: Withdraw a waiting disk request
+    input:
+      - name: grant_id
+        type: conductor.host.GrantId
+      - name: withdrawn_at
+        type: Timestamp
+    outcomes:
+      - name: withdrawn
+        moves: conductor.host.HostGrant.withdraw
+        instance: grant_id
+        sets:
+          released_at: input.withdrawn_at
+        emits:
+          - conductor.host.DiskRequestWithdrawn
+        payload:
+          conductor.host.DiskRequestWithdrawn:
+            grant_id: input.grant_id
+        summary: The request leaves the queue; the requests behind it move up.
+      - name: no-such-grant
+        unknown_instance: true
+        error: conductor.host.HostGrantNotFound
+        payload:
+          conductor.host.HostGrantNotFound:
+            grant_id: input.grant_id
+        summary: No grant with that id.
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.host.HostGrantStateConflict
+        payload:
+          conductor.host.HostGrantStateConflict:
+            grant_id: input.grant_id
+        summary: Only a request still waiting is withdrawn; an answered one is released or was refused.
 
   # One reclaim run as `conductor host reclaim` records it: the steps it applied in order with the
   # bytes each freed, and, when free disk is still under the floor after the last reclaimable

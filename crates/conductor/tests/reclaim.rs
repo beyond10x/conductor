@@ -20,16 +20,19 @@ mod active;
 mod common;
 
 use std::fs::{self, File};
-use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
+use conductor_cli::config::CONFIG_VARIABLE;
 use conductor_cli::gc::reclaim::{READINGS_VARIABLE, VAR_TMP_VARIABLE, floor_bytes};
 use conductor_cli::store;
 use conductor_model::behaviour::Generated;
 use conductor_model::host::obligations::ReclaimRunsQuery as _;
 use conductor_model::host::{ReclaimKind, ReclaimResult, ReclaimRuns};
+use nix::sys::stat::lutimes;
+use nix::sys::time::TimeVal;
 use serde_json::{Value, json};
 
 const KIB: u64 = 1 << 10;
@@ -681,5 +684,166 @@ fn reclaim_deletes_stale_scratch_and_caches_and_never_what_is_held_dirty_a_tree_
         caches, 4,
         "each deletion is a step of the run: {:?}",
         runs[0]
+    );
+}
+
+/// Sets the modification time of the link `link` itself, not of what it names, to two days ago.
+fn age_link(link: &Path) {
+    let then = SystemTime::now() - TWO_DAYS;
+    let seconds = then
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let time = TimeVal::new(i64::try_from(seconds).expect("a time"), 0);
+    lutimes(link, &time, &time).expect("set a link's modification time");
+}
+
+impl Case {
+    /// `conductor host reclaim <args>` as [`Case::reclaim`] runs it, under a config file whose
+    /// instance keeps its records in `records` and its state in the case's state directory.
+    fn reclaim_with_records(&self, records: &Path, args: &[&str]) -> Output {
+        let config = self.dir.join("conductor.yaml");
+        write(
+            &config,
+            &format!(
+                "version: conductor.config/1\ninstances:\n  - name: example-org\n    sources: \
+                 [{{github: example-org}}]\n    checkouts: {{root: {:?}, trees: {:?}}}\n    \
+                 records: {:?}\n    state: {:?}\n    cache: {:?}\n",
+                self.home().join("example-org"),
+                self.home().join(".local/state/worktree/trees"),
+                records,
+                self.state(),
+                self.dir.join("cache"),
+            ),
+        );
+        let path = format!("{}:/usr/bin:/bin", self.bin().display());
+        common::conductor(self.home())
+            .env(CONFIG_VARIABLE, &config)
+            .arg("--state-dir")
+            .arg(self.state())
+            .args(["host", "reclaim"])
+            .args(args)
+            .current_dir(self.records())
+            .env("PATH", path)
+            .env(READINGS_VARIABLE, self.dir.join("free.txt"))
+            .env(VAR_TMP_VARIABLE, self.var_tmp())
+            .stdin(Stdio::null())
+            .output()
+            .expect("conductor runs")
+    }
+}
+
+/// `story:reclaim-alias-protected`, the external review's probe: a scratch root that is itself a
+/// link (`~/.cache/claude-tmp` naming `/var/tmp`) leads to the instance's records under it. The
+/// root is skipped and named on standard error, and the records stay.
+#[test]
+fn reclaim_preserves_own_records_reached_through_a_scratch_root_symlink() {
+    let case = Case::new("alias-root");
+    let records = case.var_tmp().join("records");
+    let valuable = records.join("NORTHSTAR.md");
+    write(&valuable, "The instance's retained direction and decisions");
+    age_by(&case.var_tmp(), TWO_DAYS);
+    let root = case.home().join(".cache/claude-tmp");
+    fs::create_dir_all(case.home().join(".cache")).expect("create the cache directory");
+    symlink(case.var_tmp(), &root).expect("link the scratch root");
+    // Never over the floor: every step is taken.
+    case.readings(&[10]);
+    let output = case.reclaim_with_records(&records, &[]);
+    assert!(
+        valuable.is_file(),
+        "reclaim deleted the instance's records through a linked scratch root: {}",
+        shown(&output)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&root.display().to_string()) && stderr.contains("link"),
+        "the linked root is named on standard error: {}",
+        shown(&output)
+    );
+}
+
+/// `story:reclaim-alias-protected`: an entry of a scratch root that is a link is removed as a
+/// link, never followed: a stale link to a directory outside the instance goes and what it names
+/// stays; a link whose target is one of the instance's own places is refused.
+#[test]
+fn reclaim_removes_a_stale_entry_link_as_a_link_and_refuses_one_into_the_records() {
+    let case = Case::new("alias-entry");
+    let records = case.dir.join("records-elsewhere");
+    let valuable = records.join("NORTHSTAR.md");
+    write(&valuable, "The instance's retained direction and decisions");
+    let outside = case.dir.join("outside");
+    let data = outside.join("data.bin");
+    fill(&data, 64 * KIB);
+    let scratch = case.home().join(".cache/claude-tmp");
+    fs::create_dir_all(&scratch).expect("create the scratch root");
+    age_by(&records, TWO_DAYS);
+    age_by(&outside, TWO_DAYS);
+    let into_records = scratch.join("records-link");
+    symlink(&records, &into_records).expect("link to the records");
+    let stale = scratch.join("stale-link");
+    symlink(&outside, &stale).expect("link outside the instance");
+    age_link(&into_records);
+    age_link(&stale);
+    case.readings(&[10]);
+    let output = case.reclaim_with_records(&records, &[]);
+    assert!(valuable.is_file(), "the records stay: {}", shown(&output));
+    assert!(
+        fs::symlink_metadata(&into_records).is_ok_and(|meta| meta.file_type().is_symlink()),
+        "a link into the records is refused: {}",
+        shown(&output)
+    );
+    assert!(
+        fs::symlink_metadata(&stale).is_err(),
+        "the stale link is removed: {}",
+        shown(&output)
+    );
+    assert!(
+        data.is_file(),
+        "what the removed link named stays: {}",
+        shown(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        steps(&stdout)
+            .iter()
+            .any(|(_, kind, path)| kind == "cache" && *path == stale.display().to_string()),
+        "the link's removal is a step: {}",
+        shown(&output)
+    );
+}
+
+/// `story:reclaim-alias-protected`: a link deeper in a scratch entry is never followed, so the
+/// entry goes and the records it names stay; and a scratch root reached through a linked parent
+/// (`~/.cache` naming another directory) is resolved, so an entry there that is the instance's
+/// records is refused although its path does not name them.
+#[test]
+fn reclaim_never_follows_a_nested_link_into_the_records() {
+    let case = Case::new("alias-nested");
+    let elsewhere = case.dir.join("elsewhere-cache");
+    let records = elsewhere.join("claude-tmp/records");
+    let valuable = records.join("NORTHSTAR.md");
+    write(&valuable, "The instance's retained direction and decisions");
+    let nested = elsewhere.join("claude-tmp/nested");
+    fill(&nested.join("deep/data.bin"), 64 * KIB);
+    age_by(&elsewhere, TWO_DAYS);
+    let link = nested.join("deep/records-link");
+    symlink(&records, &link).expect("link to the records");
+    age_link(&link);
+    // The directory the link was added to, aged again after it.
+    File::open(nested.join("deep"))
+        .and_then(|dir| dir.set_modified(SystemTime::now() - TWO_DAYS))
+        .expect("age the directory");
+    symlink(&elsewhere, case.home().join(".cache")).expect("link the cache directory");
+    case.readings(&[10]);
+    let output = case.reclaim_with_records(&records, &[]);
+    assert!(
+        valuable.is_file(),
+        "reclaim deleted the records through a linked parent or a nested link: {}",
+        shown(&output)
+    );
+    assert!(
+        !nested.exists(),
+        "the stale entry holding the nested link is deleted: {}",
+        shown(&output)
     );
 }

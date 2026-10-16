@@ -41,9 +41,13 @@
 //! checkouts, and [`collect_from`] against the built-in instance's under [`Sources::home`]
 //! ([`collect::built_in_checkouts`]); the last two place no session as conductor's.
 //!
-//! No source shows the box a session runs in, so every `envelope_*` field is recorded absent:
-//! the measured envelope (`story:session-envelope-model`) is what starts a session in a box to
-//! record, not this collector to guess.
+//! No source shows the box a session runs in. What started it in one measured it and wrote the
+//! measurement to `<state>/sessions/<name>.envelope.json` ([`confine::record_path`],
+//! `story:session-envelope-seam`); a placed session with a name has its `envelope_*` fields read
+//! from the record of that name under the recorder's state directory, unless the record names
+//! another session id than the list's. Every other session's are recorded absent: nothing
+//! measured it, and this collector does not guess. A record that is there and cannot be read
+//! fails the collector, naming its path.
 //!
 //! Both sources are read whole before anything is recorded, so a collector that fails records no
 //! session. A Codex file whose first line is not written to its end yet is left for the next
@@ -57,7 +61,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{Checkouts, Instance};
+use conductor_model::config::{Checkouts, Instance, SessionName};
 use conductor_model::observation::{
     Harness, RecordSession, RepositoryName, SessionState, SnapshotId,
 };
@@ -66,6 +70,7 @@ use serde_json::Value;
 use super::{BOUND, Under, run};
 use crate::collect;
 use crate::config;
+use crate::confine;
 use crate::snapshot::Recorder;
 
 /// How recently a Codex session file must have been written for its thread to count as live.
@@ -249,9 +254,45 @@ fn collect_named(
     let mut sessions = claude(sources)?;
     sessions.extend(codex(sources)?);
     let snapshot = record.snapshot().clone();
+    let state = record.state().ok().map(Path::to_owned);
+    let mut observations = Vec::with_capacity(sessions.len());
     for session in sessions {
-        record.session(session.observation(snapshot.clone(), &places, exclude, names))?;
+        let mut observation = session.observation(snapshot.clone(), &places, exclude, names);
+        if let Some(state) = &state {
+            measured(state, &mut observation)?;
+        }
+        observations.push(observation);
     }
+    for observation in observations {
+        record.session(observation)?;
+    }
+    Ok(())
+}
+
+/// Fills `observation`'s `envelope_*` fields from the measurement of its session name under
+/// `state`, when there is one for that session.
+fn measured(state: &Path, observation: &mut RecordSession) -> Result<()> {
+    let Some(name) = &observation.name else {
+        return Ok(());
+    };
+    let Some(measurement) = confine::read_measurement(state, &SessionName(name.clone()))? else {
+        return Ok(());
+    };
+    if measurement
+        .session
+        .session_id
+        .as_deref()
+        .is_some_and(|id| id != observation.session_ref)
+    {
+        return Ok(());
+    }
+    observation.envelope_provider = measurement.provider;
+    observation.envelope_cgroup = measurement.cgroup;
+    observation.envelope_memory_max = measurement.memory_max;
+    observation.envelope_cpu_weight = measurement.cpu_weight;
+    observation.envelope_tasks_max = measurement.tasks_max;
+    observation.envelope_writable = measurement.writable;
+    observation.envelope_unboxed = measurement.unboxed;
     Ok(())
 }
 
@@ -325,7 +366,7 @@ impl Live {
             role,
             activity: self.activity,
             // Neither list says what box a session runs in; the envelope is measured by what
-            // starts it in one (`story:session-envelope-model`), and absent here.
+            // starts it in one, and read from its record afterwards ([`measured`]).
             envelope_provider: None,
             envelope_cgroup: None,
             envelope_memory_max: None,

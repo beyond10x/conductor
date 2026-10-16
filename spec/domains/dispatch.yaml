@@ -80,10 +80,19 @@ types:
   # `NoCharter`, the charter file is missing, empty, not text, or starts with `-`, which `claude`
   # would read as a flag; `LaunchFailed`, `claude --bg` failed after the controller was recorded,
   # which is then recorded stopped unless the session list, read again, shows a live session of the
-  # name, or cannot be read: then the controller stays `Running`.
+  # name, or cannot be read: then the controller stays `Running`. Two come from the instance's
+  # `confinement` under `mode: strict` (story:sandbox-spec): `ProviderUnavailable`, the provider is
+  # not available on this host, found before anything is recorded; `MeasurementShort`, the box the
+  # provider measured at the session's boundary is short of the request
+  # (`conductor.session.EnvelopeMeasurement`): the session is stopped and the controller recorded
+  # stopped. `InstanceNotPinned` (story:instance-isolation), under a config file: the controller
+  # role's settings file is no JSON or pins another instance (`conductor.config.Role`), found
+  # before anything is recorded. A settings file that pins no instance starts the session with a
+  # copy pinned to the instance, `<state>/sessions/<session name>.settings.json`.
   - name: conductor.dispatch.SpawnRefusal
     kind: enum
     variants:
+      - InstanceNotPinned
       - AlreadyRunning
       - SessionRunning
       - SessionsUnread
@@ -96,6 +105,8 @@ types:
       - UntrustedCheckout
       - NoCharter
       - LaunchFailed
+      - ProviderUnavailable
+      - MeasurementShort
 
   # A refusal of `conductor spawn`: the repository it was asked to start, why, and what it found.
   - name: conductor.dispatch.SpawnRefused

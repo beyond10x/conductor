@@ -15,7 +15,7 @@ concurrency:
 
 env:
   # The tool versions pinned in b10x.toml, as released.
-  ESS_VERSION: "0.59.0"
+  ESS_VERSION: "0.60.0"
   AEP_VERSION: "0.71.2"
   TASK_VERSION: "v3.53.1"
   CARGO_TERM_COLOR: never

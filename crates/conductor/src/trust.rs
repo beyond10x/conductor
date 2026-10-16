@@ -12,7 +12,8 @@
 
 use std::fmt;
 use std::fs::{self, File};
-use std::io::Write as _;
+use std::io::{self, Write as _};
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -172,18 +173,32 @@ impl<'de> Visitor<'de> for JsonVisitor {
 #[derive(Debug)]
 pub struct Edit {
     file: PathBuf,
-    read: Vec<u8>,
+    /// The file's content as read, or none when it was not there.
+    read: Option<Vec<u8>>,
     document: Json,
 }
 
 impl Edit {
-    /// Reads `file`, which must hold a JSON object.
+    /// Reads `file`, which must hold a JSON object; a file that is not there, as on a host where
+    /// Claude Code has not run yet, reads as `{}`.
     ///
     /// # Errors
     ///
     /// The file cannot be read, or holds no JSON object.
     pub fn read(file: &Path) -> Result<Self> {
-        let read = fs::read(file).with_context(|| format!("read {}", file.display()))?;
+        let read = match fs::read(file) {
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(Self {
+                    file: file.to_owned(),
+                    read: None,
+                    document: Json::Object(Vec::new()),
+                });
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("read {}", file.display()));
+            }
+        };
         let document: Json = serde_json::from_slice(&read)
             .with_context(|| format!("{} is not JSON", file.display()))?;
         if !matches!(document, Json::Object(_)) {
@@ -191,7 +206,7 @@ impl Edit {
         }
         Ok(Self {
             file: file.to_owned(),
-            read,
+            read: Some(read),
             document,
         })
     }
@@ -206,22 +221,34 @@ impl Edit {
     }
 
     /// Writes the document over the file: to a temporary file in its directory, with its mode,
-    /// then renamed over it. Refuses, writing nothing and leaving no temporary file, when the
-    /// file's content is no longer what [`Edit::read`] read.
+    /// then renamed over it. A file that was not there is created with mode `0600`, readable by
+    /// its owner only, and linked into place only while it is still not there. Refuses, writing
+    /// nothing and leaving no temporary file, when the file's content is no longer what
+    /// [`Edit::read`] read, or a file that was not there now is.
     ///
     /// # Errors
     ///
-    /// The file changed since it was read, or a write, mode change or rename failed.
+    /// The file changed since it was read, or a write, mode change, link or rename failed.
     pub fn write(self) -> Result<()> {
         let file = &self.file;
         let mut text = serde_json::to_vec_pretty(&self.document)
             .with_context(|| format!("render {}", file.display()))?;
-        if self.read.ends_with(b"\n") {
+        if self.read.as_ref().is_none_or(|read| read.ends_with(b"\n")) {
             text.push(b'\n');
         }
-        let permissions = fs::metadata(file)
-            .with_context(|| format!("read the mode of {}", file.display()))?
-            .permissions();
+        let permissions = match &self.read {
+            Some(_) => fs::metadata(file)
+                .with_context(|| format!("read the mode of {}", file.display()))?
+                .permissions(),
+            None => fs::Permissions::from_mode(0o600),
+        };
+        let changed = || {
+            anyhow!(
+                "{} changed while conductor trust ran (its content is not what was read); \
+                 nothing is written: run conductor trust again",
+                file.display()
+            )
+        };
         let dir = file
             .parent()
             .ok_or_else(|| anyhow!("{} has no directory", file.display()))?;
@@ -244,18 +271,24 @@ impl Edit {
             out.write_all(&text)
                 .and_then(|()| out.sync_all())
                 .with_context(|| format!("write {}", temporary.display()))?;
+            let Some(read) = &self.read else {
+                // Linked, not renamed: a file that appeared meanwhile is never replaced.
+                return match fs::hard_link(&temporary, file) {
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(changed()),
+                    linked => linked.with_context(|| {
+                        format!("link {} to {}", temporary.display(), file.display())
+                    }),
+                };
+            };
             let now = fs::read(file).with_context(|| format!("read {}", file.display()))?;
-            if now != self.read {
-                bail!(
-                    "{} changed while conductor trust ran (its content is not what was read); \
-                     nothing is written: run conductor trust again",
-                    file.display()
-                );
+            if now != *read {
+                return Err(changed());
             }
             fs::rename(&temporary, file)
                 .with_context(|| format!("rename {} to {}", temporary.display(), file.display()))
         })();
-        if written.is_err() {
+        // A rename leaves no temporary file; a failure or a link leaves one to remove.
+        if written.is_err() || self.read.is_none() {
             let _ = fs::remove_file(&temporary);
         }
         written
@@ -322,8 +355,8 @@ pub fn paths(instance: &Instance, index: usize) -> Result<Vec<String>> {
 }
 
 /// `conductor trust`: marks the instance's checkouts and records directory trusted in
-/// `~/.claude.json` and prints one line per path it trusted. The instance is selected as for
-/// `config show`, and a config file must name it.
+/// `~/.claude.json`, which it creates when it is not there, and prints one line per path it
+/// trusted. The instance is selected as for `config show`, and a config file must name it.
 ///
 /// # Errors
 ///

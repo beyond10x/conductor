@@ -1,14 +1,20 @@
-//! `conductor spawn` (`story:spawn`): starts a repository's controller session, and the session
-//! end behind `controller stop-controller`.
+//! `conductor spawn` (`story:spawn`): starts a repository's controller session; and the session
+//! end and resume behind `controller pause-controller`, `resume-controller` and `stop-controller`.
 //!
 //! The command is presented by the `ess-cli/1` binding `crates/conductor/cli.yaml`, over the
 //! `local` callable `spawn`, its input `conductor.dispatch.SpawnController`; each refusal is a
 //! `conductor.dispatch.SpawnRefused`, named by its `conductor.dispatch.SpawnRefusal` on one line of
 //! standard error, exit 1.
 //!
-//! It runs the controller start form of the conductor profile (`.agents/conductor.md`), as one
-//! program with its arguments and never through a shell, with its working directory the checkout
-//! `<checkouts.root>/<repository>`:
+//! It starts the controller through the confinement provider the instance's `confinement` names
+//! ([`crate::confine`], `story:session-envelope-seam`), with the controller role's request: the
+//! checkout as its start directory, its limits, its `writable` places resolved to absolute paths
+//! ([`crate::confine::places`]), its network and its `forge_token_env`; the charter is the first
+//! prompt. Under `strict` a provider that is not available refuses before anything is recorded
+//! (`ProviderUnavailable`), and a box measured short of the request is stopped and the controller
+//! recorded stopped (`MeasurementShort`). Through the `none` provider, which `report` falls back
+//! to, the session is the controller start form below, one program with its arguments and never
+//! through a shell, with its working directory the checkout `<checkouts.root>/<repository>`:
 //!
 //! ```text
 //! claude --bg -n <session name> --append-system-prompt-file <profile> --model <model>
@@ -20,7 +26,10 @@
 //! model and settings are the instance's `controller` role's; the charter is the text of
 //! `<records>/charters/<repository>.md`, one argument. With a config file the session also gets
 //! the instance's name and the config file's absolute path in `CONDUCTOR_INSTANCE` and
-//! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it.
+//! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it. The
+//! settings must not pin another instance (`InstanceNotPinned`, `story:instance-isolation`); ones
+//! that pin none, as the shipped `.claude/controller-settings.json` does, are passed as a copy
+//! pinned to the instance, `<state>/sessions/<session name>.settings.json`.
 //!
 //! In order, it refuses, recording and launching nothing: a repository that names no git
 //! checkout directly, or one group down, under the checkouts root, one whose physical path lies
@@ -39,44 +48,48 @@
 //! said; it is recorded `StopController` only when the session list, read again, shows no live
 //! session of the name. A live one, or a list that cannot be read, leaves the controller `Running`,
 //! and the refusal names the session or says so. It prints what `claude --bg` printed: the background session's id.
+//! A provider whose session prints nothing to conductor, as the `systemd` provider's runs in its
+//! unit, answers the id it chose, and `spawn` prints that id on one line.
+//!
+//! [`end`] and [`resume`] stop and resume a controller session through its instance's provider,
+//! for `controller pause-controller`, `resume-controller` and `stop-controller`
+//! ([`crate::controller`]): the session's provider, unit and id are those its measurement
+//! records under the state directory.
 //!
 //! A launch that succeeds appends one `sent` line to the records' dispatch log
 //! ([`crate::records`]): the repository as `repo`, the controller's id, the session name as `to`,
 //! that session id and the charter revision 1.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Write as _};
-use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Output, Stdio};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::config::{CommandWord, Harness as RoleHarness, Instance, Role};
+use conductor_model::config::{
+    CommandWord, ConfinementProvider, Harness as RoleHarness, Instance, Limits, Network, Role,
+    SessionName,
+};
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
     ControllerAlreadyRunning, DispatchLogEvent, SpawnController, SpawnRefusal, SpawnRefused,
     StartController, StartControllerOutcome, StopController, StopControllerOutcome,
 };
 use conductor_model::observation::{Harness, RepositoryName};
+use conductor_model::session::{SessionRequest, StartedSession};
 use serde_json::Value;
 
-use crate::cli::{SpawnArgs, StopControllerArgs};
+use crate::cli::SpawnArgs;
 use crate::collect::{self, Under};
 use crate::config::{self, Environment};
-use crate::not_implemented;
+use crate::confine::places::{self, Placement};
+use crate::confine::{self, CLAUDE, Launch, Providers, Refusal, live_session};
 
 const COMMAND: &str = "spawn";
 
-/// The program `spawn` starts, found on `PATH`.
-const CLAUDE: &str = "claude";
-
-/// How long the session list and the launch may each take before they are stopped.
-const BOUND: Duration = Duration::from_secs(120);
-
-/// `conductor spawn`: starts the controller session of `--repository` and records the controller
-/// `Running`, as the module documentation says. Prints what `claude --bg` printed.
+/// `conductor spawn`: starts the controller session of `--repository` through the provider the
+/// instance's `confinement` names ([`confine`]) and records the controller `Running`, as the
+/// module documentation says. Prints what `claude --bg` printed, or the id the provider chose.
 ///
 /// # Errors
 ///
@@ -86,6 +99,7 @@ pub fn spawn(
     config_flag: Option<&Path>,
     state: Option<&Path>,
     args: &SpawnArgs,
+    providers: &dyn Providers,
 ) -> Result<ExitCode> {
     let input = SpawnController {
         repository: args.repository.clone(),
@@ -109,7 +123,7 @@ pub fn spawn(
     if let Err(detail) = outside_records(instance, &checkout) {
         return refuse(SpawnRefusal::RecordsCheckout, detail);
     }
-    let (profile, settings, model) = match role(instance) {
+    let (controller, profile, settings, model) = match role(instance) {
         Ok(role) => role,
         Err((refusal, detail)) => return refuse(refusal, detail),
     };
@@ -126,6 +140,11 @@ pub fn spawn(
         Err(detail) => return refuse(SpawnRefusal::NoCharter, detail),
     };
     let session_name = config::session_name(instance, &repository);
+    // Under `strict`, a provider that is not available starts nothing and records nothing.
+    let chosen = match confine::choose(providers, &instance.confinement) {
+        Ok(chosen) => chosen,
+        Err(refusal) => return refuse_confined(&refuse, refusal),
+    };
     match live_session(&session_name.0) {
         Ok(None) => {}
         Ok(Some(id)) => {
@@ -139,6 +158,9 @@ pub fn spawn(
         }
         Err(error) => return refuse(SpawnRefusal::SessionsUnread, format!("{error:#}")),
     }
+    let state_dir = crate::state::dir(state)?;
+    // Written before the controller is recorded, so a copy that cannot be written records nothing.
+    let settings = pinned_settings(instance, settings, &state_dir, &session_name)?;
 
     // The store is held only while a record is written, not while the session starts.
     let outcome = {
@@ -155,58 +177,64 @@ pub fn spawn(
             .store
             .check()
             .context("keep the controller")?;
-        outcome
+        let held = crate::controller::holder(&generated, &RepositoryName(repository.clone()));
+        (outcome, held)
     };
     let controller_id = match outcome {
-        StartControllerOutcome::Started { controller_started } => controller_started.controller_id,
-        StartControllerOutcome::AlreadyRunning {
-            error: ControllerAlreadyRunning { .. },
-        } => {
+        (StartControllerOutcome::Started { controller_started }, _) => {
+            controller_started.controller_id
+        }
+        (
+            StartControllerOutcome::AlreadyRunning {
+                error: ControllerAlreadyRunning { .. },
+            },
+            held,
+        ) => {
+            let held = held.map_or_else(String::new, |held| format!(": controller {held}"));
             return refuse(
                 SpawnRefusal::AlreadyRunning,
-                "the repository already has a running or paused controller (controller \
-                 controllers)"
-                    .to_owned(),
+                format!(
+                    "the repository already has a running or paused controller{held} (controller \
+                     controllers)"
+                ),
             );
         }
     };
 
-    let mut launch = Command::new(CLAUDE);
-    launch
-        .arg("--bg")
-        .arg("-n")
-        .arg(&session_name.0)
-        .arg("--append-system-prompt-file")
-        .arg(profile)
-        .arg("--model")
-        .arg(model)
-        .args(["--permission-mode", "bypassPermissions"])
-        .args(["--setting-sources", "project,local"])
-        .arg("--settings")
-        .arg(settings)
-        .arg(&charter)
-        .current_dir(&checkout);
-    if active.from_file {
-        // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
-        // path would name a file of the repository.
-        let (file, _) = config::locate(config_flag, &environment).context(COMMAND)?;
-        launch
-            .env(config::INSTANCE_VARIABLE, &instance.name.0)
-            .env(config::CONFIG_VARIABLE, environment.cwd.join(file));
-    }
-    let failure = match run_launch(&mut launch) {
-        Ok(output) if output.status.success() => {
-            let mut err = io::stderr().lock();
-            err.write_all(&output.stderr)
-                .context("write what claude said to standard error")?;
-            io::stdout()
-                .lock()
-                .write_all(&output.stdout)
-                .context("write the session id to standard output")?;
+    let launch = controller_launch(
+        config_flag,
+        &state_dir,
+        &ControllerRole {
+            role: controller,
+            profile: &profile,
+            settings: &settings,
+            model: &model,
+        },
+        &repository,
+        &checkout,
+        &environment,
+    )?;
+    // The none provider's launch is `claude --bg`; another provider's is its own start.
+    let launcher = if chosen.name() == "none" {
+        format!("{CLAUDE} --bg")
+    } else {
+        format!("the {} provider's start", chosen.name())
+    };
+    let failure = match chosen.start(&launch, &charter, &state_dir) {
+        Ok(started) => {
+            confine::pass_through(&started.said)?;
+            // A provider whose harness printed nothing, as the systemd provider's session in its
+            // unit prints nothing to conductor, still answers the session's id: spawn prints it.
+            if started.said.stdout.is_empty()
+                && let Some(id) = &started.session.session_id
+            {
+                writeln!(io::stdout().lock(), "{id}")
+                    .context("write the session's id to standard output")?;
+            }
             let mut line = crate::records::dispatch_line(DispatchLogEvent::Sent, &repository)?;
             line.controller_id = Some(controller_id.0.0.clone());
             line.to = Some(session_name.0.clone());
-            line.session_id = Some(session_id(&String::from_utf8_lossy(&output.stdout)));
+            line.session_id = started.session.session_id.clone();
             line.charter_revision = Some(1);
             crate::records::append_dispatch(&line).with_context(|| {
                 format!(
@@ -216,8 +244,21 @@ pub fn spawn(
             })?;
             return Ok(ExitCode::SUCCESS);
         }
-        Ok(output) => exited(&output),
-        Err(error) => format!("{error:#}"),
+        Err(Refusal::LaunchFailed { detail, .. }) => detail,
+        Err(Refusal::MeasurementShort(detail)) => {
+            record_stopped(
+                state,
+                controller_id,
+                format!("{COMMAND}: the box is short of the request: {detail}"),
+            )?;
+            return refuse(
+                SpawnRefusal::MeasurementShort,
+                format!("{detail}; the controller is recorded stopped"),
+            );
+        }
+        Err(refusal @ Refusal::ProviderUnavailable(_)) => {
+            return refuse_confined(&refuse, refusal);
+        }
     };
     // A launch can fail, or be stopped at the bound, after the session started: the session list,
     // read again, decides whether the controller is recorded stopped.
@@ -227,7 +268,7 @@ pub fn spawn(
             return refuse(
                 SpawnRefusal::LaunchFailed,
                 format!(
-                    "{CLAUDE} --bg {failure}; yet the live session {id} holds the session name \
+                    "{launcher} {failure}; yet the live session {id} holds the session name \
                      {}, so the controller {} stays recorded running",
                     session_name.0, controller_id.0.0
                 ),
@@ -237,7 +278,7 @@ pub fn spawn(
             return refuse(
                 SpawnRefusal::LaunchFailed,
                 format!(
-                    "{CLAUDE} --bg {failure}; the session list could not be read again \
+                    "{launcher} {failure}; the session list could not be read again \
                      ({error:#}), so the controller {} stays recorded running: stop it with \
                      conductor controller stop-controller once no session {} runs",
                     controller_id.0.0, session_name.0
@@ -245,7 +286,23 @@ pub fn spawn(
             );
         }
     }
-    let reason = format!("{COMMAND}: the session did not start: {failure}");
+    record_stopped(
+        state,
+        controller_id,
+        format!("{COMMAND}: the session did not start: {failure}"),
+    )?;
+    refuse(
+        SpawnRefusal::LaunchFailed,
+        format!("{launcher} {failure}; the controller is recorded stopped"),
+    )
+}
+
+/// Records the controller `controller_id` stopped for `reason`.
+fn record_stopped(
+    state: Option<&Path>,
+    controller_id: conductor_model::dispatch::ControllerId,
+    reason: String,
+) -> Result<()> {
     let mut generated = crate::controller::record(state)?;
     let outcome = generated
         .stop_controller(StopController {
@@ -255,25 +312,256 @@ pub fn spawn(
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     generated.ports.store.check().context("keep the stop")?;
     match outcome {
-        StopControllerOutcome::Stopped { .. } => {}
+        StopControllerOutcome::Stopped { .. } => Ok(()),
         StopControllerOutcome::NoSuchController { .. }
         | StopControllerOutcome::WrongState { .. } => {
             bail!("{COMMAND}: the controller it recorded could not be recorded stopped");
         }
     }
-    refuse(
-        SpawnRefusal::LaunchFailed,
-        format!("{CLAUDE} --bg {failure}; the controller is recorded stopped"),
-    )
 }
 
-/// Ends the controller session `args.controller_id` names.
+/// Answers a refusal of the confinement ([`confine::Refusal`]) as its `SpawnRefusal`.
+fn refuse_confined(
+    refuse: &dyn Fn(SpawnRefusal, String) -> Result<ExitCode>,
+    refusal: Refusal,
+) -> Result<ExitCode> {
+    match refusal {
+        Refusal::ProviderUnavailable(detail) => refuse(SpawnRefusal::ProviderUnavailable, detail),
+        Refusal::MeasurementShort(detail) => refuse(SpawnRefusal::MeasurementShort, detail),
+        Refusal::LaunchFailed { detail, .. } => refuse(SpawnRefusal::LaunchFailed, detail),
+    }
+}
+
+/// The controller role and the files it starts with, each checked to be one ([`role`]).
+struct ControllerRole<'r> {
+    role: &'r Role,
+    profile: &'r str,
+    settings: &'r str,
+    model: &'r str,
+}
+
+/// The launch of `repository`'s controller session in `checkout`, as the module documentation
+/// gives it: the controller role's request, the harness arguments before the charter, and with a
+/// config file the instance's name and the file's absolute path for the session.
+fn controller_launch(
+    config_flag: Option<&Path>,
+    state_dir: &Path,
+    controller: &ControllerRole<'_>,
+    repository: &str,
+    checkout: &Path,
+    environment: &Environment,
+) -> Result<Launch> {
+    let active = config::active();
+    let instance = &active.instance;
+    let home = environment.home().context(COMMAND)?;
+    let session_name = config::session_name(instance, repository);
+    let role = controller.role;
+    let request = SessionRequest {
+        role: config::CONTROLLER.to_owned(),
+        session_name: session_name.clone(),
+        cwd: checkout.display().to_string(),
+        limits: role.limits.clone(),
+        writable: places::resolve(
+            &role.writable,
+            &Placement {
+                home: home.to_owned(),
+                tmpdir: confine::tmpdir(),
+                start: checkout.to_owned(),
+                repository: Some(repository.to_owned()),
+                trees: PathBuf::from(&instance.checkouts.trees),
+                records: PathBuf::from(&instance.records),
+                harness: role.harness,
+                controller: true,
+            },
+        ),
+        network: role.network,
+        forge_token_env: role.forge_token_env.clone(),
+    };
+    let mut env = Vec::new();
+    if active.from_file {
+        // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
+        // path would name a file of the repository.
+        let (file, _) = config::locate(config_flag, environment).context(COMMAND)?;
+        env.push((
+            config::INSTANCE_VARIABLE.to_owned(),
+            instance.name.0.clone(),
+        ));
+        env.push((
+            config::CONFIG_VARIABLE.to_owned(),
+            environment.cwd.join(file).display().to_string(),
+        ));
+    }
+    Ok(Launch {
+        request,
+        session_prefix: instance.session_prefix.clone(),
+        instance_limits: instance.confinement.limits.clone(),
+        state: state_dir.to_owned(),
+        program: CLAUDE.to_owned(),
+        args: [
+            "-n",
+            &session_name.0,
+            "--append-system-prompt-file",
+            controller.profile,
+            "--model",
+            controller.model,
+            "--permission-mode",
+            "bypassPermissions",
+            "--setting-sources",
+            "project,local",
+            "--settings",
+            controller.settings,
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        env,
+    })
+}
+
+/// The session `name` as its measurement under the state directory records it, or `None` when
+/// none was written: a session no provider of this build started.
+fn recorded_session(state_dir: &Path, name: &SessionName) -> Result<Option<StartedSession>> {
+    Ok(confine::read_measurement(state_dir, name)?.map(|measurement| measurement.session))
+}
+
+/// Ends the controller session `session_name`, the one behind `controller pause-controller` and
+/// `controller stop-controller`, through the provider its measurement names: the `systemd`
+/// provider stops its unit (`systemctl --user stop`; nothing when the unit is gone already), the
+/// `none` provider a session the session list shows live (`claude stop`, `claude rm`). The
+/// measurement stays: it holds the id a resume starts from. A session with no measurement is left
+/// as it is.
+///
+/// Answers the session's name and id when a session was stopped, `None` otherwise.
 ///
 /// # Errors
 ///
-/// [`NotImplemented`](crate::NotImplemented): no command ends a session yet.
-pub fn end(_args: &StopControllerArgs) -> Result<ExitCode> {
-    not_implemented("spawn end")
+/// The measurement or the session list cannot be read, or the provider did not stop the session.
+pub fn end(
+    state: Option<&Path>,
+    repository: &str,
+    session_name: &SessionName,
+    providers: &dyn Providers,
+) -> Result<Option<String>> {
+    let state_dir = crate::state::dir(state)?;
+    let Some(session) = recorded_session(&state_dir, session_name)? else {
+        return Ok(None);
+    };
+    let systemd = session.provider == "systemd";
+    if !systemd && live_session(&session_name.0)?.is_none() {
+        return Ok(None);
+    }
+    let mut provider = providers.provider(if systemd {
+        ConfinementProvider::Systemd
+    } else {
+        ConfinementProvider::None
+    });
+    let instance = &config::active().instance;
+    let cwd = checkout(instance, repository).map_or_else(
+        |_| instance.checkouts.root.clone(),
+        |dir| dir.display().to_string(),
+    );
+    let request = SessionRequest {
+        role: config::CONTROLLER.to_owned(),
+        session_name: session_name.clone(),
+        cwd,
+        limits: Limits {
+            memory_max: None,
+            cpu_weight: None,
+            tasks_max: None,
+        },
+        writable: Vec::new(),
+        network: Network::Open,
+        forge_token_env: Vec::new(),
+    };
+    provider
+        .stop(&session, &request)
+        .with_context(|| format!("stop the controller session {}", session_name.0))?;
+    Ok(Some(format!(
+        "{} ({})",
+        session_name.0,
+        session.session_id.as_deref().unwrap_or("with no id")
+    )))
+}
+
+/// Resumes `repository`'s controller session `session_name` from its transcript through the
+/// provider the instance's `confinement` names ([`confine::choose`]), with the launch `spawn`
+/// starts it with, and writes its new measurement: the `systemd` provider starts a new unit of the
+/// session's name running `claude --resume <id>` once the old unit is gone, the `none` provider
+/// runs `claude --bg --resume <id>`. The session's id is the one its measurement records.
+///
+/// A session with no measurement, or one the session list shows live, is left as it is: there
+/// is nothing to resume.
+///
+/// Answers the session's name and id, and the unit it runs in now, when a session was resumed.
+///
+/// # Errors
+///
+/// The measurement or the session list cannot be read; the measurement records no id; the
+/// checkout or the controller role no longer holds; under `strict` the provider is not
+/// available, or the resumed box measures short of the request and is stopped again; the
+/// provider's resume fails.
+pub fn resume(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    repository: &str,
+    session_name: &SessionName,
+    providers: &dyn Providers,
+) -> Result<Option<String>> {
+    let state_dir = crate::state::dir(state)?;
+    let Some(session) = recorded_session(&state_dir, session_name)? else {
+        return Ok(None);
+    };
+    if session.session_id.is_none() {
+        bail!(
+            "the measurement of the session {} records no id to resume it from: stop the \
+             controller and spawn it again",
+            session_name.0
+        );
+    }
+    if live_session(&session_name.0)?.is_some() {
+        return Ok(None);
+    }
+    let instance = &config::active().instance;
+    let checkout = checkout(instance, repository).map_err(|detail| anyhow!("{detail}"))?;
+    let (controller, profile, settings, model) =
+        role(instance).map_err(|(_, detail)| anyhow!("{detail}"))?;
+    let settings = pinned_settings(instance, settings, &state_dir, session_name)?;
+    let environment = Environment::from_process().context(COMMAND)?;
+    let launch = controller_launch(
+        config_flag,
+        &state_dir,
+        &ControllerRole {
+            role: controller,
+            profile: &profile,
+            settings: &settings,
+            model: &model,
+        },
+        repository,
+        &checkout,
+        &environment,
+    )?;
+    let chosen = confine::choose(providers, &instance.confinement)
+        .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
+    let started = chosen
+        .resume(&session, &launch, &state_dir)
+        .map_err(|refusal| anyhow!("{}", refusal_detail(refusal)))?;
+    let id = started
+        .session
+        .session_id
+        .as_deref()
+        .unwrap_or("with no id");
+    Ok(Some(match &started.session.unit {
+        Some(unit) => format!("{} ({id}) in {unit}", session_name.0),
+        None => format!("{} ({id})", session_name.0),
+    }))
+}
+
+/// What a refusal of the confinement says, named.
+fn refusal_detail(refusal: Refusal) -> String {
+    match refusal {
+        Refusal::ProviderUnavailable(detail) => format!("ProviderUnavailable: {detail}"),
+        Refusal::MeasurementShort(detail) => format!("MeasurementShort: {detail}"),
+        Refusal::LaunchFailed { detail, .. } => format!("LaunchFailed: {detail}"),
+    }
 }
 
 /// Answers a refusal: one line naming its `SpawnRefusal`, and exit 1.
@@ -290,6 +578,7 @@ fn refused(answer: &SpawnRefused) -> Result<ExitCode> {
 /// adds fails to compile here rather than rendering under a guessed name.
 const fn refusal_name(refusal: SpawnRefusal) -> &'static str {
     match refusal {
+        SpawnRefusal::InstanceNotPinned => "InstanceNotPinned",
         SpawnRefusal::AlreadyRunning => "AlreadyRunning",
         SpawnRefusal::SessionRunning => "SessionRunning",
         SpawnRefusal::SessionsUnread => "SessionsUnread",
@@ -302,6 +591,8 @@ const fn refusal_name(refusal: SpawnRefusal) -> &'static str {
         SpawnRefusal::UntrustedCheckout => "UntrustedCheckout",
         SpawnRefusal::NoCharter => "NoCharter",
         SpawnRefusal::LaunchFailed => "LaunchFailed",
+        SpawnRefusal::ProviderUnavailable => "ProviderUnavailable",
+        SpawnRefusal::MeasurementShort => "MeasurementShort",
     }
 }
 
@@ -375,8 +666,8 @@ fn outside_records(instance: &Instance, checkout: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The `controller` role's profile, settings and model, each file checked to be one.
-fn role(instance: &Instance) -> Result<(String, String, String), (SpawnRefusal, String)> {
+/// The `controller` role, with its profile, settings and model, each file checked to be one.
+fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRefusal, String)> {
     let Some(role) = instance
         .roles
         .iter()
@@ -415,7 +706,39 @@ fn role(instance: &Instance) -> Result<(String, String, String), (SpawnRefusal, 
     };
     let profile = file(profile, SpawnRefusal::NoProfile, "profile")?;
     let settings = file(settings, SpawnRefusal::NoSettings, "settings")?;
-    Ok((profile, settings, model.0.clone()))
+    // The settings select the instance the session's hooks act for (`story:instance-isolation`):
+    // they must not pin another. Settings that pin none start pinned ([`pinned_settings`]).
+    if config::active().from_file
+        && let Some(problem) = config::pin_refusal(Path::new(&settings), &instance.name.0)
+    {
+        return Err((
+            SpawnRefusal::InstanceNotPinned,
+            format!("the controller role's settings {settings} {problem}"),
+        ));
+    }
+    Ok((role, profile, settings, model.0.clone()))
+}
+
+/// The settings the controller session `session_name` starts with (`story:instance-isolation`):
+/// under a config file, the role's `settings` when they pin the instance, else a copy of them
+/// pinned to it under the state directory ([`config::session_settings`]); without one, the
+/// role's `settings` as they are.
+fn pinned_settings(
+    instance: &Instance,
+    settings: String,
+    state_dir: &Path,
+    session_name: &SessionName,
+) -> Result<String> {
+    if !config::active().from_file {
+        return Ok(settings);
+    }
+    config::session_settings(
+        Path::new(&settings),
+        &instance.name.0,
+        state_dir,
+        &session_name.0,
+    )
+    .context(COMMAND)
 }
 
 /// Whether `~/.claude.json` under `home` marks `checkout`, a physical path, trusted:
@@ -456,113 +779,6 @@ fn charter(file: &Path) -> Result<String, String> {
         ));
     }
     Ok(text)
-}
-
-/// The id of a live session the Claude session list (`claude agents --json`) names `name`: an
-/// entry with a `pid`, as the sessions collector counts one live, `id` else `sessionId`.
-fn live_session(name: &str) -> Result<Option<String>> {
-    let shown = format!("{CLAUDE} agents --json");
-    let output = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), BOUND)
-        .with_context(|| format!("read the Claude session list `{shown}`"))?;
-    if !output.status.success() {
-        bail!("`{shown}` {}", exited(&output));
-    }
-    let Value::Array(entries) = serde_json::from_slice(&output.stdout)
-        .with_context(|| format!("`{shown}` printed no JSON"))?
-    else {
-        bail!("`{shown}` printed no JSON array");
-    };
-    Ok(entries
-        .iter()
-        .find(|entry| !entry["pid"].is_null() && entry["name"].as_str() == Some(name))
-        .map(|entry| {
-            entry["id"]
-                .as_str()
-                .or_else(|| entry["sessionId"].as_str())
-                .unwrap_or("with no id")
-                .to_owned()
-        }))
-}
-
-/// Runs the launch `command` to its end within [`BOUND`], with no standard input, and answers its
-/// exit status and output. Its standard output and error go to files of this process's own, not
-/// to pipes: `claude --bg` leaves a session running, which may keep what it inherited open, and a
-/// pipe would not reach its end before that session does. The files are removed afterwards. A
-/// launch still running after the bound is killed, and the answer is an error.
-fn run_launch(command: &mut Command) -> Result<Output> {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos());
-    let base = format!("conductor-spawn.{}.{stamp}", std::process::id());
-    let files = ["out", "err"].map(|what| std::env::temp_dir().join(format!("{base}.{what}")));
-    let ran = (|| -> Result<Output> {
-        let mut streams = Vec::with_capacity(files.len());
-        for file in &files {
-            streams.push(
-                File::options()
-                    .write(true)
-                    .create_new(true)
-                    .mode(0o600)
-                    .open(file)
-                    .with_context(|| format!("create {}", file.display()))?,
-            );
-        }
-        let stderr = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
-        let stdout = streams.pop().map(Stdio::from).unwrap_or_else(Stdio::null);
-        let mut child = command
-            .stdin(Stdio::null())
-            .stdout(stdout)
-            .stderr(stderr)
-            .spawn()
-            .with_context(|| format!("start `{CLAUDE}`"))?;
-        let started = Instant::now();
-        let status = loop {
-            if let Some(status) = child
-                .try_wait()
-                .with_context(|| format!("wait for `{CLAUDE}`"))?
-            {
-                break status;
-            }
-            if started.elapsed() >= BOUND {
-                let _ = child.kill();
-                let _ = child.wait();
-                bail!(
-                    "gave no answer within {} s and was stopped",
-                    BOUND.as_secs()
-                );
-            }
-            thread::sleep(Duration::from_millis(20));
-        };
-        let [out, err] = &files;
-        Ok(Output {
-            status,
-            stdout: fs::read(out).with_context(|| format!("read {}", out.display()))?,
-            stderr: fs::read(err).with_context(|| format!("read {}", err.display()))?,
-        })
-    })();
-    for file in &files {
-        let _ = fs::remove_file(file);
-    }
-    ran
-}
-
-/// How a program that did not succeed ended, with what it wrote to standard error on one line.
-fn exited(output: &Output) -> String {
-    let said: Vec<&str> = std::str::from_utf8(&output.stderr)
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect();
-    let how = output.status.code().map_or_else(
-        || "was ended by a signal".to_owned(),
-        |code| format!("exited {code}"),
-    );
-    if said.is_empty() {
-        how
-    } else {
-        format!("{how}: {}", said.join("; "))
-    }
 }
 
 /// The session id `claude --bg` printed: the id of its `backgrounded · <id> · <name>` line, or the

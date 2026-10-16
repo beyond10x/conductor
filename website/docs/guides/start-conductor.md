@@ -101,8 +101,10 @@ task conductor:attach     # open it in this terminal
 task sessions             # list the conductor and conductor-dev sessions
 ```
 
-`task conductor:start` starts Claude Code in the background, in the instance's `records`
-directory, as:
+`task conductor:start` runs `conductor session start --role conductor`, which starts the session
+through the confinement provider the instance's `confinement` names and records its measurement
+(see [confinement](/docs/security/confinement#how-a-session-is-started)). Until conductor sets up a
+`systemd` box, that is Claude Code in the background, in the instance's `records` directory, as:
 
 ```text
 claude --bg -n <session name> --append-system-prompt-file <profile> --model <model>
@@ -111,10 +113,13 @@ claude --bg -n <session name> --append-system-prompt-file <profile> --model <mod
 
 The session name is the conductor role's: `<session_prefix>-conductor`, or `conductor` when the
 instance has no `session_prefix`. The settings default to this checkout's
-`.claude/conductor-settings.json`. The prompt tells conductor to arm its two recurring jobs (at
-`cadence.cycle` and `cadence.daily` of `conductor config show`) and its watch
-(`conductor watch run --follow`), then read the hand-over committed last in `docs/handoff/`, act on
-its first task and run one cycle. A hand-over therefore keeps only open work.
+`.claude/conductor-settings.json`, which also denies the tools conductor never calls (Artifact,
+Workflow, ScheduleWakeup, EnterWorktree, AskUserQuestion, ReportFindings and ShareOnboardingGuide),
+so their definitions stay out of its context. The prompt tells conductor to arm its two recurring
+jobs (at `cadence.cycle` and `cadence.daily` of `conductor config show`) and its watch
+(`conductor watch run --follow`), then act on the first task of the hand-over committed last in
+`docs/handoff/`, which its start reading has already opened, and run one cycle. A hand-over
+therefore keeps only open work.
 
 The task refuses, and starts nothing, when:
 
@@ -139,7 +144,8 @@ records, schedules its cycles and starts `conductor watch run --follow`.
 
 ## 6. Controllers
 
-Conductor starts one controller per repository itself, in that repository's checkout:
+Conductor starts one controller per repository with `conductor spawn --repository <repo>`, in that
+repository's checkout, through the same provider as `conductor session start`:
 
 ```text
 cd <checkouts root>/<repo> && claude --bg -n <session name> --append-system-prompt-file <controller profile>
@@ -149,8 +155,8 @@ cd <checkouts root>/<repo> && claude --bg -n <session name> --append-system-prom
 
 The session name is `<session_prefix>-<repo>`, or `<repo>` without a prefix. The settings are the
 controller role's, such as this checkout's `.claude/controller-settings.json`, which wires the
-guard. Conductor records each controller with `conductor controller start-controller`, which
-refuses a second running controller for the same repository.
+guard. `conductor spawn` records each controller running, and refuses a second running
+controller for the same repository.
 
 **Who merges.** A charter merges by default with `merge: controller`: the controller merges its
 pull request once its full gate is green. Write the line `merge: human` in a repository's charter
@@ -163,9 +169,9 @@ profiles.
 
 :::caution[Planned]
 
-`conductor controller start-controller` records the controller only; the conductor session starts
-the harness session itself, as its profile instructs. That a controller always starts with the
-guard's settings is an instruction to conductor, not enforced by code.
+`conductor spawn` and `conductor session start` are the only start forms conductor's profile
+names, and each starts the session with its role's settings. A session someone starts by hand
+with `claude` is not one of them, and nothing in code prevents it.
 
 :::
 
@@ -181,5 +187,5 @@ conductor in this checkout. It starts without the guard unless its role names a 
 
 ## What you see
 
-`task sessions` lists the running sessions with their kind, id and state. The read-only dashboard
+`task sessions` lists the running sessions with their kind, id and state. The dashboard
 shows what each one works on: [read the dashboard](./read-the-dashboard.md).

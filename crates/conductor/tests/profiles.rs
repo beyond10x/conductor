@@ -96,8 +96,8 @@ fn conductor_reads_the_all_sessions_section_only_when_the_file_has_it() {
     assert!(
         text.contains(
             "and, when the file has that section, `conductor rules show --section \"all \
-             sessions\"` (the rules every session follows; when it is refused, skip it: the \
-             refusal names the sections the file has)"
+             sessions\" --brief` (the rules every session follows; when it is refused, skip it: \
+             the refusal names the sections the file has)"
         ),
         "conductor.md: the shared section is read only when the file has it"
     );
@@ -260,6 +260,56 @@ fn conductor_acts_on_each_disk_floor_the_watch_reports() {
              gate that it is stopped until free disk is back at `thresholds.gate_resume`."
         ),
         "conductor.md: disk gate stop runs gc and tells the controllers"
+    );
+}
+
+/// `story:decisions-notify`: conductor sends the operator a push notification on each escalation
+/// line and each unanswered line the watch prints.
+#[test]
+fn conductor_pushes_a_notification_on_each_escalated_and_unanswered_line() {
+    let text = profile("conductor.md");
+    for line in [
+        "`escalated <O|H> <request-id> <question>`",
+        "`unanswered <O|H> <request-id> <minutes>`",
+    ] {
+        assert!(
+            text.contains(line),
+            "conductor.md: names the watch line {line}"
+        );
+    }
+    assert!(
+        text.contains(
+            "On each `escalated` or `unanswered` line, send the operator a `PushNotification` \
+             naming the request id, its class and its question or how long it has waited."
+        ),
+        "conductor.md: each escalated and unanswered line is pushed to the operator"
+    );
+}
+
+/// `story:decisions-page`: conductor gives every escalation what the Decisions page shows, by
+/// the flags `decision escalate-request` reads, and knows the watch's line at a deadline.
+#[test]
+fn conductor_gives_every_escalation_its_kind_options_costs_recommendation_default_and_deadline() {
+    let text = profile("conductor.md");
+    assert!(
+        text.contains(
+            "Give every escalation its kind, options, costs, recommendation, default and \
+             deadline"
+        ),
+        "conductor.md: every escalation names what the operator chooses from"
+    );
+    for flag in [
+        "`--kind`",
+        "`--lettered-options`",
+        "`--recommended-letters`",
+        "`--default-letters`",
+        "`--deadline`",
+    ] {
+        assert!(text.contains(flag), "conductor.md: names {flag}");
+    }
+    assert!(
+        text.contains("or at its deadline"),
+        "conductor.md: the watch's unanswered line at a deadline"
     );
 }
 
@@ -610,12 +660,18 @@ fn conductor_restarts_rarely_and_starts_on_less_reading() {
 
     let conductor = profile("conductor.md");
     for sentence in [
-        "At session start read, in this order: this profile; the rules for your role, through \
-         `conductor rules show --section conductor` and, when the file has that section, \
-         `conductor rules show --section \"all sessions\"` (the rules every session follows; \
-         when it is refused, skip it: the refusal names the sections the file has), not the \
-         whole `rules.md`;",
-        "§§ 4–8 of `docs/design/conductor.md` in the product repository, and no other section;",
+        "At session start read, in this order, and no file twice:",
+        "the titles of the rules for your role: `conductor rules show --section conductor \
+         --brief` and, when the file has that section, `conductor rules show --section \"all \
+         sessions\" --brief` (the rules every session follows; when it is refused, skip it: the \
+         refusal names the sections the file has). Not the whole `rules.md`: read an item whole \
+         with `conductor rules show --item <n>,…` when a cycle needs it;",
+        "the newest hand-over, the one committed last",
+        "only the sections the hand-over points to of §§ 4–8 of `docs/design/conductor.md` in \
+         the product repository, `NORTHSTAR.md` and the newest `STATUS.md`, and no design \
+         section outside §§ 4–8; with no hand-over, those three in full;",
+        "the lines of `decisions/` and `dispatches/` whose `at` is later than the hand-over's \
+         commit time, not the last 50 lines.",
         "When a restart you need cannot be answered because conductor-dev is unreachable",
         "write your hand-over as for `[RESTART conductor]`, commit it, and run `task \
          conductor:restart` yourself",
@@ -630,6 +686,17 @@ fn conductor_restarts_rarely_and_starts_on_less_reading() {
         !conductor.contains("§§ 2–12 of `docs/design/conductor.md`"),
         "conductor.md: the start reads design §§ 4-8 only"
     );
+    // `story:conductor-context-budget`: the start reads rule titles, not the rules in full, and
+    // the log since the hand-over, not a fixed tail of it.
+    for gone in [
+        "the last 50 lines of `decisions/` and `dispatches/`",
+        "`conductor rules show --section conductor` and",
+    ] {
+        assert!(
+            !conductor.contains(gone),
+            "conductor.md: no longer holds {gone:?}"
+        );
+    }
 }
 
 /// `story:conductor-dev-report-form`: conductor-dev answers a NEED in the report form conductor
@@ -731,6 +798,24 @@ fn a_class_h_call_runs_only_under_a_named_grant() {
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
 
+/// `story:session-envelope-seam`: conductor's profile starts no session with `claude --bg`;
+/// `conductor spawn` and `conductor session start` are the only start forms it names.
+#[test]
+fn conductor_starts_sessions_only_through_spawn_and_session_start() {
+    let text = profile("conductor.md");
+    assert!(
+        !text.contains("claude --bg"),
+        "conductor.md: no session starts with claude --bg"
+    );
+    assert!(
+        text.contains(
+            "`conductor spawn --repository <repo>` and `conductor session start --role <role>` \
+             are the only start forms of a session"
+        ),
+        "conductor.md: spawn and session start are the only start forms"
+    );
+}
+
 /// `story:policy-secret-drift`: a stale secret is published by its sync's own command only under
 /// a grant in `rules.md`; otherwise it is the operator's hands, handed over with the dry run.
 #[test]
@@ -748,5 +833,20 @@ fn a_report_on_a_pull_request_names_every_red_check() {
     let text = profile("conductor.md");
     let sentence = "A report on a pull request names every red check, as `conductor status` and the \
                     board list them under `failing checks`, never one of them for all.";
+    assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
+}
+
+/// `story:instance-isolation`, item 7: the section on other instances applies only to an instance
+/// that names no `conductor` role, which the `default` instance's conductor serves; an instance
+/// with its own conductor is never acted for by another, so no conductor is a second writer of
+/// its records.
+#[test]
+fn conductor_acts_for_another_instance_only_when_it_names_no_conductor() {
+    let text = profile("conductor.md");
+    let sentence = "This section applies only to an instance that names no `conductor` role, which \
+                    your instance serves as the file's `default` (`conductor.served_by` in \
+                    `conductor config show` names it). An instance that names a `conductor` role \
+                    has its own conductor: never run a command for it, write its records, \
+                    dispatch to its controllers or message its sessions.";
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
