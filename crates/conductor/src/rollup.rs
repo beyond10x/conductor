@@ -15,7 +15,7 @@
 //! | `prs_opened` | repository | an open PR of the snapshot, `alpha#12` | its `opened_at` |
 //! | `prs_merged` | repository | a merged PR of the snapshot | its `merged_at` |
 //! | `reverts` | repository | a merged PR titled `Revert…` | its `merged_at` |
-//! | `prs_closed_unmerged` | repository | a PR open in the complete snapshot before, of a repository this one observed, neither open nor merged in this one | this snapshot's start |
+//! | `prs_closed_unmerged` | repository | a PR open in the complete snapshot before, of a repository this one observed, neither open nor merged in this one, when every forge collector of this one completed | this snapshot's start |
 //! | `ci_passed`, `ci_failed` | repository, workflow | a `main` run of the snapshot concluding success or failure, `alpha/check@<run_at>` | its `run_at` |
 //! | `releases` | repository | a release of the snapshot, `alpha@v1.2.0` | its publication |
 //! | `releases_feature`, `releases_patch` | repository | a release whose tag ends in a version `x.y.0`, or `x.y.z` with `z` above 0 | its publication |
@@ -40,10 +40,10 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{
-    DailySeriesStorage, DecisionRequestStorage, DecisionStorage, DispatchStorage, Generated,
-    GuardDecisionStorage, HostGrantStorage, MergedPullRequestObservationStorage,
-    PullRequestObservationStorage, ReleaseObservationStorage, RepositoryObservationStorage,
-    SnapshotStorage, WorkflowRunObservationStorage,
+    CollectorRunObservationStorage, DailySeriesStorage, DecisionRequestStorage, DecisionStorage,
+    DispatchStorage, Generated, GuardDecisionStorage, HostGrantStorage,
+    MergedPullRequestObservationStorage, PullRequestObservationStorage, ReleaseObservationStorage,
+    RepositoryObservationStorage, SnapshotStorage, WorkflowRunObservationStorage,
 };
 use conductor_model::decision::{Decider, DecisionClass, DecisionRequestState};
 use conductor_model::dispatch::{DispatchState, Verdict};
@@ -52,8 +52,9 @@ use conductor_model::observation::obligations::{
     RecordDailySeriesBehavior, ReviseDailySeriesBehavior,
 };
 use conductor_model::observation::{
-    DailySeriesId, DailySeriesSnapshot, RecordDailySeries, RecordDailySeriesOutcome,
-    ReviseDailySeries, ReviseDailySeriesOutcome, RunConclusion, SnapshotId, SnapshotState,
+    CollectorRunOutcome, DailySeriesId, DailySeriesSnapshot, RecordDailySeries,
+    RecordDailySeriesOutcome, ReviseDailySeries, ReviseDailySeriesOutcome, RunConclusion,
+    SnapshotId, SnapshotState,
 };
 use conductor_model::primitives::Decimal;
 use serde_json::Value;
@@ -258,7 +259,16 @@ fn seen(store: &Store, snapshot: &SnapshotId, records: &Path) -> Result<Seen> {
             );
         }
     }
-    if let Some(before) = &before {
+    // A closure is read from a PR gone missing, so only where each forge that lists PRs answered in
+    // full: a forge stopped over budget leaves every PR missing, and none of them closed.
+    let forges_answered = CollectorRunObservationStorage::list(store)
+        .into_iter()
+        .filter(|held| of(&held.data.snapshot_id))
+        .filter(|held| matches!(held.data.collector.as_str(), "github" | "gitlab"))
+        .all(|held| held.data.outcome == CollectorRunOutcome::Completed);
+    if let Some(before) = &before
+        && forges_answered
+    {
         let observed: BTreeSet<String> = RepositoryObservationStorage::list(store)
             .into_iter()
             .filter(|held| of(&held.data.snapshot_id))

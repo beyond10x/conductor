@@ -445,6 +445,7 @@ fn quiet(case: &Case) -> Sources {
         projects: case.dir.join("none/projects"),
         dispatches: case.dir.join("none/dispatches"),
         organization: String::new(),
+        owners: Vec::new(),
         store: None,
         repositories: Vec::new(),
         runs: Vec::new(),

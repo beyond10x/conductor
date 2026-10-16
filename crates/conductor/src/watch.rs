@@ -113,7 +113,7 @@ use std::process::{Command, ExitCode};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
@@ -127,7 +127,7 @@ use conductor_model::observation::{RunConclusion, SnapshotState};
 use crate::cli::WatchRunArgs;
 use crate::collect::gitlab::{self, Forge, PIPELINE, Project};
 use crate::collect::repositories::{WIDTH, each, filled, words};
-use crate::collect::{self, BOUND};
+use crate::collect::{self, BOUND, Origins};
 use crate::config::{self, Active};
 use crate::gc::reclaim::ReclaimReport;
 use crate::{repository, state};
@@ -229,6 +229,9 @@ pub struct Sources {
     pub dispatches: PathBuf,
     /// The GitHub owner, filled into [`Sources::runs`] as `{organization}`.
     pub organization: String,
+    /// Every GitHub owner of the instance, in its order, each once; a repository's run list is
+    /// read under each in turn until one answers. Empty: [`Sources::organization`] only.
+    pub owners: Vec<String>,
     /// The state directory whose store names the repositories whose `main` CI is read: the
     /// Active ones of its newest complete snapshot ([`crate::repository::activity`]), read on
     /// each CI pass. `None`: [`Sources::repositories`].
@@ -287,6 +290,7 @@ impl Sources {
             projects: home.join(".claude/projects"),
             store: (owner.is_some() || gitlab).then_some(state),
             organization: owner.unwrap_or_default(),
+            owners: Origins::of(instance).owners,
             repositories: Vec::new(),
             runs: words(&[
                 "gh",
@@ -1521,11 +1525,31 @@ impl Watch {
 
 /// The newest `main` run of each workflow of `repository` that decided something: completed,
 /// green or red ([`decided`]). The run list is run once, through [`collect::run`].
+///
+/// A repository carries no owner in the store, so its run list is asked of each of
+/// [`Sources::owners`] in turn, and the first owner that answers is the repository's; when none
+/// answers, the first owner's failure is the answer.
 fn newest_runs(sources: &Sources, repository: &str) -> Result<Vec<Latest>> {
-    let fill = [
-        ("organization", sources.organization.as_str()),
-        ("repository", repository),
-    ];
+    let owners: &[String] = if sources.owners.is_empty() {
+        std::slice::from_ref(&sources.organization)
+    } else {
+        &sources.owners
+    };
+    let mut first = None;
+    for owner in owners {
+        match newest_runs_of(sources, owner, repository) {
+            Ok(runs) => return Ok(runs),
+            Err(error) => {
+                first.get_or_insert(error);
+            }
+        }
+    }
+    Err(first.unwrap_or_else(|| anyhow!("main CI of {repository} not read: no GitHub owner")))
+}
+
+/// [`newest_runs`] of `repository` under the one GitHub owner `owner`.
+fn newest_runs_of(sources: &Sources, owner: &str, repository: &str) -> Result<Vec<Latest>> {
+    let fill = [("organization", owner), ("repository", repository)];
     let command = filled(&sources.runs, &fill);
     let shown = command.join(" ");
     let what = format!("main CI of {repository} not read");

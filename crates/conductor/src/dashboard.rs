@@ -234,7 +234,9 @@ impl Sources {
             .context("HOME is not an absolute path; the page writes it as ~")?;
         let active = config::active();
         if active.from_file {
-            return Ok(Self::of(home, root, &active.instance));
+            let mut sources = Self::of(home, root, &active.instance);
+            sources.health.config = config::explicit().map(Path::to_path_buf);
+            return Ok(sources);
         }
         let root = match root {
             Some(root) => root,

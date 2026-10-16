@@ -21,6 +21,8 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
+use conductor_model::config::Instance;
+
 use crate::cli::TrustArgs;
 use crate::config::{self, Environment};
 
@@ -260,15 +262,18 @@ impl Edit {
     }
 }
 
-/// The paths `conductor trust` marks, as `projects` keys: each git checkout directly under
-/// `root` (a directory holding `.git`), in name order, then `records`, each by its physical
-/// path.
+/// The paths `conductor trust` marks, as `projects` keys: each checkout of `instance`, the one at
+/// `index` of its config file ([`config::instance_checkouts`]: those of a `github`, `local` and
+/// `gitlab` source, nested ones included), in path order, then its records directory, each by
+/// its physical path.
 ///
 /// # Errors
 ///
-/// `records` holds a line break or is not a directory, `root` is not a directory, or a path
-/// cannot be resolved or is not UTF-8.
-pub fn paths(root: &Path, records: &str) -> Result<Vec<String>> {
+/// The records directory holds a line break or is not a directory, the checkouts root is not a
+/// directory, a directory cannot be read, or a path cannot be resolved or is not UTF-8.
+pub fn paths(instance: &Instance, index: usize) -> Result<Vec<String>> {
+    let records = instance.records.as_str();
+    let root = Path::new(&instance.checkouts.root);
     if records.contains(['\n', '\r']) {
         bail!(
             "the records directory of the instance holds a line break; trust refuses it and \
@@ -288,12 +293,19 @@ pub fn paths(root: &Path, records: &str) -> Result<Vec<String>> {
             root.display()
         );
     }
-    let mut checkouts: Vec<PathBuf> = fs::read_dir(root)
+    let mut checkouts = config::instance_checkouts(instance, index)?;
+    // A git directory under the root with no `origin` yet is still the instance's checkout.
+    let bare: Vec<PathBuf> = fs::read_dir(root)
         .with_context(|| format!("read {}", root.display()))?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|dir| dir.is_dir() && dir.join(".git").exists())
         .collect();
+    for dir in bare {
+        if !checkouts.contains(&dir) {
+            checkouts.push(dir);
+        }
+    }
     checkouts.sort();
     checkouts.push(records_dir.to_owned());
     checkouts
@@ -328,7 +340,13 @@ pub fn trust(config_flag: Option<&Path>, args: &TrustArgs) -> Result<ExitCode> {
         );
     }
     let instance = config::select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
-    let paths = paths(Path::new(&instance.checkouts.root), &instance.records).context(WHAT)?;
+    let index = loaded
+        .config
+        .instances
+        .iter()
+        .position(|other| other.name == instance.name)
+        .unwrap_or_default();
+    let paths = paths(instance, index).context(WHAT)?;
     let file = environment.home().context(WHAT)?.join(CLAUDE_JSON);
     let mut edit = Edit::read(&file).context(WHAT)?;
     for path in &paths {

@@ -237,6 +237,7 @@ impl Case {
             projects: projects.map_or_else(|| self.dir.join("no-projects"), |p| fixtures().join(p)),
             dispatches: self.dir.join("dispatches"),
             organization: "fixture-org".to_owned(),
+            owners: Vec::new(),
             store: None,
             repositories: Vec::new(),
             runs: vec![
