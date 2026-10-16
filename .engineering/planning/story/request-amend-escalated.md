@@ -19,7 +19,7 @@ Conductor's NEED N-20261016-12, 2026-10-16: O-20261015-substrate-adopt and H-202
 ## Acceptance
 
 1. Spec first: `AmendEscalatedRequest` (request id; optional kind, lettered options, recommended letters, default letters, deadline, dry run, reason) is declared in `spec/domains/decision.yaml` for a request in state Escalated. It is refused for any other state with `RequestStateConflict`, and a scenario reads the amended fields in the `DecisionRequests` view.
-2. `conductor decision amend-escalated-request <id> [--kind] [--option <L>=<label>:<cost>]… [--recommended <L>…] [--default <L>…] [--deadline <rfc3339>] [--dry-run <text>] --reason <r>` writes the change and an `amended` history entry. `decision requests` and the dashboard's Decisions page show the new fields. A default letter that names no option is refused.
+2. `conductor decision amend-escalated-request --request-id <id> --reason <r> [--kind] [--lettered-options <json>] [--recommended-letters] [--default-letters] [--deadline <rfc3339>] [--dry-run <text>]` (the flag names of `escalate-request`; the CLI tree guard, crates/conductor/tests/cli_tree.rs, requires flags equal to the command's input fields) writes the change and an `amended` history entry. `decision requests` and the dashboard's Decisions page show the new fields. A default letter that names no option is refused.
 3. Tests in `crates/conductor/tests/` hold an amend of an escalated request, the refusal for an open or answered one, and the refusal of an unknown default letter.
 4. `.agents/conductor.md` says to complete an escalated item with this command rather than by text.
 
