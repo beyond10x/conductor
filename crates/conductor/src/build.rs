@@ -1,4 +1,4 @@
-//! `conductor build run --reserve <size> [--repository <repo>] -- <command> [args…]`
+//! `conductor build run [--reserve auto|<size>] [--repository <repo>] -- <command> [args…]`
 //! (`story:build-run`): disk for a build is a reservation the binary grants, not a message.
 //!
 //! 1. **Reserve.** Under the host ledger's lock ([`host::Ledger`]) the run first releases every
