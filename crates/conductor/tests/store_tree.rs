@@ -1272,6 +1272,8 @@ fn put_goals(store: &mut Store, ids: impl Iterator<Item = usize>) {
                     goal_id: GoalId(format!("G{n:05}")),
                     title: format!("Goal {n}"),
                     exit_evidence: "measured".to_owned(),
+                    evidence: None,
+                    reason: None,
                 },
             },
         );

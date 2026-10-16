@@ -180,6 +180,8 @@ fn adv_a_goal_stored_past_the_bound_is_listed_and_refused_as_one_no_goal_can_hav
                 goal_id: id(&goal),
                 title: "kept before the bound".to_owned(),
                 exit_evidence: "evidence".to_owned(),
+                evidence: None,
+                reason: None,
             },
         },
     );

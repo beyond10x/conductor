@@ -198,6 +198,8 @@ fn g9_is_proposed_confirmed_and_met_and_confirming_it_again_is_refused() {
             "state": "Met",
             "title": "Ship the pilot",
             "exit_evidence": "G9 is listed as met in NORTHSTAR.md",
+            "evidence": "the pilot ran on 2026-10-07",
+            "reason": null,
         })],
         "the refused confirmation moved nothing"
     );
