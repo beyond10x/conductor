@@ -126,7 +126,9 @@ on. Gates, reports and boundaries are unchanged.
   each test that lists every command, leaf or entity names what the wave added; the gate runs
   every test binary (`--no-fail-fast` or the runner's equivalent), so one run names every failure.
 - Every build, test or gate runs as `conductor build run --reserve <size> -- <command>`
-  (`--reserve 8G` for a cargo build, test or gate, `2G` for npm): it reserves the command's
+  (builds use `--reserve auto` unless a size is known to be larger: `auto` reserves the largest
+  peak the ledger recorded for the same repository and command in the last 14 days plus 50 %, and
+  prints the size and where it came from): it reserves the command's
   expected peak in the host ledger, reclaims what needs no decision when it does not fit, and runs
   the command in its own process group under the disk watchdog, paused under
   `thresholds.gate_stop` and resumed over `thresholds.gate_resume`. The guard denies a plain

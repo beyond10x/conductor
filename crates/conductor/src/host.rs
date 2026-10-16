@@ -471,6 +471,45 @@ impl Ledger {
         Ok(total)
     }
 
+    /// The largest peak the ledger recorded for a disk reservation in `repository` whose command
+    /// `covers`, by the instant its run ended (its request, when it has not), at or after
+    /// `since` (`story:reserve-from-peak`). A grant whose peak is unknown, or 0, is no
+    /// measurement and is not counted. Answers the peak and how many grants recorded one.
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn largest_peak(
+        &self,
+        repository: Option<&str>,
+        covers: &dyn Fn(&str) -> bool,
+        since: time::OffsetDateTime,
+    ) -> Result<Option<(u64, usize)>> {
+        use time::format_description::well_known::Rfc3339;
+        let mut found: Option<(u64, usize)> = None;
+        for grant in &HostGrantStorage::list(&self.generated.ports) {
+            let data = &grant.data;
+            let peak = data
+                .peak_bytes
+                .and_then(|peak| u64::try_from(peak).ok())
+                .filter(|peak| *peak > 0);
+            let (Some(peak), Some(command)) = (peak, data.command.as_deref()) else {
+                continue;
+            };
+            let at = data.released_at.as_ref().unwrap_or(&data.requested_at);
+            let recent = time::OffsetDateTime::parse(&at.0, &Rfc3339).is_ok_and(|at| at >= since);
+            if data.kind == GrantKind::Disk
+                && data.repository.as_ref().map(|name| name.0.as_str()) == repository
+                && recent
+                && covers(command)
+            {
+                found = Some(found.map_or((peak, 1), |(most, count)| (most.max(peak), count + 1)));
+            }
+        }
+        kept("host ledger", &self.generated.ports.store)?;
+        Ok(found)
+    }
+
     /// `RequestDisk`: records the request of `bytes` for `command`, and answers its grant's id.
     ///
     /// # Errors

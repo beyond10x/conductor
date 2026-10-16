@@ -71,6 +71,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::Instance;
 use conductor_model::host::{GrantId, ReleaseReason};
+use conductor_model::primitives::Timestamp;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
 use serde_json::{Value, json};
@@ -285,8 +286,9 @@ impl Sources {
 /// One run asked for.
 #[derive(Debug, Clone)]
 pub struct Request {
-    /// The bytes reserved: the command's expected peak.
-    pub reserve: u64,
+    /// The bytes reserved, the command's expected peak, as `--reserve <size>` gives it; none for
+    /// `--reserve auto` and for no `--reserve`: the run picks the size ([`pick_reserve`]).
+    pub reserve: Option<u64>,
     /// The repository the command builds.
     pub repository: Option<String>,
     /// The session that runs it, when known.
@@ -382,6 +384,216 @@ pub fn gibibytes(value: &str) -> Result<i64, String> {
         .map_err(|error| format!("{value:?} is no size in GiB: {error}"))
 }
 
+/// The word of `--reserve` that asks for the size the ledger's peaks pick.
+pub const AUTO: &str = "auto";
+
+/// What `--reserve` is given: `auto`, or a size in whole GiB.
+///
+/// # Errors
+///
+/// The word is neither.
+pub fn reserve_word(value: &str) -> Result<String, String> {
+    if value == AUTO {
+        return Ok(value.to_owned());
+    }
+    gibibytes(value).map(|_| value.to_owned()).map_err(|error| {
+        format!("{error}; or write `auto` for the size the ledger's recorded peaks pick")
+    })
+}
+
+/// The reservation of a run that gives none, or `auto`, when the ledger records no peak for its
+/// repository and command.
+pub const DEFAULT_RESERVE: u64 = 4 * GIB;
+
+/// How far back a recorded peak counts for `--reserve auto`.
+const PEAK_WINDOW: time::Duration = time::Duration::days(14);
+
+/// The least `--reserve auto` reserves.
+const LEAST_AUTO: u64 = GIB;
+
+/// The programs a command may be launched through; they are no part of what it builds.
+const LAUNCHERS: [&str; 4] = ["nice", "ionice", "env", "timeout"];
+
+/// What a command's recorded peaks are matched by: its first two words, and for `cargo` its
+/// package flags (`-p`, `--package`, `--workspace`, `--all`, `--exclude`), in any order; the
+/// launchers it runs under (`nice`, `ionice`, `env` and its assignments, `timeout`), a `+toolchain`
+/// and what follows `--` are no part of it (`story:reserve-from-peak`).
+#[must_use]
+pub fn command_key(command: &str) -> String {
+    let mut words: Vec<&str> = command.split_whitespace().collect();
+    // Launchers, with the options and operands each takes, and bare assignments.
+    while let Some(&first) = words.first() {
+        let skip = if first.contains('=') && !first.starts_with('-') {
+            1
+        } else if LAUNCHERS.contains(&program_name(first)) {
+            let own = program_name(first);
+            let mut at = 1;
+            while let Some(&word) = words.get(at) {
+                let takes_value = matches!(
+                    (own, word),
+                    ("nice", "-n") | ("ionice", "-c" | "-n" | "-p") | ("env", "-u" | "-C" | "-S")
+                );
+                if word == "--" {
+                    at += 1;
+                    break;
+                } else if takes_value {
+                    at += 2;
+                } else if word.starts_with('-') || (own == "env" && word.contains('=')) {
+                    at += 1;
+                } else {
+                    break;
+                }
+            }
+            // `timeout` takes its duration as an operand.
+            if own == "timeout" { at + 1 } else { at }
+        } else {
+            0
+        };
+        if skip == 0 {
+            break;
+        }
+        words.drain(..skip.min(words.len()));
+    }
+    let program = words.first().copied().unwrap_or_default();
+    let mut named: Vec<&str> = vec![program];
+    let mut rest = words.iter().skip(1).copied();
+    let mut flags: Vec<String> = Vec::new();
+    let cargo = program_name(program) == "cargo";
+    while let Some(word) = rest.next() {
+        if word == "--" {
+            break;
+        }
+        if named.len() < 2 && !(cargo && word.starts_with('+')) {
+            named.push(word);
+            continue;
+        }
+        if !cargo {
+            continue;
+        }
+        match word {
+            "-p" | "--package" | "--exclude" => {
+                if let Some(value) = rest.next() {
+                    flags.push(format!(
+                        "{} {value}",
+                        if word == "--exclude" { word } else { "-p" }
+                    ));
+                }
+            }
+            "--workspace" | "--all" => flags.push("--workspace".to_owned()),
+            _ => {
+                if let Some(value) = word.strip_prefix("--package=") {
+                    flags.push(format!("-p {value}"));
+                } else if let Some(value) = word.strip_prefix("--exclude=") {
+                    flags.push(format!("--exclude {value}"));
+                } else if let Some(value) = word
+                    .strip_prefix("-p")
+                    .filter(|value| !value.is_empty() && !word.starts_with("--"))
+                {
+                    flags.push(format!("-p {value}"));
+                }
+            }
+        }
+    }
+    flags.sort();
+    flags.dedup();
+    let mut key = named.join(" ");
+    for flag in flags {
+        key.push_str(" | ");
+        key.push_str(&flag);
+    }
+    key
+}
+
+/// `program` without its directory.
+fn program_name(program: &str) -> &str {
+    program.rsplit('/').next().unwrap_or(program)
+}
+
+/// `bytes` in GiB as a person reads them: `3G`, `0.49G`.
+fn size(bytes: u64) -> String {
+    let tenths = bytes.saturating_mul(100) / GIB;
+    if tenths.is_multiple_of(100) {
+        format!("{}G", tenths / 100)
+    } else {
+        let fraction = format!("{:02}", tenths % 100);
+        format!("{}.{}G", tenths / 100, fraction.trim_end_matches('0'))
+    }
+}
+
+/// What a run reserves and what the ledger recorded for its command.
+struct Reserved {
+    /// The bytes.
+    bytes: u64,
+    /// The largest peak recorded in the window for the repository and the command.
+    peak: Option<u64>,
+    /// The repository and command as the recorded peaks name them.
+    of: String,
+}
+
+/// The bytes `request` reserves (`story:reserve-from-peak`): the size it gives, or, for `auto`,
+/// the largest peak the ledger recorded for the same repository and command in the last 14 days
+/// plus 50 %, at least 1G, else [`DEFAULT_RESERVE`]. An automatic size and its source are said; a
+/// given one over twice the peak is said with the peak.
+fn pick_reserve(
+    ledger: &Ledger,
+    request: &Request,
+    command: &str,
+    at: &Timestamp,
+    say: &dyn Fn(&str),
+) -> Result<Reserved> {
+    use time::format_description::well_known::Rfc3339;
+    let key = command_key(command);
+    let now = OffsetDateTime::parse(&at.0, &Rfc3339).unwrap_or_else(|_| OffsetDateTime::now_utc());
+    let found = ledger.largest_peak(
+        request.repository.as_deref(),
+        &|recorded| command_key(recorded) == key,
+        now - PEAK_WINDOW,
+    )?;
+    let peak = found.map(|(peak, _)| peak);
+    let of = format!(
+        "`{}` of {}",
+        key.replace(" | ", " "),
+        request
+            .repository
+            .as_deref()
+            .map_or("a run with no --repository".to_owned(), str::to_owned)
+    );
+    let bytes = match (request.reserve, found) {
+        (Some(given), Some((peak, _))) => {
+            if given > peak.saturating_mul(2) {
+                say(&format!(
+                    "conductor: build run: warning: --reserve {} is over twice the peak of {} \
+                     recorded for {of} in the last 14 days; `--reserve auto` would reserve {}",
+                    size(given),
+                    size(peak),
+                    size((peak + peak / 2).max(LEAST_AUTO)),
+                ));
+            }
+            given
+        }
+        (Some(given), None) => given,
+        (None, Some((peak, runs))) => {
+            let bytes = (peak + peak / 2).max(LEAST_AUTO);
+            say(&format!(
+                "conductor: build run: reserving {}: auto, the largest peak recorded for {of} in \
+                 the last 14 days ({} of {runs} run(s)) plus 50 %, at least 1G",
+                size(bytes),
+                size(peak),
+            ));
+            bytes
+        }
+        (None, None) => {
+            say(&format!(
+                "conductor: build run: reserving {}: auto found no peak recorded for {of} in the \
+                 last 14 days: the built-in default",
+                size(DEFAULT_RESERVE),
+            ));
+            DEFAULT_RESERVE
+        }
+    };
+    Ok(Reserved { bytes, peak, of })
+}
+
 /// The bytes the disk lacks for `bytes`, with `free` bytes free, `reserved` held by live grants
 /// and `floor` kept free.
 #[must_use]
@@ -414,6 +626,10 @@ pub fn run(
 
     let mut ledger = Ledger::lock(host)?;
     ledger.sweep(&at)?;
+    let picked = pick_reserve(&ledger, request, &command, &at, &|line| {
+        (sources.say)(state, line);
+    })?;
+    let reserve = picked.bytes;
     // Free disk back at `disk_clear` ends the fall: its operator item is withdrawn.
     let clear = settings.clear.max(settings.floor);
     if let Err(error) = ledger.clear_fall(state, &settings.instance, free_bytes(sources)?, clear) {
@@ -429,7 +645,7 @@ pub fn run(
         request.repository.as_deref(),
         request.session_name.as_deref(),
         session.as_deref(),
-        request.reserve,
+        reserve,
         &command,
         &at,
     )?;
@@ -438,7 +654,7 @@ pub fn run(
     let lacking = |ledger: &Ledger| -> Result<u64> {
         let free = free_bytes(sources)?;
         Ok(shortfall(
-            request.reserve,
+            reserve,
             free,
             ledger.reserved(Some(&grant))?,
             settings.floor,
@@ -506,7 +722,7 @@ pub fn run(
                 let fits = settings
                     .floor
                     .saturating_add(ledger.reserved(Some(&grant))?)
-                    .saturating_add(request.reserve);
+                    .saturating_add(reserve);
                 // Never under the ledger's lock: every other run would wait on this walk. The
                 // requests behind this one stay behind it meanwhile, as its request is held.
                 drop(ledger);
@@ -543,7 +759,7 @@ pub fn run(
             let refused_only = before
                 .iter()
                 .all(|&bytes| shortfall(bytes, free, holding, settings.floor) > holding);
-            if refused_only && shortfall(request.reserve, free, holding, settings.floor) == 0 {
+            if refused_only && shortfall(reserve, free, holding, settings.floor) == 0 {
                 short = 0;
                 say(&format!(
                     "conductor: build run: granted past {ahead} request(s) ahead, each short of \
@@ -621,7 +837,7 @@ pub fn run(
             instance: &settings.instance,
             repository: request.repository.as_deref(),
             command: &command,
-            bytes: request.reserve,
+            bytes: reserve,
             shortfall: short,
             left: &left,
             disk: &sources.disk,
@@ -644,10 +860,11 @@ pub fn run(
             &shortfall,
             reclaimed,
             item.as_deref(),
+            picked.peak.map(|peak| (peak, picked.of.as_str())),
         );
         return Ok(Outcome::Refused {
             grant,
-            bytes: request.reserve,
+            bytes: reserve,
             shortfall: short,
             reclaimed,
             left,
@@ -867,12 +1084,19 @@ fn supervise(
 pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> {
     const COMMAND: &str = "build run";
     catch()?;
-    let reserve = args
-        .reserve
-        .ok_or_else(|| anyhow!("{COMMAND}: --reserve is missing"))?;
-    let reserve = u64::try_from(reserve)
-        .map_err(|_| anyhow!("{COMMAND}: --reserve {reserve} is no size"))?
-        .saturating_mul(GIB);
+    let reserve = match args.reserve.as_deref() {
+        None | Some(AUTO) => None,
+        Some(size) => {
+            let size = reserve_word(size)
+                .and_then(|size| gibibytes(&size))
+                .map_err(|error| anyhow!("{COMMAND}: --reserve: {error}"))?;
+            Some(
+                u64::try_from(size)
+                    .map_err(|_| anyhow!("{COMMAND}: --reserve {size} is no size"))?
+                    .saturating_mul(GIB),
+            )
+        }
+    };
     let instance = &crate::config::active().instance;
     let request = Request {
         reserve,
@@ -969,11 +1193,18 @@ fn say_refused(
     shortfall: &Shortfall<'_>,
     reclaimed: u64,
     item: Option<&str>,
+    peak: Option<(u64, &str)>,
 ) {
     let say = |line: &str| (sources.say)(state, line);
+    let measured = peak.map_or(String::new(), |(peak, of)| {
+        format!(
+            "; the largest peak recorded for {of} in the last 14 days is {}",
+            size(peak)
+        )
+    });
     say(&format!(
-        "conductor: build run: refused: {}G asked, {}G short after reclaim freed {}G; the command \
-         did not run (grant {})",
+        "conductor: build run: refused: {}G asked, {}G short after reclaim freed {}G{measured}; \
+         the command did not run (grant {})",
         gib(shortfall.bytes),
         gib(shortfall.shortfall),
         gib(reclaimed),
