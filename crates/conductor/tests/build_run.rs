@@ -1001,6 +1001,17 @@ fn state_of(case: &Case, script: &str) -> Option<HostGrantState> {
         .map(|row| row.state)
 }
 
+/// [`state_of`] each of `scripts`, from one read of the ledger.
+fn states_of<const N: usize>(case: &Case, scripts: [&str; N]) -> [Option<HostGrantState>; N] {
+    let rows = case.grants();
+    scripts.map(|script| {
+        let command = format!("sh -c {script}");
+        rows.iter()
+            .find(|row| row.command.as_deref() == Some(command.as_str()))
+            .map(|row| row.state)
+    })
+}
+
 /// Starts `build run` of `script` reserving `reserve` in a thread, and waits until its request is
 /// on the ledger, so the next one arrives after it.
 fn arrive(
@@ -1072,12 +1083,12 @@ fn requests_are_granted_in_arrival_order_and_a_later_small_one_does_not_overtake
     // The first ends: 10G to reserve. The head is granted first; the 2G requests then fit beside
     // it.
     fs::write(case.work().join("stop-first"), "").expect("stop the first command");
+    // One read of the ledger a poll: each read replays the whole host store, and three a poll
+    // took the I/O and the processor the runs it watches need.
     wait_until("both 2G runs ran", || {
-        let small = [
-            state_of(&case, "touch small-a"),
-            state_of(&case, "touch small-b"),
-        ];
-        let head = state_of(&case, head_script);
+        let [small_a, small_b, head] =
+            states_of(&case, ["touch small-a", "touch small-b", head_script]);
+        let small = [small_a, small_b];
         assert!(
             small
                 .iter()
@@ -1398,6 +1409,81 @@ fn a_run_waiting_on_the_stores_tree_lock_does_not_hold_host_lock() {
         "{outcome:?}"
     );
     assert!(case.work().join("ran").exists(), "the command ran");
+}
+
+/// `story:store-readers-hold-no-writer-lock`: the ledger's readers, `host grants` and
+/// [`host::rows`], take no writer lock of the host store: each answers while another writer holds
+/// it. A reader that took it would make every run that holds `host.lock` meanwhile let it go and
+/// wait (`Ledger::lock`), so a reader polling the ledger would hold back the host queue.
+#[test]
+fn the_ledgers_readers_answer_while_a_writer_holds_its_tree_lock() {
+    let case = Case::new("ledger-readers-beside-tree-lock");
+    let ran = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, "true"),
+    )
+    .expect("the run ends");
+    assert!(matches!(ran, Outcome::Ran { code: 0, .. }), "{ran:?}");
+    let ran = case
+        .binary(&["build", "run", "--reserve", "1G", "--", "sh", "-c", "true"])
+        .output()
+        .expect("conductor runs");
+    assert!(ran.status.success(), "{ran:?}");
+    // The binary's host directory: `~/.b10x/conductor/host` of the case's home.
+    let binary_host = case
+        .dir
+        .join("home")
+        .join(".b10x")
+        .join("conductor")
+        .join("host");
+
+    let library = hold_tree(&case.host());
+    let binary = hold_tree(&binary_host);
+    let rows = {
+        let host = case.host();
+        thread::spawn(move || host::rows(&host).map(|rows| rows.len()))
+    };
+    let mut view = case
+        .binary(&["host", "grants", "--format", "json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("conductor runs");
+    let started = Instant::now();
+    let mut viewed = None;
+    while (viewed.is_none() || !rows.is_finished()) && started.elapsed() < Duration::from_secs(10) {
+        if viewed.is_none() {
+            viewed = view.try_wait().expect("the view's status reads");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    let read = rows.is_finished();
+    drop((library, binary));
+    let rows = rows.join().expect("the read ends");
+    let output = view.wait_with_output().expect("the view ends");
+    assert!(
+        read,
+        "host::rows waited over 10 s on the writer lock of the host store"
+    );
+    assert!(
+        viewed.is_some(),
+        "host grants waited over 10 s on the writer lock of the host store"
+    );
+    assert_eq!(
+        rows.expect("the ledger reads"),
+        1,
+        "the library run's grant"
+    );
+    assert!(output.status.success(), "{output:?}");
+    let listed: Value = serde_json::from_slice(&output.stdout).expect("the view writes JSON");
+    assert_eq!(
+        listed.as_array().map(Vec::len),
+        Some(1),
+        "the binary run's grant: {listed}"
+    );
 }
 
 /// `story:store-readers-hold-no-writer-lock`: free disk back at `disk_clear` ends the open fall,
@@ -1942,7 +2028,7 @@ fn two_short_runs_in_a_row_run_one_reclaim() {
 }
 
 /// A reclaim that writes `reclaim.started` in its case and waits, at most 20 seconds, until the
-/// case holds `reclaim.go`; it frees nothing.
+/// case holds `reclaim.go`, then writes `reclaim.ended`; it frees nothing.
 fn slow_reclaim(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
     count_reclaim(state);
     let case = case_of(state);
@@ -1951,6 +2037,7 @@ fn slow_reclaim(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
     while !case.join("reclaim.go").exists() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(10));
     }
+    fs::write(case.join("reclaim.ended"), "").expect("mark the reclaim ended");
     Ok(ReclaimReport {
         reclaimed_bytes: 0,
         steps: Vec::new(),
@@ -1970,6 +2057,12 @@ impl Drop for Go {
 
 /// A run that reclaims holds no ledger lock meanwhile: another run takes the lock while the
 /// reclaim walks, so the host queue never waits on one run's walk.
+///
+/// The lock is tried until taken, as long as the reclaim runs. A child another case of this
+/// process spawns holds a copy of each of the process's descriptors from its fork to its exec, a
+/// lock file's among them, so one try can find the lock held after the run let it go; under load
+/// that copy lives long enough to be seen. A run that kept the lock through its reclaim keeps it
+/// until `reclaim.go`, and every try fails.
 #[test]
 fn the_ledger_lock_is_free_while_a_reclaim_runs() {
     let case = Case::new("lock-free-during-reclaim");
@@ -1983,8 +2076,13 @@ fn the_ledger_lock_is_free_while_a_reclaim_runs() {
     wait_until("the reclaim runs", || {
         case.dir.join("reclaim.started").exists()
     });
-    let taken = host::Ledger::try_lock(&case.host()).expect("the ledger opens");
-    let free = taken.is_some();
+    let ended = || case.dir.join("reclaim.ended").exists();
+    let mut taken = None;
+    wait_until("the ledger lock is taken or the reclaim ends", || {
+        taken = host::Ledger::try_lock(&case.host()).expect("the ledger opens");
+        taken.is_some() || ended()
+    });
+    let free = taken.is_some() && !ended();
     drop(taken);
     drop(go);
     let outcome = runner
@@ -2006,7 +2104,10 @@ impl Case {
         let home = self.dir.join("home");
         fs::create_dir_all(&home).expect("create the case's home");
         let readings = self.dir.join("readings.txt");
-        fs::write(&readings, format!("{}\n", 1000 * GIB)).expect("write the readings");
+        // Replaced, never truncated in place: a case builds a command (`host grants`) while the
+        // `build run` it started reads this file, and a truncated file reads as no count of bytes,
+        // which ends that run before it records its request.
+        replace(&readings, &format!("{}\n", 1000 * GIB));
         let mut command = common::conductor(&home);
         command
             .arg("--state-dir")

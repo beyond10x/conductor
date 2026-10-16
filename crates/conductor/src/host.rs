@@ -913,14 +913,18 @@ impl Ledger {
     }
 }
 
-/// The rows of the `Grants` view over the existing store under `state`, newest first.
+/// The rows of the `Grants` view over the existing store under `state`, newest first. The store
+/// is opened as a reader ([`crate::store::open_reader`]): a run that holds `host.lock` while a
+/// reader held the store's writer lock would let `host.lock` go and wait ([`Ledger::lock`]), so
+/// a reader polling the ledger would hold back the host's queue
+/// (`story:store-readers-hold-no-writer-lock`).
 ///
 /// # Errors
 ///
 /// There is no store, it does not open, or a grant does not read.
 pub fn rows(state: &Path) -> Result<Vec<Grants>> {
     let generated = Generated::new(Ports {
-        store: crate::store::open_existing(state)?,
+        store: crate::store::open_reader(state)?,
     });
     let mut rows = generated
         .grants()
@@ -1564,8 +1568,9 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "released_at",
         "release_reason",
     ];
+    // A reader, as [`rows`]: it never takes the store's writer lock.
     let generated = Generated::new(Ports {
-        store: crate::store::open_existing(&dir(state)?)?,
+        store: crate::store::open_reader(&dir(state)?)?,
     });
     let mut held = generated
         .grants()
