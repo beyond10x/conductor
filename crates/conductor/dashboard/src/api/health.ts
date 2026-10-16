@@ -35,6 +35,9 @@ export interface CollectorRun {
   duration_ms: number | null;
   /** How the run ended, as the specification names it: `Completed`, `Failed`, `OverBudget`. */
   outcome: string;
+  /** The bytes the snapshot read and wrote while it ran; `null` where they were not recorded. */
+  read_bytes: number | null;
+  written_bytes: number | null;
 }
 
 /** The class of a member failure's first line, as `/api/health` names it. */

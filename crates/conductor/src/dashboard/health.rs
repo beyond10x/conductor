@@ -425,14 +425,17 @@ fn newest_in(held: Held<'_>, errors: &mut Vec<String>) -> (Value, Vec<Value>, Ve
     )
 }
 
-/// One row of `snapshot collector-runs`: the collector, its start, its duration in milliseconds
-/// and how it ended (`Completed`, `Failed`, `OverBudget`).
+/// One row of `snapshot collector-runs`: the collector, its start, its duration in milliseconds,
+/// how it ended (`Completed`, `Failed`, `OverBudget`) and the bytes read and written while it ran
+/// (`null` where they were not recorded).
 fn collector_run(run: CollectorRuns) -> Value {
     json!({
         "collector": run.collector,
         "started_at": run.started_at.0,
         "duration_ms": run.duration_ms,
         "outcome": crate::snapshot::collector_run_outcome_name(run.outcome),
+        "read_bytes": run.read_bytes,
+        "written_bytes": run.written_bytes,
     })
 }
 

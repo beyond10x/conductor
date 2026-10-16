@@ -767,7 +767,10 @@ entities:
 
   # One collector's run in one snapshot (story:snapshot-duration): when it started, how long it
   # took in milliseconds, and how it ended. The driver records one per collector it ran, so the
-  # collector a slow snapshot spends its time in can be named.
+  # collector a slow snapshot spends its time in can be named. `read_bytes` and `written_bytes`
+  # are what the snapshot's process read and wrote while the collector ran, its records kept
+  # included (story:snapshot-store-cost); absent where the system does not report them, and on a
+  # run recorded before they were.
   - name: conductor.observation.CollectorRunObservation
     identity:
       name: observation_id
@@ -783,6 +786,10 @@ entities:
         type: Integer
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
+      - name: read_bytes
+        type: Optional<Integer>
+      - name: written_bytes
+        type: Optional<Integer>
     relations:
       - name: snapshot
         kind: references
@@ -1749,6 +1756,12 @@ commands:
         example: 41250
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
+      - name: read_bytes
+        type: Optional<Integer>
+        example: 52428800
+      - name: written_bytes
+        type: Optional<Integer>
+        example: 1048576
     outcomes:
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
@@ -1780,6 +1793,8 @@ commands:
           started_at: input.started_at
           duration_ms: input.duration_ms
           outcome: input.outcome
+          read_bytes: input.read_bytes
+          written_bytes: input.written_bytes
         emits:
           - conductor.observation.CollectorRunRecorded
         payload:
@@ -2512,8 +2527,8 @@ views:
       wire: member-failures
       display: Members a collector could not read
 
-  # Each collector's run of every kept snapshot, with its start, duration and outcome
-  # (story:snapshot-duration).
+  # Each collector's run of every kept snapshot, with its start, duration, outcome and bytes read
+  # and written (story:snapshot-duration, story:snapshot-store-cost).
   - name: conductor.observation.CollectorRuns
     source: conductor.observation.CollectorRunObservation
     consistency: read_your_writes
@@ -2530,6 +2545,10 @@ views:
         type: Integer
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
+      - name: read_bytes
+        type: Optional<Integer>
+      - name: written_bytes
+        type: Optional<Integer>
     naming:
       wire: collector-runs
       display: Collector runs

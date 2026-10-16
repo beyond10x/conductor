@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6d653976692f5ee4c6fc02dec9822f5ba498946d6f3a4549131eb0a3881b5b9d
-// contract digest c90b09bc1a4fb6c7523648ca709e830ffb26234389d4e5db6be455884a5e49d3
+// model digest 275d89d32946ae4b645b5fab96234677a0b39147df8d6bdee0098b1e7ef07e01
+// contract digest acf76e0fbaeef4c9c67cc8ae69172a8d0637b7f8d3495c42f2f88dfa24041795
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2599,6 +2599,8 @@ where
             started_at: input.started_at.clone(),
             duration_ms: input.duration_ms.clone(),
             outcome: input.outcome.clone(),
+            read_bytes: input.read_bytes.clone(),
+            written_bytes: input.written_bytes.clone(),
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
@@ -3670,6 +3672,8 @@ where
                 started_at: held.data.started_at,
                 duration_ms: held.data.duration_ms,
                 outcome: held.data.outcome,
+                read_bytes: held.data.read_bytes,
+                written_bytes: held.data.written_bytes,
             })
             .collect())
     }

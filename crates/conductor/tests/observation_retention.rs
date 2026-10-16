@@ -853,9 +853,10 @@ fn completing_a_snapshot_keeps_the_newest_complete_ones_and_drops_the_older_and_
     };
 
     // Oldest first: a snapshot left collecting, then complete and failed ones, two hours apart.
+    // The one left collecting is planted after them, at the oldest instant: a start fails a
+    // snapshot collecting whose process is gone (`story:snapshot-store-cost`), and this one is to
+    // be collecting when retention runs.
     store::open(&case.state).expect("create the store");
-    left_collecting(&case.state, stale, &at(0));
-    case.ok(&flags(stale));
     let mut ids = Vec::new();
     for (n, collector) in [
         (1, every_kind()),
@@ -876,6 +877,8 @@ fn completing_a_snapshot_keeps_the_newest_complete_ones_and_drops_the_older_and_
         failed_5,
         complete_6,
     ] = <[String; 6]>::try_from(ids).expect("six snapshots");
+    left_collecting(&case.state, stale, &at(0));
+    case.ok(&flags(stale));
     left_collecting(&case.state, last, &at(14));
     case.ok(&flags(last));
     assert_eq!(

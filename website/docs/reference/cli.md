@@ -262,6 +262,8 @@ Usage: conductor snapshot record-collector-run [OPTIONS]
 | `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--duration-ms <DURATION_MS>` | no | none | integer |
 | `--outcome <OUTCOME>` | no | none | CollectorRunOutcome One of `Completed`, `Failed`, `OverBudget`. |
+| `--read-bytes <READ_BYTES>` | no | none | integer |
+| `--written-bytes <WRITTEN_BYTES>` | no | none | integer |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-member-failure`

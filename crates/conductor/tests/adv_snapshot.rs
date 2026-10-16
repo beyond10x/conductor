@@ -820,26 +820,20 @@ fn adv_a_complete_snapshot_is_closed_to_every_command() {
     }
 }
 
-/// A snapshot a crash left `Collecting` is listed as `Collecting` beside the next one, the next
-/// `start-snapshot` still runs (here on a full disk, 0 bytes free, which is an observation like
-/// any other), and `fail-snapshot` closes the stale one by hand.
+/// A snapshot a crash left `Collecting` is listed as `Collecting`, and `fail-snapshot` closes it
+/// by hand; one left `Collecting` and not closed is failed by the next `start-snapshot`, with the
+/// reason `process gone` (`story:snapshot-store-cost`), which still runs (here on a full disk, 0
+/// bytes free, which is an observation like any other).
 #[test]
-fn adv_a_snapshot_left_collecting_is_listed_and_closed_by_hand() {
+fn adv_a_snapshot_left_collecting_is_listed_and_closed_by_hand_or_by_the_next_start() {
+    const KILLED: &str = "0199f000-0000-7000-8000-0000000000c2";
     let root = case_dir("left-collecting");
     left_collecting(&root, STALE);
-    let started = conductor_with(
-        &root,
-        Some(&offline(&root)),
-        &["snapshot", "start-snapshot", "--disk-free-bytes", "0"],
-    );
-    let next = stdout(&started);
+    left_collecting(&root, KILLED);
     let snapshots = view(&root, "snapshots");
-    assert_eq!(snapshots.len(), 2, "{snapshots:?}; {}", describe(&started));
+    assert_eq!(snapshots.len(), 2, "{snapshots:?}");
     assert_eq!(snapshots[0]["snapshot_id"], STALE);
     assert_eq!(snapshots[0]["state"], "Collecting");
-    assert_eq!(snapshots[1]["snapshot_id"], next.as_str());
-    assert_eq!(snapshots[1]["disk_free_bytes"], 0, "{snapshots:?}");
-    assert_ne!(snapshots[1]["state"], "Collecting", "{snapshots:?}");
 
     let failed = conductor(
         &root,
@@ -854,6 +848,25 @@ fn adv_a_snapshot_left_collecting_is_listed_and_closed_by_hand() {
     );
     assert!(failed.status.success(), "{}", describe(&failed));
     assert_eq!(view(&root, "snapshots")[0]["state"], "Failed");
+
+    let started = conductor_with(
+        &root,
+        Some(&offline(&root)),
+        &["snapshot", "start-snapshot", "--disk-free-bytes", "0"],
+    );
+    let next = stdout(&started);
+    let snapshots = view(&root, "snapshots");
+    assert_eq!(snapshots.len(), 3, "{snapshots:?}; {}", describe(&started));
+    assert_eq!(snapshots[0]["failure_reason"], "the run was killed");
+    assert_eq!(snapshots[1]["snapshot_id"], KILLED);
+    assert_eq!(snapshots[1]["state"], "Failed", "{snapshots:?}");
+    assert_eq!(
+        snapshots[1]["failure_reason"], "process gone",
+        "{snapshots:?}"
+    );
+    assert_eq!(snapshots[2]["snapshot_id"], next.as_str());
+    assert_eq!(snapshots[2]["disk_free_bytes"], 0, "{snapshots:?}");
+    assert_ne!(snapshots[2]["state"], "Collecting", "{snapshots:?}");
 }
 
 // ---------------------------------------------------------------------------------------------

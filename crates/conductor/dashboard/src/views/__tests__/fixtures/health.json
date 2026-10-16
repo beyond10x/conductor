@@ -28,19 +28,25 @@
       "collector": "repositories",
       "started_at": "2026-10-13T09:20:00Z",
       "duration_ms": 41000,
-      "outcome": "Completed"
+      "outcome": "Completed",
+      "read_bytes": 52428800,
+      "written_bytes": 1048576
     },
     {
       "collector": "ci",
       "started_at": "2026-10-13T09:20:41Z",
       "duration_ms": 18250,
-      "outcome": "Completed"
+      "outcome": "Completed",
+      "read_bytes": 2097152,
+      "written_bytes": 524288
     },
     {
       "collector": "blockers",
       "started_at": "2026-10-13T09:20:59Z",
       "duration_ms": 123000,
-      "outcome": "OverBudget"
+      "outcome": "OverBudget",
+      "read_bytes": null,
+      "written_bytes": null
     }
   ],
   "member_failures": [

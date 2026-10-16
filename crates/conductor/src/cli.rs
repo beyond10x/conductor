@@ -2483,6 +2483,12 @@ pub struct RecordCollectorRunArgs {
     /// CollectorRunOutcome
     #[arg(long, value_parser = ["Completed", "Failed", "OverBudget"])]
     pub outcome: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub read_bytes: Option<i64>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub written_bytes: Option<i64>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6d653976692f5ee4c6fc02dec9822f5ba498946d6f3a4549131eb0a3881b5b9d
-// contract digest c90b09bc1a4fb6c7523648ca709e830ffb26234389d4e5db6be455884a5e49d3
+// model digest 275d89d32946ae4b645b5fab96234677a0b39147df8d6bdee0098b1e7ef07e01
+// contract digest acf76e0fbaeef4c9c67cc8ae69172a8d0637b7f8d3495c42f2f88dfa24041795
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -881,6 +881,10 @@ pub struct CollectorRunObservationData {
     pub duration_ms: i64,
     /// `outcome` — `conductor.observation.CollectorRunOutcome`.
     pub outcome: CollectorRunOutcome,
+    /// `read_bytes` — `Optional<Integer>`.
+    pub read_bytes: Option<i64>,
+    /// `written_bytes` — `Optional<Integer>`.
+    pub written_bytes: Option<i64>,
 }
 
 impl CollectorRunObservationData {
@@ -3103,6 +3107,10 @@ pub struct RecordCollectorRun {
     pub duration_ms: i64,
     /// `outcome` — `conductor.observation.CollectorRunOutcome`.
     pub outcome: CollectorRunOutcome,
+    /// `read_bytes` — `Optional<Integer>`.
+    pub read_bytes: Option<i64>,
+    /// `written_bytes` — `Optional<Integer>`.
+    pub written_bytes: Option<i64>,
 }
 
 /// Everything `conductor.observation.RecordCollectorRun` can result in — one variant per declared outcome.
@@ -4195,6 +4203,10 @@ pub struct CollectorRuns {
     pub duration_ms: i64,
     /// `outcome` — `conductor.observation.CollectorRunOutcome`.
     pub outcome: CollectorRunOutcome,
+    /// `read_bytes` — `Optional<Integer>`.
+    pub read_bytes: Option<i64>,
+    /// `written_bytes` — `Optional<Integer>`.
+    pub written_bytes: Option<i64>,
 }
 
 /// Members a collector could not read — one row of the view `conductor.observation.MemberFailures`.

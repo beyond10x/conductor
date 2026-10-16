@@ -66,8 +66,9 @@ use conductor_model::dispatch::{
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::{Timestamp, Uuid};
 use eventlog_core::{
-    CommandMeta, EventLogError, EventStore, Expected, MAX_READ_LIMIT, NewEvent, RecordedEvent,
-    StreamId, TenantId, new_event_id, request_hash,
+    AppendGroup, AtomicEventStore as _, CommandMeta, EventLogError, EventStore, Expected,
+    MAX_READ_LIMIT, NewEvent, RecordedEvent, StreamAppend, StreamId, TenantId, new_event_id,
+    request_hash,
 };
 use eventlog_tree::TreeEventStore;
 use serde_json::{Value, json};
@@ -466,6 +467,22 @@ pub struct Store {
     /// Whether this handle opens a tree that holds a store without its writer lock
     /// ([`open_reader`]).
     reader: bool,
+    /// The observation records this handle holds back, while [`Store::hold_observations`] is on,
+    /// to commit them together ([`Store::commit_observations`]); `None` while it writes each at
+    /// once.
+    held_back: RefCell<Option<Vec<HeldBack>>>,
+}
+
+/// One observation stream's records held back, in the order written, to commit with the others.
+struct HeldBack {
+    /// The entity and identity, as [`Store::versions`] keys them.
+    key: (&'static str, String),
+    /// The stream, in the tenant of the observation's snapshot.
+    stream: StreamId,
+    /// The stream version the first of them expects.
+    read: u64,
+    /// The records.
+    events: Vec<NewEvent>,
 }
 
 /// One of a handle's tree stores.
@@ -716,6 +733,7 @@ impl Store {
             versions: RefCell::default(),
             failures: RefCell::default(),
             reader,
+            held_back: RefCell::default(),
         })
     }
 
@@ -806,6 +824,12 @@ impl Store {
             })
     }
 
+    /// The state directory this handle's store is kept under: the directory holding `tree/`.
+    #[must_use]
+    pub fn state_dir(&self) -> &Path {
+        self.tree.root.parent().unwrap_or(&self.tree.root)
+    }
+
     /// Whether every read and write on this handle since it was opened succeeded.
     ///
     /// # Errors
@@ -834,6 +858,17 @@ impl Store {
             Some(failure) => Err(failure.clone()),
             None => Ok(failures.clone()),
         }
+    }
+
+    /// Runs `read` over this handle and takes back every failure it kept, answering them beside
+    /// its result: the handle is left as it was, so a read beside a sense run whose records do
+    /// not decode neither stops the run's writes nor fails its [`Store::check`]. What a second
+    /// handle kept apart, without opening the store a second time (`story:snapshot-store-cost`).
+    pub fn apart<T>(&self, read: impl FnOnce(&Self) -> T) -> (T, Vec<StoreError>) {
+        let before = self.failures.borrow().len();
+        let answer = read(self);
+        let met = self.failures.borrow_mut().split_off(before);
+        (answer, met)
     }
 
     /// Keeps `failure`, unless it is already kept: an unreadable record is the same failure
@@ -869,9 +904,18 @@ impl Store {
         } else {
             let stream = Self::stream(&self.tenant, entity, identity).ok()?;
             let tree = self.tree_of(entity);
-            self.fresh(tree, false)
-                .map_err(|source| log_error(entity, Some(identity), source))
-                .and_then(|_| self.latest(tree, entity, identity, &stream))
+            let failed = |source| log_error(entity, Some(identity), source);
+            match self.unchanged(tree, &stream) {
+                Ok(Some((version, None))) => Ok((version, None)),
+                Ok(Some((version, Some(event)))) => {
+                    body(entity, event).map(|newest| (version, newest))
+                }
+                Ok(None) => self
+                    .fresh(tree, false)
+                    .map_err(failed)
+                    .and_then(|_| self.latest(tree, entity, identity, &stream)),
+                Err(source) => Err(failed(source)),
+            }
         };
         match held {
             Ok((version, body)) => {
@@ -887,6 +931,62 @@ impl Store {
         }
     }
 
+    /// The version of `stream` in `tree` and its newest event, from the log as it is open, when
+    /// no event was committed to that stream since the log was opened: the stream's directory
+    /// holds exactly as many event files as the log has events of it (`story:snapshot-store-cost`).
+    /// A commit adds one file per event and nothing conductor runs removes one from `tree/` or
+    /// `series/`, so an equal count is the stream as a reopened log would serve it; a commit to
+    /// another stream does not make the whole tree be read again for this one. `None` when the log
+    /// is not open yet or the stream gained a file (an event, or one written but not yet
+    /// committed): the caller brings the log up to the files.
+    ///
+    /// # Errors
+    ///
+    /// The log failed on the stream's version.
+    fn unchanged(
+        &self,
+        tree: &Tree,
+        stream: &StreamId,
+    ) -> Result<Option<(u64, Option<RecordedEvent>)>, EventLogError> {
+        let log = tree.log.borrow();
+        let Some(log) = log.as_ref() else {
+            return Ok(None);
+        };
+        let held = self
+            .runtime
+            .block_on(log.stream_version(stream))?
+            .unwrap_or(0);
+        let directory = tree
+            .root
+            .join("tenants")
+            .join(observations::segment(stream.tenant().as_str()))
+            .join("streams")
+            .join(observations::segment(stream.stream_type()))
+            .join(observations::segment(stream.stream_id()));
+        let files = match fs::read_dir(&directory) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+                .count(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+            Err(_) => return Ok(None),
+        };
+        if u64::try_from(files).ok() != Some(held) {
+            return Ok(None);
+        }
+        if held == 0 {
+            return Ok(Some((0, None)));
+        }
+        let slice = self
+            .runtime
+            .block_on(log.read_stream(stream, held - 1, 1))?;
+        Ok(slice
+            .events
+            .into_iter()
+            .next()
+            .map(|event| (held, Some(event))))
+    }
+
     /// The tenant of the observation store that holds `entity`'s instance `identity`, with its
     /// stream's version and newest body; `None` when no tenant holds it, or the observation store
     /// is not there.
@@ -896,6 +996,7 @@ impl Store {
         identity: &str,
     ) -> Result<Option<(TenantId, u64, Option<Value>)>, StoreError> {
         let failed = |source| log_error(entity, Some(identity), source);
+        self.commit_observations()?;
         if !self.fresh(&self.observations, false).map_err(failed)? {
             return Ok(None);
         }
@@ -980,6 +1081,7 @@ impl Store {
     /// instants, so the feed positions alone do not order two snapshots' observations.
     fn fold_observations(&self, entity: &'static str) -> Result<Vec<Folded>, StoreError> {
         let failed = |source| log_error(entity, None, source);
+        self.commit_observations()?;
         if !self.fresh(&self.observations, false).map_err(failed)? {
             return Ok(Vec::new());
         }
@@ -1081,7 +1183,181 @@ impl Store {
                 None => return Ok(()),
             },
         };
+        if self.held_back.borrow().is_some() {
+            return self.hold_back(&tenant, entity, identity, name, body);
+        }
         self.append(&self.observations, &tenant, entity, identity, name, body)
+    }
+
+    /// Holds every observation record written from now on back, until
+    /// [`Store::commit_observations`] commits them together, as one command of the observation
+    /// store (`story:snapshot-store-cost`). Each commit of a tree lists every commit file of it,
+    /// in eventlog-tree and in this handle's [`Mark`], and the observation store keeps every kept
+    /// snapshot's: a collector that committed each of its records alone read the whole store's
+    /// listing three times per record. Any read of an observation commits what is held first, so
+    /// a read answers what was written.
+    pub fn hold_observations(&self) {
+        let mut held = self.held_back.borrow_mut();
+        if held.is_none() {
+            *held = Some(Vec::new());
+        }
+    }
+
+    /// Commits the observation records held back since [`Store::hold_observations`], one command
+    /// per snapshot tenant, and goes on holding. A failure is kept for [`Store::check`], as a
+    /// failed write is; none is committed after it.
+    ///
+    /// # Errors
+    ///
+    /// The commit failed: a stream another writer created or moved meanwhile, or the log.
+    pub fn commit_observations(&self) -> Result<(), StoreError> {
+        let held = match self.held_back.borrow_mut().as_mut() {
+            Some(held) if !held.is_empty() => std::mem::take(held),
+            _ => return Ok(()),
+        };
+        if !self.failures.borrow().is_empty() {
+            return Ok(());
+        }
+        let mut start = 0;
+        while start < held.len() {
+            let tenant = held[start].stream.tenant().clone();
+            let end = held[start..]
+                .iter()
+                .position(|back| back.stream.tenant() != &tenant)
+                .map_or(held.len(), |offset| start + offset);
+            if let Err(failure) = self.commit_group(&tenant, &held[start..end]) {
+                self.fail(failure.clone());
+                return Err(failure);
+            }
+            start = end;
+        }
+        Ok(())
+    }
+
+    /// Writes nothing more back: commits what is held ([`Store::commit_observations`]) and writes
+    /// each observation record at once from now on.
+    ///
+    /// # Errors
+    ///
+    /// The commit of what was held failed.
+    pub fn release_observations(&self) -> Result<(), StoreError> {
+        let committed = self.commit_observations();
+        *self.held_back.borrow_mut() = None;
+        committed
+    }
+
+    /// Holds one observation record back, after any held for its stream; the first of a stream
+    /// expects the version this handle last read or wrote of it, or the one its log holds.
+    fn hold_back(
+        &self,
+        tenant: &TenantId,
+        entity: &'static str,
+        identity: &str,
+        name: &'static str,
+        body: Value,
+    ) -> Result<(), StoreError> {
+        let stream = Self::stream(tenant, entity, identity)?;
+        let failed = |source| log_error(entity, Some(identity), source);
+        let event = NewEvent::new(name, SCHEMA_VERSION, body).map_err(failed)?;
+        let key = (entity, identity.to_owned());
+        {
+            let mut held = self.held_back.borrow_mut();
+            if let Some(back) = held
+                .as_mut()
+                .and_then(|held| held.iter_mut().find(|back| back.stream == stream))
+            {
+                back.events.push(event);
+                return Ok(());
+            }
+        }
+        let known = self.versions.borrow().get(&key).copied();
+        let read = match known {
+            Some(version) => version,
+            None => {
+                if self.observations.log.borrow().is_none() {
+                    self.fresh(&self.observations, true).map_err(failed)?;
+                }
+                let log = self.observations.log.borrow();
+                let log = log.as_ref().ok_or_else(|| failed(EventLogError::Closed))?;
+                self.runtime
+                    .block_on(log.stream_version(&stream))
+                    .map_err(failed)?
+                    .unwrap_or(0)
+            }
+        };
+        if let Some(held) = self.held_back.borrow_mut().as_mut() {
+            held.push(HeldBack {
+                key,
+                stream,
+                read,
+                events: vec![event],
+            });
+        }
+        Ok(())
+    }
+
+    /// Commits `held`, every one in `tenant`, as one command of the observation store.
+    fn commit_group(&self, tenant: &TenantId, held: &[HeldBack]) -> Result<(), StoreError> {
+        let Some(first) = held.first() else {
+            return Ok(());
+        };
+        let failed = |source| log_error(first.key.0, Some(&first.key.1), source);
+        let appends: Vec<StreamAppend> = held
+            .iter()
+            .map(|back| StreamAppend {
+                stream: back.stream.clone(),
+                expected: if back.read == 0 {
+                    Expected::NoStream
+                } else {
+                    Expected::Exact(back.read)
+                },
+                events: back.events.clone(),
+            })
+            .collect();
+        let events: Vec<NewEvent> = held
+            .iter()
+            .flat_map(|back| back.events.iter().cloned())
+            .collect();
+        let group = AppendGroup {
+            tenant: tenant.clone(),
+            appends,
+            meta: meta(&events).map_err(failed)?,
+        };
+        if self.observations.log.borrow().is_none() {
+            self.fresh(&self.observations, true).map_err(failed)?;
+        }
+        let tree = &self.observations;
+        let opened = tree.log.borrow();
+        let log = opened
+            .as_ref()
+            .ok_or_else(|| failed(EventLogError::Closed))?;
+        let before = tree.seen.borrow_mut().take();
+        let committed = self.runtime.block_on(log.append_group(&group));
+        drop(opened);
+        // As in `append`: one command adds exactly one commit file.
+        if committed.is_ok()
+            && let Some(before) = before
+            && let Ok(after) = mark(&tree.root)
+            && before.one_more(&after, tenant)
+        {
+            *tree.seen.borrow_mut() = Some(after);
+        }
+        match committed {
+            Ok(committed) => {
+                let mut versions = self.versions.borrow_mut();
+                for (back, appended) in held.iter().zip(committed.appends) {
+                    versions.insert(back.key.clone(), appended.last_version);
+                }
+                Ok(())
+            }
+            Err(EventLogError::Conflict { actual, .. }) => Err(StoreError::Moved {
+                entity: first.key.0,
+                identity: first.key.1.clone(),
+                read: first.read,
+                held: actual,
+            }),
+            Err(source) => Err(failed(source)),
+        }
     }
 
     fn append(

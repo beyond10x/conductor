@@ -672,6 +672,8 @@ fn encode_collector_run(observation: &CollectorRunObservationSnapshot) -> Value 
         "started_at": data.started_at.0,
         "duration_ms": data.duration_ms,
         "outcome": collector_run_outcome_name(data.outcome),
+        "read_bytes": data.read_bytes,
+        "written_bytes": data.written_bytes,
     })
 }
 
@@ -686,6 +688,8 @@ fn decode_collector_run(body: &Value) -> Result<CollectorRunObservationSnapshot,
             started_at: Timestamp(text(body, "started_at")?),
             duration_ms: integer(body, "duration_ms")?,
             outcome: named(body, "outcome", collector_run_outcome_named)?,
+            read_bytes: optional_integer(body, "read_bytes")?,
+            written_bytes: optional_integer(body, "written_bytes")?,
         },
     })
 }
