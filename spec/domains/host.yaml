@@ -152,6 +152,10 @@ entities:
       # the working directory), as recorded while it ran.
       - name: peak_bytes
         type: Optional<Integer>
+      # How often the disk watchdog paused the run, as recorded with its peak
+      # (story:build-run-pause-visible).
+      - name: pauses
+        type: Optional<Integer>
       # The command a disk reservation covers: its argv joined into one string.
       - name: command
         type: Optional<String>
@@ -600,6 +604,9 @@ commands:
       - name: peak_bytes
         type: Integer
         example: 6442450944
+      # How often the watchdog paused the run so far; absent, none is recorded.
+      - name: pauses
+        type: Optional<Integer>
     outcomes:
       - name: invalid-size
         when: peak_bytes < 0
@@ -614,6 +621,7 @@ commands:
         instance: grant_id
         sets:
           peak_bytes: input.peak_bytes
+          pauses: input.pauses
         emits:
           - conductor.host.PeakRecorded
         payload:
@@ -812,6 +820,8 @@ views:
       - name: bytes
         type: Optional<Integer>
       - name: peak_bytes
+        type: Optional<Integer>
+      - name: pauses
         type: Optional<Integer>
       - name: command
         type: Optional<String>

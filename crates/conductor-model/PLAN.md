@@ -1,7 +1,7 @@
 <!--
   generated from conductor v1
-  model digest 8edad738c6b5689ba394ca170ba4f1bdba8e03a517cceb3adee4fb4b6566a0df
-  contract digest b63ca81a4b13794d6772aed33575fa3e4e1ed6bca22c18a46e3a425a0ae59e38
+  model digest 5ddb8df81a2c0e205847c6f6cb31e77e262166eb7053522580896870e3a376ce
+  contract digest 038e16f0bac76ad1e4983cd58c36c8c3f8384b04da2a8965b7cc9f309c169434
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1

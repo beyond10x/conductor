@@ -155,6 +155,10 @@ pub struct Settings {
     /// How long a reservation waits for live reservations to release when they alone hold the
     /// space it lacks: such a shortfall ends when their runs end, and is not the operator's.
     pub wait: Duration,
+    /// The CPU cores of the host.
+    pub cores: u64,
+    /// The cores left to the desktop: `thresholds.cpu_reserve`.
+    pub cpu_reserve: u64,
 }
 
 impl Settings {
@@ -172,6 +176,8 @@ impl Settings {
             gate_stop: bytes(thresholds.gate_stop.0),
             gate_resume: bytes(thresholds.gate_resume.0),
             wait: WAIT_FOR_RESERVATIONS,
+            cores: std::thread::available_parallelism().map_or(1, |cores| cores.get() as u64),
+            cpu_reserve: u64::try_from(thresholds.cpu_reserve).unwrap_or(0),
         }
     }
 }
@@ -212,6 +218,8 @@ pub struct Sources {
     /// Writes one line of standard error, given the state directory: [`stderr`]. A case gives its
     /// own.
     pub say: fn(&Path, &str),
+    /// Reads a variable of `build run`'s own environment, which its command inherits.
+    pub env: fn(&str) -> Option<String>,
 }
 
 /// Writes `line` to standard error.
@@ -238,6 +246,7 @@ impl Sources {
                 .filter(|home| home.is_absolute()),
             var_tmp: PathBuf::from("/var/tmp"),
             say: stderr,
+            env: |name| std::env::var(name).ok(),
         }
     }
 }
@@ -355,7 +364,7 @@ pub fn run(
     sources: &Sources,
     request: &Request,
 ) -> Result<Outcome> {
-    let Some((program, arguments)) = request.command.split_first() else {
+    let Some((program, _)) = request.command.split_first() else {
         bail!("build run: no command: write it after `--`");
     };
     let command = request.command.join(" ");
@@ -592,12 +601,12 @@ pub fn run(
         return Ok(Outcome::Stopped { grant, signal });
     }
 
-    let mut child = match Command::new(program)
-        .args(arguments)
-        .current_dir(&request.cwd)
-        .process_group(0)
-        .spawn()
-    {
+    let mut command = yielding(&request.command);
+    command.current_dir(&request.cwd).process_group(0);
+    for (name, value) in job_variables(settings, sources) {
+        command.env(name, value);
+    }
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             let at = host::now((sources.clock)());
@@ -635,6 +644,18 @@ pub fn run(
         .join()
         .map_err(|_| anyhow!("build run: the disk watchdog panicked"))?;
     let status = status.context("build run: wait for the command")?;
+    if watched.paused > 0 {
+        // A red run during a pause is recognised as one (story:build-run-pause-visible).
+        (sources.say)(
+            state,
+            &format!(
+                "conductor: build run: paused {} times for {}s during this run; a failure may \
+                 come from the pause",
+                watched.paused,
+                watched.paused_for.as_secs()
+            ),
+        );
+    }
 
     let (code, killed) = match (stopped_by, status.code(), status.signal()) {
         (Some(signal), _, _) => {
@@ -652,7 +673,7 @@ pub fn run(
         .peak
         .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
         .saturating_sub(watched.start);
-    if let Err(error) = host::record_peak_of(host, &grant, peak) {
+    if let Err(error) = host::record_run_of(host, &grant, peak, watched.paused) {
         (sources.say)(
             state,
             &format!("conductor: build run: the peak was not recorded: {error:#}"),
@@ -679,6 +700,38 @@ pub fn run(
         paused: watched.paused,
         resumed: watched.resumed,
     })
+}
+
+/// The command at the lowest priority: `nice -n 19`, and `ionice -c3` (idle I/O class) when the
+/// host has one. Both exec the command, so the process group and its leader stay the command's.
+fn yielding(command: &[String]) -> Command {
+    let mut argv: Vec<&str> = vec!["nice", "-n", "19"];
+    if on_path("ionice") {
+        argv.extend(["ionice", "-c3"]);
+    }
+    argv.extend(command.iter().map(String::as_str));
+    let mut wrapped = Command::new(argv[0]);
+    wrapped.args(&argv[1..]);
+    wrapped
+}
+
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+}
+
+/// The variables that keep the command's builds off the desktop's last cores: `CARGO_BUILD_JOBS`
+/// and `MAKEFLAGS=-j` of the cores less `thresholds.cpu_reserve` (at least one), each unless the
+/// environment of `build run` already holds it (`story:build-run-spare-cores`).
+fn job_variables(settings: &Settings, sources: &Sources) -> Vec<(&'static str, String)> {
+    let jobs = settings.cores.saturating_sub(settings.cpu_reserve).max(1);
+    [
+        ("CARGO_BUILD_JOBS", jobs.to_string()),
+        ("MAKEFLAGS", format!("-j{jobs}")),
+    ]
+    .into_iter()
+    .filter(|(name, _)| (sources.env)(name).is_none())
+    .collect()
 }
 
 /// Waits for the command `child`, the leader of the process group `group`, to end. A signal
@@ -800,6 +853,8 @@ struct Watched {
     peak: u64,
     paused: u32,
     resumed: u32,
+    /// How long the run was stopped, over all its pauses.
+    paused_for: Duration,
 }
 
 /// The disk watchdog of one run.
@@ -825,12 +880,12 @@ impl Watchdog {
             ..Watched::default()
         };
         let mut recorded = 0u64;
-        let mut stopped = false;
+        let mut stopped: Option<Instant> = None;
         while !wait(done, self.sources.every) {
             match free_bytes(&self.sources) {
-                Ok(free) if !stopped && free < self.settings.gate_stop => {
+                Ok(free) if stopped.is_none() && free < self.settings.gate_stop => {
                     signal(self.group, Signal::SIGSTOP);
-                    stopped = true;
+                    stopped = Some(Instant::now());
                     watched.paused += 1;
                     (self.sources.say)(
                         &self.state,
@@ -844,9 +899,11 @@ impl Watchdog {
                     let need = self.settings.gate_resume;
                     reclaim(&self.sources, &self.state, &self.host, need);
                 }
-                Ok(free) if stopped && free >= self.settings.gate_resume => {
+                Ok(free) if stopped.is_some() && free >= self.settings.gate_resume => {
                     signal(self.group, Signal::SIGCONT);
-                    stopped = false;
+                    if let Some(since) = stopped.take() {
+                        watched.paused_for += since.elapsed();
+                    }
                     watched.resumed += 1;
                     (self.sources.say)(
                         &self.state,
@@ -869,7 +926,7 @@ impl Watchdog {
             // only what this run has not written yet.
             let grown = watched.peak.saturating_sub(watched.start);
             if grown >= recorded.saturating_add(GIB) {
-                match host::record_peak_now(&self.host, &self.grant, grown) {
+                match host::record_peak_now(&self.host, &self.grant, grown, watched.paused) {
                     Ok(true) => recorded = grown,
                     Ok(false) => {}
                     Err(error) => {
@@ -878,8 +935,9 @@ impl Watchdog {
                 }
             }
         }
-        if stopped {
+        if let Some(since) = stopped {
             signal(self.group, Signal::SIGCONT);
+            watched.paused_for += since.elapsed();
         }
         watched
     }

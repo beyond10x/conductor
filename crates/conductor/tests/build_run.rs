@@ -86,6 +86,7 @@ impl Case {
             home: Some(self.home()),
             var_tmp: self.var_tmp(),
             say: said_to_file,
+            env: |_| None,
         }
     }
 
@@ -164,6 +165,8 @@ fn settings() -> Settings {
         gate_stop: 5 * GIB,
         gate_resume: 8 * GIB,
         wait: Duration::ZERO,
+        cores: 20,
+        cpu_reserve: 2,
     }
 }
 
@@ -321,6 +324,65 @@ fn a_reservation_that_fits_runs_the_command_and_is_released_with_its_peak() {
             .is_some_and(|command| command.starts_with("sh -c ")),
         "{row:?}"
     );
+}
+
+/// story:build-run-spare-cores: the command runs at nice 19 (field 19 of its /proc stat), in the
+/// idle I/O class, with the job counts of the cores less the reserve.
+#[test]
+fn the_command_runs_at_nice_19_with_the_spare_cores_as_its_job_count() {
+    let case = Case::new("spare-cores");
+    let script = "awk '{print $19}' /proc/self/stat > nice.txt; \
+                  echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt; \
+                  if command -v ionice >/dev/null; then ionice -p $$ > io.txt; fi";
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, script),
+    )
+    .expect("the run ends");
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    let read = |name: &str| fs::read_to_string(case.work().join(name)).unwrap_or_default();
+    assert_eq!(read("nice.txt").trim(), "19", "the command's own nice");
+    assert_eq!(read("jobs.txt").trim(), "18 -j18", "20 cores less 2");
+    if case.work().join("io.txt").exists() {
+        assert!(read("io.txt").starts_with("idle"), "{}", read("io.txt"));
+    }
+}
+
+/// A job count the run's environment already holds is kept, the other is set; a reserve over the
+/// cores leaves one job.
+#[test]
+fn a_job_count_the_environment_holds_is_kept_and_a_large_reserve_leaves_one() {
+    let case = Case::new("spare-cores-kept");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    let run = |settings: &Settings, sources: Sources| {
+        build::run(
+            &case.state(),
+            &case.host(),
+            settings,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends")
+    };
+    // The environment holds CARGO_BUILD_JOBS (as the child inherits it): it is left as it is.
+    let inherited = std::env::var("CARGO_BUILD_JOBS").unwrap_or_default();
+    let holding = Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "7".to_owned()),
+        ..case.sources(reclaim_nothing)
+    };
+    run(&settings(), holding);
+    assert_eq!(jobs().trim(), format!("{inherited} -j18"));
+    let tight = Settings {
+        cores: 2,
+        cpu_reserve: 5,
+        ..settings()
+    };
+    run(&tight, case.sources(reclaim_nothing));
+    assert_eq!(jobs().trim(), "1 -j1", "never fewer than one job");
 }
 
 #[test]
@@ -1130,6 +1192,65 @@ fn a_reading_under_gate_stop_pauses_the_group_and_one_over_gate_resume_resumes_i
     };
     assert_eq!(code, 0);
     assert_eq!((paused, resumed), (1, 1), "one pause, one resume");
+}
+
+/// story:build-run-pause-visible: a run the watchdog paused says so on exit, and its grant
+/// carries the count; a run that was never paused says nothing.
+#[test]
+fn a_paused_run_names_the_pause_on_exit_and_records_the_count_on_its_grant() {
+    let case = Case::new("pause-visible");
+    let (state, host) = (case.state(), case.host());
+    let sources = case.sources(reclaim_nothing);
+    let request = case.request(
+        GIB,
+        "while [ ! -e stop ]; do echo tick >> ticks; sleep 0.05; done",
+    );
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let ticks = case.work().join("ticks");
+    wait_until("the command ticks", || lines(&ticks) >= 3);
+    case.free(4 * GIB);
+    wait_until("reclaim runs for the paused run", || case.reclaims() >= 1);
+    thread::sleep(Duration::from_millis(300));
+    case.free(9 * GIB);
+    let before = lines(&ticks);
+    wait_until("the command ticks again", || lines(&ticks) > before + 2);
+    fs::write(case.work().join("stop"), "").expect("stop the command");
+    let outcome = runner
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
+    let Outcome::Ran { ref grant, .. } = outcome else {
+        panic!("the command ran: {outcome:?}");
+    };
+    let said = case.said();
+    let line = said
+        .lines()
+        .find(|line| line.contains("paused 1 times for"))
+        .unwrap_or_else(|| panic!("the exit names the pause: {said}"));
+    assert!(
+        line.starts_with("conductor: build run: paused 1 times for ")
+            && line.ends_with("s during this run; a failure may come from the pause"),
+        "{line}"
+    );
+    let row = case
+        .grants()
+        .into_iter()
+        .find(|row| row.grant_id == *grant)
+        .expect("the ledger holds the grant");
+    assert_eq!(row.pauses, Some(1), "{row:?}");
+
+    // A run that was never paused prints no such line and records none.
+    let calm = Case::new("pause-visible-calm");
+    build::run(
+        &calm.state(),
+        &calm.host(),
+        &settings(),
+        &calm.sources(reclaim_nothing),
+        &calm.request(GIB, "exit 0"),
+    )
+    .expect("the run ends");
+    assert!(!calm.said().contains("times for"), "{}", calm.said());
+    assert!(calm.grants().iter().all(|row| row.pauses == Some(0)));
 }
 
 #[test]

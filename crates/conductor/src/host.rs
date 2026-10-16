@@ -666,8 +666,17 @@ fn start_answer(command: &str, outcome: StartRunOutcome) -> Result<()> {
 ///
 /// The specification refuses it, or the store does not open or keep it.
 pub fn record_peak_of(state: &Path, grant: &GrantId, peak: u64) -> Result<()> {
+    record_run_of(state, grant, peak, 0)
+}
+
+/// [`record_peak_of`] with the number of times the watchdog paused the run.
+///
+/// # Errors
+///
+/// The specification refuses it, or the store does not open or keep it.
+pub fn record_run_of(state: &Path, grant: &GrantId, peak: u64, pauses: u32) -> Result<()> {
     let mut ledger = Ledger::lock(state)?;
-    record_peak_in(&mut ledger, grant, peak)
+    record_peak_in(&mut ledger, grant, peak, pauses)
 }
 
 /// [`record_peak_of`] while the run goes on: skipped, answering `false`, when another holder has
@@ -676,21 +685,22 @@ pub fn record_peak_of(state: &Path, grant: &GrantId, peak: u64) -> Result<()> {
 /// # Errors
 ///
 /// The specification refuses it, or the store does not open or keep it.
-pub fn record_peak_now(state: &Path, grant: &GrantId, peak: u64) -> Result<bool> {
+pub fn record_peak_now(state: &Path, grant: &GrantId, peak: u64, pauses: u32) -> Result<bool> {
     let Some(mut ledger) = Ledger::try_lock(state)? else {
         return Ok(false);
     };
-    record_peak_in(&mut ledger, grant, peak)?;
+    record_peak_in(&mut ledger, grant, peak, pauses)?;
     Ok(true)
 }
 
-fn record_peak_in(ledger: &mut Ledger, grant: &GrantId, peak: u64) -> Result<()> {
+fn record_peak_in(ledger: &mut Ledger, grant: &GrantId, peak: u64, pauses: u32) -> Result<()> {
     const COMMAND: &str = "host record-peak";
     let generated = &mut ledger.generated;
     let outcome = generated
         .record_peak(RecordPeak {
             grant_id: grant.clone(),
             peak_bytes: i64::try_from(peak).unwrap_or(i64::MAX),
+            pauses: Some(i64::from(pauses)),
         })
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
@@ -1374,6 +1384,7 @@ pub fn record_peak(state: Option<&Path>, args: RecordPeakArgs) -> Result<ExitCod
     let input = RecordPeak {
         grant_id: GrantId(flag(COMMAND, "--grant-id", args.grant_id)?),
         peak_bytes: flag(COMMAND, "--peak-bytes", args.peak_bytes)?,
+        pauses: args.pauses,
     };
     let mut generated = Generated::new(Ports {
         store: crate::store::open(&dir(state)?)?,
@@ -1434,7 +1445,7 @@ pub fn withdraw_disk_request(
 /// There is no store, it does not open, a grant does not read, or the rows cannot be written.
 pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/host.yaml`).
-    const COLUMNS: [&str; 16] = [
+    const COLUMNS: [&str; 17] = [
         "grant_id",
         "state",
         "instance",
@@ -1442,6 +1453,7 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "kind",
         "bytes",
         "peak_bytes",
+        "pauses",
         "command",
         "process_group",
         "session_name",
@@ -1470,6 +1482,7 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(kind_name(row.kind)),
                 Value::from(row.bytes),
                 Value::from(row.peak_bytes),
+                Value::from(row.pauses),
                 Value::from(row.command),
                 Value::from(row.process_group),
                 Value::from(row.session_name.map(|name| name.0)),

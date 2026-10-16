@@ -117,6 +117,7 @@ accepted, defaulted and shown by `config show`.
 | `thresholds.gate_resume` | GiB | `17G` | controller profile | free disk from which the watchdog resumes a stopped gate; must be above `gate_stop` |
 | `thresholds.watchdog_every` | duration | `10s` | controller profile | time between two reads of free disk by the watchdog |
 | `thresholds.silent_session` | duration | `30m` | watch, conductor profile | time a live controller (`working` or `waiting`) and every one of its sub-agents may write nothing to their transcripts before the watch reports `session silent:` |
+| `thresholds.cpu_reserve` | cores | `2` | `conductor build run` | cores `build run` leaves to the desktop: its command gets `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j` of the cores less this, unless it sets them, at nice 19 and idle I/O class |
 | `retention.snapshots` | integer ≥ 1 | `12` | store | complete snapshots whose observations are kept |
 | `reports` | list of report | `[]` | nothing yet | where reports go |
 | `reports[].channel` | string | required | | the destination |

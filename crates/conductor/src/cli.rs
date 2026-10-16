@@ -1732,6 +1732,9 @@ pub struct RecordPeakArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub peak_bytes: Option<i64>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub pauses: Option<i64>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

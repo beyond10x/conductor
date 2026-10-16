@@ -267,6 +267,7 @@ fn legacy_grant(id: &str, state: HostGrantState) -> HostGrantSnapshot {
             kind: GrantKind::Disk,
             bytes: Some(i64::try_from(GIB).unwrap()),
             peak_bytes: None,
+            pauses: None,
             command: Some("cargo test".to_owned()),
             process_group: None,
             session_name: None,

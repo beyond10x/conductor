@@ -1628,6 +1628,7 @@ Usage: conductor host record-peak [OPTIONS]
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--peak-bytes <PEAK_BYTES>` | no | none | integer |
+| `--pauses <PAUSES>` | no | none | integer |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host release-grant`
