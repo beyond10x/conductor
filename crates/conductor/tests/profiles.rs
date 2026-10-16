@@ -599,7 +599,7 @@ fn every_build_runs_under_conductor_build_run_and_a_refusal_is_reported() {
     for name in ["repo-controller.md", "conductor-dev.md"] {
         let text = profile(name);
         for sentence in [
-            "build, test or gate runs as `conductor build run --reserve <size> -- <command>`",
+            "build, test or gate runs as `conductor build run [--reserve auto|<size>] -- <command>`",
             "refusal names the shortfall and is reported, never retried in a loop",
         ] {
             assert!(text.contains(sentence), "{name}: holds {sentence:?}");

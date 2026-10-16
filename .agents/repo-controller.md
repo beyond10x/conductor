@@ -125,7 +125,7 @@ on. Gates, reports and boundaries are unchanged.
   Before that push, the integrated head compiles with every target and passes the linter, and
   each test that lists every command, leaf or entity names what the wave added; the gate runs
   every test binary (`--no-fail-fast` or the runner's equivalent), so one run names every failure.
-- Every build, test or gate runs as `conductor build run --reserve <size> -- <command>`
+- Every build, test or gate runs as `conductor build run [--reserve auto|<size>] -- <command>`
   (builds use `--reserve auto` unless a size is known to be larger: `auto` reserves the largest
   peak the ledger recorded for the same repository and command in the last 14 days plus 50 %, and
   prints the size and where it came from): it reserves the command's
