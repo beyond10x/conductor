@@ -94,6 +94,35 @@ types:
       - {name: port, type: Optional<Integer>}
       - {name: root, type: Optional<String>}
 
+  # The `memory` part of the dashboard's health view (story:dashboard-memory-bound): what the
+  # serving process holds. `rss_bytes` is its resident set, absent where the system does not
+  # report it. `store_handles` is the store handles it keeps, one per state directory;
+  # `store_replays` the trees those handles hold replayed in memory now, and `store_bytes` the
+  # bytes of the files those replays were built from. `store_replays_peak` is the most replays of
+  # one tree alive at once since the server started: 1 while each reopen drops the old replay
+  # before it builds the new one. `memo_entries` is the answers kept, `memo_entries_peak_endpoint`
+  # the most kept for any one endpoint (each query string its own answer) and `memo_bytes` their
+  # size.
+  - name: conductor.observation.DashboardMemory
+    kind: struct
+    fields:
+      - {name: rss_bytes, type: Optional<Integer>}
+      - {name: store_handles, type: Integer}
+      - {name: store_replays, type: Integer}
+      - {name: store_replays_peak, type: Integer}
+      - {name: store_bytes, type: Integer}
+      - {name: memo_entries, type: Integer}
+      - {name: memo_entries_peak_endpoint, type: Integer}
+      - {name: memo_bytes, type: Integer}
+    invariants:
+      - store_handles >= 0
+      - store_replays >= 0
+      - store_replays_peak >= 0
+      - store_bytes >= 0
+      - memo_entries >= 0
+      - memo_entries_peak_endpoint >= 0
+      - memo_bytes >= 0
+
   - name: conductor.observation.WatchRun
     kind: struct
     fields:

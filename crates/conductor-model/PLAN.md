@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-  contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+  model digest 82c2dd9ab624b78c4e22adeb6075fa97df4dea2197736d0a98e9dde900bc2114
+  contract digest a9c96468490c04e780ff53f364ae8e3cb997e360c5a96313981a192bf316f7cc
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-584 capabilities: **568 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+585 capabilities: **569 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -153,6 +153,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.CommitSha` |
 | domain type | `conductor.observation.DailySeries.State` |
 | domain type | `conductor.observation.DailySeriesId` |
+| domain type | `conductor.observation.DashboardMemory` |
 | domain type | `conductor.observation.DashboardServe` |
 | domain type | `conductor.observation.EnvelopeProvider` |
 | domain type | `conductor.observation.FailureClass` |

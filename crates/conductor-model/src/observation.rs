@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 82c2dd9ab624b78c4e22adeb6075fa97df4dea2197736d0a98e9dde900bc2114
+// contract digest a9c96468490c04e780ff53f364ae8e3cb997e360c5a96313981a192bf316f7cc
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -80,6 +80,35 @@ pub enum DailySeriesState {
 /// DailySeriesId — `conductor.observation.DailySeriesId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DailySeriesId(pub String);
+
+/// DashboardMemory — `conductor.observation.DashboardMemory`.
+///
+/// Every value satisfies `store_handles >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `store_replays >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `store_replays_peak >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `store_bytes >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `memo_entries >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `memo_entries_peak_endpoint >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `memo_bytes >= 0` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardMemory {
+    /// `rss_bytes` — `Optional<Integer>`.
+    pub rss_bytes: Option<i64>,
+    /// `store_handles` — `Integer`.
+    pub store_handles: i64,
+    /// `store_replays` — `Integer`.
+    pub store_replays: i64,
+    /// `store_replays_peak` — `Integer`.
+    pub store_replays_peak: i64,
+    /// `store_bytes` — `Integer`.
+    pub store_bytes: i64,
+    /// `memo_entries` — `Integer`.
+    pub memo_entries: i64,
+    /// `memo_entries_peak_endpoint` — `Integer`.
+    pub memo_entries_peak_endpoint: i64,
+    /// `memo_bytes` — `Integer`.
+    pub memo_bytes: i64,
+}
 
 /// DashboardServe — `conductor.observation.DashboardServe`.
 #[derive(Debug, Clone, PartialEq, Eq)]
