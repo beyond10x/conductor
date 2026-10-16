@@ -416,8 +416,13 @@ types:
 
   # One instance. A path is written absolute or under `~`, which is the home directory; the
   # effective path is absolute. `operator` is how sessions name the person who decides class O.
-  # `session_prefix` is the prefix of every session the instance starts; without one its sessions
-  # keep the bare names `conductor`, `conductor-dev` and `<repository>`. `dashboard_port` is the
+  # `session_prefix` is the prefix of every session the instance starts, and of its slice and its
+  # dashboard's unit (story:instance-names-unique). It is required: `config validate` refuses an
+  # instance that writes none, naming the prefix `conductor config migrate` would write
+  # (`SuggestedPrefix`). For one release a file without it still loads, so that a running instance
+  # keeps working until the operator migrates it: its sessions keep the bare names `conductor`,
+  # `conductor-dev` and `<repository>`, its slice `conductor.slice` and its dashboard's unit
+  # `conductor-dashboard`. `dashboard_port` is the
   # port on 127.0.0.1 the instance's dashboard serves (story:instance-scoped-tasks), 1 to 65535.
   # `conductor` is derived: the conductor that serves the instance.
   # Absent from the file, `records`, `state` and `cache` are ~/.b10x/conductor/<name>/records,
@@ -464,7 +469,9 @@ types:
   # `conductor-instance` setting names one (story:grouped-instance); it names an instance of the
   # file. No two instances share a `session_prefix`, and at most one has none
   # (story:instance-session-names); no two share a `dashboard_port`, so that each instance's
-  # dashboard binds its own (story:instance-scoped-tasks).
+  # dashboard binds its own (story:instance-scoped-tasks); no two share a `state` or a `records`
+  # directory (story:instance-names-unique). The same holds across every config file of the host:
+  # `config validate` checks each instance against the host registry (`conductor.host`).
   - name: conductor.config.Config
     kind: struct
     fields:
@@ -476,16 +483,42 @@ types:
       - distinct: {in: instances, as: instance, by: instance.name}
       - distinct: {in: instances, as: instance, by: instance.session_prefix}
       - distinct: {in: instances, as: instance, by: instance.dashboard_port}
+      - distinct: {in: instances, as: instance, by: instance.state}
+      - distinct: {in: instances, as: instance, by: instance.records}
       - any:
           - not defined(default)
           - exists: {in: instances, as: instance, that: instance.name == default}
 
   # The input of `conductor config validate`: the instance to resolve, else the
-  # `conductor-instance` setting, else none.
+  # `conductor-instance` setting, else none. A valid file is written to the host registry
+  # (`conductor.host.InstanceRegistry`), which is all it writes.
   - name: conductor.config.ValidateConfig
     kind: struct
     fields:
       - {name: instance, type: Optional<String>}
+
+  # The input of `conductor config migrate` (story:instance-names-unique), which writes a
+  # `session_prefix` into every instance of the config file that writes none: the prefix
+  # `SuggestedPrefix` names. It edits only those lines of the file, keeping every other line and
+  # comment, and refuses, writing nothing, when the edited file would read back as anything but
+  # the old one with those prefixes. `check` writes nothing and prints the prefixes it would
+  # write. A prefix renames the instance's sessions, slice and dashboard unit: stop them before
+  # migrating and start them again after.
+  - name: conductor.config.MigrateConfig
+    kind: struct
+    fields:
+      - {name: check, type: Optional<Boolean>}
+
+  # The prefix `config migrate` writes, and `config validate` names, for an instance without one:
+  # its name in letters, digits and `-` (any other character written `-`, runs of `-` as one,
+  # none at either end; `i<index>` when nothing is left), with the first of 2, 3, … appended when
+  # another instance of the file or of the host registry holds that prefix, or one of them
+  # followed by `-` begins the other.
+  - name: conductor.config.SuggestedPrefix
+    kind: struct
+    fields:
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: session_prefix, type: conductor.config.SessionPrefix}
 
   # The input of `conductor config show`. `format` is one of text, json, yaml, read by the
   # handler; `instance` is the instance shown, else the `conductor-instance` setting, else the

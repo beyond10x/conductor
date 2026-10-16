@@ -196,8 +196,10 @@ a day, without asking: several waves may go into one release.
 
 Two background sessions belong to an instance: conductor (runs the instance, in its records
 directory) and conductor-dev (develops conductor, in this repository), named
-`<session_prefix>-conductor` and `<session_prefix>-conductor-dev`, or `conductor` and
-`conductor-dev` without a prefix. Both run in permission mode `bypassPermissions`, so messages
+`<session_prefix>-conductor` and `<session_prefix>-conductor-dev`. The prefix is required and
+unique on the host (`conductor config validate` checks it against the host registry,
+`~/.b10x/conductor/host/instances.json`); an instance written before that keeps `conductor` and
+`conductor-dev` until `conductor config migrate` writes its prefix. Both run in permission mode `bypassPermissions`, so messages
 between sessions are not held for approval. Every task below acts on the active instance only:
 its sessions by their full names, its dashboard by its port and unit.
 

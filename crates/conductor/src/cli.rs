@@ -37,6 +37,8 @@
 //! stop` (`story:sandbox-spec`) the `session` group; `build run` (`story:build-run`)
 //! alone also takes the words after `--`, as written: the command it runs.
 //!
+//! `config migrate` (`story:instance-names-unique`) joins the `config` group.
+//!
 //! `config validate` and `config show` (`story:config-file`) are such commands too, and the only
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
@@ -403,6 +405,9 @@ impl Cli {
                 BuildCommand::Run(args) => build::build_run(state, &args),
             },
             Group::Config(command) => match command {
+                ConfigCommand::Migrate(args) => {
+                    crate::config::migrate(self.config.as_deref(), &args)
+                }
                 ConfigCommand::Show(args) => crate::config::show(self.config.as_deref(), &args),
                 ConfigCommand::Validate(args) => {
                     crate::config::validate(self.config.as_deref(), &args)
@@ -740,7 +745,12 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Reserves disk in the host ledger and runs the session's own build under the disk watchdog
     // (story:build-run); the guard sends every build through it.
     (&["build", "run"], Access::RunWrites),
+    // Writes a session_prefix into the config file (story:instance-names-unique).
+    (&["config", "migrate"], Access::Writes),
     (&["config", "show"], Access::Reads),
+    // Every session checks its config. Its one write is the host registry's entry of the file it
+    // found valid (story:instance-names-unique): what the file says, under the registry's lock,
+    // none of the store, the records or the instance's files.
     (&["config", "validate"], Access::Reads),
     (&["config", "workspace"], Access::Writes),
     (&["dashboard", "serve"], Access::ConductorReads),
@@ -1577,6 +1587,11 @@ pub struct RepositoryActivityArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
+    /// Write a session_prefix into each instance of the config file that names none; --check
+    /// prints them and writes nothing
+    #[command(name = "migrate")]
+    Migrate(MigrateConfigArgs),
+
     /// Print one instance's effective config, after defaults, as a config file
     #[command(name = "show")]
     Show(ShowConfigArgs),
@@ -1599,6 +1614,16 @@ pub struct WriteWorkspaceArgs {
     pub instance: Option<String>,
     /// Write nothing; exit 1 naming each member that differs from the file. `--check` alone is
     /// `--check true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub check: Option<bool>,
+}
+
+/// The input of the binding's `config-migrate` callable, `conductor.config.MigrateConfig`
+/// (`story:instance-names-unique`).
+#[derive(Debug, Clone, Args)]
+pub struct MigrateConfigArgs {
+    /// Write nothing; print the session_prefix each instance without one would get. `--check`
+    /// alone is `--check true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub check: Option<bool>,
 }

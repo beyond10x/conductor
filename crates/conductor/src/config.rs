@@ -79,6 +79,13 @@
 //! `confinement` is `report` through `systemd` with no limit; a role sets no limit, writes its
 //! default places ([`default_writable`]), and has the network `open`.
 //!
+//! No two instances of the file share a `state` or a `records` directory, each compared where it
+//! lands (`story:instance-names-unique`). Across config files, `conductor config validate`
+//! ([`validate`]) refuses an instance without a `session_prefix`, naming the one `conductor config
+//! migrate` ([`migrate`]) writes, and an instance holding a prefix, port, state or records
+//! directory another file in the host registry holds ([`crate::registry`]); a file without a
+//! prefix still loads, for one release, so a running instance keeps working until it is migrated.
+//!
 //! `conductor config workspace` (`story:workspace-from-config`) writes the instance's workspace
 //! file from it ([`workspace_members`], [`workspace`]).
 //!
@@ -101,7 +108,7 @@ use conductor_model::config::{
     Confinement, ConfinementMode, ConfinementProvider, Controllers, ForgeSecret, Gibibytes,
     GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network,
     Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SessionName, SessionPrefix,
-    Source, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember, Writable,
+    Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -109,7 +116,8 @@ use conductor_model::primitives::Duration;
 use serde_json::{Map, Value};
 use serde_yaml::{Mapping, Value as Yaml};
 
-use crate::cli::{ShowConfigArgs, ValidateConfigArgs, WriteWorkspaceArgs};
+use crate::cli::{MigrateConfigArgs, ShowConfigArgs, ValidateConfigArgs, WriteWorkspaceArgs};
+use crate::registry;
 
 /// The placeholder GitHub owner of the built-in instance, which applies without a config file,
 /// and the directory under the home directory that holds its checkouts.
@@ -727,6 +735,13 @@ pub fn explicit() -> Option<&'static Path> {
 }
 
 static EXPLICIT: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// The config file [`set_active`] located, absolute, whether or not it is there; `None` before
+/// [`set_active`] ran.
+#[must_use]
+pub fn config_file() -> Option<&'static Path> {
+    CONFIG_FILE.get().map(PathBuf::as_path)
+}
 
 /// The config file [`set_active`] located, absolute.
 static CONFIG_FILE: OnceLock<PathBuf> = OnceLock::new();
@@ -1694,6 +1709,7 @@ impl Reader<'_> {
         };
         let default = default?;
         let mut instances = instances?;
+        self.distinct_directories(&instances);
         if let Some(Value::Array(items)) = map.get("instances") {
             self.conductors(&mut instances, default.as_ref(), items);
             // A port the file leaves out is its instance's by index; one it writes was read.
@@ -1913,6 +1929,36 @@ impl Reader<'_> {
                         }
                     ),
                 );
+            }
+        }
+    }
+
+    /// `conductor.config.Config`'s invariants on `instance.state` and `instance.records`
+    /// (`story:instance-names-unique`): no two instances share a state or a records directory,
+    /// each compared as the effective path, after defaults, where it lands.
+    fn distinct_directories(&mut self, instances: &[Instance]) {
+        for (key, of) in [
+            (
+                "state",
+                (|instance: &Instance| &instance.state) as fn(&Instance) -> &String,
+            ),
+            ("records", |instance: &Instance| &instance.records),
+        ] {
+            let landed: Vec<PathBuf> = instances
+                .iter()
+                .map(|instance| physical(Path::new(of(instance))))
+                .collect();
+            for (index, path) in landed.iter().enumerate() {
+                if let Some(first) = landed[..index].iter().position(|earlier| earlier == path) {
+                    self.problem(
+                        &format!("instances[{index}].{key}"),
+                        format!(
+                            "{} is the {key} directory of instances[{first}] too; each instance \
+                             keeps its own",
+                            path.display()
+                        ),
+                    );
+                }
             }
         }
     }
@@ -3446,12 +3492,18 @@ fn report(what: &str, invalid: &Invalid) {
 /// `--instance` or [`INSTANCE_VARIABLE`] names, if one does. Exits 0 with one line on standard
 /// output naming the file and its instances, or the default file looked for and that the
 /// built-in defaults apply; or 1, with one line on standard error per problem, each named by its
-/// YAML path. Writes nothing.
+/// YAML path.
+///
+/// Of a file that was read it also refuses (`story:instance-names-unique`) an instance without a
+/// `session_prefix`, naming the prefix [`migrate`] writes ([`suggested_prefixes`]), and an
+/// instance that holds a prefix, port, state or records directory another registered config
+/// file's instance holds ([`registry::collisions`]). A valid file is written to the host registry
+/// ([`registry::register`]), which is all it writes.
 ///
 /// # Errors
 ///
-/// A named file is not there or cannot be read, the home directory is not known, or the instance
-/// named is not in the config.
+/// A named file is not there or cannot be read, the home directory is not known, the instance
+/// named is not in the config, or the host registry cannot be read or written.
 pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<ExitCode> {
     const WHAT: &str = "config validate";
     let environment = Environment::from_process().context(WHAT)?;
@@ -3472,8 +3524,13 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     }
     // No role's settings pin another instance (`story:instance-isolation`); one that pins none is
     // a note, since its sessions start with it pinned.
-    let (problems, notes) = pin_problems(&loaded.config);
+    let (mut problems, notes) = pin_problems(&loaded.config);
+    let file = physical(&environment.cwd.join(&loaded.path));
+    let home = environment.home().context(WHAT)?;
     if loaded.read {
+        // No instance without a prefix, and none holding what another file's holds
+        // (`story:instance-names-unique`).
+        problems.extend(unique_problems(home, &file, &loaded.config).context(WHAT)?);
         for note in &notes {
             eprintln!(
                 "conductor: {WHAT}: {}: note: {}: {}",
@@ -3492,6 +3549,10 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
             },
         );
         return Ok(ExitCode::FAILURE);
+    }
+    if loaded.read {
+        registry::register(home, &file, &loaded.config)
+            .with_context(|| format!("{WHAT}: write the host registry"))?;
     }
     let names: Vec<&str> = loaded
         .config
@@ -3514,6 +3575,240 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
         );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// What `config validate` refuses of the file `file` beyond its conversion
+/// (`story:instance-names-unique`): each instance without a `session_prefix`, naming the one
+/// [`migrate`] writes, and each prefix, port, state or records directory another registered
+/// config file's instance holds, naming both instances and both files.
+fn unique_problems(home: &Path, file: &Path, config: &Config) -> Result<Vec<Problem>> {
+    let mut problems = Vec::new();
+    for suggested in suggested_prefixes(home, file, config)? {
+        let index = config
+            .instances
+            .iter()
+            .position(|instance| instance.name == suggested.instance)
+            .unwrap_or_default();
+        problems.push(Problem {
+            path: format!("instances[{index}].session_prefix"),
+            message: format!(
+                "missing: every instance names one, the prefix of its session names, its slice \
+                 and its dashboard's unit; `conductor config migrate` writes session_prefix: {:?} \
+                 (until then, for one release, its sessions keep the bare names)",
+                suggested.session_prefix.0
+            ),
+        });
+    }
+    let registry = registry::path(home);
+    for (index, collision) in registry::collisions(home, file, config)? {
+        problems.push(Problem {
+            path: format!("instances[{index}].{}", registry::key_name(collision.key)),
+            message: registry::message(&collision, &registry),
+        });
+    }
+    Ok(problems)
+}
+
+/// The prefix [`migrate`] writes for each instance of `config`, the file `file`, that has none
+/// (`conductor.config.SuggestedPrefix`): its name in letters, digits and `-` (any other
+/// character written `-`, runs of `-` as one, none at either end; `i<index>` when nothing is
+/// left), with the first of 2, 3, … appended while another instance of the file, an instance of
+/// another registered file ([`registry::others`]) or an earlier suggestion holds it or nests
+/// with it ([`registry::nests`]).
+///
+/// # Errors
+///
+/// The host registry cannot be read.
+pub fn suggested_prefixes(
+    home: &Path,
+    file: &Path,
+    config: &Config,
+) -> Result<Vec<SuggestedPrefix>> {
+    let mut taken: Vec<String> = config
+        .instances
+        .iter()
+        .filter_map(|instance| instance.session_prefix.as_ref())
+        .map(|prefix| prefix.0.clone())
+        .chain(
+            registry::others(home, file)?
+                .into_iter()
+                .filter_map(|(_, instance)| instance.session_prefix)
+                .map(|prefix| prefix.0),
+        )
+        .collect();
+    let mut suggested = Vec::new();
+    for (index, instance) in config.instances.iter().enumerate() {
+        if instance.session_prefix.is_some() {
+            continue;
+        }
+        let base = name_prefix(&instance.name.0, index);
+        let prefix = std::iter::once(base.clone())
+            .chain((2..).map(|number| format!("{base}{number}")))
+            .find(|candidate| !taken.iter().any(|other| registry::nests(candidate, other)))
+            .unwrap_or(base);
+        taken.push(prefix.clone());
+        suggested.push(SuggestedPrefix {
+            instance: instance.name.clone(),
+            session_prefix: SessionPrefix(prefix),
+        });
+    }
+    Ok(suggested)
+}
+
+/// The session prefix the instance `name`, at `index` in its file, is given before any other
+/// instance is looked at (`conductor.config.SuggestedPrefix`): its letters and digits, any other
+/// character written `-`, runs of `-` as one and none at either end; `i<index>` when nothing is
+/// left.
+#[must_use]
+pub fn name_prefix(name: &str, index: usize) -> String {
+    let mut base = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            base.push(c);
+        } else if !base.is_empty() && !base.ends_with('-') {
+            base.push('-');
+        }
+    }
+    match base.trim_end_matches('-') {
+        "" => format!("i{index}"),
+        trimmed => trimmed.to_owned(),
+    }
+}
+
+/// `conductor config migrate` (`story:instance-names-unique`): writes the prefix
+/// [`suggested_prefixes`] names into each instance of the config file without one, printing
+/// `<instance>: session_prefix <prefix>` for each; with `--check` prints them and writes nothing.
+/// It edits only those lines ([`with_prefixes`]): an instance's `session_prefix` line is
+/// rewritten, or one is added after its `- name:` line; and it refuses, writing nothing, when the
+/// edited file would not read back as the old one with those prefixes. A file every instance of
+/// which has a prefix is left as it is, and nothing is printed.
+///
+/// # Errors
+///
+/// No config file is there or it cannot be read or written, the home directory is not known, the
+/// host registry cannot be read, or the file cannot be edited in place.
+pub fn migrate(config: Option<&Path>, args: &MigrateConfigArgs) -> Result<ExitCode> {
+    const WHAT: &str = "config migrate";
+    let environment = Environment::from_process().context(WHAT)?;
+    let loaded = match load(config, &environment) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            return match error.downcast::<Invalid>() {
+                Ok(invalid) => {
+                    report(WHAT, &invalid);
+                    Ok(ExitCode::FAILURE)
+                }
+                Err(error) => Err(error.context(WHAT)),
+            };
+        }
+    };
+    if !loaded.read {
+        bail!(
+            "{WHAT}: no config file at {}; nothing to migrate",
+            loaded.path.display()
+        );
+    }
+    let home = environment.home().context(WHAT)?;
+    let file = physical(&environment.cwd.join(&loaded.path));
+    let suggested = suggested_prefixes(home, &file, &loaded.config).context(WHAT)?;
+    if suggested.is_empty() {
+        return Ok(ExitCode::SUCCESS);
+    }
+    if args.check != Some(true) {
+        let text = fs::read_to_string(&loaded.path)
+            .with_context(|| format!("{WHAT}: read {}", loaded.path.display()))?;
+        let Some(edited) = with_prefixes(&text, &suggested) else {
+            let each: Vec<String> = suggested
+                .iter()
+                .map(|one| {
+                    format!(
+                        "session_prefix: {} under instance {}",
+                        one.session_prefix.0, one.instance.0
+                    )
+                })
+                .collect();
+            bail!(
+                "{WHAT}: {} cannot be edited line by line, so nothing was written; write {} by \
+                 hand",
+                loaded.path.display(),
+                each.join(", ")
+            );
+        };
+        fs::write(&loaded.path, edited)
+            .with_context(|| format!("{WHAT}: write {}", loaded.path.display()))?;
+    }
+    for one in &suggested {
+        println!(
+            "{}: session_prefix {}",
+            one.instance.0, one.session_prefix.0
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The config file's `text` with each of `suggested` written as its instance's
+/// `session_prefix`, or `None` when it cannot be edited line by line: an instance is not a block
+/// mapping whose item starts `- name: <name>`, or the edited text does not read back as the old
+/// one with exactly those prefixes set.
+#[must_use]
+pub fn with_prefixes(text: &str, suggested: &[SuggestedPrefix]) -> Option<String> {
+    fn indent(line: &str) -> usize {
+        line.len() - line.trim_start_matches(' ').len()
+    }
+    let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
+    for one in suggested {
+        let wanted = one.instance.0.as_str();
+        let start = lines.iter().position(|line| {
+            line.trim_start_matches(' ')
+                .strip_prefix('-')
+                .map(|rest| rest.trim_start_matches(' '))
+                .and_then(|rest| rest.strip_prefix("name:"))
+                .and_then(|name| serde_yaml::from_str::<Yaml>(name.trim()).ok())
+                .is_some_and(|name| name.as_str() == Some(wanted))
+        })?;
+        // The column of the item's keys: after its `-` and the spaces that follow it.
+        let dash = indent(&lines[start]);
+        let after = &lines[start][dash + 1..];
+        let key = dash + 1 + after.len() - after.trim_start_matches(' ').len();
+        let end = lines[start + 1..]
+            .iter()
+            .position(|line| {
+                let rest = line.trim();
+                !rest.is_empty() && !rest.starts_with('#') && indent(line) < key
+            })
+            .map_or(lines.len(), |at| start + 1 + at);
+        let written = format!(
+            "{}session_prefix: {}\n",
+            " ".repeat(key),
+            scalar(&one.session_prefix.0)
+        );
+        let existing = (start + 1..end).find(|at| {
+            indent(&lines[*at]) == key && lines[*at][key..].starts_with("session_prefix:")
+        });
+        if let Some(at) = existing {
+            lines[at] = written;
+        } else {
+            if !lines[start].ends_with('\n') {
+                lines[start].push('\n');
+            }
+            lines.insert(start + 1, written);
+        }
+    }
+    let edited = lines.concat();
+    let mut expected: Value = serde_yaml::from_str(text).ok()?;
+    for one in suggested {
+        expected["instances"]
+            .as_array_mut()?
+            .iter_mut()
+            .find(|instance| instance["name"].as_str() == Some(one.instance.0.as_str()))?
+            .as_object_mut()?
+            .insert(
+                "session_prefix".to_owned(),
+                Value::from(one.session_prefix.0.clone()),
+            );
+    }
+    let read_back: Value = serde_yaml::from_str(&edited).ok()?;
+    (read_back == expected).then_some(edited)
 }
 
 /// `conductor config show`: the effective config of one instance ([`select`]), after defaults,
@@ -3567,7 +3862,8 @@ const WORKSPACE_VERSION: &str = "aep.workspace/1";
 
 /// `path` with every link resolved: the nearest of it and its ancestors that is there,
 /// canonicalised, with the rest of `path` after it. A relative path is answered as it is.
-fn physical(path: &Path) -> PathBuf {
+#[must_use]
+pub fn physical(path: &Path) -> PathBuf {
     let mut rest = Vec::new();
     let mut at = path;
     loop {

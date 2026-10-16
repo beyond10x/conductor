@@ -18,6 +18,7 @@ version: conductor.config/1
 default: personal
 instances:
   - name: personal
+    session_prefix: personal
     sources:
       - github: example-org
     checkouts:
@@ -123,13 +124,20 @@ The instance's dashboard port and session prefix:
 
 ```console
 $ conductor config show --format json | jq -c '.instances[0] | {session_prefix, dashboard_port}'
-{"session_prefix":null,"dashboard_port":7313}
+{"session_prefix":"personal","dashboard_port":7313}
 ```
 
 `dashboard_port` is 7313 plus the instance's position in the file, so the first instance gets 7313
-and the second 7314, unless the file writes a port. `config validate` refuses two instances that
-share one. `task dashboard` serves the active instance's dashboard on that port, as the user
-service `<session_prefix>-conductor-dashboard`, or `conductor-dashboard` without a prefix.
+and the second 7314, unless the file writes a port. `task dashboard` serves the active instance's
+dashboard on that port, as the user service `<session_prefix>-conductor-dashboard`.
+
+`session_prefix` is required. No two instances on the host share a prefix, a port, a state or a
+records directory, even in different config files: `config validate` writes each valid file to the
+host registry, `~/.b10x/conductor/host/instances.json`, and refuses an instance that holds what
+another registered file's instance holds, naming both. A file written before the prefix was
+required gets one from `conductor config migrate`, which prints what it wrote
+(`--check` prints it only); stop the instance's sessions and dashboard first, since the prefix
+renames them.
 
 ## 4. Write the instance's rules
 

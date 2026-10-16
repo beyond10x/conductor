@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 7c435ef3c23c6e01a4959f55be0d85e3d3c35582eebfcebcde20829596c1ced7
-// contract digest f0828259367461e56c8cc91f4b5c33cd217a926505775560a4a32bb1baf14b2a
+// model digest 9e231a8cdd3e716a7b440d31abcf92cabea39ae7fbd9135b8b12e7c6d2a24107
+// contract digest a3fc8f513ab308a7e60d09ade56a6605d40d580b6918ebfc84e6c55ae2ecbb6a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -81,6 +81,8 @@ pub struct ConductorSession {
 /// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.session_prefix` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.dashboard_port` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct instance in instances by instance.state` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct instance in instances by instance.records` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `(not (defined(default)) or exists instance in instances: (instance.name == default))` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -339,6 +341,13 @@ pub struct Machine {
     pub conductor: String,
 }
 
+/// MigrateConfig — `conductor.config.MigrateConfig`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrateConfig {
+    /// `check` — `Optional<Boolean>`.
+    pub check: Option<bool>,
+}
+
 /// Network — `conductor.config.Network`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Network {
@@ -534,6 +543,15 @@ pub enum Source {
     GitLab(GitLabSource),
     /// Tagged `Local` — `conductor.config.LocalSource`.
     Local(LocalSource),
+}
+
+/// SuggestedPrefix — `conductor.config.SuggestedPrefix`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuggestedPrefix {
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: InstanceName,
+    /// `session_prefix` — `conductor.config.SessionPrefix`.
+    pub session_prefix: SessionPrefix,
 }
 
 /// Thresholds — `conductor.config.Thresholds`.

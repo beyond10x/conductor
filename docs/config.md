@@ -22,6 +22,26 @@ instance after defaults, with every path absolute. It writes an absent optional 
 `session_name`, `conductor.served_by` of an instance with its own conductor, a limit not set) as
 `null`.
 
+No two instances on a host share a session prefix, a dashboard port, a state directory or a
+records directory, whether they are in one config file or in several. The host registry,
+`~/.b10x/conductor/host/instances.json` (one per host, whatever config file a command reads,
+beside the host file `host.yaml`), lists every config file that has run on the host:
+`conductor config validate` writes a valid file's entry, and `conductor session start` the entry
+of the file it starts from. `conductor config validate` refuses, by the instance's YAML path, an
+instance without a `session_prefix` and one that holds a prefix (or one nesting with it: one
+followed by `-` begins the other), a port, a state or a records directory another registered
+file's instance holds, naming both instances and both files. A registered file that is gone is
+dropped the next time the registry is written.
+
+`conductor config migrate` writes a `session_prefix` into each instance that has none: its name in
+letters, digits and `-`, with 2, 3, … appended when another instance of the file or of the
+registry holds it. It rewrites an instance's `session_prefix` line, or adds one after its
+`- name:` line, keeps every other line and comment, and writes nothing when the edited file would
+not read back as the old one with those prefixes; `--check` prints them and writes nothing. A
+prefix renames the instance's sessions, its slice and its dashboard's unit, so stop them first
+(`conductor session stop --role <role>` and `task dashboard:stop`), migrate, and start them again. For one release a file without a prefix still loads and its instance keeps running
+under the bare names; only `config validate` refuses it.
+
 `conductor config workspace` writes the instance's `<records>/.engineering/workspace.yaml`
 (`aep.workspace/1`) from the config, replacing the file, and reads no network: one member per git
 checkout directly under `checkouts.root` for a `github` source, one per git checkout directly
@@ -55,7 +75,7 @@ instance the session runs.
 |---|---|---|---|
 | `version` | string | required | must be `conductor.config/1` |
 | `default` | instance name | none | the instance a command runs when none is named; must name an instance of the file |
-| `instances` | list of instance | required | instance names must be distinct; no two share a `session_prefix`, at most one has none, no prefix starts with another followed by `-`, and no prefix followed by `-` begins a name an instance without a prefix keeps (`conductor-dev`); no two share a `dashboard_port`, counting the port filled for an instance that writes none |
+| `instances` | list of instance | required | instance names must be distinct; no two share a `session_prefix`, a `state` or a `records` directory, at most one has none, no prefix starts with another followed by `-`, and no prefix followed by `-` begins a name an instance without a prefix keeps (`conductor-dev`); no two share a `dashboard_port`, counting the port filled for an instance that writes none |
 
 ## Instance
 
@@ -66,7 +86,7 @@ accepted, defaulted and shown by `config show`.
 | key | type | default | read by | meaning |
 |---|---|---|---|---|
 | `name` | string | required | all | the instance's name: letters, digits, `.`, `_` and `-`, starting with a letter or digit |
-| `session_prefix` | string | none | start tasks, `task dashboard`, `task dashboard:stop`, guard, sessions collector, `controller start-controller`, conductor profile | the prefix of every session the instance starts: conductor is `<prefix>-conductor`, conductor-dev `<prefix>-conductor-dev`, a controller `<prefix>-<repository>`; and of the dashboard's user service, `<prefix>-conductor-dashboard`. Letters, digits and `-`, starting and ending with a letter or digit. Without one the sessions keep the bare names `conductor`, `conductor-dev` and `<repository>`, and the service is `conductor-dashboard`. A controller messages only its instance's conductor and conductor only its instance's sessions; an instance that names no `conductor` role is served by the `default` instance's conductor, which its controllers message and which messages its sessions. A session belongs to the instance whose name for the controller of the repository it works in it carries, else to the instance whose prefix it carries; the sessions collector, the watch and the dashboard keep another instance's session out |
+| `session_prefix` | string | required by `config validate` (`config migrate` writes one) | start tasks, `task dashboard`, `task dashboard:stop`, guard, sessions collector, `controller start-controller`, conductor profile | the prefix of every session the instance starts: conductor is `<prefix>-conductor`, conductor-dev `<prefix>-conductor-dev`, a controller `<prefix>-<repository>`; and of the dashboard's user service, `<prefix>-conductor-dashboard`. Letters, digits and `-`, starting and ending with a letter or digit. `config validate` refuses an instance without one; for one release such an instance still runs, its sessions under the bare names `conductor`, `conductor-dev` and `<repository>`, its slice `conductor.slice` and its service `conductor-dashboard`. No two instances on the host share one (the host registry, above). A controller messages only its instance's conductor and conductor only its instance's sessions; an instance that names no `conductor` role is served by the `default` instance's conductor, which its controllers message and which messages its sessions. A session belongs to the instance whose name for the controller of the repository it works in it carries, else to the instance whose prefix it carries; the sessions collector, the watch and the dashboard keep another instance's session out |
 | `dashboard_port` | port | 7313 plus the instance's position in the file (7313 for the first) | `task dashboard` | the port on 127.0.0.1 the instance's dashboard serves: a whole number from 1 to 65535. No two instances share one, counting the port filled for an instance that writes none, so each instance's dashboard binds its own |
 | `sources` | list of source | required | collectors, watch, guard | where the repositories come from (below); at least one |
 | `checkouts.root` | path | required | collectors, watch, guard, dashboard, `resource usage`, `task trust`, `config workspace` | the directory holding the checkouts |

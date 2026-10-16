@@ -2,6 +2,7 @@ version: conductor.config/1
 default: personal
 instances:
   - name: personal
+    session_prefix: personal
     sources:
       - github: example-org
     checkouts:

@@ -56,6 +56,11 @@ callables:
     input: conductor.config.ValidateConfig
     result: String
     errors: {}
+  config-migrate:
+    target: {kind: local, owner: conductor-cli, action: config_migrate}
+    input: conductor.config.MigrateConfig
+    result: String
+    errors: {}
   config-show:
     target: {kind: local, owner: conductor-cli, action: config_show}
     input: conductor.config.ShowConfig
@@ -259,6 +264,12 @@ commands:
     arguments:
       - field: instance
         source: {kind: option, long: instance}
+  - path: [config, migrate]
+    callable: config-migrate
+    about: Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing
+    arguments:
+      - field: check
+        source: {kind: option, long: check}
   - path: [config, show]
     callable: config-show
     about: Print one instance's effective config, after defaults, as a config file

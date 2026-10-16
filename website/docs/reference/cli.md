@@ -159,6 +159,7 @@ Every command takes these, before or after its name.
 | [`conductor build`](#conductor-build) |  |
 | [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
+| [`conductor config migrate`](#conductor-config-migrate) | Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing |
 | [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file |
 | [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
@@ -2049,6 +2050,18 @@ Usage: conductor build run [OPTIONS] [-- <COMMAND>...]
 ```text
 Usage: conductor config [OPTIONS] <COMMAND>
 ```
+
+## `conductor config migrate`
+
+Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing
+
+```text
+Usage: conductor config migrate [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--check <BOOL>` | no | none | Write nothing; print the session_prefix each instance without one would get. `--check` alone is `--check true` One of `true`, `false`. |
 
 ## `conductor config show`
 

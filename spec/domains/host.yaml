@@ -20,6 +20,18 @@ summary: >
   locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
   it was moved, and nothing is moved again.
 
+  The host registry (story:instance-names-unique) is one per host, whatever config file a command
+  reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host
+  file `host.yaml` that holds the per-host roles. It lists every config file that has run on the
+  host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is
+  valid, and `conductor session start` writes it whenever a config file starts a session, each
+  under the lock `instances.lock` beside it. No two instances on the host share a session prefix,
+  a dashboard port, a state directory or a records directory, whether they are in one config file
+  or in several: `config validate` refuses an instance that holds one another registered file's
+  instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing
+  then. A registered file that is no longer there is dropped from the registry when it is next
+  written, so a removed config file holds nothing.
+
 naming:
   wire: host
   display: Host
@@ -136,6 +148,63 @@ types:
     fields:
       - {name: grant_id, type: conductor.host.GrantId}
       - {name: session_id, type: conductor.session.SessionId}
+
+  # One instance of a registered config file (story:instance-names-unique): what no other
+  # instance on the host may hold, its session prefix (absent for an instance that writes none,
+  # which `config validate` refuses), its dashboard port, and its state and records directories,
+  # each absolute; and its checkouts root and managed trees, which say whose a session working
+  # there is.
+  - name: conductor.host.RegisteredInstance
+    kind: struct
+    fields:
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
+      - {name: dashboard_port, type: Integer}
+      - {name: state, type: String}
+      - {name: records, type: String}
+      - {name: checkouts, type: conductor.config.Checkouts}
+
+  # One config file of the host registry: its absolute path, when an entry was last written for
+  # it, and its instances as it wrote them then.
+  - name: conductor.host.RegisteredFile
+    kind: struct
+    fields:
+      - {name: config, type: String}
+      - {name: registered_at, type: Timestamp}
+      - {name: instances, type: List<conductor.host.RegisteredInstance>}
+    invariants:
+      - distinct: {in: instances, as: instance, by: instance.name}
+
+  # The host registry, `<host>/instances.json` (story:instance-names-unique): every config file
+  # that has run on the host, each once.
+  - name: conductor.host.InstanceRegistry
+    kind: struct
+    fields:
+      - {name: version, type: String}
+      - {name: files, type: List<conductor.host.RegisteredFile>}
+    invariants:
+      - version == "conductor.host.instances/1"
+      - distinct: {in: files, as: file, by: file.config}
+
+  # What two instances on the host would share (story:instance-names-unique): the session prefix
+  # (equal, or one followed by `-` begins the other, so one session name would carry both), the
+  # dashboard port, the state directory or the records directory.
+  - name: conductor.host.CollisionKey
+    kind: enum
+    variants: [SessionPrefix, DashboardPort, State, Records]
+
+  # `config validate` refused an instance of the file because another registered file's instance
+  # holds the same `key` (story:instance-names-unique): the value, both instances and both files.
+  # It is reported as a problem of the instance's YAML path, `instances[<i>].<key>`, on one line.
+  - name: conductor.host.InstanceCollision
+    kind: struct
+    fields:
+      - {name: key, type: conductor.host.CollisionKey}
+      - {name: value, type: String}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: config, type: String}
+      - {name: other_instance, type: conductor.config.InstanceName}
+      - {name: other_config, type: String}
 
   # The input of `conductor host grants`.
   - name: conductor.host.ShowGrants

@@ -168,7 +168,7 @@ pub fn instance_name(name: &str) -> String {
 }
 
 /// A config file of one instance `name` naming the repository held by `parent`, with the source
-/// of `origin`.
+/// of `origin` and the session prefix [`config::name_prefix`] gives `name`.
 #[must_use]
 pub fn config_text(name: &str, origin: &Origin, parent: &Path) -> String {
     let quoted = |path: &Path| {
@@ -185,12 +185,15 @@ pub fn config_text(name: &str, origin: &Origin, parent: &Path) -> String {
         "version: {version}\n\
          instances:\n\
          \x20 - name: {name}\n\
+         \x20   session_prefix: {prefix}\n\
          \x20   sources:\n\
          {source}\
          \x20   checkouts:\n\
          \x20     root: {root}\n\
          \x20     trees: ~/.local/state/worktree/trees/{name}\n",
         version = config::VERSION,
+        // `config validate` refuses an instance without one (story:instance-names-unique).
+        prefix = config::name_prefix(name, 0),
         root = quoted(parent),
     )
 }

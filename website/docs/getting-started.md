@@ -148,6 +148,7 @@ The repository's `conductor.example.yaml` has two complete instances to copy fro
 version: conductor.config/1
 instances:
   - name: demo
+    session_prefix: demo
     sources:
       - local: ~/work
     checkouts:
@@ -170,7 +171,7 @@ $ conductor config show | head -10
 version: conductor.config/1
 default: demo
 instances[0].name: demo
-instances[0].session_prefix: null
+instances[0].session_prefix: demo
 instances[0].sources[0].local: ~/work
 instances[0].checkouts.root: ~/work
 instances[0].checkouts.trees: ~/.local/state/worktree/trees/work

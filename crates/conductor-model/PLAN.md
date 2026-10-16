@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 7c435ef3c23c6e01a4959f55be0d85e3d3c35582eebfcebcde20829596c1ced7
-  contract digest f0828259367461e56c8cc91f4b5c33cd217a926505775560a4a32bb1baf14b2a
+  model digest 9e231a8cdd3e716a7b440d31abcf92cabea39ae7fbd9135b8b12e7c6d2a24107
+  contract digest a3fc8f513ab308a7e60d09ade56a6605d40d580b6918ebfc84e6c55ae2ecbb6a
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-592 capabilities: **576 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+599 capabilities: **583 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -42,6 +42,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.Limits` |
 | domain type | `conductor.config.LocalSource` |
 | domain type | `conductor.config.Machine` |
+| domain type | `conductor.config.MigrateConfig` |
 | domain type | `conductor.config.Network` |
 | domain type | `conductor.config.Prerequisite` |
 | domain type | `conductor.config.PrerequisiteState` |
@@ -59,6 +60,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.SetupRepository` |
 | domain type | `conductor.config.ShowConfig` |
 | domain type | `conductor.config.Source` |
+| domain type | `conductor.config.SuggestedPrefix` |
 | domain type | `conductor.config.Thresholds` |
 | domain type | `conductor.config.TimeOfDay` |
 | domain type | `conductor.config.Tokens` |
@@ -125,9 +127,12 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.BuildRun` |
 | domain type | `conductor.host.BuildRunRefused` |
 | domain type | `conductor.host.BuildRunWithdrawn` |
+| domain type | `conductor.host.CollisionKey` |
 | domain type | `conductor.host.GrantId` |
 | domain type | `conductor.host.GrantKind` |
 | domain type | `conductor.host.HostGrant.State` |
+| domain type | `conductor.host.InstanceCollision` |
+| domain type | `conductor.host.InstanceRegistry` |
 | domain type | `conductor.host.LeftOver` |
 | domain type | `conductor.host.ListSlices` |
 | domain type | `conductor.host.ReclaimDisk` |
@@ -137,6 +142,8 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.host.ReclaimRun.State` |
 | domain type | `conductor.host.ReclaimRunId` |
 | domain type | `conductor.host.ReclaimStep` |
+| domain type | `conductor.host.RegisteredFile` |
+| domain type | `conductor.host.RegisteredInstance` |
 | domain type | `conductor.host.ReleaseReason` |
 | domain type | `conductor.host.ShowGrants` |
 | domain type | `conductor.host.SliceRow` |

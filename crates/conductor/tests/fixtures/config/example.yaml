@@ -1,6 +1,7 @@
 version: conductor.config/1
 instances:
   - name: example-org
+    session_prefix: example-org
     sources:
       - github: example-org            # an owner on GitHub; or `local: <path>`
     checkouts: {root: ~/example-org, trees: ~/.local/state/worktree/trees/example-org}

@@ -1,12 +1,13 @@
 // generated from conductor v1
-// model digest 7c435ef3c23c6e01a4959f55be0d85e3d3c35582eebfcebcde20829596c1ced7
-// contract digest f0828259367461e56c8cc91f4b5c33cd217a926505775560a4a32bb1baf14b2a
+// model digest 9e231a8cdd3e716a7b440d31abcf92cabea39ae7fbd9135b8b12e7c6d2a24107
+// contract digest a3fc8f513ab308a7e60d09ade56a6605d40d580b6918ebfc84e6c55ae2ecbb6a
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
 //!
 //! The machine several conductor instances share (story:multi-instance-host), and the protocol its disk runs under (epic:disk-protocol, story:disk-protocol-spec). Each instance keeps its own records, state, cache and sessions; what they share is one disk, one CPU and memory budget, and one machine-wide namespace of harness session names. The host ledger holds every grant an instance's conductor or a `conductor build run` takes: a controller slot, a build slot, or a disk reservation for a run's expected peak, so two instances or two runs cannot each grant the same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records each step with the bytes it freed, or what is left when it cannot reach the floor.
 //! The host directory (story:instance-isolation) is `host/` beside the config file, one for every instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the marker of the open fall of free disk `host.fall`, which names the item's instance: only that instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its `state` before is moved there once, at its first host command: every grant of its store, its run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that it was moved, and nothing is moved again.
+//! The host registry (story:instance-names-unique) is one per host, whatever config file a command reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host file `host.yaml` that holds the per-host roles. It lists every config file that has run on the host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is valid, and `conductor session start` writes it whenever a config file starts a session, each under the lock `instances.lock` beside it. No two instances on the host share a session prefix, a dashboard port, a state directory or a records directory, whether they are in one config file or in several: `config validate` refuses an instance that holds one another registered file's instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing then. A registered file that is no longer there is dropped from the registry when it is next written, so a removed config file holds nothing.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -43,6 +44,19 @@ pub struct BuildRunWithdrawn {
     pub session_id: crate::session::SessionId,
 }
 
+/// CollisionKey — `conductor.host.CollisionKey`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollisionKey {
+    /// `SessionPrefix`.
+    SessionPrefix,
+    /// `DashboardPort`.
+    DashboardPort,
+    /// `State`.
+    State,
+    /// `Records`.
+    Records,
+}
+
 /// GrantId — `conductor.host.GrantId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantId(pub String);
@@ -76,6 +90,35 @@ pub enum HostGrantState {
     Running,
     /// `Withdrawn`.
     Withdrawn,
+}
+
+/// InstanceCollision — `conductor.host.InstanceCollision`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceCollision {
+    /// `key` — `conductor.host.CollisionKey`.
+    pub key: CollisionKey,
+    /// `value` — `String`.
+    pub value: String,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: crate::config::InstanceName,
+    /// `config` — `String`.
+    pub config: String,
+    /// `other_instance` — `conductor.config.InstanceName`.
+    pub other_instance: crate::config::InstanceName,
+    /// `other_config` — `String`.
+    pub other_config: String,
+}
+
+/// InstanceRegistry — `conductor.host.InstanceRegistry`.
+///
+/// Every value satisfies `version == "conductor.host.instances/1"` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct file in files by file.config` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceRegistry {
+    /// `version` — `String`.
+    pub version: String,
+    /// `files` — `List<conductor.host.RegisteredFile>`.
+    pub files: Vec<RegisteredFile>,
 }
 
 /// LeftOver — `conductor.host.LeftOver`.
@@ -159,6 +202,36 @@ pub struct ReclaimStep {
     pub kind: ReclaimKind,
     /// `bytes` — `Integer`.
     pub bytes: i64,
+}
+
+/// RegisteredFile — `conductor.host.RegisteredFile`.
+///
+/// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredFile {
+    /// `config` — `String`.
+    pub config: String,
+    /// `registered_at` — `Timestamp`.
+    pub registered_at: crate::primitives::Timestamp,
+    /// `instances` — `List<conductor.host.RegisteredInstance>`.
+    pub instances: Vec<RegisteredInstance>,
+}
+
+/// RegisteredInstance — `conductor.host.RegisteredInstance`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredInstance {
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: crate::config::InstanceName,
+    /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
+    pub session_prefix: Option<crate::config::SessionPrefix>,
+    /// `dashboard_port` — `Integer`.
+    pub dashboard_port: i64,
+    /// `state` — `String`.
+    pub state: String,
+    /// `records` — `String`.
+    pub records: String,
+    /// `checkouts` — `conductor.config.Checkouts`.
+    pub checkouts: crate::config::Checkouts,
 }
 
 /// ReleaseReason — `conductor.host.ReleaseReason`: one of a closed set of names.

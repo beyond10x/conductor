@@ -77,6 +77,11 @@ impl Case {
     /// case's home, both settings' variables removed and then `env` set, and asserts it wrote
     /// nothing: `work/` stays empty and `state/` is not created.
     fn conductor(&self, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Output {
+        // A case writes several versions of one instance as files of their own; each is read as
+        // the only file on the host, so the host registry a valid one is written to
+        // (`story:instance-names-unique`, `tests/instance_names_unique.rs`) refuses none of
+        // them as a second file holding the first one's instance.
+        let _ = fs::remove_file(self.dir.join("home/.b10x/conductor/host/instances.json"));
         // The helper removes the variables the source names; these are the ones the
         // specification names.
         let (config, instance) = variables();
@@ -584,8 +589,20 @@ fn the_most_controllers_working_is_five_when_absent_and_zero_is_refused() {
     }
 }
 
-/// A config file of one instance `one`, with `extra` lines appended to it.
+/// A config file of one instance `one`, with `extra` lines appended to it. It names the
+/// `session_prefix` `one` unless `extra` writes one: `config validate` refuses an instance
+/// without one (`story:instance-names-unique`).
 fn one_instance(extra: &str) -> String {
+    if extra.contains("session_prefix:") {
+        bare_instance(extra)
+    } else {
+        bare_instance(&format!("\x20   session_prefix: one\n{extra}"))
+    }
+}
+
+/// [`one_instance`] without a `session_prefix` of its own: an instance written before the prefix
+/// was required, which still loads and keeps the bare session names.
+fn bare_instance(extra: &str) -> String {
     format!(
         "version: conductor.config/1\n\
          instances:\n\
@@ -640,7 +657,7 @@ fn the_session_profile_keys_validate_and_show_as_written() {
             with_envelope(serde_json::json!({
                 "role": "conductor", "harness": "codex", "model": "gpt-fixture",
                 "agent": null, "settings": "/srv/conductor.json", "profile": null,
-                "session_name": "conductor", "read_only_tools": [],
+                "session_name": "one-conductor", "read_only_tools": [],
             })),
         ]),
         "{shown:#}"
@@ -1962,7 +1979,7 @@ fn a_session_prefix_is_shown_with_each_role_s_session_name() {
 #[test]
 fn without_a_session_prefix_the_sessions_keep_today_s_names() {
     let case = Case::new("session-prefix-absent");
-    let file = case.write("none.yaml", &one_instance(""));
+    let file = case.write("none.yaml", &bare_instance(""));
     let built_in = json(&case.run(&["config", "show", "--format", "json"]));
     for shown in [case.show(&file, &[]), built_in] {
         assert_eq!(instance(&shown)["session_prefix"], Value::Null, "{shown:#}");
@@ -1990,7 +2007,7 @@ fn session_names_are_derived_from_the_prefix() {
             .remove(0)
     };
     let prefixed = parse(&one_instance("\x20   session_prefix: a\n"));
-    let bare = parse(&one_instance(""));
+    let bare = parse(&bare_instance(""));
     for (word, with, without) in [
         ("conductor", "a-conductor", "conductor"),
         ("conductor-dev", "a-conductor-dev", "conductor-dev"),
@@ -2081,8 +2098,6 @@ fn two_instances_sharing_a_prefix_or_both_without_one_are_refused() {
             "\x20   session_prefix: a\n",
             "\x20   session_prefix: b\n",
         ),
-        ("one-bare", "", "\x20   session_prefix: b\n"),
-        ("other-bare", "\x20   session_prefix: a\n", ""),
         (
             "not-nested",
             "\x20   session_prefix: a\n",
@@ -2097,6 +2112,29 @@ fn two_instances_sharing_a_prefix_or_both_without_one_are_refused() {
             "{name}: {}",
             describe(&validated)
         );
+    }
+    // One instance without a prefix still loads, for one release, but `config validate` refuses
+    // it by its path (`story:instance-names-unique`), and nothing else.
+    for (name, alpha, beta, bare) in [
+        ("one-bare", "", "\x20   session_prefix: b\n", 0),
+        ("other-bare", "\x20   session_prefix: a\n", "", 1),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &two_instances(alpha, beta));
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(1),
+            "{name}: {}",
+            describe(&validated)
+        );
+        let problems = stderr(&validated);
+        assert!(
+            problems.contains(&format!("instances[{bare}].session_prefix: missing")),
+            "{name}: {problems}"
+        );
+        assert_eq!(problems.lines().count(), 1, "{name}: {problems}");
+        let shown = case.with_file(&file, &["config", "show", "--format", "json"]);
+        assert_eq!(shown.status.code(), Some(0), "{name}: {}", describe(&shown));
     }
 }
 
@@ -2293,7 +2331,7 @@ fn config_show_names_the_conductor_that_serves_the_instance() {
             );
         }
     }
-    let bare = case.write("bare.yaml", &one_instance(""));
+    let bare = case.write("bare.yaml", &bare_instance(""));
     assert_eq!(
         instance_of(&case.show(&bare, &[]))["conductor"],
         serde_json::json!({"served_by": null, "session_name": "conductor"})
@@ -2583,7 +2621,7 @@ fn without_a_confinement_an_instance_reports_through_systemd_with_no_limit() {
             one["roles"],
             serde_json::json!([with_envelope(serde_json::json!({
                 "role": "conductor", "harness": "claude", "model": "opus", "agent": null,
-                "settings": null, "profile": null, "session_name": "conductor",
+                "settings": null, "profile": null, "session_name": "one-conductor",
                 "read_only_tools": [],
             }))]),
             "{name}: {shown:#}"
@@ -2926,6 +2964,7 @@ fn one_source_instance(source: &str) -> String {
         "version: conductor.config/1\n\
          instances:\n\
          \x20 - name: one\n\
+         \x20   session_prefix: one\n\
          \x20   sources: [{{{source}}}]\n\
          \x20   checkouts: {{root: ~/one, trees: ~/trees}}\n"
     )

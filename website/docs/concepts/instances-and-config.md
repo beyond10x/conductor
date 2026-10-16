@@ -87,8 +87,13 @@ Session names are one namespace for the whole machine, so each instance's sessio
 `session_prefix`: `<session_prefix>-conductor`, `<session_prefix>-conductor-dev` and
 `<session_prefix>-<repo>` for a controller. `config validate` holds the prefixes apart:
 
-- no two instances share a prefix, and at most one instance has none (it keeps the bare names
-  `conductor`, `conductor-dev` and `<repo>`);
+- every instance names one; `conductor config migrate` writes one into an instance written
+  before it was required, which until then keeps the bare names `conductor`, `conductor-dev` and
+  `<repo>`, for one release;
+- no two instances on the host share a prefix, a dashboard port, a state or a records directory,
+  in one file or across files: `config validate` keeps every valid file in the host registry,
+  `~/.b10x/conductor/host/instances.json`, and refuses an instance that holds what another
+  registered file's instance holds, naming both;
 - no prefix starts with another prefix followed by `-`, and no prefix followed by `-` begins a
   bare name another instance keeps, such as `conductor-dev`;
 - a prefix is letters, digits and `-`, starting and ending with a letter or digit.

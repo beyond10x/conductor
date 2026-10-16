@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "7c435ef3c23c6e01a4959f55be0d85e3d3c35582eebfcebcde20829596c1ced7",
-    "contract_digest": "f0828259367461e56c8cc91f4b5c33cd217a926505775560a4a32bb1baf14b2a"
+    "source_digest": "9e231a8cdd3e716a7b440d31abcf92cabea39ae7fbd9135b8b12e7c6d2a24107",
+    "contract_digest": "a3fc8f513ab308a7e60d09ade56a6605d40d580b6918ebfc84e6c55ae2ecbb6a"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -208,6 +208,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.MigrateConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Network",
       "disposition": {
         "disposition": "generated"
@@ -321,6 +328,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Source",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SuggestedPrefix",
       "disposition": {
         "disposition": "generated"
       }
@@ -789,6 +803,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.host.CollisionKey",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.host.GrantId",
       "disposition": {
         "disposition": "generated"
@@ -804,6 +825,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.HostGrant.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.InstanceCollision",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.InstanceRegistry",
       "disposition": {
         "disposition": "generated"
       }
@@ -867,6 +902,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.ReclaimStep",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.RegisteredFile",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.RegisteredInstance",
       "disposition": {
         "disposition": "generated"
       }

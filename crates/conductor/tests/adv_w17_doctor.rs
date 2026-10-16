@@ -275,7 +275,11 @@ fn adv_w17_doctor_needs_no_gh_for_two_gitlab_instances_without_a_default() {
         "conductor.yaml",
         &format!(
             "version: conductor.config/1\ninstances:\n{}{}",
-            case.instance("alpha", "[{gitlab: group-a}]", ""),
+            case.instance(
+                "alpha",
+                "[{gitlab: group-a}]",
+                "\x20   session_prefix: alpha\n"
+            ),
             case.instance(
                 "beta",
                 "[{gitlab: group-b, host: gitlab.example.com}]",

@@ -653,6 +653,37 @@ fn report_and_a_provider_not_available_starts_unboxed_with_the_reason() {
     assert_eq!(record["session"]["provider"], "none", "{record:#}");
 }
 
+/// `story:instance-names-unique`: a session start writes its config file to the host registry,
+/// `~/.b10x/conductor/host/instances.json`, with the file's instances, even for an instance that
+/// has no `session_prefix` yet: it still starts, under its bare name, for one release.
+#[test]
+fn a_session_start_writes_its_config_file_to_the_host_registry() {
+    let case = Case::new("registry", REPORT);
+    case.fake_file("systemd.unavailable", "no delegated cgroup controllers");
+    let output = case.start("conductor");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let file = case.home().join(".b10x/conductor/host/instances.json");
+    let registry: Value = serde_json::from_str(
+        &fs::read_to_string(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display())),
+    )
+    .expect("the registry is JSON");
+    let files = registry["files"].as_array().expect("the registry's files");
+    assert_eq!(files.len(), 1, "{registry:#}");
+    assert_eq!(
+        files[0]["config"],
+        case.config().display().to_string(),
+        "{registry:#}"
+    );
+    let alpha = &files[0]["instances"][0];
+    assert_eq!(alpha["name"], "alpha", "{registry:#}");
+    assert_eq!(alpha["session_prefix"], Value::Null, "{registry:#}");
+    assert_eq!(
+        alpha["state"],
+        case.state().display().to_string(),
+        "{registry:#}"
+    );
+}
+
 /// The provider is given the role's request (absolute places, limits, forge token variables) and
 /// harness arguments, and conductor's first prompt; conductor starts in the records directory,
 /// conductor-dev in the working directory, each with its own prompt. The started session is

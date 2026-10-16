@@ -704,8 +704,9 @@ pub fn start(
         ));
         env.push((
             config::CONFIG_VARIABLE.to_owned(),
-            cwd.join(file).display().to_string(),
+            cwd.join(&file).display().to_string(),
         ));
+        register(config_flag, &environment, &cwd.join(&file));
     }
     let state_dir = crate::state::dir(state)?;
     let settings = match (&found.settings, active.from_file) {
@@ -757,6 +758,20 @@ pub fn start(
             Ok(ExitCode::SUCCESS)
         }
         Err(refusal) => refuse_start(&refuse, refusal),
+    }
+}
+
+/// Writes the config file `file` that a session starts from to the host registry
+/// (`story:instance-names-unique`, [`crate::registry::register`]). A start never fails on it: a
+/// file that does not load again, or a registry that cannot be written, is said on standard
+/// error and the start goes on.
+fn register(config_flag: Option<&Path>, environment: &Environment, file: &Path) {
+    let written = environment.home().and_then(|home| {
+        let loaded = config::load(config_flag, environment)?;
+        crate::registry::register(home, &config::physical(file), &loaded.config)
+    });
+    if let Err(error) = written {
+        eprintln!("conductor: session start: the host registry is not written: {error:#}");
     }
 }
 
