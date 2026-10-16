@@ -4,6 +4,8 @@ id: story:instance-names-unique
 kind: story
 status: draft
 title: No two instances on a host share a session name, unit, port or state directory
+relations:
+- decomposes: epic:multi-instance-host
 revision: 2
 ---
 # Story: instance-names-unique

@@ -4,6 +4,8 @@ id: story:scratch-per-instance
 kind: story
 status: draft
 title: Scratch is keyed by instance and repository
+relations:
+- decomposes: epic:multi-instance-host
 revision: 2
 ---
 # Story: scratch-per-instance

@@ -4,6 +4,8 @@ id: story:host-fall-per-instance
 kind: story
 status: draft
 title: A disk fall is recorded and cleared per instance
+relations:
+- decomposes: epic:multi-instance-host
 revision: 2
 ---
 # Story: host-fall-per-instance
