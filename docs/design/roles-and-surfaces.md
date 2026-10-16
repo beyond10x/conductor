@@ -1,6 +1,6 @@
 # Design: levels, roles and tool surfaces
 
-Status: draft for the operator's approval (asked 2026-10-16). Nothing here is implemented until approved.
+Status: approved by the operator, 2026-10-16 ("regarding PR64, I agree with everything how you phrased it, framed it"). § 8 is answered as recommended: the names, the bridge as a session, `tool`, MCP with Bash denied, one maintainer per host.
 It replaces the draft `agent-tools.md` (sections 3 to 4 of that draft become section 6 here) and does not depend on any concept from other projects.
 
 ## 1. What went wrong
