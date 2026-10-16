@@ -320,7 +320,9 @@ that rule's reason too.
 A settings file pins its instance: `"env": {"CONDUCTOR_INSTANCE": "<name>"}`, and each hook command
 that runs `conductor` starts `CONDUCTOR_INSTANCE=<name> conductor guard …`. The harness does not
 pass on the environment of the process that starts a session, so a hook without the pin acts for
-whatever instance its environment selects.
+whatever instance its environment selects. A settings file that pins no instance, as the shipped
+ones do, is started as a copy pinned to the session's instance; one that pins another instance is
+refused.
 
 ## What is recorded
 

@@ -580,13 +580,9 @@ fn write_pinned(
         },
         None => serde_json::json!({}),
     };
-    let dir = state.join("sessions");
-    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-    let file = dir.join(format!("{}.settings.json", name.0));
-    let text = serde_json::to_string_pretty(&config::pinned(base, instance))
-        .context("write the pinned settings")?;
-    fs::write(&file, format!("{text}\n")).with_context(|| format!("write {}", file.display()))?;
-    Ok(file.display().to_string())
+    Ok(config::write_pinned(base, instance, state, &name.0)?
+        .display()
+        .to_string())
 }
 
 /// The settings file a session of `role` starts with: its `settings`, else for `conductor`
@@ -638,8 +634,10 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 ///
 /// In order, it refuses: a role that is not `conductor` or `conductor-dev`, not named by the
 /// instance, or not on `claude` (`UnknownRole`); under a config file, a role whose own settings
-/// file does not pin the instance (`InstanceNotPinned`, `story:instance-isolation`; a role with
-/// none starts with its default written pinned, [`write_pinned`]); a live session holding the
+/// file is not there, is no JSON or pins another instance (`InstanceNotPinned`,
+/// `story:instance-isolation`; one that pins no instance starts with a pinned copy,
+/// [`config::session_settings`], and a role with none with its default written pinned,
+/// [`write_pinned`]); a live session holding the
 /// session name (`SessionRunning`); under `strict` a provider not available (`ProviderUnavailable`); a start
 /// or first prompt that fails (`LaunchFailed`); under `strict` a box short of the request, which
 /// is stopped again (`MeasurementShort`).
@@ -674,10 +672,10 @@ pub fn start(
     };
     let environment = Environment::from_process().context("session start")?;
     // The settings select the instance the session's hooks act for (`story:instance-isolation`):
-    // a role's own settings file must pin it.
+    // a role's own settings file must not pin another.
     if active.from_file
         && let Some(settings) = &found.settings
-        && let Some(problem) = config::pin_problem(Path::new(&settings.0), &instance.name.0)
+        && let Some(problem) = config::pin_refusal(Path::new(&settings.0), &instance.name.0)
     {
         return refuse(
             SessionStartRefusal::InstanceNotPinned,
@@ -713,6 +711,10 @@ pub fn start(
     let settings = match (&found.settings, active.from_file) {
         (None, true) => Some(
             write_pinned(found, cwd, &instance.name.0, &state_dir, &name)
+                .context("session start")?,
+        ),
+        (Some(own), true) => Some(
+            config::session_settings(Path::new(&own.0), &instance.name.0, &state_dir, &name.0)
                 .context("session start")?,
         ),
         _ => role_settings(found, cwd),

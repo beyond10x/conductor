@@ -517,7 +517,7 @@ fn spawn_refuses_a_repository_whose_controller_is_recorded_running() {
 #[test]
 fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
     type Setup = fn(&Case);
-    let cases: [(&str, &str, Setup); 12] = [
+    let cases: [(&str, &str, Setup); 11] = [
         ("no-charter", "NoCharter", |case| {
             fs::remove_file(case.charter()).expect("remove the charter");
         }),
@@ -546,10 +546,8 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
                 case.profile().display()
             ));
         }),
-        // `story:instance-isolation`, item 1: settings that do not pin the instance.
-        ("unpinned-settings", "InstanceNotPinned", |case| {
-            write(&case.settings(), "{}\n");
-        }),
+        // `story:instance-isolation`, item 1: settings that pin another instance. Settings that
+        // pin none start with a pinned copy (`spawn_starts_unpinned_settings_with_a_pinned_copy`).
         (
             "settings-of-another-instance",
             "InstanceNotPinned",
@@ -557,14 +555,15 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
                 write(&case.settings(), &pinned("other-org"));
             },
         ),
-        ("hook-without-the-instance", "InstanceNotPinned", |case| {
+        ("hook-of-another-instance", "InstanceNotPinned", |case| {
             write(
                 &case.settings(),
                 &json!({
                     "env": {"CONDUCTOR_INSTANCE": "example-org"},
                     "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
                         "type": "command",
-                        "command": "conductor guard record-guard-decision --from-pre-tool-use",
+                        "command": "CONDUCTOR_INSTANCE=other-org conductor guard \
+                                    record-guard-decision --from-pre-tool-use",
                     }]}]},
                 })
                 .to_string(),
@@ -600,6 +599,67 @@ fn spawn_refuses_what_it_cannot_start_before_recording_anything() {
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// `story:instance-isolation`, item 1: a controller role whose settings file pins no instance, as
+/// the shipped `.claude/controller-settings.json` the guides name does, starts with a copy of it
+/// pinned to the instance, `<state>/sessions/<session name>.settings.json`; the file itself is
+/// not changed. A file whose env pins the instance and one hook does not is pinned the same way.
+#[test]
+fn spawn_starts_unpinned_settings_with_a_pinned_copy() {
+    let shipped = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/controller-settings.json"),
+    )
+    .expect("the shipped controller settings");
+    let hook_only = json!({
+        "env": {"CONDUCTOR_INSTANCE": "example-org"},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": "conductor guard record-guard-decision --from-pre-tool-use",
+        }]}]},
+    })
+    .to_string();
+    for (name, text) in [("unpinned-shipped", shipped), ("unpinned-hook", hook_only)] {
+        let case = Case::new(name);
+        write(&case.settings(), &text);
+        let output = case.spawn();
+        assert!(output.status.success(), "{name}: {}", describe(&output));
+        let copy = case.state().join("sessions/ex-alpha.settings.json");
+        let argv = case.argv();
+        let at = argv
+            .iter()
+            .position(|arg| arg == "--settings")
+            .expect("a --settings argument");
+        assert_eq!(
+            argv[at + 1],
+            copy.display().to_string(),
+            "{name}: the controller starts with the pinned copy: {argv:?}"
+        );
+        let pinned: Value =
+            serde_json::from_str(&fs::read_to_string(&copy).expect("the pinned copy"))
+                .expect("JSON");
+        assert_eq!(
+            pinned["env"]["CONDUCTOR_INSTANCE"], "example-org",
+            "{pinned}"
+        );
+        assert_eq!(
+            pinned["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+                .as_str()
+                .map(|command| command.starts_with("CONDUCTOR_INSTANCE=example-org conductor ")),
+            Some(true),
+            "{name}: {pinned}"
+        );
+        let original: Value = serde_json::from_str(&text).expect("JSON");
+        assert_eq!(
+            pinned["disableAllHooks"], original["disableAllHooks"],
+            "{name}: {pinned}"
+        );
+        assert_eq!(
+            fs::read_to_string(case.settings()).expect("the role's settings"),
+            text,
+            "{name}: the role's own file is not changed"
+        );
+    }
 }
 
 #[test]

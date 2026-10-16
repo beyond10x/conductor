@@ -92,9 +92,13 @@ instance in the config file, then validate it:
 ```yaml
     roles:
       - role: conductor
+        harness: claude
+        model: opus
         profile: ~/.b10x/conductor/profiles/conductor.md
         settings: ~/example-org/conductor/.claude/conductor-settings.json
       - role: controller
+        harness: claude
+        model: opus
         profile: ~/.b10x/conductor/profiles/repo-controller.md
         settings: ~/example-org/conductor/.claude/controller-settings.json
 ```
@@ -104,6 +108,8 @@ conductor config validate
 conductor config show
 ```
 
+The shipped settings files pin no instance, so `conductor config validate` prints a note for each:
+`conductor session start` and `conductor spawn` start the role with a copy pinned to the instance.
 `conductor config validate` names each problem by its YAML path and exits 1;
 `conductor config show` prints the instance with its defaults, the `records` directory among them.
 

@@ -26,7 +26,10 @@
 //! model and settings are the instance's `controller` role's; the charter is the text of
 //! `<records>/charters/<repository>.md`, one argument. With a config file the session also gets
 //! the instance's name and the config file's absolute path in `CONDUCTOR_INSTANCE` and
-//! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it.
+//! `CONDUCTOR_CONFIG`, so the controller and its guard run as the instance that started it. The
+//! settings must not pin another instance (`InstanceNotPinned`, `story:instance-isolation`); ones
+//! that pin none, as the shipped `.claude/controller-settings.json` does, are passed as a copy
+//! pinned to the instance, `<state>/sessions/<session name>.settings.json`.
 //!
 //! In order, it refuses, recording and launching nothing: a repository that names no git
 //! checkout directly, or one group down, under the checkouts root, one whose physical path lies
@@ -155,6 +158,9 @@ pub fn spawn(
         }
         Err(error) => return refuse(SpawnRefusal::SessionsUnread, format!("{error:#}")),
     }
+    let state_dir = crate::state::dir(state)?;
+    // Written before the controller is recorded, so a copy that cannot be written records nothing.
+    let settings = pinned_settings(instance, settings, &state_dir, &session_name)?;
 
     // The store is held only while a record is written, not while the session starts.
     let outcome = {
@@ -195,7 +201,6 @@ pub fn spawn(
         }
     };
 
-    let state_dir = crate::state::dir(state)?;
     let launch = controller_launch(
         config_flag,
         &state_dir,
@@ -519,6 +524,7 @@ pub fn resume(
     let checkout = checkout(instance, repository).map_err(|detail| anyhow!("{detail}"))?;
     let (controller, profile, settings, model) =
         role(instance).map_err(|(_, detail)| anyhow!("{detail}"))?;
+    let settings = pinned_settings(instance, settings, &state_dir, session_name)?;
     let environment = Environment::from_process().context(COMMAND)?;
     let launch = controller_launch(
         config_flag,
@@ -700,9 +706,10 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
     };
     let profile = file(profile, SpawnRefusal::NoProfile, "profile")?;
     let settings = file(settings, SpawnRefusal::NoSettings, "settings")?;
-    // The settings select the instance the session's hooks act for (`story:instance-isolation`).
+    // The settings select the instance the session's hooks act for (`story:instance-isolation`):
+    // they must not pin another. Settings that pin none start pinned ([`pinned_settings`]).
     if config::active().from_file
-        && let Some(problem) = config::pin_problem(Path::new(&settings), &instance.name.0)
+        && let Some(problem) = config::pin_refusal(Path::new(&settings), &instance.name.0)
     {
         return Err((
             SpawnRefusal::InstanceNotPinned,
@@ -710,6 +717,28 @@ fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRe
         ));
     }
     Ok((role, profile, settings, model.0.clone()))
+}
+
+/// The settings the controller session `session_name` starts with (`story:instance-isolation`):
+/// under a config file, the role's `settings` when they pin the instance, else a copy of them
+/// pinned to it under the state directory ([`config::session_settings`]); without one, the
+/// role's `settings` as they are.
+fn pinned_settings(
+    instance: &Instance,
+    settings: String,
+    state_dir: &Path,
+    session_name: &SessionName,
+) -> Result<String> {
+    if !config::active().from_file {
+        return Ok(settings);
+    }
+    config::session_settings(
+        Path::new(&settings),
+        &instance.name.0,
+        state_dir,
+        &session_name.0,
+    )
+    .context(COMMAND)
 }
 
 /// Whether `~/.claude.json` under `home` marks `checkout`, a physical path, trusted:

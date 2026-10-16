@@ -130,6 +130,43 @@ fn shown(output: &Output) -> String {
     )
 }
 
+/// A fresh host has no `~/.claude.json` until Claude Code first runs: trust reads the missing
+/// file as `{}` and writes it with the marks, readable by its owner only, leaving no temporary
+/// file beside it.
+#[test]
+fn trust_writes_a_missing_claude_json() {
+    let case = Case::new("missing");
+    let config = case.config(&case.records().display().to_string());
+    let checkout = case.checkout("alpha");
+    assert!(!case.claude_json().exists());
+
+    let output = case.trust(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let mut expected = vec![
+        checkout.display().to_string(),
+        case.records().display().to_string(),
+    ];
+    expected.sort_unstable();
+    assert_eq!(case.trusted(), expected, "{:#}", case.written());
+    let mode = fs::metadata(case.claude_json())
+        .expect("stat .claude.json")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600, "{mode:o}");
+    let left: Vec<String> = fs::read_dir(case.dir.join("home"))
+        .expect("list home")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_eq!(left, vec![".claude.json".to_owned()]);
+}
+
 /// Ported from `trust_marks_the_records_directory_and_each_checkout_trusted`.
 #[test]
 fn trust_marks_the_records_directory_and_each_checkout_trusted() {

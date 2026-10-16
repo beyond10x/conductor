@@ -86,8 +86,9 @@ types:
   # provider measured at the session's boundary is short of the request
   # (`conductor.session.EnvelopeMeasurement`): the session is stopped and the controller recorded
   # stopped. `InstanceNotPinned` (story:instance-isolation), under a config file: the controller
-  # role's settings file does not pin the instance (`conductor.config.Role`), found before anything
-  # is recorded.
+  # role's settings file is no JSON or pins another instance (`conductor.config.Role`), found
+  # before anything is recorded. A settings file that pins no instance starts the session with a
+  # copy pinned to the instance, `<state>/sessions/<session name>.settings.json`.
   - name: conductor.dispatch.SpawnRefusal
     kind: enum
     variants:
