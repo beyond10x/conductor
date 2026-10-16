@@ -644,6 +644,18 @@ pub fn run(
         .join()
         .map_err(|_| anyhow!("build run: the disk watchdog panicked"))?;
     let status = status.context("build run: wait for the command")?;
+    if watched.paused > 0 {
+        // A red run during a pause is recognised as one (story:build-run-pause-visible).
+        (sources.say)(
+            state,
+            &format!(
+                "conductor: build run: paused {} times for {}s during this run; a failure may \
+                 come from the pause",
+                watched.paused,
+                watched.paused_for.as_secs()
+            ),
+        );
+    }
 
     let (code, killed) = match (stopped_by, status.code(), status.signal()) {
         (Some(signal), _, _) => {
@@ -661,7 +673,7 @@ pub fn run(
         .peak
         .max(size(&measured(&request.cwd), sources.every).unwrap_or(0))
         .saturating_sub(watched.start);
-    if let Err(error) = host::record_peak_of(host, &grant, peak) {
+    if let Err(error) = host::record_run_of(host, &grant, peak, watched.paused) {
         (sources.say)(
             state,
             &format!("conductor: build run: the peak was not recorded: {error:#}"),
@@ -841,6 +853,8 @@ struct Watched {
     peak: u64,
     paused: u32,
     resumed: u32,
+    /// How long the run was stopped, over all its pauses.
+    paused_for: Duration,
 }
 
 /// The disk watchdog of one run.
@@ -866,12 +880,12 @@ impl Watchdog {
             ..Watched::default()
         };
         let mut recorded = 0u64;
-        let mut stopped = false;
+        let mut stopped: Option<Instant> = None;
         while !wait(done, self.sources.every) {
             match free_bytes(&self.sources) {
-                Ok(free) if !stopped && free < self.settings.gate_stop => {
+                Ok(free) if stopped.is_none() && free < self.settings.gate_stop => {
                     signal(self.group, Signal::SIGSTOP);
-                    stopped = true;
+                    stopped = Some(Instant::now());
                     watched.paused += 1;
                     (self.sources.say)(
                         &self.state,
@@ -885,9 +899,11 @@ impl Watchdog {
                     let need = self.settings.gate_resume;
                     reclaim(&self.sources, &self.state, &self.host, need);
                 }
-                Ok(free) if stopped && free >= self.settings.gate_resume => {
+                Ok(free) if stopped.is_some() && free >= self.settings.gate_resume => {
                     signal(self.group, Signal::SIGCONT);
-                    stopped = false;
+                    if let Some(since) = stopped.take() {
+                        watched.paused_for += since.elapsed();
+                    }
                     watched.resumed += 1;
                     (self.sources.say)(
                         &self.state,
@@ -910,7 +926,7 @@ impl Watchdog {
             // only what this run has not written yet.
             let grown = watched.peak.saturating_sub(watched.start);
             if grown >= recorded.saturating_add(GIB) {
-                match host::record_peak_now(&self.host, &self.grant, grown) {
+                match host::record_peak_now(&self.host, &self.grant, grown, watched.paused) {
                     Ok(true) => recorded = grown,
                     Ok(false) => {}
                     Err(error) => {
@@ -919,8 +935,9 @@ impl Watchdog {
                 }
             }
         }
-        if stopped {
+        if let Some(since) = stopped {
             signal(self.group, Signal::SIGCONT);
+            watched.paused_for += since.elapsed();
         }
         watched
     }

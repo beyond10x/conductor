@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6043f4a79c47ac4ea3a6020b5261bcc643797a04f194a9bcc69302bffe9d510f
-// contract digest c26c638f470af877807ab682ce602c14559e0006ed390181fa8421395fadfa5a
+// model digest 5ddb8df81a2c0e205847c6f6cb31e77e262166eb7053522580896870e3a376ce
+// contract digest 038e16f0bac76ad1e4983cd58c36c8c3f8384b04da2a8965b7cc9f309c169434
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -177,6 +177,8 @@ pub struct HostGrantData {
     pub bytes: Option<i64>,
     /// `peak_bytes` — `Optional<Integer>`.
     pub peak_bytes: Option<i64>,
+    /// `pauses` — `Optional<Integer>`.
+    pub pauses: Option<i64>,
     /// `command` — `Optional<String>`.
     pub command: Option<String>,
     /// `process_group` — `Optional<Integer>`.
@@ -689,6 +691,8 @@ pub struct RecordPeak {
     pub grant_id: GrantId,
     /// `peak_bytes` — `Integer`.
     pub peak_bytes: i64,
+    /// `pauses` — `Optional<Integer>`.
+    pub pauses: Option<i64>,
 }
 
 /// Everything `conductor.host.RecordPeak` can result in — one variant per declared outcome.
@@ -1168,6 +1172,8 @@ pub struct Grants {
     pub bytes: Option<i64>,
     /// `peak_bytes` — `Optional<Integer>`.
     pub peak_bytes: Option<i64>,
+    /// `pauses` — `Optional<Integer>`.
+    pub pauses: Option<i64>,
     /// `command` — `Optional<String>`.
     pub command: Option<String>,
     /// `process_group` — `Optional<Integer>`.

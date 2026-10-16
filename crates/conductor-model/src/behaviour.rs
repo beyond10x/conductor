@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6043f4a79c47ac4ea3a6020b5261bcc643797a04f194a9bcc69302bffe9d510f
-// contract digest c26c638f470af877807ab682ce602c14559e0006ed390181fa8421395fadfa5a
+// model digest 5ddb8df81a2c0e205847c6f6cb31e77e262166eb7053522580896870e3a376ce
+// contract digest 038e16f0bac76ad1e4983cd58c36c8c3f8384b04da2a8965b7cc9f309c169434
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -1932,6 +1932,7 @@ where
             let _ = &held;
             let mut next = held;
             next.data.peak_bytes = Some(input.peak_bytes.clone());
+            next.data.pauses = input.pauses.clone();
             let answer = crate::host::RecordPeakOutcome::Recorded { peak_recorded: crate::host::PeakRecorded { grant_id: input.grant_id.clone(), peak_bytes: input.peak_bytes.clone() } };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
@@ -1987,6 +1988,7 @@ where
             kind: crate::host::GrantKind::Disk,
             bytes: Some(input.bytes.clone()),
             peak_bytes: None,
+            pauses: None,
             command: Some(input.command.clone()),
             process_group: None,
             session_name: input.session_name.clone(),
@@ -2121,6 +2123,7 @@ where
             kind: input.kind.clone(),
             bytes: input.bytes.clone(),
             peak_bytes: None,
+            pauses: None,
             command: None,
             process_group: None,
             session_name: Some(input.session_name.clone()),
@@ -3180,6 +3183,7 @@ where
                 kind: held.data.kind,
                 bytes: held.data.bytes,
                 peak_bytes: held.data.peak_bytes,
+                pauses: held.data.pauses,
                 command: held.data.command,
                 process_group: held.data.process_group,
                 session_name: held.data.session_name,

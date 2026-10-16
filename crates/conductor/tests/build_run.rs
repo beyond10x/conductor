@@ -1194,6 +1194,65 @@ fn a_reading_under_gate_stop_pauses_the_group_and_one_over_gate_resume_resumes_i
     assert_eq!((paused, resumed), (1, 1), "one pause, one resume");
 }
 
+/// story:build-run-pause-visible: a run the watchdog paused says so on exit, and its grant
+/// carries the count; a run that was never paused says nothing.
+#[test]
+fn a_paused_run_names_the_pause_on_exit_and_records_the_count_on_its_grant() {
+    let case = Case::new("pause-visible");
+    let (state, host) = (case.state(), case.host());
+    let sources = case.sources(reclaim_nothing);
+    let request = case.request(
+        GIB,
+        "while [ ! -e stop ]; do echo tick >> ticks; sleep 0.05; done",
+    );
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let ticks = case.work().join("ticks");
+    wait_until("the command ticks", || lines(&ticks) >= 3);
+    case.free(4 * GIB);
+    wait_until("reclaim runs for the paused run", || case.reclaims() >= 1);
+    thread::sleep(Duration::from_millis(300));
+    case.free(9 * GIB);
+    let before = lines(&ticks);
+    wait_until("the command ticks again", || lines(&ticks) > before + 2);
+    fs::write(case.work().join("stop"), "").expect("stop the command");
+    let outcome = runner
+        .join()
+        .expect("the runner ends")
+        .expect("the run ends");
+    let Outcome::Ran { ref grant, .. } = outcome else {
+        panic!("the command ran: {outcome:?}");
+    };
+    let said = case.said();
+    let line = said
+        .lines()
+        .find(|line| line.contains("paused 1 times for"))
+        .unwrap_or_else(|| panic!("the exit names the pause: {said}"));
+    assert!(
+        line.starts_with("conductor: build run: paused 1 times for ")
+            && line.ends_with("s during this run; a failure may come from the pause"),
+        "{line}"
+    );
+    let row = case
+        .grants()
+        .into_iter()
+        .find(|row| row.grant_id == *grant)
+        .expect("the ledger holds the grant");
+    assert_eq!(row.pauses, Some(1), "{row:?}");
+
+    // A run that was never paused prints no such line and records none.
+    let calm = Case::new("pause-visible-calm");
+    build::run(
+        &calm.state(),
+        &calm.host(),
+        &settings(),
+        &calm.sources(reclaim_nothing),
+        &calm.request(GIB, "exit 0"),
+    )
+    .expect("the run ends");
+    assert!(!calm.said().contains("times for"), "{}", calm.said());
+    assert!(calm.grants().iter().all(|row| row.pauses == Some(0)));
+}
+
 #[test]
 fn the_command_killed_releases_the_grant() {
     let case = Case::new("killed");

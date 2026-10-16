@@ -302,6 +302,7 @@ impl Case {
                         kind,
                         bytes: Some(1 << 30),
                         peak_bytes: None,
+                        pauses: None,
                         command: Some("cargo test".to_owned()),
                         process_group: None,
                         session_name: None,
