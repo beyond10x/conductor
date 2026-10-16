@@ -3,6 +3,10 @@ version: '3'
 vars:
   SESSION_ID: claude agents --json | jq -r '.[] | select(.kind=="background" and .name==$n and .pid != null) | .id'
   SESSION_COUNT: claude agents --json | jq '[.[] | select(.kind=="background" and .name==$n and .pid != null)] | length'
+  # A live session of any kind: one started by the systemd provider lists as interactive with a pid
+  # and no id (story:sessions-systemd-kind).
+  LIVE_ID: claude agents --json | jq -r '.[] | select(.name==$n and .pid != null) | (.id // (.pid|tostring))'
+  LIVE_COUNT: claude agents --json | jq '[.[] | select(.name==$n and .pid != null)] | length'
   # The ess binary; ESS=<path> runs a release other than the one on PATH (rules item 132).
   ESS: '{{.ESS | default "ess"}}'
 
@@ -18,9 +22,9 @@ tasks:
     cmds:
       - claude agents --json | jq -r --argjson names {{shellQuote .NAMES}} '.[] | select(.name as $n | any($names[]; . == $n)) | [.name, .kind, (.id // (.pid|tostring)), (.state // .status)] | @tsv'
       - |
-        ambiguous=$(claude agents --json | jq -r --argjson names {{shellQuote .NAMES}} '. as $all | $names[] as $n | select([$all[] | select(.kind=="background" and .name==$n and .pid != null)] | length > 1) | $n')
+        ambiguous=$(claude agents --json | jq -r --argjson names {{shellQuote .NAMES}} '. as $all | $names[] as $n | select([$all[] | select(.name==$n and .pid != null)] | length > 1) | $n')
         for name in $ambiguous; do
-          echo "more than one live background session is named $name; stop the one that is not this instance's with claude stop <id>" >&2
+          echo "more than one live session is named $name; stop the one that is not this instance's with claude stop <id>" >&2
         done
         [ -z "$ambiguous" ]
 
@@ -99,10 +103,10 @@ tasks:
     preconditions:
       - sh: test -n {{shellQuote .NAME}}
         msg: conductor config show names no session name for the role conductor
-      - sh: test -n "$({{.SESSION_ID}} --arg n {{shellQuote .NAME}})"
-        msg: no background session named {{.NAME}}
-      - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -le 1
-        msg: more than one live background session is named {{.NAME}}, so this task cannot tell which is this instance's conductor and stops none; stop the one that is not with claude stop <id> (task sessions lists them), then run the task again
+      - sh: test -n "$({{.LIVE_ID}} --arg n {{shellQuote .NAME}})"
+        msg: no live session named {{.NAME}}
+      - sh: test "$({{.LIVE_COUNT}} --arg n {{shellQuote .NAME}})" -le 1
+        msg: more than one live session is named {{.NAME}}, so this task cannot tell which is this instance's conductor and stops none; stop the one that is not with claude stop <id> (task sessions lists them), then run the task again
       - sh: test -n {{shellQuote .MODEL}}
         msg: conductor config show names no role conductor; add it to the instance's roles
       - sh: test {{shellQuote .HARNESS}} = claude

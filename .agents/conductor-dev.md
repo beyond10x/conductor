@@ -68,7 +68,8 @@ through the repository's bot route.
    start without the user's global Claude configuration; a rule they need from it is carried in
    `rules.md`, never read from there. Send `[RESTART conductor] <reason>`, wait for
    `[REPORT conductor -] ready <handoff path>`, then run `task conductor:restart` and check
-   `task sessions` shows one background `conductor`.
+   `task sessions` shows one live `conductor`: `background`, or `interactive` with a pid when
+   the systemd provider started it.
 
 ## Deciding
 
