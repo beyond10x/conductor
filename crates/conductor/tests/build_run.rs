@@ -2006,7 +2006,10 @@ impl Case {
         let home = self.dir.join("home");
         fs::create_dir_all(&home).expect("create the case's home");
         let readings = self.dir.join("readings.txt");
-        fs::write(&readings, format!("{}\n", 1000 * GIB)).expect("write the readings");
+        // Replaced, never truncated in place: a case builds a command (`host grants`) while the
+        // `build run` it started reads this file, and a truncated file reads as no count of bytes,
+        // which ends that run before it records its request.
+        replace(&readings, &format!("{}\n", 1000 * GIB));
         let mut command = common::conductor(&home);
         command
             .arg("--state-dir")
