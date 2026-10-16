@@ -2550,7 +2550,7 @@ pub struct RecordSpecificationArgs {
     #[arg(long)]
     pub repository: Option<String>,
     /// SpecificationPresence
-    #[arg(long, value_parser = ["Present", "OptedOut", "Missing"])]
+    #[arg(long, value_parser = ["Present", "OptedOut", "Missing", "NotInWorkspace"])]
     pub presence: Option<String>,
     /// string, optional
     #[arg(long)]

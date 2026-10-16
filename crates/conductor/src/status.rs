@@ -839,6 +839,19 @@ pub(crate) fn stale_gates_hooks(store: &Store, held: &SnapshotSnapshot) -> usize
         .count()
 }
 
+/// The repositories, in name order, the snapshot `held` in `store` records as `NotInWorkspace`
+/// (`story:snapshot-unlisted-repository`).
+pub(crate) fn unlisted_repositories(store: &Store, held: &SnapshotSnapshot) -> Vec<String> {
+    let mut names: Vec<String> = observed(store, held)
+        .specifications
+        .iter()
+        .filter(|row| row.presence == SpecificationPresence::NotInWorkspace)
+        .map(|row| row.repository.0.clone())
+        .collect();
+    names.sort();
+    names
+}
+
 /// The figures of each repository of `observed` that is not archived, by name: the board's
 /// deviations and delta, and [`repository_figures`].
 fn figures(observed: &Observed) -> BTreeMap<String, Figures> {

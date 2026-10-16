@@ -55,7 +55,7 @@ types:
 
   - name: conductor.observation.SpecificationPresence
     kind: enum
-    variants: [Present, OptedOut, Missing]
+    variants: [Present, OptedOut, Missing, NotInWorkspace]
 
   - name: conductor.observation.ValidationResult
     kind: enum
@@ -644,7 +644,9 @@ entities:
   # One repository's ESS specification status, for every repository the instance tracks from
   # any source: read at origin/main, or at HEAD for a local source's. Present means an
   # `ess-inputs.yaml` or `system.yaml` outside build output; OptedOut means the repository's
-  # AGENTS.md records an ESS opt-out; Missing means neither.
+  # AGENTS.md records an ESS opt-out; Missing means neither; NotInWorkspace means the repository
+  # is listed, not archived, and no member of the workspace file has it as its source, so nothing
+  # was read (story:snapshot-unlisted-repository).
   - name: conductor.observation.SpecificationObservation
     identity:
       name: observation_id

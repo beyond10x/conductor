@@ -38,8 +38,9 @@ use conductor_cli::store;
 use conductor_cli::watch::{Options, Settings, Sources, Watch};
 use conductor_model::config::{Gibibytes, Tokens};
 use conductor_model::observation::{
-    CommitSha, Mergeability, RecordPullRequest, RecordRepository, RepositoryName, SnapshotId,
-    SnapshotState, StartSnapshot, Visibility,
+    CommitSha, Mergeability, RecordPullRequest, RecordRepository, RecordSpecification,
+    RepositoryName, SnapshotId, SnapshotState, SpecificationPresence, StartSnapshot,
+    ValidationResult, Visibility,
 };
 use conductor_model::primitives::{Timestamp, Uuid};
 use serde_json::{Value, json};
@@ -1865,6 +1866,80 @@ fn a_new_snapshot_finding_stale_gates_hooks_is_reported_once() {
         NOTHING,
         "a snapshot that finds none"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Workspace stale (story:snapshot-unlisted-repository)
+// ---------------------------------------------------------------------------------------------
+
+/// Takes a complete snapshot started at `started_at` (the fixed clock) holding one specification
+/// row per `(repository, presence)` of `rows`.
+fn take_specifications(
+    state: &Path,
+    started_at: &str,
+    rows: &[(&'static str, SpecificationPresence)],
+) {
+    let rows = rows.to_vec();
+    let collector = Collector::new("specifications", move |recorder| {
+        let snapshot = recorder.snapshot().clone();
+        for (name, presence) in &rows {
+            recorder.specification(RecordSpecification {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName((*name).to_owned()),
+                presence: *presence,
+                path: None,
+                format: None,
+                required_ess: None,
+                validation: ValidationResult::NotRun,
+                validation_refusals: 0,
+                scenarios: None,
+                synthesis_refusals: None,
+                conformance_status: None,
+            })?;
+        }
+        Ok(())
+    });
+    let store = store::open(state).expect("open the case's store");
+    let start = StartSnapshot {
+        started_at: Timestamp(started_at.to_owned()),
+        disk_free_bytes: 1_000_000,
+        budget: None,
+    };
+    let taken = snapshot::take_from(store, start, &[collector]).expect("the snapshot ends");
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+}
+
+/// A pass prints `workspace stale: <repo>` for each repository the newest complete snapshot holds
+/// as `NotInWorkspace`, once per snapshot, and nothing for a snapshot that holds none.
+#[test]
+fn a_snapshot_holding_an_unlisted_repository_is_reported_once() {
+    let case = Case::new("workspace-stale");
+    case.sessions(&[]);
+    let state = case.dir.join("state");
+    let calls = case.dir.join("calls.txt");
+    let mut watch = Watch::new(recording_runs(&case, &state, &calls), case.state());
+
+    take_specifications(
+        &state,
+        "2026-10-07T10:00:00Z",
+        &[
+            ("alpha", SpecificationPresence::Present),
+            ("thalamus", SpecificationPresence::NotInWorkspace),
+            ("zeta", SpecificationPresence::NotInWorkspace),
+        ],
+    );
+    assert_eq!(
+        passed(&mut watch, true).0,
+        ["workspace stale: thalamus", "workspace stale: zeta"]
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "once");
+
+    take_specifications(
+        &state,
+        "2026-10-07T11:00:00Z",
+        &[("alpha", SpecificationPresence::Present)],
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "listed now");
 }
 
 // ---------------------------------------------------------------------------------------------

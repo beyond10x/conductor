@@ -433,7 +433,7 @@ Usage: conductor snapshot record-specification [OPTIONS]
 |---|---|---|---|
 | `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--presence <PRESENCE>` | no | none | SpecificationPresence One of `Present`, `OptedOut`, `Missing`. |
+| `--presence <PRESENCE>` | no | none | SpecificationPresence One of `Present`, `OptedOut`, `Missing`, `NotInWorkspace`. |
 | `--path <PATH>` | no | none | string, optional |
 | `--format <FORMAT>` | no | none | string, optional |
 | `--required-ess <REQUIRED_ESS>` | no | none | string, optional |

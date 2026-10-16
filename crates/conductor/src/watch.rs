@@ -25,6 +25,7 @@
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
 //! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
+//! | Workspace file, with each `main` CI read | the repositories the newest complete snapshot records as `NotInWorkspace` ([`crate::status::unlisted_repositories`]) | `workspace stale: <repo>`, one line each, once per new snapshot (`story:snapshot-unlisted-repository`) |
 //! | free disk | `statvfs` on `/` ([`crate::disk::space`]) | `disk low: <n>G free on /`, `disk admit: <n>G free on / (builds wait)`, `disk gate stop: <n>G free on / (gates stop)` |
 //! | usage | the usage readings of the complete snapshots of the store under the state directory ([`crate::collect::usage::Forecast`], [`Watch::with_usage`]) | `usage: pool runs out ~<hour>, next reset <minute>`, once per change of the forecast hour (`usage.hour`; `story:usage-probe`) |
 //! | escalated decision requests | the decision requests in state `Escalated` (class O or H) of the store under the state directory ([`crate::status::unanswered`], [`Watch::with_decisions`]) | `escalated <O\|H> <request-id> <question>` in the first pass that finds one; `unanswered <O\|H> <request-id> <minutes>` once, in the first pass [`UNANSWERED_AFTER`] (30 minutes) or more after that one (`escalated.seen`; `story:decisions-notify`), and once more in the first pass at or after the deadline its escalation recorded, `<minutes>` counted from the pass that printed its escalation (`story:decisions-page`); `answered <request-id> <choice>` once, in the first pass after a printed request was answered, from the Decisions page or by conductor, its decision's choice on one line, and nothing for one withdrawn (`story:decisions-batch-answer`) |
@@ -196,6 +197,9 @@ const REVIEW_FULL: &str = "review.full";
 
 /// The id of the last complete snapshot the Gates hooks probe read.
 const GATES_HOOKS_READ: &str = "gates-hooks.snapshot";
+
+/// The id of the last complete snapshot the workspace probe read (`story:snapshot-unlisted-repository`).
+const WORKSPACE_READ: &str = "workspace.snapshot";
 
 /// The forecast hour the usage line was last printed for (`story:usage-probe`).
 const USAGE_HOUR: &str = "usage.hour";
@@ -716,6 +720,7 @@ impl Watch {
             self.ci(&mut lines, notes)?;
             self.reviews(&mut lines)?;
             self.gates_hooks(&mut lines)?;
+            self.workspace_stale(&mut lines)?;
         }
         self.disk(&mut lines, notes)?;
         self.usage(&mut lines)?;
@@ -1407,6 +1412,36 @@ impl Watch {
         let stale = crate::status::stale_gates_hooks(&store, held);
         if stale > 0 {
             lines.push(format!("gates hooks stale: {stale} checkouts"));
+        }
+        replace(&file, &format!("{id}\n"))
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Workspace
+    // -----------------------------------------------------------------------------------------
+
+    /// `workspace stale: <repo>` for each repository the newest complete snapshot holds as
+    /// `NotInWorkspace` (`story:snapshot-unlisted-repository`), once per new snapshot. The
+    /// snapshot read last is kept in `workspace.snapshot`; without a store or a complete
+    /// snapshot nothing is read or changed.
+    fn workspace_stale(&self, lines: &mut Vec<String>) -> Result<()> {
+        let Some(state) = &self.sources.store else {
+            return Ok(());
+        };
+        let Ok(store) = crate::store::open_reader(state) else {
+            return Ok(());
+        };
+        let snapshots = SnapshotStorage::list(&store);
+        let Some(held) = crate::status::newest_complete(&snapshots, None) else {
+            return Ok(());
+        };
+        let id = &held.data.snapshot_id.0.0;
+        let file = self.state(WORKSPACE_READ);
+        if read_optional(&file)?.is_some_and(|kept| kept.trim() == id.as_str()) {
+            return Ok(());
+        }
+        for repository in crate::status::unlisted_repositories(&store, held) {
+            lines.push(format!("workspace stale: {repository}"));
         }
         replace(&file, &format!("{id}\n"))
     }
