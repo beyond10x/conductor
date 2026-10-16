@@ -10,7 +10,8 @@
 //! whose tree holds the working directory ([`by_directory`], `story:instance-isolation`), else the
 //! file's `default` (`story:grouped-instance`), else the only one, else an error naming the
 //! instances ([`select`]). What the instances of the file share is in the host directory beside it
-//! ([`host_dir`]), and each role's settings file pins its instance ([`pin_problem`]).
+//! ([`host_dir`]), and a role's settings file that pins another instance is refused
+//! ([`pin_refusal`]); one that pins none starts pinned ([`session_settings`]).
 //!
 //! The file is read into `serde_json::Value` and converted into the generated
 //! `conductor.config` types ([`parse`]), which do not derive `serde`; what the types cannot say
@@ -724,34 +725,141 @@ static CONFIG_FILE: OnceLock<PathBuf> = OnceLock::new();
 /// what to write.
 #[must_use]
 pub fn pin_problem(file: &Path, instance: &str) -> Option<String> {
-    let fix = format!(
+    let fix = pin_fix(instance);
+    let settings = match read_settings(file) {
+        Ok(settings) => settings,
+        Err(reason) => return Some(format!("{reason}: {fix}")),
+    };
+    foreign_pin(&settings, instance)
+        .or_else(|| unpinned(&settings, instance))
+        .map(|reason| format!("{reason}: {fix}"))
+}
+
+/// Why a session cannot start with the settings file `file` for the instance `instance`
+/// (`story:instance-isolation`), or none when it can, pinned or not: it cannot be read, is no
+/// JSON, or pins another instance (its `env.CONDUCTOR_INSTANCE`, or a hook command that starts
+/// `CONDUCTOR_INSTANCE=<other>`), whose hooks would act for that instance. A file that pins no
+/// instance is no refusal: a session starts with it pinned ([`session_settings`]). The reason
+/// ends with what to write.
+#[must_use]
+pub fn pin_refusal(file: &Path, instance: &str) -> Option<String> {
+    let fix = pin_fix(instance);
+    match read_settings(file) {
+        Ok(settings) => foreign_pin(&settings, instance).map(|reason| format!("{reason}: {fix}")),
+        Err(reason) => Some(format!("{reason}: {fix}")),
+    }
+}
+
+/// What a settings file writes to pin the instance `instance`.
+fn pin_fix(instance: &str) -> String {
+    format!(
         "write \"env\": {{\"{INSTANCE_VARIABLE}\": \"{instance}\"}} and start every hook command \
          that runs conductor with `{INSTANCE_VARIABLE}={instance} conductor`"
-    );
-    let text = match fs::read_to_string(file) {
-        Ok(text) => text,
-        Err(error) => return Some(format!("cannot be read ({error}): {fix}")),
-    };
-    let settings: Value = match serde_json::from_str(&text) {
-        Ok(settings) => settings,
-        Err(error) => return Some(format!("is no JSON ({error}): {fix}")),
-    };
-    match settings["env"][INSTANCE_VARIABLE].as_str() {
-        Some(name) if name == instance => {}
-        Some(name) => {
-            return Some(format!(
-                "pins the instance {name:?}, not {instance:?}: {fix}"
-            ));
-        }
-        None => return Some(format!("pins no instance: {fix}")),
+    )
+}
+
+/// The settings file `file` as JSON, or why it is not.
+fn read_settings(file: &Path) -> Result<Value, String> {
+    let text = fs::read_to_string(file).map_err(|error| format!("cannot be read ({error})"))?;
+    serde_json::from_str(&text).map_err(|error| format!("is no JSON ({error})"))
+}
+
+/// Why `settings` pins another instance than `instance`, or none when it does not: its
+/// `env.CONDUCTOR_INSTANCE` names another, or one of its hook commands starts
+/// `CONDUCTOR_INSTANCE=<another> `.
+fn foreign_pin(settings: &Value, instance: &str) -> Option<String> {
+    if let Some(name) = settings["env"][INSTANCE_VARIABLE].as_str()
+        && name != instance
+    {
+        return Some(format!("pins the instance {name:?}, not {instance:?}"));
+    }
+    let prefix = format!("{INSTANCE_VARIABLE}=");
+    hook_commands(settings).into_iter().find_map(|command| {
+        let name = command
+            .trim_start()
+            .strip_prefix(&prefix)?
+            .split(char::is_whitespace)
+            .next()
+            .unwrap_or_default();
+        (name != instance).then(|| {
+            format!(
+                "has the hook command {command:?}, which runs for the instance {name:?}, not \
+                 {instance:?}"
+            )
+        })
+    })
+}
+
+/// Why `settings` does not pin `instance` although it pins no other ([`foreign_pin`]), or none
+/// when it pins it: it has no `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor`
+/// does not start `CONDUCTOR_INSTANCE=<instance> `.
+fn unpinned(settings: &Value, instance: &str) -> Option<String> {
+    if settings["env"][INSTANCE_VARIABLE].as_str().is_none() {
+        return Some("pins no instance".to_owned());
     }
     let prefix = format!("{INSTANCE_VARIABLE}={instance} ");
-    hook_commands(&settings)
+    hook_commands(settings)
         .into_iter()
         .find(|command| runs_conductor(command) && !command.trim_start().starts_with(&prefix))
         .map(|command| {
-            format!("has the hook command {command:?}, which runs conductor for no instance: {fix}")
+            format!("has the hook command {command:?}, which runs conductor for no instance")
         })
+}
+
+/// The pinned copy of a session's settings (`story:instance-isolation`):
+/// `<state>/sessions/<session>.settings.json`.
+#[must_use]
+pub fn pinned_copy(state: &Path, session: &str) -> PathBuf {
+    state
+        .join("sessions")
+        .join(format!("{session}.settings.json"))
+}
+
+/// Writes `settings` pinned to `instance` ([`pinned`]) to the session's pinned copy
+/// ([`pinned_copy`]) and answers its path.
+///
+/// # Errors
+///
+/// The directory or the file cannot be written.
+pub fn write_pinned(
+    settings: Value,
+    instance: &str,
+    state: &Path,
+    session: &str,
+) -> Result<PathBuf> {
+    let file = pinned_copy(state, session);
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    }
+    let text = serde_json::to_string_pretty(&pinned(settings, instance))
+        .context("write the pinned settings")?;
+    fs::write(&file, format!("{text}\n")).with_context(|| format!("write {}", file.display()))?;
+    Ok(file)
+}
+
+/// The settings file a session `session` of the instance `instance` starts with when its role
+/// names `file` (`story:instance-isolation`): `file` itself when it pins the instance
+/// ([`pin_problem`] finds none), else a copy of its content pinned to the instance
+/// ([`write_pinned`]), so a role may name a settings file that pins no instance, as the shipped
+/// ones do. The caller has refused a file [`pin_refusal`] names.
+///
+/// # Errors
+///
+/// The file cannot be read or is no JSON, or the copy cannot be written.
+pub fn session_settings(
+    file: &Path,
+    instance: &str,
+    state: &Path,
+    session: &str,
+) -> Result<String> {
+    if pin_problem(file, instance).is_none() {
+        return Ok(file.display().to_string());
+    }
+    let settings = read_settings(file)
+        .map_err(|reason| anyhow!("the settings {} {reason}", file.display()))?;
+    Ok(write_pinned(settings, instance, state, session)?
+        .display()
+        .to_string())
 }
 
 /// `settings` pinned to `instance` (`story:instance-isolation`): its `env.CONDUCTOR_INSTANCE`
@@ -818,10 +926,13 @@ fn runs_conductor(command: &str) -> bool {
     })
 }
 
-/// The problems of the roles of `config` whose settings file is there and does not pin its
-/// instance ([`pin_problem`]), each by its `settings` path.
-fn pin_problems(config: &Config) -> Vec<Problem> {
+/// The roles of `config` whose settings file is there and does not pin its instance, each by its
+/// `settings` path: as problems, the files a session cannot start with ([`pin_refusal`]); as
+/// notes, the files that pin no instance, which a session starts with pinned
+/// ([`session_settings`]).
+fn pin_problems(config: &Config) -> (Vec<Problem>, Vec<Problem>) {
     let mut problems = Vec::new();
+    let mut notes = Vec::new();
     for (index, instance) in config.instances.iter().enumerate() {
         for (at, role) in instance.roles.iter().enumerate() {
             let Some(settings) = &role.settings else {
@@ -831,15 +942,29 @@ fn pin_problems(config: &Config) -> Vec<Problem> {
             if !file.is_file() {
                 continue;
             }
-            if let Some(problem) = pin_problem(file, &instance.name.0) {
+            let path = format!("instances[{index}].roles[{at}].settings");
+            let name = &instance.name.0;
+            if let Some(problem) = pin_refusal(file, name) {
                 problems.push(Problem {
-                    path: format!("instances[{index}].roles[{at}].settings"),
+                    path,
                     message: format!("the settings file {} {problem}", file.display()),
+                });
+            } else if let Ok(settings) = read_settings(file)
+                && let Some(reason) = unpinned(&settings, name)
+            {
+                notes.push(Problem {
+                    path,
+                    message: format!(
+                        "the settings file {} {reason}; session start and spawn start the role \
+                         with a copy pinned to {name:?}, {}",
+                        file.display(),
+                        pinned_copy(Path::new(&instance.state), "<session name>").display()
+                    ),
                 });
             }
         }
     }
-    problems
+    (problems, notes)
 }
 
 /// The host directory's name beside the config file.
@@ -3309,8 +3434,19 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     if args.instance.is_some() || environment.instance.is_some() {
         select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
     }
-    // Each role's settings pin its instance (`story:instance-isolation`).
-    let problems = pin_problems(&loaded.config);
+    // No role's settings pin another instance (`story:instance-isolation`); one that pins none is
+    // a note, since its sessions start with it pinned.
+    let (problems, notes) = pin_problems(&loaded.config);
+    if loaded.read {
+        for note in &notes {
+            eprintln!(
+                "conductor: {WHAT}: {}: note: {}: {}",
+                loaded.path.display(),
+                note.path,
+                note.message
+            );
+        }
+    }
     if loaded.read && !problems.is_empty() {
         report(
             WHAT,

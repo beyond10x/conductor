@@ -387,11 +387,14 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// Item 1: `config validate` names, by its `settings` path, a role whose settings file does not
-/// pin the role's instance: no `env.CONDUCTOR_INSTANCE`, another instance's, or a hook command
-/// that runs `conductor` without `CONDUCTOR_INSTANCE=<name>` first. A pinned role is valid.
+/// Item 1: `config validate` names, by its `settings` path, a role whose settings file pins
+/// another instance than the role's, and exits 1. A file that pins no instance (no
+/// `env.CONDUCTOR_INSTANCE`, or a hook command that runs `conductor` without
+/// `CONDUCTOR_INSTANCE=<name>` first), as the shipped ones do, is a note on standard error and
+/// the file is valid: `session start` and `spawn` start the role with a pinned copy. A pinned
+/// role is valid with no note.
 #[test]
-fn config_validate_names_a_role_whose_settings_do_not_pin_its_instance() {
+fn config_validate_names_a_role_whose_settings_pin_another_instance() {
     let case = Case::new("validate-pin");
     let settings = case.dir.join("settings.json");
     case.write_config(&format!(
@@ -406,28 +409,50 @@ fn config_validate_names_a_role_whose_settings_do_not_pin_its_instance() {
             && !stderr(&output).contains("instances[0].roles[0].settings"),
         "beta's role pins alpha: {output:?}"
     );
-    let unprefixed = serde_json::json!({
+    // A hook pinned to beta in a file whose env pins alpha pins another instance too.
+    let foreign_hook = serde_json::json!({
         "env": {"CONDUCTOR_INSTANCE": "alpha"},
+        "hooks": {"SessionStart": [{"hooks": [{
+            "type": "command",
+            "command": "CONDUCTOR_INSTANCE=beta conductor session claim --from-session-start",
+        }]}]},
+    })
+    .to_string();
+    fs::write(&settings, foreign_hook).unwrap();
+    let output = case.run("alpha", &["config", "validate"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        stderr(&output).contains("instances[0].roles[0].settings")
+            && stderr(&output).contains("\"beta\""),
+        "alpha's role has a hook pinned to beta: {output:?}"
+    );
+    let unprefixed = serde_json::json!({
         "hooks": {"SessionStart": [{"hooks": [{
             "type": "command",
             "command": "conductor session claim --from-session-start || exit 2",
         }]}]},
     })
     .to_string();
+    let shipped = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.claude/conductor-settings.json"),
+    )
+    .unwrap();
     for (what, text) in [
         ("no env", "{}".to_owned()),
         ("a hook without it", unprefixed),
+        ("the shipped conductor settings", shipped),
     ] {
         fs::write(&settings, text).unwrap();
         let output = case.run("alpha", &["config", "validate"]);
-        assert_eq!(output.status.code(), Some(1), "{what}: {output:?}");
+        assert_eq!(output.status.code(), Some(0), "{what}: {output:?}");
         assert!(
-            stderr(&output).contains("instances[0].roles[0].settings")
-                && stderr(&output).contains("CONDUCTOR_INSTANCE=alpha"),
-            "{what}: {output:?}"
+            stderr(&output).contains("note: instances[0].roles[0].settings")
+                && stderr(&output).contains("note: instances[1].roles[0].settings")
+                && stderr(&output).contains(".settings.json"),
+            "{what}: each role's unpinned file is a note naming its pinned copy: {output:?}"
         );
     }
-    // Each instance its own pinned file: valid.
+    // Each instance its own pinned file: valid, with no note.
     let beta = case.dir.join("settings-beta.json");
     fs::write(&settings, pinned("alpha")).unwrap();
     fs::write(&beta, pinned("beta")).unwrap();
@@ -438,6 +463,7 @@ fn config_validate_names_a_role_whose_settings_do_not_pin_its_instance() {
     fs::write(case.config(), fixed).unwrap();
     let output = case.run("alpha", &["config", "validate"]);
     assert!(output.status.success(), "{output:?}");
+    assert!(!stderr(&output).contains("note:"), "{output:?}");
 }
 
 /// The raise of one decision request, which writes the store and the records' decision log.

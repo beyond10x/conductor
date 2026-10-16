@@ -412,36 +412,44 @@ fn an_unknown_role_is_refused() {
     );
 }
 
-/// `story:instance-isolation`, item 1: a role whose own settings file is not there, or does not
-/// pin the role's instance (its `env.CONDUCTOR_INSTANCE`, and each hook command that runs
-/// `conductor` prefixed with it), is refused before anything starts: the harness does not pass the
-/// starter's environment on to the session it forks, so only the settings select the instance its
-/// hooks act for. A pinned role starts, and one with no settings of its own starts pinned
-/// (`the_provider_is_given_the_role_s_request_and_first_prompt`).
+impl Case {
+    /// Names `own` as the conductor role's own settings file in the config file.
+    fn own_settings(&self, own: &Path) {
+        let config = fs::read_to_string(self.config()).expect("read the config");
+        write(
+            &self.config(),
+            &config.replace(
+                "forge_token_env: [GH_TOKEN]}",
+                &format!("forge_token_env: [GH_TOKEN], settings: {}}}", own.display()),
+            ),
+        );
+    }
+}
+
+/// `story:instance-isolation`, item 1: a role whose own settings file is not there, or pins
+/// another instance than the role's (its `env.CONDUCTOR_INSTANCE`, or a hook command prefixed
+/// with another), is refused before anything starts: its hooks would act for that instance. One
+/// that pins no instance starts with a pinned copy
+/// (`a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy`), and one with no settings
+/// of its own starts pinned (`the_provider_is_given_the_role_s_request_and_first_prompt`).
 #[test]
-fn a_role_whose_settings_do_not_pin_its_instance_is_refused() {
+fn a_role_whose_settings_pin_another_instance_is_refused() {
     let case = Case::new("not-pinned", STRICT);
     let own = case.dir.join("settings/conductor.json");
-    let config = fs::read_to_string(case.config()).expect("read the config");
-    write(
-        &case.config(),
-        &config.replace(
-            "forge_token_env: [GH_TOKEN]}",
-            &format!("forge_token_env: [GH_TOKEN], settings: {}}}", own.display()),
-        ),
-    );
-    let unprefixed = json!({
+    case.own_settings(&own);
+    let foreign_hook = json!({
         "env": {"CONDUCTOR_INSTANCE": "alpha"},
         "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
             "type": "command",
-            "command": "conductor guard record-guard-decision --from-pre-tool-use || exit 2",
+            "command": "CONDUCTOR_INSTANCE=beta conductor guard record-guard-decision \
+                        --from-pre-tool-use || exit 2",
         }]}]},
     })
     .to_string();
     for (what, settings) in [
-        ("no env", "{}\n".to_owned()),
         ("another instance", pinned("beta")),
-        ("a hook without the instance", unprefixed),
+        ("a hook of another instance", foreign_hook),
+        ("no JSON", "{\n".to_owned()),
     ] {
         write(&own, &settings);
         let output = case.start("conductor");
@@ -452,6 +460,13 @@ fn a_role_whose_settings_do_not_pin_its_instance_is_refused() {
             describe(&output)
         );
     }
+    assert!(
+        !case
+            .state()
+            .join("sessions/conductor.settings.json")
+            .exists(),
+        "a refused start writes no pinned copy"
+    );
     fs::remove_file(&own).expect("remove the settings");
     assert_refused(
         &case.start("conductor"),
@@ -462,6 +477,113 @@ fn a_role_whose_settings_do_not_pin_its_instance_is_refused() {
         call_names(&case.fake()).is_empty(),
         "{:?}",
         calls(&case.fake())
+    );
+}
+
+/// `story:instance-isolation`, item 1: a role whose own settings file pins no instance, as the
+/// shipped `.claude/conductor-settings.json` the guides name does, starts with a copy of it pinned
+/// to the role's instance, `<state>/sessions/<session name>.settings.json`: every other key kept,
+/// `env.CONDUCTOR_INSTANCE` set and each hook command that runs `conductor` prefixed
+/// `CONDUCTOR_INSTANCE=alpha `. The file itself is not changed. A file that pins the instance
+/// already starts as it is.
+#[test]
+fn a_role_whose_settings_pin_no_instance_starts_with_a_pinned_copy() {
+    let shipped = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude/conductor-settings.json"),
+    )
+    .expect("the shipped conductor settings");
+    let env_only = json!({
+        "env": {"CONDUCTOR_INSTANCE": "alpha", "TMPDIR": "/tmp/alpha"},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{
+            "type": "command",
+            "command": "conductor guard record-guard-decision --from-pre-tool-use || exit 2",
+        }]}]},
+    })
+    .to_string();
+    for (name, text) in [
+        ("unpinned-shipped", shipped),
+        ("unpinned-empty", "{}\n".to_owned()),
+        ("unpinned-hook", env_only),
+    ] {
+        let case = Case::new(name, STRICT);
+        let own = case.dir.join("settings/conductor.json");
+        case.own_settings(&own);
+        write(&own, &text);
+        let output = case.start("conductor");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&output)
+        );
+        let copy = case.state().join("sessions/conductor.settings.json");
+        let args = &calls(&case.fake())[0]["args"];
+        assert_eq!(
+            args.as_array().and_then(|args| args.last()),
+            Some(&json!(copy.display().to_string())),
+            "{name}: the session starts with the pinned copy: {args}"
+        );
+        let original: Value = serde_json::from_str(&text).expect("JSON");
+        let pinned: Value =
+            serde_json::from_str(&fs::read_to_string(&copy).expect("the pinned copy"))
+                .expect("JSON");
+        assert_eq!(
+            pinned["env"]["CONDUCTOR_INSTANCE"], "alpha",
+            "{name}: {pinned}"
+        );
+        for (key, value) in original.as_object().expect("an object") {
+            if key == "env" || key == "hooks" {
+                continue;
+            }
+            assert_eq!(&pinned[key], value, "{name}: {key} is kept: {pinned}");
+        }
+        if let Some(tmp) = original["env"].get("TMPDIR") {
+            assert_eq!(&pinned["env"]["TMPDIR"], tmp, "{name}: {pinned}");
+        }
+        let hooks = pinned["hooks"].as_object().cloned().unwrap_or_default();
+        assert_eq!(
+            hooks.len(),
+            original["hooks"]
+                .as_object()
+                .map_or(0, serde_json::Map::len),
+            "{name}: {pinned}"
+        );
+        for matchers in hooks.values() {
+            for matcher in matchers.as_array().expect("matchers") {
+                for hook in matcher["hooks"].as_array().expect("hooks") {
+                    let command = hook["command"].as_str().expect("a command");
+                    assert!(
+                        command.starts_with("CONDUCTOR_INSTANCE=alpha conductor "),
+                        "{name}: {command}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            fs::read_to_string(&own).expect("the own settings"),
+            text,
+            "{name}: the role's own file is not changed"
+        );
+    }
+
+    // Pinned already: it starts with the file itself, and no copy is written.
+    let case = Case::new("pinned-own", STRICT);
+    let own = case.dir.join("settings/conductor.json");
+    case.own_settings(&own);
+    write(&own, &pinned("alpha"));
+    let output = case.start("conductor");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let args = &calls(&case.fake())[0]["args"];
+    assert_eq!(
+        args.as_array().and_then(|args| args.last()),
+        Some(&json!(own.display().to_string())),
+        "{args}"
+    );
+    assert!(
+        !case
+            .state()
+            .join("sessions/conductor.settings.json")
+            .exists()
     );
 }
 
