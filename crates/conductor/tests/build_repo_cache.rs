@@ -142,6 +142,7 @@ impl Case {
             ],
             measure: Vec::new(),
             cwd: self.dir.join(tree),
+            output: None,
         }
     }
 

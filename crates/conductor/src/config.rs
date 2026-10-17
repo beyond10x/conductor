@@ -108,9 +108,8 @@ use conductor_model::config::{
     Confinement, ConfinementMode, ConfinementProvider, Controllers, ForgeSecret, Gibibytes,
     GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network,
     RepoCache, Report, RepositoryRule, Retention, Role, RoleName, SecretSource, SecretSync,
-    SessionName,
-    SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember,
-    Writable,
+    SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage,
+    WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
