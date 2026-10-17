@@ -9,16 +9,24 @@
 //! by `- ` and with its cost as `(cost: <cost>)` or `; cost: <cost>`; and a line that opens with
 //! `Recommendation` (or `Recommended`) naming one of the options' letters ([`parse_request`]).
 //!
-//! **Class.** A rule reads whole words of the question and the option lines, never the
-//! recommendation or other lines, in this order, the first that matches deciding: `data-loss`
-//! (delete, erase, purge, wipe, destroy, discard, the only copy), `history-rewrite` (a force-push,
-//! `filter-branch` or `filter-repo`, a rewrite of history, an amend or rebase of what was
-//! published or pushed), `repository-lifecycle` (a new, created, renamed, retired, archived,
-//! forked, transferred or deprecated repository), `architecture` (an ADR, architecture, a
-//! cross-repository contract, a technology or framework choice) → class O; `credential` (a
-//! secret, a token, a password, a qualified key such as an API or SSH key, a login, a paid
-//! account or plan) and `hands` (a permission only the operator holds, administrator rights, a
-//! grant of a permission or bypass) → class H; otherwise class C, rule `none`.
+//! **Class** (`story:classify-tightened`). A rule reads whole words of the question and the option
+//! lines, never the recommendation or other lines, and matches an action on an object, not a
+//! word: a verb, then its object within a few words, unless an exclusion comes first. The rules
+//! are tried in this order, the first that matches deciding: `data-loss` (a removal verb, delete,
+//! erase, purge, drop, wipe, rm, remove, destroy or discard, on another's work, a worktree, a
+//! branch, an archive, a store, a repository, records, evidence or an export, and not on a build
+//! directory, a cache, a merged branch or a scratch path), `history-rewrite` (a force-push,
+//! `filter-branch` or `filter-repo`, a rewrite of history, an amend, rebase, squash or reset of
+//! what was pushed or published), `repository-lifecycle` (create, rename, archive, retire, fork,
+//! transfer or deprecate a repository, or a new one), `architecture` (accept, change or write an
+//! ADR; change a contract, a schema, a kernel or a node kind; a cross-repository contract; choose
+//! a language, framework or technology) → class O; `credential` (set, enter, rotate, create or
+//! store a secret, a token, a password, a qualified key such as an API or SSH key, or a login, or
+//! log in; not tokens counted, budgeted or mentioned) and `hands` (a permission, account or
+//! payment only the operator holds: an owner's or administrator's, a grant of a permission or
+//! bypass, a paid account or plan) → class H; otherwise class C, rule `none`, which a request
+//! whose recommended option can be undone is too. [`classify`] answers the words its rule matched
+//! with it: `handle` prints them, and an escalation's reason names them.
 //!
 //! **Class C.** The prompt holds the request and its options, the repository's accepted ADR
 //! titles (`aep plan artifact list --kind architecture-decision-record --status accepted` in the
@@ -77,8 +85,27 @@ const NO_COST: &str = "not stated in the request";
 /// What a cut part of the prompt ends with.
 const CUT: &str = "\n[cut at the prompt's 16,000-character cap]\n";
 
-/// Phrases of whole lower-case words, each a reason for its rule.
-const DATA_LOSS: &[&str] = &[
+/// What the rules read: a sequence of whole lower-case words, each phrase of a list written with
+/// one space between its words.
+type Phrases = &'static [&'static str];
+
+/// One way a rule matches the words of a request.
+enum Pattern {
+    /// One of these phrases, anywhere: an action in itself (`force push`, `log in`).
+    Phrase(Phrases),
+    /// An action on an object: a phrase of `verbs`, then a phrase of `objects` starting within
+    /// `window` words after it, unless a phrase of `not` starts first, which ends the look for
+    /// that verb (`delete the build output …`, `set a token budget …`).
+    Action {
+        verbs: Phrases,
+        objects: Phrases,
+        not: Phrases,
+        window: usize,
+    },
+}
+
+/// Removal verbs.
+const REMOVE: Phrases = &[
     "delete",
     "deletes",
     "deleted",
@@ -93,10 +120,20 @@ const DATA_LOSS: &[&str] = &[
     "purges",
     "purged",
     "purging",
+    "drop",
+    "drops",
+    "dropped",
+    "dropping",
     "wipe",
     "wipes",
     "wiped",
     "wiping",
+    "rm",
+    "remove",
+    "removes",
+    "removed",
+    "removing",
+    "removal",
     "destroy",
     "destroys",
     "destroyed",
@@ -105,14 +142,76 @@ const DATA_LOSS: &[&str] = &[
     "discards",
     "discarded",
     "discarding",
-    "rm rf",
-    "only copy",
 ];
 
-const HISTORY_REWRITE: &[&str] = &[
+/// What a removal loses: another's work, an archive, a store, a repository, records.
+const DATA: Phrases = &[
+    "work",
+    "edits",
+    "uncommitted",
+    "commits",
+    "worktree",
+    "worktrees",
+    "checkout",
+    "checkouts",
+    "branch",
+    "branches",
+    "stash",
+    "stashes",
+    "archive",
+    "archives",
+    "store",
+    "stores",
+    "database",
+    "databases",
+    "repository",
+    "repositories",
+    "repo",
+    "repos",
+    "records",
+    "history",
+    "evidence",
+    "data",
+    "export",
+    "exports",
+    "copy",
+    "copies",
+    "backup",
+    "backups",
+    "transcript",
+    "transcripts",
+    "logs",
+    "volume",
+    "volumes",
+    "bucket",
+    "buckets",
+];
+
+/// What a removal loses nothing of: a build directory, a cache, a merged branch, a scratch path.
+const NOT_DATA: Phrases = &[
+    "build",
+    "builds",
+    "target directory",
+    "target directories",
+    "target dir",
+    "artifacts",
+    "artefacts",
+    "dist",
+    "node modules",
+    "cache",
+    "caches",
+    "merged",
+    "scratch",
+    "tmp",
+    "temp",
+    "temporary",
+];
+
+/// Actions that rewrite history in themselves.
+const REWRITES: Phrases = &[
     "force push",
-    "force pushed",
     "force pushes",
+    "force pushed",
     "force pushing",
     "push force",
     "push f",
@@ -120,23 +219,49 @@ const HISTORY_REWRITE: &[&str] = &[
     "filter branch",
     "filter repo",
     "history rewrite",
+    "rewrite history",
+    "rewrites history",
+    "rewriting history",
+    "rewritten history",
 ];
 
-/// Words that rewrite history when the text also names `history`.
-const REWRITE: &[&str] = &["rewrite", "rewrites", "rewriting", "rewritten"];
-
-/// Words that rewrite a commit, a history rewrite when the text also names it [`PUBLISHED`].
-const AMEND: &[&str] = &[
-    "amend", "amends", "amended", "amending", "rebase", "rebases", "rebased", "rebasing",
+/// Verbs that rewrite commits, a history rewrite on a [`PUBLISHED`] ref.
+const AMEND: Phrases = &[
+    "amend",
+    "amends",
+    "amended",
+    "amending",
+    "rebase",
+    "rebases",
+    "rebased",
+    "rebasing",
+    "squash",
+    "squashes",
+    "squashed",
+    "squashing",
+    "rewrite",
+    "rewrites",
+    "rewriting",
+    "rewritten",
+    "reset",
+    "resets",
 ];
 
-const PUBLISHED: &[&str] = &["published", "pushed", "released"];
+const PUBLISHED: Phrases = &[
+    "pushed",
+    "published",
+    "released",
+    "shared",
+    "public",
+    "remote",
+    "origin",
+    "history",
+];
 
-const REPOSITORY: &[&str] = &["repository", "repositories", "repo", "repos"];
+const REPOSITORY: Phrases = &["repository", "repositories", "repo", "repos"];
 
-/// Words that start, rename or end a repository, read up to three words before a
-/// [`REPOSITORY`] word or two after it.
-const LIFECYCLE: &[&str] = &[
+/// Words that start, rename or end a repository, before it.
+const LIFECYCLE: Phrases = &[
     "new",
     "create",
     "creates",
@@ -161,27 +286,181 @@ const LIFECYCLE: &[&str] = &[
     "transfer",
     "transfers",
     "transferred",
+    "transferring",
     "deprecate",
+    "deprecates",
     "deprecated",
     "sunset",
 ];
 
-const ARCHITECTURE: &[&str] = &[
+/// The same, after it: `the repository is renamed`.
+const LIFECYCLE_DONE: Phrases = &[
+    "created",
+    "renamed",
+    "retired",
+    "archived",
+    "forked",
+    "transferred",
+    "deprecated",
+];
+
+/// Verbs that accept, change or write an ADR.
+const ADR_VERBS: Phrases = &[
+    "accept",
+    "accepts",
+    "accepting",
+    "approve",
+    "approves",
+    "approving",
+    "adopt",
+    "adopts",
+    "adopting",
+    "change",
+    "changes",
+    "changing",
+    "amend",
+    "amends",
+    "amending",
+    "write",
+    "writes",
+    "writing",
+    "draft",
+    "drafts",
+    "drafting",
+    "supersede",
+    "supersedes",
+    "superseding",
+    "revise",
+    "revises",
+    "revising",
+    "reverse",
+    "reverses",
+    "reject",
+    "rejects",
+];
+
+const ADR: Phrases = &[
     "adr",
     "adrs",
-    "architecture",
-    "architectural",
-    "cross repository",
-    "cross repo",
+    "architecture decision record",
+    "architecture decision records",
+];
+
+/// Verbs that change a contract, a schema or a kernel.
+const RESHAPE: Phrases = &[
+    "change",
+    "changes",
+    "changing",
+    "retype",
+    "retypes",
+    "retyping",
+    "redefine",
+    "redefines",
+    "restructure",
+    "restructures",
+    "replace",
+    "replaces",
+    "replacing",
+    "break",
+    "breaks",
+    "breaking",
+];
+
+const STRUCTURE: Phrases = &[
+    "contract",
+    "contracts",
+    "kernel",
+    "schema",
+    "schemas",
+    "node kind",
+    "node kinds",
+    "data model",
+    "wire format",
+    "public api",
+];
+
+/// A cross-repository contract: a question about one decides it.
+const CROSS_REPOSITORY: Phrases = &[
+    "cross repository contract",
+    "cross repository contracts",
+    "cross repo contract",
+    "cross repo contracts",
+];
+
+/// Words that choose, before what is chosen.
+const CHOOSE: Phrases = &[
+    "which",
+    "choose",
+    "chooses",
+    "choosing",
+    "pick",
+    "picks",
+    "select",
+    "selects",
+    "switch",
+    "switches",
+    "switching",
+    "adopt",
+    "adopts",
+];
+
+/// A language choice, or one of a framework or technology.
+const TECHNOLOGY: Phrases = &[
+    "language",
+    "languages",
+    "programming language",
+    "framework",
+    "frameworks",
     "technology",
     "technologies",
     "tech stack",
-    "framework",
-    "frameworks",
-    "programming language",
 ];
 
-const CREDENTIAL: &[&str] = &[
+/// Verbs that set, enter, rotate, create or store a credential.
+const KEEP_SECRET: Phrases = &[
+    "set",
+    "sets",
+    "setting",
+    "enter",
+    "enters",
+    "entering",
+    "rotate",
+    "rotates",
+    "rotating",
+    "create",
+    "creates",
+    "creating",
+    "store",
+    "stores",
+    "storing",
+    "add",
+    "adds",
+    "adding",
+    "paste",
+    "pastes",
+    "provide",
+    "provides",
+    "generate",
+    "generates",
+    "mint",
+    "mints",
+    "save",
+    "saves",
+    "renew",
+    "renews",
+    "revoke",
+    "revokes",
+    "reset",
+    "resets",
+    "change",
+    "changes",
+    "put",
+    "puts",
+    "give",
+    "gives",
+];
+
+const SECRET: Phrases = &[
     "secret",
     "secrets",
     "token",
@@ -189,58 +468,236 @@ const CREDENTIAL: &[&str] = &[
     "password",
     "passwords",
     "passphrase",
+    "passphrases",
     "credential",
     "credentials",
     "login",
     "logins",
-    "log in",
-    "logs in",
-    "logged in",
-    "sign in",
-    "signs in",
     "api key",
+    "api keys",
     "ssh key",
+    "ssh keys",
     "deploy key",
+    "deploy keys",
     "signing key",
+    "signing keys",
     "private key",
+    "private keys",
     "access key",
+    "access keys",
     "secret key",
     "gpg key",
     "license key",
+    "licence key",
+    "encryption key",
     "key pair",
-    "paid account",
-    "paid plan",
-    "paid tier",
-    "subscription",
-    "billing",
-    "credit card",
 ];
 
-const HANDS: &[&str] = &[
+/// Tokens counted, budgeted or mentioned, and a login that is a page: no credential.
+const NOT_SECRET: Phrases = &[
+    "token budget",
+    "token budgets",
+    "token count",
+    "token counts",
+    "token counter",
+    "token counters",
+    "token usage",
+    "token spend",
+    "token cost",
+    "token costs",
+    "token limit",
+    "token limits",
+    "tokens per",
+    "token per",
+    "input tokens",
+    "output tokens",
+    "context tokens",
+    "cached tokens",
+    "prompt tokens",
+    "model tokens",
+    "login page",
+    "login screen",
+    "login flow",
+    "login form",
+    "login button",
+];
+
+/// Entering a login is an action in itself.
+const LOG_IN: Phrases = &[
+    "log in",
+    "logs in",
+    "logging in",
+    "sign in",
+    "signs in",
+    "signing in",
+];
+
+/// A permission, an account or a payment only the operator holds.
+const OPERATOR_ONLY: Phrases = &[
     "only the operator",
     "operator holds",
     "operator s hands",
     "operator s permission",
-    "admin permission",
-    "admin rights",
-    "admin access",
-    "administrator",
-    "owner role",
+    "only the owner",
+    "owner only",
+    "organisation owner",
     "organization owner",
     "org owner",
-    "permission only",
-    "permissions only",
+    "admin rights",
+    "admin permission",
+    "admin permissions",
+    "admin access",
+    "administrator",
+    "administrators",
+    "paid account",
+    "paid plan",
+    "paid tier",
+    "credit card",
 ];
 
-/// Words that grant, a hands case when the text also names a [`PERMISSION`].
-const GRANT: &[&str] = &["grant", "grants", "granted", "granting"];
+const GRANT: Phrases = &["grant", "grants", "granted", "granting", "give", "gives"];
 
-const PERMISSION: &[&str] = &["permission", "permissions", "bypass", "rights"];
+const PERMISSION: Phrases = &[
+    "permission",
+    "permissions",
+    "bypass",
+    "rights",
+    "access",
+    "role",
+    "admin",
+];
 
-/// The question and lettered options of a request's text, lower case, every run of characters
-/// that are not letters or digits one space, with a space at either end.
+const PAY: Phrases = &[
+    "buy",
+    "buys",
+    "buying",
+    "pay",
+    "pays",
+    "paying",
+    "purchase",
+    "purchases",
+    "subscribe",
+    "subscribes",
+];
+
+const PAID: Phrases = &[
+    "account",
+    "accounts",
+    "plan",
+    "plans",
+    "subscription",
+    "subscriptions",
+    "seat",
+    "seats",
+    "tier",
+    "license",
+    "licence",
+    "licenses",
+];
+
+/// No phrase.
+const NONE: Phrases = &[];
+
+/// The rules in the order they are tried, each with the patterns that match it.
+const RULE_PATTERNS: [(ClassificationRule, &[Pattern]); 6] = [
+    (
+        ClassificationRule::DataLoss,
+        &[Pattern::Action {
+            verbs: REMOVE,
+            objects: DATA,
+            not: NOT_DATA,
+            window: 4,
+        }],
+    ),
+    (
+        ClassificationRule::HistoryRewrite,
+        &[
+            Pattern::Phrase(REWRITES),
+            Pattern::Action {
+                verbs: AMEND,
+                objects: PUBLISHED,
+                not: NONE,
+                window: 4,
+            },
+        ],
+    ),
+    (
+        ClassificationRule::RepositoryLifecycle,
+        &[
+            Pattern::Action {
+                verbs: LIFECYCLE,
+                objects: REPOSITORY,
+                not: NONE,
+                window: 3,
+            },
+            Pattern::Action {
+                verbs: REPOSITORY,
+                objects: LIFECYCLE_DONE,
+                not: NONE,
+                window: 2,
+            },
+        ],
+    ),
+    (
+        ClassificationRule::Architecture,
+        &[
+            Pattern::Action {
+                verbs: ADR_VERBS,
+                objects: ADR,
+                not: NONE,
+                window: 3,
+            },
+            Pattern::Action {
+                verbs: RESHAPE,
+                objects: STRUCTURE,
+                not: NONE,
+                window: 4,
+            },
+            Pattern::Phrase(CROSS_REPOSITORY),
+            Pattern::Action {
+                verbs: CHOOSE,
+                objects: TECHNOLOGY,
+                not: NONE,
+                window: 3,
+            },
+        ],
+    ),
+    (
+        ClassificationRule::Credential,
+        &[
+            Pattern::Action {
+                verbs: KEEP_SECRET,
+                objects: SECRET,
+                not: NOT_SECRET,
+                window: 4,
+            },
+            Pattern::Phrase(LOG_IN),
+        ],
+    ),
+    (
+        ClassificationRule::Hands,
+        &[
+            Pattern::Phrase(OPERATOR_ONLY),
+            Pattern::Action {
+                verbs: GRANT,
+                objects: PERMISSION,
+                not: NONE,
+                window: 3,
+            },
+            Pattern::Action {
+                verbs: PAY,
+                objects: PAID,
+                not: NONE,
+                window: 4,
+            },
+        ],
+    ),
+];
+
+/// The question and lettered options of a request's text, lower case, as words: every run of
+/// characters that are not letters or digits separates two.
 struct Words {
-    text: String,
+    words: Vec<String>,
 }
 
 impl Words {
@@ -255,65 +712,95 @@ impl Words {
                 read.push_str(line);
             }
         }
-        let mut text = String::from(" ");
-        for c in read.chars().flat_map(char::to_lowercase) {
-            if c.is_alphanumeric() {
-                text.push(c);
-            } else if !text.ends_with(' ') {
-                text.push(' ');
+        let read: String = read
+            .chars()
+            .flat_map(char::to_lowercase)
+            .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+            .collect();
+        Self {
+            words: read.split_whitespace().map(str::to_owned).collect(),
+        }
+    }
+
+    /// The length in words of the first phrase of `phrases` that starts at word `at`.
+    fn starts(&self, at: usize, phrases: &[&str]) -> Option<usize> {
+        phrases.iter().find_map(|phrase| {
+            let mut length = 0;
+            for word in phrase.split(' ') {
+                if self.words.get(at + length).map(String::as_str) != Some(word) {
+                    return None;
+                }
+                length += 1;
             }
-        }
-        if !text.ends_with(' ') {
-            text.push(' ');
-        }
-        Self { text }
-    }
-
-    fn has(&self, phrases: &[&str]) -> bool {
-        phrases
-            .iter()
-            .any(|phrase| self.text.contains(&format!(" {phrase} ")))
-    }
-
-    /// Whether a word of `before` stands up to three words before a word of `of`, or one of
-    /// `after` up to two after it.
-    fn near(&self, of: &[&str], before: &[&str], after: &[&str]) -> bool {
-        let words: Vec<&str> = self.text.split_whitespace().collect();
-        words.iter().enumerate().any(|(at, word)| {
-            of.contains(word)
-                && (words[at.saturating_sub(3)..at]
-                    .iter()
-                    .any(|word| before.contains(word))
-                    || words[at + 1..words.len().min(at + 3)]
-                        .iter()
-                        .any(|word| after.contains(word)))
+            Some(length)
         })
+    }
+
+    /// The first span of words `pattern` matches, `(first, after the last)`.
+    fn find(&self, pattern: &Pattern) -> Option<(usize, usize)> {
+        (0..self.words.len()).find_map(|at| match pattern {
+            Pattern::Phrase(phrases) => self.starts(at, phrases).map(|length| (at, at + length)),
+            Pattern::Action {
+                verbs,
+                objects,
+                not,
+                window,
+            } => {
+                let from = at + self.starts(at, verbs)?;
+                (from..from + *window).find_map(|next| {
+                    if self.starts(next, not).is_some() {
+                        Some(None)
+                    } else {
+                        self.starts(next, objects)
+                            .map(|length| Some((at, next + length)))
+                    }
+                })?
+            }
+        })
+    }
+
+    /// The words of `span`, one space apart.
+    fn phrase(&self, (from, to): (usize, usize)) -> String {
+        self.words[from..to].join(" ")
     }
 }
 
-/// The class and rule of the request `text` holds, as the module documentation lists the rules.
+/// What [`classify`] found in a request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Classification {
+    /// The class its rule gives.
+    pub class: DecisionClass,
+    /// The first rule that matched, `none` when none did.
+    pub rule: ClassificationRule,
+    /// The words the rule matched, lower case and one space apart as the rule reads them, from
+    /// the action's first word to its object's last; empty for rule `none`.
+    pub phrase: String,
+}
+
+/// The class and rule of the request `text` holds, and the words its rule matched, as the module
+/// documentation lists the rules: the first rule that matches, at the first place in the question
+/// and options any of its patterns matches.
 #[must_use]
-pub fn classify(text: &str) -> (DecisionClass, ClassificationRule) {
+pub fn classify(text: &str) -> Classification {
     let words = Words::of(text);
-    let rule = if words.has(DATA_LOSS) {
-        ClassificationRule::DataLoss
-    } else if words.has(HISTORY_REWRITE)
-        || (words.has(REWRITE) && words.has(&["history"]))
-        || (words.has(AMEND) && words.has(PUBLISHED))
-    {
-        ClassificationRule::HistoryRewrite
-    } else if words.near(REPOSITORY, LIFECYCLE, LIFECYCLE) {
-        ClassificationRule::RepositoryLifecycle
-    } else if words.has(ARCHITECTURE) {
-        ClassificationRule::Architecture
-    } else if words.has(CREDENTIAL) {
-        ClassificationRule::Credential
-    } else if words.has(HANDS) || (words.has(GRANT) && words.has(PERMISSION)) {
-        ClassificationRule::Hands
-    } else {
-        ClassificationRule::None
-    };
-    (class_of(rule), rule)
+    RULE_PATTERNS
+        .iter()
+        .find_map(|(rule, patterns)| {
+            patterns
+                .iter()
+                .filter_map(|pattern| words.find(pattern))
+                .min_by_key(|(from, _)| *from)
+                .map(|span| Classification {
+                    class: class_of(*rule),
+                    rule: *rule,
+                    phrase: words.phrase(span),
+                })
+        })
+        .unwrap_or(Classification {
+            class: DecisionClass::C,
+            rule: ClassificationRule::None,
+            phrase: String::new(),
+        })
 }
 
 /// The class `rule` gives a request.
@@ -747,7 +1234,11 @@ pub enum Handled {
 pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -> Result<Handled> {
     const COMMAND: &str = "decision handle";
     let request = parse_request(text)?;
-    let (class, rule) = classify(text);
+    let Classification {
+        class,
+        rule,
+        phrase,
+    } = classify(text);
     let now = OffsetDateTime::now_utc();
     let at = now.format(&Rfc3339).context("format the time")?;
     super::raise_decision_request(
@@ -766,7 +1257,8 @@ pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -
     )?;
     if class != DecisionClass::C {
         let reason = format!(
-            "the request matches the {} rule (decide::classify), so it is class {} (design § 5)",
+            "the request matches the {} rule on {phrase:?} (decide::classify), so it is class {} \
+             (design § 5)",
             rule_name(rule),
             super::class_name(class)
         );
@@ -839,8 +1331,9 @@ pub fn handle_request(state: Option<&Path>, text: &str, decider: &dyn Decider) -
 /// `conductor decision handle --request <file> [--decider claude|fake]`: handles the request the
 /// file holds (`-`: standard input) with `decider`, `claude` ([`super::model::ClaudePrint`] on the
 /// instance's model) by default or `fake` (it answers the request's recommendation, for tests and
-/// dry runs), and prints the `[DECISION …]` line for a decided request or the § 6 line
-/// `[ESCALATION <request-id>] <O|H> <question>` for an escalated one.
+/// dry runs), and prints the rule that classified it and the words it matched, `rule <rule>:
+/// "<phrase>"` (`rule none` for class C), then the `[DECISION …]` line for a decided request or
+/// the § 6 line `[ESCALATION <request-id>] <O|H> <question>` for an escalated one.
 ///
 /// # Errors
 ///
@@ -881,7 +1374,17 @@ pub fn handle(state: Option<&Path>, request: &str, decider: Option<&str>) -> Res
             )
         }
     };
-    writeln!(std::io::stdout().lock(), "{line}")
+    let classified = classify(&text);
+    let rule = if classified.phrase.is_empty() {
+        format!("rule {}", rule_name(classified.rule))
+    } else {
+        format!(
+            "rule {}: {:?}",
+            rule_name(classified.rule),
+            classified.phrase
+        )
+    };
+    writeln!(std::io::stdout().lock(), "{rule}\n{line}")
         .with_context(|| format!("{COMMAND}: write to standard output"))?;
     Ok(ExitCode::SUCCESS)
 }

@@ -42,10 +42,12 @@
 //! record it moved and its repository as `repo`. A refusal appends nothing.
 //!
 //! **Handling** (`story:decide-model-adapter`). [`handle_request`] takes a `[DECISION-REQUEST]`
-//! whole: [`classify`] chooses its class and rule in code, the request is raised with the rule
+//! whole: [`classify`] chooses its class and rule in code, an action on an object, and names the
+//! words it matched (`story:classify-tightened`), the request is raised with the rule
 //! (`--classification-rule`), class C is answered through a [`model::Decider`] and recorded with
 //! the adapter's name and the prompt's SHA-256 (`--decider-name`, `--prompt-sha256`, both or
-//! neither), and class O and H are escalated with the request's options. See `decide/handle.rs`.
+//! neither), and class O and H are escalated with the request's options and a reason that names
+//! the matched words. See `decide/handle.rs`.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -93,9 +95,9 @@ mod handle;
 pub mod model;
 
 pub use handle::{
-    DEADLINE_HOURS, DECISION_DAYS, Handled, OPERATOR_DECIDES, PROMPT_CAP, ParsedRequest,
-    PromptInputs, build_prompt, class_of, classify, handle, handle_request, parse_request,
-    prompt_inputs, prompt_sha256,
+    Classification, DEADLINE_HOURS, DECISION_DAYS, Handled, OPERATOR_DECIDES, PROMPT_CAP,
+    ParsedRequest, PromptInputs, build_prompt, class_of, classify, handle, handle_request,
+    parse_request, prompt_inputs, prompt_sha256,
 };
 
 /// How many ids a record or a send allocates at most, one per attempt. An attempt is lost only to
