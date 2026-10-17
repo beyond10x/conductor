@@ -674,6 +674,27 @@ fn the_last_event_is_the_session_s_newest_report_not_its_dispatch_s_state() {
     ];
     let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
     case.write("home/example-org/conductor/dispatches/2026-10.jsonl", &text);
+    // alpha is the instance's controller: its record is in the store (story:sessions-page-coherent).
+    let output = common::conductor(case.home())
+        .current_dir(case.home())
+        .arg("--state-dir")
+        .arg(case.state())
+        .args([
+            "controller",
+            "start-controller",
+            "--repository",
+            "alpha",
+            "--harness",
+            "Claude",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("the conductor binary runs");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let port = case.start();
     let data = get(port, "/data.json");

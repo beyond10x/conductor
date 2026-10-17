@@ -243,7 +243,7 @@
     },
     {
       "area": "Dashboard",
-      "detail": "The dashboard's data holds one row per session under the checkouts root, with its dispatch.",
+      "detail": "The dashboard's data holds one row per session of the instance, from its records, each controller with its dispatch.",
       "href": "/docs/reference/cli#conductor-dashboard-serve",
       "label": "Session table",
       "status": "shipped"

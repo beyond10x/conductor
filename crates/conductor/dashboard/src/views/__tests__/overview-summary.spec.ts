@@ -19,12 +19,13 @@ describe('SummaryTiles', () => {
     const wrapper = mount(SummaryTiles, { props: { tiles: summary(view) } });
     expect(shown(wrapper)).toEqual({
       // `/api/unanswered`: two requests escalated as O or H; the oldest raised two hours ago.
-      'unanswered O/H': ['2', 'oldest 2h · REQ-OLD'],
-      // One awaiting_operator row and two repositories with a red main (alpha, delta).
-      'needs you': ['3', '1 decision · 2 red CI'],
+      'unanswered O/H': ['2', 'oldest 2h · REQ-login'],
+      // The same two open items, from awaiting_operator: one count of what asks something of
+      // the operator (story:sessions-page-coherent); red CI is its own tile.
+      'needs you': ['2', '2 items to answer or do'],
       'red CI on main': ['2', 'alpha, delta'],
-      // alpha is the one live controller: busy, its last report 5 min before generated_at.
-      controllers: ['1', '1 busy · 0 idle · 0 silent'],
+      // ex-alpha and ex-beta are the live controllers: ex-alpha busy, ex-beta idle.
+      controllers: ['2', '1 busy · 1 idle · 0 silent'],
       // The board's open_prs and failing_prs, summed.
       'open PRs / MRs': ['3', '1 failing'],
       // alpha v1.1.0 and delta v2.0.0 are published since 00:00 UTC; beta's is of yesterday.
@@ -38,10 +39,20 @@ describe('SummaryTiles', () => {
 
   it('counts a live controller whose last report is old as silent', () => {
     const view = overview();
-    const alpha = view.data!.sessions.find((session) => session.name === 'alpha')!;
+    const alpha = view.data!.sessions.find((session) => session.name === 'ex-alpha')!;
     alpha.dispatch!.event_at = '2026-10-13T08:30:00Z';
     const controllers = summary(view).find((tile) => tile.label === 'controllers')!;
-    expect([controllers.value, controllers.sub]).toEqual(['1', '0 busy · 0 idle · 1 silent']);
+    expect([controllers.value, controllers.sub]).toEqual(['2', '0 busy · 1 idle · 1 silent']);
+  });
+
+  it('counts "needs you" and "unanswered O/H" alike, red CI apart', () => {
+    const view = overview();
+    const tiles = Object.fromEntries(summary(view).map((tile) => [tile.label, tile.value]));
+    expect(tiles['needs you']).toBe(tiles['unanswered O/H']);
+    view.data!.awaiting_operator = [];
+    view.unanswered = { count: 0, oldest: null };
+    const none = Object.fromEntries(summary(view).map((tile) => [tile.label, tile.value]));
+    expect([none['needs you'], none['unanswered O/H']]).toEqual(['0', '0']);
   });
 
   it('shows a dash for each figure an endpoint did not answer', () => {

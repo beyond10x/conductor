@@ -565,7 +565,17 @@ pub fn sessions(
             });
             let exited = super::exited(row);
             let dispatch = name
-                .and_then(|name| super::dispatch(name, dispatches, now))
+                .and_then(|name| {
+                    // The repository's controller, `<session_prefix>-<repository>`, takes the
+                    // dispatches sent to the repository too (story:sessions-page-coherent);
+                    // another session of it only those sent to its own name.
+                    let controller =
+                        crate::config::session_name(&crate::config::active().instance, repository)
+                            .0
+                            == name;
+                    let to = if controller { repository } else { name };
+                    super::sessions::dispatch(&[name.to_owned()], to, dispatches, now)
+                })
                 .map_or(
                     Value::Null,
                     |dispatch| json!({"id": dispatch["id"], "brief": dispatch["brief"]}),

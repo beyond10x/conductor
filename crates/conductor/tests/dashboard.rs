@@ -135,7 +135,43 @@ impl Case {
             &json!({"version": 4, "ok": true, "assessments": []}).to_string(),
         );
         fs::create_dir_all(home.join("var-tmp")).expect("create the fixture /var/tmp");
-        Self { home }
+        let case = Self { home };
+        // `alpha` is the instance's controller: its record is in the store the page reads
+        // (story:sessions-page-coherent); `conductor` is the instance's conductor by its name.
+        case.run(&[
+            "controller",
+            "start-controller",
+            "--repository",
+            "alpha",
+            "--harness",
+            "Claude",
+        ]);
+        case
+    }
+
+    /// The case's state directory, whose store the page reads.
+    fn store_dir(&self) -> PathBuf {
+        self.home.with_file_name("state")
+    }
+
+    /// Runs the built binary with `args` over the case's store, asserting it succeeded; its
+    /// standard output.
+    fn run(&self, args: &[&str]) -> String {
+        let output = common::conductor(&self.home)
+            .current_dir(&self.home)
+            .arg("--state-dir")
+            .arg(self.store_dir())
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the conductor binary runs");
+        assert!(
+            output.status.success(),
+            "`{}`: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
     fn sources(&self) -> Sources {
@@ -199,11 +235,13 @@ fn write(path: &Path, text: &str) {
     fs::rename(&partial, path).expect("move the case file into place");
 }
 
-/// Serves `sources` in this process on a free port of `127.0.0.1`; the server ends with the test.
+/// Serves `sources` in this process on a free port of `127.0.0.1`, over the store of the case
+/// whose home `sources` names (`<case>/state`); the server ends with the test.
 fn start(sources: Sources) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
     let port = listener.local_addr().expect("the bound address").port();
-    std::thread::spawn(move || dashboard::serve(listener, sources));
+    let state = sources.home.with_file_name("state");
+    std::thread::spawn(move || dashboard::serve_over(listener, sources, Some(state)));
     port
 }
 
@@ -262,8 +300,11 @@ fn ids(rows: &Value) -> Vec<&str> {
         .collect()
 }
 
+/// One row per session of the instance, its conductor first, then its controllers, each
+/// controller with its dispatch (story:sessions-page-coherent; the rule itself is
+/// `dashboard_sessions.rs`'s).
 #[test]
-fn data_json_holds_one_row_per_session_under_the_checkouts_root_with_its_dispatch() {
+fn data_json_holds_one_row_per_session_of_the_instance_with_its_dispatch() {
     let case = Case::new("data");
     let home = case.home.display().to_string();
     let port = start(case.sources());
@@ -280,8 +321,11 @@ fn data_json_holds_one_row_per_session_under_the_checkouts_root_with_its_dispatc
         .iter()
         .map(|row| row["name"].as_str().expect("a name"))
         .collect();
-    assert_eq!(names, ["alpha", "conductor"], "{data:#}");
-    let alpha = &sessions[0];
+    assert_eq!(names, ["conductor", "alpha"], "{data:#}");
+    assert_eq!(sessions[0]["role"], "conductor", "{data:#}");
+    let alpha = &sessions[1];
+    assert_eq!(alpha["role"], "controller", "{data:#}");
+    assert_eq!(alpha["repository"], "alpha", "{data:#}");
     assert_eq!(alpha["kind"], "background");
     assert_eq!(alpha["status"], "busy");
     assert_eq!(alpha["state"], "working");
@@ -289,15 +333,16 @@ fn data_json_holds_one_row_per_session_under_the_checkouts_root_with_its_dispatc
     assert_eq!(alpha["started_ago"], "2h 0m");
     let dispatch = &alpha["dispatch"];
     assert_eq!(dispatch["id"], "DSP-20261007-01");
+    assert_eq!(dispatch["open"], true);
     assert_eq!(dispatch["goal"], "G1");
     assert_eq!(dispatch["brief"], first(&brief(), 120));
     assert_eq!(dispatch["event"], "started");
     assert_eq!(dispatch["event_ago"], "5m");
-    assert_eq!(sessions[1]["dispatch"], Value::Null, "{data:#}");
+    assert_eq!(sessions[0]["dispatch"], Value::Null, "{data:#}");
 
     assert_eq!(
         data["controllers"], 1,
-        "only alpha is named after its checkout"
+        "alpha is the one controller the store runs"
     );
     assert_eq!(data["build_slot"], "not recorded");
     assert!(
@@ -306,20 +351,17 @@ fn data_json_holds_one_row_per_session_under_the_checkouts_root_with_its_dispatc
             .is_some_and(|free| free > 0),
         "{data:#}"
     );
-    assert_eq!(
-        data["red_ci"],
-        json!([{"repo": "beta", "workflow": "Release", "run_id": "202",
-                "conclusion": "failure", "time": "2026-10-06T11:00:00Z"}])
-    );
-    assert_eq!(
-        ids(&data["decisions"]),
-        ["DEC-20261007-02", "DEC-20261007-01"]
-    );
-    let decided = &data["decisions"][1];
+    // Red CI on main is the Overview's, from the snapshot (story:sessions-page-coherent).
+    assert!(data.get("red_ci").is_none(), "{data:#}");
+    // Decisions only: the log's open class-O line without a choice is none.
+    assert_eq!(ids(&data["decisions"]), ["DEC-20261007-01"]);
+    let decided = &data["decisions"][0];
     assert_eq!(decided["class"], "C");
     assert_eq!(decided["choice"], "A");
     assert_eq!(decided["reason"], first(&reason(), 120));
-    assert_eq!(ids(&data["awaiting_operator"]), ["DEC-20261007-02"]);
+    // What awaits the operator is the store's open items, as the Decisions page lists them; a line
+    // of the log alone is none of them.
+    assert_eq!(data["awaiting_operator"], json!([]), "{data:#}");
     assert_eq!(data["errors"], json!([]), "{data:#}");
 }
 
@@ -547,8 +589,8 @@ fn key_drift(at: &str, fixture: &Value, served: &Value, out: &mut Vec<String>) {
             }
         }
         (Value::Array(fixture), Value::Array(served)) => {
-            if let (Some(fixture), Some(served)) = (fixture.first(), served.first()) {
-                key_drift(&format!("{at}[0]"), fixture, served, out);
+            for (index, (fixture, served)) in fixture.iter().zip(served).enumerate() {
+                key_drift(&format!("{at}[{index}]"), fixture, served, out);
             }
         }
         _ => {}
@@ -557,8 +599,8 @@ fn key_drift(at: &str, fixture: &Value, served: &Value, out: &mut Vec<String>) {
 
 /// `story:dashboard-spa`: the fixture the app's tests render, `dashboard/src/fixtures/data.json`,
 /// has the keys `/data.json` serves, so the panels are tested on the real shape. The case fills
-/// every part the fixture fills: sessions with a dispatch, the watch's three files, red CI,
-/// decisions and a disk measurement with rows.
+/// every part the fixture fills: the conductor's row and a controller's with a dispatch, the
+/// watch's files, an open operator item, a snapshot, decisions and a disk measurement with rows.
 #[test]
 fn the_app_fixture_has_the_keys_data_json_serves() {
     let case = Case::new("fixture");
@@ -571,6 +613,44 @@ fn the_app_fixture_has_the_keys_data_json_serves() {
         &format!("{today} Weekly limit reached\n"),
     );
     write(&watch.join("context-reported"), "s2\n");
+    case.run(&[
+        "decision",
+        "raise-decision-request",
+        "--request-id",
+        "REQ-login",
+        "--repository",
+        "alpha",
+        "--question",
+        "Log in: run `task login`",
+        "--options",
+        "A: now",
+        "--recommendation",
+        "A",
+        "--raised-at",
+        "2026-10-13T09:00:00Z",
+    ]);
+    case.run(&[
+        "decision",
+        "escalate-request",
+        "--request-id",
+        "REQ-login",
+        "--escalation-class",
+        "H",
+        "--reason",
+        "only the operator holds the login",
+        "--no-dry-run",
+        "the step needs the operator's login",
+    ]);
+    let store = conductor_cli::store::open(&case.store_dir()).expect("open the store");
+    let begin = conductor_model::observation::StartSnapshot {
+        started_at: conductor_model::primitives::Timestamp(rfc3339(
+            OffsetDateTime::now_utc() - Duration::from_secs(600),
+        )),
+        disk_free_bytes: 1_000_000,
+        budget: None,
+    };
+    let empty = conductor_cli::collect::Collector::new("empty", |_| Ok(()));
+    conductor_cli::snapshot::take_from(store, begin, &[empty]).expect("take a snapshot");
     let port = start(case.sources());
     let served = measured(port, |data| {
         data["disk"]["rows"]
@@ -586,13 +666,15 @@ fn the_app_fixture_has_the_keys_data_json_serves() {
     )
     .expect("the fixture is JSON");
     for (key, filled) in [
-        ("sessions", served["sessions"][0]["dispatch"].is_object()),
+        ("sessions", served["sessions"][1]["dispatch"].is_object()),
         ("watch", served["watch"]["context"][0].is_object()),
-        ("red_ci", served["red_ci"][0].is_object()),
+        ("watch.limits", served["watch"]["limits"][0].is_object()),
         (
             "awaiting_operator",
             served["awaiting_operator"][0].is_object(),
         ),
+        ("snapshot", served["snapshot"].is_object()),
+        ("decisions", served["decisions"][0].is_object()),
         ("disk", served["disk"]["rows"][0].is_object()),
     ] {
         assert!(filled, "the case serves no {key} to compare: {served:#}");
@@ -614,7 +696,7 @@ fn every_request_reads_the_sources_afresh_and_writes_nothing() {
     assert_eq!(request(port, "GET", "/", None).status, 200);
     let first = data(port);
     assert_eq!(case.files(), before, "serving wrote under the case's home");
-    assert_eq!(ids(&first["decisions"])[0], "DEC-20261007-02");
+    assert_eq!(ids(&first["decisions"])[0], "DEC-20261007-01");
 
     let decisions = case
         .home
@@ -622,17 +704,16 @@ fn every_request_reads_the_sources_afresh_and_writes_nothing() {
     let mut text = fs::read_to_string(&decisions).expect("read the decisions");
     text.push_str(
         &json!({"id": "DEC-20261007-03", "class": "H", "question": "Plug the disk in?",
-                "options": "A", "reason": "hands", "decided_by": "Operator",
+                "options": "A", "choice": "A", "reason": "hands", "decided_by": "Operator",
                 "decided_at": "2026-10-07T00:02:00Z"})
         .to_string(),
     );
     text.push('\n');
     fs::write(&decisions, text).expect("append a decision");
     let second = data(port);
-    assert_eq!(ids(&second["decisions"])[0], "DEC-20261007-03");
     assert_eq!(
-        ids(&second["awaiting_operator"]),
-        ["DEC-20261007-03", "DEC-20261007-02"]
+        ids(&second["decisions"]),
+        ["DEC-20261007-03", "DEC-20261007-01"]
     );
 }
 
@@ -644,12 +725,19 @@ fn an_unreadable_source_is_named_on_the_page_not_fatal() {
     fs::remove_file(&sources.ci_state).expect("remove the CI state");
     let port = start(sources);
     let data = data(port);
-    assert_eq!(data["sessions"], json!([]));
+    // The instance's sessions are still listed from its records, none of them running.
+    let states: Vec<&Value> = data["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .map(|row| &row["state"])
+        .collect();
     assert_eq!(
-        data["red_ci"],
-        Value::Null,
-        "no watch state is not an empty one"
+        states,
+        [&json!("not running"), &json!("not running")],
+        "{data:#}"
     );
+    assert_eq!(data["controllers"], 0, "{data:#}");
     let errors = data["errors"].as_array().expect("errors");
     assert_eq!(errors.len(), 1, "{data:#}");
     assert!(
@@ -660,14 +748,24 @@ fn an_unreadable_source_is_named_on_the_page_not_fatal() {
     );
     assert_eq!(
         ids(&data["decisions"]).len(),
-        2,
+        1,
         "the other sources still show"
     );
 }
 
+/// A controller whose session in the list has no `pid` has exited: its row reads `exited` and it
+/// is no running controller (story:sessions-page-coherent orders the rows by role, then name).
 #[test]
-fn a_session_without_a_pid_is_exited_and_listed_below_the_live_ones() {
+fn a_controller_whose_session_has_no_pid_reads_exited() {
     let case = Case::new("exited");
+    case.run(&[
+        "controller",
+        "start-controller",
+        "--repository",
+        "aardvark",
+        "--harness",
+        "Claude",
+    ]);
     case.add_session(json!({"id": "a5", "name": "aardvark", "kind": "background",
         "state": "blocked", "startedAt": 0,
         "cwd": case.home.join("example-org/aardvark").display().to_string(), "sessionId": "s5"}));
@@ -678,20 +776,20 @@ fn a_session_without_a_pid_is_exited_and_listed_below_the_live_ones() {
         .iter()
         .map(|row| row["name"].as_str().expect("a name"))
         .collect();
-    assert_eq!(names, ["alpha", "conductor", "aardvark"], "{data:#}");
-    assert_eq!(sessions[2]["state"], "exited", "{data:#}");
-    assert_eq!(sessions[2]["exited"], true, "{data:#}");
-    assert_eq!(sessions[0]["exited"], false, "{data:#}");
+    assert_eq!(names, ["conductor", "aardvark", "alpha"], "{data:#}");
+    assert_eq!(sessions[1]["state"], "exited", "{data:#}");
+    assert_eq!(sessions[1]["exited"], true, "{data:#}");
+    assert_eq!(sessions[2]["exited"], false, "{data:#}");
     assert_eq!(
-        sessions[1]["state"], "blocked",
+        sessions[0]["state"], "blocked",
         "a live blocked session stays blocked"
     );
     assert_eq!(
         data["controllers"], 1,
-        "an exited session named after its checkout is no running controller"
+        "a controller whose session exited is no running controller"
     );
-    // The row the app shows for it: name, kind and state, below the live ones.
-    let aardvark = &sessions[2];
+    // The row the app shows for it: name, kind and state.
+    let aardvark = &sessions[1];
     assert_eq!(
         [&aardvark["name"], &aardvark["kind"], &aardvark["state"]],
         [&json!("aardvark"), &json!("background"), &json!("exited")],
@@ -707,7 +805,7 @@ fn the_page_shows_the_watch_usage_limit_and_context_lines() {
     let none = data(port);
     assert_eq!(
         none["watch"],
-        json!({"usage_limit": null, "usage_limit_today": null, "context": null}),
+        json!({"limits": null, "context": null}),
         "no watch file is no line: {none:#}"
     );
     assert_eq!(none["errors"], json!([]), "{none:#}");
@@ -725,19 +823,28 @@ fn the_page_shows_the_watch_usage_limit_and_context_lines() {
     );
     write(&watch.join("context-reported"), "s2\nsold\n");
     let data = data(port);
-    assert_eq!(
-        data["watch"],
-        json!({
-            "usage_limit": [{"text": limit, "sessions": ["alpha", "conductor"]}],
-            "usage_limit_today": [limit, "Weekly limit reached"],
-            "context": [{"session": "s2", "name": "conductor"}],
-        }),
+    // The limit the watch finds now resets at the next 15:00 UTC; the one only seen today names no
+    // reset, so it is not shown as in force (story:sessions-page-coherent).
+    let limits = data["watch"]["limits"].as_array().expect("limits");
+    assert_eq!(limits.len(), 1, "{data:#}");
+    assert_eq!(limits[0]["text"], limit, "{data:#}");
+    assert_eq!(limits[0]["sessions"], json!(["alpha", "conductor"]));
+    assert!(
+        limits[0]["resets_at"]
+            .as_str()
+            .is_some_and(|at| at.ends_with("T15:00:00Z")),
         "{data:#}"
     );
-    // The app writes these as `usage limit: <text>; 2 sessions: alpha conductor` and `context:
-    // conductor over 300k tokens (session s2)` (dashboard/tests/watch.spec.ts).
+    assert_eq!(
+        data["watch"]["context"],
+        json!([{"session": "s2", "name": "conductor"}]),
+        "{data:#}"
+    );
+    // The app writes the context line as `context: conductor over 300k tokens (session s2)`
+    // (dashboard/tests/watch.spec.ts).
     assert_eq!(data["context_handover"], 300_000, "{data:#}");
     assert!(!data.to_string().contains("Old limit"), "{data:#}");
+    assert!(!data.to_string().contains("Weekly limit"), "{data:#}");
 }
 
 /// The context line names the hand-over threshold the instance configures
@@ -855,10 +962,11 @@ fn the_sources_of_an_instance_are_its_records_its_state_watch_and_its_checkouts(
     );
 }
 
-/// The sessions shown, and the controllers counted, are those under the checkouts root the
-/// sources name, which the page's heading names.
+/// The sessions shown, and the controllers counted, are the instance's from its records, not
+/// those under the checkouts root (story:sessions-page-coherent): a live session in a checkout
+/// under the root that no record names is not listed, and the rows do not move with the root.
 #[test]
-fn the_sessions_shown_are_those_under_the_checkouts_root() {
+fn the_sessions_shown_are_the_instance_s_records_not_those_under_the_checkouts_root() {
     let case = Case::new("checkouts");
     case.add_session(json!({"id": "a9", "name": "gamma", "kind": "background",
         "state": "working", "startedAt": 0, "sessionId": "s9", "pid": 1009,
@@ -874,18 +982,9 @@ fn the_sessions_shown_are_those_under_the_checkouts_root() {
         .iter()
         .map(|row| row["name"].as_str().expect("a name"))
         .collect();
-    assert_eq!(names, ["gamma"], "{data:#}");
+    assert_eq!(names, ["conductor", "alpha"], "{data:#}");
     assert_eq!(data["controllers"], 1, "{data:#}");
-
-    // The app's heading, `Sessions under ~/acme (1 live, 0 exited)`, from these.
     assert_eq!(data["reading"]["checkouts"], "~/acme", "{data:#}");
-    let exited: Vec<&Value> = data["sessions"]
-        .as_array()
-        .expect("sessions")
-        .iter()
-        .map(|row| &row["exited"])
-        .collect();
-    assert_eq!(exited, [&json!(false)], "1 live, 0 exited: {data:#}");
 }
 
 /// `story:dashboard-worktree-repo`: the disk measurement's `worktree sweep --dry-run` and
