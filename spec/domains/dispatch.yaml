@@ -188,14 +188,15 @@ types:
   # at 1.25× the threshold; `controller-restarted`, a controller spawned again from its charter
   # (after a hand-over, a second stall, or a gone session with an open dispatch); `usage-limit`,
   # sessions marked by a usage limit; `resumed`, a marked session resumed once headroom is back;
-  # `relayed`, a watch line delivered to the live controller as `[REPORT <repo> -] watch: …`;
-  # `red-ci`, a red main with no controller, dispatched or noted; `stalled`, a check-in delivered
-  # to a stalled or silent session; `cleanup`, `gc` run on `disk low`; `decision-sent`, an
-  # answered request's `[DECISION]` delivered to the controller that raised it. A tick of the
-  # daemon (`conductor.session.RunTick`) lists the lines it wrote by these names.
-  # UNMAPPED: story:run-daemon acceptance 5 says the cycle writes "one `cycle` line"; neither the
-  # story nor design § 3 says whether that is a dispatch log line or the `cycle` tick record
-  # alone, so no `Cycle` event is declared. Open question for the owner.
+  # `relayed`, a watch line delivered to the live controller as `[REPORT <repo> -] watch: …`, a
+  # mailbox `[NEED]` delivered to the live controller of the repository it asks, or the answer to
+  # a mailbox `[RESOURCE]`; `red-ci`, a red main with no controller, dispatched or noted;
+  # `stalled`, a check-in delivered to a stalled or silent session; `cleanup`, `gc` run on `disk
+  # low`; `decision-sent`, an answered request's `[DECISION]` delivered to the controller that
+  # raised it; `cycle`, one per cycle tick, after `snapshot start-snapshot`, `publish-board`,
+  # `records check` and dispatch v1 ran (story:run-daemon acceptance 5). A tick of the daemon
+  # (`conductor.session.RunTick`) lists the lines it wrote by these names, and the lines the
+  # commands it ran wrote (`sent` by a spawn, a report's `started` … `failed`) by theirs.
   - name: conductor.dispatch.DispatchLogEvent
     kind: enum
     variants:
@@ -221,6 +222,7 @@ types:
       - Stalled
       - Cleanup
       - DecisionSent
+      - Cycle
 
   # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -240,11 +242,24 @@ types:
   # - `delivered` (`conductor session deliver`, story:mailbox-send-and-deliver): `to` (the
   #   session), `first_line` and `body_path`; `repo` is the repository the first line names,
   #   else the session.
-  # UNMAPPED: the fields of the daemon's lines (`handover-sent`, `handover`,
-  # `controller-restarted`, `usage-limit`, `resumed`, `relayed`, `red-ci`, `stalled`, `cleanup`,
-  # `decision-sent`) beyond `at`, `event` and `repo` are named by neither design § 3 nor
-  # story:run-daemon; `records check` reads this struct's keys, so each is settled here before
-  # the daemon writes it. Open question for the owner.
+  # The run daemon's lines (story:run-daemon) each carry `tick_id`, the `conductor.session.RunTick`
+  # the line belongs to; `repo` is the repository acted on, or `-` for an action on none (a
+  # cleanup, a cycle, a usage limit of a session of no repository). Beside those:
+  # - `handover-sent`, `stalled`, `usage-limit`: `session` (the session's name) and `line` (the
+  #   watch line acted on);
+  # - `handover`: `session`, `reason` (`hand-over file` or `context over 1.25x`) and `path` (the
+  #   hand-over file, when one was found);
+  # - `controller-restarted`: `session`, `reason` (`handover`, `stalled again`, `gone`, `exited`,
+  #   `limit over the context threshold`) and `path` (the resume point appended to the charter,
+  #   when any);
+  # - `resumed`: `session`;
+  # - `relayed`: `session` (the controller delivered to) and `line` (the watch line, or the
+  #   mailbox message's first line);
+  # - `red-ci`: `line`, `reason` (`spawned`, `no charter` or why the spawn was refused) and
+  #   `session` when one was spawned;
+  # - `cleanup`: `line`, and `evidence`, what `gc` reports freed;
+  # - `decision-sent`: `id` (the request), `session` and `grant` (the decision that answered it);
+  # - `cycle`: `line`, one line naming what each step of the cycle did.
   - name: conductor.dispatch.DispatchLogLine
     kind: struct
     fields:
@@ -268,6 +283,11 @@ types:
       - {name: resource, type: Optional<String>}
       - {name: amount, type: Optional<Integer>}
       - {name: body_path, type: Optional<String>}
+      - {name: session, type: Optional<String>}
+      - {name: grant, type: Optional<String>}
+      - {name: path, type: Optional<String>}
+      - {name: line, type: Optional<String>}
+      - {name: tick_id, type: Optional<String>}
 
   # The input of `conductor records check` (story:records-from-commands), a view over the records'
   # two logs and the store: it reads `<records>/dispatches/*.jsonl` and

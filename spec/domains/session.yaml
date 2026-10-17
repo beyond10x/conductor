@@ -213,6 +213,27 @@ types:
     kind: enum
     variants: [watch, cycle, daily]
 
+  # The input of `conductor run` (story:run-daemon, docs/design/conductor-run.md § 3), the
+  # instance's loop as one process: a watch tick every `cadence.watch` (the watch pass, the
+  # handlers of § 3, the mailbox `<state>/mailbox/conductor/`), a cycle tick every
+  # `cadence.cycle` (`snapshot start-snapshot`, `snapshot publish-board`, `records check`,
+  # dispatch v1) and a daily tick at `cadence.daily` UTC (`metric compute` for the previous UTC
+  # day and the brief `<records>/REPORT.md`), each recorded with `RecordRunTick`. It keeps what
+  # it must remember between ticks in files under `<state>/run/`, never in memory alone. `once`
+  # runs one watch tick, then one cycle tick, and exits 0, for a test and a host without
+  # systemd. `install` starts it as the user unit `conductor_<instance>-run.service` through
+  # `systemd-run --user`, as the systemd provider starts a session (the `none` provider: it
+  # prints the command to run instead), and `uninstall` stops that unit; `conductor doctor`
+  # reports the unit's state. At most one of the three is given. The design writes `conductor
+  # run install` and `conductor run uninstall`; the `ess-cli/1` binding refuses a root command
+  # that is also a group ("a root command cannot also be a group"), so they are flags of `run`.
+  - name: conductor.session.RunDaemon
+    kind: struct
+    fields:
+      - {name: once, type: Optional<Boolean>}
+      - {name: install, type: Optional<Boolean>}
+      - {name: uninstall, type: Optional<Boolean>}
+
   # One writable place of a session resolved for its start (story:sandbox-spec): the place as the
   # role's `writable` writes it, a place word (`checkout`, `trees`, `build-cache`, `scratch`,
   # `harness-state`, `records`) or a path, and the absolute paths it stands for, in order. A path
