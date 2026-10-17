@@ -356,12 +356,15 @@ types:
   # from which it resumes it; how often the watchdog reads it; and how long a live controller
   # session, and every one of its sub-agents, may write nothing to its transcript before the watch
   # reports it silent (story:watch-silent-controller), a duration as `cadence` writes one; and how
-  # many CPU cores `conductor build run` leaves to the desktop: its command's job count is the
-  # cores less this (story:build-run-spare-cores); and how many `conductor build run` commands
-  # run at once on the host, every instance's together: a request is granted only while fewer disk
-  # grants than this are `Granted` or `Running`, waits in the queue's order while they are not, and
-  # is never refused for it, 0 for no bound (story:build-queue-convoy). Absent, the filesystem is
-  # `/`, the silence 30 minutes, the reserve 2 cores and the build slots 3.
+  # many CPU cores `conductor build run` leaves to the desktop (story:build-run-spare-cores); and
+  # how many `conductor build run` commands run at once on the host, every instance's together: a
+  # request is granted only while fewer disk grants than this are `Granted` or `Running`, waits in
+  # the queue's order while they are not, and is never refused for it, 0 for no bound
+  # (story:build-queue-convoy). A command's job count, `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j`, is
+  # its share of the cores: the cores less the reserve, over the build slots (all of them at 0),
+  # at least 1; a `CARGO_BUILD_JOBS` in the environment above that share is lowered to it, and one
+  # line says so (story:build-jobs-per-slot). Absent, the filesystem is `/`, the silence 30
+  # minutes, the reserve 2 cores and the build slots 3.
   - name: conductor.config.Thresholds
     kind: struct
     fields:

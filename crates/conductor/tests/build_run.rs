@@ -397,6 +397,114 @@ fn a_job_count_the_environment_holds_is_kept_and_a_large_reserve_leaves_one() {
     assert_eq!(jobs().trim(), "1 -j1", "never fewer than one job");
 }
 
+/// `story:build-jobs-per-slot`, acceptance 1: the job counts are the cores less the reserve,
+/// divided among the build slots, at least one: 20 cores less 2 over 3 slots is 6; over 0 slots,
+/// no bound, all 18; and a reserve over the cores leaves one, however many slots.
+#[test]
+fn the_job_count_is_the_spare_cores_shared_among_the_build_slots() {
+    let case = Case::new("jobs-per-slot");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    for (cores, cpu_reserve, slots, expected) in [
+        (20, 2, 3, "6 -j6"),
+        (20, 2, 0, "18 -j18"),
+        (20, 2, 1, "18 -j18"),
+        (20, 2, 4, "4 -j4"),
+        (4, 2, 3, "1 -j1"),
+        (2, 5, 3, "1 -j1"),
+    ] {
+        let settings = Settings {
+            cores,
+            cpu_reserve,
+            slots,
+            ..settings()
+        };
+        assert_eq!(
+            build::job_share(&settings).to_string(),
+            expected.split(' ').next().unwrap_or_default(),
+            "{cores} cores less {cpu_reserve} over {slots} slots"
+        );
+        let sources = Sources {
+            env: |_| None,
+            ..case.sources(reclaim_nothing)
+        };
+        let outcome = build::run(
+            &case.state(),
+            &case.host(),
+            &settings,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends");
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+        assert_eq!(
+            jobs().trim(),
+            expected,
+            "{cores} cores less {cpu_reserve} over {slots} slots"
+        );
+    }
+}
+
+/// `story:build-jobs-per-slot`, acceptance 2: a `CARGO_BUILD_JOBS` in the environment of
+/// `build run` above the build's share is lowered to it, and one line says so; one below it is
+/// kept, and nothing is said.
+#[test]
+fn a_job_count_over_the_share_is_lowered_with_one_line_and_a_lower_one_is_kept() {
+    let case = Case::new("jobs-lowered");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    let three = Settings {
+        slots: 3,
+        ..settings()
+    };
+    let run = |sources: Sources| {
+        let outcome = build::run(
+            &case.state(),
+            &case.host(),
+            &three,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends");
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    };
+
+    run(Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "18".to_owned()),
+        ..case.sources(reclaim_nothing)
+    });
+    assert_eq!(jobs().trim(), "6 -j6", "18 is lowered to the share of 6");
+    let said = case.said();
+    let lines: Vec<&str> = said
+        .lines()
+        .filter(|line| line.contains("CARGO_BUILD_JOBS"))
+        .collect();
+    assert_eq!(lines.len(), 1, "one line says so: {said}");
+    assert!(
+        lines[0].contains("18") && lines[0].contains('6'),
+        "it names the value and the share: {}",
+        lines[0]
+    );
+
+    let before = case.said();
+    // The environment holds 2, under the share: the child inherits it as it is.
+    let inherited = std::env::var("CARGO_BUILD_JOBS").unwrap_or_default();
+    run(Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "2".to_owned()),
+        ..case.sources(reclaim_nothing)
+    });
+    assert_eq!(
+        jobs().trim(),
+        format!("{inherited} -j6").trim(),
+        "a lower count is not replaced"
+    );
+    assert!(
+        !case.said()[before.len()..].contains("CARGO_BUILD_JOBS"),
+        "nothing is said of a lower count: {}",
+        case.said()
+    );
+}
+
 #[test]
 fn a_reservation_that_does_not_fit_is_granted_once_reclaim_reaches_it() {
     let case = Case::new("reclaim-reaches");

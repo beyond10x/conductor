@@ -1042,7 +1042,11 @@ pub fn run(
 
     let mut command = yielding(&request.command);
     command.current_dir(&request.cwd).process_group(0);
-    for (name, value) in job_variables(settings, sources) {
+    let (variables, lowered) = job_variables(settings, sources);
+    if let Some(line) = lowered {
+        (sources.say)(state, &line);
+    }
+    for (name, value) in variables {
         command.env(name, value);
     }
     if let Some(output) = &request.output {
@@ -1215,18 +1219,56 @@ fn on_path(program: &str) -> bool {
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
 }
 
-/// The variables that keep the command's builds off the desktop's last cores: `CARGO_BUILD_JOBS`
-/// and `MAKEFLAGS=-j` of the cores less `thresholds.cpu_reserve` (at least one), each unless the
-/// environment of `build run` already holds it (`story:build-run-spare-cores`).
-fn job_variables(settings: &Settings, sources: &Sources) -> Vec<(&'static str, String)> {
-    let jobs = settings.cores.saturating_sub(settings.cpu_reserve).max(1);
-    [
+/// One build's share of the cores (`story:build-jobs-per-slot`): the cores less
+/// `thresholds.cpu_reserve`, divided among `thresholds.build_slots` (all of them when it is 0),
+/// and at least one, so the builds admitted together leave the desktop its spare cores.
+#[must_use]
+pub fn job_share(settings: &Settings) -> u64 {
+    let spare = settings.cores.saturating_sub(settings.cpu_reserve);
+    match settings.slots {
+        0 => spare,
+        slots => spare / slots,
+    }
+    .max(1)
+}
+
+/// The variables that keep the command's builds to their share of the cores ([`job_share`]):
+/// `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j` of that share, each unless the environment of
+/// `build run` already holds it (`story:build-run-spare-cores`); a `CARGO_BUILD_JOBS` it holds
+/// above the share is lowered to it, with the line that says so, and a lower one is kept
+/// (`story:build-jobs-per-slot`).
+fn job_variables(
+    settings: &Settings,
+    sources: &Sources,
+) -> (Vec<(&'static str, String)>, Option<String>) {
+    let jobs = job_share(settings);
+    let mut lowered = None;
+    let variables = [
         ("CARGO_BUILD_JOBS", jobs.to_string()),
         ("MAKEFLAGS", format!("-j{jobs}")),
     ]
     .into_iter()
-    .filter(|(name, _)| (sources.env)(name).is_none())
-    .collect()
+    .filter(|(name, _)| match (sources.env)(name) {
+        None => true,
+        Some(held) if *name == "CARGO_BUILD_JOBS" => {
+            let over = held.trim().parse::<u64>().is_ok_and(|held| held > jobs);
+            if over {
+                lowered = Some(format!(
+                    "conductor build run: CARGO_BUILD_JOBS {} is over this build's share of the \
+                     cores, {jobs} ({} cores less {} reserved, over {} build slots); it runs with \
+                     {jobs}",
+                    held.trim(),
+                    settings.cores,
+                    settings.cpu_reserve,
+                    settings.slots
+                ));
+            }
+            over
+        }
+        Some(_) => false,
+    })
+    .collect();
+    (variables, lowered)
 }
 
 /// Waits for the command `child`, the leader of the process group `group`, to end. A signal

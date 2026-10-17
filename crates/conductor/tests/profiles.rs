@@ -633,6 +633,27 @@ fn every_build_runs_under_conductor_build_run_and_a_refusal_is_reported() {
     );
 }
 
+/// `story:build-jobs-per-slot`, acceptance 3: `build run` sets each build's job count, so the
+/// profiles' command forms pass none, and the profiles that run builds say why.
+#[test]
+fn the_profiles_pass_no_job_count_to_build_run() {
+    for name in ["conductor.md", "conductor-dev.md", "repo-controller.md"] {
+        let text = profile(name);
+        assert!(
+            !text.contains("CARGO_BUILD_JOBS="),
+            "{name}: a command form passes no CARGO_BUILD_JOBS"
+        );
+    }
+    for name in ["conductor-dev.md", "repo-controller.md"] {
+        let text = profile(name);
+        let sentence = "`build run` sets `CARGO_BUILD_JOBS` and `MAKEFLAGS` to the build's share \
+                        of the cores (the cores less `thresholds.cpu_reserve`, over \
+                        `thresholds.build_slots`) and lowers a higher `CARGO_BUILD_JOBS` to it: \
+                        pass neither.";
+        assert!(text.contains(sentence), "{name}: holds {sentence:?}");
+    }
+}
+
 /// `story:rules-show`: a worker brief cites the `rules.md` items it carries with the output of
 /// `conductor rules show --item …`, never with an excerpt cut by hand from the file.
 #[test]
