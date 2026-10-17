@@ -38,3 +38,5 @@ scenarios:
   - scenarios/mark-answer-delivered.yaml
   - scenarios/undelivered-answers-listed.yaml
   - scenarios/operator-message-round-trip.yaml
+  - scenarios/amend-escalated-request.yaml
+  - scenarios/report-done-from-sent-or-blocked.yaml

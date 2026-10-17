@@ -1184,11 +1184,12 @@ views:
   # The answered requests whose answer has not reached its controller
   # (story:decision-relay-recorded-answers): conductor reads it at the start of every turn, sends
   # each `[DECISION]` line and marks it delivered. A request lists here whoever recorded the answer.
-  # UNMAPPED: the story lists, per row, the option, the reason and `recorded_by`. They are the
+  # Mapped by join: the story lists, per row, the option, the reason and `recorded_by`. They are the
   # fields of the decision the request cites (`conductor.decision.Decisions`: `choice`, `reason`,
   # `recorded_by`), and a view publishes the fields of its one source entity, so this view cannot
   # carry them. The CLI joins `decision_id` to `Decisions` for them; copying them onto the request
-  # would be a new stored field the story does not name. Open question for the owner.
+  # would be a new stored field the story does not name. Decided by conductor-dev: the CLI joins
+  # (one fact, one owner).
   - name: conductor.decision.UndeliveredAnswers
     source: conductor.decision.DecisionRequest
     consistency: read_your_writes
