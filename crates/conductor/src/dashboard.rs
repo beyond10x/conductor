@@ -577,6 +577,7 @@ impl Server {
         let size = |count: usize| int(count as u64);
         DashboardMemory {
             rss_bytes: health::rss_bytes().map(int),
+            swap_bytes: health::swap_bytes().map(int),
             store_handles: size(stores.handles),
             store_replays: size(stores.replays),
             store_replays_peak: size(stores.peak),
@@ -671,8 +672,9 @@ impl Server {
                     claim: Some(claim),
                 };
                 let state = (kind.state)(&server);
-                let value = server.stores.compute(key, state.as_deref(), |held| {
-                    (kind.compute)(&server, key, held)
+                let (reader, target) = (Arc::clone(&server), key.to_owned());
+                let value = server.stores.compute(key, state, move |held| {
+                    (kind.compute)(&reader, &target, held)
                 });
                 unfinished.claim = None;
                 memo.finish(key, claim, Some((fingerprint, value)));

@@ -7,9 +7,10 @@
 //! So:
 //!
 //! - [`Stores`] keeps one handle per state directory for the server's life, and every
-//!   computation takes it under one lock: the handle reopens a tree only when another writer
-//!   committed to it since ([`crate::store`]'s `Mark`), and two computations never replay the
-//!   same files side by side. The handle is a reader ([`store::open_reader`]): it never waits on
+//!   computation reads it on one thread of its own, one after another: the handle reopens a tree
+//!   only when another writer committed to it since ([`crate::store`]'s `Mark`), two computations
+//!   never replay the same files side by side, and every replay is built on the same thread, so
+//!   the allocator reuses what the last one freed (`story:dashboard-memory-live`). The handle is a reader ([`store::open_reader`]): it never waits on
 //!   the store's writer lock, which a writer holds for as long as it commits.
 //! - [`Memo`] keeps each answer that reads the store with the [`fingerprint`] of the store it was
 //!   computed from. A request whose fingerprint is the one kept is answered from memory. One whose
@@ -34,8 +35,10 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, mpsc};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::Value;
@@ -113,6 +116,9 @@ struct Probed {
     started: HashMap<String, Vec<Instant>>,
     running: HashMap<String, usize>,
     peak: HashMap<String, usize>,
+    /// The store reads, and the threads they ran on.
+    reads: usize,
+    threads: HashSet<ThreadId>,
 }
 
 impl Probe {
@@ -137,6 +143,25 @@ impl Probe {
     #[must_use]
     pub fn peak(&self, key: &str) -> usize {
         lock(&self.0).peak.get(key).copied().unwrap_or_default()
+    }
+
+    /// How many computations read the store (`story:dashboard-memory-live`).
+    #[must_use]
+    pub fn store_reads(&self) -> usize {
+        lock(&self.0).reads
+    }
+
+    /// On how many threads the computations read the store.
+    #[must_use]
+    pub fn store_threads(&self) -> usize {
+        lock(&self.0).threads.len()
+    }
+
+    /// A computation reads the store on this thread.
+    fn read(&self) {
+        let mut probed = lock(&self.0);
+        probed.reads += 1;
+        probed.threads.insert(std::thread::current().id());
     }
 
     /// A computation of `key` starts; its delay.
@@ -242,14 +267,31 @@ pub(super) fn hasher() -> DefaultHasher {
 // The store handles
 // ---------------------------------------------------------------------------------------------
 
-/// One store handle per state directory, kept for the server's life, behind the one lock every
-/// computation over a store takes; with the probe of a test.
-#[derive(Default)]
-pub(super) struct Stores(
-    Mutex<HashMap<PathBuf, Store>>,
-    Option<Arc<Probe>>,
-    Mutex<StoresHeld>,
-);
+/// One store handle per state directory, kept for the server's life and read on one thread of
+/// its own, the store reader, one computation after another; with the probe of a test.
+///
+/// Every store computation runs on that one thread (`story:dashboard-memory-live`). The
+/// allocator keeps what a thread freed in that thread's arena for its later allocations: when
+/// each recompute ran on a thread of its own, each replay was built in whichever arena that
+/// thread took, and every arena a reopen ran in kept about a replay's size after the replay was
+/// dropped, so the process grew by a replay per arena. On one thread the next replay reuses what
+/// the last one freed.
+pub(super) struct Stores {
+    shared: Arc<Shared>,
+    /// Sends a computation to the store reader; none when its thread could not start, and each
+    /// computation then runs on the thread that asks for it.
+    reader: Option<Mutex<mpsc::Sender<Job>>>,
+}
+
+/// What the store reader and the server share: the handles, what they hold, and the probe.
+struct Shared {
+    handles: Mutex<HashMap<PathBuf, Store>>,
+    held: Mutex<StoresHeld>,
+    probe: Option<Arc<Probe>>,
+}
+
+/// One computation for the store reader.
+type Job = Box<dyn FnOnce() + Send>;
 
 /// What the store handles hold in memory, as the last computation left them
 /// (`story:dashboard-memory-bound`): read without the lock a computation holds.
@@ -270,19 +312,93 @@ pub(super) struct StoresHeld {
 pub(super) type Held<'a> = Result<Option<&'a Store>, &'a anyhow::Error>;
 
 impl Stores {
-    /// The handles, none opened yet, watched by `probe`.
+    /// The handles, none opened yet, watched by `probe`, and the store reader's thread, which ends
+    /// when these handles are dropped.
     pub(super) fn new(probe: Option<Arc<Probe>>) -> Self {
-        Self(Mutex::default(), probe, Mutex::default())
+        let shared = Arc::new(Shared {
+            handles: Mutex::default(),
+            held: Mutex::default(),
+            probe,
+        });
+        let (send, jobs) = mpsc::channel::<Job>();
+        let reader = std::thread::Builder::new()
+            .name("dashboard-store".to_owned())
+            .spawn(move || {
+                for job in jobs {
+                    job();
+                }
+            });
+        let reader = match reader {
+            Ok(_) => Some(Mutex::new(send)),
+            Err(error) => {
+                eprintln!("conductor dashboard: start the store reader: {error}");
+                None
+            }
+        };
+        Self { shared, reader }
     }
 
     /// What the handles hold in memory, as the last computation left them.
     pub(super) fn held(&self) -> StoresHeld {
-        *lock(&self.2)
+        *lock(&self.shared.held)
+    }
+
+    /// `compute`, the computation of `key`, with the store under `state` as
+    /// [`Shared::with_held`] gives it, run on the store reader while this thread waits for it: a
+    /// store handle reads on one thread, always the same. A test's probe delays it first, on
+    /// this thread. A computation that panics panics here, and the store reader goes on.
+    pub(super) fn compute<R: Send + 'static>(
+        &self,
+        key: &str,
+        state: Option<PathBuf>,
+        compute: impl FnOnce(Held<'_>) -> R + Send + 'static,
+    ) -> R {
+        let probe = self.shared.probe.as_ref();
+        let delay = probe.map(|probe| probe.start(key));
+        if let Some(delay) = delay.filter(|delay| !delay.is_zero()) {
+            std::thread::sleep(delay);
+        }
+        let shared = Arc::clone(&self.shared);
+        let (send, answer) = mpsc::channel();
+        let job: Job = Box::new(move || {
+            let computed = catch_unwind(AssertUnwindSafe(|| shared.compute(state, compute)));
+            let _ = send.send(computed);
+        });
+        let unsent = match &self.reader {
+            Some(reader) => lock(reader).send(job).err().map(|unsent| unsent.0),
+            None => Some(job),
+        };
+        if let Some(job) = unsent {
+            job();
+        }
+        let computed = answer.recv();
+        if let Some(probe) = probe {
+            probe.end(key);
+        }
+        match computed {
+            Ok(Ok(answer)) => answer,
+            Ok(Err(panic)) => resume_unwind(panic),
+            Err(_) => panic!("the store reader stopped before it answered {key}"),
+        }
+    }
+}
+
+impl Shared {
+    /// `compute` with the store under `state`, under the handles' lock, on the thread it is
+    /// called on; then takes down what the handles hold.
+    fn compute<R>(&self, state: Option<PathBuf>, compute: impl FnOnce(Held<'_>) -> R) -> R {
+        let mut stores = lock(&self.handles);
+        if let Some(probe) = &self.probe {
+            probe.read();
+        }
+        let answer = Self::with_held(&mut stores, state.as_deref(), compute);
+        self.note(&stores);
+        answer
     }
 
     /// Takes down what `stores` hold in memory now.
     fn note(&self, stores: &HashMap<PathBuf, Store>) {
-        let mut held = lock(&self.2);
+        let mut held = lock(&self.held);
         let each: Vec<store::Replays> = stores.values().map(Store::held).collect();
         *held = StoresHeld {
             handles: stores.len(),
@@ -320,29 +436,6 @@ impl Stores {
         let answer = compute(Ok(Some(held)));
         if held.check().is_err() {
             stores.remove(state);
-        }
-        answer
-    }
-
-    /// `compute`, the computation of `key`, with the store under `state` as
-    /// [`Stores::with_held`] gives it, under the one lock: a store handle reads on one thread at
-    /// a time. A test's probe delays it first, outside the lock.
-    pub(super) fn compute<R>(
-        &self,
-        key: &str,
-        state: Option<&Path>,
-        compute: impl FnOnce(Held<'_>) -> R,
-    ) -> R {
-        let delay = self.1.as_ref().map(|probe| probe.start(key));
-        if let Some(delay) = delay.filter(|delay| !delay.is_zero()) {
-            std::thread::sleep(delay);
-        }
-        let mut stores = lock(&self.0);
-        let answer = Self::with_held(&mut stores, state, compute);
-        self.note(&stores);
-        drop(stores);
-        if let Some(probe) = &self.1 {
-            probe.end(key);
         }
         answer
     }

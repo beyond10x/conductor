@@ -13,10 +13,11 @@ use std::fs;
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use conductor_cli::collect::Collector;
-use conductor_cli::dashboard::{self, Sources, Tuning};
+use conductor_cli::dashboard::{self, Probe, Sources, Tuning};
 use conductor_cli::snapshot::{self, Recorder};
 use conductor_cli::store;
 use conductor_model::behaviour::RepositoryMarkStorage;
@@ -115,6 +116,11 @@ impl Case {
 
     /// A store of one complete snapshot, settled, served without a debounce; the port.
     fn served(&self) -> u16 {
+        self.served_with(None)
+    }
+
+    /// [`Case::served`], the computations watched by `probe`.
+    fn served_with(&self, probe: Option<Arc<Probe>>) -> u16 {
         complete(&self.state());
         std::thread::sleep(SETTLE);
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind a free port");
@@ -123,7 +129,7 @@ impl Case {
         let tuning = Tuning {
             debounce: Duration::ZERO,
             cold_wait: PATIENCE,
-            probe: None,
+            probe,
         };
         std::thread::spawn(move || dashboard::serve_tuned(listener, sources, Some(state), tuning));
         port
@@ -233,6 +239,50 @@ fn count(memory: &Value, field: &str) -> u64 {
         .unwrap_or_else(|| panic!("no count {field} in the memory part {memory}"))
 }
 
+/// `field` of this process's `/proc/self/status`, a size in `kB`, in bytes.
+fn status_bytes(field: &str) -> u64 {
+    let status = fs::read_to_string("/proc/self/status").expect("read /proc/self/status");
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix(field))
+        .and_then(|rest| rest.trim().strip_suffix("kB"))
+        .and_then(|kib| kib.trim().parse::<u64>().ok())
+        .map(|kib| kib * 1024)
+        .unwrap_or_else(|| panic!("no {field} in /proc/self/status"))
+}
+
+/// Whether `reported` lies within 5 % of the range `low..=high` the kernel gave around it.
+fn within_five_percent(reported: u64, low: u64, high: u64) -> bool {
+    let (low, high) = (low.min(high), low.max(high));
+    reported * 100 >= low * 95 && reported * 100 <= high * 105
+}
+
+/// The health view's `rss_bytes` is the resident set the kernel reports for the serving process
+/// (`VmRSS` of `/proc/self/status`, this process, which serves the page) within 5 %, and its
+/// `swap_bytes` is what of it is swapped out (`VmSwap`) (`story:dashboard-memory-live`).
+#[test]
+fn health_memory_reports_the_kernels_resident_and_swapped_sizes() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let case = Case::new("kernel");
+    let port = case.served();
+    let (rss_before, swap_before) = (status_bytes("VmRSS:"), status_bytes("VmSwap:"));
+    let memory = memory(port);
+    let (rss_after, swap_after) = (status_bytes("VmRSS:"), status_bytes("VmSwap:"));
+    eprintln!("VmRSS {rss_before}..{rss_after}, VmSwap {swap_before}..{swap_after}: {memory}");
+    let rss = count(&memory, "rss_bytes");
+    assert!(
+        within_five_percent(rss, rss_before, rss_after),
+        "rss_bytes {rss} is not VmRSS {rss_before}..{rss_after}: {memory}"
+    );
+    let swap = count(&memory, "swap_bytes");
+    assert!(
+        within_five_percent(swap, swap_before, swap_after),
+        "swap_bytes {swap} is not VmSwap {swap_before}..{swap_after}: {memory}"
+    );
+}
+
 /// With [`WRITES`] writes between rounds of requests for many query strings of one endpoint, the
 /// health view shows one store handle that never held two replays of one tree at once, and at
 /// most [`PER_ENDPOINT`] answers kept for any one endpoint.
@@ -269,4 +319,37 @@ fn memo_entries_and_store_handles_stay_bounded_across_writes() {
             assert!(count(&memory, "rss_bytes") > 0, "{memory}");
         }
     }
+}
+
+/// Every computation over the store reads it on one thread, the same for the server's life
+/// (`story:dashboard-memory-live`). The allocator keeps what a thread freed in that thread's
+/// arena, so a replay built on a new thread at each recompute left its size behind in every arena
+/// a recompute ran in, and the process grew by about a replay per arena. With rounds of writes and
+/// requests to several endpoints, each answer computed again after each write, the probe sees the
+/// store read on one thread.
+#[test]
+fn every_store_computation_reads_on_one_thread() {
+    let case = Case::new("one-thread");
+    let probe = Arc::new(Probe::default());
+    let port = case.served_with(Some(Arc::clone(&probe)));
+    for round in 0..ROUNDS {
+        case.writes(round);
+        std::thread::sleep(SETTLE);
+        for path in [
+            "/api/board",
+            "/api/repositories",
+            "/api/unanswered",
+            "/api/health",
+        ] {
+            let (status, body) = get(port, path);
+            assert_eq!(status, 200, "round {round}, {path}: {body}");
+        }
+    }
+    let reads = probe.store_reads();
+    let threads = probe.store_threads();
+    assert!(
+        reads > 1,
+        "the case computed too little to tell: {reads} reads"
+    );
+    assert_eq!(threads, 1, "{reads} store reads ran on {threads} threads");
 }

@@ -120,6 +120,7 @@
   },
   "memory": {
     "rss_bytes": 75587584,
+    "swap_bytes": 0,
     "store_handles": 1,
     "store_replays": 2,
     "store_replays_peak": 1,

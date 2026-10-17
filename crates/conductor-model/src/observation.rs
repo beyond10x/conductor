@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest b4ac33dcc27ec282f3b091c19d5d6a0aebcd2d11224da3b65cb0dfbfcef109e9
-// contract digest 601464254722197d778ecf468f72c6f5b6f60f04f47c06c1fa0af8882d6c410f
+// model digest fdea8fc4fd11c9a62b9615a93d028bb158f5212953ee90b85ef8f9fbddbbd611
+// contract digest 6fbb6788206bdfd2363a35ca5d09fef29e0f00bdf148eda6107109a57fd2e4a5
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -94,6 +94,8 @@ pub struct DailySeriesId(pub String);
 pub struct DashboardMemory {
     /// `rss_bytes` — `Optional<Integer>`.
     pub rss_bytes: Option<i64>,
+    /// `swap_bytes` — `Optional<Integer>`.
+    pub swap_bytes: Option<i64>,
     /// `store_handles` — `Integer`.
     pub store_handles: i64,
     /// `store_replays` — `Integer`.
