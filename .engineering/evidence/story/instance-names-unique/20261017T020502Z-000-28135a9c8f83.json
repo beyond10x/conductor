@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-17T02:05:02Z",
+  "actor": "human:timo",
+  "artifact": "story:instance-names-unique",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "CI task check green on PR #71 at 3391e4f8 (wave/39-r1, includes v0.16.6); local gate at ce23d7fc green but one 2 s watch timing case that passed alone 3 of 3"
+  }
+}
