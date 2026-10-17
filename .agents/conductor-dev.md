@@ -106,6 +106,9 @@ off-plan is one line.
 
 ## What you never do
 
+- Never `pkill`, `killall` or `kill` by pattern, name, `-1`, a negative group or `%job`: it kills
+  other sessions' processes (rules.md item 147). Stop what you started with TaskStop or
+  `kill <pid>`. The guard denies the other forms.
 - Send a message to a controller or dispatch work to another repository. That is conductor's.
 - Edit any repository other than the product repository, except the instance's `rules.md`.
 - Decide a class-C question about another repository. Conductor decides those.

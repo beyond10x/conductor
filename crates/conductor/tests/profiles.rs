@@ -896,3 +896,18 @@ fn conductor_acts_for_another_instance_only_when_it_names_no_conductor() {
                     dispatch to its controllers or message its sessions.";
     assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
 }
+
+/// `story:guard-no-pattern-kill`: every profile that starts sessions holding a shell states the
+/// rule the guard enforces, so a rewrite that drops it fails here.
+#[test]
+fn profiles_forbid_killing_by_pattern() {
+    for name in ["conductor.md", "conductor-dev.md", "repo-controller.md"] {
+        let text = profile(name);
+        assert!(
+            text.contains(
+                "Never `pkill`, `killall` or `kill` by pattern, name, `-1`, a negative group or `%job`: it kills other sessions' processes (rules.md item 147). Stop what you started with TaskStop or `kill <pid>`."
+            ),
+            "{name}: the no-pattern-kill sentence"
+        );
+    }
+}

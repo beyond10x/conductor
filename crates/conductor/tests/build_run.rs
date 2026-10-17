@@ -3335,3 +3335,66 @@ fn the_binary_refuses_a_reserve_that_is_no_size_and_names_auto() {
         "{said}"
     );
 }
+
+/// `story:guard-no-pattern-kill`: a `build run` whose command was stopped while another holder
+/// has `host.lock` does not wait for it for good: a second stopping signal makes it exit with
+/// 128 plus the signal within the bound, and it leaves its grant Running, which the next request
+/// that reads the ledger releases once the group is gone (`ProcessGroupGone`).
+#[test]
+fn a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger() {
+    let case = Case::new("kill-ledger-held");
+    let mut run = case.build_run(PAYLOAD);
+    let mut group = None;
+    wait_until("the command runs in its process group", || {
+        group = case
+            .grant_row(PAYLOAD)
+            .filter(|row| row["state"] == "Running")
+            .and_then(|row| row["process_group"].as_i64());
+        group.is_some()
+    });
+    let group = group.expect("a process group");
+    run.group = Some(i32::try_from(group).expect("a process group id"));
+    wait_until("the background member runs", || {
+        case.work().join("started").exists()
+    });
+    // Another holder takes the ledger, as a reclaim of another run does.
+    // The binary's host directory is the one under the case's home.
+    let host = lock_file(&case.dir.join("home/.b10x/conductor/host/host.lock"));
+    host.lock().expect("hold host.lock");
+    run.signal(Signal::SIGTERM);
+    wait_until("the command's group is gone", || !host::alive(group));
+    // The run now waits for the ledger.
+    thread::sleep(Duration::from_millis(300));
+    assert!(
+        run.child.try_wait().expect("wait for build run").is_none(),
+        "the run waits for the ledger while it is held"
+    );
+    let second = Instant::now();
+    run.signal(Signal::SIGTERM);
+    let status = run.exit();
+    assert!(
+        second.elapsed() < Duration::from_secs(10),
+        "the run exited {:?} after the second signal",
+        second.elapsed()
+    );
+    assert_eq!(
+        status.code(),
+        Some(128 + Signal::SIGTERM as i32),
+        "build run exits with 128 + the signal: {status}"
+    );
+    drop(host);
+    let row = case.grant_row(PAYLOAD).expect("the grant is listed");
+    assert_eq!(
+        row["state"], "Running",
+        "the grant is left to the sweep: {row}"
+    );
+    // The next request that reads the ledger sweeps it.
+    let mut next = case.build_run("true");
+    assert_eq!(next.exit().code(), Some(0), "the next run ends");
+    wait_until("the grant is released by the sweep", || {
+        case.grant_row(PAYLOAD)
+            .is_some_and(|row| row["state"] == "Released")
+    });
+    let row = case.grant_row(PAYLOAD).expect("the grant is listed");
+    assert_eq!(row["release_reason"], "ProcessGroupGone", "{row}");
+}
