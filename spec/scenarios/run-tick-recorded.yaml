@@ -1,0 +1,55 @@
+# story:run-daemon, docs/design/conductor-run.md § 3: each tick of `conductor run` is on record
+# with its kind, when it began, the lines it handled and the dispatch log lines it wrote, by
+# their event names; a cycle that handled nothing is a tick too; a negative count is refused.
+type: ess-scenario/1
+domain: conductor.session
+scenario: run-tick-recorded
+summary: A watch tick is recorded with the lines it handled and the actions it took, a cycle tick with none, and a tick with a negative count is refused.
+
+timeline:
+  - at: 2026-10-17T09:00:00Z
+    command: conductor.session.RecordRunTick
+    actor: conductor.session.Conductor
+    input:
+      kind: watch
+      started_at: 2026-10-17T09:00:00Z
+      lines_handled: 3
+      actions: [HandoverSent, Relayed, DecisionSent]
+    outcome: recorded
+
+  - at: 2026-10-17T09:10:00Z
+    command: conductor.session.RecordRunTick
+    actor: conductor.session.Conductor
+    input:
+      kind: cycle
+      started_at: 2026-10-17T09:10:00Z
+      lines_handled: 0
+      actions: []
+    outcome: recorded
+
+  - at: 2026-10-17T09:10:30Z
+    command: conductor.session.RecordRunTick
+    actor: conductor.session.Conductor
+    input:
+      kind: daily
+      started_at: 2026-10-17T09:10:30Z
+      lines_handled: -1
+      actions: []
+    outcome: negative-count
+    error:
+      name: conductor.session.InvalidLineCount
+
+assert:
+  - view: conductor.session.RunTicks
+    contains:
+      kind: watch
+      started_at: 2026-10-17T09:00:00Z
+      lines_handled: 3
+      actions: [HandoverSent, Relayed, DecisionSent]
+      state: Recorded
+  - view: conductor.session.RunTicks
+    contains:
+      kind: cycle
+      started_at: 2026-10-17T09:10:00Z
+      lines_handled: 0
+      state: Recorded

@@ -36,3 +36,6 @@ scenarios:
   - scenarios/escalate-o-with-options.yaml
   - scenarios/answer-escalated-as-operator.yaml
   - scenarios/build-run-session-stopped.yaml
+  - scenarios/mailbox-send-and-deliver.yaml
+  - scenarios/run-tick-recorded.yaml
+  - scenarios/classified-request-decided-by-model.yaml

@@ -13,6 +13,12 @@ summary: >
   request a provider is given, the identity of the session it started, and the measurement it
   takes at the box's boundary, kept per session under the instance's state directory.
 
+  And it holds what the run daemon does to sessions (docs/design/conductor-run.md § 3,
+  story:mailbox-send-and-deliver, story:run-daemon): `conductor run` is one process per instance
+  that keeps no state outside the store; each of its ticks is recorded with the lines it handled
+  and the actions it took, and each text it puts in front of a running session with
+  `conductor session deliver` is recorded as a delivery.
+
 naming:
   wire: session
   display: Session
@@ -178,6 +184,35 @@ types:
       - {name: busy, type: Optional<Boolean>}
       - {name: idle_seconds, type: Optional<Integer>}
 
+  # The input of `conductor session deliver` (story:mailbox-send-and-deliver,
+  # docs/design/conductor-run.md § 3): `name`, the session by its full name; `text`, the file
+  # holding the text to put in front of it, or `-` for standard input. Under the systemd provider
+  # the text is typed into the session's tmux server on `<state>/sessions/<name>.tmux`
+  # (`type_text`, the launcher's), then recorded with `DeliverMessage`; a session with no socket
+  # is refused (`SessionNotReachable`), exit 1 naming it, and never retried in a loop. The guard
+  # denies it to a controller.
+  - name: conductor.session.DeliverToSession
+    kind: struct
+    fields:
+      - {name: name, type: String}
+      - {name: text, type: String}
+
+  - name: conductor.session.DeliveryId
+    kind: newtype
+    of: Uuid
+
+  - name: conductor.session.TickId
+    kind: newtype
+    of: Uuid
+
+  # Which tick of `conductor run` (story:run-daemon, docs/design/conductor-run.md § 3): `watch`,
+  # a watch pass, its handlers and the mailbox, every `cadence.watch`; `cycle`, the snapshot, the
+  # board, `records check` and dispatch v1, every `cadence.cycle`; `daily`, `metric compute` for
+  # the previous UTC day and the brief, at `cadence.daily`.
+  - name: conductor.session.TickKind
+    kind: enum
+    variants: [watch, cycle, daily]
+
   # One writable place of a session resolved for its start (story:sandbox-spec): the place as the
   # role's `writable` writes it, a place word (`checkout`, `trees`, `build-cache`, `scratch`,
   # `harness-state`, `records`) or a path, and the absolute paths it stands for, in order. A path
@@ -279,11 +314,67 @@ entities:
       states: [Held]
       terminal: [Held]
 
+  # One text put in front of a running session by `conductor session deliver`
+  # (story:mailbox-send-and-deliver, docs/design/conductor-run.md § 3): the session it was typed
+  # into, the first line of the text, the file the text was read from, and when. The run daemon
+  # delivers this way and nothing else does: a `[HANDOVER]`, a relayed watch line as
+  # `[REPORT <repo> -] watch: …`, a check-in, an answered request's `[DECISION]`.
+  # UNMAPPED: `conductor session deliver --text <file|->` reads standard input as well as a file;
+  # what `body_path` records for text that came on standard input is said nowhere, so the field
+  # admits none. Open question for the owner.
+  - name: conductor.session.Delivery
+    identity:
+      name: delivery_id
+      type: conductor.session.DeliveryId
+    fields:
+      - name: session_name
+        type: conductor.config.SessionName
+      - name: first_line
+        type: String
+      - name: body_path
+        type: Optional<String>
+      - name: delivered_at
+        type: Timestamp
+    lifecycle:
+      initial: Delivered
+      states: [Delivered]
+      terminal: [Delivered]
+
+  # One tick of `conductor run` (story:run-daemon, docs/design/conductor-run.md § 3): its `kind`;
+  # `started_at`, when it began; `lines_handled`, the watch lines and mailbox files it acted on;
+  # `actions`, the dispatch log lines it wrote, one entry per line in the order written, each
+  # named as that line's `event` (`conductor.dispatch.DispatchLogEvent`), so the log and the
+  # ticks reconcile line for line. The daemon keeps nothing in memory that is not in the store
+  # or the watch's cursor files; the tick is the record of one pass.
+  - name: conductor.session.RunTick
+    identity:
+      name: tick_id
+      type: conductor.session.TickId
+    fields:
+      - name: kind
+        type: conductor.session.TickKind
+      - name: started_at
+        type: Timestamp
+      - name: lines_handled
+        type: Integer
+      - name: actions
+        type: List<conductor.dispatch.DispatchLogEvent>
+    invariants:
+      - lines_handled >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
 actors:
-  # Conductor's session runs the claim through its SessionStart hook; no controller runs it.
+  # Conductor's session runs the claim through its SessionStart hook; no controller runs it. The
+  # run daemon, conductor as a process, delivers to sessions and records its ticks; the guard
+  # denies `session deliver` to a controller (docs/design/conductor-run.md § 3).
   - name: conductor.session.Conductor
     may:
       - conductor.session.ClaimLease
+      - conductor.session.DeliverMessage
+      - conductor.session.RecordRunTick
     naming:
       display: Conductor
 
@@ -298,6 +389,20 @@ errors:
       - name: session_id
         type: conductor.session.SessionId
       - name: pid
+        type: Integer
+
+  - name: conductor.session.SessionNotReachable
+    summary: >
+      No tmux server answers on the session's launcher socket, so nothing was typed into it and
+      nothing recorded; the caller is told which session, and does not retry in a loop.
+    fields:
+      - name: session_name
+        type: conductor.config.SessionName
+
+  - name: conductor.session.InvalidLineCount
+    summary: A count of lines handled is never negative, so no tick was recorded.
+    fields:
+      - name: lines_handled
         type: Integer
 
 commands:
@@ -386,6 +491,92 @@ commands:
             taken_over_pid: {subject: pid}
         summary: The holder's process is gone, so the claiming session takes the lease and the lease records whom it was taken from.
 
+  # `conductor session deliver --name <session> --text <file|->` (story:mailbox-send-and-deliver)
+  # types the text into the session through its tmux launcher, then records the delivery here
+  # and appends one `delivered` line to the records' dispatch log
+  # (`conductor.dispatch.DispatchLogLine`: `to`, `first_line`, `body_path`).
+  - name: conductor.session.DeliverMessage
+    naming:
+      wire: deliver-message
+      display: Deliver a message to a session
+    input:
+      - name: session_name
+        type: conductor.config.SessionName
+      - name: first_line
+        type: String
+      - name: body_path
+        type: Optional<String>
+      - name: delivered_at
+        type: Timestamp
+    outcomes:
+      - name: unreachable
+        external: no tmux server answers on the session's launcher socket
+        error: conductor.session.SessionNotReachable
+        payload:
+          conductor.session.SessionNotReachable:
+            session_name: input.session_name
+        summary: The session has no launcher socket; nothing was typed, nothing recorded, and the caller names the session and does not retry in a loop.
+      - name: delivered
+        creates: conductor.session.Delivery
+        instance: delivery_id
+        sets:
+          session_name: input.session_name
+          first_line: input.first_line
+          body_path: input.body_path
+          delivered_at: input.delivered_at
+        emits:
+          - conductor.session.MessageDelivered
+        payload:
+          conductor.session.MessageDelivered:
+            delivery_id: {generated: true}
+            session_name: input.session_name
+            first_line: input.first_line
+            body_path: input.body_path
+            delivered_at: input.delivered_at
+        summary: The text is in front of the session, and the delivery is on record with its time.
+
+  # Written by `conductor run` at the end of each tick (story:run-daemon); `conductor run --once`
+  # writes one `watch` tick and one `cycle` tick.
+  - name: conductor.session.RecordRunTick
+    naming:
+      wire: record-run-tick
+      display: Record a tick of the run daemon
+    input:
+      - name: kind
+        type: conductor.session.TickKind
+      - name: started_at
+        type: Timestamp
+      - name: lines_handled
+        type: Integer
+        example: 3
+      - name: actions
+        type: List<conductor.dispatch.DispatchLogEvent>
+    outcomes:
+      - name: negative-count
+        when: lines_handled < 0
+        error: conductor.session.InvalidLineCount
+        payload:
+          conductor.session.InvalidLineCount:
+            lines_handled: input.lines_handled
+        summary: A count of lines is never negative; nothing was recorded.
+      - name: recorded
+        creates: conductor.session.RunTick
+        instance: tick_id
+        sets:
+          kind: input.kind
+          started_at: input.started_at
+          lines_handled: input.lines_handled
+          actions: input.actions
+        emits:
+          - conductor.session.RunTickRecorded
+        payload:
+          conductor.session.RunTickRecorded:
+            tick_id: {generated: true}
+            kind: input.kind
+            started_at: input.started_at
+            lines_handled: input.lines_handled
+        summary: The tick is on record with what it handled and the lines it wrote.
+
 events:
   - name: conductor.session.LeaseTaken
     fields:
@@ -407,6 +598,30 @@ events:
       - name: taken_over_session_id
         type: conductor.session.SessionId
       - name: taken_over_pid
+        type: Integer
+
+  - name: conductor.session.MessageDelivered
+    fields:
+      - name: delivery_id
+        type: conductor.session.DeliveryId
+      - name: session_name
+        type: conductor.config.SessionName
+      - name: first_line
+        type: String
+      - name: body_path
+        type: Optional<String>
+      - name: delivered_at
+        type: Timestamp
+
+  - name: conductor.session.RunTickRecorded
+    fields:
+      - name: tick_id
+        type: conductor.session.TickId
+      - name: kind
+        type: conductor.session.TickKind
+      - name: started_at
+        type: Timestamp
+      - name: lines_handled
         type: Integer
 
 views:
@@ -431,3 +646,43 @@ views:
     naming:
       wire: leases
       display: Conductor leases
+
+  - name: conductor.session.Deliveries
+    source: conductor.session.Delivery
+    consistency: read_your_writes
+    fields:
+      - name: delivery_id
+        type: conductor.session.DeliveryId
+      - name: state
+        type: conductor.session.Delivery.State
+      - name: session_name
+        type: conductor.config.SessionName
+      - name: first_line
+        type: String
+      - name: body_path
+        type: Optional<String>
+      - name: delivered_at
+        type: Timestamp
+    naming:
+      wire: deliveries
+      display: Deliveries to sessions
+
+  - name: conductor.session.RunTicks
+    source: conductor.session.RunTick
+    consistency: read_your_writes
+    fields:
+      - name: tick_id
+        type: conductor.session.TickId
+      - name: state
+        type: conductor.session.RunTick.State
+      - name: kind
+        type: conductor.session.TickKind
+      - name: started_at
+        type: Timestamp
+      - name: lines_handled
+        type: Integer
+      - name: actions
+        type: List<conductor.dispatch.DispatchLogEvent>
+    naming:
+      wire: run-ticks
+      display: Ticks of the run daemon

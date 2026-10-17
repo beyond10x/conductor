@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest d0119719c5fa9e82d3f3aa9c6885232517767922e98fc66adef80dc5f95e5530
-// contract digest f08072f39d9eb641fd551b9a93a177f5ad69e4006af3c9945b8702a9f98988c0
+// model digest 007a68856b1b8a0d008516936d4d3ee3487f5642e88487aef2a64f0eaac159d0
+// contract digest 6a198278a87cfd77c6550c4eba71a1e16cafc7492cdcf406b171d8afa658caaf
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -85,6 +85,28 @@ pub enum DispatchLogEvent {
     ResourceRefused,
     /// `CharterRevised`.
     CharterRevised,
+    /// `Delivered`.
+    Delivered,
+    /// `HandoverSent`.
+    HandoverSent,
+    /// `Handover`.
+    Handover,
+    /// `ControllerRestarted`.
+    ControllerRestarted,
+    /// `UsageLimit`.
+    UsageLimit,
+    /// `Resumed`.
+    Resumed,
+    /// `Relayed`.
+    Relayed,
+    /// `RedCi`.
+    RedCi,
+    /// `Stalled`.
+    Stalled,
+    /// `Cleanup`.
+    Cleanup,
+    /// `DecisionSent`.
+    DecisionSent,
 }
 
 /// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
@@ -128,6 +150,8 @@ pub struct DispatchLogLine {
     pub resource: Option<String>,
     /// `amount` — `Optional<Integer>`.
     pub amount: Option<i64>,
+    /// `body_path` — `Optional<String>`.
+    pub body_path: Option<String>,
 }
 
 /// The states of `conductor.dispatch.GuardDecision`, as runtime values.
@@ -151,6 +175,26 @@ pub struct ListControllers {
     pub all: Option<bool>,
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
+}
+
+/// MailboxSendRefusal — `conductor.dispatch.MailboxSendRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailboxSendRefusal {
+    /// `Unparsed`.
+    Unparsed,
+}
+
+/// MailboxSendRefused — `conductor.dispatch.MailboxSendRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MailboxSendRefused {
+    /// `from` — `String`.
+    pub from: String,
+    /// `to` — `String`.
+    pub to: String,
+    /// `refusal` — `conductor.dispatch.MailboxSendRefusal`.
+    pub refusal: MailboxSendRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
 }
 
 /// The states of `conductor.dispatch.Message`, as runtime values.
@@ -190,6 +234,8 @@ pub enum MessageKind {
     Escalation,
     /// `Team`.
     Team,
+    /// `Handover`.
+    Handover,
     /// `Unknown`.
     Unknown,
 }
@@ -252,6 +298,17 @@ pub enum ResourceRequestState {
 /// ResourceRequestId — `conductor.dispatch.ResourceRequestId`: a distinct wrapper around `Uuid`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceRequestId(pub crate::primitives::Uuid);
+
+/// SendToMailbox — `conductor.dispatch.SendToMailbox`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SendToMailbox {
+    /// `to` — `String`.
+    pub to: String,
+    /// `from` — `String`.
+    pub from: String,
+    /// `text` — `String`.
+    pub text: String,
+}
 
 /// SpawnController — `conductor.dispatch.SpawnController`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1683,6 +1740,13 @@ pub struct ReceiveMessage {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReceiveMessageOutcome {
+    /// `mailbox-without-body` — when `(transport == Mailbox and not (defined(body_path)))`.
+    ///
+    /// A mailbox message is the file it was left in; without its path nothing is recorded.
+    MailboxWithoutBody {
+        /// Why it was refused: `conductor.dispatch.MailboxBodyMissing`.
+        error: MailboxBodyMissing,
+    },
     /// `unparsed` — when `(parsed == false or kind == Unknown)`.
     ///
     /// The first line did not parse (AGENTS.md rule 4), or names no kind, so the message is recorded as rejected and never acted on; the sender gets the format back.
@@ -2638,6 +2702,17 @@ pub struct InvalidAmount {
 pub struct InvalidPriority {
     /// `priority` — `Integer`.
     pub priority: i64,
+}
+
+/// The declared error `conductor.dispatch.MailboxBodyMissing`.
+///
+/// A message with transport `Mailbox` is the file it was left in under `<state>/mailbox/<recipient>/` (docs/design/conductor-run.md § 3), and this one names no `body_path`; nothing was recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MailboxBodyMissing {
+    /// `sender` — `String`.
+    pub sender: String,
+    /// `recipient` — `String`.
+    pub recipient: String,
 }
 
 /// The declared error `conductor.dispatch.MessageNotFound`.

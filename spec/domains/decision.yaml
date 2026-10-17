@@ -45,6 +45,22 @@ types:
     kind: enum
     variants: [Conductor, Operator]
 
+  # Which rule classified a request, in code (story:decide-model-adapter,
+  # docs/design/conductor-run.md § 3): `data-loss`, `history-rewrite`, `repository-lifecycle` (a
+  # new, renamed or retired repository) and `architecture` (an ADR or a change to one) make it
+  # class O; `credential` (a credential, a login, a paid account) and `hands` make it class H;
+  # `none`, no rule matched, so it is class C and the `Decider` adapter answers it.
+  - name: conductor.decision.ClassificationRule
+    kind: enum
+    variants: [data-loss, history-rewrite, repository-lifecycle, architecture, credential, hands, none]
+
+  # The SHA-256 of the prompt a class-C decision was answered from, as 64 lower-case hexadecimal
+  # characters (story:decide-model-adapter).
+  - name: conductor.decision.PromptHash
+    kind: newtype
+    of: String
+    alphabet: "0123456789abcdef"
+
   - name: conductor.decision.ShowDecision
     kind: struct
     fields:
@@ -69,8 +85,10 @@ types:
   # declares; no key but `repo` is written when absent. `id` is the id of the record the event moved: the
   # decision, or the request. The fields of each event:
   # - `decided`: `id`, `class`, `decided_by`, `question`, `options`, `choice`, `reason`,
-  #   `evidence`, and for the operator's `recorded_by` and `operator_words`;
-  # - `requested`: `id`, `question`, `options`, `recommendation`, and `blocker` when given;
+  #   `evidence`, for the operator's `recorded_by` and `operator_words`, and for one the
+  #   `Decider` adapter answered `decider_name` and `prompt_sha256` (story:decide-model-adapter);
+  # - `requested`: `id`, `question`, `options`, `recommendation`, and `blocker` and
+  #   `classification_rule` when given;
   # - `answered`: `id`, `decision_id`;
   # - `escalated`: `id`, `escalation_class`, `reason`; `amended`: `id`, `reason`; `withdrawn`: `id`, `reason`;
   # - `reversed`: `id`, `decided_by` (who reversed it), `reason`.
@@ -94,6 +112,9 @@ types:
       - {name: blocker, type: Optional<String>}
       - {name: decision_id, type: Optional<conductor.decision.DecisionId>}
       - {name: escalation_class, type: Optional<conductor.decision.DecisionClass>}
+      - {name: classification_rule, type: Optional<conductor.decision.ClassificationRule>}
+      - {name: decider_name, type: Optional<String>}
+      - {name: prompt_sha256, type: Optional<conductor.decision.PromptHash>}
 
 entities:
   - name: conductor.decision.DecisionRequest
@@ -115,6 +136,11 @@ entities:
       # request is answered (design § 6).
       - name: blocker
         type: Optional<String>
+      # The rule that classified the request in code (story:decide-model-adapter): the run
+      # daemon classifies a parsed `[DECISION-REQUEST]` before it raises the request, and `none`
+      # says no rule matched. Absent on a request raised without one, as before the daemon.
+      - name: classification_rule
+        type: Optional<conductor.decision.ClassificationRule>
       - name: escalation_class
         type: Optional<conductor.decision.DecisionClass>
       - name: escalation_reason
@@ -200,6 +226,15 @@ entities:
       # shows its decisions. Absent on a decision about none, and on one recorded before it.
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
+      # The evidence of a class-C decision the `Decider` adapter answered
+      # (story:decide-model-adapter, docs/design/conductor-run.md § 3): the adapter's name
+      # (`decider_name`, such as the `claude -p` one; not the `Decider` enum, which says who) and
+      # the SHA-256 of the bounded prompt it was given. Absent on the operator's decisions and on
+      # one conductor's session took.
+      - name: decider_name
+        type: Optional<String>
+      - name: prompt_sha256
+        type: Optional<conductor.decision.PromptHash>
     lifecycle:
       initial: InForce
       states: [InForce, Reversed]
@@ -361,6 +396,10 @@ commands:
         type: Timestamp
       - name: blocker
         type: Optional<String>
+      # The rule that classified the request in code, when the caller classified it
+      # (story:decide-model-adapter).
+      - name: classification_rule
+        type: Optional<conductor.decision.ClassificationRule>
     outcomes:
       - name: raised
         creates: conductor.decision.DecisionRequest
@@ -372,6 +411,7 @@ commands:
           recommendation: input.recommendation
           raised_at: input.raised_at
           blocker: input.blocker
+          classification_rule: input.classification_rule
         emits:
           - conductor.decision.DecisionRequested
         payload:
@@ -415,6 +455,12 @@ commands:
       # The repository the decision is about, when it is about one.
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
+      # The `Decider` adapter that answered and the SHA-256 of its prompt, when one did
+      # (story:decide-model-adapter); a decision conductor's session took carries neither.
+      - name: decider_name
+        type: Optional<String>
+      - name: prompt_sha256
+        type: Optional<conductor.decision.PromptHash>
     outcomes:
       - name: reserved
         when:
@@ -437,6 +483,8 @@ commands:
           evidence: input.evidence
           decided_at: input.decided_at
           repository: input.repository
+          decider_name: input.decider_name
+          prompt_sha256: input.prompt_sha256
         emits:
           - conductor.decision.DecisionRecorded
         payload:
@@ -1078,6 +1126,8 @@ views:
         type: Timestamp
       - name: blocker
         type: Optional<String>
+      - name: classification_rule
+        type: Optional<conductor.decision.ClassificationRule>
       # What the Decisions page shows of an escalated request (story:decisions-page); null on a
       # request escalated before them, or not escalated.
       - name: kind
@@ -1165,6 +1215,10 @@ views:
         type: Optional<String>
       - name: repository
         type: Optional<conductor.observation.RepositoryName>
+      - name: decider_name
+        type: Optional<String>
+      - name: prompt_sha256
+        type: Optional<conductor.decision.PromptHash>
     naming:
       wire: decisions
       display: Decisions
