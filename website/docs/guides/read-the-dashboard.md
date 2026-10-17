@@ -51,8 +51,8 @@ no network beyond `127.0.0.1`.
 ## 2. What it reads
 
 With a config file, the dashboard reads the instance's `records` (unless `--root` names another
-directory), the watch's files under its `state`, and the sessions under its checkouts root. It
-names what it read at the foot of the app and in `reading`:
+directory), the watch's files under its `state`, the store under its `state`, and the session
+list. It names what it read at the foot of the app and in `reading`:
 
 ```console
 $ curl -s http://127.0.0.1:7399/data.json | jq -c .reading
@@ -73,33 +73,32 @@ The app shows these sections, each from its part of `/data.json`, in this order:
 
 | section | shows | from |
 |---|---|---|
-| summary | when it was read, free disk on `/`, controllers running, build slot | `df`, the session list |
-| Sessions under the checkouts root | each session's name, kind, state, age, working directory, and its current dispatch: goal, brief, last event; exited sessions below the live ones | `claude agents --json`, `dispatches/*.jsonl` |
-| Usage limit and context | usage limits found now and earlier today, and the sessions the watch reported above `thresholds.context_handover` tokens of context (default 300k), which the page names in each line | the watch's files |
-| Red CI on main | each workflow whose newest `main` run failed | the watch's CI state |
-| Awaiting the operator | decisions whose newest line is class O or H with no choice yet | `decisions/*.jsonl` |
-| Recent decisions | the newest decision lines: id, class, choice, reason | `decisions/*.jsonl` |
-| Disk waste | per tracked repository: build cache of idle managed trees, trees eligible for removal, worktree archives and the checkout's `target/`; shared: build targets, toolchains and scratch. Largest first, with each row's owner | `worktree sweep --dry-run`, `worktree gc --dry-run`, a walk of each tree counting allocated bytes, measured in the background |
+| summary | when it was read, how many sessions the instance has and how many of its controllers run, free disk on `/`, build slot; then the age of the newest complete snapshot, with a warning when it is older than `cadence.cycle` | `df`, the store, the session list |
+| Sessions of this instance | the instance's sessions from its records: its conductor, its maintainer when it runs, and each controller the store holds running or paused. Each row shows the session's role (a controller's with its repository), state, age, working directory, and a controller's dispatch: the open one, else its last one marked closed, with goal, brief and last event. A controller no live session holds reads `not running`; a session no record names is not listed | the store, `claude agents --json`, `dispatches/*.jsonl` |
+| Awaiting the operator | the open class-O and class-H items of the Decisions page, each with the one thing it asks (`answer:` with its options, `do:` with the command) and a link to it there; an item a decision in the log answered is not listed; "Nothing awaits you." when none is | the store, `decisions/*.jsonl` |
+| Usage limit and context | each usage limit while its reset is ahead, with that reset, and the instance's sessions the watch reported above `thresholds.context_handover` tokens of context (default 300k), which the page names in each line | the watch's files |
+| Recent decisions | the log's newest decisions, each once: id, when, class, choice, reason | `decisions/*.jsonl` |
 | Token spend | tokens per repository since 00:00 UTC | the session transcripts, measured in the background |
 | Could not read | each source that failed; the other sections still show | |
 
-A controller counts as running when a live session named after its repository runs in that
-repository's checkout. The two background measurements show the last complete result with its
-age; until the first one finishes the app says so. The header names when the data was read, or
-that `/data.json` could not be read, and switches between a dark and a light theme.
+Red CI on main is on the Overview, from the newest snapshot as `conductor status` reads it, and
+disk waste is on Health; the page links to both. The token measurement shows the last complete
+result with its age; until the first one finishes the app says so. The header names when the data
+was read, or that `/data.json` could not be read, and switches between a dark and a light theme.
 
 The header and the operator's queue as JSON:
 
 ```console
-$ curl -s http://127.0.0.1:7399/data.json | jq -c '{controllers, build_slot, awaiting_operator, red_ci, errors}'
-{"controllers":0,"build_slot":"not recorded","awaiting_operator":[{"class":"O","id":"DEC-20261008-02","question":"Split beta into two repositories?"}],"red_ci":null,"errors":[]}
+$ curl -s http://127.0.0.1:7399/data.json | jq -c '{controllers, snapshot, build_slot, awaiting_operator, errors}'
+{"controllers":0,"snapshot":null,"build_slot":"not recorded","awaiting_operator":[],"errors":[]}
 $ curl -s http://127.0.0.1:7399/data.json | jq -c '.decisions[]'
-{"choice":null,"class":"O","id":"DEC-20261008-02","reason":null}
-{"choice":"A","class":"C","id":"DEC-20261008-01","reason":"gate green, change inside the approved design"}
+{"at":null,"choice":"A","class":"C","id":"DEC-20261008-01","reason":"gate green, change inside the approved design"}
 ```
 
-`red_ci` is `null` because no watch has run yet; the app says "no watch state". The build slot is
-not recorded by any command yet.
+`awaiting_operator` is empty: the log's class-O line without a choice is not an open request of
+the store, so it is neither a decision nor anything awaiting the operator. `snapshot` is
+`null` until the first complete snapshot; the app says "no complete snapshot yet". The build slot
+is not recorded by any command yet.
 
 ### Series and KPIs
 

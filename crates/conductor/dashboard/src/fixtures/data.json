@@ -48,11 +48,26 @@
       }
     ]
   },
-  "controllers": 1,
+  "controllers": 2,
   "build_slot": "not recorded",
   "sessions": [
     {
-      "name": "alpha",
+      "name": "ex-conductor",
+      "role": "conductor",
+      "repository": null,
+      "kind": "interactive",
+      "exited": false,
+      "status": "idle",
+      "state": "idle",
+      "cwd": "~/example-org/records",
+      "started_at": "2026-10-13T06:30:00Z",
+      "started_ago": "3h 0m",
+      "dispatch": null
+    },
+    {
+      "name": "ex-alpha",
+      "role": "controller",
+      "repository": "alpha",
       "kind": "background",
       "exited": false,
       "status": "busy",
@@ -62,6 +77,7 @@
       "started_ago": "2h 0m",
       "dispatch": {
         "id": "DSP-20261013-01",
+        "open": true,
         "goal": "G1",
         "brief": "Fix <b>bold</b> & \"quoted\" refund retries",
         "event": "started",
@@ -70,62 +86,57 @@
       }
     },
     {
-      "name": "conductor",
+      "name": "ex-beta",
+      "role": "controller",
+      "repository": "beta",
       "kind": "background",
       "exited": false,
-      "status": null,
-      "state": "blocked",
-      "cwd": "~/example-org/conductor",
-      "started_at": "2026-10-13T09:28:30Z",
-      "started_ago": "1m",
-      "dispatch": null
-    },
-    {
-      "name": "aardvark",
-      "kind": "interactive",
-      "exited": true,
-      "status": null,
-      "state": "exited",
-      "cwd": "~/example-org/aardvark",
-      "started_at": "2026-10-12T09:30:00Z",
-      "started_ago": "1d 0h",
-      "dispatch": null
+      "status": "idle",
+      "state": "idle",
+      "cwd": "~/.local/state/worktree/trees/example-org/beta/beta-w1",
+      "started_at": "2026-10-13T08:30:00Z",
+      "started_ago": "1h 0m",
+      "dispatch": {
+        "id": "DSP-20261013-02",
+        "open": false,
+        "goal": "G2",
+        "brief": "Pin the schema",
+        "event": "done",
+        "event_at": "2026-10-13T09:00:00Z",
+        "event_ago": "30m"
+      }
     }
   ],
   "watch": {
-    "usage_limit": [
+    "limits": [
       {
-        "text": "Usage limit reached · resets 15:00",
-        "sessions": ["alpha", "conductor"]
+        "text": "You've hit your session limit · resets 3:00pm (UTC)",
+        "resets_at": "2026-10-13T15:00:00Z",
+        "sessions": [
+          "ex-alpha",
+          "ex-beta"
+        ]
       }
     ],
-    "usage_limit_today": ["Weekly limit reached"],
     "context": [
       {
         "session": "s2",
-        "name": "conductor"
+        "name": "ex-conductor"
       }
     ]
   },
   "context_handover": 300000,
-  "red_ci": [
-    {
-      "repo": "beta",
-      "workflow": "Release",
-      "run_id": "202",
-      "conclusion": "failure",
-      "time": "2026-10-13T08:00:00Z"
-    }
-  ],
   "decisions": [
     {
       "id": "DEC-20261013-02",
+      "at": "2026-10-13T09:10:00Z",
       "class": "O",
-      "choice": null,
-      "reason": "needs the operator"
+      "choice": "Y",
+      "reason": "the operator: release today"
     },
     {
       "id": "DEC-20261013-01",
+      "at": "2026-10-13T09:00:00Z",
       "class": "C",
       "choice": "A",
       "reason": "gate green, change inside the approved design"
@@ -133,9 +144,20 @@
   ],
   "awaiting_operator": [
     {
-      "id": "DEC-20261013-02",
+      "id": "REQ-login",
+      "class": "H",
+      "repository": "alpha",
+      "question": "Log in to the registry: run `task registry-login` in the alpha checkout",
+      "action": "do: task registry-login",
+      "link": "#/decisions/REQ-login"
+    },
+    {
+      "id": "REQ-release",
       "class": "O",
-      "question": "Release now?"
+      "repository": "alpha",
+      "question": "Release alpha today?",
+      "action": "answer: Y release today · N wait",
+      "link": "#/decisions/REQ-release"
     }
   ],
   "usage": {
@@ -165,7 +187,9 @@
         "cache_read_percent": 16.7
       }
     ],
-    "errors": ["~/.claude/projects/broken.jsonl: line 3 is not JSON"]
+    "errors": [
+      "~/.claude/projects/broken.jsonl: line 3 is not JSON"
+    ]
   },
   "reading": {
     "sessions": "claude agents --json",
@@ -174,5 +198,15 @@
     "ci_state": "~/.cache/conductor-watch/ci.state",
     "checkouts": "~/example-org"
   },
-  "errors": ["~/example-org/conductor/dispatches/2026-10.jsonl: 1 line(s) are not JSON objects"]
+  "errors": [
+    "~/example-org/conductor/dispatches/2026-10.jsonl: 1 line(s) are not JSON objects"
+  ],
+  "snapshot": {
+    "id": "01a00000-0000-7000-8000-000000000001",
+    "started_at": "2026-10-13T02:30:00Z",
+    "age_seconds": 25200,
+    "age": "7h 0m",
+    "cadence_seconds": 7200,
+    "stale": true
+  }
 }

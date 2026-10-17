@@ -47,7 +47,7 @@ describe('loadOverview', () => {
     expect(view.unanswered).toEqual({
       count: 2,
       oldest: {
-        request_id: 'REQ-OLD',
+        request_id: 'REQ-login',
         class: 'H',
         raised_at: '2026-10-13T06:00:00Z',
         age_seconds: 7200,
@@ -124,7 +124,7 @@ describe('Overview', () => {
 
     expect(asked).toContain('/api/events?since=2026-10-13T00%3A00%3A00Z');
     expect(wrapper.findAll('.tiles .tile')).toHaveLength(9);
-    expect(wrapper.findAll('.needs .card')).toHaveLength(3);
+    expect(wrapper.findAll('.needs .card')).toHaveLength(4);
     expect(wrapper.findAll('table tbody tr')).toHaveLength(4);
     expect(wrapper.findAll('ol.timeline li')).toHaveLength(5);
     const collapsed = wrapper.find('details.disk-spend');
@@ -146,7 +146,7 @@ describe('Overview', () => {
     const wrapper = mount(Overview);
     await flushPromises();
     expect(wrapper.findAll('table tbody tr')).toHaveLength(4);
-    expect(wrapper.findAll('.needs .card')).toHaveLength(3);
+    expect(wrapper.findAll('.needs .card')).toHaveLength(4);
     expect(wrapper.find('ol.timeline').exists()).toBe(false);
     const reading = wrapper.findAll('.state-loading').map((state) => state.text());
     expect(reading).toContain('reading /api/events…');
