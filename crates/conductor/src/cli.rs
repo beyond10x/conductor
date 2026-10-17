@@ -188,6 +188,9 @@ impl Cli {
                     .err()
                     .map(|error| format!("{error:#}"));
             }
+            // Attach and its listing read every instance of the file, from any directory, so
+            // they select none.
+            Group::Session(SessionCommand::Attach(_) | SessionCommand::List(_)) => {}
             _ => crate::config::set_active(self.config.as_deref())?,
         }
         if let Some(dir) = &self.state_dir {
@@ -358,6 +361,12 @@ impl Cli {
                     session::start(self.config.as_deref(), state, &args, providers)
                 }
                 SessionCommand::Stop(args) => session::stop(state, &args, providers),
+                SessionCommand::Attach(args) => {
+                    crate::attach::attach(self.config.as_deref(), state, &args)
+                }
+                SessionCommand::List(args) => {
+                    crate::attach::list(self.config.as_deref(), state, &args)
+                }
             },
             Group::Host(command) => match command {
                 // `host reclaim` records its own runs (`crate::gc::reclaim`); the placed
@@ -1213,6 +1222,14 @@ pub enum SessionCommand {
     #[command(name = "leases")]
     Leases(ViewArgs),
 
+    /// Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
+    #[command(name = "attach")]
+    Attach(AttachArgs),
+
+    /// Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)
+    #[command(name = "list")]
+    List(ListSessionsArgs),
+
     /// Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
     #[command(name = "start")]
     Start(SessionRoleArgs),
@@ -1741,6 +1758,35 @@ pub struct SessionRoleArgs {
     /// The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release
     #[arg(long, value_name = "ROLE")]
     pub role: Option<String>,
+}
+
+/// The input of the binding's `session-attach` callable, `conductor.session.AttachSession`.
+#[derive(Debug, Clone, Args)]
+pub struct AttachArgs {
+    /// The session's full name, `<session_prefix>-<role>` or a controller's
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+    /// The role whose session attaches, as for `session start`
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
+    /// Look only in this instance of the config file. Default: every instance
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// Attach read-only: nothing typed reaches the session. `--watch` alone is `--watch true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub watch: Option<bool>,
+}
+
+/// The input of the binding's `session-list` callable, `conductor.session.ListSessions`.
+#[derive(Debug, Clone, Args)]
+pub struct ListSessionsArgs {
+    /// List only this instance of the config file. Default: every instance
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// How the rows are printed: text, one `<name> <attach|watch>` line each, or json. Default:
+    /// text
+    #[arg(long)]
+    pub format: Option<String>,
 }
 
 /// The input of the binding's `upgrade` callable, `conductor.config.UpgradeBinary`.

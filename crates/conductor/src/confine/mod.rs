@@ -30,6 +30,7 @@
 pub mod places;
 pub mod systemd;
 
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt as _;
@@ -796,6 +797,30 @@ pub fn live_session(name: &str) -> Result<Option<String>> {
                 .unwrap_or("with no id")
                 .to_owned()
         }))
+}
+
+/// The harness's own state of each live session it lists, by session name: true where it reports
+/// the session busy. The one harness-specific read of `conductor session attach` and `session
+/// list`; Claude Code's is the `status` of `claude agents --json`. A harness that lists nothing,
+/// or a list that does not run or read, answers no state, and the caller falls back on the
+/// screen's idle time.
+#[must_use]
+pub fn harness_busy() -> BTreeMap<String, bool> {
+    let Ok(output) = collect::run(Command::new(CLAUDE).args(["agents", "--json"]), BOUND) else {
+        return BTreeMap::new();
+    };
+    let Ok(Value::Array(entries)) = serde_json::from_slice::<Value>(&output.stdout) else {
+        return BTreeMap::new();
+    };
+    entries
+        .iter()
+        .filter(|entry| !entry["pid"].is_null())
+        .filter_map(|entry| {
+            let name = entry["name"].as_str()?;
+            let status = entry["status"].as_str()?;
+            Some((name.to_owned(), status == "busy"))
+        })
+        .collect()
 }
 
 /// Runs the launch `command` to its end within [`BOUND`], with no standard input, and answers its
