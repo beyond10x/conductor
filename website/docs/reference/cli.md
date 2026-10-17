@@ -124,9 +124,13 @@ Every command takes these, before or after its name.
 | [`conductor guard`](#conductor-guard) | The controller hook and the record of its verdicts |
 | [`conductor guard record-guard-decision`](#conductor-guard-record-guard-decision) | Record a guard decision |
 | [`conductor guard guard-decisions`](#conductor-guard-guard-decisions) | Guard decisions |
-| [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
+| [`conductor session`](#conductor-session) | The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
+| [`conductor session deliver-message`](#conductor-session-deliver-message) | Deliver a message to a session |
+| [`conductor session record-run-tick`](#conductor-session-record-run-tick) | Record a tick of the run daemon |
+| [`conductor session deliveries`](#conductor-session-deliveries) | Deliveries to sessions |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
+| [`conductor session run-ticks`](#conductor-session-run-ticks) | Ticks of the run daemon |
 | [`conductor session attach`](#conductor-session-attach) | Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher |
 | [`conductor session list`](#conductor-session-list) | Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher) |
 | [`conductor session start`](#conductor-session-start) | Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
@@ -179,6 +183,7 @@ Every command takes these, before or after its name.
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor rules`](#conductor-rules) |  |
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
+| [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
@@ -1591,7 +1596,7 @@ Usage: conductor guard guard-decisions [OPTIONS]
 
 ## `conductor session`
 
-The instance's one conductor session and the lease it holds
+The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks
 
 ```text
 Usage: conductor session [OPTIONS] <COMMAND>
@@ -1614,12 +1619,68 @@ Usage: conductor session claim [OPTIONS]
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 | `--from-session-start` | no | `false` | Read the session id from a Claude Code SessionStart payload on standard input |
 
+## `conductor session deliver-message`
+
+Deliver a message to a session
+
+```text
+Usage: conductor session deliver-message [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--session-name <SESSION_NAME>` | no | none | SessionName |
+| `--first-line <FIRST_LINE>` | no | none | string |
+| `--body-path <BODY_PATH>` | no | none | string |
+| `--delivered-at <DELIVERED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor session record-run-tick`
+
+Record a tick of the run daemon
+
+```text
+Usage: conductor session record-run-tick [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--kind <KIND>` | no | none | TickKind One of `watch`, `cycle`, `daily`. |
+| `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--lines-handled <LINES_HANDLED>` | no | none | integer |
+| `--actions <ACTIONS>` | no | none | list of DispatchLogEvent, a JSON array of the events as the dispatch log writes them (`relayed`, `handover-sent`, …) |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor session deliveries`
+
+Deliveries to sessions
+
+```text
+Usage: conductor session deliveries [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
 ## `conductor session leases`
 
 Conductor leases
 
 ```text
 Usage: conductor session leases [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor session run-ticks`
+
+Ticks of the run daemon
+
+```text
+Usage: conductor session run-ticks [OPTIONS]
 ```
 
 | Argument | Required | Default | Meaning |
@@ -2276,6 +2337,20 @@ Usage: conductor rules show [OPTIONS]
 | `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
 | `--changed-since <CHANGED_SINCE>` | no | none | A git revision of the records directory: print only the items whose text differs from that revision's rules.md, or that it does not hold, and name the ones it held that are gone |
 | `--role <ROLE>` | no | none | A role (all, conductor, controller, worker, maintainer): print the rules of its file, rules/&lt;role>.md of the records, one per line; with --changed-since, the changed ones |
+
+## `conductor run`
+
+Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+
+```text
+Usage: conductor run [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--once <BOOL>` | no | none | Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true` One of `true`, `false`. |
+| `--install <BOOL>` | no | none | Start the loop as the user unit conductor_&lt;instance>-run.service through systemd-run; under the none provider print the command to run instead. `--install` alone is `--install true` One of `true`, `false`. |
+| `--uninstall <BOOL>` | no | none | Stop the user unit conductor_&lt;instance>-run.service. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
 
 ## `conductor setup`
 

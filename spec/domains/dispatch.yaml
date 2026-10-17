@@ -239,7 +239,7 @@ types:
   #   first line names, else the sender;
   # - `resource-granted`: `id`, `resource`, `amount`; `resource-refused`: those and `reason`;
   # - `charter-revised`: `controller_id`, `to`, `charter_revision`, the revision it moved to;
-  # - `delivered` (`conductor session deliver`, story:mailbox-send-and-deliver): `to` (the
+  # - `delivered`, by `conductor session deliver` (story:mailbox-send-and-deliver): `to` (the
   #   session), `first_line` and `body_path`; `repo` is the repository the first line names,
   #   else the session.
   # The run daemon's lines (story:run-daemon) each carry `tick_id`, the `conductor.session.RunTick`
