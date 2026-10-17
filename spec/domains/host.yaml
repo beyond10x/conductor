@@ -79,10 +79,14 @@ types:
 
   # What one reclaim step freed, from the reclaimable rows of `conductor gc` that need no
   # decision: the build output of an idle managed tree (no live session, no running gate), build
-  # output stripped from a worktree archive, a cache past its age, a snapshot past retention.
+  # output stripped from a worktree archive, a cache past its age, a snapshot past retention; a
+  # finished managed tree (merged into its default branch, clean apart from `target/` and
+  # `.check/`, in use by no process, held by no lease), finished and removed through `worktree`;
+  # the `target/` of a stale managed tree, dirty or unmerged and untouched for longer than
+  # `thresholds.tree_stale`, whose tree is kept (story:gc-finished-trees).
   - name: conductor.host.ReclaimKind
     kind: enum
-    variants: [IdleTreeBuildOutput, ArchiveBuildOutput, Cache, Snapshot]
+    variants: [IdleTreeBuildOutput, ArchiveBuildOutput, Cache, Snapshot, FinishedTree, StaleTreeBuildOutput]
 
   # How a reclaim run ended: free disk back over the floor, or every reclaimable row applied and
   # the floor still not reached.

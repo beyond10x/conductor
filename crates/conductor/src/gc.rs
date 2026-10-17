@@ -23,6 +23,14 @@
 //! measured. With `--dry-run` it prints those rows with the bytes measured and removes nothing;
 //! `worktree prune-archives --strip-build-output --apply` runs only without it.
 //!
+//! Beside them it lists the instance's managed trees ([`trees`], `story:gc-finished-trees`): each
+//! finished tree with its whole size, which it takes back through `worktree finish` and `worktree
+//! gc --apply`; each stale tree with the size of its cargo `target/`, which it removes and keeps
+//! the tree (`stale, kept`); every other tree as a holder, with why. A tree it takes back leaves
+//! the panel's cache row, and a tree the panel lists eligible for removal is left to that row. It
+//! ends with one `trees  <repository>: …` line per repository: trees finished, stale and kept, each
+//! with GiB (`trees` in JSON).
+//!
 //! After the rows it prints one table of the holders it measures and never reclaims: the panel's
 //! shared rows ([`waste::shared_rows`]: shared build targets, sccache, the rustup toolchains, the
 //! Go build cache, the agents' scratch and `/var/tmp`), and the archive strip when it could not be
@@ -48,7 +56,9 @@
 
 mod archives;
 pub mod reclaim;
+pub(crate) mod trees;
 
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write as _};
@@ -57,7 +67,7 @@ use std::process::{Command, ExitCode, Stdio};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
-use conductor_model::observation::{CollectGarbage, GarbageOutcome, GarbageRow};
+use conductor_model::observation::{CollectGarbage, GarbageOutcome, GarbageRow, TreeVerdict};
 use serde_json::{Value, json};
 
 use crate::cli::GcArgs;
@@ -110,7 +120,42 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
         Ok(listing) => listings.push(listing),
         Err(holder) => holders.push(holder),
     }
-    let rows: Vec<GarbageRow> = listings
+    // The managed trees (`story:gc-finished-trees`): a tree the panel lists eligible for removal
+    // is left to that row, and a tree this pass takes back leaves the panel's cache row.
+    let skip: HashSet<PathBuf> = listings
+        .iter()
+        .filter_map(|(_, reclaim)| match reclaim {
+            Reclaim::RemoveTrees { trees, .. } => Some(trees.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let mut summary: BTreeMap<String, Summary> = BTreeMap::new();
+    let mut tree_rows = Vec::new();
+    match trees::assess(&sources, tree_stale(), &skip, true) {
+        Ok(assessed) => {
+            for tree in assessed {
+                summary
+                    .entry(tree.repository.clone())
+                    .or_default()
+                    .add(&tree);
+                match tree_row(&tree) {
+                    Ok(row) => tree_rows.push((row, tree)),
+                    Err(holder) => holders.push(holder),
+                }
+            }
+        }
+        Err(error) => holders.push(Holder {
+            repository: None,
+            what: trees::KEPT.to_owned(),
+            path: Some(sources.trees.display().to_string()),
+            bytes: None,
+            kept: format!("not assessed: {error}"),
+        }),
+    }
+    let claimed: Vec<&trees::Tree> = tree_rows.iter().map(|(_, tree)| tree).collect();
+    let listings = unclaimed(listings, &claimed);
+    let mut rows: Vec<GarbageRow> = listings
         .into_iter()
         .map(|(row, reclaim)| {
             if dry_run {
@@ -120,9 +165,16 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
             }
         })
         .collect();
+    rows.extend(tree_rows.into_iter().map(|(row, tree)| {
+        if dry_run {
+            row
+        } else {
+            take(&sources, row, &tree)
+        }
+    }));
     let shared = waste::shared_rows(&sources);
     holders.extend(shared.iter().map(Holder::of));
-    print(&rows, &holders, &strip.measured, dry_run, json)?;
+    print(&rows, &holders, &strip.measured, &summary, dry_run, json)?;
     let mut refused = false;
     let mut err = io::stderr().lock();
     for row in rows
@@ -143,6 +195,139 @@ pub fn gc(args: &GcArgs) -> Result<ExitCode> {
     } else {
         ExitCode::SUCCESS
     })
+}
+
+/// `thresholds.tree_stale` of the active instance.
+fn tree_stale() -> Duration {
+    let thresholds = &crate::config::active().instance.thresholds;
+    Duration::from_secs(
+        crate::config::seconds(&thresholds.tree_stale)
+            .unwrap_or(crate::config::TREE_STALE_HOURS * 3600),
+    )
+}
+
+/// One repository's managed trees, counted and summed by verdict: (trees, bytes).
+#[derive(Debug, Default)]
+struct Summary {
+    finished: (u64, u64),
+    stale: (u64, u64),
+    stale_target: u64,
+    kept: (u64, u64),
+}
+
+impl Summary {
+    fn add(&mut self, tree: &trees::Tree) {
+        let bytes = tree.bytes.unwrap_or(0);
+        let slot = match tree.verdict {
+            trees::Verdict::Finished => &mut self.finished,
+            trees::Verdict::Stale(_) => {
+                self.stale_target += tree.target_bytes.unwrap_or(0);
+                &mut self.stale
+            }
+            trees::Verdict::Kept(_) => &mut self.kept,
+        };
+        slot.0 += 1;
+        slot.1 += bytes;
+    }
+}
+
+/// The row of a tree gc takes back, before anything is removed; or the holder of a tree it keeps
+/// (a stale one without cargo's `target/` among them).
+fn tree_row(tree: &trees::Tree) -> Result<GarbageRow, Holder> {
+    let row = |what: &str, path: PathBuf, bytes: Option<u64>, verdict, detail| GarbageRow {
+        repository: Some(tree.repository.clone()),
+        what: what.to_owned(),
+        paths: vec![path.display().to_string()],
+        count: Some(1),
+        bytes: bytes.and_then(|bytes| i64::try_from(bytes).ok()),
+        freed: None,
+        outcome: GarbageOutcome::Reclaimable,
+        detail,
+        tree: Some(tree.id.clone()),
+        verdict: Some(verdict),
+    };
+    let holder = |kept: String| Holder {
+        repository: Some(tree.repository.clone()),
+        what: trees::KEPT.to_owned(),
+        path: Some(tree.path.display().to_string()),
+        bytes: tree.bytes,
+        kept,
+    };
+    match &tree.verdict {
+        trees::Verdict::Finished => Ok(row(
+            trees::FINISHED,
+            tree.path.clone(),
+            tree.bytes,
+            TreeVerdict::Finished,
+            None,
+        )),
+        trees::Verdict::Stale(why) if tree.target_bytes.is_some() => Ok(row(
+            trees::STALE,
+            tree.path.join("target"),
+            tree.target_bytes,
+            TreeVerdict::Stale,
+            Some(format!("stale, kept: {why}")),
+        )),
+        trees::Verdict::Stale(why) => Err(holder(format!(
+            "stale, kept: {why}; no cargo target/ to remove"
+        ))),
+        trees::Verdict::Kept(why) => Err(holder(why.clone())),
+    }
+}
+
+/// `listings` without the trees `claimed` takes back: they leave the panel's cache rows, whose
+/// bytes lose each one's `target/`; a row left with no tree goes.
+fn unclaimed(
+    listings: Vec<(GarbageRow, Reclaim)>,
+    claimed: &[&trees::Tree],
+) -> Vec<(GarbageRow, Reclaim)> {
+    listings
+        .into_iter()
+        .filter_map(|(mut row, reclaim)| {
+            let Reclaim::DiscardCache(cached) = reclaim else {
+                return Some((row, reclaim));
+            };
+            let (gone, kept): (Vec<PathBuf>, Vec<PathBuf>) = cached
+                .into_iter()
+                .partition(|path| claimed.iter().any(|tree| &tree.path == path));
+            if kept.is_empty() {
+                return None;
+            }
+            let less: u64 = gone
+                .iter()
+                .map(|path| allocated(&[path.join("target")]))
+                .sum();
+            row.bytes = row
+                .bytes
+                .map(|bytes| bytes.saturating_sub(i64::try_from(less).unwrap_or(0)));
+            row.count = i64::try_from(kept.len()).ok();
+            row.paths = kept.iter().map(|path| path.display().to_string()).collect();
+            Some((row, Reclaim::DiscardCache(kept)))
+        })
+        .collect()
+}
+
+/// Takes the listed tree row `out` back through [`trees::take`].
+fn take(sources: &Sources, mut out: GarbageRow, tree: &trees::Tree) -> GarbageRow {
+    let signed = |bytes: u64| i64::try_from(bytes).ok();
+    match trees::take(sources, tree) {
+        Ok(taken) => {
+            out.outcome = GarbageOutcome::Removed;
+            out.freed = signed(taken.freed);
+            if let Some(note) = taken.note {
+                out.detail = Some(match out.detail.take() {
+                    Some(detail) => format!("{detail}; {note}"),
+                    None => note,
+                });
+            }
+        }
+        Err((why, freed)) => {
+            out.outcome = GarbageOutcome::Refused;
+            out.freed = signed(freed);
+            out.detail = Some(why);
+        }
+    }
+    out
 }
 
 /// A holder gc measures and never reclaims, with why it is kept.
@@ -270,6 +455,8 @@ fn archive_strip(
             freed: None,
             outcome: GarbageOutcome::Reclaimable,
             detail: partial,
+            tree: None,
+            verdict: None,
         };
         Ok((
             row,
@@ -300,6 +487,8 @@ fn listed(row: &Row, reclaim: &Reclaim) -> GarbageRow {
         freed: None,
         outcome: GarbageOutcome::Reclaimable,
         detail: None,
+        tree: None,
+        verdict: None,
     }
 }
 
@@ -416,6 +605,7 @@ fn print(
     rows: &[GarbageRow],
     holders: &[Holder],
     archives: &[archives::Measured],
+    summary: &BTreeMap<String, Summary>,
     dry_run: bool,
     json: bool,
 ) -> Result<()> {
@@ -447,6 +637,11 @@ fn print(
                     "freed": row.freed,
                     "outcome": outcome(row.outcome),
                     "detail": row.detail,
+                    "tree": row.tree,
+                    "verdict": row.verdict.map(|verdict| match verdict {
+                        TreeVerdict::Finished => "finished",
+                        TreeVerdict::Stale => "stale",
+                    }),
                 })
             })
             .collect();
@@ -469,6 +664,21 @@ fn print(
             "freed_bytes": (!dry_run).then_some(freed),
             "holders": holders,
             "archives": archives,
+            "trees": summary
+                .iter()
+                .map(|(repository, sum)| {
+                    json!({
+                        "repository": repository,
+                        "finished": sum.finished.0,
+                        "finished_bytes": sum.finished.1,
+                        "stale": sum.stale.0,
+                        "stale_bytes": sum.stale.1,
+                        "stale_target_bytes": sum.stale_target,
+                        "kept": sum.kept.0,
+                        "kept_bytes": sum.kept.1,
+                    })
+                })
+                .collect::<Vec<Value>>(),
         });
         writeln!(out, "{report}")?;
         out.flush()?;
@@ -507,6 +717,20 @@ fn print(
             row.what,
             row.path.as_deref().unwrap_or("-"),
             row.kept,
+        )?;
+    }
+    let gib = |bytes: u64| format!("{:.2} GiB", bytes as f64 / f64::from(1u32 << 30));
+    for (repository, sum) in summary {
+        writeln!(
+            out,
+            "trees  {repository}: finished {} ({}), stale {} ({}, {} target/), kept {} ({})",
+            sum.finished.0,
+            gib(sum.finished.1),
+            sum.stale.0,
+            gib(sum.stale.1),
+            gib(sum.stale_target),
+            sum.kept.0,
+            gib(sum.kept.1),
         )?;
     }
     if dry_run {

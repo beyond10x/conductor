@@ -336,6 +336,10 @@ pub const DISK_CLEAR_GIB: u64 = 110;
 /// transcript before `conductor watch run` reports it silent (`story:watch-silent-controller`).
 pub const SILENT_SESSION_MINUTES: u64 = 30;
 
+/// Hours a managed tree that is dirty or unmerged may be untouched before reclaim removes its
+/// `target/` and lists it stale, kept (`thresholds.tree_stale`, `story:gc-finished-trees`).
+pub const TREE_STALE_HOURS: u64 = 48;
+
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
 const INSTANCE_KEYS: [&str; 23] = [
@@ -400,7 +404,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 15] = [
+const THRESHOLD_KEYS: [&str; 16] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -416,6 +420,7 @@ const THRESHOLD_KEYS: [&str; 15] = [
     "build_slots",
     "repo_cache",
     "repo_cache_size",
+    "tree_stale",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1637,6 +1642,7 @@ fn default_thresholds() -> Thresholds {
         build_slots: BUILD_SLOTS,
         repo_cache: RepoCache::On,
         repo_cache_size: Gibibytes(REPO_CACHE_GIB),
+        tree_stale: Duration(format!("PT{TREE_STALE_HOURS}H")),
     }
 }
 
@@ -3456,6 +3462,10 @@ impl Reader<'_> {
             None => Some(defaults.repo_cache),
         };
         let repo_cache_size = size(self, "repo_cache_size", defaults.repo_cache_size);
+        let tree_stale = match Self::get(map, "tree_stale") {
+            Some(value) => self.duration(value, &join(path, "tree_stale")),
+            None => Some(defaults.tree_stale),
+        };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -3485,6 +3495,7 @@ impl Reader<'_> {
             build_slots: build_slots?,
             repo_cache: repo_cache?,
             repo_cache_size: repo_cache_size?,
+            tree_stale: tree_stale?,
         })
     }
 
@@ -3942,6 +3953,7 @@ pub fn document(instance: &Instance) -> Yaml {
                     }),
                 ),
                 ("repo_cache_size", size(&thresholds.repo_cache_size)),
+                ("tree_stale", text(&written(&thresholds.tree_stale))),
             ]),
         ),
         (

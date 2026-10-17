@@ -117,6 +117,7 @@ instances:
       build_slots: 2
       repo_cache: off
       repo_cache_size: 4G
+      tree_stale: 3d
     retention:
       snapshots: 3
     reports:

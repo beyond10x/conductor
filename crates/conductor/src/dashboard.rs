@@ -200,6 +200,9 @@ pub struct Sources {
     pub sweep: Vec<OsString>,
     /// The program and arguments that print `worktree gc --dry-run --json`.
     pub gc: Vec<OsString>,
+    /// The program and arguments that print `worktree inspect --json --workspace`: the registered
+    /// managed trees, each with its live leases (`story:gc-finished-trees`).
+    pub inspect: Vec<OsString>,
     /// The directory whose entries the disk measurement lists as `/var/tmp`.
     pub var_tmp: PathBuf,
     /// The instance's own scratch, `<cache>/scratch`: a controller's scratch is
@@ -312,6 +315,21 @@ impl Sources {
             disk: PathBuf::from("/"),
             sweep: worktree("sweep"),
             gc: worktree("gc"),
+            inspect: {
+                let mut command: Vec<OsString> = [
+                    "worktree",
+                    "inspect",
+                    "--json",
+                    "--workspace",
+                    "--max-entries",
+                    "1",
+                    "--repo",
+                ]
+                .map(OsString::from)
+                .to_vec();
+                command.push(repo.clone().into_os_string());
+                command
+            },
             var_tmp: PathBuf::from("/var/tmp"),
             scratch: PathBuf::new(),
             measure_every: Duration::from_secs(600),

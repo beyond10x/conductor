@@ -369,8 +369,10 @@ types:
   # is never refused for it, 0 for no bound (story:build-queue-convoy); whether `build run` gives a
   # cargo-based command its repository's compile cache, one sccache server and directory per
   # repository that all of its worktrees share, and that cache's size
-  # (story:build-run-repo-cache). Absent, the filesystem is `/`, the silence 30 minutes, the
-  # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G.
+  # (story:build-run-repo-cache); and how long a managed tree that is dirty or unmerged may be
+  # untouched before reclaim removes its `target/` and lists it stale, kept (story:gc-finished-trees).
+  # Absent, the filesystem is `/`, the silence 30 minutes, the reserve 2 cores, the build slots 3,
+  # the repository cache `on` and its size 2G, and the staleness 48 hours.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -389,6 +391,7 @@ types:
       - {name: build_slots, type: Integer}
       - {name: repo_cache, type: conductor.config.RepoCache}
       - {name: repo_cache_size, type: conductor.config.Gibibytes}
+      - {name: tree_stale, type: Duration}
     invariants:
       - gate_resume > gate_stop
       - cpu_reserve >= 0
