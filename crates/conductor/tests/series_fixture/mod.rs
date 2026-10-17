@@ -182,6 +182,8 @@ impl Case {
                         recorded_by: None,
                         operator_words: None,
                         repository: Some(repo("alpha")),
+                        decider_name: None,
+                        prompt_sha256: None,
                     },
                 },
             );
@@ -218,6 +220,7 @@ impl Case {
                         recommendation: "a".to_owned(),
                         raised_at: at(raised),
                         blocker: None,
+                        classification_rule: None,
                         escalation_class: class,
                         escalation_reason: class.map(|_| "needs a person".to_owned()),
                         dry_run: None,

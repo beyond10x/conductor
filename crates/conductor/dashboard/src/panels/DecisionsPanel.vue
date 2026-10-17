@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// The decision log's newest decisions (story:sessions-page-coherent): decisions only, newest
+// first, each once.
 import { cell } from '../format';
 import type { DashboardData } from '../types';
 
@@ -13,6 +15,7 @@ defineProps<{ data: DashboardData }>();
         <thead>
           <tr>
             <th scope="col">decision</th>
+            <th scope="col">at</th>
             <th scope="col">class</th>
             <th scope="col">choice</th>
             <th scope="col">reason</th>
@@ -20,12 +23,13 @@ defineProps<{ data: DashboardData }>();
         </thead>
         <tbody>
           <tr v-if="data.decisions.length === 0">
-            <td colspan="4" class="empty state state-empty">no decision yet</td>
+            <td colspan="5" class="empty state state-empty">no decision yet</td>
           </tr>
-          <tr v-for="(decision, at) in data.decisions" :key="at">
-            <td class="mono small">{{ cell(decision.id) }}</td>
+          <tr v-for="decision in data.decisions" :key="decision.id">
+            <td class="mono small">{{ decision.id }}</td>
+            <td class="mono small">{{ cell(decision.at) }}</td>
             <td>{{ cell(decision.class) }}</td>
-            <td>{{ cell(decision.choice) }}</td>
+            <td>{{ decision.choice }}</td>
             <td class="work">{{ cell(decision.reason) }}</td>
           </tr>
         </tbody>

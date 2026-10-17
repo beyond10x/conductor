@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8
-// contract digest ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018
+// model digest cef836f319668d2492af74e7071a0a12fe762ad06c7635432c0f51a06be91469
+// contract digest 1cb1dde36edec20c87f5fbc7455900f69fed5276ffdef4838c372cc21d625df7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -128,6 +128,8 @@ pub struct Rules {
     pub brief: Option<bool>,
     /// `changed_since` — `Optional<String>`.
     pub changed_since: Option<String>,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
 }
 
 /// RulesRefusal — `conductor.direction.RulesRefusal`: one of a closed set of names.
@@ -139,6 +141,8 @@ pub enum RulesRefusal {
     RuleSectionNotFound,
     /// `RevisionNotFound`.
     RevisionNotFound,
+    /// `RuleRoleNotFound`.
+    RuleRoleNotFound,
 }
 
 /// RulesRefused — `conductor.direction.RulesRefused`.

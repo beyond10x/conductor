@@ -155,8 +155,9 @@ types:
       - {name: format, type: Optional<String>}
 
   # The input of `conductor gc` (story:conductor-gc), which removes what the dashboard's disk panel
-  # marks reclaimable and nothing else. `dry_run` lists those rows and removes nothing; `format` is
-  # text or json, read by the handler.
+  # marks reclaimable, the finished managed trees and the `target/` of the stale ones
+  # (story:gc-finished-trees), and nothing else. `dry_run` lists those rows and removes nothing;
+  # `format` is text or json, read by the handler.
   - name: conductor.observation.CollectGarbage
     kind: struct
     fields:
@@ -169,9 +170,19 @@ types:
     kind: enum
     variants: [Reclaimable, Removed, Refused]
 
+  # What `conductor gc` found a managed tree to be (story:gc-finished-trees): finished (merged
+  # into its default branch on origin, clean apart from `target/` and `.check/`, in use by no
+  # process, held by no lease), which it finishes and removes through `worktree`; or stale (dirty or
+  # unmerged, untouched for longer than `thresholds.tree_stale`), whose `target/` it removes and
+  # whose tree it keeps.
+  - name: conductor.observation.TreeVerdict
+    kind: enum
+    variants: [Finished, Stale]
+
   # One row `conductor gc` reports: a row the disk panel marks reclaimable, as the panel measured
   # it (`what`, `repository`, the paths it sums, `count`, `bytes`), the bytes its removal freed,
-  # measured on the disk before and after, and its outcome with the reason for a refusal.
+  # measured on the disk before and after, and its outcome with the reason for a refusal. A row of
+  # one managed tree also names the tree's registered id (`tree`) and its verdict.
   - name: conductor.observation.GarbageRow
     kind: struct
     fields:
@@ -183,6 +194,8 @@ types:
       - {name: freed, type: Optional<Integer>}
       - {name: outcome, type: conductor.observation.GarbageOutcome}
       - {name: detail, type: Optional<String>}
+      - {name: tree, type: Optional<String>}
+      - {name: verdict, type: Optional<conductor.observation.TreeVerdict>}
 
   # The input of `conductor repository refresh-hooks` (story:gates-hooks-fresh), which lists each
   # checkout of the instance whose Gates hook (`.git/b10x-gates-hooks/b10x-gates`) lags the

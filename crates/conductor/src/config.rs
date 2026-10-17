@@ -352,6 +352,9 @@ pub const STALLED_SESSION_MINUTES: u64 = 45;
 /// Minutes a host grant may wait `Requested` before `conductor watch run` reports the build queued
 /// (`thresholds.build_queued`, `story:watch-stalled-sessions`).
 pub const BUILD_QUEUED_MINUTES: u64 = 30;
+/// Hours a managed tree that is dirty or unmerged may be untouched before reclaim removes its
+/// `target/` and lists it stale, kept (`thresholds.tree_stale`, `story:gc-finished-trees`).
+pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
@@ -417,7 +420,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 19] = [
+const THRESHOLD_KEYS: [&str; 21] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -433,10 +436,12 @@ const THRESHOLD_KEYS: [&str; 19] = [
     "build_slots",
     "repo_cache",
     "repo_cache_size",
+    "lean_debuginfo",
     "short_lane_slots",
     "short_lane_max",
     "stalled_session",
     "build_queued",
+    "tree_stale",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1658,10 +1663,12 @@ fn default_thresholds() -> Thresholds {
         build_slots: BUILD_SLOTS,
         repo_cache: RepoCache::On,
         repo_cache_size: Gibibytes(REPO_CACHE_GIB),
+        lean_debuginfo: true,
         short_lane_slots: SHORT_LANE_SLOTS,
         short_lane_max: Duration(format!("PT{SHORT_LANE_MAX_MINUTES}M")),
         stalled_session: Duration(format!("PT{STALLED_SESSION_MINUTES}M")),
         build_queued: Duration(format!("PT{BUILD_QUEUED_MINUTES}M")),
+        tree_stale: Duration(format!("PT{TREE_STALE_HOURS}H")),
     }
 }
 
@@ -1971,6 +1978,14 @@ impl Reader<'_> {
             );
         }
         found.map(|(_, meaning)| *meaning)
+    }
+
+    fn flag(&mut self, value: &Value, path: &str) -> Option<bool> {
+        let flag = value.as_bool();
+        if flag.is_none() {
+            self.problem(path, format!("{} is not true or false", echo(value)));
+        }
+        flag
     }
 
     fn duration(&mut self, value: &Value, path: &str) -> Option<Duration> {
@@ -3481,6 +3496,10 @@ impl Reader<'_> {
             None => Some(defaults.repo_cache),
         };
         let repo_cache_size = size(self, "repo_cache_size", defaults.repo_cache_size);
+        let lean_debuginfo = match Self::get(map, "lean_debuginfo") {
+            Some(value) => self.flag(value, &join(path, "lean_debuginfo")),
+            None => Some(defaults.lean_debuginfo),
+        };
         let short_lane_slots = match Self::get(map, "short_lane_slots") {
             Some(value) => {
                 let slots = value.as_i64().filter(|slots| *slots >= 0);
@@ -3509,6 +3528,10 @@ impl Reader<'_> {
         let build_queued = match Self::get(map, "build_queued") {
             Some(value) => self.duration(value, &join(path, "build_queued")),
             None => Some(defaults.build_queued),
+        };
+        let tree_stale = match Self::get(map, "tree_stale") {
+            Some(value) => self.duration(value, &join(path, "tree_stale")),
+            None => Some(defaults.tree_stale),
         };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
@@ -3539,10 +3562,12 @@ impl Reader<'_> {
             build_slots: build_slots?,
             repo_cache: repo_cache?,
             repo_cache_size: repo_cache_size?,
+            lean_debuginfo: lean_debuginfo?,
             short_lane_slots: short_lane_slots?,
             short_lane_max: short_lane_max?,
             stalled_session: stalled_session?,
             build_queued: build_queued?,
+            tree_stale: tree_stale?,
         })
     }
 
@@ -4000,6 +4025,7 @@ pub fn document(instance: &Instance) -> Yaml {
                     }),
                 ),
                 ("repo_cache_size", size(&thresholds.repo_cache_size)),
+                ("lean_debuginfo", Yaml::Bool(thresholds.lean_debuginfo)),
                 (
                     "short_lane_slots",
                     Yaml::Number(serde_yaml::Number::from(thresholds.short_lane_slots)),
@@ -4010,6 +4036,7 @@ pub fn document(instance: &Instance) -> Yaml {
                     text(&written(&thresholds.stalled_session)),
                 ),
                 ("build_queued", text(&written(&thresholds.build_queued))),
+                ("tree_stale", text(&written(&thresholds.tree_stale))),
             ]),
         ),
         (

@@ -1,12 +1,16 @@
-//! `LeaseStorage` on [`super::Store`] (`story:single-conductor-lease`): each
-//! `conductor.session.Lease` is one stream, keyed by its instance's name, kept and read back as
-//! every other entity of the store is. Every claim that changes the lease appends its new
-//! snapshot, so the stream is the lease's history: who took it, and from whom.
+//! `LeaseStorage` and `DeliveryStorage` on [`super::Store`]: each `conductor.session.Lease`
+//! (`story:single-conductor-lease`) is one stream, keyed by its instance's name, kept and read back
+//! as every other entity of the store is. Every claim that changes the lease appends its new
+//! snapshot, so the stream is the lease's history: who took it, and from whom. Each
+//! `conductor.session.Delivery` (`story:mailbox-send-and-deliver`) is one stream, keyed by its id.
 
-use conductor_model::behaviour::LeaseStorage;
-use conductor_model::config::InstanceName;
-use conductor_model::primitives::Timestamp;
-use conductor_model::session::{LeaseData, LeaseSnapshot, LeaseState, SessionId};
+use conductor_model::behaviour::{DeliveryStorage, LeaseStorage};
+use conductor_model::config::{InstanceName, SessionName};
+use conductor_model::primitives::{Timestamp, Uuid};
+use conductor_model::session::{
+    DeliveryData, DeliveryId, DeliverySnapshot, DeliveryState, LeaseData, LeaseSnapshot,
+    LeaseState, SessionId,
+};
 use serde_json::{Value, json};
 
 use super::{DELETED, STORED, Store, StoreError, text, undecodable};
@@ -116,4 +120,101 @@ fn state_named(name: &str) -> Option<LeaseState> {
     [LeaseState::Held]
         .into_iter()
         .find(|state| state_name(*state) == name)
+}
+
+/// `conductor.session.Delivery` (`story:mailbox-send-and-deliver`): each delivery is one stream,
+/// keyed by its id, written once.
+const DELIVERY: &str = "conductor.session.Delivery";
+
+impl DeliveryStorage for Store {
+    fn get(&self, identity: &DeliveryId) -> Option<DeliverySnapshot> {
+        let key = &identity.0.0;
+        let body = self.read(DELIVERY, key)?;
+        match decode_delivery(&body) {
+            Ok(delivery) if delivery.data.delivery_id == *identity => Some(delivery),
+            Ok(delivery) => {
+                self.fail(undecodable(
+                    DELIVERY,
+                    key,
+                    format!("holds delivery {:?}", delivery.data.delivery_id.0.0),
+                ));
+                None
+            }
+            Err(detail) => {
+                self.fail(undecodable(DELIVERY, key, detail));
+                None
+            }
+        }
+    }
+
+    fn put(&mut self, snapshot: DeliverySnapshot) {
+        let body = encode_delivery(&snapshot);
+        self.write(DELIVERY, &snapshot.data.delivery_id.0.0, STORED, body);
+    }
+
+    fn delete(&mut self, identity: &DeliveryId) {
+        self.write(DELIVERY, &identity.0.0, DELETED, json!({}));
+    }
+
+    fn list(&self) -> Vec<DeliverySnapshot> {
+        self.rows(DELIVERY)
+            .into_iter()
+            .filter_map(|(stream, body)| match decode_delivery(&body) {
+                Ok(delivery) => Some(delivery),
+                Err(detail) => {
+                    self.fail(StoreError::Undecodable {
+                        entity: DELIVERY,
+                        stream,
+                        detail,
+                    });
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+fn encode_delivery(delivery: &DeliverySnapshot) -> Value {
+    let data = &delivery.data;
+    json!({
+        "state": delivery_state_name(delivery.state),
+        "delivery_id": data.delivery_id.0.0,
+        "session_name": data.session_name.0,
+        "first_line": data.first_line,
+        "body_path": data.body_path,
+        "delivered_at": data.delivered_at.0,
+    })
+}
+
+fn decode_delivery(body: &Value) -> Result<DeliverySnapshot, String> {
+    let state = text(body, "state")?;
+    Ok(DeliverySnapshot {
+        state: delivery_state_named(&state)
+            .ok_or_else(|| format!("unknown Delivery state {state:?}"))?,
+        data: DeliveryData {
+            delivery_id: DeliveryId(Uuid(text(body, "delivery_id")?)),
+            session_name: SessionName(text(body, "session_name")?),
+            first_line: text(body, "first_line")?,
+            body_path: match body.get("body_path") {
+                Some(Value::Null) => None,
+                Some(Value::String(path)) => Some(path.clone()),
+                _ => return Err("no text or null field \"body_path\"".to_owned()),
+            },
+            delivered_at: Timestamp(text(body, "delivered_at")?),
+        },
+    })
+}
+
+/// The state's name as the specification spells it. Exhaustive, so a state the specification adds
+/// fails to compile here rather than being written under a guessed name.
+fn delivery_state_name(state: DeliveryState) -> &'static str {
+    match state {
+        DeliveryState::Delivered => "Delivered",
+    }
+}
+
+fn delivery_state_named(name: &str) -> Option<DeliveryState> {
+    [DeliveryState::Delivered]
+        .into_iter()
+        .find(|state| delivery_state_name(*state) == name)
 }

@@ -46,6 +46,15 @@
 //! (`conductor-dev`) is the host's role (`story:maintainer-host-config`): read from the host file
 //! `host.yaml` in the host's own directory, else, for this release, from the instance's `roles`
 //! ([`crate::config::host_maintainer`]).
+//!
+//! `session deliver` (`story:mailbox-send-and-deliver`, [`deliver`]) types a text into a running
+//! session through its tmux launcher and records the delivery; `session deliveries` is the view
+//! `conductor.session.Deliveries` ([`deliveries`]). The [`Deliverer`] trait puts a text in front
+//! of a running session; its real form, [`ShellDeliverer`], runs `conductor session deliver
+//! --name <name> --text -`, which is how `conductor run` delivers (`story:run-daemon`).
+//! `session record-run-tick` and `session run-ticks` are the run daemon's, in [`crate::run`]. The
+//! placed `session deliver-message` leaf, a delivery recorded with nothing typed, is not written
+//! yet.
 
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
@@ -53,18 +62,29 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::behaviour::{Generated, LeaseStorage};
+use conductor_model::behaviour::{
+    DeliveryStorage, ExternalCommand, Generated, LeaseStorage, TryContext, unmet_context,
+};
 use conductor_model::config::{
     ConfinementProvider, Harness, Instance, InstanceName, Role, RoleName, SessionName,
 };
+use conductor_model::direction::ServingId;
+use conductor_model::dispatch::{DispatchLogEvent, GuardDecisionId, MessageId, ResourceRequestId};
+use conductor_model::host::{GrantId, ReclaimRunId};
 use conductor_model::obligation::UnmetObligation;
-use conductor_model::primitives::Timestamp;
-use conductor_model::session::obligations::{ClaimLeaseBehavior, LeasesQuery};
-use conductor_model::session::{
-    ClaimLease, ClaimLeaseOutcome, LeaseData, LeaseHeld, LeaseSnapshot, LeaseState, LeaseTaken,
-    LeaseTakenOver, SessionId, SessionRequest, SessionStartRefusal, SessionStartRefused,
-    SessionStopRefusal, SessionStopRefused, StartSession, StartedSession, StopSession,
+use conductor_model::observation::{BoardId, ObservationId, SnapshotId};
+use conductor_model::primitives::{Timestamp, Uuid};
+use conductor_model::session::obligations::{
+    ClaimLeaseBehavior, DeliverMessageBehavior, DeliveriesQuery, LeasesQuery,
 };
+use conductor_model::session::{
+    ClaimLease, ClaimLeaseOutcome, DeliverMessage, DeliverMessageOutcome, DeliverToSession,
+    DeliveryId, DeliverySnapshot, DeliveryState, LeaseData, LeaseHeld, LeaseSnapshot, LeaseState,
+    LeaseTaken, LeaseTakenOver, SessionId, SessionRequest, SessionStartRefusal,
+    SessionStartRefused, SessionStopRefusal, SessionStopRefused, StartSession, StartedSession,
+    StopSession, TickId,
+};
+use conductor_model::tool::ToolCallId;
 use nix::errno::Errno;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
@@ -72,11 +92,12 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::cli::{ClaimLeaseArgs, SessionRoleArgs, ViewArgs};
+use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
 use crate::config::{self, Environment};
 use crate::confine::places::{self, Placement};
-use crate::confine::{self, Launch, Providers, Refusal};
+use crate::confine::{self, Launch, Providers, Refusal, systemd};
 use crate::not_implemented;
+use crate::records;
 use crate::store::Store;
 
 /// `conductor session claim`: the command `conductor.session.ClaimLease`, for the instance this
@@ -221,6 +242,301 @@ pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         })
         .collect();
     crate::store::show(&generated.ports, "leases", &view.render(&COLUMNS, &rows))
+}
+
+/// The directory under the state directory's mailbox that keeps the text `session deliver` read
+/// from standard input, so every delivery names the file its text is in.
+const DELIVERED: &str = "delivered";
+
+/// `conductor session deliver` (`story:mailbox-send-and-deliver`, docs/design/conductor-run.md
+/// § 3): the input `conductor.session.DeliverToSession`. Types the text `--text` names (a file, or
+/// `-` for standard input) into the session `--name`'s tmux server on
+/// `<state>/sessions/<name>.tmux` through the launcher's [`systemd::type_text`]: the text, its
+/// trailing line breaks left off, as one paste, then Enter. Then it records the delivery with the
+/// generated `conductor.session.DeliverMessage` (its first line, its body path, the time) and
+/// appends one `delivered` line to the records' dispatch log: `to` the session, `first_line`,
+/// `body_path`, and as `repo` the repository the first line names, else the session. The body
+/// path is the file's path, relative to the state directory when it lies under it; text read
+/// from standard input is kept first as `<state>/mailbox/delivered/<ulid>.md`. Prints the
+/// delivery's id.
+///
+/// A session with no socket, or whose tmux does not take the text, is refused
+/// (`SessionNotReachable`, the specification's `unreachable` branch), exit 1 naming the session:
+/// nothing was kept or recorded, and the command does not try again.
+///
+/// # Errors
+///
+/// A flag is missing, `--name` is no plain name, the text cannot be read, the session is not
+/// reached, or the body, the store or the records line cannot be written.
+pub fn deliver(state: Option<&Path>, args: &DeliverArgs) -> Result<ExitCode> {
+    const WHAT: &str = "session deliver";
+    let input = DeliverToSession {
+        name: required(args.name.clone(), WHAT, "--name")?,
+        text: required(args.text.clone(), WHAT, "--text")?,
+    };
+    if !crate::message::plain_name(&input.name) {
+        bail!(
+            "{WHAT}: --name {:?} names no session: one name, without `/`, not `.` or `..`",
+            input.name
+        );
+    }
+    let text = crate::message::read_text(WHAT, &input.text)?;
+    let first_line = crate::message::first_line(&text).to_owned();
+    let typed = text.trim_end_matches(['\n', '\r']);
+    let dir = crate::state::dir(state)?;
+    let sessions = dir.join("sessions");
+    let name = SessionName(input.name);
+    let socket = sessions.join(format!("{}.tmux", name.0));
+    let unreached = if fs::symlink_metadata(&socket).is_err() {
+        Some(format!(
+            "its launcher socket {} is absent, so nothing was typed",
+            socket.display()
+        ))
+    } else {
+        systemd::type_text(&sessions, &name, typed)
+            .err()
+            .map(|error| {
+                // The text is one of tmux's arguments; the refusal stays one line without it.
+                let mut said = format!("{error:#}");
+                if !typed.is_empty() {
+                    said = said.replace(typed, "<the text>");
+                }
+                format!(
+                    "its tmux on {} did not take the text: {}",
+                    socket.display(),
+                    said.split_whitespace().collect::<Vec<_>>().join(" ")
+                )
+            })
+    };
+    let delivered_at = records::now()?;
+    let mut generated = Generated::new(Delivering {
+        store: None,
+        reached: unreached.is_none(),
+    });
+    let body_path = if unreached.is_some() {
+        None
+    } else {
+        let body_path = if input.text == "-" {
+            let body_path = format!(
+                "{}/{DELIVERED}/{}.md",
+                crate::message::MAILBOX,
+                crate::message::ulid()?
+            );
+            crate::message::keep(&dir.join(&body_path), &text)
+                .with_context(|| format!("{WHAT}: keep the text"))?;
+            body_path
+        } else {
+            body_path_of(Path::new(&input.text), &dir)
+        };
+        generated.ports.store = Some(crate::state::open(Some(&dir))?);
+        Some(body_path)
+    };
+    let outcome = generated
+        .deliver_message(DeliverMessage {
+            session_name: name.clone(),
+            first_line: first_line.clone(),
+            body_path: body_path.clone(),
+            delivered_at: delivered_at.clone(),
+        })
+        .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
+    if let Some(store) = &generated.ports.store {
+        store.check().context("keep the delivery")?;
+    }
+    let message_delivered = match outcome {
+        DeliverMessageOutcome::Delivered { message_delivered } => message_delivered,
+        DeliverMessageOutcome::Unreachable { error } => bail!(
+            "{WHAT}: refused: SessionNotReachable: session {}: {}; nothing was recorded, and it is \
+             not tried again",
+            error.session_name.0,
+            unreached.as_deref().unwrap_or("it was not reached")
+        ),
+    };
+    let repo = crate::message::named_repository(&first_line).unwrap_or_else(|| name.0.clone());
+    let mut line = records::dispatch_line(DispatchLogEvent::Delivered, &repo)?;
+    line.at = delivered_at;
+    line.to = Some(name.0.clone());
+    line.first_line = Some(first_line);
+    line.body_path = body_path;
+    records::append_dispatch(&line).with_context(|| {
+        format!(
+            "{WHAT}: delivery {} to session {}",
+            message_delivered.delivery_id.0.0, name.0
+        )
+    })?;
+    writeln!(io::stdout().lock(), "{}", message_delivered.delivery_id.0.0)
+        .context("write the delivery's id to standard output")?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The body path a delivery records for the file `file`: its path relative to the state
+/// directory `state` when it lies under it, else its absolute path.
+fn body_path_of(file: &Path, state: &Path) -> String {
+    let file = fs::canonicalize(file)
+        .or_else(|_| std::path::absolute(file))
+        .unwrap_or_else(|_| file.to_owned());
+    let state = fs::canonicalize(state).unwrap_or_else(|_| state.to_owned());
+    file.strip_prefix(&state)
+        .unwrap_or(&file)
+        .display()
+        .to_string()
+}
+
+/// `conductor session deliveries`: the view `conductor.session.Deliveries`, served by the
+/// generated query over the existing store under the state directory and rendered as `--format`
+/// asks, in the order the deliveries were made. A view creates no store.
+///
+/// # Errors
+///
+/// There is no store, it does not open, a read of it fails for a reason other than a record this
+/// build cannot read, the generated query refuses a row, or the rows cannot be written to standard
+/// output.
+pub fn deliveries(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
+    /// The view's fields, in the specification's order (`spec/domains/session.yaml`).
+    const COLUMNS: [&str; 6] = [
+        "delivery_id",
+        "state",
+        "session_name",
+        "first_line",
+        "body_path",
+        "delivered_at",
+    ];
+
+    let generated = Generated::new(crate::state::open_reader(state)?);
+    let rows = generated
+        .deliveries()
+        .map_err(|unmet| anyhow!("session deliveries: {unmet}"))?;
+    let rows: Vec<Vec<Value>> = rows
+        .into_iter()
+        .map(|row| {
+            vec![
+                Value::from(row.delivery_id.0.0),
+                Value::from(match row.state {
+                    DeliveryState::Delivered => "Delivered",
+                }),
+                Value::from(row.session_name.0),
+                Value::from(row.first_line),
+                Value::from(row.body_path),
+                Value::from(row.delivered_at.0),
+            ]
+        })
+        .collect();
+    crate::store::show(
+        &generated.ports,
+        "deliveries",
+        &view.render(&COLUMNS, &rows),
+    )
+}
+
+/// The ports `DeliverMessage` runs over: the store, opened only once the session was reached,
+/// so a refusal creates none; whether the launcher reached the session, which answers the
+/// specification's `unreachable` branch; and the delivery's id, assigned here.
+struct Delivering {
+    store: Option<Store>,
+    reached: bool,
+}
+
+impl DeliveryStorage for Delivering {
+    fn get(&self, identity: &DeliveryId) -> Option<DeliverySnapshot> {
+        self.store
+            .as_ref()
+            .and_then(|store| DeliveryStorage::get(store, identity))
+    }
+
+    fn put(&mut self, snapshot: DeliverySnapshot) {
+        if let Some(store) = &mut self.store {
+            DeliveryStorage::put(store, snapshot);
+        }
+    }
+
+    fn delete(&mut self, identity: &DeliveryId) {
+        if let Some(store) = &mut self.store {
+            DeliveryStorage::delete(store, identity);
+        }
+    }
+
+    fn list(&self) -> Vec<DeliverySnapshot> {
+        self.store
+            .as_ref()
+            .map(DeliveryStorage::list)
+            .unwrap_or_default()
+    }
+}
+
+impl TryContext for Delivering {
+    fn try_generate_conductor_direction_serving_id(
+        &mut self,
+    ) -> Result<ServingId, UnmetObligation> {
+        Err(unmet_context("conductor.direction.ServingId"))
+    }
+
+    fn try_generate_conductor_dispatch_guard_decision_id(
+        &mut self,
+    ) -> Result<GuardDecisionId, UnmetObligation> {
+        Err(unmet_context("conductor.dispatch.GuardDecisionId"))
+    }
+
+    fn try_generate_conductor_dispatch_message_id(&mut self) -> Result<MessageId, UnmetObligation> {
+        Err(unmet_context("conductor.dispatch.MessageId"))
+    }
+
+    fn try_generate_conductor_dispatch_resource_request_id(
+        &mut self,
+    ) -> Result<ResourceRequestId, UnmetObligation> {
+        Err(unmet_context("conductor.dispatch.ResourceRequestId"))
+    }
+
+    fn try_generate_conductor_host_grant_id(&mut self) -> Result<GrantId, UnmetObligation> {
+        Err(unmet_context("conductor.host.GrantId"))
+    }
+
+    fn try_generate_conductor_host_reclaim_run_id(
+        &mut self,
+    ) -> Result<ReclaimRunId, UnmetObligation> {
+        Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
+
+    fn try_generate_conductor_observation_board_id(&mut self) -> Result<BoardId, UnmetObligation> {
+        Err(unmet_context("conductor.observation.BoardId"))
+    }
+
+    fn try_generate_conductor_observation_observation_id(
+        &mut self,
+    ) -> Result<ObservationId, UnmetObligation> {
+        Err(unmet_context("conductor.observation.ObservationId"))
+    }
+
+    fn try_generate_conductor_observation_snapshot_id(
+        &mut self,
+    ) -> Result<SnapshotId, UnmetObligation> {
+        Err(unmet_context("conductor.observation.SnapshotId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<DeliveryId, UnmetObligation> {
+        Ok(DeliveryId(Uuid(eventlog_core::new_event_id())))
+    }
+
+    fn try_generate_conductor_session_tick_id(&mut self) -> Result<TickId, UnmetObligation> {
+        Err(unmet_context("conductor.session.TickId"))
+    }
+
+    fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<ToolCallId, UnmetObligation> {
+        Err(unmet_context("conductor.tool.ToolCallId"))
+    }
+
+    fn try_external(
+        &mut self,
+        command: ExternalCommand<'_>,
+        outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        match (command, outcome) {
+            (ExternalCommand::ConductorSessionDeliverMessage(_), "unreachable") => {
+                Ok(!self.reached)
+            }
+            (command, _) => Err(unmet_context(command.name())),
+        }
+    }
 }
 
 /// The ports `ClaimLease` runs over: the store. Whether a pid names a live process is read from
@@ -431,15 +747,12 @@ fn state_name(state: LeaseState) -> &'static str {
     }
 }
 
-/// The first prompt of conductor's session (`session start --role conductor`).
-pub const CONDUCTOR_PROMPT: &str = "Start of session. After the session-start reading and the \
-lease check of your profile, arm what wakes you; the hand-over does not list it. Run CronList, \
-then CronCreate each recurring job it does not show: one every cadence.cycle, one at \
-cadence.daily (UTC) for the daily cycle, both values from conductor config show, with the prompts \
-your profile gives. Start the watch once with the Monitor tool: conductor watch run --follow. \
-Then act on the first task of the hand-over your start reading opened, the one committed last \
-(git log -1 --name-only --format= -- docs/handoff/), without reading it again, then run one \
-cycle.";
+/// The first prompt of a director's session (`session start --role director`), started by hand
+/// (`story:run-daemon`): `conductor run` runs the instance's loop, so the session schedules,
+/// watches and relays nothing.
+pub const DIRECTOR_PROMPT: &str = "Start of session. conductor run runs this instance's loop: \
+the cycle, the watch, hand-overs, resumes and relays. Read your profile's start-of-session list, \
+then answer the operator.";
 
 /// The first prompt of conductor-dev's session (`session start --role conductor-dev`).
 pub const DEV_PROMPT: &str = "Start of session. Read your profile's start-of-session list in its \
@@ -451,7 +764,7 @@ instance's state directory (conductor config show prints state), then begin.";
 const SESSION_ROLES: [RoleName; 2] = [RoleName::Director, RoleName::Maintainer];
 
 /// The settings file conductor starts with when its role names none, under the working
-/// directory: the product checkout `task conductor:start` runs in.
+/// directory: the product checkout a director session is started from.
 const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
 
 /// The role `role` of the active instance, when it is one `session start` starts: `director` or
@@ -699,7 +1012,7 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 
 /// `conductor session start --role <role>`: starts the session of `conductor` or
 /// `conductor-dev` under its session name through the provider the instance's `confinement`
-/// names ([`confine`]), delivers its first prompt ([`CONDUCTOR_PROMPT`], [`DEV_PROMPT`]),
+/// names ([`confine`]), delivers its first prompt ([`DIRECTOR_PROMPT`], [`DEV_PROMPT`]),
 /// measures its box and writes the measurement under the state directory. Prints what the
 /// harness printed, then one line naming the session started, its provider and its id.
 ///
@@ -819,7 +1132,7 @@ pub fn start(
         state: state_dir.clone(),
     };
     let prompt = if config::is_role(&found.role, RoleName::Director) {
-        CONDUCTOR_PROMPT
+        DIRECTOR_PROMPT
     } else {
         DEV_PROMPT
     };
@@ -959,21 +1272,136 @@ pub fn stop(
     Ok(ExitCode::SUCCESS)
 }
 
+/// What a [`Deliverer`] put in front of a session (`story:run-daemon`): the session, by its full
+/// name, and the first line of the text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delivery {
+    /// The session's full name.
+    pub session: String,
+    /// The first line of the text delivered.
+    pub first_line: String,
+}
+
+/// Puts a text in front of a running session (docs/design/conductor-run.md § 3): the run
+/// daemon's one way to talk to a session. [`ShellDeliverer`] is the real one; a test gives its
+/// own.
+pub trait Deliverer {
+    /// Delivers `text` to the session `name`.
+    ///
+    /// # Errors
+    ///
+    /// The text was not delivered: the session is not reachable, or the delivery did not run.
+    fn deliver(&self, name: &str, text: &str) -> Result<Delivery>;
+}
+
+/// How long one delivery may take before it is stopped.
+pub const DELIVER_BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The deliverer that runs `conductor session deliver --name <name> --text -` with the text on
+/// standard input (`story:mailbox-send-and-deliver` writes that command: it types the text into
+/// the session's tmux and records the delivery), with the global `--config` and `--state-dir`
+/// the daemon was given, within [`DELIVER_BOUND`]. A session it cannot reach is answered as an
+/// error naming it, never retried here.
+#[derive(Debug, Clone)]
+pub struct ShellDeliverer {
+    /// The `conductor` binary: this process's own.
+    pub program: PathBuf,
+    /// The global `--config`, when the daemon was given one.
+    pub config: Option<PathBuf>,
+    /// The global `--state-dir`, when the daemon was given one.
+    pub state: Option<PathBuf>,
+}
+
+impl ShellDeliverer {
+    /// The deliverer of this process's binary, with the daemon's `config` and `state` flags.
+    ///
+    /// # Errors
+    ///
+    /// The path of this process's binary cannot be read.
+    pub fn current(config: Option<&Path>, state: Option<&Path>) -> Result<Self> {
+        Ok(Self {
+            program: std::env::current_exe().context("read the path of the conductor binary")?,
+            config: config.map(Path::to_owned),
+            state: state.map(Path::to_owned),
+        })
+    }
+}
+
+impl Deliverer for ShellDeliverer {
+    fn deliver(&self, name: &str, text: &str) -> Result<Delivery> {
+        use std::process::{Command, Stdio};
+        let mut command = Command::new(&self.program);
+        if let Some(config) = &self.config {
+            command.arg("--config").arg(config);
+        }
+        if let Some(state) = &self.state {
+            command.arg("--state-dir").arg(state);
+        }
+        command
+            .args(["session", "deliver", "--name", name, "--text", "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let shown = format!("conductor session deliver --name {name} --text -");
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("start `{shown}`"))?;
+        if let Some(mut input) = child.stdin.take() {
+            input
+                .write_all(text.as_bytes())
+                .with_context(|| format!("write the text to `{shown}`"))?;
+        }
+        let started = std::time::Instant::now();
+        while child
+            .try_wait()
+            .with_context(|| format!("wait for `{shown}`"))?
+            .is_none()
+        {
+            if started.elapsed() >= DELIVER_BOUND {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!(
+                    "`{shown}` gave no answer within {} s",
+                    DELIVER_BOUND.as_secs()
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let output = child
+            .wait_with_output()
+            .with_context(|| format!("read what `{shown}` said"))?;
+        if !output.status.success() {
+            bail!("`{shown}` {}", confine::exited(&output));
+        }
+        Ok(Delivery {
+            session: name.to_owned(),
+            first_line: text.lines().next().unwrap_or_default().to_owned(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::CONDUCTOR_PROMPT;
+    use super::DIRECTOR_PROMPT;
 
-    /// `story:conductor-context-budget`: the profile's start reading opens the newest hand-over,
-    /// so the first prompt acts on it and does not have it read a second time.
+    /// `story:run-daemon`: `conductor run` runs the loop, so a director's first prompt arms no
+    /// timer, starts no watch and asks for no restart; and, as before
+    /// (`story:conductor-context-budget`), it has no hand-over read a second time.
     #[test]
-    fn the_first_prompt_does_not_read_the_hand_over_again() {
+    fn the_director_s_first_prompt_arms_nothing_the_daemon_runs() {
+        for gone in [
+            "CronCreate",
+            "CronList",
+            "Monitor",
+            "watch run",
+            "[RESTART",
+            "read the hand-over",
+        ] {
+            assert!(!DIRECTOR_PROMPT.contains(gone), "{gone}: {DIRECTOR_PROMPT}");
+        }
         assert!(
-            !CONDUCTOR_PROMPT.contains("read the hand-over"),
-            "{CONDUCTOR_PROMPT}"
-        );
-        assert!(
-            CONDUCTOR_PROMPT.contains("act on the first task of the hand-over"),
-            "{CONDUCTOR_PROMPT}"
+            DIRECTOR_PROMPT.contains("conductor run runs this instance's loop"),
+            "{DIRECTOR_PROMPT}"
         );
     }
 }

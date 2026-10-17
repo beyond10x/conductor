@@ -381,9 +381,15 @@ types:
   # make no progress, neither a report conductor received nor a commit in its checkout or any of
   # its trees, before the watch reports it stalled, and how long a host grant may stay `Requested`
   # before the watch reports the build queued (story:watch-stalled-sessions), each a duration as
-  # `cadence` writes one. Absent, the filesystem is `/`, the silence 30 minutes, the reserve 2
-  # cores, the build slots 3, the repository cache `on` and its size 2G, the short-lane slots 1
-  # and their longest p90 3 minutes, the stall 45 minutes and the queued build 30 minutes.
+  # `cadence` writes one. Then how long a managed tree that is dirty or unmerged may be untouched
+  # before reclaim removes its `target/` and lists it stale, kept (story:gc-finished-trees), a
+  # duration as `cadence` writes one. Absent, the filesystem is `/`, the silence 30 minutes, the
+  # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G, the short-lane
+  # slots 1 and their longest p90 3 minutes, the stall 45 minutes, the queued build 30 minutes and
+  # the staleness 48 hours. Whether `build run` gives a cargo-based command line-table-only debug
+  # information, `lean_debuginfo` (story:build-run-lean-debuginfo): `CARGO_PROFILE_DEV_DEBUG` and
+  # `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only`, each unless the environment sets it or
+  # the workspace manifest sets that profile's `debug`; absent, true.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -402,10 +408,12 @@ types:
       - {name: build_slots, type: Integer}
       - {name: repo_cache, type: conductor.config.RepoCache}
       - {name: repo_cache_size, type: conductor.config.Gibibytes}
+      - {name: lean_debuginfo, type: Boolean}
       - {name: short_lane_slots, type: Integer}
       - {name: short_lane_max, type: Duration}
       - {name: stalled_session, type: Duration}
       - {name: build_queued, type: Duration}
+      - {name: tree_stale, type: Duration}
     invariants:
       - gate_resume > gate_stop
       - cpu_reserve >= 0

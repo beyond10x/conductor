@@ -1,0 +1,84 @@
+# story:mailbox-send-and-deliver, docs/design/conductor-run.md § 3: a controller's report goes
+# through the mailbox (`conductor message send`) as a message with transport Mailbox and the path
+# of its body file; a mailbox message without that path is refused; and the run daemon's
+# `[HANDOVER]` reaches the controller's session through `conductor session deliver`, recorded as
+# a delivery with its time.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: mailbox-send-and-deliver
+summary: A report through the mailbox is received with transport Mailbox and its body path, one without the path is refused, and a hand-over delivered to the session is recorded.
+
+timeline:
+  - at: 2026-10-17T09:00:00Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.RepositoryController
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Report
+      first_line: "[REPORT cortex DSP-run-01] started on the brief"
+      transport: Mailbox
+      received_at: 2026-10-17T09:00:00Z
+      body_path: mailbox/conductor/01K7Q0000000000000000000A0.md
+      parsed: true
+    outcome: received
+
+  - at: 2026-10-17T09:00:01Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.RepositoryController
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Report
+      first_line: "[REPORT cortex DSP-run-01] progress half the tests pass"
+      transport: Mailbox
+      received_at: 2026-10-17T09:00:01Z
+      parsed: true
+    outcome: mailbox-without-body
+    error:
+      name: conductor.dispatch.MailboxBodyMissing
+
+  # Both refusals hold: the missing body answers first, so nothing is recorded, where an
+  # unparsed line over SendMessage would be kept as Rejected.
+  - at: 2026-10-17T09:00:02Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.RepositoryController
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Unknown
+      first_line: hello
+      transport: Mailbox
+      received_at: 2026-10-17T09:00:02Z
+      parsed: false
+    outcome: mailbox-without-body
+    error:
+      name: conductor.dispatch.MailboxBodyMissing
+
+  - at: 2026-10-17T09:05:00Z
+    command: conductor.session.DeliverMessage
+    actor: conductor.session.Conductor
+    input:
+      session_name: cortex
+      first_line: "[HANDOVER cortex] context 210k"
+      body_path: mailbox/cortex/01K7Q0000000000000000000B0.md
+      delivered_at: 2026-10-17T09:05:00Z
+    outcome: delivered
+
+assert:
+  - view: conductor.dispatch.Messages
+    contains:
+      sender: cortex
+      recipient: conductor
+      kind: Report
+      first_line: "[REPORT cortex DSP-run-01] started on the brief"
+      transport: Mailbox
+      body_path: mailbox/conductor/01K7Q0000000000000000000A0.md
+      state: Received
+  - view: conductor.session.Deliveries
+    contains:
+      session_name: cortex
+      first_line: "[HANDOVER cortex] context 210k"
+      body_path: mailbox/cortex/01K7Q0000000000000000000B0.md
+      delivered_at: 2026-10-17T09:05:00Z
+      state: Delivered

@@ -84,7 +84,7 @@ A `gitlab` source names the host its group is on, such as `host: gitlab.example.
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.18.2 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.18.3 --locked conductor-cli
 conductor doctor
 ```
 
@@ -94,7 +94,7 @@ from the release instead: each GitHub Release from `v0.6.0` on carries
 `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
 
 ```console
-version=0.18.2 target=x86_64-unknown-linux-gnu
+version=0.18.3 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -112,7 +112,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 `conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
 `tar` and `sha256sum` (or `shasum` on macOS).
 
-`conductor --version` prints the installed version, `conductor 0.18.2`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 0.18.3`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.
@@ -156,11 +156,6 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
 
    ```yaml
        roles:
-         - role: conductor
-           harness: claude
-           model: opus
-           profile: ~/.b10x/conductor/profiles/conductor.md
-           settings: ~/example-org/conductor/.claude/conductor-settings.json
          - role: conductor-dev
            harness: claude
            model: opus
@@ -175,18 +170,19 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
 3. `task trust` marks every checkout under `checkouts.root` and the records directory as trusted
    Claude Code workspaces.
 4. Accept Claude Code's bypass-permissions disclaimer once: run
-   `claude --dangerously-skip-permissions` interactively in the records directory, or set
-   `"skipDangerousModePermissionPrompt": true` in the role's settings file. `task conductor:start`
-   refuses until one is in place.
-5. `task conductor:start` starts conductor in the background in the records directory;
-   `task conductor:attach` opens it in this terminal. `task sessions` lists the sessions and
-   `task dashboard` serves the dashboard on http://127.0.0.1:7313/.
+   `claude --dangerously-skip-permissions` interactively in a checkout, or set
+   `"skipDangerousModePermissionPrompt": true` in the role's settings file.
+5. `conductor run --install` starts the instance's loop, `conductor run`, as the user unit
+   `conductor_<instance>-run.service`: the watch, the cycle, the mailbox and dispatch from the
+   charters in `<records>/charters/`, with no conductor session (`conductor run --once` runs one
+   watch and one cycle tick). `task sessions` lists the sessions and `task dashboard` serves the
+   dashboard on http://127.0.0.1:7313/.
 
 Sessions start with `--setting-sources project,local`, so your user-level settings and agents are
 not loaded; the role's settings file carries what the session needs.
 
 For an interactive session of your own in one repository, `task agents:link REPO=<path>` links
-this checkout's agents (`conductor`, `repo-controller`, `conductor-dev`) into
+this checkout's agents (`repo-controller`, `conductor-dev`) into
 `<path>/.claude/agents/` and lists each link in that repository's `.git/info/exclude`. It writes
 nothing to `~/.claude/agents/`, and removes the links an earlier version of the task left there.
 

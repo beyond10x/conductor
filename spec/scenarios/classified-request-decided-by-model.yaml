@@ -1,0 +1,84 @@
+# story:decide-model-adapter, docs/design/conductor-run.md § 3: the run daemon classifies a
+# request in code and records the rule on it; `none` matched, so the request is class C and the
+# `Decider` adapter answers it with one bounded prompt, recorded with the adapter's name and the
+# prompt's SHA-256 as evidence. Class O and H stay the operator's: a class-O record by conductor
+# is refused as before, whatever evidence it carries.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: classified-request-decided-by-model
+summary: A request no rule classified is class C and answered by a conductor decision carrying the decider's name and the prompt's hash; a class-O record by conductor stays refused.
+
+timeline:
+  - at: 2026-10-17T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-model-01
+      repository: cortex
+      question: Which test runner does the new crate use?
+      options: "A: the workspace's runner; B: a runner of its own"
+      recommendation: A
+      raised_at: 2026-10-17T09:00:00Z
+      classification_rule: none
+    outcome: raised
+
+  - at: 2026-10-17T09:00:05Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-model-01
+      decision_class: C
+      question: Which test runner does the new crate use?
+      options: "A: the workspace's runner; B: a runner of its own"
+      choice: A
+      reason: one runner for the workspace, as the repository's rules say
+      evidence: "decider=claude-print prompt=sha256"
+      decided_at: 2026-10-17T09:00:05Z
+      repository: cortex
+      decider_name: claude-print
+      prompt_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+    outcome: recorded
+
+  - at: 2026-10-17T09:00:06Z
+    command: conductor.decision.AnswerRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-model-01
+      decision_id: DEC-model-01
+    outcome: answered
+
+  - at: 2026-10-17T09:01:00Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-model-02
+      decision_class: O
+      question: Does the crate move to a repository of its own?
+      options: "A: yes; B: no"
+      choice: B
+      reason: the adapter would answer it, but the class is the operator's
+      evidence: "decider=claude-print prompt=sha256"
+      decided_at: 2026-10-17T09:01:00Z
+      repository: cortex
+      decider_name: claude-print
+      prompt_sha256: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
+    outcome: reserved
+    error:
+      name: conductor.decision.ReservedForOperator
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-model-01
+      state: Answered
+      classification_rule: none
+      decision_id: DEC-model-01
+  - view: conductor.decision.Decisions
+    contains:
+      decision_id: DEC-model-01
+      state: InForce
+      decision_class: C
+      decided_by: Conductor
+      choice: A
+      decider_name: claude-print
+      prompt_sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08

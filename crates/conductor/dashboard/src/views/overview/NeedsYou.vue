@@ -27,6 +27,7 @@ withDefaults(defineProps<{ cards: NeedCard[]; error?: string | null }>(), { erro
           <template v-if="card.repository !== null">: </template>{{ card.text }}
         </div>
         <code class="cmd">{{ card.command }}</code>
+        <a v-if="card.link !== null" class="small" :href="card.link">open it on the Decisions page</a>
       </div>
     </div>
   </section>

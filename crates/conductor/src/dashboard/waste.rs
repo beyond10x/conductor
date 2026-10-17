@@ -818,7 +818,7 @@ fn state(size: &TreeSize) -> String {
 }
 
 /// The JSON `command` prints, or the row state that says why there is none.
-fn json_of(command: &[OsString], timeout: Duration) -> Result<Value, String> {
+pub(crate) fn json_of(command: &[OsString], timeout: Duration) -> Result<Value, String> {
     let shown = super::command_line(command);
     match run(command, timeout) {
         Ran::Done {

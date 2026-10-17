@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8
-// contract digest ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018
+// model digest cef836f319668d2492af74e7071a0a12fe762ad06c7635432c0f51a06be91469
+// contract digest 1cb1dde36edec20c87f5fbc7455900f69fed5276ffdef4838c372cc21d625df7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -137,6 +137,7 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.dispatch.StopController",
         ],
         Actor::DispatchRepositoryController => &[
+            "conductor.dispatch.ReceiveMessage",
             "conductor.dispatch.RecordGuardDecision",
             "conductor.dispatch.ReleaseResource",
             "conductor.dispatch.ReportBlocked",
@@ -180,6 +181,8 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
         ],
         Actor::SessionConductor => &[
             "conductor.session.ClaimLease",
+            "conductor.session.DeliverMessage",
+            "conductor.session.RecordRunTick",
         ],
         Actor::ToolInstanceBroker => &[
             "conductor.dispatch.ReceiveMessage",

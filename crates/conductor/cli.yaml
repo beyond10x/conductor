@@ -46,6 +46,11 @@ callables:
     input: conductor.decision.ShowDecision
     result: String
     errors: {}
+  decision-handle:
+    target: {kind: local, owner: conductor-cli, action: decision_handle}
+    input: conductor.decision.HandleRequest
+    result: String
+    errors: {}
   need-new:
     target: {kind: local, owner: conductor-cli, action: need_new}
     input: conductor.direction.NewNeed
@@ -120,6 +125,17 @@ callables:
       launch-failed: conductor.dispatch.SpawnRefused
       provider-unavailable: conductor.dispatch.SpawnRefused
       measurement-short: conductor.dispatch.SpawnRefused
+  message-send:
+    target: {kind: local, owner: conductor-cli, action: message_send}
+    input: conductor.dispatch.SendToMailbox
+    result: String
+    errors:
+      unparsed: conductor.dispatch.MailboxSendRefused
+  session-deliver:
+    target: {kind: local, owner: conductor-cli, action: session_deliver}
+    input: conductor.session.DeliverToSession
+    result: String
+    errors: {}
   session-start:
     target: {kind: local, owner: conductor-cli, action: session_start}
     input: conductor.session.StartSession
@@ -137,6 +153,20 @@ callables:
     errors:
       unknown-role: conductor.session.SessionStopRefused
       not-running: conductor.session.SessionStopRefused
+  session-attach:
+    target: {kind: local, owner: conductor-cli, action: session_attach}
+    input: conductor.session.AttachSession
+    result: String
+    errors:
+      inside-session: conductor.session.SessionAttachRefused
+      unknown-session: conductor.session.SessionAttachRefused
+      not-attachable: conductor.session.SessionAttachRefused
+      ambiguous: conductor.session.SessionAttachRefused
+  session-list:
+    target: {kind: local, owner: conductor-cli, action: session_list}
+    input: conductor.session.ListSessions
+    result: List<conductor.session.AttachableSession>
+    errors: {}
   records-check:
     target: {kind: local, owner: conductor-cli, action: records_check}
     input: conductor.dispatch.CheckRecords
@@ -202,6 +232,11 @@ callables:
     input: null
     result: String
     errors: {}
+  run:
+    target: {kind: local, owner: conductor-cli, action: run}
+    input: conductor.session.RunDaemon
+    result: String
+    errors: {}
 commands:
   - path: [goal, goals]
     callable: goals
@@ -263,6 +298,14 @@ commands:
         source: {kind: option, long: decision-id}
       - field: format
         source: {kind: option, long: format}
+  - path: [decision, handle]
+    callable: decision-handle
+    about: Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line
+    arguments:
+      - field: request
+        source: {kind: option, long: request}
+      - field: decider
+        source: {kind: option, long: decider}
   - path: [need, new]
     callable: need-new
     about: Print the next NEED id no earlier NEED used, N-<yyyymmdd>-<nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
@@ -341,6 +384,24 @@ commands:
     arguments:
       - field: repository
         source: {kind: option, long: repository}
+  - path: [message, send]
+    callable: message-send
+    about: "Send a message through the mailbox: read --text, a file or - for standard input, and its first line; leave the whole text as <state>/mailbox/<to>/<ulid>.md and record it received with transport Mailbox and that body path, then print its id; print the format, exit 1 and write nothing when the first line does not parse"
+    arguments:
+      - field: to
+        source: {kind: option, long: to}
+      - field: from
+        source: {kind: option, long: from}
+      - field: text
+        source: {kind: option, long: text}
+  - path: [session, deliver]
+    callable: session-deliver
+    about: "Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as <state>/mailbox/delivered/<ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again"
+    arguments:
+      - field: name
+        source: {kind: option, long: name}
+      - field: text
+        source: {kind: option, long: text}
   - path: [session, start]
     callable: session-start
     about: Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
@@ -353,6 +414,26 @@ commands:
     arguments:
       - field: role
         source: {kind: option, long: role}
+  - path: [session, attach]
+    callable: session-attach
+    about: "Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
+    arguments:
+      - field: name
+        source: {kind: option, long: name}
+      - field: role
+        source: {kind: option, long: role}
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: watch
+        source: {kind: option, long: watch}
+  - path: [session, list]
+    callable: session-list
+    about: "Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)"
+    arguments:
+      - field: instance
+        source: {kind: option, long: instance}
+      - field: format
+        source: {kind: option, long: format}
   - path: [records, check]
     callable: records-check
     about: Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log
@@ -373,6 +454,8 @@ commands:
         source: {kind: option, long: brief}
       - field: changed_since
         source: {kind: option, long: changed-since}
+      - field: role
+        source: {kind: option, long: role}
   - path: [upgrade]
     callable: upgrade
     about: Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release
@@ -439,3 +522,13 @@ commands:
     callable: broker-serve
     about: Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
     arguments: []
+  - path: [run]
+    callable: run
+    about: Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    arguments:
+      - field: once
+        source: {kind: option, long: once}
+      - field: install
+        source: {kind: option, long: install}
+      - field: uninstall
+        source: {kind: option, long: uninstall}

@@ -68,9 +68,24 @@ impl Drop for Case {
     }
 }
 
+/// Removes the two debug-information variables from this process once, so the cases see what
+/// `build run` sets and not what the operator's shell passed down
+/// (`story:build-run-lean-debuginfo`).
+fn forget_inherited_debuginfo() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        for name in ["CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG"] {
+            // SAFETY: nothing else in this test binary reads or writes these two names, and
+            // `Command` takes std's own environment lock.
+            unsafe { std::env::remove_var(name) };
+        }
+    });
+}
+
 impl Case {
     fn new(name: &str) -> Self {
         active::isolate();
+        forget_inherited_debuginfo();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("build_run")
             .join(name);
@@ -210,6 +225,7 @@ fn settings() -> Settings {
         slots: 0,
         repo_cache: true,
         repo_cache_size: 2 * GIB,
+        lean_debuginfo: true,
         short_slots: 0,
         short_max: Duration::from_secs(180),
     }
@@ -3595,4 +3611,101 @@ fn a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger() {
     });
     let row = case.grant_row(PAYLOAD).expect("the grant is listed");
     assert_eq!(row["release_reason"], "ProcessGroupGone", "{row}");
+}
+
+/// `story:build-run-lean-debuginfo`: what a run's command sees of the two debug variables, as
+/// `dev,test` (an unset one empty). `cargo` in the script makes the command cargo-based.
+fn debug_seen(case: &Case, settings: &Settings, sources: &Sources, script: &str) -> String {
+    let script = format!(
+        ": {script}; echo \"$CARGO_PROFILE_DEV_DEBUG,$CARGO_PROFILE_TEST_DEBUG\" > debug.txt"
+    );
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        settings,
+        sources,
+        &case.request(GIB, &script),
+    )
+    .expect("the run ends");
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    fs::read_to_string(case.work().join("debug.txt"))
+        .expect("the command wrote debug.txt")
+        .trim()
+        .to_owned()
+}
+
+const LEAN: &str = "line-tables-only";
+
+/// Acceptance 1: a cargo-based command gets both variables when nothing sets them; a command that
+/// is not cargo-based gets neither.
+#[test]
+fn a_cargo_command_gets_line_tables_only_for_dev_and_test() {
+    let case = Case::new("lean-set");
+    let sources = case.sources(reclaim_nothing);
+    let seen = debug_seen(&case, &settings(), &sources, "cargo test");
+    assert_eq!(seen, format!("{LEAN},{LEAN}"));
+    let other = debug_seen(&case, &settings(), &sources, "make");
+    assert_eq!(
+        other, ",",
+        "a command that is not cargo-based is left alone"
+    );
+}
+
+/// A variable the environment sets is kept (the child inherits it, so `build run` must not set
+/// it); the other is still set.
+#[test]
+fn a_debug_variable_the_environment_sets_is_kept() {
+    let case = Case::new("lean-env");
+    let sources = Sources {
+        env: |name| (name == "CARGO_PROFILE_DEV_DEBUG").then(|| "full".to_owned()),
+        ..case.sources(reclaim_nothing)
+    };
+    let seen = debug_seen(&case, &settings(), &sources, "cargo build");
+    assert_eq!(
+        seen,
+        format!(",{LEAN}"),
+        "dev is the environment's to set, test is set"
+    );
+}
+
+/// Acceptance 2: a workspace manifest that sets a profile's `debug` keeps it. `profile.test`
+/// inherits `profile.dev`, so a `dev` setting also keeps the test variable off; a `test` setting
+/// leaves dev's.
+#[test]
+fn a_manifest_that_sets_profile_debug_keeps_its_setting() {
+    let case = Case::new("lean-manifest");
+    let manifest = |text: &str| {
+        fs::write(case.work().join("Cargo.toml"), text).expect("write the case's Cargo.toml");
+    };
+    let seen = || {
+        let sources = case.sources(reclaim_nothing);
+        debug_seen(&case, &settings(), &sources, "cargo test")
+    };
+    manifest("[package]\nname = \"x\"\n\n[profile.dev]\nopt-level = 1\ndebug = \"full\"\n");
+    assert_eq!(seen(), ",", "profile.dev.debug");
+    manifest("[package]\nname = \"x\"\n\n[profile.test]\n debug=1 # keep\n");
+    assert_eq!(seen(), format!("{LEAN},"), "profile.test.debug");
+    manifest(
+        "[package]\nname = \"x\"\n\n[profile.dev.package.\"*\"]\ndebug = false\n\
+         [profile.release]\ndebug = true\n",
+    );
+    assert_eq!(
+        seen(),
+        format!("{LEAN},{LEAN}"),
+        "other tables are not the profile's own"
+    );
+    manifest("[package]\nname = \"x\"\n[profile]\ndev.debug = 0\n");
+    assert_eq!(seen(), ",", "a dotted key");
+}
+
+/// `thresholds.lean_debuginfo` false turns it off.
+#[test]
+fn the_threshold_off_sets_neither_variable() {
+    let case = Case::new("lean-off");
+    let off = Settings {
+        lean_debuginfo: false,
+        ..settings()
+    };
+    let sources = case.sources(reclaim_nothing);
+    assert_eq!(debug_seen(&case, &off, &sources, "cargo test"), ",");
 }

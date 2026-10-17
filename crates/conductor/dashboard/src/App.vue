@@ -4,13 +4,12 @@ import { cell, gib } from './format';
 import type { DashboardData } from './types';
 import SessionsPanel from './panels/SessionsPanel.vue';
 import WatchPanel from './panels/WatchPanel.vue';
-import RedCiPanel from './panels/RedCiPanel.vue';
 import AwaitingPanel from './panels/AwaitingPanel.vue';
 import DecisionsPanel from './panels/DecisionsPanel.vue';
-import DiskWastePanel from './panels/DiskWastePanel.vue';
 import TokenSpendPanel from './panels/TokenSpendPanel.vue';
 import ErrorsPanel from './panels/ErrorsPanel.vue';
 import PanelState from './components/PanelState.vue';
+import SnapshotAge from './components/SnapshotAge.vue';
 import Overview from './views/Overview.vue';
 import Repo from './views/Repo.vue';
 import Health from './views/Health.vue';
@@ -19,12 +18,13 @@ import Kpis from './views/Kpis.vue';
 import Decisions from './views/Decisions.vue';
 
 /**
- * The view a hash names: `#/` the overview, `#/decisions` (story:decisions-page), `#/repo/<name>`,
+ * The view a hash names: `#/` the overview, `#/decisions` (story:decisions-page) and
+ * `#/decisions/<id>`, the page at that open item (story:sessions-page-coherent), `#/repo/<name>`,
  * `#/metrics`, `#/kpis`, `#/health`, `#/sessions`.
  */
 type Route =
   | { view: 'overview' }
-  | { view: 'decisions' }
+  | { view: 'decisions'; item: string | null }
   | { view: 'repo'; name: string }
   | { view: 'metrics' }
   | { view: 'kpis' }
@@ -37,9 +37,13 @@ function routeOf(hash: string): Route {
   if (repo !== null) {
     return { view: 'repo', name: decodeURIComponent(repo[1] ?? '') };
   }
+  const item = /^\/decisions\/(.+)$/.exec(path);
+  if (item !== null) {
+    return { view: 'decisions', item: decodeURIComponent(item[1] ?? '') };
+  }
   switch (path) {
     case '/decisions':
-      return { view: 'decisions' };
+      return { view: 'decisions', item: null };
     case '/metrics':
       return { view: 'metrics' };
     case '/kpis':
@@ -176,7 +180,11 @@ onBeforeUnmount(() => {
   </header>
   <main id="main" tabindex="-1">
     <Overview v-if="route.view === 'overview'" />
-    <Decisions v-else-if="route.view === 'decisions'" />
+    <Decisions
+      v-else-if="route.view === 'decisions'"
+      :key="route.item ?? ''"
+      :item="route.item"
+    />
     <Repo v-else-if="route.view === 'repo'" :name="route.name" />
     <Metrics v-else-if="route.view === 'metrics'" />
     <Kpis v-else-if="route.view === 'kpis'" />
@@ -189,23 +197,27 @@ onBeforeUnmount(() => {
       >
       <template v-if="data !== null">
         <p class="summary small muted">
-          read {{ data.generated_at }} · free on {{ data.disk.path }}:
-          {{ gib(data.disk.free_bytes) }} of {{ gib(data.disk.size_bytes) }} · controllers running:
-          {{ data.controllers }} · build slot: {{ cell(data.build_slot) }}
+          read {{ data.generated_at }} · sessions: {{ data.sessions.length }} · controllers
+          running: {{ data.controllers }} · free on {{ data.disk.path }}:
+          {{ gib(data.disk.free_bytes) }} of {{ gib(data.disk.size_bytes) }} · build slot:
+          {{ cell(data.build_slot) }}
+        </p>
+        <SnapshotAge :snapshot="data.snapshot" />
+        <p class="moved small muted">
+          Red CI on main is on the <a href="#/">Overview</a>; disk waste is on
+          <a href="#/health">Health</a>.
         </p>
         <SessionsPanel :data="data" />
-        <WatchPanel :data="data" />
-        <RedCiPanel :data="data" />
         <AwaitingPanel :data="data" />
+        <WatchPanel :data="data" />
         <DecisionsPanel :data="data" />
-        <DiskWastePanel :data="data" />
         <TokenSpendPanel :data="data" />
         <ErrorsPanel :data="data" />
       </template>
     </template>
   </main>
   <footer v-if="data !== null" class="small muted">
-    sessions from <code>{{ data.reading.sessions }}</code> · records under {{ data.reading.root }} ·
-    CI from {{ data.reading.ci_state }} · reads again every 20 s
+    sessions from the instance's records and <code>{{ data.reading.sessions }}</code> · records
+    under {{ data.reading.root }} · reads again every 20 s
   </footer>
 </template>

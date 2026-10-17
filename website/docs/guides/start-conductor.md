@@ -134,11 +134,13 @@ The task refuses, and starts nothing, when:
 At session start conductor reads its profile, the instance's `rules.md`, the design and its newest
 records, schedules its cycles and starts `conductor watch run --follow`.
 
-:::note[Prefixed instances]
+:::note[Watch or type into a running session]
 
-`task sessions` and `task conductor:attach` look for the bare names `conductor` and
-`conductor-dev`. For an instance with a `session_prefix`, list its sessions with
-`claude agents --json` and attach with `claude attach <id>`.
+`conductor session attach` opens a picker of every instance's sessions; Enter attaches, `w`
+watches read-only, and `ctrl-]` then `d` detaches while the session runs on. Attach to one
+directly with `conductor session attach --name <session name>` or `--role conductor`, and list
+them with `conductor session list`. It works from any directory and for any harness. A session
+started before the tmux launcher can only be watched until it restarts.
 
 :::
 

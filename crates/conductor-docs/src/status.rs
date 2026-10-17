@@ -349,8 +349,8 @@ pub const CAPABILITIES: &[Capability] = &[
     shipped(
         DASHBOARD,
         "Session table",
-        "The dashboard's data holds one row per session under the checkouts root, with its dispatch.",
-        "crates/conductor/tests/dashboard.rs::data_json_holds_one_row_per_session_under_the_checkouts_root_with_its_dispatch",
+        "The dashboard's data holds one row per session of the instance, from its records, each controller with its dispatch.",
+        "crates/conductor/tests/dashboard.rs::data_json_holds_one_row_per_session_of_the_instance_with_its_dispatch",
         Some("/docs/reference/cli#conductor-dashboard-serve"),
     ),
     shipped(

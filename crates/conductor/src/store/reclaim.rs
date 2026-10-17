@@ -179,6 +179,8 @@ fn kind_name(kind: ReclaimKind) -> &'static str {
         ReclaimKind::ArchiveBuildOutput => "ArchiveBuildOutput",
         ReclaimKind::Cache => "Cache",
         ReclaimKind::Snapshot => "Snapshot",
+        ReclaimKind::FinishedTree => "FinishedTree",
+        ReclaimKind::StaleTreeBuildOutput => "StaleTreeBuildOutput",
     }
 }
 
@@ -188,6 +190,8 @@ fn kind_named(name: &str) -> Option<ReclaimKind> {
         ReclaimKind::ArchiveBuildOutput,
         ReclaimKind::Cache,
         ReclaimKind::Snapshot,
+        ReclaimKind::FinishedTree,
+        ReclaimKind::StaleTreeBuildOutput,
     ]
     .into_iter()
     .find(|kind| kind_name(*kind) == name)

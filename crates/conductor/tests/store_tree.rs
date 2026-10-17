@@ -30,6 +30,10 @@
 //! `recommended_letters`, `default_letters` and `deadline` columns, last in each row:
 //! `decision-requests.json` holds them as `null`, which is what this build reads from a request
 //! escalated, or not escalated, without them.
+//! `story:decide-model-adapter` added the requests view's `classification_rule` column after
+//! `blocker`, and the decisions view's `decider_name` and `prompt_sha256` columns, last in each
+//! row: `decision-requests.json`, `decision-decisions.json` and `decision-show.json` hold them as
+//! `null`, which is what this build reads from a request or decision recorded without them.
 //! `story:policy-secret-drift` and `story:usage-probe` added the secret-syncs and usage-readings
 //! views, which no build before them could record. The committed store stays as it was;
 //! [`fixture_store`] appends one observation of each to a copy of it, in the first snapshot,
@@ -395,10 +399,16 @@ fn file_store_counts(root: &Path) -> BTreeMap<String, (usize, usize)> {
 /// is read by `tests/build_run.rs`. `metric-metrics`, `metric-kpis`, `metric-metric-readings` and
 /// `metric-kpi-readings` are read by `tests/metric.rs` (`story:kpi-records`), whose
 /// `a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_target` and
-/// `the_metric_commands_answer_their_declared_refusals` read all four. `host-reclaim-runs` and
-/// `finding-findings` have no handler yet.
-const NOT_IN_FIXTURE: [&str; 10] = [
+/// `the_metric_commands_answer_their_declared_refusals` read all four. `session-deliveries` is
+/// read by `tests/deliver.rs` (`story:mailbox-send-and-deliver`), whose
+/// `the_deliveries_view_lists_each_delivery` reads `session deliveries`. `session-run-ticks` is
+/// read by `tests/run.rs` (`story:run-daemon`), whose `a_tick_is_recorded_and_listed` and every
+/// `run --once` case read `session run-ticks`; no build before it recorded a tick.
+/// `host-reclaim-runs` and `finding-findings` have no handler yet.
+const NOT_IN_FIXTURE: [&str; 12] = [
     "session-leases",
+    "session-deliveries",
+    "session-run-ticks",
     "snapshot-member-failures",
     "snapshot-collector-runs",
     "host-grants",

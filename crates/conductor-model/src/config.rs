@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8
-// contract digest ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018
+// model digest cef836f319668d2492af74e7071a0a12fe762ad06c7635432c0f51a06be91469
+// contract digest 1cb1dde36edec20c87f5fbc7455900f69fed5276ffdef4838c372cc21d625df7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -614,6 +614,8 @@ pub struct Thresholds {
     pub repo_cache: RepoCache,
     /// `repo_cache_size` — `conductor.config.Gibibytes`.
     pub repo_cache_size: Gibibytes,
+    /// `lean_debuginfo` — `Boolean`.
+    pub lean_debuginfo: bool,
     /// `short_lane_slots` — `Integer`.
     pub short_lane_slots: i64,
     /// `short_lane_max` — `Duration`.
@@ -622,6 +624,8 @@ pub struct Thresholds {
     pub stalled_session: crate::primitives::Duration,
     /// `build_queued` — `Duration`.
     pub build_queued: crate::primitives::Duration,
+    /// `tree_stale` — `Duration`.
+    pub tree_stale: crate::primitives::Duration,
 }
 
 /// TimeOfDay — `conductor.config.TimeOfDay`: a distinct wrapper around `String`.

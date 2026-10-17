@@ -29,7 +29,7 @@ use conductor_cli::collect::Collector;
 use conductor_cli::collect::sessions::{self, Sources};
 use conductor_cli::config;
 use conductor_cli::confine::places::{self, Placement};
-use conductor_cli::session::{CONDUCTOR_PROMPT, DEV_PROMPT};
+use conductor_cli::session::{DEV_PROMPT, DIRECTOR_PROMPT};
 use conductor_cli::snapshot;
 use conductor_model::config::{Checkouts, Harness, Writable};
 use fake_provider::{Child, call_names, calls};
@@ -747,7 +747,7 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             settings.display().to_string(),
         ])
     );
-    assert_eq!(logged[1]["prompt"], CONDUCTOR_PROMPT);
+    assert_eq!(logged[1]["prompt"], DIRECTOR_PROMPT);
     assert_eq!(case.claude_calls(), "", "the fake provider ran no claude");
 
     let output = case.start("conductor-dev");
@@ -911,7 +911,7 @@ fn director_and_conductor_start_the_same_role_the_old_name_with_a_note() {
             logged[0]["request"]["cwd"],
             case.records().display().to_string()
         );
-        assert_eq!(logged[1]["prompt"], CONDUCTOR_PROMPT, "{role}");
+        assert_eq!(logged[1]["prompt"], DIRECTOR_PROMPT, "{role}");
         let note = stderr(&output);
         assert_eq!(
             note.contains("--role conductor is the old name of director"),

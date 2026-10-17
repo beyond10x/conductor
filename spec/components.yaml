@@ -82,6 +82,8 @@ components:
         - conductor.dispatch.ReleaseResource
         - conductor.dispatch.RecordGuardDecision
         - conductor.session.ClaimLease
+        - conductor.session.DeliverMessage
+        - conductor.session.RecordRunTick
         - conductor.host.TakeHostGrant
         - conductor.host.RequestDisk
         - conductor.host.ReserveDisk
@@ -154,6 +156,8 @@ components:
         - conductor.dispatch.GuardDecisionRecorded
         - conductor.session.LeaseTaken
         - conductor.session.LeaseTakenOver
+        - conductor.session.MessageDelivered
+        - conductor.session.RunTickRecorded
         - conductor.host.HostGrantTaken
         - conductor.host.DiskRequested
         - conductor.host.DiskReserved
@@ -295,11 +299,15 @@ components:
           views:
             - conductor.dispatch.GuardDecisions
         - name: session
-          summary: The instance's one conductor session and the lease it holds
+          summary: The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks
           commands:
             - conductor.session.ClaimLease
+            - conductor.session.DeliverMessage
+            - conductor.session.RecordRunTick
           views:
             - conductor.session.Leases
+            - conductor.session.Deliveries
+            - conductor.session.RunTicks
         - name: host
           summary: The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk
           commands:

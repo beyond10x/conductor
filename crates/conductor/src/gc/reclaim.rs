@@ -11,6 +11,9 @@
 //! for, applies in order the reclaimable rows of `conductor gc` that need no decision, one tree
 //! or one archive at a time, reading free disk again after each step and stopping as soon as it
 //! is enough:
+//! 0. the finished managed trees, through `worktree finish` and `worktree gc --apply`, then the
+//!    cargo `target/` of the stale ones, whose trees are kept ([`super::trees`],
+//!    `story:gc-finished-trees`);
 //! 1. the build output of each idle managed tree, through `worktree discard-cache`, which deletes
 //!    only the ignored entries it recognises; never a tree itself. A tree is idle when the
 //!    disk panel's classification keeps no live session in it ([`waste::repositories`]), no
@@ -73,7 +76,7 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use super::{allocated, archive_strip, archives, remove};
+use super::{allocated, archive_strip, archives, remove, trees};
 use crate::config;
 use crate::dashboard::Sources;
 use crate::dashboard::waste::{self, Reclaim, Row};
@@ -280,7 +283,8 @@ fn run(state: &Path, need: u64) -> Result<Run> {
         if let Some(var_tmp) = env::var_os(VAR_TMP_VARIABLE).filter(|dir| !dir.is_empty()) {
             sources.var_tmp = PathBuf::from(var_tmp);
         }
-        let kept = trees(&sources, &mut steps)?;
+        let mut kept = managed_trees(&sources, &mut steps)?;
+        kept.extend(trees(&sources, &mut steps)?);
         let archives = strip_archives(&sources, state, &mut steps)?;
         scratch(&sources, state, &mut steps)?;
         if !steps.reached() {
@@ -304,6 +308,57 @@ fn run(state: &Path, need: u64) -> Result<Run> {
         report,
         shortfall,
     })
+}
+
+/// Step 0 (`story:gc-finished-trees`): the finished managed trees, then the `target/` of the stale
+/// ones ([`super::trees`]), one tree at a time, until enough is free. Answers the trees whose
+/// taking back was refused, each with its bytes. When the trees cannot be assessed, the step
+/// takes nothing and says why on standard error.
+fn managed_trees(sources: &Sources, steps: &mut Steps) -> Result<Vec<(String, u64)>> {
+    let mut kept = Vec::new();
+    if steps.reached() {
+        return Ok(kept);
+    }
+    let thresholds = &config::active().instance.thresholds;
+    let stale = Duration::from_secs(
+        config::seconds(&thresholds.tree_stale).unwrap_or(config::TREE_STALE_HOURS * 3600),
+    );
+    let assessed = match trees::assess(sources, stale, &Default::default(), false) {
+        Ok(assessed) => assessed,
+        Err(error) => {
+            let _ = writeln!(
+                io::stderr().lock(),
+                "conductor: {COMMAND}: the managed trees were not assessed: {error}"
+            );
+            return Ok(kept);
+        }
+    };
+    let finished = assessed
+        .iter()
+        .filter(|tree| tree.verdict == trees::Verdict::Finished)
+        .map(|tree| (tree, ReclaimKind::FinishedTree));
+    let stale = assessed
+        .iter()
+        .filter(|tree| matches!(tree.verdict, trees::Verdict::Stale(_)))
+        .map(|tree| (tree, ReclaimKind::StaleTreeBuildOutput));
+    for (tree, kind) in finished.chain(stale) {
+        if steps.reached() {
+            break;
+        }
+        match trees::take(sources, tree) {
+            Ok(taken) => steps.took(&tree.path, kind, taken.freed)?,
+            Err((why, freed)) => {
+                if freed > 0 {
+                    steps.took(&tree.path, kind, freed)?;
+                }
+                kept.push((
+                    format!("{} ({why})", tree.path.display()),
+                    allocated(std::slice::from_ref(&tree.path)),
+                ));
+            }
+        }
+    }
+    Ok(kept)
 }
 
 /// Step 1: the build output of each idle managed tree, until enough is free. Answers the trees
@@ -656,7 +711,7 @@ impl Holders {
 }
 
 /// Every `/proc/<pid>/{cwd,root,exe,fd/*}` link that can be read, with its process.
-fn holder_links() -> Result<Vec<(u32, PathBuf)>, String> {
+pub(super) fn holder_links() -> Result<Vec<(u32, PathBuf)>, String> {
     let entries = fs::read_dir("/proc").map_err(|error| format!("cannot list /proc: {error}"))?;
     let mut links = Vec::new();
     for entry in entries.flatten() {
@@ -803,6 +858,8 @@ fn listed(what: &str, reclaim: &Reclaim) -> GarbageRow {
         freed: None,
         outcome: GarbageOutcome::Reclaimable,
         detail: None,
+        tree: None,
+        verdict: None,
     }
 }
 
@@ -850,7 +907,7 @@ fn process_in(path: &Path) -> Result<Option<u32>, String> {
 /// Whether `dir`, or an entry at most [`RECENT_DEPTH`] below it among the first
 /// [`RECENT_ENTRIES`] looked at, was modified within `within` of now. A directory's time moves
 /// when an entry is added to it, so the directories a compiler writes into show its writes.
-fn written_within(dir: &Path, within: Duration) -> bool {
+pub(super) fn written_within(dir: &Path, within: Duration) -> bool {
     let Some(since) = SystemTime::now().checked_sub(within) else {
         return false;
     };
@@ -937,6 +994,8 @@ fn kind_text(kind: ReclaimKind) -> &'static str {
         ReclaimKind::ArchiveBuildOutput => "archive-build-output",
         ReclaimKind::Cache => "cache",
         ReclaimKind::Snapshot => "snapshot",
+        ReclaimKind::FinishedTree => "finished-tree",
+        ReclaimKind::StaleTreeBuildOutput => "stale-tree-build-output",
     }
 }
 
@@ -1076,5 +1135,29 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<SnapshotId, UnmetObligation> {
         Err(unmet_context("conductor.observation.SnapshotId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
     }
 }

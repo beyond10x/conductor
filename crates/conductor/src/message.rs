@@ -22,13 +22,20 @@
 //! Once the store kept it, received or rejected at receipt, `receive-message` appends one
 //! `message-received` line to the records' dispatch log ([`crate::records`]): the message's id,
 //! sender, recipient, kind and first line, and as `repo` the repository the first line names
-//! ([`named_repository`]), else the sender.
+//! ([`named_repository`]), else the sender, and the message's body path when it has one.
+//!
+//! `send` (`story:mailbox-send-and-deliver`, [`send`]) is how a session sends a message with no
+//! conductor session to receive it: the whole text is left as a file of the recipient's mailbox
+//! under the state directory, `mailbox/<recipient>/<ulid>.md`, and recorded as `receive-message`
+//! records one, with transport `Mailbox` and that file as its body path. A first line that does
+//! not parse is answered with [`FORMAT`] and writes nothing.
 //!
 //! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing. It
 //! lists every row it can read, in the order the messages were first stored, and answers through
 //! [`crate::store::show`].
 
-use std::io::Write as _;
+use std::fs;
+use std::io::{Read as _, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -40,9 +47,10 @@ use conductor_model::dispatch::obligations::{
     RouteNeedBehavior,
 };
 use conductor_model::dispatch::{
-    DispatchId, DispatchLogEvent, GuardDecisionId, HandleMessage, HandleMessageOutcome, MessageId,
-    MessageKind, MessageSnapshot, MessageState, ReceiveMessage, ReceiveMessageOutcome,
-    RejectMessage, RejectMessageOutcome, ResourceRequestId, RouteNeed, RouteNeedOutcome, Transport,
+    DispatchId, DispatchLogEvent, GuardDecisionId, HandleMessage, HandleMessageOutcome,
+    MailboxSendRefusal, MailboxSendRefused, MessageId, MessageKind, MessageSnapshot, MessageState,
+    ReceiveMessage, ReceiveMessageOutcome, RejectMessage, RejectMessageOutcome, ResourceRequestId,
+    RouteNeed, RouteNeedOutcome, SendToMailbox, Transport,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::{BoardId, ObservationId, SnapshotId};
@@ -50,7 +58,8 @@ use conductor_model::primitives::{Timestamp, Uuid};
 use serde_json::Value;
 
 use crate::cli::{
-    HandleMessageArgs, JsonInput, ReceiveMessageArgs, RejectMessageArgs, RouteNeedArgs, ViewArgs,
+    HandleMessageArgs, JsonInput, ReceiveMessageArgs, RejectMessageArgs, RouteNeedArgs, SendArgs,
+    ViewArgs,
 };
 use crate::not_implemented;
 use crate::records;
@@ -67,6 +76,7 @@ The first line of a message to conductor is one of:
 [NEED <repo> <request-id>] <other-repo> <what is needed>
 [RESOURCE <repo>] <build-slot|disk|usage> <amount>
 [ESCALATION <request-id>] <O|H> <question>
+[HANDOVER <repo>] context <n>k|shutdown
 ";
 
 /// The prefix `conductor.dispatch.DispatchId` declares (`spec/domains/dispatch.yaml`).
@@ -85,9 +95,12 @@ struct Form {
     rest: fn(&[&str]) -> bool,
 }
 
-/// The § 6 forms the specification has a kind for. `[RESTART …]` is design only (§ 6) and has
-/// no `MessageKind`, so it does not parse.
-const FORMS: [Form; 7] = [
+/// The § 6 forms the specification has a kind for, and the run daemon's hand-over
+/// (docs/design/conductor-run.md § 3): `[HANDOVER <repo>] context <n>k` to a controller over its
+/// context threshold, `context shutdown` when it stops it. A controller's own hand-over is a
+/// report, `[REPORT <repo> <id>] blocked handover <path>`. `[RESTART …]` is design only (§ 6) and
+/// has no `MessageKind`, so it does not parse.
+const FORMS: [Form; 8] = [
     Form {
         tag: "DISPATCH",
         kind: MessageKind::Dispatch,
@@ -149,6 +162,19 @@ const FORMS: [Form; 7] = [
         fields: &[""],
         rest: |words| words.len() >= 2 && ["O", "H"].contains(&words[0]),
     },
+    Form {
+        tag: "HANDOVER",
+        kind: MessageKind::Handover,
+        fields: &[""],
+        rest: |words| {
+            words.len() == 2
+                && words[0] == "context"
+                && (words[1] == "shutdown"
+                    || words[1].strip_suffix('k').is_some_and(|thousands| {
+                        !thousands.is_empty() && thousands.bytes().all(|b| b.is_ascii_digit())
+                    }))
+        },
+    },
 ];
 
 /// What a first line says: the kind its tag names, if it names one, and whether the whole line
@@ -204,11 +230,18 @@ pub fn read(line: &str) -> Reading {
 }
 
 /// The repository a § 6 first line names in its brackets, after its tag: `[DISPATCH <repo> …`,
-/// `[REPORT <repo> …`, `[DECISION-REQUEST <repo> …`, `[NEED <repo> …` and `[RESOURCE <repo>]`.
-/// None for another tag, or a line that names none.
+/// `[REPORT <repo> …`, `[DECISION-REQUEST <repo> …`, `[NEED <repo> …`, `[RESOURCE <repo>]` and
+/// `[HANDOVER <repo>]`. None for another tag, or a line that names none.
 #[must_use]
 pub fn named_repository(line: &str) -> Option<String> {
-    const NAMING: [&str; 5] = ["DISPATCH", "REPORT", "DECISION-REQUEST", "NEED", "RESOURCE"];
+    const NAMING: [&str; 6] = [
+        "DISPATCH",
+        "REPORT",
+        "DECISION-REQUEST",
+        "NEED",
+        "RESOURCE",
+        "HANDOVER",
+    ];
     let opened = line.trim().strip_prefix('[')?;
     let inside = opened.split(']').next().unwrap_or_default();
     let mut words = inside.split_whitespace();
@@ -294,6 +327,15 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
                 message_received.message_id.0.0
             )
         }
+        ReceiveMessageOutcome::MailboxWithoutBody { error } => refused(
+            COMMAND,
+            "MailboxBodyMissing",
+            &format!(
+                "the mailbox message from {:?} to {:?} names no --body-path, the file it was \
+                 left in; nothing was recorded",
+                error.sender, error.recipient
+            ),
+        ),
     }
 }
 
@@ -316,6 +358,7 @@ pub(crate) fn record(
     line.to = Some(input.recipient.clone());
     line.kind = Some(kind_name(input.kind).to_owned());
     line.first_line = Some(input.first_line.clone());
+    line.body_path.clone_from(&input.body_path);
     let mut generated = Generated::new(Ports {
         store: crate::state::open(state)?,
     });
@@ -324,7 +367,11 @@ pub(crate) fn record(
         .map_err(|unmet| anyhow!("{command}: {unmet}"))?;
     kept(command, &generated.ports.store)?;
     let (ReceiveMessageOutcome::Received { message_received }
-    | ReceiveMessageOutcome::Unparsed { message_received }) = &outcome;
+    | ReceiveMessageOutcome::Unparsed { message_received }) = &outcome
+    else {
+        // Refused before anything was recorded, so no line either.
+        return Ok(outcome);
+    };
     line.id = Some(message_received.message_id.0.0.clone());
     records::append_dispatch(&line)
         .with_context(|| format!("{command}: message {}", message_received.message_id.0.0))?;
@@ -471,6 +518,167 @@ pub fn messages(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     crate::store::show(&generated.ports, "messages", &view.render(&COLUMNS, &rows))
 }
 
+/// The directory under the state directory that holds the mailbox: one directory per recipient,
+/// each message a file in it (`conductor.dispatch.Transport`, `Mailbox`).
+pub const MAILBOX: &str = "mailbox";
+
+/// `conductor message send` (`story:mailbox-send-and-deliver`, docs/design/conductor-run.md § 3):
+/// the input `conductor.dispatch.SendToMailbox`. Reads the text from `--text`, a file or `-` for
+/// standard input, and its first line with [`read`]. A line that parses is written whole as
+/// `<state>/mailbox/<to>/<ulid>.md`, then recorded as [`receive_message`] records one, with
+/// transport `Mailbox` and that file, relative to the state directory, as its `body_path`; the
+/// `message-received` line carries the same `body_path`. The command prints the message's id. A
+/// line that does not parse prints [`FORMAT`] on standard output and is refused
+/// (`MailboxSendRefused`, `Unparsed`) before anything is written. A file whose message the store
+/// did not keep is removed again.
+///
+/// # Errors
+///
+/// A flag is missing, `--to` is no plain name, the text cannot be read, the first line does not
+/// parse, the file cannot be written, or the store does not open or keep the message.
+pub fn send(state: Option<&Path>, args: &SendArgs) -> Result<ExitCode> {
+    const COMMAND: &str = "message send";
+    let input = SendToMailbox {
+        to: flag(COMMAND, "--to", args.to.clone())?,
+        from: flag(COMMAND, "--from", args.from.clone())?,
+        text: flag(COMMAND, "--text", args.text.clone())?,
+    };
+    if !plain_name(&input.to) {
+        bail!(
+            "{COMMAND}: --to {:?} names no recipient: one name, without `/`, not `.` or `..`; \
+             nothing was written",
+            input.to
+        );
+    }
+    let text = read_text(COMMAND, &input.text)?;
+    let first = first_line(&text).to_owned();
+    let reading = read(&first);
+    let Some(kind) = reading.kind.filter(|_| reading.parsed) else {
+        print(COMMAND, FORMAT)?;
+        return mailbox_refused(&MailboxSendRefused {
+            from: input.from,
+            to: input.to,
+            refusal: MailboxSendRefusal::Unparsed,
+            detail: format!(
+                "the first line {first:?} has none of the forms; the format is on standard \
+                 output, and nothing was written"
+            ),
+        });
+    };
+    let dir = crate::state::dir(state)?;
+    let body_path = format!("{MAILBOX}/{}/{}.md", input.to, ulid()?);
+    let file = dir.join(&body_path);
+    keep(&file, &text).with_context(|| format!("{COMMAND}: leave the message"))?;
+    let repo = named_repository(&first).unwrap_or_else(|| input.from.clone());
+    let receive = ReceiveMessage {
+        sender: input.from,
+        recipient: input.to,
+        kind,
+        first_line: first,
+        transport: Transport::Mailbox,
+        received_at: records::now()?,
+        body_path: Some(body_path),
+        parsed: true,
+    };
+    let outcome = match record(COMMAND, Some(&dir), receive, &repo) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let _ = fs::remove_file(&file);
+            return Err(error);
+        }
+    };
+    match outcome {
+        ReceiveMessageOutcome::Received { message_received } => {
+            print(COMMAND, &format!("{}\n", message_received.message_id.0.0))
+        }
+        ReceiveMessageOutcome::Unparsed { message_received } => bail!(
+            "{COMMAND}: message {} was recorded as rejected, though its first line parses",
+            message_received.message_id.0.0
+        ),
+        ReceiveMessageOutcome::MailboxWithoutBody { .. } => {
+            let _ = fs::remove_file(&file);
+            bail!("{COMMAND}: MailboxBodyMissing: the message was refused without its body path")
+        }
+    }
+}
+
+/// Answers a refusal of `message send`: one line naming its `MailboxSendRefusal`, and exit 1.
+fn mailbox_refused(answer: &MailboxSendRefused) -> Result<ExitCode> {
+    let refusal = match answer.refusal {
+        MailboxSendRefusal::Unparsed => "Unparsed",
+    };
+    bail!(
+        "message send: refused: {refusal}: from {:?} to {:?}: {}",
+        answer.from,
+        answer.to,
+        answer.detail
+    )
+}
+
+/// Whether `name` is one plain path segment, so `mailbox/<name>/` stays under the mailbox.
+pub(crate) fn plain_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', '\0'])
+}
+
+/// The text `--text` names: the file at that path, or standard input for `-`.
+///
+/// # Errors
+///
+/// The file or standard input cannot be read as UTF-8 text.
+pub(crate) fn read_text(command: &str, text: &str) -> Result<String> {
+    if text == "-" {
+        let mut read = String::new();
+        std::io::stdin()
+            .read_to_string(&mut read)
+            .with_context(|| format!("{command}: read the text on standard input"))?;
+        return Ok(read);
+    }
+    fs::read_to_string(text).with_context(|| format!("{command}: read --text {text}"))
+}
+
+/// The first line of `text`, without its line break; empty for an empty text.
+#[must_use]
+pub(crate) fn first_line(text: &str) -> &str {
+    text.lines().next().unwrap_or_default()
+}
+
+/// Writes `text` as the new file `file`, making its directory first; an existing file is never
+/// overwritten.
+///
+/// # Errors
+///
+/// The directory cannot be made, or the file exists or cannot be written.
+pub(crate) fn keep(file: &Path, text: &str) -> Result<()> {
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    }
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(file)
+        .and_then(|mut opened| opened.write_all(text.as_bytes()))
+        .with_context(|| format!("write {}", file.display()))
+}
+
+/// A new ULID: 26 characters of Crockford's base 32, the first ten the time in milliseconds, so
+/// the files of a mailbox sort in the order they were left. Read from a version 7 UUID, whose
+/// first 48 bits are that time too.
+///
+/// # Errors
+///
+/// The UUID is not 32 hexadecimal digits.
+pub(crate) fn ulid() -> Result<String> {
+    const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let id = eventlog_core::new_event_id();
+    let hex: String = id.chars().filter(|c| *c != '-').collect();
+    let value = u128::from_str_radix(&hex, 16)
+        .with_context(|| format!("read the UUID {id} as a number"))?;
+    Ok((0..26)
+        .rev()
+        .map(|at| char::from(CROCKFORD[((value >> (at * 5)) & 31) as usize]))
+        .collect())
+}
+
 /// The kind's name as the specification spells it: the store's, which is exhaustive, so the
 /// command line, the records and the store spell a kind one way.
 fn kind_name(kind: MessageKind) -> &'static str {
@@ -577,6 +785,30 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
         Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
     }
 }
 

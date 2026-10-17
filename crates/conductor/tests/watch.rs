@@ -2969,12 +2969,11 @@ fn taskfile() -> serde_yaml::Value {
     serde_yaml::from_str(&text).expect("Taskfile.yml is YAML")
 }
 
-/// The session tasks of `Taskfile.yml`.
-const SESSION_TASKS: [&str; 6] = [
+/// The session tasks of `Taskfile.yml`; `story:run-daemon` retired `conductor:start` and
+/// `conductor:restart`.
+const SESSION_TASKS: [&str; 4] = [
     "sessions",
-    "conductor:start",
     "conductor:attach",
-    "conductor:restart",
     "maintainer:start",
     "maintainer:attach",
 ];
@@ -2983,19 +2982,13 @@ const SESSION_TASKS: [&str; 6] = [
 fn the_session_tasks_start_their_role_on_the_harness_and_model_config_show_names() {
     let taskfile = taskfile();
     // The maintainer is the host's role, read from `host.roles` under its name or its old name
-    // (`story:maintainer-host-config`).
-    for (name, role, roles) in [
-        (
-            "conductor:start",
-            "conductor",
-            ".instances[0].roles[] | select(.role == \"conductor\")",
-        ),
-        (
-            "maintainer:start",
-            "maintainer",
-            ".host.roles[] | select(.role == \"maintainer\" or .role == \"conductor-dev\")",
-        ),
-    ] {
+    // (`story:maintainer-host-config`); `story:run-daemon` retired `conductor:start`.
+    let (name, role, roles) = (
+        "maintainer:start",
+        "maintainer",
+        ".host.roles[] | select(.role == \"maintainer\" or .role == \"conductor-dev\")",
+    );
+    {
         let task = &taskfile["tasks"][name];
         for (var, field) in [("HARNESS", "harness"), ("MODEL", "model")] {
             let sh = task["vars"][var]["sh"]

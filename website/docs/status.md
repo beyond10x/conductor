@@ -117,7 +117,7 @@ custom_edit_url: null
 
 | Capability | Status | What it means |
 |---|---|---|
-| [Session table](./reference/cli.md#conductor-dashboard-serve) | ● shipped | The dashboard's data holds one row per session under the checkouts root, with its dispatch. |
+| [Session table](./reference/cli.md#conductor-dashboard-serve) | ● shipped | The dashboard's data holds one row per session of the instance, from its records, each controller with its dispatch. |
 | Read-only | ● shipped | Every request reads the sources afresh and writes nothing. |
 | Disk waste | ● shipped | The disk panel lists the reclaimable rows largest first, with their total. |
 | Loopback only | ● shipped | The dashboard listens on a free port of 127.0.0.1 and prints its address first. |
