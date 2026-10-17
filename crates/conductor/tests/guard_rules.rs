@@ -1803,7 +1803,8 @@ fn runs(path: &[String]) -> Vec<String> {
         format!("conductor {words}"),
         format!("conductor --state-dir ~/example-org/conductor/state {words} --format json"),
         format!("bash -c 'conductor {words} --input-json -' < input.json"),
-        format!("ls && env timeout 5 conductor {words} | head"),
+        // `nice`, not `timeout`: a timeout around `snapshot start-snapshot` is denied by name.
+        format!("ls && env nice -n 5 conductor {words} | head"),
     ];
     if let [group, leaf] = path {
         runs.push(format!(
@@ -6013,6 +6014,39 @@ fn a_session_may_kill_a_numeric_pid() {
             "git commit -m 'no killall'",
             "pgrep -f conductor",
             "ps aux | grep conductor",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:rules-into-code: `timeout … conductor snapshot` is denied.
+// -------------------------------------------------------------------------------------------------
+
+/// A `timeout` that bounds `conductor snapshot` kills the snapshot mid-write; the denial names why.
+#[test]
+fn a_timeout_around_conductor_snapshot_is_denied_with_its_reason() {
+    let home = home("timeout-snapshot-deny");
+    // A controller's session (and a worker in its tree) is denied the leaf itself (it writes
+    // records), so the reason of the timeout is read in the conductor's session.
+    for cwd in [CONDUCTOR] {
+        for command in [
+            "timeout 60 conductor snapshot start-snapshot",
+            "timeout -k 5 60 conductor snapshot start-snapshot --format json",
+            "timeout 60 /usr/local/bin/conductor snapshot start-snapshot",
+            "env A=1 timeout 60 conductor --state-dir /tmp/x snapshot start-snapshot",
+            "echo a; timeout 5 conductor snapshot start-snapshot | head",
+        ] {
+            let decision = bash(&home, cwd, command);
+            assert_verdict(&decision, Verdict::Deny, "kills the snapshot");
+        }
+        for command in [
+            "conductor snapshot start-snapshot",
+            "timeout 60 cargo test",
+            "timeout 60 conductor status",
+            "timeout 5 conductor snapshot sessions",
+            "echo timeout conductor snapshot start-snapshot",
         ] {
             assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
         }

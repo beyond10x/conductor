@@ -1565,6 +1565,9 @@ impl Session<'_> {
                 },
             );
         }
+        if let Some(reason) = timeout_snapshot_denial(&commands) {
+            return (Verdict::Deny, reason);
+        }
         if self.rules == Rules::Controller
             && let Some((run, size)) = unreserved_build(&commands)
         {
@@ -2273,6 +2276,49 @@ fn unreserved_build(commands: &[Vec<String>]) -> Option<(String, &'static str)> 
             if let Some(size) = build_reserve(shell::program(&words[at]), &words[at + 1..]) {
                 let run: Vec<String> = words[at..].iter().map(|word| shell::quoted(word)).collect();
                 return Some((run.join(" "), size));
+            }
+        }
+    }
+    None
+}
+
+/// A `timeout` bounding `conductor snapshot` (`story:rules-into-code`): the program word is
+/// `timeout` (as in [`is_program_word`], after other launchers too) and a later word runs
+/// `conductor` with `snapshot start-snapshot` as its operands (the views read and end at once). A timeout kills the snapshot mid-write. The
+/// answer is the denial's reason.
+fn timeout_snapshot_denial(commands: &[Vec<String>]) -> Option<String> {
+    for words in commands {
+        let name = words.len() - command_words(words).len();
+        if name >= words.len() {
+            continue;
+        }
+        let Some(at) = (name..words.len()).find(|&at| {
+            shell::program(&words[at]) == "timeout" && is_program_word(words, name, at)
+        }) else {
+            continue;
+        };
+        for (run, word) in words.iter().enumerate().skip(at + 1) {
+            if shell::program(word) != "conductor" {
+                continue;
+            }
+            let mut rest = words[run + 1..].iter();
+            let mut operands: Vec<&str> = Vec::new();
+            while operands.len() < 2
+                && let Some(next) = rest.next()
+            {
+                if GLOBAL_VALUES.contains(&next.as_str()) {
+                    rest.next();
+                } else if !next.starts_with('-') {
+                    operands.push(next.as_str());
+                }
+            }
+            if operands == ["snapshot", "start-snapshot"] {
+                return Some(
+                    "`timeout` around `conductor snapshot start-snapshot` kills the snapshot \
+                     mid-write and leaves a partial record (story rules-into-code): run it \
+                     without a timeout; it ends on its own"
+                        .to_owned(),
+                );
             }
         }
     }
