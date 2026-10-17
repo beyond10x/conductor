@@ -898,3 +898,65 @@ fn records_check_does_not_judge_the_hand_written_lines_before_the_first_command_
         describe(&output)
     );
 }
+
+// -------------------------------------------------------------------------------------------------
+// story:rules-into-code items 1 and 2.
+// -------------------------------------------------------------------------------------------------
+
+/// A `[DECISION …]` line without a decision id is refused with the expected format, and records
+/// no `message-received` line as a received message would.
+#[test]
+fn a_decision_line_without_a_decision_id_is_refused_with_the_format() {
+    let case = Case::new("decision-without-id");
+    let output = case.run(&[
+        "message",
+        "receive-message",
+        "--sender",
+        "ex-alpha",
+        "--recipient",
+        "ex-controller",
+        "--first-line",
+        "[DECISION c-20261007-12] A the file store is enough",
+        "--transport",
+        "SendMessage",
+        "--received-at",
+        AT,
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("[DECISION <request-id>] <option> <one-line reason> (<decision-id>)"),
+        "the expected format is printed: {stdout:?}"
+    );
+    let rows = case.ok(&["message", "messages", "--format", "json"]);
+    assert!(rows.contains("\"Rejected\""), "recorded rejected: {rows}");
+}
+
+/// A message the store cannot keep leaves no line in the records' dispatch log.
+#[test]
+fn a_message_that_was_not_kept_writes_no_records_line() {
+    let case = Case::new("message-not-kept");
+    let blocked = case.dir.join("not-a-directory");
+    fs::write(&blocked, "a file where the state directory should be").expect("write the file");
+    let output = case.run(&[
+        "--state-dir",
+        &blocked.to_string_lossy(),
+        "message",
+        "receive-message",
+        "--sender",
+        "ex-alpha",
+        "--recipient",
+        "conductor",
+        "--first-line",
+        "[REPORT alpha DSP-20261007-01] done it",
+        "--transport",
+        "SendMessage",
+        "--received-at",
+        AT,
+    ]);
+    assert!(!output.status.success(), "{}", describe(&output));
+    assert!(
+        lines(&case.records().join("dispatches")).is_empty(),
+        "no line was written for a message that was not kept"
+    );
+}
