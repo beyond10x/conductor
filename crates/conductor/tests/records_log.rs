@@ -626,6 +626,95 @@ fn a_done_report_on_a_sent_or_blocked_dispatch_appends_its_done_line() {
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
 }
 
+/// `story:conductor-context-budget`: a session needs no `cd <records> &&` prefix. Run from a
+/// directory outside the records, with the instance named by its config file alone, a received
+/// message answers one line, its id, and its line goes to the records' dispatch log;
+/// `records check`, `rules show` and `status` read the instance's records and store; and nothing
+/// is written in the directory the commands ran from.
+#[test]
+fn commands_find_the_records_from_any_directory() {
+    let case = Case::new("from-anywhere");
+    let elsewhere = case.dir.join("elsewhere");
+    fs::create_dir_all(&elsewhere).expect("create a directory outside the records");
+    fs::write(
+        case.records().join("rules.md"),
+        "# Rules\n\n## Conductor\n\n1. **Read the hand-over first.** Then the dispatches.\n",
+    )
+    .expect("write rules.md");
+    let run = |args: &[&str]| {
+        common::conductor(case.dir.join("home"))
+            .args(args)
+            .current_dir(&elsewhere)
+            .env("CONDUCTOR_CONFIG", case.config())
+            .stdin(Stdio::null())
+            .output()
+            .expect("conductor runs")
+    };
+
+    let before = lines(&case.records().join("dispatches"));
+    let output = run(&[
+        "message",
+        "receive-message",
+        "--sender",
+        "alpha",
+        "--recipient",
+        "conductor",
+        "--first-line",
+        "[REPORT alpha DSP-20991231-01] progress the gate is green on the release commit",
+        "--transport",
+        "SendMessage",
+        "--received-at",
+        AT,
+    ]);
+    assert!(output.status.success(), "{}", describe(&output));
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let id = printed
+        .strip_suffix('\n')
+        .unwrap_or_else(|| panic!("receive-message answers one line: {printed:?}"));
+    assert!(
+        !id.contains('\n') && id.len() == 36 && !id.contains("gate"),
+        "receive-message answers the message's id alone, not the message: {printed:?}"
+    );
+    let after = lines(&case.records().join("dispatches"));
+    assert_eq!(
+        after.len(),
+        before.len() + 1,
+        "its line goes to the records' log: {after:#?}"
+    );
+    holds(
+        &after.last().expect("a line").1,
+        &json!({"event": "message-received", "id": id, "repo": "alpha"}),
+    );
+
+    for args in [
+        &["records", "check"][..],
+        &["rules", "show", "--brief"][..],
+        &["status"][..],
+    ] {
+        let output = run(args);
+        assert!(
+            output.status.success(),
+            "`conductor {}` from outside the records: {}",
+            args.join(" "),
+            describe(&output)
+        );
+    }
+    let rules = run(&["rules", "show", "--brief"]);
+    assert_eq!(
+        String::from_utf8_lossy(&rules.stdout),
+        "1. Read the hand-over first\n",
+        "{}",
+        describe(&rules)
+    );
+    assert_eq!(
+        fs::read_dir(&elsewhere)
+            .expect("read the directory")
+            .count(),
+        0,
+        "nothing is written where the commands ran"
+    );
+}
+
 #[test]
 fn a_refused_command_appends_nothing() {
     let case = Case::new("refused");

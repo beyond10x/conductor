@@ -317,7 +317,8 @@ impl Cli {
                     controller::stop_controller(state, args, providers)
                 }
                 ControllerCommand::ReviseCharter(args) => controller::revise_charter(state, args),
-                ControllerCommand::Controllers(view) => controller::controllers(state, view),
+                ControllerCommand::AllControllers(view) => controller::all_controllers(state, view),
+                ControllerCommand::Controllers(args) => controller::controllers(state, &args),
             },
             Group::Dispatch(command) => match command {
                 DispatchCommand::SendDispatch(args) => dispatch::send_dispatch(state, args),
@@ -560,7 +561,7 @@ pub enum Group {
     #[command(name = "spawn")]
     Spawn(SpawnArgs),
 
-    /// Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+    /// Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing
     #[command(name = "status")]
     Status(StatusArgs),
 
@@ -691,6 +692,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["controller", "revise-charter"], Access::Writes),
     (&["controller", "start-controller"], Access::Writes),
     (&["controller", "stop-controller"], Access::Writes),
+    (&["controller", "all-controllers"], Access::Reads),
     (&["controller", "controllers"], Access::Reads),
     (&["dispatch", "cancel-dispatch"], Access::Writes),
     (&["dispatch", "report-blocked"], Access::Writes),
@@ -1079,9 +1081,13 @@ pub enum ControllerCommand {
     #[command(name = "stop-controller")]
     StopController(StopControllerArgs),
 
-    /// Controllers
+    /// All controllers
+    #[command(name = "all-controllers")]
+    AllControllers(ViewArgs),
+
+    /// Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing
     #[command(name = "controllers")]
-    Controllers(ViewArgs),
+    Controllers(ControllersArgs),
 }
 
 /// `conductor dispatch`: briefs to controllers and their reports.
@@ -1472,6 +1478,24 @@ pub struct StatusArgs {
     /// How the status is printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+    /// Print every part under its heading, sessions and every open dispatch included, instead of
+    /// the attention lines. `--full` alone is `--full true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub full: Option<bool>,
+}
+
+/// The input of the binding's `controller-controllers` callable,
+/// `conductor.dispatch.ListControllers` (`story:conductor-context-budget`). The format is text
+/// the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct ControllersArgs {
+    /// Print the table of every controller instead of one line per Running or Paused one.
+    /// `--all` alone is `--all true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub all: Option<bool>,
+    /// Render every controller as text, json, jsonl or markdown, as `all-controllers` does
+    #[arg(long)]
+    pub format: Option<String>,
 }
 
 /// The input of the binding's `records-check` callable, `conductor.dispatch.CheckRecords`. The
@@ -1532,6 +1556,11 @@ pub struct RulesShowArgs {
     /// `--brief true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub brief: Option<bool>,
+
+    /// A git revision of the records directory: print only the items whose text differs from
+    /// that revision's rules.md, or that it does not hold, and name the ones it held that are gone
+    #[arg(long)]
+    pub changed_since: Option<String>,
 }
 
 // `conductor store`: the command the binding declares over the `local` callable `store-migrate`

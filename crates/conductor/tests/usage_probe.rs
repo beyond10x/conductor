@@ -510,7 +510,7 @@ fn conductor_status_shows_the_usage_line() {
     case.take("2026-10-14T09:00:00Z", r#"{"accounts": []}"#);
     let state = case.state();
     let state = state.to_str().expect("a UTF-8 path");
-    let text = case.conductor(None, &["--state-dir", state, "status"]);
+    let text = case.conductor(None, &["--state-dir", state, "status", "--full"]);
     assert!(text.status.success(), "{}", describe(&text));
     assert!(
         String::from_utf8_lossy(&text.stdout).ends_with("## Usage\n\nNone: no usage reading.\n"),
@@ -519,10 +519,20 @@ fn conductor_status_shows_the_usage_line() {
     );
 
     two_readings(&case);
-    let text = case.conductor(None, &["--state-dir", state, "status"]);
+    let text = case.conductor(None, &["--state-dir", state, "status", "--full"]);
     assert!(text.status.success(), "{}", describe(&text));
     assert!(
         String::from_utf8_lossy(&text.stdout).ends_with(&format!("## Usage\n\n{TWO_READINGS}\n")),
+        "{}",
+        describe(&text)
+    );
+    // Without --full, the usage line is one of the attention lines (story:conductor-context-budget).
+    let text = case.conductor(None, &["--state-dir", state, "status"]);
+    assert!(text.status.success(), "{}", describe(&text));
+    assert!(
+        String::from_utf8_lossy(&text.stdout)
+            .lines()
+            .any(|line| line == TWO_READINGS),
         "{}",
         describe(&text)
     );

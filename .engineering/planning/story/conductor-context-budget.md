@@ -7,7 +7,7 @@ title: Conductor runs 4 hours before its hand-over threshold
 summary: Measure what fills conductor's context and cut the largest source
 relations:
 - decomposes: epic:measured-self-improvement
-revision: 1
+revision: 3
 ---
 ## Why
 
@@ -47,3 +47,22 @@ Sessions 8a98b1a4, 4e3194ba and d1bd2be9 handed over at 208.6k, 213.9k and 225.7
 ## Scope (scoper, medium confidence)
 
 `.agents/conductor.md` start list, `crates/conductor/tests/profiles.rs`, `crates/conductor/src/session.rs` `harness_args` (inferred), `.claude/conductor-settings.json` (inferred), `crates/conductor/src/rules.rs` and `cli.rs` `RulesShowArgs` for a titles-only mode (inferred), `crates/conductor/src/health.rs` (via story:health-command), `docs/analysis/conductor-context-budget.md` (new). Open: whether a tool deny removes the definition from the prompt (unproven).
+
+## Measured again (2026-10-17, conductor-dev)
+
+Conductor filled 200k three times between 05:50Z and 08:06Z, about every 75 min (three conductor NEEDs, 2026-10-17). Session 7b51080e (06:50Z–08:06Z), in characters:
+- tool results 217k over 216; Bash inputs 120k over 193 calls; SendMessage 45k over 66.
+- Largest results:
+  - `message receive-message`: 22.7k (it echoes the message back).
+  - `rules show --section conductor --brief`: 18.8k, read twice.
+  - `controller controllers`: 15.9k, read twice.
+  - `status | head -120`: 8.3k.
+  - The hand-over: 7k.
+- 91 of 193 Bash calls begin `cd <records> &&`.
+
+Added acceptance, ranked by today's characters:
+- `receive-message` answers one line, not the body.
+- `rules show --brief` answers item numbers and titles only, plus `--changed-since <commit>`.
+- `controller controllers` defaults to one line per Running or Paused controller (`--all` for the table).
+- `status` defaults to the attention lines.
+- Commands find the records from anywhere, so the `cd` prefix goes.

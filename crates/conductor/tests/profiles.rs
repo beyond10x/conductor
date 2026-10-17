@@ -633,6 +633,27 @@ fn every_build_runs_under_conductor_build_run_and_a_refusal_is_reported() {
     );
 }
 
+/// `story:build-jobs-per-slot`, acceptance 3: `build run` sets each build's job count, so the
+/// profiles' command forms pass none, and the profiles that run builds say why.
+#[test]
+fn the_profiles_pass_no_job_count_to_build_run() {
+    for name in ["conductor.md", "conductor-dev.md", "repo-controller.md"] {
+        let text = profile(name);
+        assert!(
+            !text.contains("CARGO_BUILD_JOBS="),
+            "{name}: a command form passes no CARGO_BUILD_JOBS"
+        );
+    }
+    for name in ["conductor-dev.md", "repo-controller.md"] {
+        let text = profile(name);
+        let sentence = "`build run` sets `CARGO_BUILD_JOBS` and `MAKEFLAGS` to the build's share \
+                        of the cores (the cores less `thresholds.cpu_reserve`, over \
+                        `thresholds.build_slots`) and lowers a higher `CARGO_BUILD_JOBS` to it: \
+                        pass neither.";
+        assert!(text.contains(sentence), "{name}: holds {sentence:?}");
+    }
+}
+
 /// `story:rules-show`: a worker brief cites the `rules.md` items it carries with the output of
 /// `conductor rules show --item …`, never with an excerpt cut by hand from the file.
 #[test]
@@ -822,9 +843,9 @@ fn conductor_answers_a_status_question_with_conductor_status() {
     let text = profile("conductor.md");
     assert!(
         text.contains(
-            "Answer an operator's status question with `conductor status`: the newest complete \
-             snapshot and its age, its deviations, live sessions, open dispatches, registered \
-             waits and pending requests, read from the store in one call."
+            "Answer an operator's status question with `conductor status --full`: the newest \
+             complete snapshot and its age, its deviations, live sessions, open dispatches, \
+             registered waits and pending requests, read from the store in one call."
         ),
         "conductor.md: a status question is answered with `conductor status`"
     );
@@ -909,5 +930,28 @@ fn profiles_forbid_killing_by_pattern() {
             ),
             "{name}: the no-pattern-kill sentence"
         );
+    }
+}
+
+/// `story:conductor-context-budget`, measured again: conductor reads the short forms of the
+/// commands that filled its context, and runs them without a `cd <records> &&` prefix.
+#[test]
+fn conductor_reads_the_short_forms_and_needs_no_cd_prefix() {
+    let text = profile("conductor.md");
+    for sentence in [
+        "Your shell starts in the records directory, and every `conductor` command finds the \
+         instance's records and state from any directory: no command needs a `cd <records> &&` \
+         prefix. Act in another directory with `git -C <dir>` or a subshell, `(cd <dir> && …)`, \
+         which leaves your shell where it is.",
+        "read it with `conductor status`, which starts none and prints only what asks for \
+         attention, one line each; `conductor status --full` adds the sessions and every open \
+         dispatch.",
+        "`conductor controller controllers` lists the Running and Paused controllers, one line \
+         each; `--all` prints every one",
+        "`message receive-message` answers the message's id, one line; never echo the message \
+         back.",
+        "Read the changed items with `conductor rules show --changed-since <commit>^`,",
+    ] {
+        assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
     }
 }

@@ -45,7 +45,9 @@ through the repository's bot route.
      (`conductor build run -- task check`: `auto`, the default, reserves the command's recorded
      peak plus 50 %; a size only when it is known to be larger), which reserves its disk in
      the host ledger first; a refusal names the shortfall and is reported, never retried in a
-     loop;
+     loop; `build run` sets `CARGO_BUILD_JOBS` and `MAKEFLAGS` to the build's share of the cores
+     (the cores less `thresholds.cpu_reserve`, over `thresholds.build_slots`) and lowers a higher
+     `CARGO_BUILD_JOBS` to it: pass neither.
    - an adversarial review only for large or risky changes;
    - keep each session short; hand over and start a fresh one rather than carry a long context.
      A hand-over holds session ids, decisions and host state, so it goes to

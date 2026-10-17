@@ -53,6 +53,18 @@ types:
     kind: enum
     variants: [Allow, Deny]
 
+  # The input of `conductor controller controllers` (story:conductor-context-budget), the
+  # `Controllers` view as the binding serves it. It opens only an existing store and creates
+  # nothing. Without `all` or `format` it prints one line per controller `Running` or `Paused`:
+  # its repository, state, session name and id, and a line saying so when there is none; `all`
+  # prints the text table of every controller the view lists, and `format` (text, json, jsonl or
+  # markdown) renders every row so, as `controller all-controllers` does.
+  - name: conductor.dispatch.ListControllers
+    kind: struct
+    fields:
+      - {name: all, type: Optional<Boolean>}
+      - {name: format, type: Optional<String>}
+
   # The input of `conductor spawn` (story:spawn), which starts the controller session of
   # `repository`. With its working directory the checkout `<checkouts.root>/<repository>`, it runs,
   # as one program with its arguments and never through a shell, `claude --bg -n <session name>
@@ -1601,9 +1613,11 @@ views:
         type: conductor.config.SessionName
       - name: charter_revision
         type: Integer
+    # `controller all-controllers` serves the view as it is, every row; `controller controllers`,
+    # the binding's (`ListControllers`), lists the live ones on one line each by default.
     naming:
-      wire: controllers
-      display: Controllers
+      wire: all-controllers
+      display: All controllers
 
   - name: conductor.dispatch.Dispatches
     source: conductor.dispatch.Dispatch

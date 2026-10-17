@@ -10,9 +10,17 @@
 //! home directory and `/var/tmp` a disk item is written against are `home/example-user/` and
 //! `var-tmp/` of the case (`Sources::home`, `Sources::var_tmp`); nothing reads the real ones.
 //! What a run writes to standard error goes to `stderr.txt` of the case (`Sources::say`).
+//!
+//! A case leaves no process behind, whether it passes or fails
+//! (`story:convoy-test-leaks-no-process`): when its [`Case`] is dropped after a panic, it kills
+//! the process group of each run the ledger holds running, then every process still working
+//! under the case's directory; after a case that passed, it asserts that none works there any
+//! more ([`leftover::assert_none_under`]). Every case that starts a waiting command ends it itself
+//! first, by its stop file.
 
 mod active;
 mod common;
+mod leftover;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,8 +43,29 @@ use time::format_description::well_known::Rfc3339;
 const GIB: u64 = 1 << 30;
 
 /// One case: its directory, the state directory under it, and the command's working directory.
+/// Dropped, it checks that the case left no process behind ([`Case::drop`]).
 struct Case {
     dir: PathBuf,
+}
+
+/// After a panic, kills the process group of every run the ledger holds `Running`, then each
+/// process still working under the case's directory, by its pid; after a case that passed,
+/// asserts that none is left (`story:convoy-test-leaks-no-process`).
+impl Drop for Case {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            for row in host::rows(&self.host()).unwrap_or_default() {
+                if row.state == HostGrantState::Running
+                    && let Some(group) = row.process_group.and_then(|g| i32::try_from(g).ok())
+                {
+                    let _ = killpg(Pid::from_raw(group), Signal::SIGKILL);
+                }
+            }
+            leftover::kill_under(&self.dir);
+        } else {
+            leftover::assert_none_under(&self.dir);
+        }
+    }
 }
 
 impl Case {
@@ -401,6 +430,114 @@ fn a_job_count_the_environment_holds_is_kept_and_a_large_reserve_leaves_one() {
     };
     run(&tight, case.sources(reclaim_nothing));
     assert_eq!(jobs().trim(), "1 -j1", "never fewer than one job");
+}
+
+/// `story:build-jobs-per-slot`, acceptance 1: the job counts are the cores less the reserve,
+/// divided among the build slots, at least one: 20 cores less 2 over 3 slots is 6; over 0 slots,
+/// no bound, all 18; and a reserve over the cores leaves one, however many slots.
+#[test]
+fn the_job_count_is_the_spare_cores_shared_among_the_build_slots() {
+    let case = Case::new("jobs-per-slot");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    for (cores, cpu_reserve, slots, expected) in [
+        (20, 2, 3, "6 -j6"),
+        (20, 2, 0, "18 -j18"),
+        (20, 2, 1, "18 -j18"),
+        (20, 2, 4, "4 -j4"),
+        (4, 2, 3, "1 -j1"),
+        (2, 5, 3, "1 -j1"),
+    ] {
+        let settings = Settings {
+            cores,
+            cpu_reserve,
+            slots,
+            ..settings()
+        };
+        assert_eq!(
+            build::job_share(&settings).to_string(),
+            expected.split(' ').next().unwrap_or_default(),
+            "{cores} cores less {cpu_reserve} over {slots} slots"
+        );
+        let sources = Sources {
+            env: |_| None,
+            ..case.sources(reclaim_nothing)
+        };
+        let outcome = build::run(
+            &case.state(),
+            &case.host(),
+            &settings,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends");
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+        assert_eq!(
+            jobs().trim(),
+            expected,
+            "{cores} cores less {cpu_reserve} over {slots} slots"
+        );
+    }
+}
+
+/// `story:build-jobs-per-slot`, acceptance 2: a `CARGO_BUILD_JOBS` in the environment of
+/// `build run` above the build's share is lowered to it, and one line says so; one below it is
+/// kept, and nothing is said.
+#[test]
+fn a_job_count_over_the_share_is_lowered_with_one_line_and_a_lower_one_is_kept() {
+    let case = Case::new("jobs-lowered");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    let three = Settings {
+        slots: 3,
+        ..settings()
+    };
+    let run = |sources: Sources| {
+        let outcome = build::run(
+            &case.state(),
+            &case.host(),
+            &three,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends");
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    };
+
+    run(Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "18".to_owned()),
+        ..case.sources(reclaim_nothing)
+    });
+    assert_eq!(jobs().trim(), "6 -j6", "18 is lowered to the share of 6");
+    let said = case.said();
+    let lines: Vec<&str> = said
+        .lines()
+        .filter(|line| line.contains("CARGO_BUILD_JOBS"))
+        .collect();
+    assert_eq!(lines.len(), 1, "one line says so: {said}");
+    assert!(
+        lines[0].contains("18") && lines[0].contains('6'),
+        "it names the value and the share: {}",
+        lines[0]
+    );
+
+    let before = case.said();
+    // The environment holds 2, under the share: the child inherits it as it is.
+    let inherited = std::env::var("CARGO_BUILD_JOBS").unwrap_or_default();
+    run(Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "2".to_owned()),
+        ..case.sources(reclaim_nothing)
+    });
+    assert_eq!(
+        jobs().trim(),
+        format!("{inherited} -j6").trim(),
+        "a lower count is not replaced"
+    );
+    assert!(
+        !case.said()[before.len()..].contains("CARGO_BUILD_JOBS"),
+        "nothing is said of a lower count: {}",
+        case.said()
+    );
 }
 
 #[test]
@@ -1140,6 +1277,32 @@ fn a_refused_build_run_names_no_personal_path_on_standard_error() {
         said.contains("left: ~/.cache/sccache (8G)"),
         "a path under the home directory is written with ~/: {said}"
     );
+}
+
+/// `story:convoy-test-leaks-no-process`, acceptance 3: a case that fails while its command waits
+/// for `stop` leaves no process behind: once it has unwound, no process works under its
+/// directory.
+#[test]
+fn a_case_that_fails_while_its_command_waits_leaves_no_process_behind() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("build_run")
+        .join("fails-waiting");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let case = Case::new("fails-waiting");
+        let script = "while [ ! -e stop ]; do sleep 0.05; done";
+        let (state, host) = (case.state(), case.host());
+        let (sources, request) = (case.sources(reclaim_nothing), case.request(GIB, script));
+        let _runner =
+            thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+        // The ledger is read only once the run has created it.
+        wait_until("the command runs", || {
+            host::rows(&case.host())
+                .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
+        });
+        panic!("the case fails while its command waits for stop");
+    }));
+    assert!(failed.is_err(), "the case failed");
+    leftover::assert_none_under(&dir);
 }
 
 /// Writes each of its stop files when dropped, so a failing case leaves no command running.

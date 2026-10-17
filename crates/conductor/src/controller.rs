@@ -38,8 +38,8 @@ use conductor_model::primitives::Uuid;
 use serde_json::Value;
 
 use crate::cli::{
-    JsonInput, PauseControllerArgs, ResumeControllerArgs, ReviseCharterArgs, StartControllerArgs,
-    StopControllerArgs, ViewArgs,
+    ControllersArgs, JsonInput, PauseControllerArgs, ResumeControllerArgs, ReviseCharterArgs,
+    StartControllerArgs, StopControllerArgs, ViewArgs,
 };
 use crate::confine::Providers;
 use crate::not_implemented;
@@ -337,8 +337,77 @@ pub fn revise_charter(state: Option<&Path>, args: ReviseCharterArgs) -> Result<E
     }
 }
 
-/// `conductor controller controllers`: the view `conductor.dispatch.Controllers`, served by the
-/// generated query over the existing store under the state directory (`--state-dir`, else
+/// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
+const COLUMNS: [&str; 6] = [
+    "controller_id",
+    "state",
+    "repository",
+    "harness",
+    "session_name",
+    "charter_revision",
+];
+
+/// `conductor controller controllers`: the binding's `controller-controllers`
+/// (`conductor.dispatch.ListControllers`, `story:conductor-context-budget`). Without `--all` or
+/// `--format` it prints one line per Running or Paused controller, `<repository> <state> <session
+/// name> <id>`, in the view's order, or one line saying none is and naming `--all`; `--all`
+/// prints the text table of every controller, and `--format` renders every one as
+/// [`all_controllers`] does. Opens only an existing store and creates nothing.
+///
+/// # Errors
+///
+/// `--format` names no rendering, or what [`all_controllers`] answers.
+pub fn controllers(state: Option<&Path>, args: &ControllersArgs) -> Result<ExitCode> {
+    const WHAT: &str = "controller controllers";
+    let format = match args.format.as_deref() {
+        None => None,
+        Some(name) => Some(
+            <crate::cli::Format as clap::ValueEnum>::from_str(name, false).map_err(|_| {
+                anyhow!("{WHAT}: --format {name:?} is not one of text, json, jsonl, markdown")
+            })?,
+        ),
+    };
+    if format.is_some() || args.all == Some(true) {
+        return all_controllers(
+            state,
+            ViewArgs {
+                format: format.unwrap_or_default(),
+            },
+        );
+    }
+    let generated = Generated::new(crate::state::open_reader(state)?);
+    let rows = generated
+        .controllers()
+        .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
+    let lines: String = rows
+        .into_iter()
+        .filter(|row| {
+            matches!(
+                row.state,
+                ControllerState::Running | ControllerState::Paused
+            )
+        })
+        .map(|row| {
+            format!(
+                "{} {} {} {}\n",
+                row.repository.0,
+                state_name(row.state),
+                row.session_name.0,
+                row.controller_id.0.0
+            )
+        })
+        .collect();
+    let lines = if lines.is_empty() {
+        "no controller is Running or Paused; `controller controllers --all` lists every one\n"
+            .to_owned()
+    } else {
+        lines
+    };
+    crate::store::show(&generated.ports, "controllers", &lines)
+}
+
+/// `conductor controller all-controllers`: the view `conductor.dispatch.Controllers`, served by
+/// the generated query over the existing store under the state directory (`--state-dir`, else
 /// `state/`; [`crate::state::dir`]) and rendered as `--format` asks. A view creates no store.
 ///
 /// Lists every controller it can read, and names each record it cannot on standard error, after
@@ -349,17 +418,7 @@ pub fn revise_charter(state: Option<&Path>, args: ReviseCharterArgs) -> Result<E
 /// There is no store, it does not open, a read of it fails for a reason other than a record this
 /// build cannot read, the generated query refuses a row, or the rows cannot be written to standard
 /// output.
-pub fn controllers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    /// The view's fields, in the specification's order (`spec/domains/dispatch.yaml`).
-    const COLUMNS: [&str; 6] = [
-        "controller_id",
-        "state",
-        "repository",
-        "harness",
-        "session_name",
-        "charter_revision",
-    ];
-
+pub fn all_controllers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .controllers()

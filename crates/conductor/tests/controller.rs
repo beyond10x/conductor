@@ -424,3 +424,74 @@ fn concurrent_controller_starts_must_keep_one_running_record() {
         }
     }
 }
+
+/// `story:conductor-context-budget`: `controller controllers` answers one line per Running or
+/// Paused controller, its repository, state, session name and id, and leaves a stopped one out;
+/// `--all` prints the table of every controller, and `--format` and `controller all-controllers`
+/// render every row.
+#[test]
+fn controllers_lists_the_live_ones_on_one_line_each_and_all_lists_every_one() {
+    let case = Case::new("live-lines");
+    let x = started(&case.start("x"), "start x");
+    quiet(
+        &case.steer("stop-controller", &x, &["--reason", "the wave closed"]),
+        "stop x",
+    );
+    let y = started(&case.start("y"), "start y");
+    let z = started(&case.start("z"), "start z");
+    quiet(&case.steer("pause-controller", &z, &[]), "pause z");
+
+    let lines = succeeded(
+        &case.run(&["controller", "controllers"]),
+        "`controller controllers`",
+    );
+    assert_eq!(
+        lines,
+        format!("y Running y {y}\nz Paused z {z}\n"),
+        "one line per live controller, the stopped one left out"
+    );
+
+    let table = succeeded(
+        &case.run(&["controller", "controllers", "--all"]),
+        "`controller controllers --all`",
+    );
+    for id in [&x, &y, &z] {
+        assert!(table.contains(id.as_str()), "--all lists {id}: {table}");
+    }
+    assert!(
+        table.contains("charter_revision") && table.contains("Stopped"),
+        "--all prints the table: {table}"
+    );
+
+    let every = json!([
+        row(&x, "Stopped", "x", 1),
+        row(&y, "Running", "y", 1),
+        row(&z, "Paused", "z", 1)
+    ]);
+    assert_eq!(case.controllers(), every, "--format json renders every row");
+    let view = succeeded(
+        &case.run(&["controller", "all-controllers", "--format", "json"]),
+        "`controller all-controllers --format json`",
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&view).expect("JSON rows"),
+        every,
+        "the view itself renders every row"
+    );
+
+    let none = Case::new("live-lines-none");
+    let gone = started(&none.start("x"), "start x");
+    quiet(
+        &none.steer("stop-controller", &gone, &["--reason", "done"]),
+        "stop x",
+    );
+    let answer = succeeded(
+        &none.run(&["controller", "controllers"]),
+        "`controller controllers` with none live",
+    );
+    assert_eq!(answer.lines().count(), 1, "one line says so: {answer:?}");
+    assert!(
+        answer.contains("--all"),
+        "it names --all for every one: {answer:?}"
+    );
+}

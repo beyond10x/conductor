@@ -97,7 +97,8 @@ Every command takes these, before or after its name.
 | [`conductor controller revise-charter`](#conductor-controller-revise-charter) | Revise a charter |
 | [`conductor controller start-controller`](#conductor-controller-start-controller) | Start a controller |
 | [`conductor controller stop-controller`](#conductor-controller-stop-controller) | Stop a controller |
-| [`conductor controller controllers`](#conductor-controller-controllers) | Controllers |
+| [`conductor controller all-controllers`](#conductor-controller-all-controllers) | All controllers |
+| [`conductor controller controllers`](#conductor-controller-controllers) | Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing |
 | [`conductor dispatch`](#conductor-dispatch) | Briefs to controllers and their reports |
 | [`conductor dispatch cancel-dispatch`](#conductor-dispatch-cancel-dispatch) | Cancel a dispatch |
 | [`conductor dispatch report-blocked`](#conductor-dispatch-report-blocked) | Report a dispatch blocked |
@@ -178,7 +179,7 @@ Every command takes these, before or after its name.
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
-| [`conductor status`](#conductor-status) | Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing |
+| [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
@@ -1228,9 +1229,21 @@ Usage: conductor controller stop-controller [OPTIONS]
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor controller all-controllers`
+
+All controllers
+
+```text
+Usage: conductor controller all-controllers [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
 ## `conductor controller controllers`
 
-Controllers
+Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing
 
 ```text
 Usage: conductor controller controllers [OPTIONS]
@@ -1238,7 +1251,8 @@ Usage: conductor controller controllers [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+| `--all <BOOL>` | no | none | Print the table of every controller instead of one line per Running or Paused one. `--all` alone is `--all true` One of `true`, `false`. |
+| `--format <FORMAT>` | no | none | Render every controller as text, json, jsonl or markdown, as `all-controllers` does |
 
 ## `conductor dispatch`
 
@@ -2230,6 +2244,7 @@ Usage: conductor rules show [OPTIONS]
 | `--section <SECTION>` | no | none | A heading of rules.md, any case: print every item under each heading of that text |
 | `--format <FORMAT>` | no | none | How the items are printed: text (verbatim) or json. Default: text |
 | `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
+| `--changed-since <CHANGED_SINCE>` | no | none | A git revision of the records directory: print only the items whose text differs from that revision's rules.md, or that it does not hold, and name the ones it held that are gone |
 
 ## `conductor setup`
 
@@ -2258,7 +2273,7 @@ Usage: conductor spawn [OPTIONS]
 
 ## `conductor status`
 
-Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing
 
 ```text
 Usage: conductor status [OPTIONS]
@@ -2267,6 +2282,7 @@ Usage: conductor status [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the status is printed: text or json. Default: text |
+| `--full <BOOL>` | no | none | Print every part under its heading, sessions and every open dispatch included, instead of the attention lines. `--full` alone is `--full true` One of `true`, `false`. |
 
 ## `conductor store`
 

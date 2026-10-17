@@ -362,21 +362,24 @@ types:
   # from which it resumes it; how often the watchdog reads it; and how long a live controller
   # session, and every one of its sub-agents, may write nothing to its transcript before the watch
   # reports it silent (story:watch-silent-controller), a duration as `cadence` writes one; and how
-  # many CPU cores `conductor build run` leaves to the desktop: its command's job count is the
-  # cores less this (story:build-run-spare-cores); and how many `conductor build run` commands
-  # run at once on the host, every instance's together: a request is granted only while fewer disk
-  # grants than this are `Granted` or `Running`, waits in the queue's order while they are not, and
-  # is never refused for it, 0 for no bound (story:build-queue-convoy); whether `build run` gives a
-  # cargo-based command its repository's compile cache, one sccache server and directory per
-  # repository that all of its worktrees share, and that cache's size
-  # (story:build-run-repo-cache); and the short lane (story:build-run-short-lane): how many build
-  # slots besides `build_slots` admit only a command the ledger knows to be short, 0 turning the
-  # lane off, and the longest p90 run time of such a command, a duration as `cadence` writes one.
-  # A request is short when the ledger holds at least 3 earlier runs of its repository and command
-  # in 14 days whose p90 run time is at most `short_lane_max`, and no short-lane run of it outlived
-  # twice that in the last 24 hours. Absent, the filesystem is `/`, the silence 30 minutes, the
-  # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G, the short-lane
-  # slots 1 and their longest p90 3 minutes.
+  # many CPU cores `conductor build run` leaves to the desktop (story:build-run-spare-cores); and
+  # how many `conductor build run` commands run at once on the host, every instance's together: a
+  # request is granted only while fewer disk grants than this are `Granted` or `Running`, waits in
+  # the queue's order while they are not, and is never refused for it, 0 for no bound
+  # (story:build-queue-convoy). A command's job count, `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j`, is
+  # its share of the cores: the cores less the reserve, over the build slots (all of them at 0),
+  # at least 1; a `CARGO_BUILD_JOBS` in the environment above that share is lowered to it, and one
+  # line says so (story:build-jobs-per-slot). Then whether `build run` gives a cargo-based command
+  # its repository's compile cache, one sccache server and directory per repository that all of
+  # its worktrees share, and that cache's size (story:build-run-repo-cache); and the short lane
+  # (story:build-run-short-lane): how many build slots besides `build_slots` admit only a command
+  # the ledger knows to be short, 0 turning the lane off, and the longest p90 run time of such a
+  # command, a duration as `cadence` writes one. A request is short when the ledger holds at least
+  # 3 earlier runs of its repository and command in 14 days whose p90 run time is at most
+  # `short_lane_max`, and no short-lane run of it outlived twice that in the last 24 hours; a
+  # short-lane run's job count is its share, at most 4. Absent, the filesystem is `/`, the silence
+  # 30 minutes, the reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G,
+  # the short-lane slots 1 and their longest p90 3 minutes.
   - name: conductor.config.Thresholds
     kind: struct
     fields:

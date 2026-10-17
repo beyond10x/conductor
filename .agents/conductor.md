@@ -24,6 +24,13 @@ The other sections of the instance's `rules.md` in the records directory you pas
 of them when a charter or brief needs it, with `conductor rules show --item <n>,…` or `--section
 <heading>`.
 
+Your shell starts in the records directory, and every `conductor` command finds the instance's
+records and state from any directory: no command needs a `cd <records> &&` prefix. Act in another
+directory with `git -C <dir>` or a subshell, `(cd <dir> && …)`, which leaves your shell where it
+is. Read the short forms: `conductor status` and `conductor controller controllers` print one line
+per item that asks for attention, and `message receive-message` answers the message's id, one
+line; never echo the message back.
+
 ## What you do, every cycle
 
 **At session start**, after that reading, set up what wakes you. `CronCreate` jobs live only in
@@ -60,9 +67,11 @@ this session and expire after 7 days, so a restart loses them.
 1. **Sense.** Build the snapshot with `id=$(conductor snapshot start-snapshot) && conductor snapshot
    publish-board --snapshot-id "$id"` (the collectors, then the board; the same as the product's
    `task status`, which needs its Taskfile and so does not run from the records directory) and read it
-   with `conductor status`, which starts none. Answer an operator's status question with
-   `conductor status`: the newest complete snapshot and its age, its deviations, live sessions,
-   open dispatches, registered waits and pending requests, read from the store in one call.
+   with `conductor status`, which starts none and prints only what asks for attention, one line
+   each; `conductor status --full` adds the sessions and every open dispatch. Answer an operator's
+   status question with `conductor status --full`: the newest complete snapshot and its age, its
+   deviations, live sessions, open dispatches, registered waits and pending requests, read from
+   the store in one call.
    Read open decision-blockers with
    `aep plan workspace list --kind decision-blocker --status open`. A `snapshot sessions` row
    with an empty `session_ref` and `cwd` and no `name` is a session outside `checkouts.root`,
@@ -325,7 +334,8 @@ Start a controller with `conductor spawn --repository <repo>`. It starts the con
 `<records>/charters/<repo>.md` as its first prompt, records the controller running and prints the
 session id. It refuses, naming why, and starts nothing while a
 session of that name runs or the repository has a running or paused controller (`conductor
-controller controllers`; stop one whose session is gone with `controller stop-controller` first),
+controller controllers` lists the Running and Paused controllers, one line each; `--all` prints
+every one; stop one whose session is gone with `controller stop-controller` first),
 and when the `controller` role, the checkout, its trust (`conductor trust`) or the charter is not
 ready; it never starts a controller in a checkout outside the checkouts root or in your records.
 A refusal is fixed, never bypassed with a start of your own: `UntrustedCheckout` goes on the
@@ -358,9 +368,9 @@ which only `conductor config workspace` writes (`--check` first).
   and stop; conductor-dev restarts you. A hand-over keeps only open work: it does not list the
   jobs or the watch, which the start prompt of `task conductor:restart` names.
 - A `rules.md` change reaches you as a relayed diff, not a restart: conductor-dev sends
-  `[REPORT conductor -] progress rules.md <commit> items <n>,…` with the diff. Read the
-  changed items with `conductor rules show --item <n>,…`, follow them from then on, and relay
-  them to every running controller as for any `rules.md` commit.
+  `[REPORT conductor -] progress rules.md <commit> items <n>,…` with the diff. Read the changed
+  items with `conductor rules show --changed-since <commit>^`, or `--item <n>,…`, follow them from
+  then on, and relay them to every running controller as for any `rules.md` commit.
 - When a restart you need cannot be answered because conductor-dev is unreachable (no live
   conductor-dev in `claude agents --json`, or no answer to your
   `[NEED conductor <id>] conductor-dev restart` within 15 minutes), write your hand-over as for

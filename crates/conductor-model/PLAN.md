@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 460d4fbb773864a866532eea2da3a941870bf7c4742d4e419769128d1a65fac0
-  contract digest 8ce4479848d59186809eb681b5531d4f9a5386aa58dbd13c5e56173ef14f7e11
+  model digest 9e8eaebf75fa6031a07a817fbf5388dd1007e7d9acdc6f402bc9dcb9082094b5
+  contract digest 1abbcbdf24f61def78d15b53e7c7b177ffde8a4a92ee0da822e4d83b77dd5f69
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-648 capabilities: **631 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+649 capabilities: **632 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -113,6 +113,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.dispatch.DispatchLogLine` |
 | domain type | `conductor.dispatch.GuardDecision.State` |
 | domain type | `conductor.dispatch.GuardDecisionId` |
+| domain type | `conductor.dispatch.ListControllers` |
 | domain type | `conductor.dispatch.Message.State` |
 | domain type | `conductor.dispatch.MessageId` |
 | domain type | `conductor.dispatch.MessageKind` |
