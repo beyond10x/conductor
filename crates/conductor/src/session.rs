@@ -46,6 +46,11 @@
 //! (`conductor-dev`) is the host's role (`story:maintainer-host-config`): read from the host file
 //! `host.yaml` in the host's own directory, else, for this release, from the instance's `roles`
 //! ([`crate::config::host_maintainer`]).
+//!
+//! [`deliver`] puts a text in front of a running session behind the [`Deliverer`] trait, whose
+//! real form, [`ShellDeliverer`], runs `conductor session deliver --name <name> --text -`
+//! (`story:mailbox-send-and-deliver`); `conductor run` delivers this way (`story:run-daemon`).
+//! `session record-run-tick` and `session run-ticks` are the run daemon's, in [`crate::run`].
 
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
@@ -957,6 +962,125 @@ pub fn stop(
     writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
         .context("write the stopped session")?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// What [`deliver`] put in front of a session (`story:run-daemon`): the session, by its full
+/// name, and the first line of the text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delivery {
+    /// The session's full name.
+    pub session: String,
+    /// The first line of the text delivered.
+    pub first_line: String,
+}
+
+/// Puts a text in front of a running session (docs/design/conductor-run.md § 3): the run
+/// daemon's one way to talk to a session. [`ShellDeliverer`] is the real one; a test gives its
+/// own.
+pub trait Deliverer {
+    /// Delivers `text` to the session `name`.
+    ///
+    /// # Errors
+    ///
+    /// The text was not delivered: the session is not reachable, or the delivery did not run.
+    fn deliver(&self, name: &str, text: &str) -> Result<Delivery>;
+}
+
+/// How long one delivery may take before it is stopped.
+pub const DELIVER_BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The deliverer that runs `conductor session deliver --name <name> --text -` with the text on
+/// standard input (`story:mailbox-send-and-deliver` writes that command: it types the text into
+/// the session's tmux and records the delivery), with the global `--config` and `--state-dir`
+/// the daemon was given, within [`DELIVER_BOUND`]. A session it cannot reach is answered as an
+/// error naming it, never retried here.
+#[derive(Debug, Clone)]
+pub struct ShellDeliverer {
+    /// The `conductor` binary: this process's own.
+    pub program: PathBuf,
+    /// The global `--config`, when the daemon was given one.
+    pub config: Option<PathBuf>,
+    /// The global `--state-dir`, when the daemon was given one.
+    pub state: Option<PathBuf>,
+}
+
+impl ShellDeliverer {
+    /// The deliverer of this process's binary, with the daemon's `config` and `state` flags.
+    ///
+    /// # Errors
+    ///
+    /// The path of this process's binary cannot be read.
+    pub fn current(config: Option<&Path>, state: Option<&Path>) -> Result<Self> {
+        Ok(Self {
+            program: std::env::current_exe().context("read the path of the conductor binary")?,
+            config: config.map(Path::to_owned),
+            state: state.map(Path::to_owned),
+        })
+    }
+}
+
+impl Deliverer for ShellDeliverer {
+    fn deliver(&self, name: &str, text: &str) -> Result<Delivery> {
+        use std::process::{Command, Stdio};
+        let mut command = Command::new(&self.program);
+        if let Some(config) = &self.config {
+            command.arg("--config").arg(config);
+        }
+        if let Some(state) = &self.state {
+            command.arg("--state-dir").arg(state);
+        }
+        command
+            .args(["session", "deliver", "--name", name, "--text", "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let shown = format!("conductor session deliver --name {name} --text -");
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("start `{shown}`"))?;
+        if let Some(mut input) = child.stdin.take() {
+            input
+                .write_all(text.as_bytes())
+                .with_context(|| format!("write the text to `{shown}`"))?;
+        }
+        let started = std::time::Instant::now();
+        while child
+            .try_wait()
+            .with_context(|| format!("wait for `{shown}`"))?
+            .is_none()
+        {
+            if started.elapsed() >= DELIVER_BOUND {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!(
+                    "`{shown}` gave no answer within {} s",
+                    DELIVER_BOUND.as_secs()
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let output = child
+            .wait_with_output()
+            .with_context(|| format!("read what `{shown}` said"))?;
+        if !output.status.success() {
+            bail!("`{shown}` {}", confine::exited(&output));
+        }
+        Ok(Delivery {
+            session: name.to_owned(),
+            first_line: text.lines().next().unwrap_or_default().to_owned(),
+        })
+    }
+}
+
+/// Delivers `text` to the session `name` through this process's `conductor session deliver`
+/// ([`ShellDeliverer`]), with the global `--config` and `--state-dir` of the environment's
+/// defaults.
+///
+/// # Errors
+///
+/// What [`Deliverer::deliver`] answers.
+pub fn deliver(name: &str, text: &str) -> Result<Delivery> {
+    ShellDeliverer::current(None, None)?.deliver(name, text)
 }
 
 #[cfg(test)]

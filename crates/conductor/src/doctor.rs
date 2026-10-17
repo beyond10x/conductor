@@ -1220,6 +1220,9 @@ pub fn doctor_with(
     for line in doctor.lines() {
         println!("{line}");
     }
+    for line in run_units(flag) {
+        println!("{line}");
+    }
     let verdict = verdict_of(&doctor.failures());
     println!("{verdict}");
     Ok(if verdict == READY {
@@ -1227,6 +1230,34 @@ pub fn doctor_with(
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// One line per instance of the config file `flag` names (`story:run-daemon`): `run unit:
+/// <unit> running`, or `… not running (<why>)`, the state of `conductor_<instance>-run.service`
+/// as `systemctl --user is-active` answers it, as the usage watcher's is read. None without a
+/// config file. It changes no verdict: an instance may run its loop another way.
+fn run_units(flag: Option<&Path>) -> Vec<String> {
+    let Ok(loaded) = config::Environment::from_process()
+        .and_then(|environment| config::load(flag, &environment))
+    else {
+        return Vec::new();
+    };
+    if !loaded.read {
+        return Vec::new();
+    }
+    let systemctl = env::var_os("PATH").and_then(|search| find_in("systemctl", &search));
+    loaded
+        .config
+        .instances
+        .iter()
+        .map(|instance| {
+            let unit = watcher(systemctl.as_deref(), crate::run::unit::unit_name(instance));
+            match &unit.not_running {
+                None => format!("run unit: {} running", unit.unit),
+                Some(why) => format!("run unit: {} not running ({why})", unit.unit),
+            }
+        })
+        .collect()
 }
 
 /// The verdict of a run every program of which passed (`story:doctor-verdict`).

@@ -524,26 +524,57 @@ impl Options {
 /// `HOME` is not an absolute path, the working directory cannot be read (without
 /// `--state-dir`), the state directory cannot be written, or standard output is closed.
 pub fn watch_run(state: Option<&Path>, args: &WatchRunArgs) -> Result<ExitCode> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|home| home.is_absolute())
-        .context("HOME is not an absolute path; the watch reads the transcripts under ~/.claude")?;
-    let active = config::active();
-    let options = Options::of(&active.instance, args);
-    let host = crate::host::dir(state)?;
-    let state = state::dir(state)?;
-    let mut watch = Watch::new(
-        Sources::new(home, active, state.clone()),
-        state.join("watch"),
-    )
-    .with_settings(Settings::of(&active.instance))
-    .with_gitlab(Forge::all(&active.instance))
-    .with_usage(state.clone())
-    .with_decisions(state.clone())
-    .with_reclaim(state, crate::gc::reclaim::reclaim)
-    .with_host(host);
+    let options = Options::of(&config::active().instance, args);
+    let mut watch = Watch::of_instance(state)?;
     watch.run(&options, &mut io::stdout().lock(), &mut io::stderr().lock())?;
     Ok(ExitCode::SUCCESS)
+}
+
+impl Watch {
+    /// The watch of the instance this process runs, over its real sources ([`Sources::new`]), its
+    /// settings, its `gitlab` sources, its usage and decisions, the reclaim under `disk_admit`
+    /// and the host directory, keeping its state in `<state>/watch/`: the one `conductor watch
+    /// run` runs, and `conductor run` passes once per watch tick (`story:run-daemon`).
+    ///
+    /// # Errors
+    ///
+    /// `HOME` is not an absolute path, or the state or host directory cannot be told.
+    pub fn of_instance(state: Option<&Path>) -> Result<Self> {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| home.is_absolute())
+            .context(
+                "HOME is not an absolute path; the watch reads the transcripts under ~/.claude",
+            )?;
+        let active = config::active();
+        let host = crate::host::dir(state)?;
+        let state = state::dir(state)?;
+        Ok(Self::new(
+            Sources::new(home, active, state.clone()),
+            state.join("watch"),
+        )
+        .with_settings(Settings::of(&active.instance))
+        .with_gitlab(Forge::all(&active.instance))
+        .with_usage(state.clone())
+        .with_decisions(state.clone())
+        .with_reclaim(state, crate::gc::reclaim::reclaim)
+        .with_host(host))
+    }
+
+    /// The context, in tokens, of the live session (one with a `pid`) the session list names
+    /// `name`, read as the context probe reads it from the newest usage of its transcript; none
+    /// when no such session is listed or its transcript holds no usage (`story:run-daemon`).
+    ///
+    /// # Errors
+    ///
+    /// The session list cannot be read.
+    pub fn context_of(&self, name: &str) -> Result<Option<u64>> {
+        Ok(self
+            .sessions()?
+            .iter()
+            .find(|session| session.pid.is_some() && session.name == name)
+            .and_then(|session| context_tokens(&self.transcript(session))))
+    }
 }
 
 /// The watch over its [`Sources`], keeping its state in one directory.

@@ -425,6 +425,78 @@ impl Systemd {
     }
 }
 
+/// A user service that is no session: `conductor run` as `conductor_<instance>-run.service`
+/// (`story:run-daemon`), started through the same `systemd-run --user` path a session's unit is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Service {
+    /// The unit's name.
+    pub unit: String,
+    /// The slice it runs in, the instance's ([`slice_name`]).
+    pub slice: String,
+    /// The instance's `confinement.limits`, set on the slice first as a session's start does.
+    pub limits: Limits,
+    /// Its working directory.
+    pub cwd: PathBuf,
+    /// `-p` properties beside `StandardOutput` (systemd's journal keeps what it prints).
+    pub properties: Vec<String>,
+    /// Variables set for it, `NAME=value`, or `NAME` alone to pass this process's value.
+    pub env: Vec<String>,
+    /// The program and its arguments.
+    pub command: Vec<String>,
+}
+
+/// Starts `service` once no unit of its name is left ([`Systemd::wait_gone`]), in its slice with
+/// the instance's limits set on it: `systemd-run --user --unit <unit> --slice <slice> --collect -p
+/// <property>… --working-directory=<cwd> -E <variable>… <command>`.
+///
+/// # Errors
+///
+/// A unit of that name still runs, the slice's limits cannot be set, or `systemd-run` fails.
+pub fn start_service(service: &Service) -> Result<()> {
+    Systemd::wait_gone(&service.unit)?;
+    Systemd::set_slice(&service.slice, &service.limits)?;
+    let mut args: Vec<String> = [
+        "--user",
+        "--unit",
+        &service.unit,
+        "--slice",
+        &service.slice,
+        "--collect",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    for property in &service.properties {
+        args.extend(["-p".to_owned(), property.clone()]);
+    }
+    args.push(format!("--working-directory={}", service.cwd.display()));
+    for variable in &service.env {
+        args.extend(["-E".to_owned(), variable.clone()]);
+    }
+    args.extend(service.command.iter().cloned());
+    call(SYSTEMD_RUN, &args).with_context(|| format!("start the unit {}", service.unit))?;
+    Ok(())
+}
+
+/// What systemd says of `unit`: its `LoadState` and its `ActiveState` (`systemctl --user show`).
+///
+/// # Errors
+///
+/// `systemctl` fails.
+pub fn unit_state(unit: &str) -> Result<(String, String)> {
+    Systemd::unit_state(unit)
+}
+
+/// Stops `unit` (`systemctl --user stop`).
+///
+/// # Errors
+///
+/// `systemctl` fails.
+pub fn stop_unit(unit: &str) -> Result<()> {
+    call(SYSTEMCTL, &["--user", "stop", unit].map(str::to_owned))
+        .with_context(|| format!("stop the unit {unit}"))?;
+    Ok(())
+}
+
 /// Runs `tmux -S <name>.tmux <args>` on the session `name`'s server, from the directory of its
 /// socket, so a long state path does not exceed a socket's path limit; within [`BOUND`].
 pub fn tmux_call(sessions: &Path, name: &SessionName, args: &[&str]) -> Result<String> {

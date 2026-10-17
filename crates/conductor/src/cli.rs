@@ -43,12 +43,13 @@
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
 //!
-//! Eight such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
+//! Nine such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
 //! (`story:first-run-seed`), which read the config file themselves as `config show` does,
 //! `doctor` (`story:install-prerequisites`) and `setup` (`story:setup-command`), which read it
 //! for what they report and stop on no problem of it, `gc` (`story:conductor-gc`), `spawn`
-//! (`story:spawn`), `status` (`story:status-command`), a view over the store, and `upgrade`
-//! (`story:conductor-upgrade`), which reads no config file.
+//! (`story:spawn`), `run` (`story:run-daemon`), the instance's loop, `status`
+//! (`story:status-command`), a view over the store, and `upgrade` (`story:conductor-upgrade`),
+//! which reads no config file.
 //!
 //! [`LEAVES`] declares of every leaf whether it writes, and so whether a controller's session may
 //! run it ([`Access`]); the guard reads that declaration, not a list of its own
@@ -136,6 +137,7 @@ pub fn writes_records(words: &[String]) -> bool {
                 "decision" | "dispatch" | "message" | "resource" | "controller",
                 _
             ] | ["spawn"]
+                | ["run"]
                 | ["build", "run"]
                 | [
                     "snapshot",
@@ -356,7 +358,14 @@ impl Cli {
             },
             Group::Session(command) => match command {
                 SessionCommand::Claim(args) => session::claim(state, args),
+                // `story:mailbox-send-and-deliver` writes the delivery and its view.
+                SessionCommand::DeliverMessage(_) => {
+                    crate::not_implemented("session deliver-message")
+                }
+                SessionCommand::RecordRunTick(args) => crate::run::record_run_tick(state, &args),
+                SessionCommand::Deliveries(_) => crate::not_implemented("session deliveries"),
                 SessionCommand::Leases(view) => session::leases(state, view),
+                SessionCommand::RunTicks(view) => crate::run::run_ticks(state, view),
                 SessionCommand::Start(args) => {
                     session::start(self.config.as_deref(), state, &args, providers)
                 }
@@ -444,6 +453,7 @@ impl Cli {
             Group::Rules(command) => match command {
                 RulesCommand::Show(args) => crate::rules::rules_show(&args),
             },
+            Group::Run(args) => crate::run::run(self.config.as_deref(), state, &args, providers),
             Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
             Group::Spawn(args) => {
                 crate::spawn::spawn(self.config.as_deref(), state, &args, providers)
@@ -500,7 +510,7 @@ pub enum Group {
     #[command(subcommand)]
     Guard(GuardCommand),
 
-    /// The instance's one conductor session and the lease it holds
+    /// The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks
     #[command(subcommand)]
     Session(SessionCommand),
 
@@ -561,6 +571,10 @@ pub enum Group {
     // (`story:rules-show`).
     #[command(subcommand)]
     Rules(RulesCommand),
+
+    /// Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    #[command(name = "run")]
+    Run(RunArgs),
 
     /// Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
     #[command(name = "setup")]
@@ -727,7 +741,14 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Conductor's own SessionStart hook runs it; a controller that claimed the lease would be
     // taken for the instance's conductor.
     (&["session", "claim"], Access::Writes),
+    // Types into a session and records the delivery; the run daemon delivers, a controller
+    // reports with `message send` (docs/design/conductor-run.md § 3).
+    (&["session", "deliver-message"], Access::Writes),
+    // The run daemon records its ticks (story:run-daemon).
+    (&["session", "record-run-tick"], Access::Writes),
+    (&["session", "deliveries"], Access::Reads),
     (&["session", "leases"], Access::Reads),
+    (&["session", "run-ticks"], Access::Reads),
     // Starts or stops the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) (story:sandbox-spec).
     (&["session", "start"], Access::Writes),
     (&["session", "stop"], Access::Writes),
@@ -790,6 +811,10 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Reads the instance's rules.md and nothing else; a controller cites its items in a worker's
     // brief (story:rules-show).
     (&["rules", "show"], Access::Reads),
+    // The instance's loop: records ticks, writes the records' logs and charters, starts and
+    // stops controllers, and with --install or --uninstall starts or stops its user unit
+    // (story:run-daemon).
+    (&["run"], Access::Writes),
     // With --apply, writes the config file, the records and ~/.claude.json (story:setup-command).
     (&["setup"], Access::Writes),
     // Starts a controller's session and records the controller in the store.
@@ -1222,9 +1247,25 @@ pub enum SessionCommand {
     #[command(name = "claim")]
     Claim(ClaimLeaseArgs),
 
+    /// Deliver a message to a session
+    #[command(name = "deliver-message")]
+    DeliverMessage(DeliverMessageArgs),
+
+    /// Record a tick of the run daemon
+    #[command(name = "record-run-tick")]
+    RecordRunTick(RecordRunTickArgs),
+
+    /// Deliveries to sessions
+    #[command(name = "deliveries")]
+    Deliveries(ViewArgs),
+
     /// Conductor leases
     #[command(name = "leases")]
     Leases(ViewArgs),
+
+    /// Ticks of the run daemon
+    #[command(name = "run-ticks")]
+    RunTicks(ViewArgs),
 
     /// Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
     #[command(name = "attach")]
@@ -3622,6 +3663,64 @@ pub struct RecordGuardDecisionArgs {
     /// shell's parent, `--pid "$PPID"`); the conductor lease denies a write from another process
     #[arg(long, allow_negative_numbers = true)]
     pub pid: Option<i64>,
+}
+
+/// The input of `conductor.session.DeliverMessage`.
+#[derive(Debug, Clone, Args)]
+pub struct DeliverMessageArgs {
+    /// SessionName
+    #[arg(long)]
+    pub session_name: Option<String>,
+    /// string
+    #[arg(long)]
+    pub first_line: Option<String>,
+    /// string
+    #[arg(long)]
+    pub body_path: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub delivered_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.session.RecordRunTick` (`story:run-daemon`).
+#[derive(Debug, Clone, Args)]
+pub struct RecordRunTickArgs {
+    /// TickKind
+    #[arg(long, value_parser = ["watch", "cycle", "daily"])]
+    pub kind: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub started_at: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub lines_handled: Option<i64>,
+    /// list of DispatchLogEvent, a JSON array of the events as the dispatch log writes them
+    /// (`relayed`, `handover-sent`, …)
+    #[arg(long, value_parser = json_list)]
+    pub actions: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of the binding's `run` callable, `conductor.session.RunDaemon` (`story:run-daemon`).
+#[derive(Debug, Clone, Default, Args)]
+pub struct RunArgs {
+    /// Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub once: Option<bool>,
+    /// Start the loop as the user unit conductor_<instance>-run.service through systemd-run;
+    /// under the none provider print the command to run instead. `--install` alone is
+    /// `--install true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub install: Option<bool>,
+    /// Stop the user unit conductor_<instance>-run.service. `--uninstall` alone is
+    /// `--uninstall true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub uninstall: Option<bool>,
 }
 
 /// The input of `conductor.session.ClaimLease`.
