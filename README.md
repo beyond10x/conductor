@@ -84,7 +84,7 @@ A `gitlab` source names the host its group is on, such as `host: gitlab.example.
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.18.3 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.19.0 --locked conductor-cli
 conductor doctor
 ```
 
@@ -94,7 +94,7 @@ from the release instead: each GitHub Release from `v0.6.0` on carries
 `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
 
 ```console
-version=0.18.3 target=x86_64-unknown-linux-gnu
+version=0.19.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -112,7 +112,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 `conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
 `tar` and `sha256sum` (or `shasum` on macOS).
 
-`conductor --version` prints the installed version, `conductor 0.18.3`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 0.19.0`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.
@@ -190,9 +190,9 @@ nothing to `~/.claude/agents/`, and removes the links an earlier version of the 
 
 1. **Sense.** `conductor snapshot start-snapshot` reads git state, pull requests, CI, releases, planning blockers and sessions into one snapshot.
 2. **Decide.** Conductor compares the snapshot with its goals; it decides everything it can undo (class C); only what cannot be undone (class O) and credentials only the operator can enter (class H) go to the operator.
-3. **Dispatch.** Conductor sends each controller a brief; a controller works only in its repository and reports only to conductor.
+3. **Dispatch.** `conductor run` starts a controller for each Active repository with a charter; a controller works only in its repository and reports only to conductor, with `conductor message send`.
 4. **Guard.** Every tool call of conductor and the controllers passes the guard; denials are recorded.
-5. **Watch.** `conductor watch run --follow` wakes conductor when a session ends, CI changes or disk runs low.
+5. **Watch.** `conductor run` runs the watch every `cadence.watch` and acts on each line: a hand-over, a usage limit, a pull request's checks, a stalled session, low disk.
 
 ## Documentation
 

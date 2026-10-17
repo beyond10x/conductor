@@ -80,6 +80,6 @@ directories.
   directly under `checkouts.root` as a trusted Claude Code workspace in `~/.claude.json`. Their
   project settings and hooks then run without a prompt. Keep only repositories you have reviewed
   under that root.
-- [ ] **Accept the bypass-permissions disclaimer deliberately.** `task conductor:start` refuses
+- [ ] **Accept the bypass-permissions disclaimer deliberately.** `claude --bg` refuses `bypassPermissions`
   until it has been accepted once. Accept it as the session user, knowing that the guard is the
   only check from then on.

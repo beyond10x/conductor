@@ -15,7 +15,7 @@ fixes in waves.
 
 - **`conductor run`**, a process and no session, runs one instance's loop
   ([`docs/design/conductor-run.md`](docs/design/conductor-run.md)); the conductor profile is retired.
-- **The conductor-dev session** (`task dev:start`). It develops conductor: code, specification,
+- **The conductor-dev session** (`task maintainer:start`). It develops conductor: code, specification,
   plan, design, profiles; it installs the binary and restarts the loop. Profile:
   [`.agents/conductor-dev.md`](.agents/conductor-dev.md). Role: design § 12.
 - **Any agent changing this repository.**
@@ -205,10 +205,10 @@ its sessions by their full names, its dashboard by its port and unit.
 
 | task | does |
 |---|---|
-| `task dev:start` | start the session under its role's session name (`<session_prefix>-<role>`, or the role without a prefix) on the model of its role in `conductor config show`, with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless the role's harness is `claude`, and while a session of that name runs. A role with a `profile` starts from it with `--append-system-prompt-file <profile>`; without one, with `--agent <agent>`, which is found only in the start directory's `.claude/agents/`. conductor-dev starts in this checkout |
+| `conductor run --install`, `--uninstall` | start or stop the active instance's loop as the user unit `conductor_<instance>-run.service`; `--uninstall`, then `--install` restarts it, with no hand-over (`docs/design/conductor-run.md`) |
+| `task maintainer:start` | start conductor-dev with `conductor session start --role maintainer`, in this checkout, under the maintainer's session name and on its model in `conductor config show` (`host.roles`), with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless its harness is `claude`, and while a session of that name runs. A `profile` is appended with `--append-system-prompt-file <profile>`; without one it starts with `--agent conductor-dev`, which is found only in this checkout's `.claude/agents/` |
 | `task agents:link REPO=<path>` | links `.claude/agents/{repo-controller,conductor-dev}.md` into `<path>/.claude/agents/`, hidden through that repository's `.git/info/exclude`, for a session you start by hand there; never writes `~/.claude/agents/`, and removes its own old links there. It serves none of the sessions above |
-| `task conductor:attach`, `task dev:attach` | open the active instance's session of that role, by its full name, in this terminal; refuse when no live background session or more than one holds that name |
-| `conductor run --install`, `--uninstall` | start or stop the active instance's loop as the user unit `conductor_<instance>-run.service`; it replaced `task conductor:start` and `task conductor:restart` (`docs/design/conductor-run.md`) |
+| `task conductor:attach`, `task maintainer:attach` | open the active instance's session of that role, by its full name, in this terminal; refuse when no live background session or more than one holds that name |
 | `task sessions` | list the active instance's two sessions by their full names; exit 1 naming each name more than one live background session holds |
 | `task trust` | mark every checkout under `checkouts.root` and the instance's `records` directory as trusted Claude Code workspaces, so conductor and each controller can start there |
 | `task dashboard`, `task dashboard:stop` | the active instance's page on 127.0.0.1, read-only except the Decisions page's answers (a per-process token, same origin) at its `dashboard_port` (7313 plus the instance's position in the file, unless the file writes one); where systemctl is on PATH the user service `<session_prefix>-conductor-dashboard` (`conductor-dashboard` without a prefix), elsewhere a background process whose pid is in `dashboard.pid` of the instance's `state` directory |
@@ -224,6 +224,8 @@ conductor snapshot <view> --format json         # repositories, pull-requests, w
 conductor repository activity                   # each repository Active or Inactive
 conductor guard guard-decisions                 # the guard's recorded denials
 conductor store migrate                         # copy an older store into the tree layout; the old one is kept beside it
+conductor run --install                         # the instance's loop as a user unit; --once runs one watch and one cycle tick
+conductor message send --to conductor --from <session name> --text -   # a controller's message, on standard input, into conductor's mailbox
 ```
 
 The views list every kept snapshot's rows; filter on the newest `snapshot_id`. Every command and

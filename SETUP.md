@@ -139,4 +139,4 @@ to fill in, and each step says where they come from. `<target>` is the build of 
 
 Tell the person what was installed, the account each forge CLI is logged in as, and the
 instance's name. [Start conductor](https://beyond10x.github.io/conductor/docs/guides/start-conductor)
-starts its sessions.
+starts its loop with `conductor run --install`.

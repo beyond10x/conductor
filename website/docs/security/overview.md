@@ -153,7 +153,7 @@ way, so an answer the operator did not give can be found and reversed
 | the store refuses class O and H decisions recorded by conductor | asking for a build slot when disk is low |
 | the dashboard takes answers only with its page's token, from its own origin, as JSON; a Bash call that posts to it is denied (a heuristic) | relaying only the operator's own words with `answer-escalated-as-operator` |
 | the config file refuses a value that looks like a token, and never prints it | handing a session over before its context runs out |
-| `task conductor:start` refuses while a session of that name runs | not starting or resuming a conductor by hand |
+| `conductor run` holds a lock under `<state>/run/`, so a second loop of the instance refuses | not starting a conductor session by hand |
 
 The pages of this section:
 

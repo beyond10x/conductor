@@ -4,6 +4,8 @@
 //!
 //! `story:run-daemon` retired the conductor profile: `conductor run` does in code what it asked
 //! of a session (`tests/run.rs`), so the cases that read it went with it.
+//! `story:controller-profile-for-run` fits the two left to the daemon: a controller reports with
+//! `conductor message send`, and each profile stays under its line cap.
 
 use std::fs;
 use std::path::PathBuf;
@@ -20,26 +22,50 @@ fn profile(name: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// `story:run-daemon`, acceptance 6: `conductor run` is the loop, so the conductor profile and its
-/// Claude Code adapter are retired, and no profile shipped in `.agents/` asks a session to arm a
-/// timer, run the watch under `Monitor`, or restart conductor.
-#[test]
-fn no_profile_arms_a_timer_watches_or_restarts_conductor() {
+/// Every Markdown file of `dir`, relative to the repository root, with its text.
+fn shipped(dir: &str) -> Vec<(PathBuf, String)> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    for retired in [".agents/conductor.md", ".claude/agents/conductor.md"] {
-        assert!(!root.join(retired).exists(), "{retired} is retired");
-    }
-    let mut read = 0;
-    for entry in fs::read_dir(agents()).expect("read .agents/") {
+    let entries =
+        fs::read_dir(root.join(dir)).unwrap_or_else(|error| panic!("read {dir}: {error}"));
+    let mut files = Vec::new();
+    for entry in entries {
         let path = entry.expect("a profile").path();
         if path.extension().is_none_or(|extension| extension != "md") {
             continue;
         }
-        read += 1;
         let text = fs::read_to_string(&path).expect("read the profile");
+        files.push((path, text));
+    }
+    files
+}
+
+/// `story:run-daemon`, acceptance 6, and `story:controller-profile-for-run`, acceptance 4:
+/// `conductor run` is the loop, so the conductor profile and its Claude Code adapter are retired,
+/// and no profile or adapter shipped asks a session to arm a timer, run the watch under `Monitor`,
+/// message another role with `SendMessage`, or restart conductor.
+#[test]
+fn no_profile_arms_a_timer_watches_messages_by_send_message_or_restarts_conductor() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for retired in [".agents/conductor.md", ".claude/agents/conductor.md"] {
+        assert!(!root.join(retired).exists(), "{retired} is retired");
+    }
+    let profiles = shipped(".agents");
+    assert_eq!(
+        profiles.len(),
+        2,
+        "the profiles shipped: conductor-dev.md and repo-controller.md"
+    );
+    let adapters = shipped(".claude/agents");
+    assert_eq!(
+        adapters.len(),
+        2,
+        "the adapters shipped: conductor-dev.md and repo-controller.md"
+    );
+    for (path, text) in profiles.iter().chain(&adapters) {
         for gone in [
             "CronCreate",
             "Monitor",
+            "SendMessage",
             "watch run --follow",
             "[RESTART conductor]",
             "conductor:restart",
@@ -52,40 +78,71 @@ fn no_profile_arms_a_timer_watches_or_restarts_conductor() {
             );
         }
     }
-    assert_eq!(
-        read, 2,
-        "the profiles shipped: conductor-dev.md and repo-controller.md"
-    );
 }
 
-/// `story:instance-session-names` and `story:controller-report-sendmessage`: a controller's
-/// messages go to its instance's conductor by the session name `conductor config show` prints, and
-/// every report is a `SendMessage` call, since text printed in the session reaches nobody.
+/// `story:controller-profile-for-run`, acceptance 1 and 3: the controller profile fits in 120
+/// lines and the maintainer's in 60.
 #[test]
-fn a_controller_messages_its_instance_s_conductor_by_send_message() {
+fn each_profile_stays_under_its_line_cap() {
+    for (name, cap) in [("repo-controller.md", 120), ("conductor-dev.md", 60)] {
+        let path = agents().join(name);
+        let lines = fs::read_to_string(&path)
+            .expect("read the profile")
+            .lines()
+            .count();
+        assert!(lines <= cap, "{name}: {lines} lines, over its cap of {cap}");
+    }
+}
+
+/// `story:controller-profile-for-run`, acceptance 1: every report, decision request and need is a
+/// `conductor message send` to conductor's mailbox, the message on standard input, since text
+/// printed in the session reaches nobody; the session-name addressing of `SendMessage`, the usage
+/// and resource words and their paragraphs are gone, as the daemon handles them.
+#[test]
+fn a_controller_reports_with_conductor_message_send() {
     let text = profile("repo-controller.md");
-    assert!(
-        text.contains(
-            "Messages go only to `<session_prefix>-conductor`, your instance's conductor: the \
-             session name `conductor config show` prints as `conductor.session_name` \
-             (`conductor` when the instance has no `session_prefix`). When your instance names \
-             no `conductor` role, `conductor.served_by` names the `default` instance whose \
-             conductor serves it, and `conductor.session_name` is that conductor's."
-        ),
-        "repo-controller.md: messages go to the instance's conductor"
-    );
-    assert!(
-        text.contains(
-            "Every `[REPORT]`, `[DECISION-REQUEST]`, `[NEED]` and `[RESOURCE]` is a `SendMessage` \
-             call to that conductor: text printed in the session reaches nobody, and a turn that \
-             ends on a report ends with that call."
-        ),
-        "repo-controller.md: every report is a SendMessage call"
-    );
-    assert!(
-        !text.contains("Messages go only to `conductor`"),
-        "repo-controller.md: the bare name is gone"
-    );
+    for sentence in [
+        "Every `[REPORT]`, `[DECISION-REQUEST]` and `[NEED]` is sent as `conductor message send \
+         --to conductor --from <session name> --text -`, the message on standard input: text \
+         printed in the session reaches nobody, and a turn that ends on a report ends with that \
+         call.",
+        "Bodies at most 20 lines",
+    ] {
+        assert!(
+            text.contains(sentence),
+            "repo-controller.md: holds {sentence:?}"
+        );
+    }
+    for gone in [
+        "Messages go only to `<session_prefix>-conductor`",
+        "conductor.session_name",
+        "[RESOURCE",
+        "Usage limit",
+        "usage limit",
+        "Disk and build slots are not asked for by message",
+    ] {
+        assert!(
+            !text.contains(gone),
+            "repo-controller.md: no longer holds {gone:?}"
+        );
+    }
+}
+
+/// `story:controller-profile-for-run`, acceptance 1: on `[HANDOVER <repo>]` a controller finishes
+/// its step, writes the hand-over file the daemon looks for, reports it and stops.
+#[test]
+fn a_controller_writes_its_hand_over_file_reports_it_and_stops() {
+    let text = profile("repo-controller.md");
+    for phrase in [
+        "on `[HANDOVER <repo>]`",
+        "finish the step, write `<checkout>/.git/handoff/<UTC stamp>.md`",
+        "report `[REPORT <repo> <dispatch>] blocked handover <path>` and stop.",
+    ] {
+        assert!(
+            text.contains(phrase),
+            "repo-controller.md: the hand-over holds {phrase:?}"
+        );
+    }
 }
 
 #[test]
@@ -322,17 +379,17 @@ fn every_build_runs_under_conductor_build_run_and_a_refusal_is_reported() {
         !controller.contains("`--reserve 8G` for a cargo"),
         "repo-controller.md: no fixed size is the default"
     );
-    for sentence in [
-        "The guard denies a plain `cargo build|test|check|clippy|nextest|install|run`, \
-         `task check|gate|install|ui|regen|docs-generate`, `npm run build|test` or `npm ci`, and \
-         its denial names the form to use; `cargo fmt` and `rustfmt` run as they are.",
-        "Disk and build slots are not asked for by message: `conductor build run` reserves them",
-    ] {
-        assert!(
-            controller.contains(sentence),
-            "repo-controller.md: holds {sentence:?}"
-        );
-    }
+    // `story:controller-profile-for-run` removed the resource paragraph that said disk and build
+    // slots are not asked for by message; `a_controller_reports_with_conductor_message_send` holds
+    // that no `[RESOURCE` form is left.
+    let sentence = "The guard denies a plain `cargo build|test|check|clippy|nextest|install|run`, \
+                    `task check|gate|install|ui|regen|docs-generate`, `npm run build|test` or `npm \
+                    ci`, and its denial names the form to use; `cargo fmt` and `rustfmt` run as \
+                    they are.";
+    assert!(
+        controller.contains(sentence),
+        "repo-controller.md: holds {sentence:?}"
+    );
     assert!(
         !controller.contains("kill -STOP"),
         "repo-controller.md: the hand-written watchdog is gone"
@@ -423,22 +480,35 @@ fn restarts_are_rare_and_a_rules_change_needs_none() {
     }
 }
 
-/// `story:conductor-dev-report-form`: conductor-dev answers a NEED in the report form conductor
-/// parses, the NEED's id in the line and `-` in the dispatch-id slot.
+/// `story:controller-profile-for-run`, acceptance 3: conductor-dev observes through `conductor
+/// status`, the dispatch log and `metric kpi-readings`, not a conductor session's transcripts or
+/// its NEEDs (`story:conductor-dev-report-form` answered those; the daemon routes a NEED to a
+/// controller only); it hands over at 150k context into the state directory, and every wave names
+/// the metric it moves with a reading before and after.
 #[test]
-fn conductor_dev_answers_a_need_in_the_report_form() {
+fn conductor_dev_observes_the_daemon_s_records_and_measures_each_wave() {
     let dev = profile("conductor-dev.md");
-    let sentence = "Answer each NEED as `[REPORT conductor -] \
-                    <started|progress|blocked|unblocked|done|failed> <need id>: <one line>`: the \
-                    dispatch-id slot is `-`, the NEED's id goes in the line.";
-    assert!(
-        dev.contains(sentence),
-        "conductor-dev.md: holds {sentence:?}"
-    );
-    assert!(
-        !dev.contains("[REPORT conductor-dev"),
-        "conductor-dev.md: no report names conductor-dev as its repository"
-    );
+    for phrase in [
+        "`conductor status`",
+        "`dispatches/`",
+        "`conductor metric kpi-readings`",
+        "150k",
+        "`<state>/conductor-dev/handoff/`",
+        "Every wave names the metric it moves and records its reading before and after",
+        "report it as taken",
+    ] {
+        assert!(dev.contains(phrase), "conductor-dev.md: holds {phrase:?}");
+    }
+    for gone in [
+        "conductor's transcripts",
+        "[NEED conductor",
+        "[REPORT conductor-dev",
+    ] {
+        assert!(
+            !dev.contains(gone),
+            "conductor-dev.md: no longer holds {gone:?}"
+        );
+    }
 }
 
 /// Waves are wide and concurrent (the operator, 2026-10-14): every ready unit with disjoint scope,
