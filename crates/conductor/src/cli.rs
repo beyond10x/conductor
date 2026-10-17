@@ -731,6 +731,10 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Starts or stops the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) (story:sandbox-spec).
     (&["session", "start"], Access::Writes),
     (&["session", "stop"], Access::Writes),
+    // Types into a live session's terminal; no session attaches to another
+    // (story:session-attach-command, story:session-attach-refuses-sessions).
+    (&["session", "attach"], Access::Writes),
+    (&["session", "list"], Access::Reads),
     (&["host", "record-reclaim"], Access::Writes),
     (&["host", "record-peak"], Access::Writes),
     (&["host", "release-grant"], Access::Writes),
