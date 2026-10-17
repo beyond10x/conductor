@@ -43,6 +43,12 @@ struct Case {
     dir: PathBuf,
 }
 
+impl Drop for Case {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
 impl Case {
     /// A case with a git repository `repo/` holding one commit, a Cargo project, and a second
     /// worktree of it, `tree2/`.
