@@ -242,6 +242,7 @@ pub(crate) fn kind_name(kind: MessageKind) -> &'static str {
         MessageKind::Resource => "Resource",
         MessageKind::Escalation => "Escalation",
         MessageKind::Team => "Team",
+        MessageKind::Handover => "Handover",
         MessageKind::Unknown => "Unknown",
     }
 }
@@ -256,6 +257,7 @@ pub(crate) fn kind_named(name: &str) -> Option<MessageKind> {
         MessageKind::Resource,
         MessageKind::Escalation,
         MessageKind::Team,
+        MessageKind::Handover,
         MessageKind::Unknown,
     ]
     .into_iter()

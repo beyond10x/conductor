@@ -193,9 +193,17 @@ impl StoreMessages {
     fn record(&self, command: &str, input: ReceiveMessage, repo: &str) -> Result<String, String> {
         let outcome = crate::message::record(command, Some(&self.state), input, repo)
             .map_err(|error| format!("{error:#}"))?;
-        let (ReceiveMessageOutcome::Received { message_received }
-        | ReceiveMessageOutcome::Unparsed { message_received }) = outcome;
-        Ok(message_received.message_id.0.0)
+        match outcome {
+            ReceiveMessageOutcome::Received { message_received }
+            | ReceiveMessageOutcome::Unparsed { message_received } => {
+                Ok(message_received.message_id.0.0)
+            }
+            ReceiveMessageOutcome::MailboxWithoutBody { error } => Err(format!(
+                "{command}: MailboxBodyMissing: the mailbox message from {:?} to {:?} names no \
+                 body path; nothing was recorded",
+                error.sender, error.recipient
+            )),
+        }
     }
 
     /// The open dispatch of `repository` a lead's report names: the one sent, started or blocked,
@@ -484,6 +492,30 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
         Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
     }
 }
 

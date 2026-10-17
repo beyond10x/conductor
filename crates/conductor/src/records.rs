@@ -58,7 +58,7 @@ pub const DECISIONS: &str = "decisions";
 
 /// The keys a line of the dispatch log may hold: the fields of `conductor.dispatch.DispatchLogLine`
 /// (`spec/domains/dispatch.yaml`), in its order.
-pub const DISPATCH_KEYS: [&str; 19] = [
+pub const DISPATCH_KEYS: [&str; 20] = [
     "at",
     "event",
     "repo",
@@ -78,6 +78,7 @@ pub const DISPATCH_KEYS: [&str; 19] = [
     "first_line",
     "resource",
     "amount",
+    "body_path",
 ];
 
 /// The keys every line of the dispatch log holds.
@@ -124,6 +125,17 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::ResourceGranted => "resource-granted",
         DispatchLogEvent::ResourceRefused => "resource-refused",
         DispatchLogEvent::CharterRevised => "charter-revised",
+        DispatchLogEvent::Delivered => "delivered",
+        DispatchLogEvent::HandoverSent => "handover-sent",
+        DispatchLogEvent::Handover => "handover",
+        DispatchLogEvent::ControllerRestarted => "controller-restarted",
+        DispatchLogEvent::UsageLimit => "usage-limit",
+        DispatchLogEvent::Resumed => "resumed",
+        DispatchLogEvent::Relayed => "relayed",
+        DispatchLogEvent::RedCi => "red-ci",
+        DispatchLogEvent::Stalled => "stalled",
+        DispatchLogEvent::Cleanup => "cleanup",
+        DispatchLogEvent::DecisionSent => "decision-sent",
     }
 }
 
@@ -190,6 +202,7 @@ pub fn dispatch_line(event: DispatchLogEvent, repo: &str) -> Result<DispatchLogL
         first_line: None,
         resource: None,
         amount: None,
+        body_path: None,
     })
 }
 
@@ -221,6 +234,9 @@ pub fn decision_line(
         blocker: None,
         decision_id: None,
         escalation_class: None,
+        classification_rule: None,
+        decider_name: None,
+        prompt_sha256: None,
     })
 }
 
@@ -254,6 +270,7 @@ pub fn dispatch_object(line: &DispatchLogLine) -> Map<String, Value> {
     put(&mut object, "first_line", line.first_line.clone());
     put(&mut object, "resource", line.resource.clone());
     put(&mut object, "amount", line.amount);
+    put(&mut object, "body_path", line.body_path.clone());
     object
 }
 

@@ -395,10 +395,14 @@ fn file_store_counts(root: &Path) -> BTreeMap<String, (usize, usize)> {
 /// is read by `tests/build_run.rs`. `metric-metrics`, `metric-kpis`, `metric-metric-readings` and
 /// `metric-kpi-readings` are read by `tests/metric.rs` (`story:kpi-records`), whose
 /// `a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_target` and
-/// `the_metric_commands_answer_their_declared_refusals` read all four. `host-reclaim-runs` and
-/// `finding-findings` have no handler yet.
-const NOT_IN_FIXTURE: [&str; 10] = [
+/// `the_metric_commands_answer_their_declared_refusals` read all four. `session-deliveries` is
+/// read by `tests/deliver.rs` (`story:mailbox-send-and-deliver`), whose
+/// `the_deliveries_view_lists_each_delivery` reads `session deliveries`. `host-reclaim-runs`,
+/// `finding-findings` and `session-run-ticks` have no handler yet.
+const NOT_IN_FIXTURE: [&str; 12] = [
     "session-leases",
+    "session-deliveries",
+    "session-run-ticks",
     "snapshot-member-failures",
     "snapshot-collector-runs",
     "host-grants",

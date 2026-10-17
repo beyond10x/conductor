@@ -1671,6 +1671,7 @@ pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<
             recommendation: Some(recommendation),
             raised_at: Some(shortfall.at.0.clone()),
             blocker: None,
+            classification_rule: None,
             input_json: None,
         },
     )?;
@@ -2411,6 +2412,30 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<SnapshotId, UnmetObligation> {
         Err(unmet_context("conductor.observation.SnapshotId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
     }
 }
 

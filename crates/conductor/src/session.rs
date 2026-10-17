@@ -46,6 +46,12 @@
 //! (`conductor-dev`) is the host's role (`story:maintainer-host-config`): read from the host file
 //! `host.yaml` in the host's own directory, else, for this release, from the instance's `roles`
 //! ([`crate::config::host_maintainer`]).
+//!
+//! `session deliver` (`story:mailbox-send-and-deliver`, [`deliver`]) types a text into a running
+//! session through its tmux launcher and records the delivery; `session deliveries` is the view
+//! `conductor.session.Deliveries` ([`deliveries`]). The placed `session deliver-message` leaf, a
+//! delivery recorded with nothing typed, and the run daemon's `record-run-tick` and `run-ticks`
+//! (`story:run-daemon`) are not written yet.
 
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
@@ -53,18 +59,29 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use conductor_model::behaviour::{Generated, LeaseStorage};
+use conductor_model::behaviour::{
+    DeliveryStorage, ExternalCommand, Generated, LeaseStorage, TryContext, unmet_context,
+};
 use conductor_model::config::{
     ConfinementProvider, Harness, Instance, InstanceName, Role, RoleName, SessionName,
 };
+use conductor_model::direction::ServingId;
+use conductor_model::dispatch::{DispatchLogEvent, GuardDecisionId, MessageId, ResourceRequestId};
+use conductor_model::host::{GrantId, ReclaimRunId};
 use conductor_model::obligation::UnmetObligation;
-use conductor_model::primitives::Timestamp;
-use conductor_model::session::obligations::{ClaimLeaseBehavior, LeasesQuery};
-use conductor_model::session::{
-    ClaimLease, ClaimLeaseOutcome, LeaseData, LeaseHeld, LeaseSnapshot, LeaseState, LeaseTaken,
-    LeaseTakenOver, SessionId, SessionRequest, SessionStartRefusal, SessionStartRefused,
-    SessionStopRefusal, SessionStopRefused, StartSession, StartedSession, StopSession,
+use conductor_model::observation::{BoardId, ObservationId, SnapshotId};
+use conductor_model::primitives::{Timestamp, Uuid};
+use conductor_model::session::obligations::{
+    ClaimLeaseBehavior, DeliverMessageBehavior, DeliveriesQuery, LeasesQuery,
 };
+use conductor_model::session::{
+    ClaimLease, ClaimLeaseOutcome, DeliverMessage, DeliverMessageOutcome, DeliverToSession,
+    DeliveryId, DeliverySnapshot, DeliveryState, LeaseData, LeaseHeld, LeaseSnapshot, LeaseState,
+    LeaseTaken, LeaseTakenOver, SessionId, SessionRequest, SessionStartRefusal,
+    SessionStartRefused, SessionStopRefusal, SessionStopRefused, StartSession, StartedSession,
+    StopSession, TickId,
+};
+use conductor_model::tool::ToolCallId;
 use nix::errno::Errno;
 use nix::sys::signal::kill;
 use nix::unistd::Pid;
@@ -72,11 +89,12 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::cli::{ClaimLeaseArgs, SessionRoleArgs, ViewArgs};
+use crate::cli::{ClaimLeaseArgs, DeliverArgs, SessionRoleArgs, ViewArgs};
 use crate::config::{self, Environment};
 use crate::confine::places::{self, Placement};
-use crate::confine::{self, Launch, Providers, Refusal};
+use crate::confine::{self, Launch, Providers, Refusal, systemd};
 use crate::not_implemented;
+use crate::records;
 use crate::store::Store;
 
 /// `conductor session claim`: the command `conductor.session.ClaimLease`, for the instance this
@@ -221,6 +239,301 @@ pub fn leases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         })
         .collect();
     crate::store::show(&generated.ports, "leases", &view.render(&COLUMNS, &rows))
+}
+
+/// The directory under the state directory's mailbox that keeps the text `session deliver` read
+/// from standard input, so every delivery names the file its text is in.
+const DELIVERED: &str = "delivered";
+
+/// `conductor session deliver` (`story:mailbox-send-and-deliver`, docs/design/conductor-run.md
+/// § 3): the input `conductor.session.DeliverToSession`. Types the text `--text` names (a file, or
+/// `-` for standard input) into the session `--name`'s tmux server on
+/// `<state>/sessions/<name>.tmux` through the launcher's [`systemd::type_text`]: the text, its
+/// trailing line breaks left off, as one paste, then Enter. Then it records the delivery with the
+/// generated `conductor.session.DeliverMessage` (its first line, its body path, the time) and
+/// appends one `delivered` line to the records' dispatch log: `to` the session, `first_line`,
+/// `body_path`, and as `repo` the repository the first line names, else the session. The body
+/// path is the file's path, relative to the state directory when it lies under it; text read
+/// from standard input is kept first as `<state>/mailbox/delivered/<ulid>.md`. Prints the
+/// delivery's id.
+///
+/// A session with no socket, or whose tmux does not take the text, is refused
+/// (`SessionNotReachable`, the specification's `unreachable` branch), exit 1 naming the session:
+/// nothing was kept or recorded, and the command does not try again.
+///
+/// # Errors
+///
+/// A flag is missing, `--name` is no plain name, the text cannot be read, the session is not
+/// reached, or the body, the store or the records line cannot be written.
+pub fn deliver(state: Option<&Path>, args: &DeliverArgs) -> Result<ExitCode> {
+    const WHAT: &str = "session deliver";
+    let input = DeliverToSession {
+        name: required(args.name.clone(), WHAT, "--name")?,
+        text: required(args.text.clone(), WHAT, "--text")?,
+    };
+    if !crate::message::plain_name(&input.name) {
+        bail!(
+            "{WHAT}: --name {:?} names no session: one name, without `/`, not `.` or `..`",
+            input.name
+        );
+    }
+    let text = crate::message::read_text(WHAT, &input.text)?;
+    let first_line = crate::message::first_line(&text).to_owned();
+    let typed = text.trim_end_matches(['\n', '\r']);
+    let dir = crate::state::dir(state)?;
+    let sessions = dir.join("sessions");
+    let name = SessionName(input.name);
+    let socket = sessions.join(format!("{}.tmux", name.0));
+    let unreached = if fs::symlink_metadata(&socket).is_err() {
+        Some(format!(
+            "its launcher socket {} is absent, so nothing was typed",
+            socket.display()
+        ))
+    } else {
+        systemd::type_text(&sessions, &name, typed)
+            .err()
+            .map(|error| {
+                // The text is one of tmux's arguments; the refusal stays one line without it.
+                let mut said = format!("{error:#}");
+                if !typed.is_empty() {
+                    said = said.replace(typed, "<the text>");
+                }
+                format!(
+                    "its tmux on {} did not take the text: {}",
+                    socket.display(),
+                    said.split_whitespace().collect::<Vec<_>>().join(" ")
+                )
+            })
+    };
+    let delivered_at = records::now()?;
+    let mut generated = Generated::new(Delivering {
+        store: None,
+        reached: unreached.is_none(),
+    });
+    let body_path = if unreached.is_some() {
+        None
+    } else {
+        let body_path = if input.text == "-" {
+            let body_path = format!(
+                "{}/{DELIVERED}/{}.md",
+                crate::message::MAILBOX,
+                crate::message::ulid()?
+            );
+            crate::message::keep(&dir.join(&body_path), &text)
+                .with_context(|| format!("{WHAT}: keep the text"))?;
+            body_path
+        } else {
+            body_path_of(Path::new(&input.text), &dir)
+        };
+        generated.ports.store = Some(crate::state::open(Some(&dir))?);
+        Some(body_path)
+    };
+    let outcome = generated
+        .deliver_message(DeliverMessage {
+            session_name: name.clone(),
+            first_line: first_line.clone(),
+            body_path: body_path.clone(),
+            delivered_at: delivered_at.clone(),
+        })
+        .map_err(|unmet| anyhow!("{WHAT}: {unmet}"))?;
+    if let Some(store) = &generated.ports.store {
+        store.check().context("keep the delivery")?;
+    }
+    let message_delivered = match outcome {
+        DeliverMessageOutcome::Delivered { message_delivered } => message_delivered,
+        DeliverMessageOutcome::Unreachable { error } => bail!(
+            "{WHAT}: refused: SessionNotReachable: session {}: {}; nothing was recorded, and it is \
+             not tried again",
+            error.session_name.0,
+            unreached.as_deref().unwrap_or("it was not reached")
+        ),
+    };
+    let repo = crate::message::named_repository(&first_line).unwrap_or_else(|| name.0.clone());
+    let mut line = records::dispatch_line(DispatchLogEvent::Delivered, &repo)?;
+    line.at = delivered_at;
+    line.to = Some(name.0.clone());
+    line.first_line = Some(first_line);
+    line.body_path = body_path;
+    records::append_dispatch(&line).with_context(|| {
+        format!(
+            "{WHAT}: delivery {} to session {}",
+            message_delivered.delivery_id.0.0, name.0
+        )
+    })?;
+    writeln!(io::stdout().lock(), "{}", message_delivered.delivery_id.0.0)
+        .context("write the delivery's id to standard output")?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The body path a delivery records for the file `file`: its path relative to the state
+/// directory `state` when it lies under it, else its absolute path.
+fn body_path_of(file: &Path, state: &Path) -> String {
+    let file = fs::canonicalize(file)
+        .or_else(|_| std::path::absolute(file))
+        .unwrap_or_else(|_| file.to_owned());
+    let state = fs::canonicalize(state).unwrap_or_else(|_| state.to_owned());
+    file.strip_prefix(&state)
+        .unwrap_or(&file)
+        .display()
+        .to_string()
+}
+
+/// `conductor session deliveries`: the view `conductor.session.Deliveries`, served by the
+/// generated query over the existing store under the state directory and rendered as `--format`
+/// asks, in the order the deliveries were made. A view creates no store.
+///
+/// # Errors
+///
+/// There is no store, it does not open, a read of it fails for a reason other than a record this
+/// build cannot read, the generated query refuses a row, or the rows cannot be written to standard
+/// output.
+pub fn deliveries(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
+    /// The view's fields, in the specification's order (`spec/domains/session.yaml`).
+    const COLUMNS: [&str; 6] = [
+        "delivery_id",
+        "state",
+        "session_name",
+        "first_line",
+        "body_path",
+        "delivered_at",
+    ];
+
+    let generated = Generated::new(crate::state::open_reader(state)?);
+    let rows = generated
+        .deliveries()
+        .map_err(|unmet| anyhow!("session deliveries: {unmet}"))?;
+    let rows: Vec<Vec<Value>> = rows
+        .into_iter()
+        .map(|row| {
+            vec![
+                Value::from(row.delivery_id.0.0),
+                Value::from(match row.state {
+                    DeliveryState::Delivered => "Delivered",
+                }),
+                Value::from(row.session_name.0),
+                Value::from(row.first_line),
+                Value::from(row.body_path),
+                Value::from(row.delivered_at.0),
+            ]
+        })
+        .collect();
+    crate::store::show(
+        &generated.ports,
+        "deliveries",
+        &view.render(&COLUMNS, &rows),
+    )
+}
+
+/// The ports `DeliverMessage` runs over: the store, opened only once the session was reached,
+/// so a refusal creates none; whether the launcher reached the session, which answers the
+/// specification's `unreachable` branch; and the delivery's id, assigned here.
+struct Delivering {
+    store: Option<Store>,
+    reached: bool,
+}
+
+impl DeliveryStorage for Delivering {
+    fn get(&self, identity: &DeliveryId) -> Option<DeliverySnapshot> {
+        self.store
+            .as_ref()
+            .and_then(|store| DeliveryStorage::get(store, identity))
+    }
+
+    fn put(&mut self, snapshot: DeliverySnapshot) {
+        if let Some(store) = &mut self.store {
+            DeliveryStorage::put(store, snapshot);
+        }
+    }
+
+    fn delete(&mut self, identity: &DeliveryId) {
+        if let Some(store) = &mut self.store {
+            DeliveryStorage::delete(store, identity);
+        }
+    }
+
+    fn list(&self) -> Vec<DeliverySnapshot> {
+        self.store
+            .as_ref()
+            .map(DeliveryStorage::list)
+            .unwrap_or_default()
+    }
+}
+
+impl TryContext for Delivering {
+    fn try_generate_conductor_direction_serving_id(
+        &mut self,
+    ) -> Result<ServingId, UnmetObligation> {
+        Err(unmet_context("conductor.direction.ServingId"))
+    }
+
+    fn try_generate_conductor_dispatch_guard_decision_id(
+        &mut self,
+    ) -> Result<GuardDecisionId, UnmetObligation> {
+        Err(unmet_context("conductor.dispatch.GuardDecisionId"))
+    }
+
+    fn try_generate_conductor_dispatch_message_id(&mut self) -> Result<MessageId, UnmetObligation> {
+        Err(unmet_context("conductor.dispatch.MessageId"))
+    }
+
+    fn try_generate_conductor_dispatch_resource_request_id(
+        &mut self,
+    ) -> Result<ResourceRequestId, UnmetObligation> {
+        Err(unmet_context("conductor.dispatch.ResourceRequestId"))
+    }
+
+    fn try_generate_conductor_host_grant_id(&mut self) -> Result<GrantId, UnmetObligation> {
+        Err(unmet_context("conductor.host.GrantId"))
+    }
+
+    fn try_generate_conductor_host_reclaim_run_id(
+        &mut self,
+    ) -> Result<ReclaimRunId, UnmetObligation> {
+        Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
+
+    fn try_generate_conductor_observation_board_id(&mut self) -> Result<BoardId, UnmetObligation> {
+        Err(unmet_context("conductor.observation.BoardId"))
+    }
+
+    fn try_generate_conductor_observation_observation_id(
+        &mut self,
+    ) -> Result<ObservationId, UnmetObligation> {
+        Err(unmet_context("conductor.observation.ObservationId"))
+    }
+
+    fn try_generate_conductor_observation_snapshot_id(
+        &mut self,
+    ) -> Result<SnapshotId, UnmetObligation> {
+        Err(unmet_context("conductor.observation.SnapshotId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<DeliveryId, UnmetObligation> {
+        Ok(DeliveryId(Uuid(eventlog_core::new_event_id())))
+    }
+
+    fn try_generate_conductor_session_tick_id(&mut self) -> Result<TickId, UnmetObligation> {
+        Err(unmet_context("conductor.session.TickId"))
+    }
+
+    fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<ToolCallId, UnmetObligation> {
+        Err(unmet_context("conductor.tool.ToolCallId"))
+    }
+
+    fn try_external(
+        &mut self,
+        command: ExternalCommand<'_>,
+        outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        match (command, outcome) {
+            (ExternalCommand::ConductorSessionDeliverMessage(_), "unreachable") => {
+                Ok(!self.reached)
+            }
+            (command, _) => Err(unmet_context(command.name())),
+        }
+    }
 }
 
 /// The ports `ClaimLease` runs over: the store. Whether a pid names a live process is read from
