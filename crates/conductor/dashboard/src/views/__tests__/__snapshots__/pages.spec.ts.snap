@@ -27,6 +27,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
           <p data-v-7718db06="" class="options-text">A: renew it; B: drop the job</p>
           <p data-v-7718db06="" class="recommendation-text small">recommended: A</p>
         </div>
+        <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">the operator acts; say when it is done</legend>
           <div data-v-7718db06="" class="buttons"><button data-v-7718db06="" type="button" class="choice" aria-pressed="false">Done</button></div>
@@ -38,6 +39,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-release</span><span data-v-7718db06="" class="repository">alpha</span><span data-v-7718db06="" class="age muted">raised 2h ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-13 18:00Z</span></div>
         <h3 data-v-7718db06="">Release v2.0 today?</h3>
         <p data-v-7718db06="" class="reason small muted">a release cannot be undone</p>
+        <!--v-if-->
         <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">yes or no</legend>
@@ -54,6 +56,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-store</span><span data-v-7718db06="" class="repository">alpha</span><span data-v-7718db06="" class="age muted">raised 1h ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-14 09:00Z</span></div>
         <h3 data-v-7718db06="">Which store backs the cache?</h3>
         <p data-v-7718db06="" class="reason small muted">an architecture choice</p>
+        <!--v-if-->
         <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">choose one</legend><label data-v-7718db06="" class="option" for="choice-REQ-store-A"><input data-v-7718db06="" id="choice-REQ-store-A" type="radio" name="choice-REQ-store" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">keep the file store</span><span data-v-7718db06="" class="cost small muted">nothing now</span>
@@ -72,6 +75,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-checks</span><span data-v-7718db06="" class="repository">gamma</span><span data-v-7718db06="" class="age muted">raised 30m ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-14 12:00Z</span></div>
         <h3 data-v-7718db06="">Which checks gate a merge?</h3>
         <p data-v-7718db06="" class="reason small muted">it changes what every pull request waits for</p>
+        <!--v-if-->
         <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">choose any, at least one</legend><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-A"><input data-v-7718db06="" id="choice-REQ-checks-A" type="checkbox" name="choice-REQ-checks" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">unit tests</span><span data-v-7718db06="" class="cost small muted">4 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span><span data-v-7718db06="" class="mark mark-default">default</span></label><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-B"><input data-v-7718db06="" id="choice-REQ-checks-B" type="checkbox" name="choice-REQ-checks" value="B"><span data-v-7718db06="" class="letter mono">B</span><span data-v-7718db06="" class="label">integration tests</span><span data-v-7718db06="" class="cost small muted">12 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
