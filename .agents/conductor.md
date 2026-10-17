@@ -12,6 +12,8 @@ At session start read, in this order, and no file twice:
   rules every session follows; when it is refused, skip it: the refusal names the sections the
   file has). Not the whole `rules.md`: read an item whole with `conductor rules show --item <n>,…`
   when a cycle needs it;
+- your role file, when the records hold one: `conductor rules show --role conductor` and
+  `conductor rules show --role all`;
 - the newest hand-over, the one committed last (`git log -1 --name-only --format=%cI --
   docs/handoff/` prints its commit time and path);
 - only the sections the hand-over points to of §§ 4–8 of `docs/design/conductor.md` in the product
@@ -331,8 +333,7 @@ command runs with `CONDUCTOR_INSTANCE=<name>`.
 
 First lines follow design § 6 exactly: `[DISPATCH …]`, `[DECISION …]`. Send facts and decisions,
 not encouragement. A message whose first line does not parse gets the format back, and nothing
-else. `[DECISION …]` always carries the decision id it rests on; a notice or a relay is a
-`[REPORT …]`. Relay every `rules.md` commit at once to every running controller, naming the
+else. A notice or a relay is a `[REPORT …]`. Relay every `rules.md` commit at once to every running controller, naming the
 items that changed, and every moved path with its old and new form.
 
 `conductor spawn --repository <repo>` and `conductor session start --role <role>` are the only
@@ -382,7 +383,8 @@ which only `conductor config workspace` writes (`--check` first).
 - A `rules.md` change reaches you as a relayed diff, not a restart: conductor-dev sends
   `[REPORT conductor -] progress rules.md <commit> items <n>,…` with the diff. Read the changed
   items with `conductor rules show --changed-since <commit>^`, or `--item <n>,…`, follow them from
-  then on, and relay them to every running controller as for any `rules.md` commit.
+  then on, and relay them to every running controller as for any `rules.md` commit. Your role
+  file's changes: `conductor rules show --role conductor --changed-since <commit>^`.
 - When a restart you need cannot be answered because conductor-dev is unreachable (no live
   conductor-dev in `claude agents --json`, or no answer to your
   `[NEED conductor <id>] conductor-dev restart` within 15 minutes), write your hand-over as for

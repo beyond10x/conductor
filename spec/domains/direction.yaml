@@ -95,7 +95,13 @@ types:
   # selected, only those whose text differs from the item of that number in that revision's
   # `rules.md`, or that it does not hold, are printed, and the numbers it held that the file no
   # longer holds are named on one line of standard error; a revision that does not resolve is
-  # refused (`RevisionNotFound`) and nothing is printed.
+  # refused (`RevisionNotFound`) and nothing is printed. `role` (story:rules-into-code) is a role's
+  # name, `all`, `conductor`, `controller`, `worker` or `maintainer`: it reads that role's rule
+  # file, `rules/<role>.md` in the records directory, instead of `rules.md`, and prints its rules
+  # (the lines that open with `- ` or a number and `. `) one per line; with `changed_since` only
+  # the rules that revision's file of the role does not hold. It is refused with `item`,
+  # `section`, `brief` or `format` json, and for a name that is no role; a role whose file the
+  # records do not hold is refused (`RuleRoleNotFound`).
   - name: conductor.direction.Rules
     kind: struct
     fields:
@@ -104,6 +110,7 @@ types:
       - {name: format, type: Optional<String>}
       - {name: brief, type: Optional<Boolean>}
       - {name: changed_since, type: Optional<String>}
+      - {name: role, type: Optional<String>}
 
   # Why `conductor rules show` printed nothing and exited 1: `RuleItemNotFound`, no item of
   # rules.md has a number it was given; `RuleSectionNotFound`, no heading has the text it was
@@ -111,7 +118,7 @@ types:
   # `changed_since` names.
   - name: conductor.direction.RulesRefusal
     kind: enum
-    variants: [RuleItemNotFound, RuleSectionNotFound, RevisionNotFound]
+    variants: [RuleItemNotFound, RuleSectionNotFound, RevisionNotFound, RuleRoleNotFound]
 
   # The refusal of `conductor rules show`: its kind, and what it names (the item number or the
   # heading the file does not hold).

@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 
 use crate::cli::RulesShowArgs;
 use crate::config;
+use crate::records::files::{ROLE_FILES, RULES_DIR, opens_rule};
 
 /// The command's words, as its messages name it.
 const COMMAND: &str = "rules show";
@@ -236,6 +237,15 @@ pub fn changed<'a>(
 /// [`RulesRefusal::RevisionNotFound`] when the records' git does not resolve `revision` to a
 /// commit, or git does not run.
 fn rules_at(records: &Path, revision: &str) -> Result<String> {
+    file_at(records, revision, RULES_FILE)
+}
+
+/// The text of `file` of the records at `revision`; empty when that revision holds none.
+///
+/// # Errors
+///
+/// As [`rules_at`].
+fn file_at(records: &Path, revision: &str, file: &str) -> Result<String> {
     let git = |args: &[&str]| {
         Command::new("git")
             .arg("-C")
@@ -269,11 +279,11 @@ fn rules_at(records: &Path, revision: &str) -> Result<String> {
             not_found(&format!(" (git does not run: {error})"))?;
         }
     }
-    let shown = git(&["show", &format!("{revision}:{RULES_FILE}")])
+    let shown = git(&["show", &format!("{revision}:{file}")])
         .with_context(|| format!("{COMMAND}: run git show in {}", records.display()))?;
     if shown.status.success() {
         String::from_utf8(shown.stdout)
-            .with_context(|| format!("{COMMAND}: {RULES_FILE} at {revision} is not UTF-8"))
+            .with_context(|| format!("{COMMAND}: {file} at {revision} is not UTF-8"))
     } else {
         Ok(String::new())
     }
@@ -419,6 +429,7 @@ const fn refusal_name(refusal: RulesRefusal) -> &'static str {
         RulesRefusal::RuleItemNotFound => "RuleItemNotFound",
         RulesRefusal::RuleSectionNotFound => "RuleSectionNotFound",
         RulesRefusal::RevisionNotFound => "RevisionNotFound",
+        RulesRefusal::RuleRoleNotFound => "RuleRoleNotFound",
     }
 }
 
@@ -436,7 +447,11 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
         format: args.format.clone(),
         brief: args.brief,
         changed_since: args.changed_since.clone(),
+        role: args.role.clone(),
     };
+    if let Some(role) = input.role.as_deref() {
+        return role_show(&input, role);
+    }
     let json = match input.format.as_deref() {
         None | Some("text") => false,
         Some("json") => true,
@@ -509,6 +524,65 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
             .collect::<Vec<_>>()
             .join("\n")
     };
+    io::stdout()
+        .lock()
+        .write_all(printed.as_bytes())
+        .with_context(|| format!("{COMMAND}: write to standard output"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `conductor rules show --role <role>` (`story:rules-into-code`): the rules of the role's file,
+/// `rules/<role>.md` of the records, one line each; with `--changed-since`, those that file at
+/// that revision does not hold.
+///
+/// # Errors
+///
+/// `role` is no role with a rule file, it is given with `--item`, `--section`, `--brief` or
+/// `--format json`, its file is not there ([`RulesRefusal::RuleRoleNotFound`]), the revision does
+/// not resolve ([`RulesRefusal::RevisionNotFound`]), or standard output cannot be written.
+fn role_show(input: &Rules, role: &str) -> Result<ExitCode> {
+    if !ROLE_FILES.contains(&role) {
+        bail!(
+            "{COMMAND}: --role {role:?} is no role with a rule file: {}",
+            ROLE_FILES.join(", ")
+        );
+    }
+    if input.item.is_some()
+        || input.section.is_some()
+        || input.brief.is_some()
+        || input
+            .format
+            .as_deref()
+            .is_some_and(|format| format != "text")
+    {
+        bail!(
+            "{COMMAND}: --role reads one role file: give no --item, --section, --brief or --format"
+        );
+    }
+    let records = PathBuf::from(&config::active().instance.records);
+    let name = format!("{RULES_DIR}/{role}.md");
+    let file = records.join(&name);
+    let Ok(text) = fs::read_to_string(&file) else {
+        return refuse(&RulesRefused {
+            refusal: RulesRefusal::RuleRoleNotFound,
+            detail: format!("the records hold no {name} ({})", file.display()),
+        })
+        .map(|()| ExitCode::FAILURE);
+    };
+    let held: Vec<&str> = text.lines().filter(|line| opens_rule(line)).collect();
+    let before = match input.changed_since.as_deref() {
+        Some(revision) => Some(file_at(&records, revision, &name)?),
+        None => None,
+    };
+    let printed: String = held
+        .iter()
+        .filter(|rule| {
+            before
+                .as_deref()
+                .is_none_or(|old| !old.lines().any(|line| line == **rule))
+        })
+        .map(|rule| format!("{rule}\n"))
+        .collect();
     io::stdout()
         .lock()
         .write_all(printed.as_bytes())

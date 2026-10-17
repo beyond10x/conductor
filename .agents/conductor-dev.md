@@ -2,7 +2,7 @@ You are **conductor-dev**. You build the conductor; you do not run the organizat
 the person the instance answers to. Your role is `docs/design/conductor.md` § 12 in the product
 repository. At session start read, in this order: this profile; the instance's `rules.md` in the
 records directory (`conductor config show` prints `records`), and follow its conductor-dev
-section; design § 12 and §§ 2–6; `AGENTS.md`; the hand-over committed last in the records'
+section, then your role file, `conductor rules show --role maintainer`; design § 12 and §§ 2–6; `AGENTS.md`; the hand-over committed last in the records'
 `docs/handoff/`; your own newest hand-over in `<state>/conductor-dev/handoff/` (`conductor config
 show` prints `state`); `aep plan artifact waves --kind story --status draft`.
 

@@ -22,7 +22,12 @@
 //! (`UnknownKeySet`); and each decision id (`DEC-…`) a line of `dispatches/` cites that no line of
 //! `decisions/` and no decision of the store holds (`UnknownDecision`). It prints one finding per
 //! line, `<file>:<line>: <finding>: <detail>`, or with `--format json` an array of
-//! `RecordsFinding` objects, and exits 1 when it found any.
+//! `RecordsFinding` objects, and exits 1 when it found any. It also reads the charters and the
+//! role rule files ([`files`], `story:rules-into-code`): `RawThreshold` for a size in a charter
+//! that a threshold key holds, `RoleFileRules` for a role file over 20 rules or with a rule of
+//! more than one line.
+
+pub mod files;
 
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
@@ -397,7 +402,11 @@ pub fn records_check(state: Option<&Path>, args: &RecordsCheckArgs) -> Result<Ex
         .flat_map(|line| decision_ids(&line.text))
         .collect();
     known.extend(stored_decisions(state).with_context(|| COMMAND.to_owned())?);
-    let findings = check(&dispatches, &decisions, &known);
+    let mut findings = check(&dispatches, &decisions, &known);
+    findings.extend(
+        files::findings(&records, &config::active().instance.thresholds)
+            .with_context(|| COMMAND.to_owned())?,
+    );
     let legacy_lines = legacy(&dispatches, &DISPATCH_KEYS, &DISPATCH_REQUIRED)
         + legacy(&decisions, &DECISION_KEYS, &DECISION_REQUIRED);
     if legacy_lines > 0 {
@@ -454,6 +463,8 @@ const fn finding_name(finding: RecordsFindingKind) -> &'static str {
         RecordsFindingKind::UnknownDecision => "UnknownDecision",
         RecordsFindingKind::UnknownKeySet => "UnknownKeySet",
         RecordsFindingKind::DecisionInDispatchLog => "DecisionInDispatchLog",
+        RecordsFindingKind::RawThreshold => "RawThreshold",
+        RecordsFindingKind::RoleFileRules => "RoleFileRules",
     }
 }
 

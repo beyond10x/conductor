@@ -1416,14 +1416,28 @@ pub fn run(
 /// The command at the lowest priority: `nice -n 19`, and `ionice -c3` (idle I/O class) when the
 /// host has one. Both exec the command, so the process group and its leader stay the command's.
 fn yielding(command: &[String]) -> Command {
-    let mut argv: Vec<&str> = vec!["nice", "-n", "19"];
-    if on_path("ionice") {
-        argv.extend(["ionice", "-c3"]);
-    }
-    argv.extend(command.iter().map(String::as_str));
-    let mut wrapped = Command::new(argv[0]);
+    let argv = yielded(command, on_path("ionice"));
+    let mut wrapped = Command::new(&argv[0]);
     wrapped.args(&argv[1..]);
     wrapped
+}
+
+/// `command` behind `nice -n 19` and (with `ionice`) `ionice -c3`, each left out when the command
+/// already starts with it (`story:rules-into-code`): `nice …`, `nice … ionice …`, or `ionice …`.
+fn yielded(command: &[String], ionice: bool) -> Vec<String> {
+    let first = command.first().map(String::as_str);
+    let has_nice = first == Some("nice");
+    let has_ionice = first == Some("ionice")
+        || (has_nice && command.iter().take(5).any(|word| word == "ionice"));
+    let mut argv: Vec<String> = Vec::new();
+    if !has_nice && first != Some("ionice") {
+        argv.extend(["nice", "-n", "19"].map(String::from));
+    }
+    if ionice && !has_ionice {
+        argv.extend(["ionice", "-c3"].map(String::from));
+    }
+    argv.extend(command.iter().cloned());
+    argv
 }
 
 fn on_path(program: &str) -> bool {
@@ -2331,4 +2345,37 @@ pub fn walk(paths: &[PathBuf], bound: Duration) -> Option<u64> {
     crate::disk::tree_size(&there, Some(Instant::now() + bound))
         .ok()
         .map(|size| size.allocated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::yielded;
+
+    fn words(line: &str) -> Vec<String> {
+        line.split(' ').map(String::from).collect()
+    }
+
+    #[test]
+    fn a_command_is_run_under_nice_and_ionice() {
+        assert_eq!(
+            yielded(&words("cargo test"), true),
+            words("nice -n 19 ionice -c3 cargo test")
+        );
+        assert_eq!(
+            yielded(&words("cargo test"), false),
+            words("nice -n 19 cargo test")
+        );
+    }
+
+    #[test]
+    fn a_command_already_under_them_is_not_wrapped_again() {
+        let both = words("nice -n 19 ionice -c3 env A=1 cargo test");
+        assert_eq!(yielded(&both, true), both);
+        assert_eq!(
+            yielded(&words("nice -n 10 cargo test"), true),
+            words("ionice -c3 nice -n 10 cargo test")
+        );
+        let io = words("ionice -c2 cargo test");
+        assert_eq!(yielded(&io, true), io);
+    }
 }

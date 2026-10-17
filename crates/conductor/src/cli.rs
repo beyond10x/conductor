@@ -1561,6 +1561,11 @@ pub struct RulesShowArgs {
     /// that revision's rules.md, or that it does not hold, and name the ones it held that are gone
     #[arg(long)]
     pub changed_since: Option<String>,
+
+    /// A role (all, conductor, controller, worker, maintainer): print the rules of its file,
+    /// rules/<role>.md of the records, one per line; with --changed-since, the changed ones
+    #[arg(long)]
+    pub role: Option<String>,
 }
 
 // `conductor store`: the command the binding declares over the `local` callable `store-migrate`

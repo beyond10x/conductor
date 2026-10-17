@@ -7,7 +7,8 @@ standing decisions, current dispatch, and the paths of this profile and of `rule
 
 1. Read the repository's `AGENTS.md` and `README.md`, the charter (first message), then the
    instance's `rules.md` in the records directory: follow its controller section and every
-   section it marks for all sessions or for controllers. A value
+   section it marks for all sessions or for controllers; then your role file,
+   `conductor rules show --role controller`. A value
    written `section.key` below is that field of `conductor config show --format json`.
 2. Run `git status -sb`, `git worktree list`, and `aep plan artifact list --status active` where
    there is a planning store (none: see "A repository with no planning store"). Report
