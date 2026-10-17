@@ -15,14 +15,19 @@
 //! ([`dispatch::cycle_tick`]): `snapshot start-snapshot`, `snapshot publish-board` and `records
 //! check`, each a run of this binary, then dispatch v1, and one `cycle` line. A daily tick, once
 //! a day at `cadence.daily` UTC ([`dispatch::daily_tick`]): `metric compute` for the previous UTC
-//! day and the brief `<records>/REPORT.md`. Each tick ends recorded with `RecordRunTick`: its kind,
+//! day, the brief `<records>/REPORT.md`, then the records committed and pushed through the bot
+//! route ([`commit_records`], `story:records-committed-by-daemon`). Each tick ends recorded with
+//! `RecordRunTick`: its kind,
 //! its start, the watch lines and mailbox files it acted on, and the event of each dispatch log
 //! line written while it ran, in order; each line the daemon writes itself carries the tick's id
 //! (`tick_id`). A handler that fails is named on standard error, `conductor run: <what>: <why>`,
 //! and the tick goes on; a tick that cannot be recorded fails the run.
 //!
 //! `--once` runs one watch tick and one cycle tick and exits, 1 when either could not be
-//! recorded, else 0. `--install` and `--uninstall` start and stop the user unit
+//! recorded, else 0. `--once --commit-records` runs [`commit_records`] alone for today's UTC day,
+//! with no tick and without the daemon's lock (git's own lock keeps two commits apart): it prints
+//! what it did and exits 0, or 1 when the commit was refused. `--install` and `--uninstall` start
+//! and stop the user unit
 //! `conductor_<instance>-run.service` ([`unit`]). The design's `conductor run install` is a flag:
 //! the binding refuses a root command that is also a group.
 //!
@@ -35,7 +40,10 @@
 pub mod dispatch;
 pub mod handlers;
 pub mod mailbox;
+pub mod records;
 pub mod unit;
+
+pub use records::{Committed, Route, commit_records};
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
@@ -68,7 +76,7 @@ use crate::session::{Deliverer, ShellDeliverer};
 use crate::store::Store;
 use crate::store::run::{kind_name, kind_named, state_name};
 use crate::watch::{Options, Watch};
-use crate::{collect, config, records};
+use crate::{collect, config};
 
 /// The daemon's own directory under the state directory.
 pub const RUN_DIR: &str = "run";
@@ -216,8 +224,9 @@ pub struct Summary {
 ///
 /// # Errors
 ///
-/// More than one of `--once`, `--install` and `--uninstall` is given, another daemon holds the
-/// lock, the state directory cannot be written, or a tick cannot be recorded.
+/// More than one of `--once`, `--install` and `--uninstall` is given, `--commit-records` is given
+/// without `--once`, another daemon holds the lock, the state directory cannot be written, or a
+/// tick cannot be recorded.
 pub fn run(
     config_flag: Option<&Path>,
     state: Option<&Path>,
@@ -239,6 +248,12 @@ pub fn run(
             "run: {} are given; give at most one of --once, --install and --uninstall",
             modes.join(" and ")
         );
+    }
+    if args.commit_records == Some(true) {
+        if args.once != Some(true) {
+            bail!("run: --commit-records runs with --once; give both");
+        }
+        return commit_alone(config_flag, state);
     }
     if args.install == Some(true) {
         return unit::install(config_flag, state);
@@ -396,6 +411,44 @@ pub fn daily_tick(
     dispatch::daily_tick(config_flag, state, day, seams)
 }
 
+/// `run --once --commit-records`: [`commit_records`] for today's UTC day, its line appended with
+/// no tick; prints `records committed <commit>: <message>` (and `, pushed origin main`) or
+/// `records: nothing to commit`, or names the refusal on standard error and exits 1.
+///
+/// # Errors
+///
+/// The path of this binary cannot be read, or the line not appended.
+fn commit_alone(config_flag: Option<&Path>, state: Option<&Path>) -> Result<ExitCode> {
+    let program = std::env::current_exe().context("run: read the path of the conductor binary")?;
+    let route = Route::new(&program, config_flag, state);
+    let records = PathBuf::from(&config::active().instance.records);
+    let committed = commit_records(&records, &route, &today(OffsetDateTime::now_utc()));
+    if let Some(line) = committed.line()? {
+        crate::records::append_dispatch(&line)?;
+    }
+    let mut out = io::stdout().lock();
+    match committed {
+        Committed::Nothing => {
+            writeln!(out, "records: nothing to commit").context("write to standard output")?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Committed::Committed {
+            commit,
+            message,
+            pushed,
+        } => {
+            let pushed = if pushed { ", pushed origin main" } else { "" };
+            writeln!(out, "records committed {commit}: {message}{pushed}")
+                .context("write to standard output")?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Committed::Refused { reason, line, .. } => {
+            eprintln!("conductor run: records commit refused: {reason}: {line}");
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // The tick
 // ---------------------------------------------------------------------------------------------
@@ -439,7 +492,7 @@ impl<'s, 'a> Tick<'s, 'a> {
             seams,
             id: eventlog_core::new_event_id(),
             kind,
-            started_at: records::now()?,
+            started_at: crate::records::now()?,
             lines_handled: 0,
             actions: Vec::new(),
         })
@@ -457,7 +510,7 @@ impl<'s, 'a> Tick<'s, 'a> {
     ///
     /// The clock cannot be formatted.
     pub fn line(&self, event: DispatchLogEvent, repo: &str) -> Result<DispatchLogLine> {
-        let mut line = records::dispatch_line(event, repo)?;
+        let mut line = crate::records::dispatch_line(event, repo)?;
         line.tick_id = Some(self.id.clone());
         Ok(line)
     }
@@ -468,7 +521,7 @@ impl<'s, 'a> Tick<'s, 'a> {
     ///
     /// The line cannot be appended.
     pub fn write(&mut self, line: &DispatchLogLine) -> Result<()> {
-        records::append_dispatch(line)?;
+        crate::records::append_dispatch(line)?;
         self.actions.push(line.event);
         Ok(())
     }
@@ -748,7 +801,7 @@ pub fn record_run_tick(state: Option<&Path>, args: &RecordRunTickArgs) -> Result
         .map(|action| {
             action
                 .as_str()
-                .and_then(records::dispatch_event_named)
+                .and_then(crate::records::dispatch_event_named)
                 .ok_or_else(|| anyhow!("{COMMAND}: --actions holds {action}, no DispatchLogEvent"))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -801,7 +854,7 @@ pub fn run_ticks(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(
                     row.actions
                         .iter()
-                        .map(|event| records::dispatch_event(*event))
+                        .map(|event| crate::records::dispatch_event(*event))
                         .collect::<Vec<_>>(),
                 ),
             ]

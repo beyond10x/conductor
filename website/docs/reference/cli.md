@@ -186,7 +186,7 @@ Every command takes these, before or after its name.
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor rules`](#conductor-rules) |  |
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
-| [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit |
+| [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
@@ -2386,7 +2386,7 @@ Usage: conductor rules show [OPTIONS]
 
 ## `conductor run`
 
-Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
 
 ```text
 Usage: conductor run [OPTIONS]
@@ -2397,6 +2397,7 @@ Usage: conductor run [OPTIONS]
 | `--once <BOOL>` | no | none | Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true` One of `true`, `false`. |
 | `--install <BOOL>` | no | none | Start the loop as the user unit conductor_&lt;instance>-run.service through systemd-run; under the none provider print the command to run instead. `--install` alone is `--install true` One of `true`, `false`. |
 | `--uninstall <BOOL>` | no | none | Stop the user unit conductor_&lt;instance>-run.service. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
+| `--commit-records <BOOL>` | no | none | With --once: commit the records directory through the bot route and push it when it has an origin, and run no tick. `--commit-records` alone is `--commit-records true` One of `true`, `false`. |
 
 ## `conductor setup`
 
