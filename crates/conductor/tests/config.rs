@@ -305,9 +305,27 @@ fn validate_passes_on_the_repository_s_example_file() {
         "validate says the file is valid: {}",
         describe(&output)
     );
-    // It writes the role names the start tasks select, conductor and conductor-dev, until the
+    // It writes the role names the start tasks select, conductor and controller, until the
     // tasks are renamed (story:role-names-in-files): one note per old name, nothing else.
-    assert_only_old_name_notes(&output, 6);
+    assert_only_old_name_notes(&output, 4);
+    // It holds no maintainer: that is the host's role, in `host.yaml`
+    // (story:maintainer-host-config).
+    let written: Value = serde_yaml::from_str(&fs::read_to_string(&file).expect("read the file"))
+        .expect("the file is YAML");
+    for (index, instance) in written["instances"]
+        .as_array()
+        .expect("instances")
+        .iter()
+        .enumerate()
+    {
+        for role in instance["roles"].as_array().into_iter().flatten() {
+            let name = role["role"].as_str().unwrap_or_default();
+            assert!(
+                !["maintainer", "conductor-dev"].contains(&name),
+                "instances[{index}] writes the maintainer {name}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1138,7 +1156,16 @@ fn the_new_role_names_validate_without_a_note_and_the_defaults_keep_the_old_ones
     );
     let validated = case.with_file(&file, &["config", "validate"]);
     assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
-    assert!(stderr(&validated).is_empty(), "{}", describe(&validated));
+    // No note on a new name; the one note is the maintainer's, which moves to the host file
+    // (`story:maintainer-host-config`).
+    let notes = stderr(&validated);
+    assert_eq!(notes.lines().count(), 1, "{}", describe(&validated));
+    assert!(
+        notes.contains(": note: instances[0].roles[1].role: the maintainer is the host's role"),
+        "{}",
+        describe(&validated)
+    );
+    assert!(!notes.contains("old name"), "{}", describe(&validated));
     let shown = case.show(&file, &[]);
     let one = instance(&shown);
     let names = |one: &Value| -> Vec<(Value, Value)> {
@@ -1563,7 +1590,16 @@ fn at_path<'v>(document: &'v mut Value, path: &str) -> &'v mut Value {
 #[test]
 fn an_unknown_key_is_refused_in_every_mapping() {
     let case = Case::new("unknown-key-everywhere");
-    let shown = case.show(&fixture("example.yaml"), &[]);
+    let mut shown = case.show(&fixture("example.yaml"), &[]);
+    // The host's roles are printed beside the config, not part of a config file
+    // (`story:maintainer-host-config`), so the file written back leaves them out.
+    assert!(
+        shown
+            .as_object_mut()
+            .and_then(|map| map.remove("host"))
+            .is_some(),
+        "config show prints host"
+    );
     let mut found = Vec::new();
     mappings(&shown, "", &mut found);
     let paths: Vec<String> = found.into_iter().map(|(path, _)| path).collect();
@@ -1663,13 +1699,21 @@ fn every_mapping_holds_the_fields_the_specification_declares() {
         }
     }
     let case = Case::new("fields-of-the-specification");
-    for shown in [
+    for mut shown in [
         case.show(&fixture("example.yaml"), &[]),
         json(&case.run(&["config", "show", "--format", "json"])),
     ] {
         let mut problems = Vec::new();
+        // `host` is the host's roles, `conductor.host.HostRoles`, beside the config
+        // (`story:maintainer-host-config`): checked against its own type.
+        let host = shown
+            .as_object_mut()
+            .and_then(|map| map.remove("host"))
+            .unwrap_or_else(|| panic!("config show prints host: {shown:#}"));
         let root = serde_json::json!({"kind": "declared", "name": "conductor.config.Config"});
         check(&shown, &root, "", &mut problems);
+        let roles = serde_json::json!({"kind": "declared", "name": "conductor.host.HostRoles"});
+        check(&host, &roles, "host", &mut problems);
         assert!(problems.is_empty(), "{problems:#?}");
     }
 }
@@ -3207,5 +3251,282 @@ fn a_host_is_refused_by_its_path_when_it_is_no_host_or_beside_another_source() {
             problems.contains("instances[0].sources[0].host: "),
             "{name}: {problems}"
         );
+    }
+}
+
+// -------------------------------------------------------------------------------------------
+// `story:maintainer-host-config`: the host's roles, maintainer and bridge, in `host.yaml`.
+// -------------------------------------------------------------------------------------------
+
+/// The host file of the case's home: `host.yaml` in the host's own directory, beside the
+/// registry `instances.json`.
+fn host_file(case: &Case) -> PathBuf {
+    case.home().join(".b10x/conductor/host/host.yaml")
+}
+
+/// Writes `roles`, the lines of a `roles:` list, as the case's host file.
+fn write_host(case: &Case, roles: &str) -> PathBuf {
+    let file = host_file(case);
+    fs::create_dir_all(file.parent().expect("a parent")).expect("create the host directory");
+    fs::write(
+        &file,
+        format!("version: conductor.host-config/1\nroles:\n{roles}"),
+    )
+    .expect("write the host file");
+    file
+}
+
+/// The role `role` of `host.roles` in a shown config.
+fn host_role<'v>(shown: &'v Value, role: &str) -> &'v Value {
+    shown["host"]["roles"]
+        .as_array()
+        .unwrap_or_else(|| panic!("host.roles is a list: {shown:#}"))
+        .iter()
+        .find(|one| one["role"] == role)
+        .unwrap_or_else(|| panic!("host.roles names {role}: {shown:#}"))
+}
+
+/// `story:maintainer-host-config`, items 2 and 3: the roles of `host.yaml` are shown under
+/// `host.roles`, each with its role's defaults and the session name of the role itself, with no
+/// instance prefix; `host.file` names the file. A config file that writes no maintainer
+/// validates with no note, and the YAML of `config show`, a config file, holds no `host`.
+#[test]
+fn the_host_file_s_roles_are_shown_under_host_roles_with_bare_session_names() {
+    let case = Case::new("host-roles");
+    let host = write_host(
+        &case,
+        "  - {role: maintainer, harness: claude, model: sonnet}\n\
+         \x20 - {role: bridge, harness: claude, model: haiku}\n",
+    );
+    let file = case.write(
+        "one.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: director, harness: claude, model: opus}\n\
+             \x20     - {role: lead, harness: claude, model: opus}\n",
+        ),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    assert!(stderr(&validated).is_empty(), "{}", describe(&validated));
+
+    let shown = case.show(&file, &[]);
+    assert_eq!(shown["host"]["file"], path_text(&host), "{shown:#}");
+    assert_eq!(
+        shown["host"]["roles"].as_array().map(Vec::len),
+        Some(2),
+        "{shown:#}"
+    );
+    let maintainer = host_role(&shown, "maintainer");
+    assert_eq!(maintainer["session_name"], "maintainer", "{shown:#}");
+    assert_eq!(maintainer["model"], "sonnet", "{shown:#}");
+    assert_eq!(maintainer["harness"], "claude", "{shown:#}");
+    assert_eq!(
+        maintainer["writable"],
+        serde_json::json!([
+            "checkout",
+            "trees",
+            "build-cache",
+            "scratch",
+            "harness-state"
+        ]),
+        "{shown:#}"
+    );
+    let bridge = host_role(&shown, "bridge");
+    assert_eq!(bridge["session_name"], "bridge", "{shown:#}");
+    assert_eq!(bridge["model"], "haiku", "{shown:#}");
+
+    let text = case.with_file(&file, &["config", "show"]);
+    assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+    assert!(
+        String::from_utf8_lossy(&text.stdout)
+            .lines()
+            .any(|line| line == "host.roles[0].session_name: maintainer"),
+        "{}",
+        describe(&text)
+    );
+    let yaml = case.with_file(&file, &["config", "show", "--format", "yaml"]);
+    assert_eq!(yaml.status.code(), Some(0), "{}", describe(&yaml));
+    let document: serde_yaml::Value = serde_yaml::from_slice(&yaml.stdout).expect("the YAML reads");
+    assert!(document.get("host").is_none(), "{}", describe(&yaml));
+    let written = case.write("one-shown.yaml", &String::from_utf8_lossy(&yaml.stdout));
+    assert_eq!(case.show(&written, &[]), shown, "the round trip");
+}
+
+/// `story:maintainer-host-config`, items 1 and 2: `config validate` reads `host.yaml`, and each
+/// problem of it is named by its path in that file: a role other than `maintainer` and `bridge`
+/// (an old name among them), a role named twice, a session name other than the role's own, a
+/// role's missing key, a key the file does not declare, another version, a file that is no YAML.
+/// Exit 1.
+#[test]
+fn a_host_file_problem_is_named_by_its_path_in_that_file() {
+    let case = Case::new("host-refused");
+    let file = case.write(
+        "one.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: director, harness: claude, model: opus}\n",
+        ),
+    );
+    let maintainer = "  - {role: maintainer, harness: claude, model: opus}\n";
+    for (name, text, path) in [
+        (
+            "director",
+            format!("{maintainer}  - {{role: director, harness: claude, model: opus}}\n"),
+            "roles[1].role",
+        ),
+        (
+            "old-name",
+            "  - {role: conductor-dev, harness: claude, model: opus}\n".to_owned(),
+            "roles[0].role",
+        ),
+        (
+            "twice",
+            format!("{maintainer}{maintainer}"),
+            "roles[1].role",
+        ),
+        (
+            "session-name",
+            "  - {role: maintainer, harness: claude, model: opus, session_name: one-maintainer}\n"
+                .to_owned(),
+            "roles[0].session_name",
+        ),
+        (
+            "no-model",
+            "  - {role: maintainer, harness: claude}\n".to_owned(),
+            "roles[0].model",
+        ),
+    ] {
+        let host = write_host(&case, &text);
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{name}: {}",
+            describe(&output)
+        );
+        let wanted = format!("conductor: config validate: {}: {path}: ", host.display());
+        assert!(
+            stderr(&output)
+                .lines()
+                .any(|line| line.starts_with(&wanted)),
+            "{name}: no line `{wanted}`: {}",
+            describe(&output)
+        );
+    }
+    let host = host_file(&case);
+    for (name, text, path) in [
+        (
+            "unknown-key",
+            "version: conductor.host-config/1\nroles: []\nextra: 1\n",
+            "extra: ",
+        ),
+        (
+            "version",
+            "version: conductor.host-config/2\nroles: []\n",
+            "version: ",
+        ),
+        ("no-yaml", "roles: [\n", "line "),
+    ] {
+        fs::write(&host, text).expect("write the host file");
+        let output = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{name}: {}",
+            describe(&output)
+        );
+        let wanted = format!("conductor: config validate: {}: {path}", host.display());
+        assert!(
+            stderr(&output)
+                .lines()
+                .any(|line| line.starts_with(&wanted)),
+            "{name}: no line `{wanted}`: {}",
+            describe(&output)
+        );
+    }
+}
+
+/// `story:maintainer-host-config`, item 2: a maintainer still under an instance's `roles`, under
+/// its name or its old name `conductor-dev`, validates with a note naming its YAML path and that
+/// it moves to `host.yaml`; while `host.yaml` is not there, or names no maintainer, it is read
+/// from the instance as the host's maintainer, with the session name it has there, so a running
+/// maintainer keeps its session. Once `host.yaml` names one, that one is read in its place.
+#[test]
+fn a_maintainer_under_an_instance_is_noted_and_read_until_host_yaml_names_one() {
+    for (written, session) in [
+        ("conductor-dev", "one-conductor-dev"),
+        ("maintainer", "one-maintainer"),
+    ] {
+        let case = Case::new(&format!("host-leftover-{written}"));
+        let file = case.write(
+            "one.yaml",
+            &one_instance(&format!(
+                "\x20   roles:\n\
+                 \x20     - {{role: conductor, harness: claude, model: opus}}\n\
+                 \x20     - {{role: {written}, harness: claude, model: sonnet}}\n\
+                 \x20     - {{role: controller, harness: claude, model: opus}}\n",
+            )),
+        );
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{written}: {}",
+            describe(&validated)
+        );
+        let host = host_file(&case);
+        let note = stderr(&validated)
+            .lines()
+            .find(|line| {
+                line.contains(": note: instances[0].roles[1].role: ")
+                    && line.contains(&format!("moves to {}", host.display()))
+            })
+            .map(str::to_owned);
+        assert!(note.is_some(), "{written}: {}", describe(&validated));
+        let shown = case.show(&file, &[]);
+        let maintainer = host_role(&shown, written);
+        assert_eq!(maintainer["session_name"], session, "{written}: {shown:#}");
+        assert_eq!(maintainer["model"], "sonnet", "{written}: {shown:#}");
+
+        // A host file that names only a bridge leaves the maintainer where it is.
+        write_host(&case, "  - {role: bridge, harness: claude, model: haiku}\n");
+        let shown = case.show(&file, &[]);
+        assert_eq!(
+            host_role(&shown, written)["session_name"],
+            session,
+            "{written}: {shown:#}"
+        );
+        assert_eq!(host_role(&shown, "bridge")["session_name"], "bridge");
+
+        // One that names a maintainer wins.
+        write_host(
+            &case,
+            "  - {role: maintainer, harness: claude, model: haiku}\n",
+        );
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{written}: {}",
+            describe(&validated)
+        );
+        assert!(
+            stderr(&validated).lines().any(|line| {
+                line.contains(": note: instances[0].roles[1].role: ")
+                    && line.contains(&format!("moves to {}", host.display()))
+            }),
+            "{written}: {}",
+            describe(&validated)
+        );
+        let shown = case.show(&file, &[]);
+        let roles = shown["host"]["roles"].as_array().expect("host.roles");
+        assert_eq!(roles.len(), 1, "{written}: {shown:#}");
+        assert_eq!(roles[0]["role"], "maintainer", "{written}: {shown:#}");
+        assert_eq!(
+            roles[0]["session_name"], "maintainer",
+            "{written}: {shown:#}"
+        );
+        assert_eq!(roles[0]["model"], "haiku", "{written}: {shown:#}");
     }
 }

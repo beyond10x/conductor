@@ -160,8 +160,8 @@ Every command takes these, before or after its name.
 | [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
 | [`conductor config migrate`](#conductor-config-migrate) | Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing |
-| [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file |
-| [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
+| [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml) |
+| [`conductor config validate`](#conductor-config-validate) | Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
@@ -2065,7 +2065,7 @@ Usage: conductor config migrate [OPTIONS]
 
 ## `conductor config show`
 
-Print one instance's effective config, after defaults, as a config file
+Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml)
 
 ```text
 Usage: conductor config show [OPTIONS]
@@ -2073,12 +2073,12 @@ Usage: conductor config show [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--format <FORMAT>` | no | none | How the config is rendered: text, one `path: value` line each; json; or yaml, a config file. Default: text |
+| `--format <FORMAT>` | no | none | How the config is rendered: text, one `path: value` line each; json; each with the host's roles under `host`; or yaml, a config file, without them. Default: text |
 | `--instance <NAME>` | no | none | The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance |
 
 ## `conductor config validate`
 
-Check the config file; exit 1 naming each problem by its YAML path
+Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path
 
 ```text
 Usage: conductor config validate [OPTIONS]

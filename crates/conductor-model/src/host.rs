@@ -1,13 +1,13 @@
 // generated from conductor v1
-// model digest c27eba3c93f06c2c6d479a1858c41a1937887d953214c072179c34faa1564153
-// contract digest 5f8282924e8fdf0917a6850686a9f5ceb260c87159d2c132e06a15c94a36d980
+// model digest 24891f6bfa6cd64ea45845de0d871db2e16a70eef887a388501bc92a1d798712
+// contract digest e47d94c96d2bec2c02b72b5e382a052c93a104208ee2db411ad75a45a7098828
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
 //!
 //! The machine several conductor instances share (story:multi-instance-host), and the protocol its disk runs under (epic:disk-protocol, story:disk-protocol-spec). Each instance keeps its own records, state, cache and sessions; what they share is one disk, one CPU and memory budget, and one machine-wide namespace of harness session names. The host ledger holds every grant an instance's conductor or a `conductor build run` takes: a controller slot, a build slot, or a disk reservation for a run's expected peak, so two instances or two runs cannot each grant the same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records each step with the bytes it freed, or what is left when it cannot reach the floor.
 //! The host directory (story:instance-isolation) is `host/` beside the config file, one for every instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the open falls of free disk, one file per instance, `falls/<prefix>.json` (the instance's session prefix, its name without one), which names the item and its instance: only that instance reads, withdraws or removes its file, and the dashboard lists every instance's. A `host.fall` of 0.16.x is read once as the fall of the instance it names and moved to that instance's file (story:host-fall-per-instance). A `--state-dir` does not move it. The ledger an instance kept in its `state` before is moved there once, at its first host command: every grant of its store, its run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that it was moved, and nothing is moved again.
-//! The host registry (story:instance-names-unique) is one per host, whatever config file a command reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host file `host.yaml` that holds the per-host roles. It lists every config file that has run on the host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is valid, and `conductor session start` writes it whenever a config file starts a session, each under the lock `instances.lock` beside it. No two instances on the host share a session prefix, a dashboard port, a state directory or a records directory, whether they are in one config file or in several: `config validate` refuses an instance that holds one another registered file's instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing then. A registered file that is no longer there is dropped from the registry when it is next written, so a removed config file holds nothing.
+//! The host registry (story:instance-names-unique) is one per host, whatever config file a command reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`) (story:maintainer-host-config). It lists every config file that has run on the host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is valid, and `conductor session start` writes it whenever a config file starts a session, each under the lock `instances.lock` beside it. No two instances on the host share a session prefix, a dashboard port, a state directory or a records directory, whether they are in one config file or in several: `config validate` refuses an instance that holds one another registered file's instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing then. A registered file that is no longer there is dropped from the registry when it is next written, so a removed config file holds nothing.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -72,6 +72,18 @@ pub enum GrantKind {
     Disk,
 }
 
+/// HostConfig — `conductor.host.HostConfig`.
+///
+/// Every value satisfies `version == "conductor.host-config/1"` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct role in roles by role.role` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostConfig {
+    /// `version` — `String`.
+    pub version: String,
+    /// `roles` — `List<conductor.config.Role>`.
+    pub roles: Vec<crate::config::Role>,
+}
+
 /// The states of `conductor.host.HostGrant`, as runtime values.
 ///
 /// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
@@ -90,6 +102,24 @@ pub enum HostGrantState {
     Running,
     /// `Withdrawn`.
     Withdrawn,
+}
+
+/// HostRoleName — `conductor.host.HostRoleName`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostRoleName {
+    /// `Maintainer`.
+    Maintainer,
+    /// `Bridge`.
+    Bridge,
+}
+
+/// HostRoles — `conductor.host.HostRoles`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostRoles {
+    /// `file` — `String`.
+    pub file: String,
+    /// `roles` — `List<conductor.config.Role>`.
+    pub roles: Vec<crate::config::Role>,
 }
 
 /// InstanceCollision — `conductor.host.InstanceCollision`.

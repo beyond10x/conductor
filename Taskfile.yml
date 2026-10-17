@@ -12,10 +12,10 @@ vars:
 
 tasks:
   sessions:
-    desc: List the active instance's sessions, those named as its roles in conductor config show (<session_prefix>-conductor and <session_prefix>-conductor-dev, or conductor and conductor-dev without a prefix), with their kind, id and state; exits 1 naming each of those names that more than one live background session holds, since no task can tell which of them is this instance's
+    desc: List the active instance's sessions, those named as its roles and the host's in conductor config show (<session_prefix>-conductor and <session_prefix>-conductor-dev, or conductor and conductor-dev without a prefix; maintainer and bridge from the host file), with their kind, id and state; exits 1 naming each of those names that more than one live background session holds, since no task can tell which of them is this instance's
     vars:
       NAMES:
-        sh: conductor config show --format json | jq -c '[.instances[0].roles[] | .session_name // empty]'
+        sh: conductor config show --format json | jq -c '[.instances[0].roles[], .host.roles[] | .session_name // empty] | unique'
     preconditions:
       - sh: test -n {{shellQuote .NAMES}} && test {{shellQuote .NAMES}} != '[]'
         msg: conductor config show names no session name for the instance's roles
@@ -151,48 +151,50 @@ tasks:
       - conductor session stop --role conductor
       - task: conductor:start
 
-  dev:start:
-    desc: Start conductor-dev with conductor session start --role conductor-dev, in the box the instance's confinement asks for, in the background in this checkout under the session name of the role conductor-dev in conductor config show (<session_prefix>-conductor-dev, or conductor-dev without a prefix), without the user's settings (--setting-sources project,local), on the harness, model, settings and profile of the role conductor-dev (no settings file by default; a profile is appended to the system prompt in place of --agent conductor-dev, which --setting-sources project,local finds only in this checkout's .claude/agents/); refuses while a live session of that name exists, when the profile is not a file, and, without a profile, when this checkout has no .claude/agents/conductor-dev.md
+  maintainer:start:
+    desc: Start the maintainer (conductor-dev) with conductor session start --role maintainer, in the box the instance's confinement asks for, in the background in this checkout under the session name of the host's maintainer in conductor config show (host.roles; maintainer, from the host file ~/.b10x/conductor/host/host.yaml, or, while that names none, the role conductor-dev an instance still names, under its name there, such as <session_prefix>-conductor-dev), without the user's settings (--setting-sources project,local), on the harness, model, settings and profile of that role (no settings file by default; a profile is appended to the system prompt in place of --agent conductor-dev, which --setting-sources project,local finds only in this checkout's .claude/agents/); refuses while a live session of that name exists, when the profile is not a file, and, without a profile, when this checkout has no .claude/agents/conductor-dev.md. dev:start is its old name, for this release
+    aliases: [dev:start]
     vars:
       NAME:
-        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .session_name // empty'
+        sh: conductor config show --format json | jq -r '.host.roles[] | select(.role == "maintainer" or .role == "conductor-dev") | .session_name // empty'
       SETTINGS:
-        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .settings // empty'
+        sh: conductor config show --format json | jq -r '.host.roles[] | select(.role == "maintainer" or .role == "conductor-dev") | .settings // empty'
       PROFILE:
-        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .profile // empty'
+        sh: conductor config show --format json | jq -r '.host.roles[] | select(.role == "maintainer" or .role == "conductor-dev") | .profile // empty'
       HARNESS:
-        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .harness'
+        sh: conductor config show --format json | jq -r '.host.roles[] | select(.role == "maintainer" or .role == "conductor-dev") | .harness'
       MODEL:
-        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .model'
+        sh: conductor config show --format json | jq -r '.host.roles[] | select(.role == "maintainer" or .role == "conductor-dev") | .model'
     preconditions:
       - sh: test -n {{shellQuote .MODEL}}
-        msg: conductor config show names no role conductor-dev; add it to the instance's roles
+        msg: conductor config show names no maintainer under host.roles; add the role maintainer to the host file ~/.b10x/conductor/host/host.yaml
       - sh: test {{shellQuote .HARNESS}} = claude
-        msg: the role conductor-dev runs on {{.HARNESS}} (conductor config show); this task starts claude only
+        msg: the maintainer runs on {{.HARNESS}} (conductor config show); this task starts claude only
       - sh: test -z {{shellQuote .PROFILE}} || test -f {{shellQuote .PROFILE}}
-        msg: the profile {{.PROFILE}} of the role conductor-dev is not a file
+        msg: the profile {{.PROFILE}} of the maintainer is not a file
       - sh: test -n {{shellQuote .PROFILE}} || test -f {{shellQuote .ROOT_DIR}}/.claude/agents/conductor-dev.md
-        msg: this checkout has no .claude/agents/conductor-dev.md, and conductor-dev starts here with --setting-sources project,local, which loads no user-level agent; name a profile for the role conductor-dev (conductor config show)
+        msg: this checkout has no .claude/agents/conductor-dev.md, and the maintainer starts here with --setting-sources project,local, which loads no user-level agent; name a profile for the maintainer (conductor config show, host.roles)
       - sh: test -n {{shellQuote .NAME}}
-        msg: conductor config show names no session name for the role conductor-dev
+        msg: conductor config show names no session name for the maintainer
       - sh: claude agents --json | jq -e --arg n {{shellQuote .NAME}} 'all(.[]; .name != $n or .pid == null)' >/dev/null
         msg: a session named {{.NAME}} is already running; see task sessions
     cmds:
-      - conductor session start --role conductor-dev
+      - conductor session start --role maintainer
 
-  dev:attach:
-    desc: Open the active instance's background conductor-dev session, the live session named as the role conductor-dev in conductor config show, in this terminal; refuses when no live background session or more than one holds that name
+  maintainer:attach:
+    desc: Open the background maintainer (conductor-dev) session, the live session named as the host's maintainer in conductor config show (host.roles), in this terminal; refuses when no live background session or more than one holds that name. dev:attach is its old name, for this release
+    aliases: [dev:attach]
     interactive: true
     vars:
       NAME:
-        sh: conductor config show --format json | jq -r '.instances[0].roles[] | select(.role == "conductor-dev") | .session_name // empty'
+        sh: conductor config show --format json | jq -r '.host.roles[] | select(.role == "maintainer" or .role == "conductor-dev") | .session_name // empty'
     preconditions:
       - sh: test -n {{shellQuote .NAME}}
-        msg: conductor config show names no session name for the role conductor-dev
+        msg: conductor config show names no session name for the maintainer
       - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -ge 1
         msg: no background session named {{.NAME}}; see task sessions
       - sh: test "$({{.SESSION_COUNT}} --arg n {{shellQuote .NAME}})" -le 1
-        msg: more than one live background session is named {{.NAME}}, so this task cannot tell which is this instance's conductor-dev; stop the one that is not with claude stop <id> (task sessions lists them), then run the task again
+        msg: more than one live background session is named {{.NAME}}, so this task cannot tell which is the maintainer; stop the one that is not with claude stop <id> (task sessions lists them), then run the task again
     cmds:
       - claude attach "$({{.SESSION_ID}} --arg n {{shellQuote .NAME}})"
 

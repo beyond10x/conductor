@@ -1594,11 +1594,13 @@ pub enum ConfigCommand {
     #[command(name = "migrate")]
     Migrate(MigrateConfigArgs),
 
-    /// Print one instance's effective config, after defaults, as a config file
+    /// Print one instance's effective config, after defaults, as a config file, and the host's
+    /// roles from host.yaml under `host` (not in yaml)
     #[command(name = "show")]
     Show(ShowConfigArgs),
 
-    /// Check the config file; exit 1 naming each problem by its YAML path
+    /// Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML
+    /// path
     #[command(name = "validate")]
     Validate(ValidateConfigArgs),
 
@@ -1703,8 +1705,8 @@ pub struct UpgradeArgs {
 /// is text the handler reads, so a value it refuses is named there.
 #[derive(Debug, Clone, Args)]
 pub struct ShowConfigArgs {
-    /// How the config is rendered: text, one `path: value` line each; json; or yaml, a config
-    /// file. Default: text
+    /// How the config is rendered: text, one `path: value` line each; json; each with the host's
+    /// roles under `host`; or yaml, a config file, without them. Default: text
     #[arg(long)]
     pub format: Option<String>,
     /// The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance

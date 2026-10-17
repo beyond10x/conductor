@@ -176,7 +176,10 @@ types:
   # the watch's context lines select them by; they move to the new names with the tasks
   # (story:role-names-in-files), so that no running instance's sessions are renamed. Without a
   # profile or an agent, `director` and `maintainer` start with the agents `conductor` and
-  # `conductor-dev`, the adapters' file names for this release. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
+  # `conductor-dev`, the adapters' file names for this release. The maintainer is a role of the
+  # host, not of an instance: it is configured once, in `host.yaml` (`conductor.host.HostConfig`)
+  # (story:maintainer-host-config); one an instance's `roles` still writes is read, with a note,
+  # while `host.yaml` names none, for this release. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
   # built-in read-only allowlist, that the guard allows the role's sessions without a rule of its
   # own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied.
   # A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is
@@ -524,7 +527,8 @@ types:
 
   # The input of `conductor config validate`: the instance to resolve, else the
   # `conductor-instance` setting, else none. A valid file is written to the host registry
-  # (`conductor.host.InstanceRegistry`), which is all it writes.
+  # (`conductor.host.InstanceRegistry`), which is all it writes. It also reads the host file
+  # `host.yaml` (`conductor.host.HostConfig`): each problem of it is named by its path in that file.
   - name: conductor.config.ValidateConfig
     kind: struct
     fields:
@@ -555,7 +559,8 @@ types:
 
   # The input of `conductor config show`. `format` is one of text, json, yaml, read by the
   # handler; `instance` is the instance shown, else the `conductor-instance` setting, else the
-  # file's `default`, else its only instance.
+  # file's `default`, else its only instance. The JSON and the text add `host`, the host's roles
+  # (`conductor.host.HostRoles`); the YAML, a config file, holds none.
   - name: conductor.config.ShowConfig
     kind: struct
     fields:

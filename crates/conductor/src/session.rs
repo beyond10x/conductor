@@ -42,7 +42,10 @@
 //! `session start` and `session stop` (`story:session-envelope-seam`) start and stop the session
 //! of the role `conductor` or `conductor-dev` through the confinement provider ([`start`],
 //! [`stop`], [`crate::confine`]): with the role's harness arguments and first prompt, in the
-//! records directory for conductor and the working directory for conductor-dev.
+//! records directory for conductor and the working directory for conductor-dev. The maintainer
+//! (`conductor-dev`) is the host's role (`story:maintainer-host-config`): read from the host file
+//! `host.yaml` in the host's own directory, else, for this release, from the instance's `roles`
+//! ([`crate::config::host_maintainer`]).
 
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
@@ -452,9 +455,12 @@ const SESSION_ROLES: [RoleName; 2] = [RoleName::Director, RoleName::Maintainer];
 const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
 
 /// The role `role` of the active instance, when it is one `session start` starts: `director` or
-/// `maintainer`, or their old names `conductor` and `conductor-dev`, named by the instance under
-/// either name, on `claude` (`story:role-name-aliases`).
-fn session_role<'i>(instance: &'i Instance, role: &str) -> Result<&'i Role, String> {
+/// `maintainer`, or their old names `conductor` and `conductor-dev`, on `claude`
+/// (`story:role-name-aliases`). The director is the instance's, under either name; the
+/// maintainer is the host's, from the host file under `home`, else, for this release, the one
+/// the instance still names under either name (`story:maintainer-host-config`,
+/// [`config::host_maintainer`]).
+fn session_role(instance: &Instance, home: &Path, role: &str) -> Result<Role, String> {
     let Some(wanted) = config::role_name(role).filter(|wanted| SESSION_ROLES.contains(wanted))
     else {
         return Err(format!(
@@ -463,11 +469,35 @@ fn session_role<'i>(instance: &'i Instance, role: &str) -> Result<&'i Role, Stri
              with conductor spawn"
         ));
     };
-    let found = instance
-        .roles
-        .iter()
-        .find(|named| config::is_role(&named.role, wanted))
-        .ok_or_else(|| format!("the instance names no role {role} in conductor config show"))?;
+    let found = if wanted == RoleName::Maintainer {
+        config::host_maintainer(home, instance)
+            .map_err(|error| match error.downcast::<config::Invalid>() {
+                Ok(invalid) => {
+                    let problems: Vec<String> =
+                        invalid.problems.iter().map(ToString::to_string).collect();
+                    format!(
+                        "the host file {} does not read: {}",
+                        invalid.file.display(),
+                        problems.join("; ")
+                    )
+                }
+                Err(error) => format!("{error:#}"),
+            })?
+            .ok_or_else(|| {
+                format!(
+                    "the host names no role {role}: write it in {} (conductor config show, \
+                     host.roles)",
+                    config::host_file(home).display()
+                )
+            })?
+    } else {
+        instance
+            .roles
+            .iter()
+            .find(|named| config::is_role(&named.role, wanted))
+            .cloned()
+            .ok_or_else(|| format!("the instance names no role {role} in conductor config show"))?
+    };
     if found.harness != Harness::Claude {
         return Err(format!(
             "the role {role} does not run on claude (conductor config show); session start \
@@ -674,7 +704,8 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 /// harness printed, then one line naming the session started, its provider and its id.
 ///
 /// In order, it refuses: a role that is not `conductor` or `conductor-dev`, not named by the
-/// instance, or not on `claude` (`UnknownRole`); under a config file, a role whose own settings
+/// instance (the maintainer: by the host, or a host file that does not read), or not on `claude`
+/// (`UnknownRole`); under a config file, a role whose own settings
 /// file is not there, is no JSON or pins another instance (`InstanceNotPinned`,
 /// `story:instance-isolation`; one that pins no instance starts with a pinned copy,
 /// [`config::session_settings`], and a role with none with its default written pinned,
@@ -707,11 +738,13 @@ pub fn start(
     };
     let active = config::active();
     let instance = &active.instance;
-    let found = match session_role(instance, &role) {
+    let environment = Environment::from_process().context("session start")?;
+    let home = environment.home().context("session start")?;
+    let found = match session_role(instance, home, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStartRefusal::UnknownRole, detail),
     };
-    let environment = Environment::from_process().context("session start")?;
+    let found = &found;
     // The settings select the instance the session's hooks act for (`story:instance-isolation`):
     // a role's own settings file must not pin another.
     if active.from_file
@@ -734,7 +767,6 @@ pub fn start(
         Ok(chosen) => chosen,
         Err(refusal) => return refuse_start(&refuse, refusal),
     };
-    let home = environment.home().context("session start")?;
     let cwd = &environment.cwd;
     let mut env = Vec::new();
     if active.from_file {
@@ -862,10 +894,13 @@ pub fn stop(
         })
     };
     let instance = &config::active().instance;
-    let found = match session_role(instance, &role) {
+    let environment = Environment::from_process().context("session stop")?;
+    let home = environment.home().context("session stop")?;
+    let found = match session_role(instance, home, &role) {
         Ok(found) => found,
         Err(detail) => return refuse(SessionStopRefusal::UnknownRole, detail),
     };
+    let found = &found;
     let name = role_session_name(instance, found);
     let Some((id, name)) = live_role_session(found, &name).context("session stop")? else {
         return refuse(
@@ -883,8 +918,6 @@ pub fn stop(
         "systemd" => providers.provider(ConfinementProvider::Systemd),
         _ => providers.provider(ConfinementProvider::None),
     };
-    let environment = Environment::from_process().context("session stop")?;
-    let home = environment.home().context("session stop")?;
     let request = request(instance, found, &environment.cwd, home);
     let session = StartedSession {
         role: role.clone(),

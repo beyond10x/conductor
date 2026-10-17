@@ -260,7 +260,7 @@ commands:
         source: {kind: option, long: day}
   - path: [config, validate]
     callable: config-validate
-    about: Check the config file; exit 1 naming each problem by its YAML path
+    about: Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path
     arguments:
       - field: instance
         source: {kind: option, long: instance}
@@ -272,7 +272,7 @@ commands:
         source: {kind: option, long: check}
   - path: [config, show]
     callable: config-show
-    about: Print one instance's effective config, after defaults, as a config file
+    about: Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml)
     arguments:
       - field: format
         source: {kind: option, long: format}

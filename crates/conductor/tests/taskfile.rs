@@ -156,7 +156,10 @@ fn the_session_tasks_start_and_stop_through_conductor_session() {
             "conductor:restart",
             "conductor session stop --role conductor",
         ),
-        ("dev:start", "conductor session start --role conductor-dev"),
+        (
+            "maintainer:start",
+            "conductor session start --role maintainer",
+        ),
     ] {
         let task = &taskfile["tasks"][name];
         assert_eq!(shell_commands(task), [expected], "{name}: {task:?}");
@@ -1825,18 +1828,20 @@ fn the_session_tasks_read_the_name_from_config_show() {
     for (task, role) in [
         ("conductor:start", "conductor"),
         ("conductor:restart", "conductor"),
-        ("dev:start", "conductor-dev"),
+        ("maintainer:start", "conductor-dev"),
     ] {
         let task_body = &taskfile["tasks"][task];
+        let wanted = if task == "maintainer:start" {
+            host_select("session_name // empty")
+        } else {
+            format!(
+                "conductor config show --format json | jq -r '.instances[0].roles[] | \
+                 select(.role == \"{role}\") | .session_name // empty'"
+            )
+        };
         assert_eq!(
             task_body["vars"]["NAME"]["sh"].as_str(),
-            Some(
-                format!(
-                    "conductor config show --format json | jq -r '.instances[0].roles[] | \
-                     select(.role == \"{role}\") | .session_name // empty'"
-                )
-                .as_str()
-            ),
+            Some(wanted.as_str()),
             "{task}"
         );
         let body = scalars(task_body).join("\n");
@@ -1848,6 +1853,116 @@ fn the_session_tasks_read_the_name_from_config_show() {
         ] {
             assert!(!body.contains(&literal), "{task} names {literal:?}: {body}");
         }
+    }
+}
+
+/// The `sh:` of a variable of the maintainer's tasks that reads `field` of the host's maintainer
+/// from `conductor config show`: `host.roles`, the role under its name or its old name
+/// (`story:maintainer-host-config`).
+fn host_select(field: &str) -> String {
+    format!(
+        "conductor config show --format json | jq -r '.host.roles[] | select(.role == \
+         \"maintainer\" or .role == \"conductor-dev\") | .{field}'"
+    )
+}
+
+/// Writes the host file of the case's home, `~/.b10x/conductor/host/host.yaml`, holding `roles`,
+/// the lines of a `roles:` list.
+fn write_host(case: &Case, roles: &str) {
+    let dir = case.dir.join("home/.b10x/conductor/host");
+    fs::create_dir_all(&dir).expect("create the host directory");
+    fs::write(
+        dir.join("host.yaml"),
+        format!("version: conductor.host-config/1\nroles:\n{roles}"),
+    )
+    .expect("write the host file");
+}
+
+/// `story:maintainer-host-config`, item 4: `maintainer:start` and `maintainer:attach` read the
+/// maintainer from `host.roles` of `conductor config show`, and `dev:start` and `dev:attach`
+/// stay their names for this release. With `host.yaml` naming a maintainer it starts under the
+/// session name `maintainer`, on its model; without one, the maintainer an instance's `roles`
+/// still writes starts under the name it has there, as before.
+#[test]
+fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
+    let taskfile = taskfile();
+    for (task, alias) in [
+        ("maintainer:start", "dev:start"),
+        ("maintainer:attach", "dev:attach"),
+    ] {
+        let body = &taskfile["tasks"][task];
+        assert_eq!(
+            body["vars"]["NAME"]["sh"].as_str(),
+            Some(host_select("session_name // empty").as_str()),
+            "{task}"
+        );
+        assert!(
+            body["aliases"]
+                .as_sequence()
+                .is_some_and(|aliases| aliases.iter().any(|one| one.as_str() == Some(alias))),
+            "{task} keeps {alias} as an alias: {body:?}"
+        );
+    }
+    let start = &taskfile["tasks"]["maintainer:start"];
+    assert_eq!(
+        shell_commands(start),
+        ["conductor session start --role maintainer"],
+        "{start:?}"
+    );
+    for (var, field) in [
+        ("HARNESS", "harness"),
+        ("MODEL", "model"),
+        ("PROFILE", "profile // empty"),
+        ("SETTINGS", "settings // empty"),
+    ] {
+        assert_eq!(
+            start["vars"][var]["sh"].as_str(),
+            Some(host_select(field).as_str()),
+            "maintainer:start {var}"
+        );
+    }
+
+    let Some(case) = Case::new("maintainer-host") else {
+        return;
+    };
+    let config = named_config(&case, Some("a"));
+    // No host file: the instance's built-in conductor-dev, as before.
+    let output = case.task("maintainer:start", Some(&config));
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let calls = case.calls();
+    assert!(
+        calls
+            .last()
+            .expect("a start")
+            .1
+            .starts_with("--bg -n a-conductor-dev --agent conductor-dev --model opus "),
+        "{calls:?}"
+    );
+    write_host(
+        &case,
+        "  - {role: maintainer, harness: claude, model: haiku}\n",
+    );
+    for task in ["maintainer:start", "dev:start"] {
+        let output = case.task(task, Some(&config));
+        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+        let calls = case.calls();
+        let (cwd, args) = calls.last().expect("a start");
+        assert_eq!(cwd, &root(), "{task}: {args}");
+        assert!(
+            args.starts_with("--bg -n maintainer --agent conductor-dev --model haiku "),
+            "{task}: {args}"
+        );
+    }
+
+    sessions_claude(
+        &case,
+        &[("a-conductor-dev", "s-old"), ("maintainer", "s-m")],
+    );
+    for task in ["maintainer:attach", "dev:attach"] {
+        let _ = fs::remove_file(case.dir.join("claude/log"));
+        let output = case.task(task, Some(&config));
+        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+        assert_eq!(case.calls(), [(root(), "attach s-m".to_owned())], "{task}");
     }
 }
 
@@ -1928,16 +2043,21 @@ fn conductor_restart_with_a_prefix_stops_only_its_own_conductor() {
 /// holds `.claude/agents/conductor-dev.md`.
 #[test]
 fn an_agent_start_needs_the_adapter_in_the_start_directory() {
-    let dev = &taskfile()["tasks"]["dev:start"];
-    assert!(dev["dir"].is_null(), "dev:start starts in this checkout");
+    let dev = &taskfile()["tasks"]["maintainer:start"];
+    assert!(!dev.is_null(), "Taskfile.yml has maintainer:start");
+    assert!(
+        dev["dir"].is_null(),
+        "maintainer:start starts in this checkout"
+    );
     for command in shell_commands(dev) {
         assert!(
             !command.contains("cd "),
-            "dev:start starts in this checkout: {command}"
+            "maintainer:start starts in this checkout: {command}"
         );
         assert!(
-            command.contains("conductor session start --role conductor-dev"),
-            "dev:start starts through the binary, which picks the adapter or the profile: {command}"
+            command.contains("conductor session start --role maintainer"),
+            "maintainer:start starts through the binary, which picks the adapter or the profile: \
+             {command}"
         );
     }
     assert!(
@@ -2321,29 +2441,24 @@ fn instance_task(case: &Case, name: &str, config: &Path, instance: &str) -> Outp
 #[test]
 fn every_session_task_reads_the_names_from_config_show() {
     let taskfile = taskfile();
-    for (task, role) in [
-        ("conductor:attach", "conductor"),
-        ("dev:attach", "conductor-dev"),
-    ] {
-        let task_body = &taskfile["tasks"][task];
-        assert_eq!(
-            task_body["vars"]["NAME"]["sh"].as_str(),
-            Some(
-                format!(
-                    "conductor config show --format json | jq -r '.instances[0].roles[] | \
-                     select(.role == \"{role}\") | .session_name // empty'"
-                )
-                .as_str()
-            ),
-            "{task}"
-        );
-    }
+    assert_eq!(
+        taskfile["tasks"]["conductor:attach"]["vars"]["NAME"]["sh"].as_str(),
+        Some(
+            "conductor config show --format json | jq -r '.instances[0].roles[] | \
+             select(.role == \"conductor\") | .session_name // empty'"
+        ),
+    );
+    assert_eq!(
+        taskfile["tasks"]["maintainer:attach"]["vars"]["NAME"]["sh"].as_str(),
+        Some(host_select("session_name // empty").as_str()),
+    );
+    // The instance's roles' names and the host's (`story:maintainer-host-config`), each once.
     let sessions = &taskfile["tasks"]["sessions"];
     assert_eq!(
         sessions["vars"]["NAMES"]["sh"].as_str(),
         Some(
-            "conductor config show --format json | jq -c '[.instances[0].roles[] | \
-             .session_name // empty]'"
+            "conductor config show --format json | jq -c '[.instances[0].roles[], .host.roles[] \
+             | .session_name // empty] | unique'"
         ),
         "{sessions:?}"
     );
@@ -2352,9 +2467,13 @@ fn every_session_task_reads_the_names_from_config_show() {
         "conductor:start",
         "conductor:attach",
         "conductor:restart",
-        "dev:start",
-        "dev:attach",
+        "maintainer:start",
+        "maintainer:attach",
     ] {
+        assert!(
+            !taskfile["tasks"][task].is_null(),
+            "Taskfile.yml has no {task}"
+        );
         let body = scalars(&taskfile["tasks"][task]).join("\n");
         for role in ["conductor", "conductor-dev"] {
             for literal in [

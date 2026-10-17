@@ -996,6 +996,135 @@ fn a_director_finds_a_live_session_still_named_conductor() {
     }
 }
 
+/// `story:maintainer-host-config`, item 4: with `host.yaml` naming a maintainer, `session start
+/// --role maintainer` (and `--role conductor-dev`, with its note) starts that role, not the one
+/// the instance's `roles` still writes: under the session name `maintainer`, with no instance
+/// prefix, its model and places, in the working directory with the maintainer's first prompt,
+/// pinned to the instance it runs for; `session stop --role maintainer` stops it.
+#[test]
+fn the_maintainer_starts_from_the_host_file() {
+    for (name, role) in [
+        ("host-maintainer", "maintainer"),
+        ("host-maintainer-old-name", "conductor-dev"),
+    ] {
+        let case = Case::new(name, STRICT);
+        write(
+            &case.home().join(".b10x/conductor/host/host.yaml"),
+            &format!(
+                "version: conductor.host-config/1\n\
+                 roles:\n\
+                 \x20 - {{role: maintainer, harness: claude, model: haiku, writable: [checkout], \
+                 settings: {settings}}}\n",
+                settings = case.dev_settings().display(),
+            ),
+        );
+        let output = case.start(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).starts_with("started maintainer: "),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            stderr(&output).contains("--role conductor-dev is the old name of maintainer"),
+            role == "conductor-dev",
+            "{role}: {}",
+            describe(&output)
+        );
+        let logged = calls(&case.fake());
+        let start = logged
+            .iter()
+            .find(|call| call["call"] == "start")
+            .expect("a start");
+        let work = case.work().display().to_string();
+        assert_eq!(
+            start["request"],
+            json!({
+                "role": "maintainer", "session_name": "maintainer", "cwd": work,
+                "memory_max": null, "cpu_weight": null, "tasks_max": null,
+                "writable": [{"place": "checkout", "paths": [work]}],
+                "forge_token_env": [],
+            }),
+            "{role}"
+        );
+        assert_eq!(
+            start["args"],
+            json!([
+                "-n",
+                "maintainer",
+                "--agent",
+                "conductor-dev",
+                "--model",
+                "haiku",
+                "--permission-mode",
+                "bypassPermissions",
+                "--setting-sources",
+                "project,local",
+                "--settings",
+                case.dev_settings().display().to_string(),
+            ]),
+            "{role}"
+        );
+        assert!(
+            logged
+                .iter()
+                .any(|call| call["call"] == "prompt" && call["prompt"] == DEV_PROMPT),
+            "{role}: {logged:#?}"
+        );
+
+        case.agents(&json!([
+            {"id": "s-maintainer", "name": "maintainer", "cwd": case.work(), "pid": 4242,
+             "kind": "background", "status": "idle"}
+        ]));
+        assert_refused(&case.start(role), "session start", "SessionRunning");
+        let output = case.stop(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "stopped maintainer (s-maintainer)\n",
+            "{role}"
+        );
+    }
+}
+
+/// `story:maintainer-host-config`, item 4: a `host.yaml` that does not read refuses `session start
+/// --role maintainer` (`UnknownRole`), naming the file, and starts nothing; the director starts
+/// as before, reading no host file.
+#[test]
+fn a_host_file_that_does_not_read_refuses_the_maintainer_only() {
+    let case = Case::new("host-maintainer-invalid", STRICT);
+    let host = case.home().join(".b10x/conductor/host/host.yaml");
+    write(
+        &host,
+        "version: conductor.host-config/1\nroles:\n  - {role: director, harness: claude, model: opus}\n",
+    );
+    let output = case.start("maintainer");
+    assert_refused(&output, "session start", "UnknownRole");
+    assert!(
+        stderr(&output).contains(&host.display().to_string()),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        !calls(&case.fake())
+            .iter()
+            .any(|call| call["call"] == "start"),
+        "nothing started"
+    );
+    let output = case.start("director");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}
+
 /// `session stop` refuses a role it does not stop and a role with no live session, stopping
 /// nothing.
 #[test]
