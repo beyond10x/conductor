@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 04625f9648d5b24402cc717a3c99d235830f46c09af901a4bc128f39fc31ebb1
-// contract digest ee19806a87bc41c6ee9b344cde8ab2f559b6f38d90ef5beb8de0610698ffa074
+// model digest 460d4fbb773864a866532eea2da3a941870bf7c4742d4e419769128d1a65fac0
+// contract digest 8ce4479848d59186809eb681b5531d4f9a5386aa58dbd13c5e56173ef14f7e11
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -581,6 +581,7 @@ pub struct SuggestedPrefix {
 /// Every value satisfies `gate_resume > gate_stop` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `cpu_reserve >= 0` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `build_slots >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `short_lane_slots >= 0` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thresholds {
     /// `context_handover` — `conductor.config.Tokens`.
@@ -613,6 +614,10 @@ pub struct Thresholds {
     pub repo_cache: RepoCache,
     /// `repo_cache_size` — `conductor.config.Gibibytes`.
     pub repo_cache_size: Gibibytes,
+    /// `short_lane_slots` — `Integer`.
+    pub short_lane_slots: i64,
+    /// `short_lane_max` — `Duration`.
+    pub short_lane_max: crate::primitives::Duration,
 }
 
 /// TimeOfDay — `conductor.config.TimeOfDay`: a distinct wrapper around `String`.

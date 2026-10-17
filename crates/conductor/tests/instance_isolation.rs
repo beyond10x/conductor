@@ -280,6 +280,8 @@ fn legacy_grant(id: &str, state: HostGrantState) -> HostGrantSnapshot {
             release_reason: None,
             cache_hits: None,
             cache_misses: None,
+            lane: None,
+            lane_overrun: None,
         },
     }
 }

@@ -1998,6 +1998,9 @@ pub struct ReleaseGrantArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub cache_misses: Option<i64>,
+    /// boolean
+    #[arg(long)]
+    pub lane_overrun: Option<bool>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2027,6 +2030,9 @@ pub struct RequestDiskArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
+    /// BuildLane, optional
+    #[arg(long, value_parser = ["Regular", "Short"])]
+    pub lane: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2044,6 +2050,9 @@ pub struct ReserveDiskArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub reclaimed_bytes: Option<i64>,
+    /// BuildLane, optional
+    #[arg(long, value_parser = ["Regular", "Short"])]
+    pub lane: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

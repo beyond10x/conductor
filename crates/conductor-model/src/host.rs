@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 04625f9648d5b24402cc717a3c99d235830f46c09af901a4bc128f39fc31ebb1
-// contract digest ee19806a87bc41c6ee9b344cde8ab2f559b6f38d90ef5beb8de0610698ffa074
+// model digest 460d4fbb773864a866532eea2da3a941870bf7c4742d4e419769128d1a65fac0
+// contract digest 8ce4479848d59186809eb681b5531d4f9a5386aa58dbd13c5e56173ef14f7e11
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -11,6 +11,15 @@
 //! The host registry (story:instance-names-unique) is one per host, whatever config file a command reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`) (story:maintainer-host-config). It lists every config file that has run on the host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is valid, and `conductor session start` writes it whenever a config file starts a session, each under the lock `instances.lock` beside it. No two instances on the host share a session prefix, a dashboard port, a state directory or a records directory, whether they are in one config file or in several: `config validate` refuses an instance that holds one another registered file's instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing then. A registered file that is no longer there is dropped from the registry when it is next written, so a removed config file holds nothing.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// BuildLane — `conductor.host.BuildLane`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildLane {
+    /// `Regular`.
+    Regular,
+    /// `Short`.
+    Short,
+}
 
 /// BuildRun — `conductor.host.BuildRun`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,6 +351,10 @@ pub struct HostGrantData {
     pub cache_hits: Option<i64>,
     /// `cache_misses` — `Optional<Integer>`.
     pub cache_misses: Option<i64>,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
+    /// `lane_overrun` — `Optional<Boolean>`.
+    pub lane_overrun: Option<bool>,
 }
 
 /// The states of `conductor.host.HostGrant`, at the type level.
@@ -890,6 +903,8 @@ pub struct ReleaseGrant {
     pub cache_hits: Option<i64>,
     /// `cache_misses` — `Optional<Integer>`.
     pub cache_misses: Option<i64>,
+    /// `lane_overrun` — `Optional<Boolean>`.
+    pub lane_overrun: Option<bool>,
 }
 
 /// Everything `conductor.host.ReleaseGrant` can result in — one variant per declared outcome.
@@ -941,6 +956,8 @@ pub struct RequestDisk {
     pub command: String,
     /// `requested_at` — `Timestamp`.
     pub requested_at: crate::primitives::Timestamp,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
 }
 
 /// Everything `conductor.host.RequestDisk` can result in — one variant per declared outcome.
@@ -977,6 +994,8 @@ pub struct ReserveDisk {
     pub shortfall_bytes: i64,
     /// `reclaimed_bytes` — `Integer`.
     pub reclaimed_bytes: i64,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
 }
 
 /// Everything `conductor.host.ReserveDisk` can result in — one variant per declared outcome.
@@ -1351,6 +1370,10 @@ pub struct Grants {
     pub cache_hits: Option<i64>,
     /// `cache_misses` — `Optional<Integer>`.
     pub cache_misses: Option<i64>,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
+    /// `lane_overrun` — `Optional<Boolean>`.
+    pub lane_overrun: Option<bool>,
 }
 
 /// Reclaim runs — one row of the view `conductor.host.ReclaimRuns`.

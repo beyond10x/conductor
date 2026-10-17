@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "04625f9648d5b24402cc717a3c99d235830f46c09af901a4bc128f39fc31ebb1",
-    "contract_digest": "ee19806a87bc41c6ee9b344cde8ab2f559b6f38d90ef5beb8de0610698ffa074"
+    "source_digest": "460d4fbb773864a866532eea2da3a941870bf7c4742d4e419769128d1a65fac0",
+    "contract_digest": "8ce4479848d59186809eb681b5531d4f9a5386aa58dbd13c5e56173ef14f7e11"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -790,6 +790,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.dispatch.Verdict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.BuildLane",
       "disposition": {
         "disposition": "generated"
       }

@@ -69,8 +69,8 @@ use conductor_model::host::obligations::{
     ReserveDiskBehavior, StartRunBehavior, TakeHostGrantBehavior, WithdrawDiskRequestBehavior,
 };
 use conductor_model::host::{
-    GrantId, GrantKind, Grants, HostGrantSnapshot, HostGrantState, ReclaimRunId, RecordPeak,
-    RecordPeakOutcome, ReleaseGrant, ReleaseGrantOutcome, ReleaseReason, RequestDisk,
+    BuildLane, GrantId, GrantKind, Grants, HostGrantSnapshot, HostGrantState, ReclaimRunId,
+    RecordPeak, RecordPeakOutcome, ReleaseGrant, ReleaseGrantOutcome, ReleaseReason, RequestDisk,
     RequestDiskOutcome, ReserveDisk, ReserveDiskOutcome, StartRun, StartRunOutcome, TakeHostGrant,
     TakeHostGrantOutcome, WithdrawDiskRequest, WithdrawDiskRequestOutcome,
 };
@@ -641,7 +641,7 @@ impl Ledger {
         reason: Option<ReleaseReason>,
         at: &Timestamp,
     ) -> Result<()> {
-        release_in(&mut self.generated, grant, reason, at, None)
+        release_in(&mut self.generated, grant, reason, at, None, None)
     }
 
     /// Closes every grant whose `build run` is gone, and answers their ids: a request no run holds
@@ -696,6 +696,7 @@ impl Ledger {
                 Some(ReleaseReason::ProcessGroupGone),
                 at,
                 None,
+                None,
             )?;
             closed.push(grant);
         }
@@ -733,16 +734,28 @@ impl Ledger {
         Ok(total)
     }
 
-    /// How many `build run` commands hold a grant on the host, but `except`: the disk grants
-    /// `Granted` or `Running`, every instance's, which `thresholds.build_slots` bounds
-    /// (`story:build-queue-convoy`).
+    /// How many `build run` commands hold a regular slot on the host, but `except`: the disk
+    /// grants `Granted` or `Running` outside the short lane, every instance's, which
+    /// `thresholds.build_slots` bounds (`story:build-queue-convoy`).
     ///
     /// # Errors
     ///
     /// The store does not read.
     pub fn building(&self, except: Option<&GrantId>) -> Result<u64> {
+        self.building_in(BuildLane::Regular, except)
+    }
+
+    /// How many `build run` commands hold a slot of `lane`, but `except`: the disk grants
+    /// `Granted` or `Running` in that lane (`story:build-run-short-lane`). A grant that names no
+    /// lane holds a regular slot.
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn building_in(&self, lane: BuildLane, except: Option<&GrantId>) -> Result<u64> {
         let count = live(&self.listed()?)
             .filter(|grant| grant.data.kind == GrantKind::Disk)
+            .filter(|grant| grant.data.lane.unwrap_or(BuildLane::Regular) == lane)
             .filter(|grant| except != Some(&grant.data.grant_id))
             .count();
         Ok(u64::try_from(count).unwrap_or(u64::MAX))
@@ -762,27 +775,33 @@ impl Ledger {
         covers: &dyn Fn(&str) -> bool,
         since: time::OffsetDateTime,
     ) -> Result<Option<(u64, usize)>> {
-        use time::format_description::well_known::Rfc3339;
-        let mut found: Option<(u64, usize)> = None;
-        for grant in &HostGrantStorage::list(&self.generated.ports) {
-            let data = &grant.data;
-            let peak = data
-                .peak_bytes
-                .and_then(|peak| u64::try_from(peak).ok())
-                .filter(|peak| *peak > 0);
-            let (Some(peak), Some(command)) = (peak, data.command.as_deref()) else {
-                continue;
-            };
-            let at = data.released_at.as_ref().unwrap_or(&data.requested_at);
-            let recent = time::OffsetDateTime::parse(&at.0, &Rfc3339).is_ok_and(|at| at >= since);
-            if data.kind == GrantKind::Disk
-                && data.repository.as_ref().map(|name| name.0.as_str()) == repository
-                && recent
-                && covers(command)
-            {
-                found = Some(found.map_or((peak, 1), |(most, count)| (most.max(peak), count + 1)));
-            }
-        }
+        Ok(largest_peak_of(&self.matching(repository, covers, since)?))
+    }
+
+    /// The disk grants of `repository` whose command `covers`, by the instant each run ended (its
+    /// request, when it has not) at or after `since`, in any state: what [`Ledger::largest_peak`]
+    /// and the short lane (`story:build-run-short-lane`) read, in one read of every grant.
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn matching(
+        &self,
+        repository: Option<&str>,
+        covers: &dyn Fn(&str) -> bool,
+        since: time::OffsetDateTime,
+    ) -> Result<Vec<HostGrantSnapshot>> {
+        let found = HostGrantStorage::list(&self.generated.ports)
+            .into_iter()
+            .filter(|grant| {
+                let data = &grant.data;
+                let at = data.released_at.as_ref().unwrap_or(&data.requested_at);
+                data.kind == GrantKind::Disk
+                    && data.repository.as_ref().map(|name| name.0.as_str()) == repository
+                    && OffsetDateTime::parse(&at.0, &Rfc3339).is_ok_and(|at| at >= since)
+                    && data.command.as_deref().is_some_and(covers)
+            })
+            .collect();
         kept("host ledger", &self.generated.ports.store)?;
         Ok(found)
     }
@@ -844,6 +863,36 @@ impl Ledger {
         command: &str,
         at: &Timestamp,
     ) -> Result<GrantId> {
+        self.request_in(
+            instance,
+            repository,
+            session_name,
+            session_id,
+            bytes,
+            command,
+            at,
+            None,
+        )
+    }
+
+    /// [`Ledger::request_of`] in `lane` (`story:build-run-short-lane`): `Short` when the ledger
+    /// knows the command to be short, so the request may take a short-lane slot.
+    ///
+    /// # Errors
+    ///
+    /// The specification refuses it (`InvalidSize`), or the store does not keep it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn request_in(
+        &mut self,
+        instance: &str,
+        repository: Option<&str>,
+        session_name: Option<&str>,
+        session_id: Option<&str>,
+        bytes: u64,
+        command: &str,
+        at: &Timestamp,
+        lane: Option<BuildLane>,
+    ) -> Result<GrantId> {
         const COMMAND: &str = "host request-disk";
         let input = RequestDisk {
             instance: InstanceName(instance.to_owned()),
@@ -853,6 +902,7 @@ impl Ledger {
             bytes: i64::try_from(bytes).unwrap_or(i64::MAX),
             command: command.to_owned(),
             requested_at: at.clone(),
+            lane,
         };
         let outcome = self
             .generated
@@ -941,6 +991,19 @@ impl Ledger {
     ///
     /// The store does not read.
     pub fn ahead_bytes(&self, grant: &GrantId) -> Result<Vec<u64>> {
+        Ok(self
+            .ahead_rows(grant)?
+            .into_iter()
+            .map(|row| {
+                row.data
+                    .bytes
+                    .map_or(0, |bytes| u64::try_from(bytes).unwrap_or(0))
+            })
+            .collect())
+    }
+
+    /// The requests ahead of `grant` ([`Ledger::ahead`]), in arrival order.
+    fn ahead_rows(&self, grant: &GrantId) -> Result<Vec<HostGrantSnapshot>> {
         let grants = self.listed()?;
         // A request no longer open is not among the open grants: it is read from the store.
         let own = match grants.iter().find(|row| row.data.grant_id == *grant) {
@@ -966,14 +1029,20 @@ impl Ledger {
             })
             .collect();
         ahead.sort_by(|a, b| arrival(a).cmp(&arrival(b)));
-        Ok(ahead
-            .into_iter()
-            .map(|row| {
-                row.data
-                    .bytes
-                    .map_or(0, |bytes| u64::try_from(bytes).unwrap_or(0))
-            })
-            .collect())
+        Ok(ahead.into_iter().cloned().collect())
+    }
+
+    /// Whether a request ahead of `grant` ([`Ledger::ahead`]) waits in the short lane: then
+    /// `grant` waits behind it for a short-lane slot (`story:build-run-short-lane`).
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn ahead_short(&self, grant: &GrantId) -> Result<bool> {
+        Ok(self
+            .ahead_rows(grant)?
+            .iter()
+            .any(|row| row.data.lane == Some(BuildLane::Short)))
     }
 
     /// `ReserveDisk`: answers the request `grant` with what the disk lacks for it and what a
@@ -983,11 +1052,27 @@ impl Ledger {
     ///
     /// The specification refuses it, or the store does not keep it.
     pub fn reserve(&mut self, grant: &GrantId, shortfall: u64, reclaimed: u64) -> Result<Answer> {
+        self.reserve_in(grant, shortfall, reclaimed, None)
+    }
+
+    /// [`Ledger::reserve`], granting a slot of `lane` (`story:build-run-short-lane`).
+    ///
+    /// # Errors
+    ///
+    /// The specification refuses it, or the store does not keep it.
+    pub fn reserve_in(
+        &mut self,
+        grant: &GrantId,
+        shortfall: u64,
+        reclaimed: u64,
+        lane: Option<BuildLane>,
+    ) -> Result<Answer> {
         const COMMAND: &str = "host reserve-disk";
         let input = ReserveDisk {
             grant_id: grant.clone(),
             shortfall_bytes: i64::try_from(shortfall).unwrap_or(i64::MAX),
             reclaimed_bytes: i64::try_from(reclaimed).unwrap_or(i64::MAX),
+            lane,
         };
         let outcome = self
             .generated
@@ -1222,7 +1307,8 @@ const FINISH_EVERY: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// What a `build run` does once its command stopped: records the run's growth (`peak`, with its
 /// pauses) and releases `grant` for `reason`, with the compile cache's hits and misses over the run
-/// (`cache`, `story:build-run-repo-cache`), taking the ledger with a bounded try-lock loop
+/// (`cache`, `story:build-run-repo-cache`) and whether a short-lane run outlived its bound
+/// (`overrun`, `story:build-run-short-lane`), taking the ledger with a bounded try-lock loop
 /// instead of waiting for it (`story:guard-no-pattern-kill`). A holder that never lets go, or a
 /// stopping signal (`stop`), must not keep a stopped run from exiting: it gives up after `bound`
 /// or when `stop` answers `true`, and leaves the grant to [`Ledger::sweep`].
@@ -1237,6 +1323,7 @@ pub fn finish_run(
     peak: Option<(u64, u32)>,
     reason: Option<ReleaseReason>,
     cache: Option<(u64, u64)>,
+    overrun: bool,
     clock: impl Fn() -> Timestamp,
     bound: std::time::Duration,
     stop: impl Fn() -> bool,
@@ -1256,7 +1343,14 @@ pub fn finish_run(
                 let peak = peak.and_then(|(bytes, pauses)| {
                     record_peak_in(&mut ledger, grant, bytes, pauses).err()
                 });
-                release_in(&mut ledger.generated, grant, reason, &clock(), cache)?;
+                release_in(
+                    &mut ledger.generated,
+                    grant,
+                    reason,
+                    &clock(),
+                    cache,
+                    overrun.then_some(true),
+                )?;
                 return Ok(Finish::Released { peak });
             }
             Some(Taken::Held(back)) => idle = Some(back),
@@ -1281,7 +1375,7 @@ pub fn release(
     at: &Timestamp,
 ) -> Result<()> {
     let mut ledger = Ledger::lock(state)?;
-    release_in(&mut ledger.generated, grant, reason, at, None)
+    release_in(&mut ledger.generated, grant, reason, at, None, None)
 }
 
 fn release_in(
@@ -1290,6 +1384,7 @@ fn release_in(
     reason: Option<ReleaseReason>,
     at: &Timestamp,
     cache: Option<(u64, u64)>,
+    lane_overrun: Option<bool>,
 ) -> Result<()> {
     const COMMAND: &str = "host release-grant";
     let count = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
@@ -1300,6 +1395,7 @@ fn release_in(
             released_at: at.clone(),
             cache_hits: cache.map(|(hits, _)| count(hits)),
             cache_misses: cache.map(|(_, misses)| count(misses)),
+            lane_overrun,
         })
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
@@ -1883,7 +1979,8 @@ pub fn request_disk(state: Option<&Path>, args: RequestDiskArgs) -> Result<ExitC
              nothing was requested"
         )
     })?;
-    let grant = ledger.request_of(
+    let lane = lane_flag(COMMAND, args.lane)?;
+    let grant = ledger.request_in(
         &instance,
         args.repository.as_deref(),
         args.session_name.as_deref(),
@@ -1891,6 +1988,7 @@ pub fn request_disk(state: Option<&Path>, args: RequestDiskArgs) -> Result<ExitC
         bytes,
         &command,
         &at,
+        lane,
     )?;
     print_line(COMMAND, &grant.0)
 }
@@ -1908,6 +2006,7 @@ pub fn reserve_disk(state: Option<&Path>, args: ReserveDiskArgs) -> Result<ExitC
         grant_id: GrantId(flag(COMMAND, "--grant-id", args.grant_id)?),
         shortfall_bytes: flag(COMMAND, "--shortfall-bytes", args.shortfall_bytes)?,
         reclaimed_bytes: flag(COMMAND, "--reclaimed-bytes", args.reclaimed_bytes)?,
+        lane: lane_flag(COMMAND, args.lane)?,
     };
     let mut generated = Generated::new(Ports {
         store: crate::store::open(&dir(state)?)?,
@@ -1991,7 +2090,14 @@ pub fn release_grant(state: Option<&Path>, args: ReleaseGrantArgs) -> Result<Exi
         }
     };
     let mut ledger = Ledger::lock(&dir(state)?)?;
-    release_in(&mut ledger.generated, &grant, reason, &at, cache)?;
+    release_in(
+        &mut ledger.generated,
+        &grant,
+        reason,
+        &at,
+        cache,
+        args.lane_overrun,
+    )?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2029,7 +2135,7 @@ pub fn withdraw_disk_request(
 /// There is no store, it does not open, a grant does not read, or the rows cannot be written.
 pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/host.yaml`).
-    const COLUMNS: [&str; 20] = [
+    const COLUMNS: [&str; 22] = [
         "grant_id",
         "state",
         "instance",
@@ -2050,6 +2156,8 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "release_reason",
         "cache_hits",
         "cache_misses",
+        "lane",
+        "lane_overrun",
     ];
     // A reader, as [`rows`]: it never takes the store's writer lock.
     let generated = Generated::new(Ports {
@@ -2094,6 +2202,8 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.release_reason.map(reason_name)),
                 Value::from(row.cache_hits),
                 Value::from(row.cache_misses),
+                Value::from(row.lane.map(lane_name)),
+                Value::from(row.lane_overrun),
             ]
         })
         .collect();
@@ -2153,6 +2263,39 @@ pub fn kind_named(name: &str) -> Option<GrantKind> {
     ]
     .into_iter()
     .find(|kind| kind_name(*kind) == name)
+}
+
+/// The lane's name as the specification spells it (`story:build-run-short-lane`).
+#[must_use]
+pub fn lane_name(lane: BuildLane) -> &'static str {
+    match lane {
+        BuildLane::Regular => "Regular",
+        BuildLane::Short => "Short",
+    }
+}
+
+/// The lane named `name`, as [`lane_name`] writes it.
+#[must_use]
+pub fn lane_named(name: &str) -> Option<BuildLane> {
+    [BuildLane::Regular, BuildLane::Short]
+        .into_iter()
+        .find(|lane| lane_name(*lane) == name)
+}
+
+/// The largest peak of `grants` and how many recorded one: a peak that is unknown, or 0, is no
+/// measurement and is not counted (`story:reserve-from-peak`).
+#[must_use]
+pub fn largest_peak_of(grants: &[HostGrantSnapshot]) -> Option<(u64, usize)> {
+    grants
+        .iter()
+        .filter_map(|grant| grant.data.peak_bytes)
+        .filter_map(|peak| u64::try_from(peak).ok())
+        .filter(|peak| *peak > 0)
+        .fold(None, |found, peak| {
+            Some(found.map_or((peak, 1), |(most, count): (u64, usize)| {
+                (most.max(peak), count + 1)
+            }))
+        })
 }
 
 /// The reason's name as the specification spells it.
@@ -2277,6 +2420,14 @@ fn flags_only(input_json: Option<JsonInput>, what: &'static str) -> Result<()> {
         Some(_) => not_implemented(what),
         None => Ok(()),
     }
+}
+
+/// The lane `--lane` names, if it names one.
+fn lane_flag(command: &str, lane: Option<String>) -> Result<Option<BuildLane>> {
+    lane.map(|lane| {
+        lane_named(&lane).ok_or_else(|| anyhow!("{command}: --lane {lane:?} is no BuildLane"))
+    })
+    .transpose()
 }
 
 /// The value of the flag `name`, or an error naming it.

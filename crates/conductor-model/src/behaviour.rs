@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 04625f9648d5b24402cc717a3c99d235830f46c09af901a4bc128f39fc31ebb1
-// contract digest ee19806a87bc41c6ee9b344cde8ab2f559b6f38d90ef5beb8de0610698ffa074
+// model digest 460d4fbb773864a866532eea2da3a941870bf7c4742d4e419769128d1a65fac0
+// contract digest 8ce4479848d59186809eb681b5531d4f9a5386aa58dbd13c5e56173ef14f7e11
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2081,6 +2081,7 @@ where
         next.data.release_reason = input.reason.clone();
         next.data.cache_hits = input.cache_hits.clone();
         next.data.cache_misses = input.cache_misses.clone();
+        next.data.lane_overrun = input.lane_overrun.clone();
         let answer = crate::host::ReleaseGrantOutcome::Released { host_grant_released: crate::host::HostGrantReleased { grant_id: input.grant_id.clone(), reason: input.reason.clone() } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -2120,6 +2121,8 @@ where
             release_reason: None,
             cache_hits: None,
             cache_misses: None,
+            lane: input.lane.clone(),
+            lane_overrun: None,
         };
         let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { grant_id: identity.clone(), instance: input.instance.clone(), bytes: input.bytes.clone() } };
         HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Requested(crate::host::HostGrant::new(data)).snapshot());
@@ -2169,6 +2172,7 @@ where
             };
             let mut next = moved.snapshot();
             next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
+            next.data.lane = input.lane.clone();
             let answer = crate::host::ReserveDiskOutcome::GrantedAfterReclaim { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
@@ -2185,6 +2189,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.reclaimed_bytes = Some(0);
+        next.data.lane = input.lane.clone();
         let answer = crate::host::ReserveDiskOutcome::Granted { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: 0 } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -2258,6 +2263,8 @@ where
             release_reason: None,
             cache_hits: None,
             cache_misses: None,
+            lane: None,
+            lane_overrun: None,
         };
         let answer = crate::host::TakeHostGrantOutcome::Granted { host_grant_taken: crate::host::HostGrantTaken { grant_id: identity.clone(), instance: input.instance.clone(), kind: input.kind.clone() } };
         HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Granted(crate::host::HostGrant::new_granted(data)).snapshot());
@@ -3558,6 +3565,8 @@ where
                 release_reason: held.data.release_reason,
                 cache_hits: held.data.cache_hits,
                 cache_misses: held.data.cache_misses,
+                lane: held.data.lane,
+                lane_overrun: held.data.lane_overrun,
             })
             .collect())
     }

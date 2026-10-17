@@ -77,6 +77,13 @@ types:
     kind: enum
     variants: [Exited, Killed, ProcessGroupGone, SessionStopped]
 
+  # Which build slots a `conductor build run` grant takes (story:build-run-short-lane): one of
+  # `thresholds.build_slots` (`Regular`), or one of `thresholds.short_lane_slots`, which admit
+  # only a command the ledger knows to be short (`Short`).
+  - name: conductor.host.BuildLane
+    kind: enum
+    variants: [Regular, Short]
+
   # What one reclaim step freed, from the reclaimable rows of `conductor gc` that need no
   # decision: the build output of an idle managed tree (no live session, no running gate), build
   # output stripped from a worktree archive, a cache past its age, a snapshot past retention.
@@ -371,6 +378,16 @@ entities:
         type: Optional<Integer>
       - name: cache_misses
         type: Optional<Integer>
+      # The lane of a `build run` request (story:build-run-short-lane). While it waits in the queue:
+      # `Short` when the ledger knows its command to be short, so it may take a short-lane slot,
+      # else `Regular`. Once granted: the lane whose slot it holds. Absent on a slot and on a
+      # grant of a binary before the lane, which count as `Regular`.
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
+      # True on a short-lane run that outlived twice `thresholds.short_lane_max`, recorded as it is
+      # released: its command takes no short-lane slot for 24 hours. The run is not stopped.
+      - name: lane_overrun
+        type: Optional<Boolean>
     lifecycle:
       initial: Requested
       states: [Requested, Granted, Running, Released, Refused, Withdrawn]
@@ -621,6 +638,10 @@ commands:
         type: String
       - name: requested_at
         type: Timestamp
+      # The lane the request may take a slot in (story:build-run-short-lane): `Short` when the
+      # ledger knows its command to be short, else `Regular`.
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
     outcomes:
       - name: invalid-size
         when: bytes <= 0
@@ -641,6 +662,7 @@ commands:
           bytes: input.bytes
           command: input.command
           requested_at: input.requested_at
+          lane: input.lane
         emits:
           - conductor.host.DiskRequested
         payload:
@@ -670,6 +692,9 @@ commands:
       - name: reclaimed_bytes
         type: Integer
         example: 0
+      # The lane whose slot a granted request takes (story:build-run-short-lane).
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
     outcomes:
       - name: invalid-size
         when:
@@ -704,6 +729,7 @@ commands:
         instance: grant_id
         sets:
           reclaimed_bytes: input.reclaimed_bytes
+          lane: input.lane
         emits:
           - conductor.host.DiskReserved
         payload:
@@ -717,6 +743,7 @@ commands:
         instance: grant_id
         sets:
           reclaimed_bytes: 0
+          lane: input.lane
         emits:
           - conductor.host.DiskReserved
         payload:
@@ -860,6 +887,10 @@ commands:
         type: Optional<Integer>
       - name: cache_misses
         type: Optional<Integer>
+      # Whether a short-lane run outlived twice `thresholds.short_lane_max`
+      # (story:build-run-short-lane).
+      - name: lane_overrun
+        type: Optional<Boolean>
     outcomes:
       - name: released
         moves: conductor.host.HostGrant.release
@@ -869,6 +900,7 @@ commands:
           released_at: input.released_at
           cache_hits: input.cache_hits
           cache_misses: input.cache_misses
+          lane_overrun: input.lane_overrun
         emits:
           - conductor.host.HostGrantReleased
         payload:
@@ -1059,6 +1091,10 @@ views:
         type: Optional<Integer>
       - name: cache_misses
         type: Optional<Integer>
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
+      - name: lane_overrun
+        type: Optional<Boolean>
     naming:
       wire: grants
       display: Host grants

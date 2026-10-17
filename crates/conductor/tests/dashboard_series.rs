@@ -344,6 +344,8 @@ fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
                     release_reason: None,
                     cache_hits: None,
                     cache_misses: None,
+                    lane: None,
+                    lane_overrun: None,
                 },
             },
         );

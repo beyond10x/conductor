@@ -369,8 +369,14 @@ types:
   # is never refused for it, 0 for no bound (story:build-queue-convoy); whether `build run` gives a
   # cargo-based command its repository's compile cache, one sccache server and directory per
   # repository that all of its worktrees share, and that cache's size
-  # (story:build-run-repo-cache). Absent, the filesystem is `/`, the silence 30 minutes, the
-  # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G.
+  # (story:build-run-repo-cache); and the short lane (story:build-run-short-lane): how many build
+  # slots besides `build_slots` admit only a command the ledger knows to be short, 0 turning the
+  # lane off, and the longest p90 run time of such a command, a duration as `cadence` writes one.
+  # A request is short when the ledger holds at least 3 earlier runs of its repository and command
+  # in 14 days whose p90 run time is at most `short_lane_max`, and no short-lane run of it outlived
+  # twice that in the last 24 hours. Absent, the filesystem is `/`, the silence 30 minutes, the
+  # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G, the short-lane
+  # slots 1 and their longest p90 3 minutes.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -389,10 +395,13 @@ types:
       - {name: build_slots, type: Integer}
       - {name: repo_cache, type: conductor.config.RepoCache}
       - {name: repo_cache_size, type: conductor.config.Gibibytes}
+      - {name: short_lane_slots, type: Integer}
+      - {name: short_lane_max, type: Duration}
     invariants:
       - gate_resume > gate_stop
       - cpu_reserve >= 0
       - build_slots >= 0
+      - short_lane_slots >= 0
 
   # How many snapshots' observations the instance keeps: those of the newest `snapshots` complete
   # ones (story:observation-retention). Absent, it is 12, a day at the 2-hour cadence.

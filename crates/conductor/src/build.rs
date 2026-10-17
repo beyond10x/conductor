@@ -72,6 +72,18 @@
 //!    no `sccache` on `PATH` nothing is set, one line says so, and the command runs as before.
 //!    `CARGO_INCREMENTAL` is left as it is: the workspace's own crates stay incremental, and
 //!    sccache does not cache an incremental unit, so the cache serves the dependencies.
+//! 8. **Short lane** (`story:build-run-short-lane`). Besides `thresholds.build_slots`,
+//!    `thresholds.short_lane_slots` slots admit only a command the ledger knows to be short: at
+//!    least 3 earlier runs of the repository and command in 14 days ([`command_key`]) whose p90
+//!    run time is at most `thresholds.short_lane_max`, and no short-lane run of it that outlived
+//!    twice that in the last 24 hours ([`short_known`]). Its request is recorded in the `Short`
+//!    lane; when it finds every regular slot taken, it takes a free short-lane slot ahead of the
+//!    longer requests before it, though never ahead of an earlier short one, and only where the
+//!    disk holds it beside every request ahead of it. It runs with at most
+//!    [`SHORT_LANE_JOBS`] jobs. A short-lane run that outlives twice `short_lane_max` is not
+//!    stopped; its grant is marked (`lane_overrun`) as it is released. The queued line and the
+//!    grant name the lane. Queue order, backfill and the disk rules of the regular slots are as
+//!    above.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -87,7 +99,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::Instance;
-use conductor_model::host::{GrantId, ReleaseReason};
+use conductor_model::host::{BuildLane, GrantId, HostGrantSnapshot, HostGrantState, ReleaseReason};
 use conductor_model::primitives::Timestamp;
 use nix::sys::signal::{Signal, killpg};
 use nix::unistd::Pid;
@@ -224,6 +236,11 @@ pub struct Settings {
     pub repo_cache: bool,
     /// The size of that cache, in bytes: `thresholds.repo_cache_size`.
     pub repo_cache_size: u64,
+    /// How many build slots besides [`Settings::slots`] admit only a command the ledger knows to
+    /// be short: `thresholds.short_lane_slots`, 0 for no short lane (`story:build-run-short-lane`).
+    pub short_slots: u64,
+    /// The longest p90 run time of a command the short lane admits: `thresholds.short_lane_max`.
+    pub short_max: Duration,
 }
 
 impl Settings {
@@ -247,9 +264,25 @@ impl Settings {
             slots: u64::try_from(thresholds.build_slots).unwrap_or(0),
             repo_cache: thresholds.repo_cache == conductor_model::config::RepoCache::On,
             repo_cache_size: bytes(thresholds.repo_cache_size.0),
+            short_slots: u64::try_from(thresholds.short_lane_slots).unwrap_or(0),
+            short_max: crate::config::seconds(&thresholds.short_lane_max)
+                .map_or(SHORT_LANE_MAX, Duration::from_secs),
         }
     }
 }
+
+/// The longest p90 run time of a command the short lane admits when `thresholds.short_lane_max`
+/// does not read: 3 minutes.
+const SHORT_LANE_MAX: Duration = Duration::from_secs(3 * 60);
+
+/// The most jobs a short-lane run gets (`CARGO_BUILD_JOBS`, `MAKEFLAGS=-j`).
+pub const SHORT_LANE_JOBS: u64 = 4;
+
+/// How many earlier runs of a command the ledger holds before the short lane admits it.
+const SHORT_LANE_RUNS: usize = 3;
+
+/// How long a command whose short-lane run outlived its bound takes no short-lane slot.
+const OVERRUN_WINDOW: time::Duration = time::Duration::hours(24);
 
 /// How long a reservation waits for live reservations to release: an hour, a long gate's length.
 pub const WAIT_FOR_RESERVATIONS: Duration = Duration::from_secs(3600);
@@ -617,20 +650,13 @@ struct Reserved {
 /// plus 50 %, at least 1G, else [`DEFAULT_RESERVE`]. An automatic size and its source are said; a
 /// given one over twice the peak is said with the peak.
 fn pick_reserve(
-    ledger: &Ledger,
+    history: &[HostGrantSnapshot],
     request: &Request,
     command: &str,
-    at: &Timestamp,
     say: &dyn Fn(&str),
-) -> Result<Reserved> {
-    use time::format_description::well_known::Rfc3339;
+) -> Reserved {
     let key = command_key(command);
-    let now = OffsetDateTime::parse(&at.0, &Rfc3339).unwrap_or_else(|_| OffsetDateTime::now_utc());
-    let found = ledger.largest_peak(
-        request.repository.as_deref(),
-        &|recorded| command_key(recorded) == key,
-        now - PEAK_WINDOW,
-    )?;
+    let found = host::largest_peak_of(history);
     let peak = found.map(|(peak, _)| peak);
     let of = format!(
         "`{}` of {}",
@@ -673,7 +699,51 @@ fn pick_reserve(
             DEFAULT_RESERVE
         }
     };
-    Ok(Reserved { bytes, peak, of })
+    Reserved { bytes, peak, of }
+}
+
+/// Whether the ledger knows a command to be short (`story:build-run-short-lane`), from `history`,
+/// its repository's grants of the same command in the last 14 days ([`Ledger::matching`]), at
+/// `now`: at least [`SHORT_LANE_RUNS`] runs released after they ran (`Exited` or `Killed`), whose
+/// p90 run time (nearest rank) is at most `max`; and no short-lane run of it, running or ended
+/// within [`OVERRUN_WINDOW`], that outlived twice `max` or was marked for it.
+#[must_use]
+pub fn short_known(history: &[HostGrantSnapshot], now: OffsetDateTime, max: Duration) -> bool {
+    use time::format_description::well_known::Rfc3339;
+    let instant = |at: &Timestamp| OffsetDateTime::parse(&at.0, &Rfc3339).ok();
+    let bound = max.saturating_mul(2);
+    let mut lengths = Vec::new();
+    for grant in history {
+        let data = &grant.data;
+        let Some(started) = data.started_at.as_ref().and_then(instant) else {
+            continue;
+        };
+        let ended = data.released_at.as_ref().and_then(instant);
+        let running = grant.state == HostGrantState::Running;
+        let end = if running { Some(now) } else { ended };
+        let Some(end) = end else {
+            continue;
+        };
+        let length = Duration::try_from(end - started).unwrap_or(Duration::ZERO);
+        let overran = data.lane_overrun == Some(true) || length > bound;
+        if data.lane == Some(BuildLane::Short) && overran && end >= now - OVERRUN_WINDOW {
+            return false;
+        }
+        if grant.state == HostGrantState::Released
+            && matches!(
+                data.release_reason,
+                Some(ReleaseReason::Exited | ReleaseReason::Killed)
+            )
+        {
+            lengths.push(length);
+        }
+    }
+    if lengths.len() < SHORT_LANE_RUNS {
+        return false;
+    }
+    lengths.sort_unstable();
+    let rank = (lengths.len() * 9).div_ceil(10);
+    lengths[rank.max(1) - 1] <= max
 }
 
 /// The bytes the disk lacks for `bytes`, with `free` bytes free, `reserved` held by live grants
@@ -719,9 +789,24 @@ pub fn run(
 
     let mut ledger = Ledger::lock(host)?;
     ledger.sweep(&at)?;
-    let picked = pick_reserve(&ledger, request, &command, &at, &|line| {
+    // The repository's earlier runs of this command, read once: the reservation's size and the
+    // short lane are decided by them.
+    let now = (sources.clock)();
+    let key = command_key(&command);
+    let history = ledger.matching(
+        request.repository.as_deref(),
+        &|recorded| command_key(recorded) == key,
+        now - PEAK_WINDOW,
+    )?;
+    let picked = pick_reserve(&history, request, &command, &|line| {
         (sources.say)(state, line);
-    })?;
+    });
+    // The lane it may take a slot in (`story:build-run-short-lane`).
+    let lane = if settings.short_slots > 0 && short_known(&history, now, settings.short_max) {
+        BuildLane::Short
+    } else {
+        BuildLane::Regular
+    };
     let reserve = picked.bytes;
     // Free disk back at `disk_clear` ends the fall: its operator item is withdrawn.
     let clear = settings.clear.max(settings.floor);
@@ -739,7 +824,7 @@ pub fn run(
     }
     // The harness session this run is a command of (`story:build-run-session-bound`).
     let session = (sources.env)(SESSION_VARIABLE).filter(|id| !id.trim().is_empty());
-    let grant = ledger.request_of(
+    let grant = ledger.request_in(
         &settings.instance,
         request.repository.as_deref(),
         request.session_name.as_deref(),
@@ -747,6 +832,7 @@ pub fn run(
         reserve,
         &command,
         &at,
+        Some(lane),
     )?;
     // Held from the request to the release, so a sweep closes this grant only once this run is gone.
     let run_lock = host::hold_run(host, &grant)?;
@@ -777,6 +863,13 @@ pub fn run(
     let slots_taken = |ledger: &Ledger| -> Result<bool> {
         Ok(settings.slots > 0 && ledger.building(Some(&grant))? >= settings.slots)
     };
+    // Whether a short-lane slot is free for this request (`story:build-run-short-lane`).
+    let short_free = |ledger: &Ledger| -> Result<bool> {
+        Ok(lane == BuildLane::Short
+            && ledger.building_in(BuildLane::Short, Some(&grant))? < settings.short_slots)
+    };
+    // The lane whose slot the request is granted.
+    let mut granted = BuildLane::Regular;
     let pause = sources.every.max(Duration::from_millis(10));
     // Between two passes a waiting run looks every `poll` without the lock
     // (`story:build-queue-convoy`).
@@ -794,9 +887,14 @@ pub fn run(
             };
             say(&format!(
                 "conductor: build run: queued: position {} in the queue of disk requests, {ahead} \
-                 ahead; waiting for {reason}; waited {}s",
+                 ahead; waiting for {reason}; waited {}s; lane {}",
                 ahead + 1,
-                queued.as_secs()
+                queued.as_secs(),
+                if lane == BuildLane::Short {
+                    "short"
+                } else {
+                    "regular"
+                }
             ));
             *told = Some((ahead, slots));
         }
@@ -870,6 +968,11 @@ pub fn run(
                 if !slots_full {
                     break;
                 }
+                // Every regular slot is taken: a short command takes a free short-lane slot.
+                if short_free(&ledger)? {
+                    granted = BuildLane::Short;
+                    break;
+                }
             } else if short > holding || held >= settings.wait {
                 break;
             }
@@ -894,6 +997,26 @@ pub fn run(
                 say(&format!(
                     "conductor: build run: granted past {ahead} request(s) ahead, each short of \
                      more than the live reservations hold"
+                ));
+                break;
+            }
+            // The short lane (`story:build-run-short-lane`): with every regular slot taken, a
+            // short command goes ahead of the longer requests before it to a free short-lane slot,
+            // never ahead of an earlier short one, and only where the disk holds it beside every
+            // request ahead of it.
+            let behind = before
+                .iter()
+                .fold(reserve, |sum, bytes| sum.saturating_add(*bytes));
+            if slots_full
+                && short_free(&ledger)?
+                && !ledger.ahead_short(&grant)?
+                && shortfall(behind, free, holding, settings.floor) == 0
+            {
+                short = 0;
+                granted = BuildLane::Short;
+                say(&format!(
+                    "conductor: build run: granted a short-lane slot past {ahead} longer \
+                     request(s) ahead"
                 ));
                 break;
             }
@@ -992,7 +1115,7 @@ pub fn run(
     }
     // Only a shortfall live reservations do not cover needs a person.
     let beyond_reservations = short > ledger.reserved(Some(&grant))?;
-    let answer = ledger.reserve(&grant, short, reclaimed)?;
+    let answer = ledger.reserve_in(&grant, short, reclaimed, Some(granted))?;
     if answer == Answer::Refused {
         // The operator item goes into the instance's store, under `host.lock`, which keeps one
         // item per fall. Its writer lock is never waited for under `host.lock`
@@ -1090,9 +1213,15 @@ pub fn run(
         cache.start();
         cache.counts()
     });
-    let mut command = yielding(&request.command);
+    // A short-lane run has at most `SHORT_LANE_JOBS` jobs, whatever its command asks.
+    let argv = if granted == BuildLane::Short {
+        capped_jobs(&request.command)
+    } else {
+        request.command.clone()
+    };
+    let mut command = yielding(&argv);
     command.current_dir(&request.cwd).process_group(0);
-    for (name, value) in job_variables(settings, sources) {
+    for (name, value) in job_variables(settings, sources, granted) {
         command.env(name, value);
     }
     for (name, value) in cache.iter().flat_map(|cache| &cache.set) {
@@ -1126,6 +1255,7 @@ pub fn run(
         }
     };
     let group = i64::from(child.id());
+    let began = Instant::now();
     // The store is let go once the run started: the command may run for hours.
     let started = idle
         .lock()
@@ -1209,6 +1339,9 @@ pub fn run(
             }
         })
     });
+    // A short-lane run that outlived twice `short_lane_max` is marked as it is released.
+    let overrun =
+        granted == BuildLane::Short && began.elapsed() > settings.short_max.saturating_mul(2);
     clear_received();
     let finished = host::finish_run(
         host,
@@ -1216,6 +1349,7 @@ pub fn run(
         peak.map(|peak| (peak, watched.paused)),
         Some(reason),
         cache_counts,
+        overrun,
         || host::now((sources.clock)()),
         LEDGER_BOUND,
         || received().is_some(),
@@ -1491,16 +1625,44 @@ fn bounded(mut command: Command, bound: Duration) -> Option<Vec<u8>> {
 
 /// The variables that keep the command's builds off the desktop's last cores: `CARGO_BUILD_JOBS`
 /// and `MAKEFLAGS=-j` of the cores less `thresholds.cpu_reserve` (at least one), each unless the
-/// environment of `build run` already holds it (`story:build-run-spare-cores`).
-fn job_variables(settings: &Settings, sources: &Sources) -> Vec<(&'static str, String)> {
-    let jobs = settings.cores.saturating_sub(settings.cpu_reserve).max(1);
+/// environment of `build run` already holds it (`story:build-run-spare-cores`). In the short lane
+/// at most [`SHORT_LANE_JOBS`], and a `CARGO_BUILD_JOBS` of the environment over it is lowered to
+/// it (`story:build-run-short-lane`).
+fn job_variables(
+    settings: &Settings,
+    sources: &Sources,
+    lane: BuildLane,
+) -> Vec<(&'static str, String)> {
+    let mut jobs = settings.cores.saturating_sub(settings.cpu_reserve).max(1);
+    let short = lane == BuildLane::Short;
+    if short {
+        jobs = jobs.min(SHORT_LANE_JOBS);
+    }
+    let held = |name: &str| (sources.env)(name);
+    let over = held("CARGO_BUILD_JOBS")
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .is_none_or(|value| value > SHORT_LANE_JOBS);
     [
         ("CARGO_BUILD_JOBS", jobs.to_string()),
         ("MAKEFLAGS", format!("-j{jobs}")),
     ]
     .into_iter()
-    .filter(|(name, _)| (sources.env)(name).is_none())
+    .filter(|(name, _)| held(name).is_none() || (short && *name == "CARGO_BUILD_JOBS" && over))
     .collect()
+}
+
+/// `command` with each word `CARGO_BUILD_JOBS=<n>` over [`SHORT_LANE_JOBS`], an assignment its
+/// launcher (`env`) makes, lowered to it (`story:build-run-short-lane`).
+fn capped_jobs(command: &[String]) -> Vec<String> {
+    command
+        .iter()
+        .map(|word| match word.strip_prefix("CARGO_BUILD_JOBS=") {
+            Some(jobs) if jobs.parse::<u64>().is_ok_and(|jobs| jobs > SHORT_LANE_JOBS) => {
+                format!("CARGO_BUILD_JOBS={SHORT_LANE_JOBS}")
+            }
+            _ => word.clone(),
+        })
+        .collect()
 }
 
 /// Waits for the command `child`, the leader of the process group `group`, to end. A signal
