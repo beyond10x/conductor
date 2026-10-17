@@ -95,6 +95,16 @@ fn watch_uses_each_repositories_github_owner() {
         "cat".into(),
         format!("{}/{{organization}}/{{repository}}.json", root.display()),
     ];
+    // The open pull requests are asked of each owner in turn too (story:watch-pr-checks); only
+    // the second answers.
+    fs::write(root.join("example-second/beta-pulls.json"), "[]").unwrap();
+    sources.pulls = vec![
+        "cat".into(),
+        format!(
+            "{}/{{organization}}/{{repository}}-pulls.json",
+            root.display()
+        ),
+    ];
     sources.free_bytes = |_| Ok(1000 * 1024 * 1024 * 1024);
     let mut watch = watch::Watch::new(sources, root.join("watch"));
     let mut notes = Vec::new();

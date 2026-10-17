@@ -49,7 +49,8 @@ this session and expire after 7 days, so a restart loses them.
   under a floor (each once per fall: `disk low: <n>G free on /` under `thresholds.disk_low`,
   `disk admit: <n>G free on / (builds wait)` under `thresholds.disk_admit`, `disk gate stop: <n>G
   free on / (gates stop)` under `thresholds.gate_stop`; see Dispatch for what each asks), a
-  `main` CI of an Active repository turning red or green, a live controller whose transcripts
+  `main` CI of an Active repository turning red or green, an open pull request's checks all
+  concluded for its head (`PR checks done: …`: see below), a live controller whose transcripts
   and sub-agents' have written nothing for longer than `thresholds.silent_session` (`session silent: <name> <id> <m>m`: see Standing rules), two live
   sessions under your own session name (`conductors: …`: tell the operator at once which one is
   not you; do no conductor work until one is gone), a new snapshot finding checkouts whose Gates
@@ -63,6 +64,17 @@ this session and expire after 7 days, so a restart loses them.
   Decisions page or through you), tell the controller that raised it the decision and its choice
   at once, as you relay any answer. Session starts print nothing. When the monitor ends, start it
   again.
+- On each `session stalled: <name> <id> <m>m` or `build queued: <grant> <repository|session>
+  <m>m`, check in within the cycle: ask that session what blocks it and act on the answer. The
+  watch prints the first for a live controller you sent a dispatch that has had neither a report
+  nor a commit in its checkout or trees for `thresholds.stalled_session`, however its transcript
+  moves, and the second for a build waiting in the host queue longer than
+  `thresholds.build_queued`. Acting is yours: nothing restarts a session for a stall. The
+  operator's words: "tell conductor about things ended up stuck, its conductors responsibility to
+  check in on you and make sure things keep moving" (the operator, 2026-10-17).
+- Relay each `PR checks done: <repo>#<n> <green|red> (head <sha>)` line to the controller of that
+  repository at once: the watch reads every open pull request's checks each `cadence.ci`, so a
+  controller waits on no check itself.
 
 1. **Sense.** Build the snapshot with `id=$(conductor snapshot start-snapshot) && conductor snapshot
    publish-board --snapshot-id "$id"` (the collectors, then the board; the same as the product's

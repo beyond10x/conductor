@@ -231,14 +231,16 @@ fn silent_the_watch_reported_the_repository_s_session() {
 #[test]
 fn every_cause_is_named_in_the_order_the_page_lists_them() {
     assert_eq!(
-        CAUSES,
+        CAUSES[..],
         [
             "operator",
             "ci",
             "build-slot",
             "another-repository",
             "usage-limit",
-            "silent"
+            "silent",
+            "stalled",
+            "build-queued"
         ]
     );
 }
@@ -639,4 +641,78 @@ fn the_page_s_fixtures_have_the_keys_the_endpoints_answer() {
     }
     drop(held);
     let _ = fs::remove_dir_all(&dir);
+}
+
+/// The causes `/api/waiting-on` answers for `repository` over the facts [`repo::facts`] reads,
+/// without a store, from the sources under `home` and the session list `agents`.
+fn causes_read(home: &Path, agents: &[Value], repository: &str) -> Vec<Value> {
+    let read = repo::facts(None, &sources(home), agents);
+    repo::causes(&read, repository)
+}
+
+/// `story:watch-stalled-sessions`, acceptance 3: the watch's `stalled.reported` names a session of
+/// the repository, in its checkout or one of its managed trees, `stalled`; its
+/// `build-queued.reported` names a grant of the repository, or of a session of it, `build-queued`.
+/// A line of another repository's session or grant is none of its causes.
+#[test]
+fn stalled_and_build_queued_the_watch_reported_the_repository_s_session_or_grant() {
+    let dir = case_dir("stalled-and-queued");
+    let home = dir.join("home");
+    let checkouts = home.join("example-org");
+    let trees = home.join(".local/state/worktree/trees/example-org");
+    let path = |path: &Path| path.to_str().expect("a UTF-8 path").to_owned();
+    let agents = vec![
+        session(
+            "alpha",
+            &path(&checkouts.join("alpha")),
+            "aaaaaaaa-1",
+            "working",
+            true,
+        ),
+        session(
+            "alpha-w01",
+            &path(&trees.join("alpha/alpha-w01")),
+            "aaaaaaaa-2",
+            "working",
+            true,
+        ),
+        session(
+            "beta",
+            &path(&checkouts.join("beta")),
+            "bbbbbbbb-1",
+            "working",
+            true,
+        ),
+    ];
+    write(
+        &home.join("watch/stalled.reported"),
+        "aaaaaaaa-2 1791370000\n",
+    );
+    write(
+        &home.join("watch/build-queued.reported"),
+        "grant-1\talpha\ngrant-2\talpha-w01\ngrant-3\tgamma\n",
+    );
+    let causes = causes_read(&home, &agents, "alpha");
+    let names: Vec<&str> = causes
+        .iter()
+        .map(|cause| cause["cause"].as_str().expect("a cause name"))
+        .collect();
+    assert_eq!(
+        names,
+        ["stalled", "build-queued", "build-queued"],
+        "{causes:?}"
+    );
+    assert!(
+        causes[0]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("alpha-w01")),
+        "{causes:?}"
+    );
+    assert!(
+        causes[1]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("grant-1")),
+        "{causes:?}"
+    );
+    assert!(causes_read(&home, &agents, "beta").is_empty());
 }

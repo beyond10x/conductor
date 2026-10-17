@@ -33,6 +33,7 @@ use conductor_cli::collect::gitlab::Forge;
 use conductor_cli::config;
 use conductor_cli::disk;
 use conductor_cli::gc::reclaim::{ReclaimReport, floor_bytes};
+use conductor_cli::host;
 use conductor_cli::snapshot;
 use conductor_cli::store;
 use conductor_cli::watch::{Options, Settings, Sources, Watch};
@@ -187,6 +188,14 @@ impl Case {
         replace(&dir.join(format!("{month}.jsonl")), &text);
     }
 
+    /// Replaces the open pull requests `repository`'s pull-request list prints; without the
+    /// file it prints none (`story:watch-pr-checks`).
+    fn pulls(&self, repository: &str, pulls: &Value) {
+        let dir = self.dir.join("pulls");
+        fs::create_dir_all(&dir).expect("create pulls/");
+        replace(&dir.join(format!("{repository}.json")), &pulls.to_string());
+    }
+
     fn runs(&self, repository: &str, runs: &Value) {
         replace(
             &self.dir.join("runs").join(format!("{repository}.json")),
@@ -244,6 +253,12 @@ impl Case {
             runs: vec![
                 "cat".to_owned(),
                 format!("{}/runs/{{repository}}.json", self.dir.display()),
+            ],
+            pulls: vec![
+                "sh".to_owned(),
+                "-c".to_owned(),
+                "cat \"$0\" 2>/dev/null || echo '[]'".to_owned(),
+                format!("{}/pulls/{{repository}}.json", self.dir.display()),
             ],
             disk: self.dir.join("free.txt"),
             free_bytes: written_bytes,
@@ -437,7 +452,12 @@ fn a_recent_done_line_of_the_dispatch_whose_sent_line_names_the_session_explains
         ],
     );
     case.sessions(&[alpha(), beta(), gamma(), delta(), conductor()]);
-    let mut watch = case.watch(None);
+    // Gamma, sent a dispatch an hour ago with no report since, is stalled under the built-in
+    // 45 minutes (story:watch-stalled-sessions); this case is about exits only.
+    let mut watch = case.watch(None).with_settings(Settings {
+        stalled_session: Duration::from_secs(24 * 3600),
+        ..Settings::default()
+    });
     assert_eq!(pass(&mut watch), NOTHING);
 
     case.sessions(&[alpha(), gamma(), delta(), conductor()]);
@@ -1027,6 +1047,8 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
             gate_stop: 15,
             gate_resume: 17,
             silent_session: Duration::from_secs(30 * 60),
+            stalled_session: Duration::from_secs(45 * 60),
+            build_queued: Duration::from_secs(30 * 60),
             conductor: Some("conductor".to_owned()),
             max_open_reviews: 3,
         },
@@ -1039,7 +1061,8 @@ fn the_built_in_instance_keeps_100g_free_and_wakes_from_110g() {
 fn the_settings_are_the_instances_name_and_thresholds() {
     let instance = acme(
         "\x20   thresholds: {context_handover: 150k, disk_low: 40G, disk_clear: 45G, \
-         disk_admit: 30G, gate_stop: 10G, gate_resume: 12G, silent_session: 2h}\n\
+         disk_admit: 30G, gate_stop: 10G, gate_resume: 12G, silent_session: 2h, \
+         stalled_session: 1h, build_queued: 20m}\n\
          \x20   controllers: {max_open_reviews: 2}\n",
     );
     assert_eq!(
@@ -1054,6 +1077,8 @@ fn the_settings_are_the_instances_name_and_thresholds() {
             gate_stop: 10,
             gate_resume: 12,
             silent_session: Duration::from_secs(2 * 3600),
+            stalled_session: Duration::from_secs(3600),
+            build_queued: Duration::from_secs(20 * 60),
             conductor: Some("conductor".to_owned()),
             max_open_reviews: 2,
         }
@@ -1264,6 +1289,8 @@ impl Case {
                  case \"$last\" in\n\
                  \x20 groups/example-org/projects\\?*) exec cat '{dir}/projects.json' ;;\n\
                  \x20 projects/101/pipelines\\?*) exec cat '{dir}/pipelines.json' ;;\n\
+                 \x20 projects/101/merge_requests\\?*) cat '{dir}/mrs.json' 2>/dev/null || echo '[]'; exit 0 ;;\n\
+                 \x20 projects/101/merge_requests/*) exec cat \"{dir}/mr-${{last##*/}}.json\" ;;\n\
                  esac\n\
                  exit 1\n"
             ),
@@ -1276,6 +1303,26 @@ impl Case {
             group: "example-org".to_owned(),
             exclude: Vec::new(),
             bound: Duration::from_secs(10),
+        }
+    }
+
+    /// Replaces alpha's open merge requests, each `(iid, head sha, head pipeline status, head
+    /// pipeline sha)`: the list `mrs.json` and each one's `mr-<iid>.json`
+    /// (`story:watch-pr-checks`).
+    fn merge_requests(&self, requests: &[(u64, &str, &str, &str)]) {
+        let list: Vec<Value> = requests
+            .iter()
+            .map(|(iid, sha, _, _)| json!({"iid": iid, "sha": sha, "title": "a unit"}))
+            .collect();
+        replace(&self.dir.join("mrs.json"), &Value::from(list).to_string());
+        for (iid, sha, status, pipeline_sha) in requests {
+            replace(
+                &self.dir.join(format!("mr-{iid}.json")),
+                &json!({"iid": iid, "sha": sha, "head_pipeline": {"id": 700 + iid,
+                        "status": status, "sha": pipeline_sha,
+                        "created_at": "2026-10-07T11:00:00Z"}})
+                .to_string(),
+            );
         }
     }
 
@@ -2677,23 +2724,37 @@ fn the_binary_on_an_acme_config_asks_gh_about_exactly_the_two_active_repositorie
          gate_resume: 2G}\n",
     ));
     let watch = case.start_watch(Some(&config), &[]);
-    wait_for("two run-list calls", || sorted_lines(&calls).len() >= 2);
+    wait_for("two run-list and two pull-request calls", || {
+        sorted_lines(&calls).len() >= 4
+    });
     thread::sleep(Duration::from_millis(500));
     let (code, stdout, stderr) = finish(watch, Duration::ZERO);
     assert_eq!(code, None, "the watch ended: {stderr}");
     assert_eq!(stdout, "", "{stderr}");
-    let asked: Vec<String> = sorted_lines(&calls)
-        .iter()
-        .map(|call| {
-            let words: Vec<&str> = call.split_whitespace().collect();
-            let at = words
-                .iter()
-                .position(|word| *word == "-R")
-                .unwrap_or_else(|| panic!("`gh {call}` names no repository"));
-            words[at + 1].to_owned()
-        })
-        .collect();
-    assert_eq!(asked, ["acme/alpha", "acme/beta"], "{stderr}");
+    // Each CI pass asks for the `main` runs and, since story:watch-pr-checks, the open pull
+    // requests of each Active repository: once each.
+    let asked = |list: &str| -> Vec<String> {
+        sorted_lines(&calls)
+            .iter()
+            .filter(|call| call.starts_with(list))
+            .map(|call| {
+                let words: Vec<&str> = call.split_whitespace().collect();
+                let at = words
+                    .iter()
+                    .position(|word| *word == "-R")
+                    .unwrap_or_else(|| panic!("`gh {call}` names no repository"));
+                words[at + 1].to_owned()
+            })
+            .collect()
+    };
+    assert_eq!(asked("run list "), ["acme/alpha", "acme/beta"], "{stderr}");
+    assert_eq!(asked("pr list "), ["acme/alpha", "acme/beta"], "{stderr}");
+    assert_eq!(
+        sorted_lines(&calls).len(),
+        4,
+        "no other gh call: {:?}",
+        sorted_lines(&calls)
+    );
     assert!(!stderr.contains("no snapshot"), "{stderr}");
 }
 
@@ -3391,4 +3452,405 @@ fn an_answered_request_is_printed_once_and_a_withdrawn_one_not_at_all() {
         ]
     );
     assert_eq!(pass(&mut case.decisions_watch(twelve_thirty)), NOTHING);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stalled sessions and queued builds (story:watch-stalled-sessions)
+// ---------------------------------------------------------------------------------------------
+
+/// `at` minutes before [`noon`] as RFC 3339; a negative `minutes` lies after it.
+fn before_noon(minutes: i64) -> String {
+    (noon() - time::Duration::minutes(minutes))
+        .format(&Rfc3339)
+        .expect("an RFC 3339 instant")
+}
+
+/// Two hours after [`noon`], the clock of a still later watch.
+fn two_pm() -> OffsetDateTime {
+    OffsetDateTime::parse("2026-10-07T14:00:00Z", &Rfc3339).expect("a fixed instant")
+}
+
+/// The dispatch log's `sent` line of `SendDispatch`: dispatch `id` to the session named `to`,
+/// `minutes` before noon.
+fn sent(to: &str, id: &str, minutes: i64) -> Value {
+    json!({"at": before_noon(minutes), "event": "sent", "repo": to, "id": id, "to": to,
+           "goal": "G-1", "brief": "the next unit", "priority": "normal"})
+}
+
+/// The dispatch log's `message-received` line of a `[REPORT]` the session named `from` sent about
+/// `repo`, `minutes` before noon.
+fn report(from: &str, repo: &str, minutes: i64) -> Value {
+    json!({"at": before_noon(minutes), "event": "message-received", "repo": repo,
+           "id": format!("msg-{from}-{minutes}"), "from": from, "to": "conductor",
+           "kind": "Report", "first_line": format!("[REPORT {repo} DSP-1] progress tests")})
+}
+
+/// `git` in `dir`, reading no config of the operator's, committing as a fixture at `at` when
+/// given.
+fn git_at(dir: &Path, args: &[&str], at: Option<OffsetDateTime>) {
+    let mut command = std::process::Command::new("git");
+    command
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .args([
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+            "-c",
+            "core.hooksPath=/dev/null",
+        ])
+        .args(args)
+        .stdin(Stdio::null());
+    if let Some(at) = at {
+        let date = format!("@{} +0000", at.unix_timestamp());
+        command
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_DATE", &date);
+    }
+    let output = command.output().expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Makes `dir` a git checkout, if it is none, and commits in it `minutes` before noon.
+fn committed(dir: &Path, minutes: i64) {
+    if !dir.join(".git").exists() {
+        fs::create_dir_all(dir).expect("create the checkout");
+        git_at(dir, &["init", "--quiet"], None);
+    }
+    git_at(
+        dir,
+        &["commit", "--quiet", "--allow-empty", "-m", "a unit"],
+        Some(noon() - time::Duration::minutes(minutes)),
+    );
+}
+
+/// A stall case: its checkouts root `work/` and managed trees `trees/` exist, so a session's
+/// checkout and trees can hold commits.
+fn stall_case(name: &str) -> (Case, PathBuf, PathBuf) {
+    let case = Case::new(name);
+    let work = case.dir.join("work");
+    let trees = case.dir.join("trees");
+    fs::create_dir_all(&work).expect("create work/");
+    fs::create_dir_all(&trees).expect("create trees/");
+    (case, work, trees)
+}
+
+fn path_of(path: &Path) -> &str {
+    path.to_str().expect("a UTF-8 path")
+}
+
+/// Acceptance 1: at noon, with the built-in `stalled_session` of 45 minutes. `stuck` was sent a
+/// dispatch 60 minutes ago and reported 50 minutes ago; its checkout's last commit is 90 minutes
+/// old, though its transcript may move: stalled for 50 minutes. `reporting` reported 10 minutes
+/// ago; `committing`, whose checkout's last commit is 100 minutes old, committed 5 minutes ago in
+/// one of its managed trees; `idle` is not working; `undriven` was never sent a dispatch. Each
+/// stall is reported once, and again only after the session made progress and stalled anew.
+#[test]
+fn a_driven_session_without_a_recent_report_or_commit_is_reported_stalled_once_per_stall() {
+    let (case, work, trees) = stall_case("stalled");
+    let stuck = session(
+        "5a5a5a5a-0000-4000-8000-000000000011",
+        "stuck",
+        2111,
+        path_of(&work.join("stuck")),
+    );
+    let reporting = session(
+        "6b6b6b6b-0000-4000-8000-000000000012",
+        "reporting",
+        2112,
+        path_of(&work.join("reporting")),
+    );
+    let committing = session(
+        "7c7c7c7c-0000-4000-8000-000000000013",
+        "committing",
+        2113,
+        path_of(&trees.join("committing/tree-1")),
+    );
+    let idle = in_state(
+        session(
+            "8d8d8d8d-0000-4000-8000-000000000014",
+            "idle",
+            2114,
+            path_of(&work.join("idle")),
+        ),
+        "idle",
+    );
+    let undriven = session(
+        "9e9e9e9e-0000-4000-8000-000000000015",
+        "undriven",
+        2115,
+        path_of(&work.join("undriven")),
+    );
+    committed(&work.join("stuck"), 90);
+    committed(&work.join("committing"), 100);
+    committed(&trees.join("committing/tree-1"), 5);
+    case.dispatches(&[
+        sent("stuck", "DSP-1", 60),
+        sent("reporting", "DSP-2", 120),
+        sent("committing", "DSP-3", 120),
+        sent("idle", "DSP-4", 120),
+        report("stuck", "stuck", 50),
+        report("reporting", "reporting", 10),
+    ]);
+    case.sessions(&[stuck, reporting, committing, idle, undriven]);
+    let mut sources = case.sources(None);
+    sources.root.clone_from(&work);
+    sources.trees.clone_from(&trees);
+    let mut watch = Watch::new(sources.clone(), case.state());
+    assert_eq!(
+        pass(&mut watch),
+        ["session stalled: stuck 5a5a5a5a 50m"],
+        "only stuck: no report or commit in 50 minutes"
+    );
+    assert!(
+        case.kept("stalled.reported")
+            .starts_with("5a5a5a5a-0000-4000-8000-000000000011 "),
+        "{}",
+        case.kept("stalled.reported")
+    );
+    assert_eq!(pass(&mut watch), NOTHING, "each stall once");
+
+    let mut later = sources.clone();
+    later.clock = one_pm;
+    let mut watch = Watch::new(later, case.state());
+    assert_eq!(
+        pass(&mut watch),
+        [
+            "session stalled: reporting 6b6b6b6b 70m",
+            "session stalled: committing 7c7c7c7c 65m",
+        ],
+        "an hour later reporting and committing have stalled too; stuck's stall was reported \
+         already, however long it lasts"
+    );
+
+    committed(&work.join("stuck"), -30);
+    assert_eq!(
+        pass(&mut watch),
+        NOTHING,
+        "stuck committed 30 minutes ago in its checkout"
+    );
+    let mut latest = sources;
+    latest.clock = two_pm;
+    let mut watch = Watch::new(latest, case.state());
+    assert_eq!(
+        pass(&mut watch),
+        ["session stalled: stuck 5a5a5a5a 90m"],
+        "stuck stalled anew after its commit"
+    );
+}
+
+/// Acceptance 2: at noon, with the built-in `build_queued` of 30 minutes, the instance's grants
+/// still `Requested` 40 and 35 minutes after their request are reported, oldest first, by their
+/// repository or, without one, their session; one requested 10 minutes ago, and another
+/// instance's of 60 minutes, are not. Each grant once.
+#[test]
+fn a_build_request_waiting_longer_than_build_queued_is_reported_once() {
+    let case = Case::new("build-queued");
+    let host = case.dir.join("host");
+    let instance = Settings::default().instance;
+    let at = |minutes: i64| Timestamp(before_noon(minutes));
+    let mut ledger = host::Ledger::lock(&host).expect("the ledger opens");
+    let mut request = |instance: &str, repository: Option<&str>, session: Option<&str>, minutes| {
+        ledger
+            .request(
+                instance,
+                repository,
+                session,
+                GIB,
+                "cargo test --locked",
+                &at(minutes),
+            )
+            .expect("the request is recorded")
+            .0
+    };
+    let gamma = request(&instance, None, Some("gamma"), 35);
+    let alpha = request(&instance, Some("alpha"), None, 40);
+    request(&instance, Some("beta"), None, 10);
+    request("another-org", Some("delta"), None, 60);
+    drop(ledger);
+
+    let mut watch = case.watch(None).with_host(host);
+    assert_eq!(
+        pass(&mut watch),
+        [
+            format!("build queued: {alpha} alpha 40m"),
+            format!("build queued: {gamma} gamma 35m"),
+        ]
+    );
+    assert_eq!(pass(&mut watch), NOTHING, "each grant once");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pull-request checks (story:watch-pr-checks)
+// ---------------------------------------------------------------------------------------------
+
+/// One open pull request, as `gh pr list --json number,headRefOid,statusCheckRollup` prints it.
+fn pull(number: u64, head: &str, checks: &Value) -> Value {
+    json!({"number": number, "headRefOid": head, "statusCheckRollup": checks})
+}
+
+/// A check run of a rollup.
+fn check_run(name: &str, status: &str, conclusion: &str) -> Value {
+    json!({"__typename": "CheckRun", "name": name, "workflowName": "CI", "status": status,
+           "conclusion": conclusion})
+}
+
+/// A status context of a rollup.
+fn status_context(context: &str, state: &str) -> Value {
+    json!({"__typename": "StatusContext", "context": context, "state": state})
+}
+
+/// Acceptance 1, GitHub: on CI passes, a pull request whose checks have all concluded for its
+/// head is printed once, red when one failed and green when each passed; one whose checks still
+/// run is not, and a new head is printed again once its checks conclude. A pass without CI reads
+/// no pull request.
+#[test]
+fn an_open_pull_request_s_concluded_checks_are_printed_once_per_head() {
+    let case = Case::new("pr-checks");
+    let mut sources = case.sources(None);
+    sources.repositories = vec!["alpha".to_owned()];
+    let mut watch = Watch::new(sources, case.state());
+    let (head_7, head_8, head_7b) = (
+        "a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7",
+        "b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8",
+        "c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7",
+    );
+    case.pulls(
+        "alpha",
+        &json!([
+            pull(
+                7,
+                head_7,
+                &json!([
+                    check_run("test", "COMPLETED", "FAILURE"),
+                    check_run("lint", "COMPLETED", "SUCCESS"),
+                ])
+            ),
+            pull(
+                8,
+                head_8,
+                &json!([
+                    check_run("test", "IN_PROGRESS", ""),
+                    status_context("gates", "SUCCESS"),
+                ])
+            ),
+        ]),
+    );
+    case.runs("alpha", &json!([]));
+    let (lines, notes) = passed(&mut watch, true);
+    assert_eq!(
+        lines,
+        [format!("PR checks done: alpha#7 red (head {head_7})")],
+        "#8 still runs a check"
+    );
+    assert!(
+        !notes.contains("pull requests of alpha"),
+        "alpha's list answered: {notes:?}"
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "once per head");
+    assert_eq!(pass(&mut watch), NOTHING, "a pass without CI reads none");
+
+    case.pulls(
+        "alpha",
+        &json!([
+            pull(7, head_7b, &json!([check_run("test", "QUEUED", "")])),
+            pull(
+                8,
+                head_8,
+                &json!([
+                    check_run("test", "COMPLETED", "SUCCESS"),
+                    status_context("gates", "SUCCESS"),
+                ])
+            ),
+        ]),
+    );
+    assert_eq!(
+        passed(&mut watch, true).0,
+        [format!("PR checks done: alpha#8 green (head {head_8})")],
+        "#7's new head still runs"
+    );
+
+    case.pulls(
+        "alpha",
+        &json!([pull(
+            7,
+            head_7b,
+            &json!([
+                check_run("test", "COMPLETED", "SUCCESS"),
+                check_run("docs", "COMPLETED", "SKIPPED"),
+            ])
+        )]),
+    );
+    assert_eq!(
+        passed(&mut watch, true).0,
+        [format!("PR checks done: alpha#7 green (head {head_7b})")],
+        "the new head concluded; #8 merged"
+    );
+    assert_eq!(
+        case.kept("pr-checks.printed"),
+        format!("alpha#7 {head_7b}\n"),
+        "the printed heads of the open pull requests are kept"
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING);
+}
+
+/// Acceptance 1, GitLab: a merge request's head pipeline is its checks, read through `glab api
+/// --hostname <host>`: printed once when it concluded for the merge request's head, and again
+/// for a new head.
+#[test]
+fn a_gitlab_merge_request_s_concluded_pipeline_is_printed_once_per_head() {
+    let case = Case::new("pr-checks-gitlab");
+    let forge = case.gitlab();
+    let mut sources = case.sources(None);
+    sources.organization = String::new();
+    sources.repositories = vec!["alpha".to_owned()];
+    let mut watch = Watch::new(sources, case.state()).with_gitlab(vec![forge]);
+    case.pipelines(&json!([pipeline(601, "success", "2026-10-07T10:00:00Z")]));
+
+    case.merge_requests(&[
+        (5, "d5d5", "failed", "d5d5"),
+        (6, "e6e6", "running", "e6e6"),
+    ]);
+    let (lines, notes) = passed(&mut watch, true);
+    assert_eq!(lines, ["PR checks done: alpha#5 red (head d5d5)"]);
+    assert!(
+        !notes.contains("alpha"),
+        "alpha's merge requests answered: {notes:?}"
+    );
+    assert_eq!(passed(&mut watch, true).0, NOTHING, "once per head");
+
+    case.merge_requests(&[
+        (5, "f5f5", "failed", "d5d5"),
+        (6, "e6e6", "running", "e6e6"),
+    ]);
+    assert_eq!(
+        passed(&mut watch, true).0,
+        NOTHING,
+        "the failed pipeline is of #5's old head"
+    );
+    case.merge_requests(&[
+        (5, "f5f5", "success", "f5f5"),
+        (6, "e6e6", "running", "e6e6"),
+    ]);
+    assert_eq!(
+        passed(&mut watch, true).0,
+        ["PR checks done: alpha#5 green (head f5f5)"]
+    );
+
+    let asked = fs::read_to_string(case.dir.join("glab.log")).expect("glab was asked");
+    assert!(
+        asked.contains("projects/101/merge_requests?state=opened&per_page=100&page=1"),
+        "{asked}"
+    );
+    assert!(asked.contains("projects/101/merge_requests/5"), "{asked}");
 }

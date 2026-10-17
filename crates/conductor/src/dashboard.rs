@@ -1238,6 +1238,8 @@ fn answer(
                 facts.sessions = listed.rows;
                 facts.limits = read("limit.new");
                 facts.silent = read("silent.reported");
+                facts.stalled = read("stalled.reported");
+                facts.queued = read("build-queued.reported");
                 let mut answer = repo::waiting_on(&facts);
                 answer["errors"] = json!(listed.errors);
                 (answer, stale)

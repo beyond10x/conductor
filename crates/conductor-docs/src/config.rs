@@ -119,6 +119,8 @@ instances:
       repo_cache_size: 4G
       short_lane_slots: 2
       short_lane_max: 5m
+      stalled_session: 1h
+      build_queued: 20m
     retention:
       snapshots: 3
     reports:

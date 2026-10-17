@@ -449,6 +449,7 @@ fn quiet(case: &Case) -> Sources {
         store: None,
         repositories: Vec::new(),
         runs: Vec::new(),
+        pulls: Vec::new(),
         disk: case.dir.clone(),
         free_bytes: plenty,
         notify: vec![OsString::from("true")],

@@ -955,3 +955,47 @@ fn conductor_reads_the_short_forms_and_needs_no_cd_prefix() {
         assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
     }
 }
+
+/// `story:watch-stalled-sessions`, acceptance 4: the cycle names the check-in on a stalled session
+/// or a long-queued build, with the operator's words that ask for it.
+#[test]
+fn conductor_checks_in_on_a_stalled_session_or_a_long_queued_build() {
+    let text = profile("conductor.md");
+    let cycle = text
+        .split("## What you do, every cycle")
+        .nth(1)
+        .and_then(|rest| rest.split("## ").next())
+        .expect("conductor.md: the cycle section");
+    for sentence in [
+        "On each `session stalled: <name> <id> <m>m` or `build queued: <grant> \
+         <repository|session> <m>m`, check in within the cycle: ask that session what blocks it \
+         and act on the answer.",
+        "\"tell conductor about things ended up stuck, its conductors responsibility to check in \
+         on you and make sure things keep moving\" (the operator, 2026-10-17)",
+    ] {
+        assert!(
+            cycle.contains(sentence),
+            "conductor.md, What you do, every cycle: holds {sentence:?}"
+        );
+    }
+}
+
+/// `story:watch-pr-checks`: a controller never waits on its pull request's checks, the watch
+/// reads them and conductor relays its line to the repository's controller.
+#[test]
+fn the_watch_reads_pull_request_checks_and_conductor_relays_them() {
+    let controller = profile("repo-controller.md");
+    let sentence = "After `progress PR opened`, work the next unit or report `blocked ci <pr>` and \
+                    end the turn; conductor relays the watch line.";
+    assert!(
+        controller.contains(sentence),
+        "repo-controller.md: holds {sentence:?}"
+    );
+    let conductor = profile("conductor.md");
+    let sentence = "Relay each `PR checks done: <repo>#<n> <green|red> (head <sha>)` line to the \
+                    controller of that repository at once";
+    assert!(
+        conductor.contains(sentence),
+        "conductor.md: holds {sentence:?}"
+    );
+}
