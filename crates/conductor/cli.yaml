@@ -126,6 +126,11 @@ callables:
     result: String
     errors:
       unparsed: conductor.dispatch.MailboxSendRefused
+  session-deliver:
+    target: {kind: local, owner: conductor-cli, action: session_deliver}
+    input: conductor.session.DeliverToSession
+    result: String
+    errors: {}
   session-start:
     target: {kind: local, owner: conductor-cli, action: session_start}
     input: conductor.session.StartSession
@@ -369,6 +374,14 @@ commands:
         source: {kind: option, long: to}
       - field: from
         source: {kind: option, long: from}
+      - field: text
+        source: {kind: option, long: text}
+  - path: [session, deliver]
+    callable: session-deliver
+    about: "Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as <state>/mailbox/delivered/<ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again"
+    arguments:
+      - field: name
+        source: {kind: option, long: name}
       - field: text
         source: {kind: option, long: text}
   - path: [session, start]

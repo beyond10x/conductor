@@ -6052,3 +6052,103 @@ fn a_timeout_around_conductor_snapshot_is_denied_with_its_reason() {
         }
     }
 }
+
+/// `story:mailbox-send-and-deliver` (docs/design/conductor-run.md § 3): a controller reports with
+/// `conductor message send`, which `cli::LEAVES` declares a controller runs, in its checkout and in
+/// a worker's tree, from a file or from standard input. Conductor runs it too.
+#[test]
+fn a_controller_runs_message_send() {
+    let leaf = ["message".to_owned(), "send".to_owned()];
+    assert!(
+        tree_leaves().iter().any(|(path, _)| *path == leaf),
+        "`conductor message send` is a leaf of the tree"
+    );
+    assert!(
+        declared(&leaf).is_some_and(Access::controller_runs),
+        "`message send` is declared a leaf a controller runs: {:?}",
+        declared(&leaf)
+    );
+    let home = home("controller-message-send");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for command in [
+            "conductor message send --to conductor --from ex-probe --text report.md",
+            "printf '%s\\n' '[REPORT probe -] started' | conductor message send --to conductor \
+             --from ex-probe --text -",
+            "conductor --config c.yaml message send --to conductor --from ex-probe --text -",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+    assert_verdict(
+        &bash(
+            &home,
+            CONDUCTOR,
+            "conductor message send --to conductor --from ex-conductor --text -",
+        ),
+        Verdict::Allow,
+        "",
+    );
+}
+
+/// `story:mailbox-send-and-deliver`: `conductor session deliver` types into another session, so a
+/// controller is denied it, and the raw `session deliver-message` record, in its checkout and in a
+/// worker's tree, naming the leaf. Conductor, which the run daemon is, runs both.
+#[test]
+fn a_controller_is_denied_session_deliver() {
+    // Denied as a declared write, not as words the guard does not know as a leaf.
+    for leaf in ["deliver", "deliver-message"] {
+        let leaf = ["session".to_owned(), leaf.to_owned()];
+        assert!(
+            tree_leaves().iter().any(|(path, _)| *path == leaf),
+            "`conductor {}` is a leaf of the tree",
+            leaf.join(" ")
+        );
+        assert_eq!(
+            declared(&leaf),
+            Some(Access::Writes),
+            "`conductor {}` is declared a write only conductor runs",
+            leaf.join(" ")
+        );
+    }
+    let home = home("controller-session-deliver");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for (command, leaf) in [
+            (
+                "conductor session deliver --name ex-atlas --text note.md",
+                "session deliver",
+            ),
+            (
+                "echo '[HANDOVER atlas] context 210k' | conductor session deliver --name ex-atlas \
+                 --text -",
+                "session deliver",
+            ),
+            (
+                "conductor --state-dir state session deliver --name ex-atlas --text -",
+                "session deliver",
+            ),
+            (
+                "conductor session deliver-message --session-name ex-atlas --first-line x \
+                 --delivered-at 2026-10-17T09:00:00Z",
+                "session deliver-message",
+            ),
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                &format!("`conductor {leaf}` writes conductor's records; only conductor runs it"),
+            );
+        }
+    }
+    for command in [
+        "conductor session deliver --name ex-atlas --text -",
+        "conductor session deliveries --format json",
+    ] {
+        assert_verdict(&bash(&home, CONDUCTOR, command), Verdict::Allow, "");
+    }
+}
