@@ -22,7 +22,7 @@
         }
       ],
       "options_text": "Y: do it now (the config adds key.create to [adapters.router] operations, the custody row and an [adapters.inference] alias, per the release notes); N: keep the current inference key",
-      "question": "Move the local install onto OpenRouter key.create (connectors 0.53.0, https://github.com/beyond10x/connectors/releases/tag/v0.53.0, notes: 'Moving a local install onto OpenRouter key.create'): enter the OpenRouter management key at the protected prompt with `connectors --output json connections connect --adapter router --profile openrouter.api-key --credential-prompt`, then approvals key-init / policy-set {\"operations\":[\"key.create\"]} / prepare / issue --proof-output proof.json and `operations invoke --adapter router --operation key.create` with body {name: agent-inference, limit: 5, limit_reset: monthly}; read-back: the answer names the new inference connection and the key's hash, and no output holds the key.",
+      "question": "Move the local install onto OpenRouter key.create (connectors 0.53.0, https://forge.example/acme/connector/releases/tag/v1.0.0, notes: 'Moving a local install onto OpenRouter key.create'): enter the OpenRouter management key at the protected prompt with `connectors --output json connections connect --adapter router --profile openrouter.api-key --credential-prompt`, then approvals key-init / policy-set {\"operations\":[\"key.create\"]} / prepare / issue --proof-output proof.json and `operations invoke --adapter router --operation key.create` with body {name: agent-inference, limit: 5, limit_reset: monthly}; read-back: the answer names the new inference connection and the key's hash, and no output holds the key.",
       "raised_at": "2026-10-17T04:07:58Z",
       "reason": "a credential entered at a protected prompt is the operator's hands; for the any-wire-model-gateway work (his own session, item 19)",
       "recommendation_text": "Y",
@@ -30,7 +30,7 @@
         "Y"
       ],
       "repository": "connectors",
-      "request_id": "H-20261017-openrouter-key"
+      "request_id": "H-20261007-key"
     },
     {
       "class": "H",
@@ -42,7 +42,7 @@
       "options": [
         {
           "cost": "one command; assistant is then outside the automatic sync",
-          "label": "run the script: sets B10X_GATES_POLICY_GZ on beyond10x/assistant from origin/main:policy.json",
+          "label": "run the script: sets B10X_GATES_POLICY_GZ on acme/app from origin/main:policy.json",
           "letter": "Y"
         },
         {
@@ -52,7 +52,7 @@
         }
       ],
       "options_text": "Y: run the script; N: leave assistant's shared gates red",
-      "question": "Set the repository secret B10X_GATES_POLICY_GZ of beyond10x/assistant: it is private, the org is on the Free plan, so it reads no organization secret and its shared gates fail on main (https://github.com/beyond10x/assistant/actions/runs/39011239910, 'policy format invalid'). Run ~/.cache/claude-tmp/conductor-h/H-20261017-assistant-gates-secret.sh; read-back: one line B10X_GATES_POLICY_GZ dated today. Outside item 123's grant (assistant is not on its list), so a later policy change does not reach it until it is added there.",
+      "question": "Set the repository secret B10X_GATES_POLICY_GZ of acme/app: it is private, the org is on the Free plan, so it reads no organization secret and its shared gates fail on main (https://forge.example/acme/app/actions/runs/1, 'policy format invalid'). Run ~/.cache/conductor-h/example.sh; read-back: one line B10X_GATES_POLICY_GZ dated today. Outside item 123's grant (assistant is not on its list), so a later policy change does not reach it until it is added there.",
       "raised_at": "2026-10-17T07:08:12Z",
       "reason": "a forge credential write is the operator's hands; not within rules.md item 123's scope",
       "recommendation_text": "Y",
@@ -60,7 +60,7 @@
         "Y"
       ],
       "repository": "assistant",
-      "request_id": "H-20261017-assistant-gates-secret"
+      "request_id": "H-20261007-secret"
     },
     {
       "class": "H",
@@ -82,7 +82,7 @@
         }
       ],
       "options_text": "Y: try it with the steps; N: skip",
-      "question": "To try: Claude Code and Codex on DeepSeek v4.1 flash through llm-gateway 0.11.0 and OpenRouter (USD 0.04 / 1M input, 0.55 / 1M output). Steps in ~/.cache/claude-tmp/conductor-h/H-20261017-deepseek-to-try.md: an OpenRouter key with a credit limit, cargo install of b10x-llm-gateway-cli at tag 0.11.0, credential set at its hidden prompt, start the gateway, then claude --settings and codex --profile deepseek. Config files are written already.",
+      "question": "To try: Claude Code and Codex on DeepSeek v4.1 flash through llm-gateway 0.11.0 and OpenRouter (USD 0.04 / 1M input, 0.55 / 1M output). Steps in ~/.cache/conductor-h/example.sh: an OpenRouter key with a credit limit, cargo install of b10x-llm-gateway-cli at tag 0.11.0, credential set at its hidden prompt, start the gateway, then claude --settings and codex --profile deepseek. Config files are written already.",
       "raised_at": "2026-10-17T08:44:37Z",
       "reason": "a credential entered at a hidden prompt and a device check are the operator's hands (rules items 60, 78)",
       "recommendation_text": "Y",
@@ -90,7 +90,7 @@
         "Y"
       ],
       "repository": "llm-gateway",
-      "request_id": "H-20261017-deepseek-to-try"
+      "request_id": "H-20261007-try"
     }
   ]
 }

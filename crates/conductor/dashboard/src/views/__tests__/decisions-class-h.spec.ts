@@ -26,7 +26,7 @@ describe('class-H open items on the Decisions page', () => {
     await flushPromises();
     const card = wrapper
       .findAll('article.decision')
-      .find((one) => one.attributes('data-request') === 'H-20261017-openrouter-key');
+      .find((one) => one.attributes('data-request') === 'H-20261007-key');
     expect(card).toBeDefined();
     const text = card!.text();
     expect(text).toContain('move onto key.create now');
