@@ -122,6 +122,21 @@ const resultText = computed(() => {
       <p class="recommendation-text small">recommended: {{ item.recommendation_text }}</p>
     </div>
 
+    <ul v-if="item.class === 'H' && listed" class="h-options" aria-label="What the request offers">
+      <li
+        v-for="option in item.options"
+        :key="option.letter"
+        class="option"
+        :class="{ recommended: recommended(option.letter) }"
+      >
+        <span class="letter mono">{{ option.letter }}</span>
+        <span class="label">{{ option.label }}</span>
+        <span class="cost small muted">{{ option.cost }}</span>
+        <span v-if="recommended(option.letter)" class="mark mark-recommended">recommended</span>
+        <span v-if="isDefault(option.letter)" class="mark mark-default">default</span>
+      </li>
+    </ul>
+
     <fieldset v-if="item.class === 'H'" class="choices">
       <legend class="kind small muted">the operator acts; say when it is done</legend>
       <div class="buttons">
@@ -257,6 +272,14 @@ h3 {
 }
 .answer {
   font-weight: 600;
+}
+.h-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 .option {
   display: flex;
