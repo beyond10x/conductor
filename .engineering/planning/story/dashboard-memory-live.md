@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:dashboard-memory-live
 kind: story
-status: draft
+status: active
 title: The live dashboard's memory stays bounded and its health view reads it right
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T01:12:33Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-17T01:12:34Z", actor: "human:timo", revision: 4}
 ---
 # Story: dashboard-memory-live
 
