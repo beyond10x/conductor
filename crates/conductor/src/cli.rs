@@ -308,6 +308,10 @@ impl Cli {
                 DecisionCommand::HandsTodo(view) => decide::hands_todo(state, view),
                 DecisionCommand::Decisions(view) => decide::decisions(state, view),
                 DecisionCommand::Show(args) => decide::show(state, args),
+                DecisionCommand::Handle(args) => match args.request {
+                    Some(request) => decide::handle(state, &request, args.decider.as_deref()),
+                    None => anyhow::bail!("decision handle: --request is missing"),
+                },
             },
             Group::Controller(command) => match command {
                 ControllerCommand::StartController(args) => {
@@ -723,6 +727,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["decision", "hands-todo"], Access::Reads),
     (&["decision", "requests"], Access::Reads),
     (&["decision", "show"], Access::Reads),
+    // Raises, records or escalates the request, as the run daemon does (story:decide-model-adapter).
+    (&["decision", "handle"], Access::Writes),
     (&["controller", "pause-controller"], Access::Writes),
     (&["controller", "resume-controller"], Access::Writes),
     (&["controller", "revise-charter"], Access::Writes),
@@ -1092,9 +1098,25 @@ pub enum DecisionCommand {
     #[command(name = "requests")]
     Requests(ViewArgs),
 
+    /// Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line
+    #[command(name = "handle")]
+    Handle(HandleRequestArgs),
+
     /// Show one decision
     #[command(name = "show")]
     Show(ShowDecisionArgs),
+}
+
+/// The input of the binding's `decision-handle` callable, `conductor.decision.HandleRequest`
+/// (`story:decide-model-adapter`).
+#[derive(Debug, Clone, Args)]
+pub struct HandleRequestArgs {
+    /// The file holding one `[DECISION-REQUEST]` message, or `-` for standard input
+    #[arg(long, value_name = "FILE")]
+    pub request: Option<String>,
+    /// The Decider adapter that answers class C: claude (the default) or fake
+    #[arg(long)]
+    pub decider: Option<String>,
 }
 
 /// The input of the binding's `decision-show` callable, `conductor.decision.ShowDecision`.

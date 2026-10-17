@@ -61,6 +61,17 @@ types:
     of: String
     alphabet: "0123456789abcdef"
 
+  # The input of `conductor decision handle` (story:decide-model-adapter,
+  # docs/design/conductor-run.md § 3): the file holding one `[DECISION-REQUEST]` message (`-` for
+  # standard input), and the `Decider` adapter that answers class C: `claude` (the default, `claude
+  # -p` on the conductor role's model) or `fake`, which answers the request's recommendation. The
+  # handler refuses any other name.
+  - name: conductor.decision.HandleRequest
+    kind: struct
+    fields:
+      - {name: request, type: String}
+      - {name: decider, type: Optional<String>}
+
   - name: conductor.decision.ShowDecision
     kind: struct
     fields:

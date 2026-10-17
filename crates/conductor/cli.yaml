@@ -46,6 +46,11 @@ callables:
     input: conductor.decision.ShowDecision
     result: String
     errors: {}
+  decision-handle:
+    target: {kind: local, owner: conductor-cli, action: decision_handle}
+    input: conductor.decision.HandleRequest
+    result: String
+    errors: {}
   need-new:
     target: {kind: local, owner: conductor-cli, action: need_new}
     input: conductor.direction.NewNeed
@@ -288,6 +293,14 @@ commands:
         source: {kind: option, long: decision-id}
       - field: format
         source: {kind: option, long: format}
+  - path: [decision, handle]
+    callable: decision-handle
+    about: Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line
+    arguments:
+      - field: request
+        source: {kind: option, long: request}
+      - field: decider
+        source: {kind: option, long: decider}
   - path: [need, new]
     callable: need-new
     about: Print the next NEED id no earlier NEED used, N-<yyyymmdd>-<nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite

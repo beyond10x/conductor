@@ -90,6 +90,7 @@ Every command takes these, before or after its name.
 | [`conductor decision decisions`](#conductor-decision-decisions) | Decisions |
 | [`conductor decision hands-todo`](#conductor-decision-hands-todo) | Class-H to-do |
 | [`conductor decision requests`](#conductor-decision-requests) | Decision requests |
+| [`conductor decision handle`](#conductor-decision-handle) | Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line |
 | [`conductor decision show`](#conductor-decision-show) | Show one decision |
 | [`conductor controller`](#conductor-controller) | One controller session per repository |
 | [`conductor controller pause-controller`](#conductor-controller-pause-controller) | Pause a controller |
@@ -1000,7 +1001,7 @@ Usage: conductor decision raise-decision-request [OPTIONS]
 | `--recommendation <RECOMMENDATION>` | no | none | string |
 | `--raised-at <RAISED_AT>` | no | none | timestamp, RFC 3339 |
 | `--blocker <BLOCKER>` | no | none | string, optional |
-| `--classification-rule <CLASSIFICATION_RULE>` | no | none | ClassificationRule, optional One of `data-loss`, `history-rewrite`, `repository-lifecycle`, `architecture`, `credential`, `hands`, `none`. |
+| `--classification-rule <CLASSIFICATION_RULE>` | no | none | ClassificationRule, optional: the rule that classified the request in code One of `data-loss`, `history-rewrite`, `repository-lifecycle`, `architecture`, `credential`, `hands`, `none`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision record-conductor-decision`
@@ -1022,8 +1023,8 @@ Usage: conductor decision record-conductor-decision [OPTIONS]
 | `--evidence <EVIDENCE>` | no | none | string |
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--decider-name <DECIDER_NAME>` | no | none | string, optional |
-| `--prompt-sha256 <PROMPT_SHA256>` | no | none | PromptHash, optional |
+| `--decider-name <DECIDER_NAME>` | no | none | string, optional: the `Decider` adapter that answered |
+| `--prompt-sha256 <PROMPT_SHA256>` | no | none | PromptHash, optional: the SHA-256 of the adapter's prompt, 64 lower-case hexadecimal characters |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision record-operator-decision`
@@ -1150,6 +1151,19 @@ Usage: conductor decision requests [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor decision handle`
+
+Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line
+
+```text
+Usage: conductor decision handle [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--request <FILE>` | no | none | The file holding one `[DECISION-REQUEST]` message, or `-` for standard input |
+| `--decider <DECIDER>` | no | none | The Decider adapter that answers class C: claude (the default) or fake |
 
 ## `conductor decision show`
 
