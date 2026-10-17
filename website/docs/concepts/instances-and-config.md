@@ -103,8 +103,8 @@ only the derived value. The guard lets a conductor message only the sessions who
 own instance's prefix (any session, when its instance has none), and the sessions collector keeps another instance's session to its harness
 and activity.
 
-The tasks act on the active instance only. `task sessions`, `task conductor:attach`,
-`task dev:attach` and `task conductor:restart` find its sessions by their full names, and refuse a
+The tasks act on the active instance only. `task sessions`, `task conductor:attach` and
+`task maintainer:attach` find its sessions by their full names, and refuse a
 name that more than one live background session holds, since no task can tell which one is this
 instance's. The dashboard takes the same care with its port and its service:
 

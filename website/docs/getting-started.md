@@ -7,8 +7,8 @@ description: Install the conductor CLI, check the programs it starts, write a on
 New to conductor? Read [why conductor](./concepts/why-conductor.md) first: the problem, one day with it, and what to adopt first.
 
 This page installs the `conductor` CLI, checks the programs it starts, writes the smallest config,
-checks it, and takes one snapshot of two tiny local repositories. It starts no session;
-[Start conductor](./guides/start-conductor.md) does that.
+checks it, and takes one snapshot of two tiny local repositories. It starts no loop and no session;
+[Start conductor](./guides/start-conductor.md) does that with `conductor run --install`.
 
 The CLI prints absolute paths; the output here writes the home directory as `~`. Version lines,
 ids, times and sizes differ on your machine.
@@ -234,5 +234,6 @@ is kept with its reason and is never read as the current state
 - [Configure an instance](./guides/configure-an-instance.md) for a real organization.
 - [Initialise the records](./guides/initialise-the-records.md) with `conductor init`.
 - Read the [security overview](/docs/security/overview), then
-  [start conductor](./guides/start-conductor.md) and its controllers.
+  [start conductor](./guides/start-conductor.md), its loop `conductor run --install` and its
+  controllers.
 - [The CLI reference](/docs/reference/cli) for every command.

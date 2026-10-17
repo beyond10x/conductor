@@ -3,7 +3,7 @@ title: Decision classes and messages
 sidebar_position: 3
 description: Class C conductor decides, class O the operator decides, class H needs the operator's hands; the fixed first lines every message between sessions carries.
 lede: Every decision has a class that says who may take it, and every message has a first line a program can parse.
-source: docs/design/conductor.md sections 5 and 6; crates/conductor/src/decide.rs, crates/conductor/src/message.rs, crates/conductor/tests/decision.rs, crates/conductor/tests/adv_decision_ids.rs
+source: docs/design/conductor.md sections 5 and 6; docs/design/conductor-run.md section 3; crates/conductor/src/decide.rs, crates/conductor/src/message.rs, crates/conductor/src/run/mailbox.rs, crates/conductor/src/run/handlers.rs, crates/conductor/tests/decision.rs, crates/conductor/tests/adv_decision_ids.rs
 ---
 
 ## Three classes
@@ -79,19 +79,27 @@ routine approvals.
 A message's first line is machine-readable. The rest is free text, at most 20 lines; detail goes
 in a file in the sender's own repository, and the message carries its path.
 
+A controller sends a message with `conductor message send --to conductor --from <session name>
+--text -`, the message on standard input. The command reads the first line; one that does not
+parse is answered with the format and exit 1, and nothing is written. Otherwise it leaves the whole
+text as `<state>/mailbox/conductor/<ulid>.md` and records it received, transport `Mailbox`.
+`conductor run` reads the mailbox each watch tick, and puts its own messages in front of a
+controller with `conductor session deliver`, which types them into the session.
+
 | first line | from → to | meaning |
 |---|---|---|
 | `[DISPATCH <repo> <dispatch-id>] <goal id> <what to do>` | conductor → controller | a brief |
 | `[REPORT <repo> <dispatch-id>] <started\|progress\|blocked\|unblocked\|done\|failed> <one line>` | controller → conductor | progress on a dispatch |
 | `[DECISION-REQUEST <repo> <request-id>] <question>` | controller → conductor | options A/B/C and a recommendation below |
 | `[DECISION <request-id>] <option> <one-line reason> (<decision-id>)` | conductor → controller | the answer |
-| `[NEED <repo> <request-id>] <other-repo> <what is needed>` | controller → conductor | a cross-repository request |
-| `[RESOURCE <repo>] <usage> <amount>` | controller → conductor | a usage budget; disk and build slots are not asked by message: a build runs as `conductor build run --reserve <size> -- <command>` ([Disk](./disk.md)) |
+| `[NEED <repo> <request-id>] <other-repo> <what is needed>` | controller → conductor | a cross-repository request, delivered to the other repository's running controller or kept for its next start |
+| `[HANDOVER <repo>] context <n>k` | conductor → controller | the controller's context is over `thresholds.context_handover`: it finishes its step, writes `<checkout>/.git/handoff/<UTC stamp>.md`, reports `[REPORT <repo> <dispatch-id>] blocked handover <path>` and stops; `conductor run` then starts it again from its charter and that file |
+| `[RESOURCE <repo>] <build-slot\|disk\|usage> <amount>` | controller → conductor | answered "use conductor build run": a build reserves its own disk, `conductor build run --reserve <size> -- <command>` ([Disk](./disk.md)), and `conductor run` resumes the sessions a usage limit stopped |
 | `[ESCALATION <request-id>] <O\|H> <question>` | conductor → operator | class O or H |
 
-Conductor records every message it receives (`conductor message receive-message`). It rejects one
-whose first line does not parse (`message reject-message`) by answering with the format, and does
-not act on it.
+Conductor records every message it receives (`conductor message receive-message`; `message send`
+records through it). It rejects one whose first line does not parse (`message reject-message`) by
+answering with the format, and does not act on it.
 
 Each `REPORT` verb but `progress` moves the dispatch through its `dispatch report-*` command:
 `started`, `blocked`, `unblocked`, `done`, `failed`. A `progress` report is a message only.
@@ -102,16 +110,14 @@ reference to conductor. Conductor records each request it receives (`decision
 raise-decision-request`, with the blocker reference); the blockers collector is the cross-check,
 because an open blocker with no recorded request is a controller that did not report.
 
-A `[RESOURCE]` usage request is granted or refused against the instance's thresholds
-(`conductor resource grant-resource`, `refuse-resource`, `release-resource`). Disk is reserved
-by the binary itself from the host ledger (`conductor build run`, `conductor host grants`), with no
-message.
+Disk is reserved by the binary itself from the host ledger (`conductor build run`, `conductor host
+grants`), with no message. The resource commands (`conductor resource grant-resource`,
+`refuse-resource`, `release-resource`) remain; `conductor run` calls none of them.
 
-:::caution[Planned]
+:::note[Retired]
 
-Two more first lines are in the design but not in the specification yet:
-`[HANDOVER <repo>] context <n>k` (conductor asks a controller to write a hand-over and stop above
-`thresholds.context_handover`) and `[RESTART conductor] <reason>` (conductor-dev asks conductor to
-hand over before a restart). The profiles use them; no command records them.
+`[RESTART conductor] <reason>` is in the design but not in the specification, and does not parse.
+`conductor run` keeps no context, so it is restarted with `conductor run --uninstall` and
+`conductor run --install`, with no hand-over.
 
 :::

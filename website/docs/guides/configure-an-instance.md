@@ -113,12 +113,12 @@ $ conductor config show --format json | jq -c ".instances[0].roles[2]"
 
 (The CLI prints the home directory in full; it is written `~` here.) `session_name` is derived,
 never chosen: `<session_prefix>-<role>` for conductor and conductor-dev, or the role's own name
-without a prefix, and `null` for the controller role, whose sessions are named per repository.
-The session tasks (`task sessions`, `task conductor:attach`, `task dev:attach`,
-`task conductor:restart`) act on the active instance's sessions by these full names, and refuse a
-name that more than one live background session holds. `read_only_tools` is the list of extra
-tools the guard allows this role's sessions beyond its built-in read-only list; empty here.
-`--format yaml` prints the same instance as a config file.
+without a prefix, and `null` for the controller role, whose sessions are named per repository. The
+session tasks (`task sessions`, `task conductor:attach`, `task maintainer:attach`) act on the active
+instance's sessions by these full names, and refuse a name that more than one live background
+session holds. `read_only_tools` is the list of extra tools the guard allows this role's sessions
+beyond its built-in read-only list; empty here. `--format yaml` prints the same instance as a config
+file.
 
 The instance's dashboard port and session prefix:
 

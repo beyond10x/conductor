@@ -3,7 +3,7 @@ title: Troubleshoot
 sidebar_position: 6
 description: Check the programs with conductor doctor, read why a start was refused or a snapshot failed, read the guard's denials, and find a session that runs without the guard.
 lede: Conductor refuses rather than half-works, and every refusal names its cause, so start from the message and the command that prints it.
-source: crates/conductor/src/doctor.rs; crates/conductor/src/snapshot.rs, crates/conductor/src/collect/; crates/conductor/src/guard.rs; Taskfile.yml, conductor:start; .claude/conductor-settings.json, .claude/controller-settings.json
+source: crates/conductor/src/doctor.rs; crates/conductor/src/snapshot.rs, crates/conductor/src/collect/; crates/conductor/src/guard.rs; crates/conductor/src/run.rs; Taskfile.yml, maintainer:start; .claude/controller-settings.json
 ---
 
 ## Start with doctor
@@ -63,22 +63,23 @@ Doctor exits 1 on any `not ready:` line, and writes nothing.
 
 ## A refused start
 
-`task conductor:start` checks everything before it starts a session, and starts nothing when a
-check fails. Each message names its fix:
+`conductor run` runs once per instance: a second one refuses with
+`run: another conductor run holds <state>/run/lock; one runs per instance`. Stop the first with
+`conductor run --uninstall`, or leave it running.
+
+`task maintainer:start` checks everything before it starts conductor-dev, and starts nothing when
+a check fails. Each message names its fix:
 
 | message | cause | fix |
 |---|---|---|
-| `conductor config show names no role conductor` | the instance's `roles` has no `conductor` entry, or the config does not load | `conductor config validate`; add the role |
-| `the role conductor runs on codex …; this task starts claude only` | the role's `harness` is not `claude` | set `harness: claude` for this role |
-| `the records directory … is not a directory` | the records were never written | [initialise the records](./initialise-the-records.md) with `conductor init` |
-| `the profile … of the role conductor is not a file` | the `profile` path is wrong | run `task install` in a checkout of the conductor repository, which writes `~/.b10x/conductor/profiles/conductor.md`, and point it there |
-| `the agent … is not in <records>/.claude/agents/` | the role names no `profile`, and sessions load no user-level agent | name a `profile` for the role ([start conductor](./start-conductor.md#2-name-each-roles-profile-and-settings)) |
-| `Claude Code's bypass-permissions disclaimer is not accepted …` | `claude --bg` refuses `bypassPermissions` until the disclaimer was accepted once | run `claude --dangerously-skip-permissions` once in the records directory, or set `"skipDangerousModePermissionPrompt": true` in the role's settings file |
-| `a session named … is already running; see task sessions` | a live session of that name exists | attach to it, or stop it before you start another; two conductors of one instance would answer the same controllers |
+| `conductor config show names no maintainer under host.roles …` | the host file names no maintainer, or the config does not load | `conductor config validate`; add the role `maintainer` to `~/.b10x/conductor/host/host.yaml` |
+| `the maintainer runs on codex …; this task starts claude only` | the role's `harness` is not `claude` | set `harness: claude` for this role |
+| `the profile … of the maintainer is not a file` | the `profile` path is wrong | run `task install` in a checkout of the conductor repository, which writes `~/.b10x/conductor/profiles/conductor-dev.md`, and point it there |
+| `this checkout has no .claude/agents/conductor-dev.md …` | the role names no `profile`, and sessions load no user-level agent | name a `profile` for the role ([start conductor](./start-conductor.md#2-name-each-roles-profile-and-settings)) |
+| `a session named … is already running; see task sessions` | a live session of that name exists | attach to it, or stop it before you start another |
 
-`task conductor:restart` makes the same checks before it stops the running session, so a restart
-that would not start again stops nothing. `conductor config validate` refuses a controller role
-that names an `agent` and no `profile`, before any controller is started.
+`conductor config validate` refuses a controller role that names an `agent` and no `profile`,
+before any controller is started.
 
 ## A failed snapshot
 
@@ -164,8 +165,8 @@ The guard records nothing for an allowed call, so an unguarded session leaves no
 it was not started through the tasks or with the role's settings:
 
 1. Stop it: `claude stop <id>` (find the id with `claude agents --json`).
-2. Start it again the guarded way: `task conductor:start` for conductor; for a controller, let
-   conductor start it with its `--settings`.
+2. Start it again the guarded way: for a controller, let `conductor run` start it with its
+   `--settings`.
 3. Review what it changed while unguarded, in its checkout and on the forge.
 
 A second conductor of the same instance started with the role's settings is refused when it

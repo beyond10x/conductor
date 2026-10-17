@@ -3,7 +3,7 @@ title: One task in an existing repository
 sidebar_position: 0
 description: Set conductor up in a checkout you already have, give it one goal, let it dispatch one controller, review the pull request it opens, and know what to do when it stops.
 lede: The shortest way to see conductor work is one task in a repository you already have, from conductor setup --apply in its checkout to a pull request you merge yourself.
-source: crates/conductor/src/setup.rs, crates/conductor/src/doctor.rs, crates/conductor/src/spawn.rs; .agents/conductor.md, .agents/repo-controller.md; SETUP.md
+source: crates/conductor/src/setup.rs, crates/conductor/src/doctor.rs, crates/conductor/src/spawn.rs, crates/conductor/src/run.rs; .agents/repo-controller.md; SETUP.md
 ---
 
 This guide takes one task in a repository you already work in, here `alpha` of `example-org`
@@ -135,18 +135,17 @@ For a first task, use `merge: human`.
 
 ## 5. One dispatch
 
-Start conductor in the instance's records directory, from the conductor checkout, and open it:
+Write the charter `<records>/charters/alpha.md` (the goal `first-task`, scope, boundaries, the
+line `merge: human`, the current dispatch), record the dispatch with
+`conductor dispatch send-dispatch`, and start the instance's loop:
 
 ```console
-task conductor:start
-task conductor:attach
+conductor run --install
 ```
 
-Tell it the task: the goal `first-task`, the repository `alpha`, and `merge: human`. Conductor
-writes the charter `<records>/charters/alpha.md` (goal, scope, boundaries, the `merge:` line, the
-current dispatch), records the dispatch with `conductor dispatch send-dispatch`, and starts the
-controller with `conductor spawn --repository alpha`, which prints the controller session's id.
-Read both back:
+Each cycle, the loop starts a controller for each Active repository (`conductor repository
+activity`) that has a charter and no running controller, with `conductor spawn --repository
+alpha` here. Read both back:
 
 ```console
 $ conductor dispatch dispatches
@@ -161,7 +160,8 @@ names which.
 
 ## 6. What the controller does
 
-The controller works in `~/src/alpha` and reports only to conductor:
+The controller works in `~/src/alpha` and reports only to conductor, with
+`conductor message send`:
 
 - It reports `started`. With no planning store, the report says so,
   `started; no planning store: /aep:init would add one`, and it goes on: the dispatch's brief
@@ -188,9 +188,9 @@ dispatch and reports the goal's state.
 |---|---|
 | `conductor setup` or `conductor doctor` ends `not ready:` | run the `to run:` or `to install:` line it names, then check again |
 | the controller reports `blocked` | conductor answers what it can; a question only you can answer reaches you with the exact command |
-| no report for a long time | `conductor watch run` names a silent session; `claude agents --json` shows its state |
+| no report for a long time | the loop delivers a stalled or silent controller one check-in and restarts it from its charter at the second; `conductor session list` shows its state |
 | `conductor spawn` refused | the refusal names its cause; [troubleshoot](./troubleshoot.md) lists the fixes |
-| the controller asks to merge under `merge: human` | conductor answers "a person merges here"; merge it yourself |
+| the controller asks to merge under `merge: human` | merge it yourself: the controller never merges there |
 
 To stop a controller, `conductor controller stop-controller` ends the session `conductor spawn`
 started, through the instance's confinement provider, and records it stopped;

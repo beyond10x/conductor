@@ -104,7 +104,7 @@ to try conductor out, or in CI, and run the sessions in the box above.
 | `conductor snapshot <view>`, `repository activity` | nothing | `conductor: no store at <state>/tree` before the first snapshot; exits 1 |
 
 `conductor setup --apply`, `conductor init` and `conductor trust` write the config, the records
-and `~/.claude.json`; `task conductor:start` refuses until Claude Code's bypass-permissions
+and `~/.claude.json`; `claude --bg` refuses `bypassPermissions` until Claude Code's
 disclaimer was accepted once ([start conductor](./start-conductor.md#4-accept-the-bypass-permissions-disclaimer-once)).
 
 ## What the sandbox will change
