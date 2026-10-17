@@ -289,7 +289,7 @@ fn a_file_is_typed_into_the_session_and_recorded() {
 fn standard_input_is_kept_in_the_mailbox_typed_and_recorded() {
     let case = Case::new("stdin", 0);
     case.socket();
-    let text = "[DECISION R-7] A merge now (DEC-20261017-01)\nThe release waits.\n";
+    let text = "[DECISION R-7] A merge now (DEC-20991231-01)\nThe release waits.\n";
     let output = case.deliver_stdin(text);
     assert!(output.status.success(), "{}", describe(&output));
     let kept = case.state().join("mailbox/delivered");
@@ -317,7 +317,7 @@ fn standard_input_is_kept_in_the_mailbox_typed_and_recorded() {
     // `[DECISION …]` names no repository, so the line's repo is the session.
     recorded(
         &case,
-        "[DECISION R-7] A merge now (DEC-20261017-01)",
+        "[DECISION R-7] A merge now (DEC-20991231-01)",
         &format!("mailbox/delivered/{name}"),
         SESSION,
     );

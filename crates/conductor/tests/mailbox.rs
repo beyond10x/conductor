@@ -256,7 +256,7 @@ fn sends(name: &str, text: &str, how: &Text, kind: &str, repo: &str) {
 fn a_report_is_left_in_the_mailbox_and_recorded() {
     sends(
         "report",
-        "[REPORT cortex DSP-20261017-01] started on the brief\n\nWave 1 runs in tree t1.\n",
+        "[REPORT cortex DSP-20991231-01] started on the brief\n\nWave 1 runs in tree t1.\n",
         &Text::File,
         "Report",
         "cortex",
@@ -267,7 +267,7 @@ fn a_report_is_left_in_the_mailbox_and_recorded() {
 fn a_need_is_left_in_the_mailbox_and_recorded() {
     sends(
         "need",
-        "[NEED cortex N-20261017-01] atlas a release with the new parser\n",
+        "[NEED cortex N-20991231-01] atlas a release with the new parser\n",
         &Text::File,
         "Need",
         "cortex",
