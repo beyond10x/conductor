@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8
-// contract digest ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018
+// model digest 5f5c9c941e677debdc0af6abedc75090c03c8ccf13558aaa3d6fca106dced5f6
+// contract digest d569f59fa5ec3e9ea484c001cc2e3aaac7138334a644260a3eaca7ae8f0de091
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-cli — the `conductor-cli` component of `conductor` v1.

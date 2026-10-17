@@ -137,6 +137,20 @@ callables:
     errors:
       unknown-role: conductor.session.SessionStopRefused
       not-running: conductor.session.SessionStopRefused
+  session-attach:
+    target: {kind: local, owner: conductor-cli, action: session_attach}
+    input: conductor.session.AttachSession
+    result: String
+    errors:
+      inside-session: conductor.session.SessionAttachRefused
+      unknown-session: conductor.session.SessionAttachRefused
+      not-attachable: conductor.session.SessionAttachRefused
+      ambiguous: conductor.session.SessionAttachRefused
+  session-list:
+    target: {kind: local, owner: conductor-cli, action: session_list}
+    input: conductor.session.ListSessions
+    result: List<conductor.session.AttachableSession>
+    errors: {}
   records-check:
     target: {kind: local, owner: conductor-cli, action: records_check}
     input: conductor.dispatch.CheckRecords
@@ -353,6 +367,22 @@ commands:
     arguments:
       - field: role
         source: {kind: option, long: role}
+  - path: [session, attach]
+    callable: session-attach
+    about: "Attach this terminal to a live session's tmux, by --name or --role; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
+    arguments:
+      - field: name
+        source: {kind: option, long: name}
+      - field: role
+        source: {kind: option, long: role}
+      - field: watch
+        source: {kind: option, long: watch}
+  - path: [session, list]
+    callable: session-list
+    about: "Print one line per live session the state directory holds a launcher's files for: its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)"
+    arguments:
+      - field: format
+        source: {kind: option, long: format}
   - path: [records, check]
     callable: records-check
     about: Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log

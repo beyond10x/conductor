@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8",
-    "contract_digest": "ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018"
+    "source_digest": "5f5c9c941e677debdc0af6abedc75090c03c8ccf13558aaa3d6fca106dced5f6",
+    "contract_digest": "d569f59fa5ec3e9ea484c001cc2e3aaac7138334a644260a3eaca7ae8f0de091"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -1391,6 +1391,27 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.AttachMode",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.AttachSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.AttachableSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.EnvelopeMeasurement",
       "disposition": {
         "disposition": "generated"
@@ -1405,7 +1426,28 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.ListSessions",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.PlaceResolved",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionAttachRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionAttachRefused",
       "disposition": {
         "disposition": "generated"
       }

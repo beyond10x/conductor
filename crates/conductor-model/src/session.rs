@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8
-// contract digest ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018
+// model digest 5f5c9c941e677debdc0af6abedc75090c03c8ccf13558aaa3d6fca106dced5f6
+// contract digest d569f59fa5ec3e9ea484c001cc2e3aaac7138334a644260a3eaca7ae8f0de091
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Session — `conductor.session`.
@@ -9,6 +9,35 @@
 //! It also holds how conductor starts and stops the sessions of an instance's roles in the box the instance's `confinement` asks for (story:sandbox-spec, story:session-envelope-seam): the request a provider is given, the identity of the session it started, and the measurement it takes at the box's boundary, kept per session under the instance's state directory.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// AttachMode — `conductor.session.AttachMode`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachMode {
+    /// `Attach`.
+    Attach,
+    /// `Watch`.
+    Watch,
+}
+
+/// AttachSession — `conductor.session.AttachSession`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachSession {
+    /// `name` — `Optional<String>`.
+    pub name: Option<String>,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
+    /// `watch` — `Optional<Boolean>`.
+    pub watch: Option<bool>,
+}
+
+/// AttachableSession — `conductor.session.AttachableSession`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachableSession {
+    /// `name` — `String`.
+    pub name: String,
+    /// `mode` — `conductor.session.AttachMode`.
+    pub mode: AttachMode,
+}
 
 /// EnvelopeMeasurement — `conductor.session.EnvelopeMeasurement`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +76,13 @@ pub enum LeaseState {
     Held,
 }
 
+/// ListSessions — `conductor.session.ListSessions`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListSessions {
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
+
 /// PlaceResolved — `conductor.session.PlaceResolved`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaceResolved {
@@ -54,6 +90,30 @@ pub struct PlaceResolved {
     pub place: crate::config::Writable,
     /// `paths` — `List<String>`.
     pub paths: Vec<String>,
+}
+
+/// SessionAttachRefusal — `conductor.session.SessionAttachRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionAttachRefusal {
+    /// `InsideSession`.
+    InsideSession,
+    /// `UnknownSession`.
+    UnknownSession,
+    /// `NotAttachable`.
+    NotAttachable,
+    /// `Ambiguous`.
+    Ambiguous,
+}
+
+/// SessionAttachRefused — `conductor.session.SessionAttachRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionAttachRefused {
+    /// `name` — `String`.
+    pub name: String,
+    /// `refusal` — `conductor.session.SessionAttachRefusal`.
+    pub refusal: SessionAttachRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
 }
 
 /// SessionId — `conductor.session.SessionId`: a distinct wrapper around `String`.
