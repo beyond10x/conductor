@@ -121,7 +121,8 @@ runs without one) are green on its head commit. Run `task check` locally only wh
    per instance is a config key, written `section.key` in the profile. A change to a profile, an
    adapter, a settings file or a guard rule is reported with its diff.
 10. **Decision classes and message formats are the design's** (§ 5, § 6). A message whose first
-    line does not parse is answered with the format, not acted on. An unclear class is O.
+    line does not parse is answered with the format, not acted on. An unclear class is C: the
+    option that can be undone, recorded with why (design § 5).
 11. **Facts live with their owner.** Work is in each repository's AEP store; issues, pull requests,
     CI and releases are on the forge. Conductor's records hold decisions, dispatches, charters and
     hand-overs only; a copied fact there is a defect.
