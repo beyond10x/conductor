@@ -50,8 +50,11 @@ watch's cursor files.
 
 Ticks: every `cadence.watch` a watch pass (the existing `Watch::pass`) followed by the handlers
 below and the mailbox; every `cadence.cycle` the cycle (`snapshot start-snapshot`, `publish-board`,
-`records check`, dispatch v1); at `cadence.daily` `metric compute` for the previous UTC day and the
-brief file `REPORT.md` in the records (deviations only).
+`records check`, dispatch v1); at `cadence.daily` `metric compute` for the previous UTC day, the
+brief file `REPORT.md` in the records (deviations only), and then a commit of the records directory
+through the bot route, pushed when the records repository has an `origin`; a refusal is one
+`records-commit-refused` line, not retried (`story:records-committed-by-daemon`; `conductor run
+--once --commit-records` runs the commit alone).
 
 | watch line | handler | records |
 |---|---|---|
