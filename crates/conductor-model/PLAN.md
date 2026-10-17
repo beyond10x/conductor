@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest fdea8fc4fd11c9a62b9615a93d028bb158f5212953ee90b85ef8f9fbddbbd611
-  contract digest 6fbb6788206bdfd2363a35ca5d09fef29e0f00bdf148eda6107109a57fd2e4a5
+  model digest c27eba3c93f06c2c6d479a1858c41a1937887d953214c072179c34faa1564153
+  contract digest 5f8282924e8fdf0917a6850686a9f5ceb260c87159d2c132e06a15c94a36d980
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-599 capabilities: **583 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+600 capabilities: **584 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -52,6 +52,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.RepositoryRule` |
 | domain type | `conductor.config.Retention` |
 | domain type | `conductor.config.Role` |
+| domain type | `conductor.config.RoleName` |
 | domain type | `conductor.config.SecretSource` |
 | domain type | `conductor.config.SecretSync` |
 | domain type | `conductor.config.SessionName` |

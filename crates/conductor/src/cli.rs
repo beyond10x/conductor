@@ -709,7 +709,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // taken for the instance's conductor.
     (&["session", "claim"], Access::Writes),
     (&["session", "leases"], Access::Reads),
-    // Starts or stops the session of the role conductor or conductor-dev (story:sandbox-spec).
+    // Starts or stops the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) (story:sandbox-spec).
     (&["session", "start"], Access::Writes),
     (&["session", "stop"], Access::Writes),
     (&["host", "record-reclaim"], Access::Writes),
@@ -1197,11 +1197,11 @@ pub enum SessionCommand {
     #[command(name = "leases")]
     Leases(ViewArgs),
 
-    /// Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    /// Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
     #[command(name = "start")]
     Start(SessionRoleArgs),
 
-    /// Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+    /// Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
     #[command(name = "stop")]
     Stop(SessionRoleArgs),
 }
@@ -1682,7 +1682,7 @@ pub struct SpawnArgs {
 /// `conductor.session.StartSession` and `conductor.session.StopSession`.
 #[derive(Debug, Clone, Args)]
 pub struct SessionRoleArgs {
-    /// The role whose session starts or stops: conductor or conductor-dev
+    /// The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release
     #[arg(long, value_name = "ROLE")]
     pub role: Option<String>,
 }

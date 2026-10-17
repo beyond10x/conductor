@@ -52,7 +52,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{Generated, LeaseStorage};
 use conductor_model::config::{
-    ConfinementProvider, Harness, Instance, InstanceName, Role, SessionName,
+    ConfinementProvider, Harness, Instance, InstanceName, Role, RoleName, SessionName,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::primitives::Timestamp;
@@ -443,26 +443,30 @@ pub const DEV_PROMPT: &str = "Start of session. Read your profile's start-of-ses
 order, beginning with the newest hand-over in the conductor-dev handoff directory of the \
 instance's state directory (conductor config show prints state), then begin.";
 
-/// The roles `session start` and `session stop` act on.
-const SESSION_ROLES: [&str; 2] = ["conductor", "conductor-dev"];
+/// The roles `session start` and `session stop` act on, each by its name or its old name
+/// (`story:role-name-aliases`).
+const SESSION_ROLES: [RoleName; 2] = [RoleName::Director, RoleName::Maintainer];
 
 /// The settings file conductor starts with when its role names none, under the working
 /// directory: the product checkout `task conductor:start` runs in.
 const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
 
-/// The role `role` of the active instance, when it is one `session start` starts: `conductor` or
-/// `conductor-dev`, named by the instance, on `claude`.
+/// The role `role` of the active instance, when it is one `session start` starts: `director` or
+/// `maintainer`, or their old names `conductor` and `conductor-dev`, named by the instance under
+/// either name, on `claude` (`story:role-name-aliases`).
 fn session_role<'i>(instance: &'i Instance, role: &str) -> Result<&'i Role, String> {
-    if !SESSION_ROLES.contains(&role) {
+    let Some(wanted) = config::role_name(role).filter(|wanted| SESSION_ROLES.contains(wanted))
+    else {
         return Err(format!(
-            "{role:?} is not a role session start starts: write conductor or conductor-dev; a \
-             controller starts with conductor spawn"
+            "{role:?} is not a role session start starts: write director or maintainer \
+             (conductor or conductor-dev, their old names, for this release); a lead starts \
+             with conductor spawn"
         ));
-    }
+    };
     let found = instance
         .roles
         .iter()
-        .find(|named| named.role == role)
+        .find(|named| config::is_role(&named.role, wanted))
         .ok_or_else(|| format!("the instance names no role {role} in conductor config show"))?;
     if found.harness != Harness::Claude {
         return Err(format!(
@@ -480,10 +484,38 @@ fn role_session_name(instance: &Instance, role: &Role) -> SessionName {
         .unwrap_or_else(|| config::session_name(instance, &role.role))
 }
 
+/// The live session of `role`, named `name`, as the session list shows it: the one holding
+/// `name`, else, for this release, one holding the name under the role's other name, such as
+/// `<session_prefix>-conductor` for a role the file writes `director` (`story:role-name-aliases`).
+fn live_role_session(role: &Role, name: &SessionName) -> Result<Option<(String, SessionName)>> {
+    let names = config::role_name(&role.role).map_or_else(
+        || vec![name.0.clone()],
+        |wanted| config::session_names_of(wanted, &name.0),
+    );
+    for candidate in names {
+        if let Some(id) = confine::live_session(&candidate)? {
+            return Ok(Some((id, SessionName(candidate))));
+        }
+    }
+    Ok(None)
+}
+
+/// Writes the note on `role` when `--role` gave a role's old name (`story:role-name-aliases`).
+fn note_old_name(command: &str, role: &str) -> Result<()> {
+    if let Some(note) = config::old_name_note(role) {
+        writeln!(
+            io::stderr().lock(),
+            "conductor: {command}: note: --role {note}, read as it for this release"
+        )
+        .context("write the note")?;
+    }
+    Ok(())
+}
+
 /// Where the session of `role` starts: conductor in the instance's records directory,
 /// conductor-dev in the working directory.
 fn start_directory(instance: &Instance, role: &Role, cwd: &Path) -> PathBuf {
-    if role.role == "conductor" {
+    if config::is_role(&role.role, RoleName::Director) {
         PathBuf::from(&instance.records)
     } else {
         cwd.to_owned()
@@ -524,7 +556,8 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 }
 
 /// The arguments the harness of `role` starts with before its first prompt: its name, its profile
-/// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's own name),
+/// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's old name,
+/// `conductor` or `conductor-dev`, the adapters' file names for this release),
 /// its model, bypass permissions, no user settings, and its settings file; conductor's defaults to
 /// [`CONDUCTOR_SETTINGS`] under `cwd`.
 fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Vec<String> {
@@ -534,7 +567,13 @@ fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Ve
             args.extend(["--append-system-prompt-file".to_owned(), profile.0.clone()]);
         }
         (None, Some(agent)) => args.extend(["--agent".to_owned(), agent.0.clone()]),
-        (None, None) => args.extend(["--agent".to_owned(), role.role.clone()]),
+        (None, None) => args.extend([
+            "--agent".to_owned(),
+            config::role_name(&role.role).map_or_else(
+                || role.role.clone(),
+                |name| config::old_role_word(name).to_owned(),
+            ),
+        ]),
     }
     args.extend(
         [
@@ -586,14 +625,15 @@ fn write_pinned(
         .to_string())
 }
 
-/// The settings file a session of `role` starts with: its `settings`, else for `conductor`
+/// The settings file a session of `role` starts with: its `settings`, else for `director`
 /// [`CONDUCTOR_SETTINGS`] under `cwd`, else none.
 fn role_settings(role: &Role, cwd: &Path) -> Option<String> {
     role.settings
         .as_ref()
         .map(|settings| settings.0.clone())
         .or_else(|| {
-            (role.role == "conductor").then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
+            config::is_role(&role.role, RoleName::Director)
+                .then(|| cwd.join(CONDUCTOR_SETTINGS).display().to_string())
         })
 }
 
@@ -684,10 +724,10 @@ pub fn start(
         );
     }
     let name = role_session_name(instance, found);
-    if let Some(id) = confine::live_session(&name.0).context("session start")? {
+    if let Some((id, held)) = live_role_session(found, &name).context("session start")? {
         return refuse(
             SessionStartRefusal::SessionRunning,
-            format!("the live session {id} holds the session name {}", name.0),
+            format!("the live session {id} holds the session name {}", held.0),
         );
     }
     let chosen = match confine::choose(providers, &instance.confinement) {
@@ -730,7 +770,7 @@ pub fn start(
         instance_limits: instance.confinement.limits.clone(),
         state: state_dir.clone(),
     };
-    let prompt = if found.role == "conductor" {
+    let prompt = if config::is_role(&found.role, RoleName::Director) {
         CONDUCTOR_PROMPT
     } else {
         DEV_PROMPT
@@ -755,6 +795,8 @@ pub fn start(
             if let Some(reason) = &started.measurement.unboxed {
                 line.push_str(&format!(", unboxed: {reason}"));
             }
+            // A refusal stays one line; the note on an old name goes with the start.
+            note_old_name("session start", &role)?;
             writeln!(io::stdout().lock(), "{line}").context("write the started session")?;
             Ok(ExitCode::SUCCESS)
         }
@@ -825,7 +867,7 @@ pub fn stop(
         Err(detail) => return refuse(SessionStopRefusal::UnknownRole, detail),
     };
     let name = role_session_name(instance, found);
-    let Some(id) = confine::live_session(&name.0).context("session stop")? else {
+    let Some((id, name)) = live_role_session(found, &name).context("session stop")? else {
         return refuse(
             SessionStopRefusal::NotRunning,
             format!("no live session holds the session name {}", name.0),
@@ -855,6 +897,7 @@ pub fn stop(
         .stop(&session, &request)
         .with_context(|| format!("session stop: stop {} ({id})", name.0))?;
     confine::remove_measurement(&state_dir, &name).context("session stop")?;
+    note_old_name("session stop", &role)?;
     writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
         .context("write the stopped session")?;
     Ok(ExitCode::SUCCESS)

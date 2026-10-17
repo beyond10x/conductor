@@ -136,20 +136,52 @@ types:
     kind: newtype
     of: String
 
-  # The harness and model one session role runs on, such as `conductor` or `controller`; the
+  # The name of a session role (story:role-name-aliases, docs/design/roles-and-surfaces.md § 2).
+  # The file writes it in lower case: `director`, the instance's own session, which runs the
+  # instance from its records directory; `maintainer`, the session that develops conductor
+  # itself; `lead`, a repository's session, one per repository. Each had an old name, which a file
+  # may still write for one release and which reads as the new one:
+  #
+  #   | old name        | role         |
+  #   |-----------------|--------------|
+  #   | `conductor`     | `director`   |
+  #   | `conductor-dev` | `maintainer` |
+  #   | `controller`    | `lead`       |
+  #
+  # The new name owns the meaning. `config validate` notes each old name the file writes by its
+  # `role` path, such as `instances[0].roles[2].role: controller is the old name of lead`, and
+  # exits 0 for it. A role keeps the name the file writes: `config show` prints it as written, and
+  # its session is named after it, so a running instance whose file writes `conductor` keeps the
+  # session `<session_prefix>-conductor` for this release. `session start` and `session stop`
+  # take either name of a role, an old one with a note on standard error; `rules show
+  # --section` reads a heading under either name of a role (`conductor.direction.Rules`). The old
+  # names are removed after this release (story:role-alias-removal).
+  - name: conductor.config.RoleName
+    kind: enum
+    variants: [Director, Maintainer, Lead]
+
+  # The harness and model one session role runs on, such as `director` or `lead`
+  # (`conductor.config.RoleName`, or its old name, as the file writes it); the
   # harness agent the role starts with, such as `repo-controller`; the settings file it starts
   # with; and the profile file its session starts with through `--append-system-prompt-file`, in
   # place of the agent. The settings and profile files are written absolute or under `~`. Absent,
   # a role names no agent, no settings file and no profile. `session_name` is derived, never
   # chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when
-  # the instance has no prefix; absent for `controller`, whose sessions are named per repository,
+  # the instance has no prefix, `<role>` as the file writes it; absent for `lead` (`controller`),
+  # whose sessions are named per repository,
   # `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write
-  # only that value. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
+  # only that value. An instance whose file writes no `roles` has the three roles `director`,
+  # `maintainer` and `lead`, each on `claude` with the model `opus`, written for this release
+  # under their old names `conductor`, `conductor-dev` and `controller`, which the start tasks and
+  # the watch's context lines select them by; they move to the new names with the tasks
+  # (story:role-names-in-files), so that no running instance's sessions are renamed. Without a
+  # profile or an agent, `director` and `maintainer` start with the agents `conductor` and
+  # `conductor-dev`, the adapters' file names for this release. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
   # built-in read-only allowlist, that the guard allows the role's sessions without a rule of its
   # own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied.
   # A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is
   # decided by that rule whatever this list says. Absent, it is empty.
-  # A `controller` role the file writes that names an `agent` names a `profile` as well
+  # A `lead` (`controller`) role the file writes that names an `agent` names a `profile` as well
   # (story:agent-needs-user-setting-source): every session of the instance starts with
   # `--setting-sources project,local`, which loads no user-level agent, so a controller starts
   # only from its profile, never from its agent; a controller role with an agent and no profile
@@ -262,8 +294,9 @@ types:
       - {name: limits, type: conductor.config.Limits}
 
   # The conductor a session of the instance messages (story:instance-session-names): its own,
-  # `session_name` being `<session_prefix>-conductor` or `conductor`, when the instance names a
-  # `conductor` role; else the conductor of the file's `default` instance, which serves it,
+  # `session_name` being its director role's, `<session_prefix>-<role>` or `<role>` with the role
+  # as the file writes it (`<session_prefix>-conductor` for the old name), when the instance names
+  # a `director` (`conductor`) role (story:role-name-aliases); else the conductor of the file's `default` instance, which serves it,
   # `served_by` naming that instance; neither when no conductor serves it. Derived, never chosen:
   # a file may leave it out, and may write only that value.
   - name: conductor.config.ConductorSession
@@ -564,7 +597,8 @@ types:
 
   # The input of `conductor init` (story:first-run-seed), which writes the instance's records
   # directory skeleton — a git repository holding `NORTHSTAR.md`, `docs/handoff/<date>.md` with a
-  # first task, `rules.md` with one section per role, a `README.md`, the workspace file
+  # first task, `rules.md` with one section per role, headed by the role's name
+  # (`conductor.config.RoleName`: `Director`, `Lead`, `Maintainer`), a `README.md`, the workspace file
   # `.engineering/workspace.yaml` as `config workspace` writes it, and `decisions/`,
   # `dispatches/` and `charters/` — and commits it, refusing to overwrite any file. `instance` is
   # selected as for `config show`; a config file must name it.

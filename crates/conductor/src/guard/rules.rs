@@ -67,7 +67,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::{Instance, SessionPrefix};
+use conductor_model::config::{Instance, RoleName, SessionPrefix};
 use conductor_model::dispatch::Verdict;
 use serde_json::Value;
 
@@ -251,7 +251,7 @@ impl Places {
                 instance
                     .roles
                     .iter()
-                    .filter(|role| role.role == rules.role())
+                    .filter(|role| config::is_role(&role.role, rules.role_name()))
                     .flat_map(|role| role.read_only_tools.iter().cloned())
                     .collect()
             }),
@@ -288,6 +288,17 @@ impl Places {
     /// The instance itself.
     fn this(&self) -> Option<&Instance> {
         self.instances.first()
+    }
+
+    /// The names the director's session a controller of the instance messages may carry for this
+    /// release (`story:role-name-aliases`): [`Places::conductor_session`] under the old name
+    /// `conductor` and under `director`, the old one first, `<prefix>-conductor` and
+    /// `<prefix>-director`.
+    fn director_sessions(&self) -> Vec<String> {
+        let mut names = config::session_names_of(RoleName::Director, &self.conductor_session());
+        let old = config::old_role_word(RoleName::Director);
+        names.sort_by_key(|name| !name.ends_with(old));
+        names
     }
 
     /// The name of the conductor session a controller of the instance messages: the instance's
@@ -907,12 +918,18 @@ pub(super) enum Rules {
 }
 
 impl Rules {
-    /// The config role whose sessions this rule set decides.
-    pub(super) fn role(self) -> &'static str {
+    /// The config role whose sessions this rule set decides, under its name or its old name
+    /// (`story:role-name-aliases`).
+    pub(super) const fn role_name(self) -> RoleName {
         match self {
-            Self::Controller => config::CONTROLLER,
-            Self::Conductor => CONDUCTOR,
+            Self::Controller => RoleName::Lead,
+            Self::Conductor => RoleName::Director,
         }
+    }
+
+    /// The name of [`Rules::role_name`].
+    pub(super) const fn role(self) -> &'static str {
+        config::role_word(self.role_name())
     }
 }
 
@@ -1190,9 +1207,11 @@ impl Session<'_> {
     }
 
     /// A controller's SendMessage: to its instance's conductor session ([`Places::conductor_session`])
-    /// by name, ref or socket, or to an agent it started.
+    /// by name, ref or socket, under either name of the director's session for this release
+    /// ([`Places::director_sessions`]), or to an agent it started.
     fn controller_message(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
-        let conductor = self.places.conductor_session();
+        let names = self.places.director_sessions();
+        let conductor = names.join(" or ");
         let only = format!("a controller messages only {conductor}");
         let Some(to) = to else {
             return (
@@ -1210,18 +1229,21 @@ impl Session<'_> {
                 ),
             )
         };
-        if let Some(reference) = named(to, &conductor) {
+        if let Some((name, reference)) = names
+            .iter()
+            .find_map(|name| named(to, name).map(|reference| (name.as_str(), reference)))
+        {
             let same = |other: Option<&str>| match (reference, other) {
                 (Some(reference), Some(other)) => reference == other,
                 _ => true,
             };
             return match recipient {
-                Some(recipient) if !named(recipient, &conductor).is_some_and(same) => {
+                Some(recipient) if !named(recipient, name).is_some_and(same) => {
                     denied(&format!(" with recipient {recipient:?}"))
                 }
                 _ => (
                     Verdict::Allow,
-                    format!("SendMessage to {to:?}: a session named {conductor}"),
+                    format!("SendMessage to {to:?}: a session named {name}"),
                 ),
             };
         }
@@ -1235,7 +1257,9 @@ impl Session<'_> {
             );
         }
         match to.strip_prefix(SOCKET_SCHEME) {
-            Some(path) => self.socket(to, path, &conductor, &only, &|name, _| name == conductor),
+            Some(path) => self.socket(to, path, &conductor, &only, &|name, _| {
+                names.iter().any(|director| director == name)
+            }),
             None => denied(""),
         }
     }

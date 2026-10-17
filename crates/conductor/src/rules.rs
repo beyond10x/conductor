@@ -14,7 +14,9 @@
 //! of rows; `--brief` one line per item, `<n>. <first sentence>` ([`brief`]), so a session reads a
 //! section's titles and asks for an item whole with `--item` (`story:conductor-context-budget`). A number no item holds, or a heading the file does not hold, is refused on one line of
 //! standard error naming it, and nothing is printed; a heading's refusal names, on that line, every
-//! section heading the file has (`story:rules-section-names`).
+//! section heading the file has (`story:rules-section-names`). For one release a role's name
+//! and its old name read each other's heading, `director` a section headed `conductor`, with a
+//! note on standard error naming both (`story:role-name-aliases`, [`role_headings`]).
 
 use std::fs;
 use std::io::{self, Write as _};
@@ -22,6 +24,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
+use conductor_model::config::RoleName;
 use conductor_model::direction::{Rules, RulesRefusal, RulesRefused, RulesRow};
 use serde_json::{Value, json};
 
@@ -237,6 +240,32 @@ fn source(text: &str) -> Option<String> {
     Some(words.join(" "))
 }
 
+/// The headings, in lower case, besides the role's name and its old name, that a role's section
+/// of a `rules.md` written before the new names carries: the lead's, `conductor init` wrote it
+/// `Repository controller`.
+const OLD_HEADINGS: [(&str, RoleName); 2] = [
+    ("repository controller", RoleName::Lead),
+    ("repo-controller", RoleName::Lead),
+];
+
+/// The role `heading` names, in lower case: by the role's name, its old name, or a heading of
+/// [`OLD_HEADINGS`].
+fn heading_role(heading: &str) -> Option<RoleName> {
+    config::role_name(heading).or_else(|| {
+        OLD_HEADINGS
+            .iter()
+            .find(|(old, _)| *old == heading)
+            .map(|(_, role)| *role)
+    })
+}
+
+/// Whether the heading `heading` answers `--section wanted`, both in lower case: it reads
+/// `wanted`, or, for this release, both name one role (`story:role-name-aliases`).
+fn role_headings(wanted: &str, heading: &str) -> bool {
+    heading == wanted
+        || heading_role(wanted).is_some_and(|role| heading_role(heading) == Some(role))
+}
+
 /// The items `input` asks for, in the order it gives them.
 ///
 /// # Errors
@@ -280,9 +309,26 @@ pub fn select<'a>(items: &'a [Item], sections: &[String], input: &Rules) -> Resu
                 .filter(|item| {
                     item.headings
                         .iter()
-                        .any(|heading| heading.to_lowercase() == wanted)
+                        .any(|heading| role_headings(&wanted, &heading.to_lowercase()))
                 })
                 .collect();
+            // A heading read under the role's other name is noted, once each.
+            let mut noted: Vec<&str> = Vec::new();
+            for heading in chosen.iter().flat_map(|item| &item.headings) {
+                let lower = heading.to_lowercase();
+                if lower != wanted
+                    && role_headings(&wanted, &lower)
+                    && !noted.contains(&heading.as_str())
+                {
+                    noted.push(heading);
+                    let role = heading_role(&wanted).map_or("", config::role_word);
+                    eprintln!(
+                        "conductor: {COMMAND}: note: --section {} read the heading {heading:?}, \
+                         a name of the role {role}; the old names are read for this release",
+                        section.trim()
+                    );
+                }
+            }
             if chosen.is_empty() {
                 refuse(&RulesRefused {
                     refusal: RulesRefusal::RuleSectionNotFound,

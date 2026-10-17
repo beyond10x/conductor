@@ -68,7 +68,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
     CommandWord, ConfinementProvider, Harness as RoleHarness, Instance, Limits, Network, Role,
-    SessionName,
+    RoleName, SessionName,
 };
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
@@ -667,12 +667,13 @@ fn outside_records(instance: &Instance, checkout: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The `controller` role, with its profile, settings and model, each file checked to be one.
+/// The `lead` role, or one under its old name `controller` (`story:role-name-aliases`), with its
+/// profile, settings and model, each file checked to be one.
 fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRefusal, String)> {
     let Some(role) = instance
         .roles
         .iter()
-        .find(|role| role.role == config::CONTROLLER)
+        .find(|role| config::is_role(&role.role, RoleName::Lead))
     else {
         return Err((
             SpawnRefusal::NoControllerRole,

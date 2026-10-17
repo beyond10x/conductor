@@ -883,6 +883,119 @@ fn session_stop_stops_through_the_provider_that_started_it() {
     assert_eq!(case.record("conductor"), None, "the measurement is removed");
 }
 
+/// `story:role-name-aliases`, item 3: `--role director` and `--role conductor` start the same
+/// role, the file's `conductor`, under its session name as today; the old name is noted on
+/// standard error, the new one is not. `--role maintainer` starts the file's `conductor-dev`.
+#[test]
+fn director_and_conductor_start_the_same_role_the_old_name_with_a_note() {
+    for (name, role, noted) in [
+        ("role-director", "director", false),
+        ("role-conductor", "conductor", true),
+    ] {
+        let case = Case::new(name, STRICT);
+        let output = case.start(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "started conductor: provider systemd, unit conductor-conductor.service, session \
+             fake-conductor\n",
+            "{role}"
+        );
+        let logged = calls(&case.fake());
+        assert_eq!(
+            logged[0]["request"]["cwd"],
+            case.records().display().to_string()
+        );
+        assert_eq!(logged[1]["prompt"], CONDUCTOR_PROMPT, "{role}");
+        let note = stderr(&output);
+        assert_eq!(
+            note.contains("--role conductor is the old name of director"),
+            noted,
+            "{role}: {}",
+            describe(&output)
+        );
+    }
+    let case = Case::new("role-maintainer", STRICT);
+    let output = case.start("maintainer");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).starts_with("started conductor-dev: "),
+        "{}",
+        describe(&output)
+    );
+    assert!(stderr(&output).is_empty(), "{}", describe(&output));
+}
+
+/// `story:role-name-aliases`, item 3: a file that writes the new name `director` starts its
+/// session as `director`, with the agent `conductor` (the adapter's file name for this release);
+/// while a session still named `conductor` lives, start refuses it as running, and `session stop
+/// --role director` and `--role conductor` stop that session as the director's.
+#[test]
+fn a_director_finds_a_live_session_still_named_conductor() {
+    let case = Case::new("director-named", STRICT);
+    let config = fs::read_to_string(case.config()).expect("read the config");
+    write(
+        &case.config(),
+        &config.replace("{role: conductor,", "{role: director,"),
+    );
+    let output = case.start("director");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).starts_with("started director: "),
+        "{}",
+        describe(&output)
+    );
+    let start = calls(&case.fake())
+        .into_iter()
+        .find(|call| call["call"] == "start")
+        .expect("a start");
+    let args = start["args"].as_array().expect("args");
+    let agent = args
+        .iter()
+        .position(|arg| arg == "--agent")
+        .expect("an --agent");
+    assert_eq!(args[agent + 1], "conductor", "{args:?}");
+
+    for role in ["director", "conductor"] {
+        let case = Case::new(&format!("director-stops-{role}"), STRICT);
+        let config = fs::read_to_string(case.config()).expect("read the config");
+        write(
+            &case.config(),
+            &config.replace("{role: conductor,", "{role: director,"),
+        );
+        case.agents(&json!([
+            {"id": "s-old", "name": "conductor", "cwd": case.records(), "pid": 4242,
+             "kind": "background", "status": "idle"}
+        ]));
+        let output = case.start("director");
+        assert_refused(&output, "session start", "SessionRunning");
+        assert!(stderr(&output).contains("s-old"), "{}", describe(&output));
+        let output = case.stop(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "stopped conductor (s-old)\n",
+            "{role}"
+        );
+        let stops: Vec<Value> = calls(&case.fake())
+            .into_iter()
+            .filter(|call| call["call"] == "stop")
+            .collect();
+        assert_eq!(stops.len(), 1, "{role}: {stops:#?}");
+        assert_eq!(stops[0]["session_id"], "s-old", "{role}");
+    }
+}
+
 /// `session stop` refuses a role it does not stop and a role with no live session, stopping
 /// nothing.
 #[test]

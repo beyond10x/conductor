@@ -107,8 +107,9 @@ use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
     Confinement, ConfinementMode, ConfinementProvider, Controllers, ForgeSecret, Gibibytes,
     GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network,
-    Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SessionName, SessionPrefix,
-    Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember, Writable,
+    Report, RepositoryRule, Retention, Role, RoleName, SecretSource, SecretSync, SessionName,
+    SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember,
+    Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -140,15 +141,101 @@ pub const DEFAULT_FILE: &str = ".b10x/conductor/conductor.yaml";
 pub const GITLAB_HOST: &str = "gitlab.com";
 
 /// The session roles and the model each runs on today: `claude … --model opus` in `Taskfile.yml`
-/// (`conductor`, `conductor-dev`) and in `.agents/conductor.md` (a controller).
-const ROLES: [&str; 3] = ["conductor", "conductor-dev", "controller"];
+/// (`conductor`, `conductor-dev`) and in `.agents/conductor.md` (a controller). For this release
+/// they keep the old names (`conductor.config.RoleName`): the start tasks and the watch's context
+/// lines select them by these names (`story:role-name-aliases`), until `story:role-names-in-files`
+/// renames those.
+const ROLES: [&str; 3] = ["conductor", "conductor-dev", CONTROLLER];
 
-/// The role of conductor's own session.
-const CONDUCTOR_ROLE: &str = "conductor";
+/// The role of the instance's own session, which runs the instance (`conductor.config.RoleName`).
+pub const DIRECTOR: &str = "director";
+
+/// The role of the session that develops conductor itself.
+pub const MAINTAINER: &str = "maintainer";
 
 /// The role whose sessions are named per repository, `<session_prefix>-<repository>`, not after
 /// the role (`story:instance-session-names`).
+pub const LEAD: &str = "lead";
+
+/// The old name of the lead role, which the controller's session requests still carry.
 pub const CONTROLLER: &str = "controller";
+
+/// Each role's name as the file writes it, with the role it names: its own name, or its old
+/// name, read for one release (`conductor.config.RoleName`, `story:role-name-aliases`).
+const ROLE_NAMES: [(&str, RoleName); 6] = [
+    (DIRECTOR, RoleName::Director),
+    (MAINTAINER, RoleName::Maintainer),
+    (LEAD, RoleName::Lead),
+    ("conductor", RoleName::Director),
+    ("conductor-dev", RoleName::Maintainer),
+    (CONTROLLER, RoleName::Lead),
+];
+
+/// The role `name` names, by its name or its old name; `None` for a name of neither.
+#[must_use]
+pub fn role_name(name: &str) -> Option<RoleName> {
+    ROLE_NAMES
+        .iter()
+        .find(|(written, _)| *written == name)
+        .map(|(_, role)| *role)
+}
+
+/// The name of `role` (`conductor.config.RoleName`).
+#[must_use]
+pub const fn role_word(role: RoleName) -> &'static str {
+    match role {
+        RoleName::Director => DIRECTOR,
+        RoleName::Maintainer => MAINTAINER,
+        RoleName::Lead => LEAD,
+    }
+}
+
+/// The old name of `role`, read for one release.
+#[must_use]
+pub const fn old_role_word(role: RoleName) -> &'static str {
+    match role {
+        RoleName::Director => "conductor",
+        RoleName::Maintainer => "conductor-dev",
+        RoleName::Lead => CONTROLLER,
+    }
+}
+
+/// Whether `name` names `role`, by its name or its old name.
+#[must_use]
+pub fn is_role(name: &str, role: RoleName) -> bool {
+    role_name(name) == Some(role)
+}
+
+/// The note on `name` when it is a role's old name: `<old> is the old name of <role>`; `None`
+/// for a role's own name and for a name of no role.
+#[must_use]
+pub fn old_name_note(name: &str) -> Option<String> {
+    role_name(name)
+        .filter(|role| old_role_word(*role) == name)
+        .map(|role| format!("{name} is the old name of {}", role_word(role)))
+}
+
+/// The two names a session of `role` may carry for this release, `name` being the one it is
+/// derived under: `name` itself and, where `name` ends in the role's name or its old name, the
+/// same name ending in the other, so a session still named `<session_prefix>-conductor` is the
+/// director's under either (`story:role-name-aliases`).
+#[must_use]
+pub fn session_names_of(role: RoleName, name: &str) -> Vec<String> {
+    let mut names = vec![name.to_owned()];
+    let (new, old) = (role_word(role), old_role_word(role));
+    for (from, to) in [(old, new), (new, old)] {
+        if let Some(base) = name.strip_suffix(from)
+            && (base.is_empty() || base.ends_with('-'))
+        {
+            let other = format!("{base}{to}");
+            if !names.contains(&other) {
+                names.push(other);
+            }
+            break;
+        }
+    }
+    names
+}
 
 /// The characters of a `conductor.config.SessionPrefix`, the alphabet `spec/domains/config.yaml`
 /// declares for it.
@@ -663,15 +750,22 @@ impl Active {
     }
 }
 
-/// Whether `instance` names a `conductor` role: its own conductor. One that names none is served
-/// by the conductor of the file's `default` instance (`.agents/conductor.md`, More than one
-/// instance).
+/// Whether `instance` names a `director` role, or one under its old name `conductor`: its own
+/// conductor. One that names none is served by the conductor of the file's `default` instance
+/// (`.agents/conductor.md`, More than one instance).
 #[must_use]
 pub fn has_conductor(instance: &Instance) -> bool {
+    director(instance).is_some()
+}
+
+/// The `director` role of `instance`, under its name or its old name `conductor`
+/// (`story:role-name-aliases`).
+#[must_use]
+pub fn director(instance: &Instance) -> Option<&Role> {
     instance
         .roles
         .iter()
-        .any(|role| role.role == CONDUCTOR_ROLE)
+        .find(|role| is_role(&role.role, RoleName::Director))
 }
 
 static ACTIVE: OnceLock<Active> = OnceLock::new();
@@ -996,6 +1090,36 @@ fn pin_problems(config: &Config) -> (Vec<Problem>, Vec<Problem>) {
     (problems, notes)
 }
 
+/// Each role the config file `file` writes under its old name, by its `role` path, as a note: the role
+/// reads as the new one for one release (`conductor.config.RoleName`, `story:role-name-aliases`).
+///
+/// Only a role the file writes is noted: the built-in roles of an instance that writes none keep
+/// the old names for this release without a note, the file naming no role.
+fn old_role_names(file: &Path) -> Vec<Problem> {
+    let Some(written) = fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_yaml::from_str::<Value>(&text).ok())
+    else {
+        return Vec::new();
+    };
+    let mut notes = Vec::new();
+    let instances = written["instances"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    for (index, instance) in instances.iter().enumerate() {
+        let roles = instance["roles"].as_array().map_or(&[][..], Vec::as_slice);
+        for (at, role) in roles.iter().enumerate() {
+            if let Some(note) = role["role"].as_str().and_then(old_name_note) {
+                notes.push(Problem {
+                    path: format!("instances[{index}].roles[{at}].role"),
+                    message: format!("{note}, read as it for this release"),
+                });
+            }
+        }
+    }
+    notes
+}
+
 /// The host directory's name beside the config file.
 pub const HOST_DIR: &str = "host";
 
@@ -1093,35 +1217,49 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         secret_syncs: Vec::new(),
         // A Gates policy is named only by a user (story:gates-hooks-fresh).
         gates_policy: None,
-        // Its own conductor, `conductor` (story:instance-session-names).
+        // Its own conductor, the built-in director role's session, under the role's old name for
+        // this release (story:instance-session-names, story:role-name-aliases).
         conductor: ConductorSession {
             served_by: None,
-            session_name: Some(SessionName(CONDUCTOR_ROLE.to_owned())),
+            session_name: Some(SessionName(old_role_word(RoleName::Director).to_owned())),
         },
     }
 }
 
 /// The conductor that serves `instance` (`story:instance-session-names`): its own when it names
-/// a `conductor` role; else the conductor of `default`, the file's default instance, when that is
-/// another instance and names one; else none.
+/// a `director` role, its session named after the role as the file writes it, so a file that
+/// writes the old name `conductor` keeps `<session_prefix>-conductor` (`story:role-name-aliases`);
+/// else the conductor of `default`, the file's default instance, when that is another instance
+/// and names one; else none.
 #[must_use]
 pub fn conductor_session(instance: &Instance, default: Option<&Instance>) -> ConductorSession {
-    if has_conductor(instance) {
+    if let Some(role) = director(instance) {
         return ConductorSession {
             served_by: None,
-            session_name: Some(session_name(instance, CONDUCTOR_ROLE)),
+            session_name: Some(director_session(instance, role)),
         };
     }
-    match default.filter(|default| default.name != instance.name && has_conductor(default)) {
-        Some(default) => ConductorSession {
+    match default
+        .filter(|default| default.name != instance.name)
+        .and_then(|default| director(default).map(|role| (default, role)))
+    {
+        Some((default, role)) => ConductorSession {
             served_by: Some(default.name.clone()),
-            session_name: Some(session_name(default, CONDUCTOR_ROLE)),
+            session_name: Some(director_session(default, role)),
         },
         None => ConductorSession {
             served_by: None,
             session_name: None,
         },
     }
+}
+
+/// The session name of `role`, the director role of `instance`: the role's own, else the one
+/// derived for it.
+fn director_session(instance: &Instance, role: &Role) -> SessionName {
+    role.session_name
+        .clone()
+        .unwrap_or_else(|| session_name(instance, &role.role))
 }
 
 /// The `dashboard_port` of the instance at `index` in the file when it writes none
@@ -1170,12 +1308,12 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
 
 /// The places a session of the role `role` writes when the file names none
 /// (`story:session-envelope-model`): every place of [`PLACES`] but the records, and for the
-/// `conductor` role, whose session keeps them, the records too.
+/// `director` role (`conductor`), whose session keeps them, the records too.
 #[must_use]
 pub fn default_writable(role: &str) -> Vec<Writable> {
     PLACES
         .iter()
-        .filter(|place| **place != RECORDS_PLACE || role == CONDUCTOR_ROLE)
+        .filter(|place| **place != RECORDS_PLACE || is_role(role, RoleName::Director))
         .map(|place| Writable((*place).to_owned()))
         .collect()
 }
@@ -1215,15 +1353,16 @@ fn named(prefix: Option<&SessionPrefix>, word: &str) -> SessionName {
     })
 }
 
-/// The `session_name` of the role `role` under `prefix`: [`named`] after the role, and none for
-/// the controller role, whose sessions are named per repository.
+/// The `session_name` of the role `role` under `prefix`: [`named`] after the role as the file
+/// writes it, an old name included (`story:role-name-aliases`), and none for the lead role
+/// (`controller`), whose sessions are named per repository.
 fn role_session_name(prefix: Option<&SessionPrefix>, role: &str) -> Option<SessionName> {
-    (role != CONTROLLER).then(|| named(prefix, role))
+    (!is_role(role, RoleName::Lead)).then(|| named(prefix, role))
 }
 
 /// The fixed session names each instance of the file without a `session_prefix` keeps, by its
-/// index, as the file writes them: its roles' names but the controller's (every built-in role's
-/// when it writes no `roles`), and `conductor` and `conductor-dev`, which the start tasks use.
+/// index, as the file writes them: its roles' names but the lead's (every built-in role's when it
+/// writes no `roles`), and `conductor` and `conductor-dev`, which the start tasks use.
 fn bare_names(items: &[Value]) -> Vec<(usize, String)> {
     let mut names = Vec::new();
     for (index, item) in items.iter().enumerate() {
@@ -1239,8 +1378,11 @@ fn bare_names(items: &[Value]) -> Vec<(usize, String)> {
         };
         let fixed = roles
             .into_iter()
-            .chain([CONDUCTOR_ROLE.to_owned(), format!("{CONDUCTOR_ROLE}-dev")])
-            .filter(|role| role != CONTROLLER);
+            .chain(
+                [RoleName::Director, RoleName::Maintainer]
+                    .map(|role| old_role_word(role).to_owned()),
+            )
+            .filter(|role| !is_role(role, RoleName::Lead));
         for name in fixed {
             if !names.contains(&(index, name.clone())) {
                 names.push((index, name));
@@ -2541,7 +2683,9 @@ impl Reader<'_> {
         // A controller starts with `--setting-sources project,local`, which loads no user-level
         // agent, so a controller role that names an agent names its profile as well
         // (`story:agent-needs-user-setting-source`).
-        if role.as_deref() == Some(CONTROLLER)
+        if role
+            .as_deref()
+            .is_some_and(|role| is_role(role, RoleName::Lead))
             && Self::get(map, "agent").is_some()
             && Self::get(map, "profile").is_none()
         {
@@ -3524,8 +3668,13 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     }
     // No role's settings pin another instance (`story:instance-isolation`); one that pins none is
     // a note, since its sessions start with it pinned.
-    let (mut problems, notes) = pin_problems(&loaded.config);
+    let (mut problems, mut notes) = pin_problems(&loaded.config);
+    // An old role name reads as the new one for one release, and is noted
+    // (`story:role-name-aliases`).
     let file = physical(&environment.cwd.join(&loaded.path));
+    if loaded.read {
+        notes.extend(old_role_names(&file));
+    }
     let home = environment.home().context(WHAT)?;
     if loaded.read {
         // No instance without a prefix, and none holding what another file's holds

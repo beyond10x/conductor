@@ -82,7 +82,10 @@ types:
   # nothing and opens no store. `item` is a comma-separated list of item numbers, printed in the
   # order given wherever they sit in the file; `section` is a heading, matched without regard to
   # case, and prints every item under each heading of that text, its subsections' included, in
-  # file order; without either it prints every item, and both together are refused. `format` is
+  # file order. A role's name and its old name (`conductor.config.RoleName`) match each other's
+  # heading for one release, `director` a heading `conductor`, `maintainer` one `conductor-dev`
+  # and `lead` one `controller` or `repository controller`, and a heading matched by the other
+  # name is noted on standard error (story:role-name-aliases); without either it prints every item, and both together are refused. `format` is
   # text (the items verbatim, one blank line between two) or json (a list of `RulesRow`). A number
   # no item holds, or a heading the file does not hold, is refused (`RulesRefused`) and nothing is
   # printed. `brief` prints, instead of each item verbatim, one line per item: its number, `. ` and

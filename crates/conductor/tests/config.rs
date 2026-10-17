@@ -246,6 +246,31 @@ fn tokens(shown: &Value) -> u64 {
     }
 }
 
+/// Asserts `output`'s standard error holds exactly `count` lines, each the note `config validate`
+/// gives a role written under its old name (`story:role-name-aliases`), and nothing else.
+fn assert_only_old_name_notes(output: &Output, count: usize) {
+    let text = stderr(output);
+    let notes: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            line.contains(": note: instances[")
+                && [
+                    ".role: conductor is the old name of director, ",
+                    ".role: conductor-dev is the old name of maintainer, ",
+                    ".role: controller is the old name of lead, ",
+                ]
+                .iter()
+                .any(|note| line.contains(note))
+        })
+        .collect();
+    assert_eq!(
+        (notes.len(), text.lines().count()),
+        (count, count),
+        "only the old role names' notes: {}",
+        describe(output)
+    );
+}
+
 fn path_text(path: &Path) -> String {
     path.to_str().expect("a UTF-8 path").to_owned()
 }
@@ -261,11 +286,7 @@ fn validate_passes_on_the_story_example() {
     let file = fixture("example.yaml");
     let output = case.with_file(&file, &["config", "validate"]);
     assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
-    assert!(
-        stderr(&output).is_empty(),
-        "a valid file has no problem: {}",
-        describe(&output)
-    );
+    assert_only_old_name_notes(&output, 2);
 }
 
 /// The repository's own `conductor.example.yaml` stays a valid config file: it is the file a
@@ -284,7 +305,9 @@ fn validate_passes_on_the_repository_s_example_file() {
         "validate says the file is valid: {}",
         describe(&output)
     );
-    assert!(stderr(&output).is_empty(), "{}", describe(&output));
+    // It writes the role names the start tasks select, conductor and conductor-dev, until the
+    // tasks are renamed (story:role-names-in-files): one note per old name, nothing else.
+    assert_only_old_name_notes(&output, 6);
 }
 
 #[test]
@@ -638,7 +661,7 @@ fn the_session_profile_keys_validate_and_show_as_written() {
     );
     let validated = case.with_file(&file, &["config", "validate"]);
     assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
-    assert!(stderr(&validated).is_empty(), "{}", describe(&validated));
+    assert_only_old_name_notes(&validated, 2);
 
     let shown = case.show(&file, &[]);
     let one = instance(&shown);
@@ -1037,6 +1060,149 @@ fn a_role_s_profile_is_a_path_shown_absolute_and_refused_when_relative() {
 /// `controller` role the file writes with an `agent` and no `profile` is refused by the
 /// profile's YAML path, and the refusal says why; one with a profile validates, with or without
 /// an agent, and so does one with neither, as the built-in roles are.
+/// `story:role-name-aliases`, item 2: a file that writes the old role names `conductor`,
+/// `conductor-dev` and `controller` validates, exit 0, with a note per old name naming its
+/// `role` path and the new name; `config show` prints each role as written and keeps the session
+/// names derived from it, so a running instance's sessions keep their names for this release.
+#[test]
+fn the_old_role_names_validate_with_a_note_by_their_path_and_keep_their_session_names() {
+    let case = Case::new("old-role-names");
+    let file = case.write(
+        "old.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: conductor, harness: claude, model: opus}\n\
+             \x20     - {role: conductor-dev, harness: claude, model: opus}\n\
+             \x20     - {role: controller, harness: claude, model: opus}\n",
+        ),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    let notes = stderr(&validated);
+    for (at, old, new) in [
+        (0, "conductor", "director"),
+        (1, "conductor-dev", "maintainer"),
+        (2, "controller", "lead"),
+    ] {
+        let wanted = format!("note: instances[0].roles[{at}].role: {old} is the old name of {new}");
+        assert!(
+            notes.lines().any(|line| line.contains(&wanted)),
+            "no note `{wanted}`: {}",
+            describe(&validated)
+        );
+    }
+    assert_eq!(notes.lines().count(), 3, "{}", describe(&validated));
+
+    let shown = case.show(&file, &[]);
+    let one = instance(&shown);
+    let roles: Vec<(&Value, &Value)> = one["roles"]
+        .as_array()
+        .expect("roles")
+        .iter()
+        .map(|role| (&role["role"], &role["session_name"]))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            (&Value::from("conductor"), &Value::from("one-conductor")),
+            (
+                &Value::from("conductor-dev"),
+                &Value::from("one-conductor-dev")
+            ),
+            (&Value::from("controller"), &Value::Null),
+        ],
+        "{shown:#}"
+    );
+    assert_eq!(
+        one["conductor"],
+        serde_json::json!({"served_by": null, "session_name": "one-conductor"}),
+        "{shown:#}"
+    );
+}
+
+/// `story:role-name-aliases`, items 1 and 2: the new role names validate with no note, each
+/// session named after its role, `<session_prefix>-director` and `<session_prefix>-maintainer`,
+/// and the lead's per repository; a lead with an agent and no profile is refused as a controller
+/// is; and a file that writes no roles keeps the built-in roles' old names for this release.
+#[test]
+fn the_new_role_names_validate_without_a_note_and_the_defaults_keep_the_old_ones() {
+    let case = Case::new("new-role-names");
+    let file = case.write(
+        "new.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: director, harness: claude, model: opus}\n\
+             \x20     - {role: maintainer, harness: claude, model: opus}\n\
+             \x20     - {role: lead, harness: claude, model: opus, profile: ~/lead.md}\n",
+        ),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    assert!(stderr(&validated).is_empty(), "{}", describe(&validated));
+    let shown = case.show(&file, &[]);
+    let one = instance(&shown);
+    let names = |one: &Value| -> Vec<(Value, Value)> {
+        one["roles"]
+            .as_array()
+            .expect("roles")
+            .iter()
+            .map(|role| (role["role"].clone(), role["session_name"].clone()))
+            .collect()
+    };
+    let expected = vec![
+        (Value::from("director"), Value::from("one-director")),
+        (Value::from("maintainer"), Value::from("one-maintainer")),
+        (Value::from("lead"), Value::Null),
+    ];
+    assert_eq!(names(one), expected, "{shown:#}");
+    assert_eq!(
+        one["conductor"],
+        serde_json::json!({"served_by": null, "session_name": "one-director"}),
+        "{shown:#}"
+    );
+    // The director's session keeps its records writable, as conductor's did.
+    assert!(
+        one["roles"][0]["writable"]
+            .as_array()
+            .expect("writable")
+            .contains(&Value::from("records")),
+        "{shown:#}"
+    );
+
+    // Without roles, the built-in three keep the old names for this release: the start tasks and
+    // the watch's context lines select them by those names until story:role-names-in-files
+    // renames them, so an instance that writes no roles keeps its sessions; it gets no note, its
+    // file writing no role.
+    let defaults = case.write("defaults.yaml", &one_instance(""));
+    let validated = case.with_file(&defaults, &["config", "validate"]);
+    assert!(stderr(&validated).is_empty(), "{}", describe(&validated));
+    let shown = case.show(&defaults, &[]);
+    assert_eq!(
+        names(instance(&shown)),
+        vec![
+            (Value::from("conductor"), Value::from("one-conductor")),
+            (
+                Value::from("conductor-dev"),
+                Value::from("one-conductor-dev")
+            ),
+            (Value::from("controller"), Value::Null),
+        ],
+        "{shown:#}"
+    );
+
+    let agent_only = case.write(
+        "lead-agent.yaml",
+        &one_instance(
+            "\x20   roles: [{role: lead, harness: claude, model: opus, agent: repo-controller}]\n",
+        ),
+    );
+    let problems = refused(&case, &agent_only);
+    assert!(
+        problems.contains("instances[0].roles[0].profile: "),
+        "a lead with an agent and no profile is refused: {problems}"
+    );
+}
+
 #[test]
 fn a_controller_role_with_an_agent_and_no_profile_is_refused() {
     let case = Case::new("controller-agent-without-profile");
@@ -2649,7 +2815,7 @@ fn a_written_confinement_and_role_envelope_show_as_written() {
     );
     let validated = case.with_file(&file, &["config", "validate"]);
     assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
-    assert!(stderr(&validated).is_empty(), "{}", describe(&validated));
+    assert_only_old_name_notes(&validated, 2);
 
     let shown = case.show(&file, &[]);
     let one = instance(&shown);

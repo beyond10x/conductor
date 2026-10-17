@@ -126,8 +126,8 @@ Every command takes these, before or after its name.
 | [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
-| [`conductor session start`](#conductor-session-start) | Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
-| [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session |
+| [`conductor session start`](#conductor-session-start) | Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
+| [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session |
 | [`conductor host`](#conductor-host) | The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk |
 | [`conductor host record-reclaim`](#conductor-host-record-reclaim) | Record a reclaim run |
 | [`conductor host record-peak`](#conductor-host-record-peak) | Record a run's peak |
@@ -1610,7 +1610,7 @@ Usage: conductor session leases [OPTIONS]
 
 ## `conductor session start`
 
-Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
 
 ```text
 Usage: conductor session start [OPTIONS]
@@ -1618,11 +1618,11 @@ Usage: conductor session start [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
+| `--role <ROLE>` | no | none | The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release |
 
 ## `conductor session stop`
 
-Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
 
 ```text
 Usage: conductor session stop [OPTIONS]
@@ -1630,7 +1630,7 @@ Usage: conductor session stop [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
+| `--role <ROLE>` | no | none | The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release |
 
 ## `conductor host`
 

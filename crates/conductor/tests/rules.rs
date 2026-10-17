@@ -323,6 +323,54 @@ fn brief_prints_each_item_s_number_and_first_sentence_on_one_line() {
     );
 }
 
+/// `story:role-name-aliases`, item 5: for one release a role's new name reads the section its old
+/// name heads, and the old name the new one's, each with a note on standard error naming the
+/// heading it read; the heading's own name reads it with no note.
+#[test]
+fn a_role_s_new_name_reads_the_section_its_old_name_heads_with_a_note() {
+    let case = Case::new("role-names");
+    let conductor = joined(&[ITEM_1, ITEM_43, ITEM_2, ITEM_51, ITEM_102]);
+    let controller = joined(&[ITEM_49, "3. Report `started` before the first change.\n"]);
+    for (section, items, heading) in [
+        ("director", &conductor, "\"Conductor\""),
+        ("Director", &conductor, "\"Conductor\""),
+        ("lead", &controller, "\"Repository controller\""),
+    ] {
+        let output = case.show(&["--section", section]);
+        assert!(output.status.success(), "{section}: {}", describe(&output));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            items.as_str(),
+            "{section}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("note:") && stderr.contains(heading) && stderr.contains(section),
+            "{section}: a note names the heading it read: {}",
+            describe(&output)
+        );
+    }
+    let output = case.show(&["--section", "conductor"]);
+    assert!(
+        output.stderr.is_empty(),
+        "the heading's own name: {}",
+        describe(&output)
+    );
+
+    // A file written under the new names reads under the old ones too.
+    let text = fs::read_to_string(case.records().join("rules.md")).expect("read rules.md");
+    fs::write(
+        case.records().join("rules.md"),
+        text.replace("## Conductor", "## Director")
+            .replace("### Conductor", "### Director")
+            .replace("## Repository controller", "## Lead"),
+    )
+    .expect("write rules.md");
+    assert_eq!(case.ok(&["--section", "conductor"]), conductor);
+    assert_eq!(case.ok(&["--section", "controller"]), controller);
+    assert_eq!(case.ok(&["--section", "director"]), conductor);
+}
+
 #[test]
 fn it_reads_rules_md_only_and_creates_nothing() {
     let case = Case::new("reads-only");
