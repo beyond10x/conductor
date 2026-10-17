@@ -1671,6 +1671,7 @@ pub fn escalate(host: &Path, state: &Path, shortfall: &Shortfall<'_>) -> Result<
             recommendation: Some(recommendation),
             raised_at: Some(shortfall.at.0.clone()),
             blocker: None,
+            classification_rule: None,
             input_json: None,
         },
     )?;

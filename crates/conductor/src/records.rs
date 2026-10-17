@@ -48,7 +48,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::cli::RecordsCheckArgs;
 use crate::config;
-use crate::decide::{class_name, decider_name};
+use crate::decide::{class_name, decider_name, rule_name};
 
 /// The directory of the dispatch log under the records directory.
 pub const DISPATCHES: &str = "dispatches";
@@ -85,7 +85,7 @@ const DISPATCH_REQUIRED: [&str; 3] = ["at", "event", "repo"];
 
 /// The keys a line of the decision log may hold: the fields of `conductor.decision.DecisionLogLine`
 /// (`spec/domains/decision.yaml`), in its order.
-pub const DECISION_KEYS: [&str; 17] = [
+pub const DECISION_KEYS: [&str; 20] = [
     "at",
     "event",
     "repo",
@@ -103,6 +103,9 @@ pub const DECISION_KEYS: [&str; 17] = [
     "blocker",
     "decision_id",
     "escalation_class",
+    "classification_rule",
+    "decider_name",
+    "prompt_sha256",
 ];
 
 /// The keys every line of the decision log holds.
@@ -221,6 +224,9 @@ pub fn decision_line(
         blocker: None,
         decision_id: None,
         escalation_class: None,
+        classification_rule: None,
+        decider_name: None,
+        prompt_sha256: None,
     })
 }
 
@@ -285,6 +291,17 @@ pub fn decision_object(line: &DecisionLogLine) -> Map<String, Value> {
         &mut object,
         "escalation_class",
         line.escalation_class.map(class_name),
+    );
+    put(
+        &mut object,
+        "classification_rule",
+        line.classification_rule.map(rule_name),
+    );
+    put(&mut object, "decider_name", line.decider_name.clone());
+    put(
+        &mut object,
+        "prompt_sha256",
+        line.prompt_sha256.as_ref().map(|hash| hash.0.clone()),
     );
     object
 }
