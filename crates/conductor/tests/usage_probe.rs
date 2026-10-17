@@ -616,9 +616,10 @@ fn doctor_reports_the_usage_watcher_running_or_not() {
 
     systemctl("active", 0);
     assert_eq!(doctor(&config), ["usage watcher: rotator.service running"]);
+    // Doctor also asks after the instance's run unit (`story:run-daemon`), after the watcher.
     assert_eq!(
         fs::read_to_string(&calls).expect("systemctl was asked"),
-        "--user is-active rotator.service\n"
+        "--user is-active rotator.service\n--user is-active conductor_acme-run.service\n"
     );
 
     systemctl("inactive", 3);

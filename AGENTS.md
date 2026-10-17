@@ -13,10 +13,10 @@ fixes in waves.
 
 ## Who reads this
 
-- **The conductor session** (`task conductor:start`). It runs one instance. Profile:
-  [`.agents/conductor.md`](.agents/conductor.md).
+- **`conductor run`**, a process and no session, runs one instance's loop
+  ([`docs/design/conductor-run.md`](docs/design/conductor-run.md)); the conductor profile is retired.
 - **The conductor-dev session** (`task dev:start`). It develops conductor: code, specification,
-  plan, design, profiles; it installs the binary and restarts conductor. Profile:
+  plan, design, profiles; it installs the binary and restarts the loop. Profile:
   [`.agents/conductor-dev.md`](.agents/conductor-dev.md). Role: design § 12.
 - **Any agent changing this repository.**
 
@@ -41,7 +41,7 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | `crates/conductor-docs/` | the documentation generator: reference pages, status page, site provenance |
 | `website/` | the documentation site (Docusaurus on the shared Docs System); `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json` are generated |
 | `docs/waves/` | one page per wave: selection, units, outcome |
-| `.agents/` | the generic profiles: `conductor.md`, `conductor-dev.md`, `repo-controller.md` |
+| `.agents/` | the generic profiles: `conductor-dev.md`, `repo-controller.md` |
 | `.claude/agents/` | Claude Code adapters, one per profile; each keeps the agent frontmatter and points at its `.agents/` file |
 | `.claude/conductor-settings.json`, `.claude/controller-settings.json` | the settings conductor and each controller start with; both wire the guard as a PreToolUse hook |
 | `conductor.example.yaml` | an example config file |
@@ -68,7 +68,7 @@ Each session commits only the files it writes, with a pathspec.
 | `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
 | `task install` | `cargo install --path crates/conductor --locked`, then `task profiles` |
-| `task profiles` | the three `.agents/` profiles into `~/.b10x/conductor/profiles/`, which the instance's roles start from; after a release archive is installed, run it from that release's checkout |
+| `task profiles` | the two `.agents/` profiles into `~/.b10x/conductor/profiles/`, which the instance's roles start from; after a release archive is installed, run it from that release's checkout |
 
 A pull request merges when its `task check` job (`.github/workflows/check.yml`) and its Gates job
 (`common / Security and privacy`, which scans with the organization's policy; the `task check` job
@@ -145,7 +145,7 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 - This repository is public. Committed text (code, docs, wave pages, commit messages) names no
   private repository, session or decision id, host detail or person.
 - Record a story's gate on the story: `aep plan artifact evidence <id> --kind test_result`.
-- Fast-forward the product checkout before `task conductor:restart`: the roles read their profile
+- Fast-forward the product checkout before a session starts from it: the roles read their profile
   from it.
 - `cargo clean` a tree's `target/` once its gate has run.
 
@@ -194,9 +194,9 @@ a day, without asking: several waves may go into one release.
 
 ## Sessions
 
-Two background sessions belong to an instance: conductor (runs the instance, in its records
-directory) and conductor-dev (develops conductor, in this repository), named
-`<session_prefix>-conductor` and `<session_prefix>-conductor-dev`. The prefix is required and
+The instance's loop is `conductor run`, no session; a conductor session (in its records
+directory) is started only by hand, and conductor-dev develops conductor in this repository; they
+are named `<session_prefix>-conductor` and `<session_prefix>-conductor-dev`. The prefix is required and
 unique on the host (`conductor config validate` checks it against the host registry,
 `~/.b10x/conductor/host/instances.json`); an instance written before that keeps `conductor` and
 `conductor-dev` until `conductor config migrate` writes its prefix. Both run in permission mode `bypassPermissions`, so messages
@@ -205,10 +205,10 @@ its sessions by their full names, its dashboard by its port and unit.
 
 | task | does |
 |---|---|
-| `task conductor:start`, `task dev:start` | start the session under its role's session name (`<session_prefix>-<role>`, or the role without a prefix) on the model of its role in `conductor config show`, with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless the role's harness is `claude`, and while a session of that name runs. A role with a `profile` starts from it with `--append-system-prompt-file <profile>`; without one, with `--agent <agent>`, which is found only in the start directory's `.claude/agents/`. Conductor starts in the active instance's `records` directory with its role's `settings`, by default this checkout's `.claude/conductor-settings.json`, and refuses until the bypass-permissions disclaimer was accepted once; conductor-dev starts in this checkout |
-| `task agents:link REPO=<path>` | links `.claude/agents/{conductor,repo-controller,conductor-dev}.md` into `<path>/.claude/agents/`, hidden through that repository's `.git/info/exclude`, for a session you start by hand there; never writes `~/.claude/agents/`, and removes its own old links there. It serves none of the sessions above |
+| `task dev:start` | start the session under its role's session name (`<session_prefix>-<role>`, or the role without a prefix) on the model of its role in `conductor config show`, with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless the role's harness is `claude`, and while a session of that name runs. A role with a `profile` starts from it with `--append-system-prompt-file <profile>`; without one, with `--agent <agent>`, which is found only in the start directory's `.claude/agents/`. conductor-dev starts in this checkout |
+| `task agents:link REPO=<path>` | links `.claude/agents/{repo-controller,conductor-dev}.md` into `<path>/.claude/agents/`, hidden through that repository's `.git/info/exclude`, for a session you start by hand there; never writes `~/.claude/agents/`, and removes its own old links there. It serves none of the sessions above |
 | `task conductor:attach`, `task dev:attach` | open the active instance's session of that role, by its full name, in this terminal; refuse when no live background session or more than one holds that name |
-| `task conductor:restart` | stop the active instance's conductor, by its full name, and start a new one that reads the newest hand-over; another instance's conductor keeps running. Stops nothing when more than one live session holds the name. conductor-dev runs it after `[RESTART conductor]` |
+| `conductor run --install`, `--uninstall` | start or stop the active instance's loop as the user unit `conductor_<instance>-run.service`; it replaced `task conductor:start` and `task conductor:restart` (`docs/design/conductor-run.md`) |
 | `task sessions` | list the active instance's two sessions by their full names; exit 1 naming each name more than one live background session holds |
 | `task trust` | mark every checkout under `checkouts.root` and the instance's `records` directory as trusted Claude Code workspaces, so conductor and each controller can start there |
 | `task dashboard`, `task dashboard:stop` | the active instance's page on 127.0.0.1, read-only except the Decisions page's answers (a per-process token, same origin) at its `dashboard_port` (7313 plus the instance's position in the file, unless the file writes one); where systemctl is on PATH the user service `<session_prefix>-conductor-dashboard` (`conductor-dashboard` without a prefix), elsewhere a background process whose pid is in `dashboard.pid` of the instance's `state` directory |

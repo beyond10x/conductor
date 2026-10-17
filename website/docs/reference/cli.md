@@ -186,6 +186,7 @@ Every command takes these, before or after its name.
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor rules`](#conductor-rules) |  |
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
+| [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
 | [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
@@ -1680,7 +1681,7 @@ Usage: conductor session record-run-tick [OPTIONS]
 | `--kind <KIND>` | no | none | TickKind One of `watch`, `cycle`, `daily`. |
 | `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--lines-handled <LINES_HANDLED>` | no | none | integer |
-| `--actions <ACTIONS>` | no | none | list of DispatchLogEvent, a JSON array |
+| `--actions <ACTIONS>` | no | none | list of DispatchLogEvent, a JSON array of the events as the dispatch log writes them (`relayed`, `handover-sent`, …) |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor session deliveries`
@@ -2382,6 +2383,20 @@ Usage: conductor rules show [OPTIONS]
 | `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
 | `--changed-since <CHANGED_SINCE>` | no | none | A git revision of the records directory: print only the items whose text differs from that revision's rules.md, or that it does not hold, and name the ones it held that are gone |
 | `--role <ROLE>` | no | none | A role (all, conductor, controller, worker, maintainer): print the rules of its file, rules/&lt;role>.md of the records, one per line; with --changed-since, the changed ones |
+
+## `conductor run`
+
+Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+
+```text
+Usage: conductor run [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--once <BOOL>` | no | none | Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true` One of `true`, `false`. |
+| `--install <BOOL>` | no | none | Start the loop as the user unit conductor_&lt;instance>-run.service through systemd-run; under the none provider print the command to run instead. `--install` alone is `--install true` One of `true`, `false`. |
+| `--uninstall <BOOL>` | no | none | Stop the user unit conductor_&lt;instance>-run.service. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
 
 ## `conductor setup`
 

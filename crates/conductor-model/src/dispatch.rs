@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 4b170c7cd3171a9a70f4559f0301c763b124dded6e2db1cb6cf4e4f0c84dc3f1
-// contract digest 0b2e56522aeb2f6b1c9ff919e42aafb7f2fa85bcedc6e0ea4f88d89d955a6d38
+// model digest cef836f319668d2492af74e7071a0a12fe762ad06c7635432c0f51a06be91469
+// contract digest 1cb1dde36edec20c87f5fbc7455900f69fed5276ffdef4838c372cc21d625df7
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -107,6 +107,8 @@ pub enum DispatchLogEvent {
     Cleanup,
     /// `DecisionSent`.
     DecisionSent,
+    /// `Cycle`.
+    Cycle,
 }
 
 /// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
@@ -152,6 +154,16 @@ pub struct DispatchLogLine {
     pub amount: Option<i64>,
     /// `body_path` — `Optional<String>`.
     pub body_path: Option<String>,
+    /// `session` — `Optional<String>`.
+    pub session: Option<String>,
+    /// `grant` — `Optional<String>`.
+    pub grant: Option<String>,
+    /// `path` — `Optional<String>`.
+    pub path: Option<String>,
+    /// `line` — `Optional<String>`.
+    pub line: Option<String>,
+    /// `tick_id` — `Optional<String>`.
+    pub tick_id: Option<String>,
 }
 
 /// The states of `conductor.dispatch.GuardDecision`, as runtime values.

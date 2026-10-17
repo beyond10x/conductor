@@ -239,13 +239,14 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// `tests/decision.rs` and the `dispatch` and `message` leaves by `tests/dispatch.rs`
 /// (`story:decision-commands`), and the `session` leaves by `tests/session.rs`
 /// (`story:single-conductor-lease`), but `session deliveries`, by `tests/deliver.rs`
-/// (`story:mailbox-send-and-deliver`). `snapshot publish-board` and `snapshot boards` are decided by
+/// (`story:mailbox-send-and-deliver`), and `session record-run-tick` and `session run-ticks`, by
+/// `tests/run.rs` (`story:run-daemon`). `snapshot publish-board` and `snapshot boards` are decided by
 /// `tests/status.rs` (`story:status-board`); the member-failure and collector-run leaves by
 /// `tests/snapshot.rs` (`story:snapshot-member-failures`, `story:snapshot-duration`); the `host`
 /// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
 /// `tests/usage_probe.rs` (`story:usage-probe`); the `metric` leaves by `tests/metric.rs`
 /// (`story:kpi-records`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 100] = [
+const IMPLEMENTED: [&str; 102] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -328,8 +329,10 @@ const IMPLEMENTED: [&str; 100] = [
     "resource resource-requests",
     "guard guard-decisions",
     "session claim",
+    "session record-run-tick",
     "session deliveries",
     "session leases",
+    "session run-ticks",
     "host record-peak",
     "host release-grant",
     "host request-disk",

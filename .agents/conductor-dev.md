@@ -63,17 +63,13 @@ through the repository's bot route.
 4. **Rebuild.** After a wave merges into `main` and `task check` is green there: `task install`
    (or, after installing a release archive, `task profiles` from that release's checkout), so the
    profiles the roles start from match the binary and a restart reads no checkout.
-5. **Restart conductor** only when `.claude/agents/conductor.md`, `.agents/conductor.md`,
-   `.agents/repo-controller.md`, design §§ 4–8 or the conductor role's `settings` file changed
-   since conductor started. A `rules.md` change reaches a running conductor as a relayed diff,
-   like the controllers', and needs no restart: commit it, then send
-   `[REPORT conductor -] progress rules.md <commit> items <n>,…` with the diff. Restarts are
-   batched with the next wave, at most one an hour unless one corrects a live fault. Sessions
-   start without the user's global Claude configuration; a rule they need from it is carried in
-   `rules.md`, never read from there. Send `[RESTART conductor] <reason>`, wait for
-   `[REPORT conductor -] ready <handoff path>`, then run `task conductor:restart` and check
-   `task sessions` shows one live `conductor`: `background`, or `interactive` with a pid when
-   the systemd provider started it.
+5. **Restart the loop** after `task install` when the release changed `conductor run`:
+   `conductor run --uninstall`, then `conductor run --install` (`docs/design/conductor-run.md`
+   § 3); the daemon keeps no context, and it restarts controllers itself. A `rules.md` change
+   needs no restart of the loop: commit it, and each session reads it at its next start.
+   Restarts are batched with the next wave, at most one an hour unless one corrects a live
+   fault. Sessions start without the user's global Claude configuration; a rule they need from
+   it is carried in `rules.md`, never read from there.
 
 ## Deciding
 

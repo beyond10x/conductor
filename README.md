@@ -156,11 +156,6 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
 
    ```yaml
        roles:
-         - role: conductor
-           harness: claude
-           model: opus
-           profile: ~/.b10x/conductor/profiles/conductor.md
-           settings: ~/example-org/conductor/.claude/conductor-settings.json
          - role: conductor-dev
            harness: claude
            model: opus
@@ -175,18 +170,19 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
 3. `task trust` marks every checkout under `checkouts.root` and the records directory as trusted
    Claude Code workspaces.
 4. Accept Claude Code's bypass-permissions disclaimer once: run
-   `claude --dangerously-skip-permissions` interactively in the records directory, or set
-   `"skipDangerousModePermissionPrompt": true` in the role's settings file. `task conductor:start`
-   refuses until one is in place.
-5. `task conductor:start` starts conductor in the background in the records directory;
-   `task conductor:attach` opens it in this terminal. `task sessions` lists the sessions and
-   `task dashboard` serves the dashboard on http://127.0.0.1:7313/.
+   `claude --dangerously-skip-permissions` interactively in a checkout, or set
+   `"skipDangerousModePermissionPrompt": true` in the role's settings file.
+5. `conductor run --install` starts the instance's loop, `conductor run`, as the user unit
+   `conductor_<instance>-run.service`: the watch, the cycle, the mailbox and dispatch from the
+   charters in `<records>/charters/`, with no conductor session (`conductor run --once` runs one
+   watch and one cycle tick). `task sessions` lists the sessions and `task dashboard` serves the
+   dashboard on http://127.0.0.1:7313/.
 
 Sessions start with `--setting-sources project,local`, so your user-level settings and agents are
 not loaded; the role's settings file carries what the session needs.
 
 For an interactive session of your own in one repository, `task agents:link REPO=<path>` links
-this checkout's agents (`conductor`, `repo-controller`, `conductor-dev`) into
+this checkout's agents (`repo-controller`, `conductor-dev`) into
 `<path>/.claude/agents/` and lists each link in that repository's `.git/info/exclude`. It writes
 nothing to `~/.claude/agents/`, and removes the links an earlier version of the task left there.
 

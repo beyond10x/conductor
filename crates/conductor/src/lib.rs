@@ -38,6 +38,7 @@ pub mod repository;
 pub mod resource;
 pub mod rollup;
 pub mod rules;
+pub mod run;
 pub mod session;
 pub mod setup;
 pub mod shipped;

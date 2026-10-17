@@ -232,6 +232,11 @@ callables:
     input: null
     result: String
     errors: {}
+  run:
+    target: {kind: local, owner: conductor-cli, action: run}
+    input: conductor.session.RunDaemon
+    result: String
+    errors: {}
 commands:
   - path: [goal, goals]
     callable: goals
@@ -517,3 +522,13 @@ commands:
     callable: broker-serve
     about: Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
     arguments: []
+  - path: [run]
+    callable: run
+    about: Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    arguments:
+      - field: once
+        source: {kind: option, long: once}
+      - field: install
+        source: {kind: option, long: install}
+      - field: uninstall
+        source: {kind: option, long: uninstall}

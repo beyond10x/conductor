@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 4b170c7cd3171a9a70f4559f0301c763b124dded6e2db1cb6cf4e4f0c84dc3f1
-  contract digest 0b2e56522aeb2f6b1c9ff919e42aafb7f2fa85bcedc6e0ea4f88d89d955a6d38
+  model digest cef836f319668d2492af74e7071a0a12fe762ad06c7635432c0f51a06be91469
+  contract digest 1cb1dde36edec20c87f5fbc7455900f69fed5276ffdef4838c372cc21d625df7
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-683 capabilities: **666 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+684 capabilities: **667 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -228,6 +228,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.session.Lease.State` |
 | domain type | `conductor.session.ListSessions` |
 | domain type | `conductor.session.PlaceResolved` |
+| domain type | `conductor.session.RunDaemon` |
 | domain type | `conductor.session.RunTick.State` |
 | domain type | `conductor.session.SessionAttachRefusal` |
 | domain type | `conductor.session.SessionAttachRefused` |
