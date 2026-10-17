@@ -91,6 +91,8 @@ export interface DiskHealth {
 export interface MemoryHealth {
   /** Its resident set; null where the system does not report it. */
   rss_bytes: number | null;
+  /** What of it is swapped out; null where the system does not report it. */
+  swap_bytes: number | null;
   store_handles: number;
   store_replays: number;
   /** The most replays of one tree alive at once since start: 1 when bounded. */

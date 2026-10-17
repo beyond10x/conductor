@@ -296,6 +296,7 @@ pub(super) fn answer(
 fn memory_view(memory: &DashboardMemory) -> Value {
     json!({
         "rss_bytes": memory.rss_bytes,
+        "swap_bytes": memory.swap_bytes,
         "store_handles": memory.store_handles,
         "store_replays": memory.store_replays,
         "store_replays_peak": memory.store_replays_peak,
@@ -309,10 +310,20 @@ fn memory_view(memory: &DashboardMemory) -> Value {
 /// This process's resident set in bytes, `VmRSS` of `/proc/self/status`; none where the system
 /// does not report it there.
 pub(super) fn rss_bytes() -> Option<u64> {
+    status_bytes("VmRSS:")
+}
+
+/// What of this process the system swapped out, in bytes, `VmSwap` of `/proc/self/status`
+/// (`story:dashboard-memory-live`); none where the system does not report it there.
+pub(super) fn swap_bytes() -> Option<u64> {
+    status_bytes("VmSwap:")
+}
+
+/// The size `/proc/self/status` gives on its line `field` (the name with its colon), in `kB`,
+/// in bytes.
+fn status_bytes(field: &str) -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    let line = status
-        .lines()
-        .find_map(|line| line.strip_prefix("VmRSS:"))?;
+    let line = status.lines().find_map(|line| line.strip_prefix(field))?;
     let kib: u64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
     kib.checked_mul(1024)
 }

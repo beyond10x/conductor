@@ -95,8 +95,9 @@ types:
       - {name: root, type: Optional<String>}
 
   # The `memory` part of the dashboard's health view (story:dashboard-memory-bound): what the
-  # serving process holds. `rss_bytes` is its resident set, absent where the system does not
-  # report it. `store_handles` is the store handles it keeps, one per state directory;
+  # serving process holds. `rss_bytes` is its resident set (`VmRSS` of `/proc/self/status`) and
+  # `swap_bytes` what of it the system swapped out (`VmSwap`), each absent where the system does
+  # not report it. `store_handles` is the store handles it keeps, one per state directory;
   # `store_replays` the trees those handles hold replayed in memory now, and `store_bytes` the
   # bytes of the files those replays were built from. `store_replays_peak` is the most replays of
   # one tree alive at once since the server started: 1 while each reopen drops the old replay
@@ -107,6 +108,7 @@ types:
     kind: struct
     fields:
       - {name: rss_bytes, type: Optional<Integer>}
+      - {name: swap_bytes, type: Optional<Integer>}
       - {name: store_handles, type: Integer}
       - {name: store_replays, type: Integer}
       - {name: store_replays_peak, type: Integer}
