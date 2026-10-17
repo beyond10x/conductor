@@ -83,6 +83,7 @@ impl Case {
             reclaim,
             clock: OffsetDateTime::now_utc,
             every: Duration::from_millis(50),
+            poll: Duration::from_millis(20),
             home: Some(self.home()),
             var_tmp: self.var_tmp(),
             scratch: self.home().join(".cache/b10x/conductor/example/scratch"),

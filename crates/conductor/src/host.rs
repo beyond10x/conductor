@@ -251,7 +251,30 @@ pub struct Ledger {
     generated: Generated<Ports>,
     /// The host directory.
     dir: PathBuf,
+    /// The grants this handle has read for its passes ([`Ledger::grants_read`]).
+    read: std::cell::Cell<usize>,
     _lock: File,
+}
+
+/// The ledger passes this process has made: each [`Ledger::sweep`].
+static PASSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+thread_local! {
+    /// The ledger passes this thread has made.
+    static PASSES_HERE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many ledger passes this process has made so far: each sweep under `host.lock`
+/// (`story:build-queue-convoy` counts them while runs wait).
+#[must_use]
+pub fn passes() -> usize {
+    PASSES.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// [`passes`] of this thread alone.
+#[must_use]
+pub fn passes_on_this_thread() -> usize {
+    PASSES_HERE.with(std::cell::Cell::get)
 }
 
 /// The host directory ([`crate::config::host_dir`]), once the ledger the state directory
@@ -469,6 +492,7 @@ impl Ledger {
                 return Ok(Self {
                     generated: Generated::new(Ports { store }),
                     dir: state.to_owned(),
+                    read: std::cell::Cell::new(0),
                     _lock: lock,
                 });
             }
@@ -499,6 +523,7 @@ impl Ledger {
         Ok(Some(Self {
             generated: Generated::new(Ports { store }),
             dir: state.to_owned(),
+            read: std::cell::Cell::new(0),
             _lock: lock,
         }))
     }
@@ -513,9 +538,10 @@ impl Ledger {
     ///
     /// The store does not read or keep a release.
     pub fn sweep(&mut self, at: &Timestamp) -> Result<Vec<GrantId>> {
+        PASSES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        PASSES_HERE.with(|count| count.set(count.get() + 1));
         let state = self.dir.clone();
-        let grants = HostGrantStorage::list(&self.generated.ports);
-        kept("host ledger", &self.generated.ports.store)?;
+        let grants = self.listed()?;
         let mut requests = Vec::new();
         let mut gone = Vec::new();
         for grant in grants {
@@ -567,7 +593,7 @@ impl Ledger {
     ///
     /// The store does not read.
     pub fn reserved(&self, except: Option<&GrantId>) -> Result<u64> {
-        let total = live(&HostGrantStorage::list(&self.generated.ports))
+        let total = live(&self.listed()?)
             .filter(|grant| except != Some(&grant.data.grant_id))
             .map(|grant| {
                 let bytes = grant
@@ -626,6 +652,26 @@ impl Ledger {
         }
         kept("host ledger", &self.generated.ports.store)?;
         Ok(found)
+    }
+
+    /// The grants a pass reads, each counted in [`Ledger::grants_read`].
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    fn listed(&self) -> Result<Vec<HostGrantSnapshot>> {
+        let grants = HostGrantStorage::list(&self.generated.ports);
+        kept("host ledger", &self.generated.ports.store)?;
+        self.read.set(self.read.get() + grants.len());
+        Ok(grants)
+    }
+
+    /// How many grants this handle has read for its passes ([`Ledger::sweep`],
+    /// [`Ledger::reserved`], [`Ledger::ahead_bytes`], [`Ledger::session_bound`]) since it was
+    /// opened (`story:build-queue-convoy`).
+    #[must_use]
+    pub fn grants_read(&self) -> usize {
+        self.read.get()
     }
 
     /// `RequestDisk`: records the request of `bytes` for `command`, and answers its grant's id.
@@ -709,8 +755,7 @@ impl Ledger {
     ///
     /// The store does not read.
     pub fn session_bound(&self) -> Result<Vec<(GrantId, String)>> {
-        let grants = HostGrantStorage::list(&self.generated.ports);
-        kept("host ledger", &self.generated.ports.store)?;
+        let grants = self.listed()?;
         Ok(grants
             .into_iter()
             .filter(|row| {
@@ -761,8 +806,7 @@ impl Ledger {
     ///
     /// The store does not read.
     pub fn ahead_bytes(&self, grant: &GrantId) -> Result<Vec<u64>> {
-        let grants = HostGrantStorage::list(&self.generated.ports);
-        kept("host ledger", &self.generated.ports.store)?;
+        let grants = self.listed()?;
         let Some(own) = grants.iter().find(|row| row.data.grant_id == *grant) else {
             return Ok(Vec::new());
         };

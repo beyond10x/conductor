@@ -160,6 +160,9 @@ fn signal_code(signal: Signal) -> u8 {
 /// How often the watchdog reads free disk when `thresholds.watchdog_every` does not read.
 const EVERY: Duration = Duration::from_secs(10);
 
+/// How often a run waiting in the queue reads the ledger's generation ([`Sources::poll`]).
+pub const POLL: Duration = Duration::from_secs(1);
+
 /// How long one walk over the directories a run writes may take before its reading is dropped
 /// (`story:reserve-from-peak`). The walk has its own thread, so the watchdog never waits for it.
 const WALK_BOUND: Duration = Duration::from_secs(60);
@@ -249,6 +252,10 @@ pub struct Sources {
     pub clock: fn() -> OffsetDateTime,
     /// How often the watchdog reads free disk and measures the run.
     pub every: Duration,
+    /// How often a run waiting in the queue looks, without the ledger's lock, whether the ledger
+    /// changed or its own answer may have (`story:build-queue-convoy`): [`POLL`], at most
+    /// [`Sources::every`].
+    pub poll: Duration,
     /// The home directory, written `~` in an operator item: `HOME`.
     pub home: Option<PathBuf>,
     /// `/var/tmp`, whose entries an operator item names only as a count and a total size.
@@ -282,14 +289,16 @@ impl Sources {
     #[must_use]
     pub fn of(instance: &Instance) -> Self {
         let thresholds = &instance.thresholds;
+        let every = crate::config::seconds(&thresholds.watchdog_every)
+            .filter(|seconds| *seconds > 0)
+            .map_or(EVERY, Duration::from_secs);
         Self {
             disk: PathBuf::from(&thresholds.disk_path),
             free_bytes: crate::gc::reclaim::free_bytes,
             reclaim: crate::gc::reclaim::reclaim,
             clock: OffsetDateTime::now_utc,
-            every: crate::config::seconds(&thresholds.watchdog_every)
-                .filter(|seconds| *seconds > 0)
-                .map_or(EVERY, Duration::from_secs),
+            every,
+            poll: POLL.min(every),
             home: std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .filter(|home| home.is_absolute()),
