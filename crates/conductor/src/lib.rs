@@ -10,6 +10,7 @@
 
 use std::fmt;
 
+pub mod attach;
 pub mod broker;
 pub mod build;
 pub mod cli;

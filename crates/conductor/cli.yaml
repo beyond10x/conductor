@@ -369,18 +369,22 @@ commands:
         source: {kind: option, long: role}
   - path: [session, attach]
     callable: session-attach
-    about: "Attach this terminal to a live session's tmux, by --name or --role; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
+    about: "Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher"
     arguments:
       - field: name
         source: {kind: option, long: name}
       - field: role
         source: {kind: option, long: role}
+      - field: instance
+        source: {kind: option, long: instance}
       - field: watch
         source: {kind: option, long: watch}
   - path: [session, list]
     callable: session-list
-    about: "Print one line per live session the state directory holds a launcher's files for: its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)"
+    about: "Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)"
     arguments:
+      - field: instance
+        source: {kind: option, long: instance}
       - field: format
         source: {kind: option, long: format}
   - path: [records, check]

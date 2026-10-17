@@ -96,28 +96,36 @@ types:
       - {name: detail, type: String}
 
   # The input of `conductor session attach` (story:session-attach-command): the session by its
-  # full `name`, or by the `role` whose session it is, as for `session start`; both given must
-  # name one session. A session the systemd provider started runs its harness in a tmux server of
-  # its own, the unit's main process, on the socket `<state>/sessions/<name>.tmux`; attach runs
-  # `tmux attach` on it in the operator's terminal, and the operator detaches with `ctrl-]` then
-  # `d`, the session running on. `watch` (story:session-attach-watch) attaches read-only, so
-  # nothing typed reaches the harness and the window keeps its size; on a session started before
-  # the tmux launcher, which has no socket, it follows the session's typescript instead, until
-  # its unit ends.
+  # full `name`, or by the `role` whose session it is, as for `session start`, looked up in
+  # every instance of the config file, or in `instance` alone when it is given; both `name` and
+  # `role` given must name one session. Without either, attach opens a picker in the terminal:
+  # the attachable sessions of every instance (of `instance` alone when given), grouped under
+  # each instance's name, one row each (`conductor.session.AttachableSession`); the arrow keys or
+  # `j` and `k` move, Enter attaches, `w` attaches read-only, `q` quits, and after a detach the
+  # picker shows again. A session the systemd provider started runs its harness, whichever it
+  # is, in a tmux server of its own, the unit's main process, on the socket
+  # `<state>/sessions/<name>.tmux` of its instance's state; attach runs `tmux attach` on it in
+  # the operator's terminal, and the operator detaches with `ctrl-]` then `d`, the session
+  # running on. `watch` (story:session-attach-watch) attaches read-only, so nothing typed reaches
+  # the harness and the window keeps its size; on a session started before the tmux launcher,
+  # which has no socket, it follows the session's typescript instead, replaying its last 64 KiB,
+  # until its unit ends or `ctrl-]` then `d`.
   - name: conductor.session.AttachSession
     kind: struct
     fields:
       - {name: name, type: Optional<String>}
       - {name: role, type: Optional<String>}
+      - {name: instance, type: Optional<String>}
       - {name: watch, type: Optional<Boolean>}
 
   # Why `conductor session attach` attached nothing, each found before anything is opened:
   # `InsideSession` (story:session-attach-refuses-sessions), the client runs inside a session,
-  # where the provider's `CONDUCTOR_SESSION` or the harness's `CLAUDECODE` is set, checked first;
-  # `UnknownSession`, the role is unknown, or no live session holds the name (no tmux server
-  # answers on its socket, and under `watch` no unit of the name runs that keeps a typescript);
+  # where the provider's `CONDUCTOR_SESSION` is set, whatever the harness, checked first;
+  # `UnknownSession`, the role or the instance is unknown, or no live session holds the name (no
+  # tmux server answers on its socket, and no unit of the name runs that keeps a typescript);
   # `NotAttachable`, the session runs but was started before the tmux launcher, so only `watch`
-  # reads it until it restarts; `Ambiguous`, `name` and `role` name different sessions.
+  # reads it until it restarts; `Ambiguous`, `name` and `role` name different sessions, or two
+  # instances hold a session of the name.
   - name: conductor.session.SessionAttachRefusal
     kind: enum
     variants:
@@ -135,12 +143,13 @@ types:
       - {name: refusal, type: conductor.session.SessionAttachRefusal}
       - {name: detail, type: String}
 
-  # The input of `conductor session list` (story:session-list-attachable): it lists the live
-  # sessions the state directory holds a launcher's files for; `format` is `text`, one line each,
-  # the default, or `json`, the rows.
+  # The input of `conductor session list` (story:session-list-attachable): the live sessions
+  # every instance's state holds a launcher's files for, or `instance`'s alone; `format` is
+  # `text`, one line each, the default, or `json`, the rows.
   - name: conductor.session.ListSessions
     kind: struct
     fields:
+      - {name: instance, type: Optional<String>}
       - {name: format, type: Optional<String>}
 
   # How `conductor session attach` reaches a session: `Attach`, its tmux server answers, so it
@@ -152,12 +161,19 @@ types:
       - Attach
       - Watch
 
-  # One row of `conductor session list`: a live session's name and how attach reaches it.
+  # One row of `conductor session list` and of the attach picker: the instance, the session's
+  # name and how attach reaches it; `directory`, where its harness runs (tmux's pane path), whose
+  # last component is the repository; `idle_seconds`, since its screen last changed (tmux's
+  # window activity, or the typescript's modification time), under 10 shown busy, else idle.
+  # Nothing here is read from a harness.
   - name: conductor.session.AttachableSession
     kind: struct
     fields:
+      - {name: instance, type: String}
       - {name: name, type: String}
       - {name: mode, type: conductor.session.AttachMode}
+      - {name: directory, type: Optional<String>}
+      - {name: idle_seconds, type: Optional<Integer>}
 
   # One writable place of a session resolved for its start (story:sandbox-spec): the place as the
   # role's `writable` writes it, a place word (`checkout`, `trees`, `build-cache`, `scratch`,

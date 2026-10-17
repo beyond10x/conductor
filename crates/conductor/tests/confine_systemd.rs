@@ -4,7 +4,7 @@
 //!
 //! - `conductor spawn` (a controller, under the session prefix `ex`) and `conductor session start
 //!   --role conductor` (no prefix) set the slice's limits with `systemctl --user set-property`,
-//!   start the unit with `systemd-run --user`, type the first prompt into the session's FIFO and
+//!   start the unit with `systemd-run --user`, type the first prompt into the session's tmux and
 //!   measure the unit's cgroup, and `spawn` prints the session's id; the instance's slice is
 //!   `conductor_<prefix>.slice` or `conductor.slice`, siblings of each other; `conductor session
 //!   stop` stops the unit; `resume` starts a new unit running `claude --resume <id>` once the
@@ -19,16 +19,16 @@
 //! `state/`, `work/`, `cgroup/` (the fixture cgroup root) and `bin/`, first on `PATH`, with
 //! - `claude`: `agents --json` prints the case's `agents.json`; any other call is logged;
 //! - `systemd-run`: logs its arguments to `systemd-run.log`, one per line and `----` after each
-//!   call, makes the session live (`agents-live.json` becomes `agents.json`), and runs the
-//!   launcher it was given (the arguments from `/bin/sh` on) in the background;
+//!   call, and makes the session live (`agents-live.json` becomes `agents.json`); it starts no
+//!   launcher;
 //! - `systemctl`: logs its arguments to `systemctl.log` the same way, answers `show -p
 //!   ControlGroup` with the case's `control-group`, and `show -p LoadState -p ActiveState` with
 //!   the first line of the case's `unit-states` (`LoadState=… ActiveState=…`, one line per call,
 //!   the last one kept), or a unit that is not there when there is none;
-//! - `script`: the launcher's PTY program; logs its arguments to `script.args` and copies what is
-//!   typed into the FIFO to `typed`, as many bytes as `typed.size` says.
+//! - `tmux`: logs its arguments to `tmux.log` the same way, and appends to `typed` the text each
+//!   `set-buffer` sets: the prompt, then the carriage return of Enter.
 //!
-//! No real `systemd-run`, `systemctl`, `script` or `claude` runs.
+//! No real `systemd-run`, `systemctl`, `tmux` or `claude` runs.
 
 mod fake_provider;
 
@@ -245,11 +245,14 @@ impl Case {
             ),
         );
         runnable(
-            &case.bin("script"),
+            &case.bin("tmux"),
             &format!(
                 "#!/bin/sh\n\
-                 printf '%s\\n' \"$@\" > '{d}/script.args'\n\
-                 exec timeout 20 head -c \"$(cat '{d}/typed.size')\" > '{d}/typed'\n"
+                 printf '%s\\n' \"$@\" '----' >> '{d}/tmux.log'\n\
+                 case \" $* \" in\n\
+                 *' set-buffer '*) for last; do :; done; printf '%s' \"$last\" >> '{d}/typed' ;;\n\
+                 esac\n\
+                 exit 0\n"
             ),
         );
         case
@@ -345,7 +348,7 @@ impl Case {
         calls
     }
 
-    /// What was typed into the session's FIFO, once the fake `script` has read it all.
+    /// What was typed into the session through the fake `tmux`.
     fn typed(&self, prompt: &str) -> String {
         let want = typed(prompt);
         let file = self.dir.join("typed");
@@ -357,20 +360,6 @@ impl Case {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-    }
-
-    /// The arguments the fake `script` was started with by the launcher.
-    fn script_args(&self) -> Vec<String> {
-        let file = self.dir.join("script.args");
-        let started = Instant::now();
-        while !file.exists() && started.elapsed() < Duration::from_secs(20) {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        fs::read_to_string(file)
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_owned)
-            .collect()
     }
 
     /// What the fake `systemctl show -p LoadState -p ActiveState` answers, one line per call, the
@@ -406,9 +395,10 @@ impl Case {
     }
 }
 
-/// What the provider types for `prompt`: the prompt as one bracketed paste, then Enter.
+/// What the provider types for `prompt`, as the fake `tmux` logs it: the prompt, set as a tmux
+/// buffer and pasted (bracketed by tmux, `paste-buffer -p`), then Enter.
 fn typed(prompt: &str) -> String {
-    format!("\x1b[200~{prompt}\x1b[201~\r")
+    format!("{prompt}\r")
 }
 
 fn describe(output: &Output) -> String {
@@ -420,20 +410,44 @@ fn describe(output: &Output) -> String {
     )
 }
 
-/// The arguments of one `systemd-run` call after the launcher's `/bin/sh -c <code>
-/// conductor-launch`: the FIFO, the typescript and the command `script` runs.
+/// What one `systemd-run` call launches: the unit runs `tmux -D -S <socket> -f <conf>`, last;
+/// answers the socket, the typescript (`-E CONDUCTOR_TYPESCRIPT=`) and the harness command the
+/// pane runs (`-E CONDUCTOR_HARNESS=`), and checks the session's name is `-E
+/// CONDUCTOR_SESSION=` and the configuration is [`systemd::TMUX_CONF`].
 fn launcher_tail(call: &[String]) -> (String, String, String) {
     let at = call
         .iter()
-        .position(|arg| arg == "/bin/sh")
+        .position(|arg| arg == "tmux")
         .unwrap_or_else(|| panic!("no launcher in {call:?}"));
-    assert_eq!(call[at + 1], "-c", "{call:?}");
-    assert_eq!(call[at + 3], "conductor-launch", "{call:?}");
-    assert_eq!(call.len(), at + 7, "{call:?}");
+    assert_eq!(call.len(), at + 6, "{call:?}");
+    assert_eq!(call[at + 1], "-D", "{call:?}");
+    assert_eq!(call[at + 2], "-S", "{call:?}");
+    assert_eq!(call[at + 4], "-f", "{call:?}");
+    let socket = call[at + 3].clone();
+    assert_eq!(
+        fs::read_to_string(&call[at + 5]).expect("the tmux configuration is written"),
+        systemd::TMUX_CONF
+    );
+    let set = |name: &str| {
+        call.windows(2)
+            .find_map(|pair| {
+                (pair[0] == "-E")
+                    .then(|| pair[1].strip_prefix(&format!("{name}=")))
+                    .flatten()
+            })
+            .unwrap_or_else(|| panic!("no -E {name}= in {call:?}"))
+            .to_owned()
+    };
+    let name = Path::new(&socket)
+        .file_stem()
+        .expect("the socket's name")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(set("CONDUCTOR_SESSION"), name, "{call:?}");
     (
-        call[at + 4].clone(),
-        call[at + 5].clone(),
-        call[at + 6].clone(),
+        socket,
+        set("CONDUCTOR_TYPESCRIPT"),
+        set("CONDUCTOR_HARNESS"),
     )
 }
 
@@ -597,8 +611,8 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
             "-E {set}: {run:?}"
         );
     }
-    let (fifo, typescript, command) = launcher_tail(run);
-    assert_eq!(fifo, state.join("ex-alpha.fifo").display().to_string());
+    let (socket, typescript, command) = launcher_tail(run);
+    assert_eq!(socket, state.join("ex-alpha.tmux").display().to_string());
     assert_eq!(
         typescript,
         state.join("ex-alpha.typescript").display().to_string()
@@ -612,18 +626,20 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
         describe(&output)
     );
     assert!(
-        command.starts_with(&format!(
-            "stty cols 160 rows 48; exec 'claude' '--session-id' '{id}' '-n' 'ex-alpha' \
+        command.contains(&format!(
+            "; exec 'claude' '--session-id' '{id}' '-n' 'ex-alpha' \
              '--append-system-prompt-file' '{}' '--model' 'sonnet'",
             case.dir.join("roles/repo-controller.md").display()
         )),
         "{command}"
     );
-    // The launcher ran: `script` got the command and the typescript, and the charter was typed.
-    assert_eq!(
-        case.script_args(),
-        ["-qfec".to_owned(), command.clone(), typescript.clone()],
+    // The pane moves back into the unit's cgroup, out of the scope tmux puts it in, and the
+    // charter was typed through tmux.
+    assert!(
+        command.starts_with(systemd::MOVE_BACK),
+        "the harness runs in the unit's cgroup: {command}"
     );
+    assert!(typescript.ends_with("ex-alpha.typescript"), "{typescript}");
     assert_eq!(case.typed(CHARTER), typed(CHARTER));
 
     assert_eq!(
@@ -776,18 +792,18 @@ fn conductor_starts_in_its_unit_inside_the_unprefixed_slice() {
         !run.iter().any(|arg| arg.contains("not-a-token")),
         "no token value on the command line: {run:?}"
     );
-    let (fifo, _, command) = launcher_tail(run);
+    let (socket, _, command) = launcher_tail(run);
     assert_eq!(
-        fifo,
+        socket,
         case.state()
-            .join("sessions/conductor.fifo")
+            .join("sessions/conductor.tmux")
             .display()
             .to_string()
     );
     let id = session_id_of(&command);
     assert!(
-        command.starts_with(&format!(
-            "stty cols 160 rows 48; exec 'claude' '--session-id' '{id}' '-n' 'conductor' \
+        command.contains(&format!(
+            "; exec 'claude' '--session-id' '{id}' '-n' 'conductor' \
              '--agent' 'conductor' '--model' 'opus'"
         )),
         "{command}"
@@ -874,8 +890,8 @@ fn resume_starts_a_new_unit_running_claude_resume() {
     assert_eq!(
         command,
         format!(
-            "stty cols 160 rows 48; exec 'claude' '--resume' '{id}' '-n' 'conductor' '--model' \
-             'opus'"
+            "{}exec 'claude' '--resume' '{id}' '-n' 'conductor' '--model' 'opus'",
+            systemd::MOVE_BACK
         )
     );
 }
@@ -1088,8 +1104,8 @@ fn a_controller_pauses_resumes_and_stops_through_its_unit() {
     );
     let (_, _, command) = launcher_tail(run);
     assert!(
-        command.starts_with(&format!(
-            "stty cols 160 rows 48; exec 'claude' '--resume' '{id}' '-n' 'ex-alpha' \
+        command.contains(&format!(
+            "; exec 'claude' '--resume' '{id}' '-n' 'ex-alpha' \
              '--append-system-prompt-file' '{}' '--model' 'sonnet'",
             case.dir.join("roles/repo-controller.md").display()
         )),
