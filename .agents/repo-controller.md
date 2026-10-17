@@ -110,6 +110,9 @@ on. Gates, reports and boundaries are unchanged.
 
 ## Boundaries
 
+- Never `pkill`, `killall` or `kill` by pattern, name, `-1`, a negative group or `%job`: it kills
+  other sessions' processes (rules.md item 147). Stop what you started with TaskStop or
+  `kill <pid>`. The guard denies the other forms.
 - Edit only in the repository and its managed trees under the instance's trees root. Another
   repository's problem is a `[NEED …]`; never `cd` or `git -C` into it.
 - Work in a managed tree by its absolute path, never through `EnterWorktree`, which the guard

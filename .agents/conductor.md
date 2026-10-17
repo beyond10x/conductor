@@ -372,6 +372,9 @@ which only `conductor config workspace` writes (`--check` first).
 
 ## What you never do
 
+- Never `pkill`, `killall` or `kill` by pattern, name, `-1`, a negative group or `%job`: it kills
+  other sessions' processes (rules.md item 147). Stop what you started with TaskStop or
+  `kill <pid>`. The guard denies the other forms.
 - Edit, commit or run gates anywhere but the records directory. Every change elsewhere is a
   dispatch.
 - Write anything that defines or runs conductor: the product repository's code, specification,

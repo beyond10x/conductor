@@ -5843,3 +5843,95 @@ fn adv_a_python_one_liner_posting_a_body_to_the_port_is_denied() {
         }
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// story:guard-no-pattern-kill: no session kills processes it did not start, by pattern or name.
+// -------------------------------------------------------------------------------------------------
+
+/// `pkill`, `killall` and a `kill` given a pattern, a name, `-1`, a negative group or a `%job`
+/// are denied for every role, in a compound command, behind `sudo` or `env`, through `xargs`, and
+/// fed by a command substitution. The denial names rules item 147 and the safe forms.
+#[test]
+fn a_session_s_pattern_kill_is_denied_naming_item_147() {
+    let home = home("no-pattern-kill-deny");
+    for cwd in [PROBE, WORKER, CONDUCTOR] {
+        for command in [
+            "pkill -f \"conductor build run\"",
+            "pkill conductor",
+            "/usr/bin/pkill -9 -f xtask",
+            "killall conductor",
+            "killall -9 cargo",
+            "kill -9 -1",
+            "kill -TERM -1",
+            "kill -- -1234",
+            "kill -9 -4321",
+            "kill %1",
+            "kill -9 %2",
+            "kill conductor",
+            "kill $(pgrep -f conductor)",
+            "kill -9 `pgrep cargo`",
+            "kill $(pgrep -f x) 2>/dev/null",
+            "pgrep -f x | xargs kill",
+            "pgrep -f x | xargs -r kill -9",
+            "ps aux | grep cargo | awk '{print $2}' | xargs kill -9",
+            "echo done; pkill -f cargo",
+            "cargo --version && killall cargo",
+            "true || pkill x",
+            "sudo pkill -f x",
+            "sudo -u root killall x",
+            "env FOO=1 pkill x",
+            "env FOO=1 kill -9 -1",
+            "nohup pkill x",
+            "timeout 5 killall x",
+            "bash -c 'pkill -f x'",
+            "kill",
+            "kill -9",
+            "kill 0",
+            "kill -9 0",
+            "kill 123 -1",
+            "find . -exec kill {} \\;",
+        ] {
+            let decision = bash(&home, cwd, command);
+            assert_verdict(&decision, Verdict::Deny, "item 147");
+            assert!(
+                decision.reason.contains("TaskStop") && decision.reason.contains("kill <pid>"),
+                "{command}: the denial names the safe forms: {}",
+                decision.reason
+            );
+        }
+    }
+}
+
+/// `kill <numeric pid>` and `kill -<SIG> <numeric pid>` are allowed, and so is a word that only
+/// names a kill program.
+#[test]
+fn a_session_may_kill_a_numeric_pid() {
+    let home = home("no-pattern-kill-allow");
+    for cwd in [PROBE, WORKER, CONDUCTOR] {
+        for command in [
+            "kill 1234",
+            "kill -9 1234",
+            "kill -TERM 1234",
+            "kill -SIGTERM 1234 5678",
+            "kill -s TERM 1234",
+            "kill -n 9 1234",
+            "kill --signal=TERM 1234",
+            "kill -- 1234",
+            "kill -0 1234",
+            "kill -l",
+            "kill $!",
+            "sleep 60 & kill $!",
+            "sudo kill -9 1234",
+            "env FOO=1 kill 1234",
+            "echo 1 && kill 77; echo 2",
+            "/bin/kill -KILL 99",
+            "echo pkill is denied",
+            "grep -rn pkill docs",
+            "git commit -m 'no killall'",
+            "pgrep -f conductor",
+            "ps aux | grep conductor",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
