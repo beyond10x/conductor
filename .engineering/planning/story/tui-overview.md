@@ -6,7 +6,7 @@ status: draft
 title: conductor tui shows a read-only overview of sessions and attention lines from the dashboard's read model
 relations:
 - decomposes: epic:tui-frontend
-revision: 2
+revision: 3
 ---
 # Story: tui-overview
 
@@ -30,7 +30,7 @@ revision: 2
 5. The screen refreshes every `--refresh` seconds (default 5) without a keypress and keeps the selection; a read that fails shows the error and the last good data, not a blank screen.
 6. `q` and `ctrl-c` leave the alternate screen and restore the terminal; on a non-tty stdin or stdout the command exits 2 saying it needs a terminal.
 7. `conductor tui --help` and the generated `website/docs/reference/cli.md` name the command; `task docs-check` passes.
-8. The TUI lives in the module `crates/conductor/src/tui/`, with a screen registry in `crates/conductor/src/tui/screens.rs` where each screen and its key register; the overview registers there, and `story:tui-decisions-read`, `story:tui-dispatches-activity`, `story:tui-host-disk-builds` and `story:tui-open-session` each add their screen and key there and nowhere else.
+8. The TUI lives in the module `crates/conductor/src/tui/`, with a screen registry in `crates/conductor/src/tui/screens.rs` where each screen and its key register; the overview registers there, and `story:tui-decisions-read`, `story:tui-dispatches-activity`, `story:tui-host-disk-builds` and `story:tui-open-session` each add their screen and key there and nowhere else. The overview screen is `crates/conductor/src/tui/overview.rs` and has two extension points: `attention_lines()` collects its lines from registered providers, and the sessions table takes extra columns from registered providers. `story:tui-host-disk-builds` and `story:tui-open-session` register through those and do not edit `overview.rs`.
 
 ## Out of Scope
 

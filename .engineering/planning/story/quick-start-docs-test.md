@@ -7,7 +7,7 @@ title: CI runs the quick start's commands against the release binary
 relations:
 - decomposes: epic:quick-start
 - depends_on: story:quick-start-page
-revision: 2
+revision: 3
 ---
 # Story: quick-start-docs-test
 
@@ -26,11 +26,11 @@ A CI job runs the quick start's shell blocks, as written, from a clean account a
 
 1. A script `scripts/quick-start-check.sh` (or a Rust integration test, the implementor's choice, stated in the PR) extracts the fenced `console` and `sh` blocks of `website/docs/quick-start.md` marked as commands, runs them in order in an empty `HOME` in a clean directory, with `PATH` holding only the programs the page names as required, and compares each block's output to the lines the page shows after it (version and timing lines masked by a stated pattern).
 2. After the last command the check asks the demo's dashboard, `GET /api/board` and `/api/events` on `127.0.0.1`, and fails unless the sample repository and the `demo` dispatch are in them; it then runs `conductor demo --clean` and fails if the home directory differs from its baseline, which is the home directory as it stands right after the install step (the installed binary is part of the baseline).
-3. The job runs on Linux (`x86_64-unknown-linux-gnu`) and macOS (`aarch64-apple-darwin`) runners: on every pull request that changes `website/docs/quick-start.md`, `README.md`'s first section, `crates/conductor/src/init.rs`, the demo's module or `.github/workflows/release.yml`; on a schedule (weekly); and on every tag push. It does not run on `release: published`, which fires after the tag's assets are public. It is a separate workflow file whose actions are pinned by commit.
+3. The job runs on Linux (`x86_64-unknown-linux-gnu`) and macOS (`aarch64-apple-darwin`) runners: on every pull request that changes `website/docs/quick-start.md`, `README.md`'s first section, `crates/conductor/src/init.rs`, the demo's module or `.github/workflows/release.yml`; on a schedule (weekly); and on every tag push. Pull requests and the weekly schedule run from `.github/workflows/quick-start.yml`; the tag-push run is a job of `.github/workflows/release.yml`, placed before the publish job, and no other file triggers on a tag. It does not run on `release: published`, which fires after the tag's assets are public. Every action in both files is pinned by commit.
 4. The pull-request run installs the one-liner's archive from the newest release; a second pull-request run sets `CONDUCTOR_INSTALL_BASE`, the variable defined by `story:install-one-liner`, to a local file server holding the binary built from the branch in a release layout, and runs the same page's `conductor` commands against the branch, so a command change is caught before it is released.
 5. A negative test: a copy of the page with one command's flag changed, and one with a printed line changed, each make the check fail with the block and the diff in the log (run in the job as a self-test).
 6. The job reports the elapsed time of the page's commands and fails over five minutes in total, the promise of the page.
-7. The check runs on tag push in `.github/workflows/release.yml`, before the job that publishes the release assets, and a red check fails that workflow. `AGENTS.md`'s release steps (updated by the coordinator) create the Release only after that check is green.
+7. The tag-push run is the job in `.github/workflows/release.yml` before the job that publishes the release assets, and a red check fails that workflow. It tests the tag's own build, not the newest published release: it sets `CONDUCTOR_INSTALL_BASE` to a local file server serving the archive built in that same workflow run, so the check says something about the binary about to be published. `AGENTS.md`'s release steps (updated by the coordinator) create the Release only after that check is green.
 
 ## Out of Scope
 

@@ -11,7 +11,7 @@ relations:
 - depends_on: story:session-list-attachable
 - depends_on: story:session-attach-refuses-sessions
 - depends_on: story:tui-decisions-answer
-revision: 2
+revision: 3
 ---
 # Story: tui-open-session
 
@@ -23,6 +23,7 @@ From the TUI's session list the operator opens a session with one key: `enter` a
 
 - The attach command, its detach key and `--watch` come from `epic:session-attach` (`story:session-attach-command`, `story:session-attach-watch`); the attachable flag from `story:session-list-attachable`.
 - The sessions rows are the overview's (`story:tui-overview`; crates/conductor/src/dashboard.rs:1343-1360).
+- The attachable column is added by registering a column provider with the overview's sessions table in `crates/conductor/src/tui/overview.rs` (`story:tui-overview` acceptance 8); this story does not edit `overview.rs`.
 - A TUI in raw mode on the alternate screen must hand the terminal over, then take it back.
 - The screen registers in the screen registry `crates/conductor/src/tui/screens.rs` (`story:tui-overview`) with its key.
 - Keeping sessions out of `conductor tui` is owned by `story:tui-decisions-answer`'s guard rule; this story adds no client-side refusal of its own and depends on it. It depends on `story:session-attach-refuses-sessions` so the attach it calls never ships without that refusal.

@@ -6,7 +6,7 @@ status: draft
 title: conductor init with no config writes a working one-instance setup
 relations:
 - decomposes: epic:quick-start
-revision: 2
+revision: 3
 ---
 # Story: init-defaults
 
@@ -20,6 +20,7 @@ revision: 2
 - Absent keys have defaults: records `~/.b10x/conductor/<name>/records`, state `~/.b10x/conductor/<name>/state`, cache `~/.cache/b10x/conductor/<name>`, `dashboard_port` 7313 plus the index (website/docs/reference/config.md, instance section).
 - `init`'s input is `conductor.config.InitRecords` with one field, `instance` (spec/domains/config.yaml:538-541); the CLI binding is at crates/conductor/cli.yaml:74-78.
 - `story:demo-mode` makes its own `demo` instance in a config of its own and does not depend on this story; this story serves the person who has run the demo and wants conductor on his own repositories.
+- Shared surface: this story shares `spec/domains/config.yaml` (`InitRecords`, here; `RunDemo`, in `story:demo-mode`), `crates/conductor-model` and `website/docs/reference/cli.md` with `story:demo-mode`; no ordering edge, the merge cost is accepted and the generated files are regenerated after the later merge.
 - The first-run seed's texts "name no organization" (init.rs:11-12); a default instance must not either.
 
 ## Acceptance

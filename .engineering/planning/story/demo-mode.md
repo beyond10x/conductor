@@ -6,7 +6,7 @@ status: draft
 title: conductor demo shows a sample repository and a first dispatch on the dashboard with no model and no forge
 relations:
 - decomposes: epic:quick-start
-revision: 2
+revision: 3
 ---
 # Story: demo-mode
 
@@ -21,6 +21,7 @@ revision: 2
 - A dispatch is a line in `dispatches/` written by `dispatch send-dispatch` and shown as a session's current dispatch (docs/design/conductor.md § 10 table, :404; crates/conductor/src/dashboard/repo.rs:55-100). A real controller is started by `conductor spawn` and needs `claude` (crates/conductor/cli.yaml:94-112).
 - The demo instance must be separate from a real one: a different state and records directory under the instance's default root (website/docs/reference/config.md, instance section), a port that does not collide (`dashboard_port` distinct, config.md:25).
 - Honesty: a demo dispatch is a recorded sample, not a model's work; every place that shows it labels it.
+- Shared surface: this story shares `spec/domains/config.yaml` (`RunDemo`, here; `InitRecords`, in `story:init-defaults`), `crates/conductor-model` and `website/docs/reference/cli.md` with `story:init-defaults`, with no ordering edge: the merge cost is accepted and the generated files are regenerated after the later merge.
 - Shared surface: this story shares `crates/conductor/cli.yaml`, `crates/conductor-model` and `website/docs/reference/cli.md` with `story:tui-overview`, `story:session-attach-command` and `story:session-list-attachable`; the merge cost is accepted and the generated files are regenerated after each merge.
 
 ## Acceptance

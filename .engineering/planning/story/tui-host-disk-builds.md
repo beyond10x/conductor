@@ -8,7 +8,7 @@ relations:
 - decomposes: epic:tui-frontend
 - depends_on: story:tui-overview
 - depends_on: story:watch-stalled-sessions
-revision: 2
+revision: 3
 ---
 # Story: tui-host-disk-builds
 
@@ -22,6 +22,7 @@ A Host screen in `conductor tui` shows free disk against the floor and the reser
 - Host grants are listed by `conductor host grants` (crates/conductor/cli.yaml:168-172, :360-365; crates/conductor/src/host.rs:13-14), each with `requested_at`, `started_at`, `released_at`, `bytes`, `peak_bytes`, repository and command.
 - The build queue figures (queue now, per repository per day, slots) are `story:dashboard-build-queue`'s `/api/build-queue`; slots wait on `story:build-run-cpu-slots`. This story shows what exists when it is delivered and adds the queue the day that story lands, from the same function.
 - `conductor host reclaim` removes what needs no decision (cli.yaml:372-377); the TUI only shows what it would free and prints the command, it does not run it.
+- The attention line is added by registering a provider with the overview's `attention_lines()` extension point in `crates/conductor/src/tui/overview.rs` (`story:tui-overview` acceptance 8); this story does not edit `overview.rs`.
 - The screen registers in the screen registry `crates/conductor/src/tui/screens.rs` (`story:tui-overview`) with its key; the threshold `thresholds.build_queued` comes from `story:watch-stalled-sessions`.
 
 ## Acceptance
