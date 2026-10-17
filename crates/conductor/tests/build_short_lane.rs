@@ -197,6 +197,7 @@ fn settings() -> Settings {
         slots: 1,
         repo_cache: false,
         repo_cache_size: 2 * GIB,
+        lean_debuginfo: true,
         short_slots: 1,
         short_max: Duration::from_secs(180),
     }

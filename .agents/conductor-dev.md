@@ -47,7 +47,8 @@ through the repository's bot route.
      the host ledger first; a refusal names the shortfall and is reported, never retried in a
      loop; `build run` sets `CARGO_BUILD_JOBS` and `MAKEFLAGS` to the build's share of the cores
      (the cores less `thresholds.cpu_reserve`, over `thresholds.build_slots`) and lowers a higher
-     `CARGO_BUILD_JOBS` to it: pass neither.
+     `CARGO_BUILD_JOBS` to it: pass neither. For a cargo-based command it also keeps debug
+     information to line tables (`thresholds.lean_debuginfo`): set no debug variable of your own.
    - an adversarial review only for large or risky changes;
    - keep each session short; hand over and start a fresh one rather than carry a long context.
      A hand-over holds session ids, decisions and host state, so it goes to

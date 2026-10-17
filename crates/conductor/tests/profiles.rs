@@ -999,3 +999,30 @@ fn the_watch_reads_pull_request_checks_and_conductor_relays_them() {
         "conductor.md: holds {sentence:?}"
     );
 }
+
+/// `story:build-run-lean-debuginfo`, acceptance 4: `build run` keeps debug information to line
+/// tables for a cargo-based command (`thresholds.lean_debuginfo`), so the profiles say so and
+/// none tells a session to pass the variables.
+#[test]
+fn no_profile_tells_a_session_to_pass_the_debug_information_variables() {
+    for name in ["repo-controller.md", "conductor-dev.md", "conductor.md"] {
+        let text = profile(name);
+        for variable in [
+            "CARGO_PROFILE_DEV_DEBUG",
+            "CARGO_PROFILE_TEST_DEBUG",
+            "line-tables-only",
+        ] {
+            assert!(
+                !text.contains(variable),
+                "{name}: `build run` sets {variable}; a session does not pass it"
+            );
+        }
+    }
+    for name in ["repo-controller.md", "conductor-dev.md"] {
+        assert!(
+            profile(name)
+                .contains("`thresholds.lean_debuginfo`): set no debug variable of your own"),
+            "{name}: leaves the debug variables to `build run`"
+        );
+    }
+}
