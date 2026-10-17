@@ -19,6 +19,15 @@
 //! reads the ledger it first releases, with `ProcessGroupGone`, every running grant whose process
 //! group is gone ([`Ledger::sweep`]).
 //!
+//! **Waiting without the lock** (`story:build-queue-convoy`). A run keeps the store it opened for
+//! all its passes: [`Ledger::unlock`] lets `host.lock` go and keeps the handle ([`Idle`]), and
+//! [`Idle::lock`] takes the lock again without opening the store again; the handle reopens it only
+//! when it reads a grant another writer changed. A pass reads the open grants only, from
+//! `ledger.open` beside the store, never the closed ones. Every write of a grant bumps
+//! `ledger.gen`, a counter written whole ([`generation`]); every sweep renews its age
+//! ([`swept_age`]). A run waiting in the queue reads it without the lock, and takes the lock only
+//! when it moved, or when the ledger has not been swept for `thresholds.watchdog_every`.
+//!
 //! **Queue.** Disk requests are answered in arrival order (`story:build-run-queue`): a request
 //! with a waiting request made before it ([`Ledger::ahead`]) waits, even when it alone would fit,
 //! unless every request ahead of it lacks more than the live reservations hold, so it can only be
@@ -86,6 +95,71 @@ use crate::store::Store;
 
 /// The ledger's lock, in the host directory.
 const LOCK: &str = "host.lock";
+
+/// The ledger's generation, in the host directory: a counter every write of a grant bumps, written
+/// whole, and whose age is the time since a pass last swept the ledger (`story:build-queue-convoy`).
+const GENERATION: &str = "ledger.gen";
+
+/// The ledger's generation in the host directory `host`, read without the lock: what a run waiting
+/// in the queue compares with what it read at its last pass. `0` before any write counted one;
+/// `None` when the file does not read.
+#[must_use]
+pub fn generation(host: &Path) -> Option<String> {
+    match fs::read_to_string(host.join(GENERATION)) {
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some("0\n".to_owned()),
+        Err(_) => None,
+    }
+}
+
+/// How long ago a pass swept the ledger in `host`, or a write changed it: the age of `ledger.gen`.
+/// `None` when it is not there or does not read.
+#[must_use]
+pub fn swept_age(host: &Path) -> Option<std::time::Duration> {
+    let modified = fs::metadata(host.join(GENERATION)).ok()?.modified().ok()?;
+    Some(
+        std::time::SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or(std::time::Duration::MAX),
+    )
+}
+
+/// Bumps the ledger's generation in `host`: the counter plus one, with this writer's mark, so two
+/// writers that read one counter without the lock still write two generations; written to a file
+/// of its own and renamed over the old one, so a reader reads one whole.
+fn bump(host: &Path) {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = generation(host)
+        .and_then(|text| text.split_whitespace().next()?.parse::<u64>().ok())
+        .unwrap_or(0);
+    let writer = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let pid = std::process::id();
+    let path = host.join(GENERATION);
+    let next = host.join(format!("{GENERATION}.{pid}.{writer}.next"));
+    let text = format!("{} {pid}.{writer}\n", counter.saturating_add(1));
+    if fs::write(&next, text)
+        .and_then(|()| fs::rename(&next, &path))
+        .is_err()
+    {
+        let _ = fs::remove_file(&next);
+    }
+}
+
+/// Renews the age of `ledger.gen` in `host`: a pass swept the ledger. The counter stays.
+fn swept(host: &Path) {
+    let path = host.join(GENERATION);
+    match OpenOptions::new().write(true).open(&path) {
+        Ok(file) => {
+            let _ = file.set_modified(std::time::SystemTime::now());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(&path) {
+                let _ = file.write_all(b"0\n");
+            }
+        }
+        Err(_) => {}
+    }
+}
 
 /// The shared marker of the open fall an older binary (0.16.x) kept in the host directory: the
 /// item's id and its instance, on two lines. Read once ([`adopt`]), then moved to [`FALLS`].
@@ -254,6 +328,22 @@ pub struct Ledger {
     /// The grants this handle has read for its passes ([`Ledger::grants_read`]).
     read: std::cell::Cell<usize>,
     _lock: File,
+}
+
+/// The ledger's store, kept open between two passes without the ledger's lock
+/// (`story:build-queue-convoy`): [`Ledger::unlock`] makes one, [`Idle::lock`] takes the lock again.
+pub struct Idle {
+    generated: Generated<Ports>,
+    dir: PathBuf,
+    read: std::cell::Cell<usize>,
+}
+
+/// How [`Idle::try_lock`] answered.
+pub enum Taken {
+    /// The lock is taken.
+    Locked(Ledger),
+    /// Another holder has it: the handle, still without it.
+    Held(Idle),
 }
 
 /// The ledger passes this process has made: each [`Ledger::sweep`].
@@ -482,24 +572,17 @@ impl Ledger {
     ///
     /// The directory or its lock file cannot be made or locked, or the store does not open.
     pub fn lock(state: &Path) -> Result<Self> {
-        fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
-        let store = crate::store::open(state)?;
-        loop {
-            let lock = lock_file(state)?;
-            lock.lock()
-                .with_context(|| format!("lock the host ledger {}", state.join(LOCK).display()))?;
-            if !tree_held(state)? {
-                return Ok(Self {
-                    generated: Generated::new(Ports { store }),
-                    dir: state.to_owned(),
-                    read: std::cell::Cell::new(0),
-                    _lock: lock,
-                });
-            }
-            drop(lock);
-            crate::store::wait_for_tree(state).with_context(|| {
-                format!("wait for the store's writer lock in {}", state.display())
-            })?;
+        Idle::open(state)?.lock()
+    }
+
+    /// Lets the ledger's lock go and keeps its store open, for the next pass to take the lock
+    /// again without opening the store again ([`Idle::lock`]).
+    #[must_use]
+    pub fn unlock(self) -> Idle {
+        Idle {
+            generated: self.generated,
+            dir: self.dir,
+            read: self.read,
         }
     }
 
@@ -526,6 +609,39 @@ impl Ledger {
             read: std::cell::Cell::new(0),
             _lock: lock,
         }))
+    }
+
+    /// `StartRun` under this ledger's lock ([`start_run`]).
+    ///
+    /// # Errors
+    ///
+    /// The specification refuses it, or the store does not keep it.
+    pub fn start_run(&mut self, grant: &GrantId, group: i64, at: &Timestamp) -> Result<()> {
+        const COMMAND: &str = "host start-run";
+        let generated = &mut self.generated;
+        let outcome = generated
+            .start_run(StartRun {
+                grant_id: grant.clone(),
+                process_group: group,
+                started_at: at.clone(),
+            })
+            .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+        kept(COMMAND, &generated.ports.store)?;
+        start_answer(COMMAND, outcome)
+    }
+
+    /// `ReleaseGrant` under this ledger's lock ([`release`]).
+    ///
+    /// # Errors
+    ///
+    /// The specification refuses it, or the store does not keep it.
+    pub fn release(
+        &mut self,
+        grant: &GrantId,
+        reason: Option<ReleaseReason>,
+        at: &Timestamp,
+    ) -> Result<()> {
+        release_in(&mut self.generated, grant, reason, at)
     }
 
     /// Closes every grant whose `build run` is gone, and answers their ids: a request no run holds
@@ -582,6 +698,7 @@ impl Ledger {
             )?;
             closed.push(grant);
         }
+        swept(&state);
         Ok(closed)
     }
 
@@ -613,6 +730,21 @@ impl Ledger {
             .sum();
         kept("host ledger", &self.generated.ports.store)?;
         Ok(total)
+    }
+
+    /// How many `build run` commands hold a grant on the host, but `except`: the disk grants
+    /// `Granted` or `Running`, every instance's, which `thresholds.build_slots` bounds
+    /// (`story:build-queue-convoy`).
+    ///
+    /// # Errors
+    ///
+    /// The store does not read.
+    pub fn building(&self, except: Option<&GrantId>) -> Result<u64> {
+        let count = live(&self.listed()?)
+            .filter(|grant| grant.data.kind == GrantKind::Disk)
+            .filter(|grant| except != Some(&grant.data.grant_id))
+            .count();
+        Ok(u64::try_from(count).unwrap_or(u64::MAX))
     }
 
     /// The largest peak the ledger recorded for a disk reservation in `repository` whose command
@@ -654,15 +786,17 @@ impl Ledger {
         Ok(found)
     }
 
-    /// The grants a pass reads, each counted in [`Ledger::grants_read`].
+    /// The open grants a pass reads (`story:build-queue-convoy`), from `ledger.open` beside the
+    /// store where the store's files bear it out; each grant
+    /// read for them is counted in [`Ledger::grants_read`].
     ///
     /// # Errors
     ///
     /// The store does not read.
     fn listed(&self) -> Result<Vec<HostGrantSnapshot>> {
-        let grants = HostGrantStorage::list(&self.generated.ports);
+        let (grants, read) = self.generated.ports.store.open_grants();
         kept("host ledger", &self.generated.ports.store)?;
-        self.read.set(self.read.get() + grants.len());
+        self.read.set(self.read.get() + read);
         Ok(grants)
     }
 
@@ -807,10 +941,19 @@ impl Ledger {
     /// The store does not read.
     pub fn ahead_bytes(&self, grant: &GrantId) -> Result<Vec<u64>> {
         let grants = self.listed()?;
-        let Some(own) = grants.iter().find(|row| row.data.grant_id == *grant) else {
-            return Ok(Vec::new());
+        // A request no longer open is not among the open grants: it is read from the store.
+        let own = match grants.iter().find(|row| row.data.grant_id == *grant) {
+            Some(own) => own.clone(),
+            None => {
+                let own = HostGrantStorage::get(&self.generated.ports, grant);
+                kept("host ledger", &self.generated.ports.store)?;
+                let Some(own) = own else {
+                    return Ok(Vec::new());
+                };
+                own
+            }
         };
-        let mine = arrival(own);
+        let mine = arrival(&own);
         let mut ahead: Vec<&HostGrantSnapshot> = grants
             .iter()
             .filter(|row| {
@@ -851,6 +994,71 @@ impl Ledger {
             .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
         kept(COMMAND, &self.generated.ports.store)?;
         reserve_answer(COMMAND, outcome)
+    }
+}
+
+impl Idle {
+    /// Opens the store in the host directory `state` without the ledger's lock, creating both
+    /// when they are not there.
+    ///
+    /// # Errors
+    ///
+    /// The directory cannot be made, or the store does not open.
+    pub fn open(state: &Path) -> Result<Self> {
+        fs::create_dir_all(state).with_context(|| format!("create {}", state.display()))?;
+        Ok(Self {
+            generated: Generated::new(Ports {
+                store: crate::store::open(state)?,
+            }),
+            dir: state.to_owned(),
+            read: std::cell::Cell::new(0),
+        })
+    }
+
+    /// Takes the ledger's lock again, waiting for another holder, over the store this handle kept
+    /// open: nothing is opened. As [`Ledger::lock`], `host.lock` is never held while the store's
+    /// writer lock is waited for.
+    ///
+    /// # Errors
+    ///
+    /// The lock file cannot be made or locked.
+    pub fn lock(self) -> Result<Ledger> {
+        loop {
+            let lock = lock_file(&self.dir)?;
+            lock.lock().with_context(|| {
+                format!("lock the host ledger {}", self.dir.join(LOCK).display())
+            })?;
+            if !tree_held(&self.dir)? {
+                return Ok(self.locked(lock));
+            }
+            drop(lock);
+            crate::store::wait_for_tree(&self.dir).with_context(|| {
+                format!("wait for the store's writer lock in {}", self.dir.display())
+            })?;
+        }
+    }
+
+    /// [`Idle::lock`] without waiting: the handle back, unlocked, while another holder has the lock
+    /// or another writer the store's writer lock.
+    ///
+    /// # Errors
+    ///
+    /// The lock file cannot be made, or the store's writer lock does not read.
+    pub fn try_lock(self) -> Result<Taken> {
+        let lock = lock_file(&self.dir)?;
+        if lock.try_lock().is_err() || tree_held(&self.dir)? {
+            return Ok(Taken::Held(self));
+        }
+        Ok(Taken::Locked(self.locked(lock)))
+    }
+
+    fn locked(self, lock: File) -> Ledger {
+        Ledger {
+            generated: self.generated,
+            dir: self.dir,
+            read: self.read,
+            _lock: lock,
+        }
     }
 }
 
@@ -901,18 +1109,7 @@ fn reserve_answer(command: &str, outcome: ReserveDiskOutcome) -> Result<Answer> 
 ///
 /// The specification refuses it, or the store does not open or keep it.
 pub fn start_run(state: &Path, grant: &GrantId, group: i64, at: &Timestamp) -> Result<()> {
-    const COMMAND: &str = "host start-run";
-    let mut ledger = Ledger::lock(state)?;
-    let generated = &mut ledger.generated;
-    let outcome = generated
-        .start_run(StartRun {
-            grant_id: grant.clone(),
-            process_group: group,
-            started_at: at.clone(),
-        })
-        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
-    kept(COMMAND, &generated.ports.store)?;
-    start_answer(COMMAND, outcome)
+    Ledger::lock(state)?.start_run(grant, group, at)
 }
 
 fn start_answer(command: &str, outcome: StartRunOutcome) -> Result<()> {
@@ -1041,13 +1238,25 @@ pub fn finish_run(
     stop: impl Fn() -> bool,
 ) -> Result<Finish> {
     let until = std::time::Instant::now() + bound;
+    // The store is opened once, while no writer holds its writer lock, and kept across the tries
+    // of the lock (`story:build-queue-convoy`): a try that finds the lock held opens nothing.
+    let mut idle: Option<Idle> = None;
     loop {
-        if let Some(mut ledger) = Ledger::try_lock(state)? {
-            let peak = peak.and_then(|(bytes, pauses)| {
-                record_peak_in(&mut ledger, grant, bytes, pauses).err()
-            });
-            release_in(&mut ledger.generated, grant, reason, &clock())?;
-            return Ok(Finish::Released { peak });
+        let handle = match idle.take() {
+            Some(handle) => Some(handle),
+            None if tree_held(state)? => None,
+            None => Some(Idle::open(state)?),
+        };
+        match handle.map(Idle::try_lock).transpose()? {
+            Some(Taken::Locked(mut ledger)) => {
+                let peak = peak.and_then(|(bytes, pauses)| {
+                    record_peak_in(&mut ledger, grant, bytes, pauses).err()
+                });
+                release_in(&mut ledger.generated, grant, reason, &clock())?;
+                return Ok(Finish::Released { peak });
+            }
+            Some(Taken::Held(back)) => idle = Some(back),
+            None => {}
         }
         if stop() || std::time::Instant::now() >= until {
             return Ok(Finish::GaveUp);
@@ -1954,12 +2163,23 @@ impl HostGrantStorage for Ports {
         HostGrantStorage::get(&self.store, identity)
     }
 
+    /// Keeps the grant, then `ledger.open` and the ledger's generation (`story:build-queue-convoy`),
+    /// in that order: a reader that sees the new generation reads the new open grants.
     fn put(&mut self, snapshot: HostGrantSnapshot) {
+        let grant = snapshot.clone();
         HostGrantStorage::put(&mut self.store, snapshot);
+        if self.store.check().is_ok() {
+            self.store.opened_put(&grant);
+            bump(self.store.state_dir());
+        }
     }
 
     fn delete(&mut self, identity: &GrantId) {
         HostGrantStorage::delete(&mut self.store, identity);
+        if self.store.check().is_ok() {
+            self.store.opened_delete(identity);
+            bump(self.store.state_dir());
+        }
     }
 
     fn list(&self) -> Vec<HostGrantSnapshot> {

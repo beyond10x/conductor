@@ -187,6 +187,10 @@ const GATE_RESUME_GIB: i64 = 17;
 /// The cores `build run` leaves to the desktop (`thresholds.cpu_reserve`).
 const CPU_RESERVE: i64 = 2;
 
+/// How many `build run` commands run at once on the host (`thresholds.build_slots`,
+/// `story:build-queue-convoy`).
+const BUILD_SLOTS: i64 = 3;
+
 /// Seconds between two reads of free disk by the full-gate watchdog.
 const WATCHDOG_EVERY: u64 = 10;
 
@@ -287,7 +291,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 12] = [
+const THRESHOLD_KEYS: [&str; 13] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -300,6 +304,7 @@ const THRESHOLD_KEYS: [&str; 12] = [
     "watchdog_every",
     "silent_session",
     "cpu_reserve",
+    "build_slots",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1290,6 +1295,7 @@ fn default_thresholds() -> Thresholds {
         watchdog_every: Duration(format!("PT{WATCHDOG_EVERY}S")),
         silent_session: Duration(format!("PT{SILENT_SESSION_MINUTES}M")),
         cpu_reserve: CPU_RESERVE,
+        build_slots: BUILD_SLOTS,
     }
 }
 
@@ -2924,6 +2930,23 @@ impl Reader<'_> {
             }
             None => Some(defaults.cpu_reserve),
         };
+        let build_slots = match Self::get(map, "build_slots") {
+            Some(value) => {
+                let slots = value.as_i64().filter(|slots| *slots >= 0);
+                if slots.is_none() {
+                    self.problem(
+                        &join(path, "build_slots"),
+                        format!(
+                            "{} is not a number of builds: write a whole number of 0 or more, 0 \
+                             for no bound",
+                            echo(value)
+                        ),
+                    );
+                }
+                slots
+            }
+            None => Some(defaults.build_slots),
+        };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -2950,6 +2973,7 @@ impl Reader<'_> {
             watchdog_every: watchdog_every?,
             silent_session: silent_session?,
             cpu_reserve: cpu_reserve?,
+            build_slots: build_slots?,
         })
     }
 
@@ -3343,6 +3367,10 @@ pub fn document(instance: &Instance) -> Yaml {
                 (
                     "cpu_reserve",
                     Yaml::Number(serde_yaml::Number::from(thresholds.cpu_reserve)),
+                ),
+                (
+                    "build_slots",
+                    Yaml::Number(serde_yaml::Number::from(thresholds.build_slots)),
                 ),
             ]),
         ),

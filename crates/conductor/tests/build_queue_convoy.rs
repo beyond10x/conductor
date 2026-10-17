@@ -132,6 +132,7 @@ fn settings() -> Settings {
         wait: Duration::from_secs(60),
         cores: 20,
         cpu_reserve: 2,
+        slots: 0,
     }
 }
 
@@ -168,10 +169,21 @@ struct Ran {
 /// Starts `build run` of `script` reserving `reserve` in a thread, and waits until its request is
 /// on the ledger, so the next one arrives after it.
 fn arrive(case: &Case, sources: &Sources, reserve: u64, script: &str) -> thread::JoinHandle<Ran> {
+    arrive_under(case, sources, settings(), reserve, script)
+}
+
+/// [`arrive`] under `settings`.
+fn arrive_under(
+    case: &Case,
+    sources: &Sources,
+    settings: Settings,
+    reserve: u64,
+    script: &str,
+) -> thread::JoinHandle<Ran> {
     let (state, host) = (case.state(), case.host());
     let (sources, request) = (sources.clone(), case.request(reserve, script));
     let runner = thread::spawn(move || {
-        let outcome = build::run(&state, &host, &settings(), &sources, &request);
+        let outcome = build::run(&state, &host, &settings, &sources, &request);
         Ran {
             outcome,
             ended: Instant::now(),
@@ -476,4 +488,62 @@ fn twenty_waiters_on_a_slow_store_admit_the_head_within_one_pause_of_a_release()
         admitted <= 2 * poll,
         "the head ran {admitted:?} after the release; one pause is {poll:?}"
     );
+}
+
+/// Appends `line` to `stderr.txt` beside the state directory `state`.
+fn said_to_file(state: &Path, line: &str) {
+    use std::io::Write as _;
+    let file = state
+        .parent()
+        .expect("the state lies in its case")
+        .join("stderr.txt");
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+        .expect("open the case's stderr.txt");
+    writeln!(file, "{line}").expect("write the case's stderr.txt");
+}
+
+/// Acceptance 6: with `thresholds.build_slots` 1 and one build running, a second request that
+/// fits on disk waits in the queue, names `slots` as what it waits for, is never refused for it,
+/// and is granted once the running build releases its grant.
+#[test]
+fn with_one_build_slot_a_second_request_waits_for_the_release() {
+    let _one = one_at_a_time();
+    let case = Case::new("slots");
+    // 100G free over the 10G floor: disk holds both.
+    case.free(100 * GIB);
+    let sources = Sources {
+        say: said_to_file,
+        ..case.sources(Duration::from_millis(50), Duration::from_millis(20))
+    };
+    let one = Settings {
+        slots: 1,
+        // A wait for live reservations would end in a refusal; a wait for a slot never does.
+        wait: Duration::from_millis(200),
+        ..settings()
+    };
+    let first = arrive_under(&case, &sources, one.clone(), 6 * GIB, HOLDING);
+    wait_until("the first build runs", || {
+        case.state_of(HOLDING) == Some(HostGrantState::Running)
+    });
+    let second = arrive_under(&case, &sources, one, GIB, "touch second");
+    thread::sleep(Duration::from_millis(600));
+    assert_eq!(
+        case.state_of("touch second"),
+        Some(HostGrantState::Requested),
+        "the second request waits for the one build slot"
+    );
+    assert!(!case.work().join("second").exists());
+    let said = fs::read_to_string(case.dir.join("stderr.txt")).unwrap_or_default();
+    assert!(
+        said.contains("waiting for slots"),
+        "the queued line names slots as what it waits for: {said}"
+    );
+
+    fs::write(case.work().join("stop"), "").expect("stop the first build");
+    ran(first);
+    ran(second);
+    assert!(case.work().join("second").exists(), "the second ran");
 }
