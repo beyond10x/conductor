@@ -4850,44 +4850,43 @@ fn an_instance_without_a_prefix_beside_one_with_keeps_today_s_rules() {
 // Adversary, wave 03 U1 (`story:instance-session-names`).
 // -------------------------------------------------------------------------------------------------
 
-/// The controller profile, `.agents/repo-controller.md`, tells a controller where its messages
-/// go ("Messages go only to `<recipient>`"). A controller of an instance with a `session_prefix`
-/// that follows its profile must be let through by the guard: the recipient the profile names,
-/// `<session_prefix>` read as the instance's prefix, is allowed from the controller's checkout.
+/// The controller profile, `.agents/repo-controller.md`, tells a controller how its messages go:
+/// every report is sent as the `conductor message send` command it names
+/// (`story:controller-profile-for-run`). A controller that follows its profile must be let through
+/// by the guard: that command, its session name filled in and the message on standard input, is
+/// allowed from the controller's checkout and from a worker's tree.
 #[test]
-fn adv_w03_u1_the_recipient_the_controller_profile_names_is_allowed_under_a_prefix() {
+fn adv_w03_u1_the_report_command_the_controller_profile_names_is_allowed() {
     let profile = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agents/repo-controller.md"),
     )
     .expect("read the controller profile");
-    let marker = "Messages go only to `";
+    let marker = "is sent as `";
     let start = profile
         .find(marker)
         .map(|at| at + marker.len())
-        .expect("the controller profile names where its messages go");
+        .expect("the controller profile names how its messages are sent");
     let end = profile[start..]
         .find('`')
         .map(|at| start + at)
-        .expect("the recipient is closed by a backtick");
-    let recipient = profile[start..end].replace("<session_prefix>", "a");
-    let home = home("adv-w03-u1-profile-recipient");
-    let layout = two_instance_layout(
-        &home,
-        "\x20   session_prefix: a\n",
-        "\x20   session_prefix: b\n",
+        .expect("the command is closed by a backtick");
+    let command = profile[start..end]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("<session name>", "ex-probe");
+    assert!(
+        command.starts_with("conductor message send "),
+        "the profile sends a controller's messages with `conductor message send`: {command:?}"
     );
-    let decision = layout.decide(
-        "send-message",
-        &layout.root.join("repo"),
-        "to",
-        &recipient,
-        &unlisted(),
-    );
-    assert_eq!(
-        decision.verdict,
-        Verdict::Allow,
-        "the profile sends a controller's messages to {recipient:?}: {decision:#?}"
-    );
+    let home = home("adv-w03-u1-profile-command");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        let piped = format!("printf '%s\\n' '[REPORT probe -] started' | {command}");
+        assert_verdict(&bash(&home, cwd, &piped), Verdict::Allow, "");
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
