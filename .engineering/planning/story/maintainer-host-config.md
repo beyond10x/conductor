@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:maintainer-host-config
 kind: story
-status: draft
+status: implemented
 title: The maintainer is configured once per host in host.yaml, not in any instance's roles
 relations:
 - decomposes: epic:role-names
@@ -36,7 +36,11 @@ scope:
   path: spec/domains/host.yaml
 - confidence: cited
   path: website/docs/reference
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T11:55:48Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-17T11:55:48Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-17T11:55:48Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: maintainer-host-config
 
