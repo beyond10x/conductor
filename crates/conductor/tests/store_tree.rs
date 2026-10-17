@@ -231,7 +231,7 @@ fn fixture_store() -> &'static Path {
                 "conductor.observation.SecretSyncObservation",
                 "01a117f9-6a01-7a01-8a01-0a0000000001",
                 json!({
-                    "sync": "gates-policy",
+                    "sync": "policy-sync",
                     "repository": "alpha",
                     "branch": "main",
                     "path": "policy.json",

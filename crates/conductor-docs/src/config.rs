@@ -71,6 +71,12 @@ instances:
         profile: ~/example-org/repo-controller.md
         read_only_tools: [mcp__example__read]
         forge_token_env: [EXAMPLE_FORGE_TOKEN]
+        grant:
+          tools: [show, search]
+          repositories: [alpha]
+          paths: [src]
+          max_output_bytes: 32768
+          ttl: 8h
         limits:
           memory_max: 8G
           cpu_weight: 50

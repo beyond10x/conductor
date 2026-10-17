@@ -9,13 +9,14 @@ instances:
       root: ~/example-org
       trees: ~/.local/state/worktree/trees/example-org
     records: ~/example-org/conductor
+    # No maintainer (conductor-dev) here: it is the host's role, configured once in
+    # ~/.b10x/conductor/host/host.yaml (docs/config.md, The host file).
     controllers:
       max_working: 5
       max_subagents: 4
       max_open_reviews: 3       # pull requests waiting for review before no new dispatch; 0 = no limit
     roles:
       - {role: conductor, harness: claude, model: opus}
-      - {role: conductor-dev, harness: claude, model: opus}
       - role: controller
         harness: claude
         model: opus
@@ -67,7 +68,6 @@ instances:
       max_working: 2
     roles:
       - {role: conductor, harness: claude, model: opus}
-      - {role: conductor-dev, harness: claude, model: opus}
       - role: controller
         harness: claude
         model: sonnet

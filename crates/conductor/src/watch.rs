@@ -218,9 +218,6 @@ pub const UNANSWERED_AFTER: Duration = Duration::from_secs(30 * 60);
 /// transcripts.
 const LIVE: [&str; 2] = ["working", "waiting"];
 
-/// The role of conductor's own session, whose session name two live sessions must not carry.
-const CONDUCTOR: &str = "conductor";
-
 /// The source a CI pass names on standard error while no complete snapshot names its
 /// repositories.
 const SNAPSHOT: &str = "snapshot";
@@ -389,16 +386,14 @@ impl Settings {
                 config::seconds(&thresholds.silent_session)
                     .unwrap_or(config::SILENT_SESSION_MINUTES * 60),
             ),
-            conductor: instance
-                .roles
-                .iter()
-                .find(|role| role.role == CONDUCTOR)
-                .map(|role| {
-                    role.session_name
-                        .clone()
-                        .unwrap_or_else(|| config::session_name(instance, CONDUCTOR))
-                        .0
-                }),
+            // The director's session, whose session name two live sessions must not carry: its
+            // role under its name or its old name `conductor` (story:role-name-aliases).
+            conductor: config::director(instance).map(|role| {
+                role.session_name
+                    .clone()
+                    .unwrap_or_else(|| config::session_name(instance, &role.role))
+                    .0
+            }),
             max_open_reviews: count(instance.controllers.max_open_reviews),
         }
     }

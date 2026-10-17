@@ -35,7 +35,8 @@ summary: >
 
   The host registry (story:instance-names-unique) is one per host, whatever config file a command
   reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host
-  file `host.yaml` that holds the per-host roles. It lists every config file that has run on the
+  file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`)
+  (story:maintainer-host-config). It lists every config file that has run on the
   host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is
   valid, and `conductor session start` writes it whenever a config file starts a session, each
   under the lock `instances.lock` beside it. No two instances on the host share a session prefix,
@@ -222,6 +223,51 @@ types:
       - {name: config, type: String}
       - {name: other_instance, type: conductor.config.InstanceName}
       - {name: other_config, type: String}
+
+  # A role of the host, not of an instance (story:maintainer-host-config): `maintainer`, the
+  # session that develops conductor, and `bridge`, the session between the host's instances
+  # (epic:host-bridge). Each is one per host and outlives every instance.
+  - name: conductor.host.HostRoleName
+    kind: enum
+    variants: [Maintainer, Bridge]
+
+  # The host file, `host.yaml` in the host's own directory (`~/.b10x/conductor/host/`, beside the
+  # registry `instances.json`), version `conductor.host-config/1` (story:maintainer-host-config).
+  # Every config file's commands read it, whatever file they read: it holds the host's roles,
+  # each a `conductor.config.Role` whose `role` is a `HostRoleName` written in lower case,
+  # `maintainer` or `bridge`, each at most once; any other role, an old role name such as
+  # `conductor-dev` among them, is refused by its YAML path in the file, as is a key it does not
+  # declare. A role's keys, defaults and checks are a config file's role's, but `session_name`:
+  # derived, never chosen, the role's own name with no instance prefix (`maintainer`,
+  # `bridge`), since the session belongs to no instance; the file may write only that value.
+  # Absent, the file names no host role. `conductor config validate` reads it and names each
+  # problem as `<host.yaml>: <path>: <what>`, exiting 1; a config file holds no maintainer: a
+  # `maintainer` role under `instances[].roles`, or one under its old name `conductor-dev`, is a
+  # note of `config validate` naming its YAML path and that it moves to `host.yaml`. For one
+  # release such a role is read from there, with the session name it has there, while
+  # `host.yaml` names no `maintainer`: the role of the instance the command runs, written or
+  # built in; a `maintainer` in `host.yaml` wins.
+  - name: conductor.host.HostConfig
+    kind: struct
+    fields:
+      - {name: version, type: String}
+      - {name: roles, type: List<conductor.config.Role>}
+    invariants:
+      - version == "conductor.host-config/1"
+      - distinct: {in: roles, as: role, by: role.role}
+
+  # The host's effective roles, as `conductor config show` prints them under `host` in its JSON
+  # and text (story:maintainer-host-config): `file`, the path of `host.yaml`, whether or not it is
+  # there; `roles`, its roles after defaults, each with its derived `session_name`, and, while it
+  # names no `maintainer`, the instance's (`HostConfig`). `session start --role maintainer` (or
+  # `conductor-dev`) starts that role, and `task maintainer:start` and `task maintainer:attach`
+  # read its session name from `host.roles`. The YAML of `config show` is a config file of the
+  # instance, which `config validate` takes back, and so holds no `host`.
+  - name: conductor.host.HostRoles
+    kind: struct
+    fields:
+      - {name: file, type: String}
+      - {name: roles, type: List<conductor.config.Role>}
 
   # The input of `conductor host grants`.
   - name: conductor.host.ShowGrants

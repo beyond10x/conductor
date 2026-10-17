@@ -2914,16 +2914,26 @@ const SESSION_TASKS: [&str; 6] = [
     "conductor:start",
     "conductor:attach",
     "conductor:restart",
-    "dev:start",
-    "dev:attach",
+    "maintainer:start",
+    "maintainer:attach",
 ];
 
 #[test]
 fn the_session_tasks_start_their_role_on_the_harness_and_model_config_show_names() {
     let taskfile = taskfile();
-    for (name, role) in [
-        ("conductor:start", "conductor"),
-        ("dev:start", "conductor-dev"),
+    // The maintainer is the host's role, read from `host.roles` under its name or its old name
+    // (`story:maintainer-host-config`).
+    for (name, role, roles) in [
+        (
+            "conductor:start",
+            "conductor",
+            ".instances[0].roles[] | select(.role == \"conductor\")",
+        ),
+        (
+            "maintainer:start",
+            "maintainer",
+            ".host.roles[] | select(.role == \"maintainer\" or .role == \"conductor-dev\")",
+        ),
     ] {
         let task = &taskfile["tasks"][name];
         for (var, field) in [("HARNESS", "harness"), ("MODEL", "model")] {
@@ -2932,10 +2942,7 @@ fn the_session_tasks_start_their_role_on_the_harness_and_model_config_show_names
                 .unwrap_or_else(|| panic!("{name} has no `sh:` var {var}"));
             assert_eq!(
                 sh,
-                format!(
-                    "conductor config show --format json | jq -r '.instances[0].roles[] | \
-                     select(.role == \"{role}\") | .{field}'"
-                ),
+                format!("conductor config show --format json | jq -r '{roles} | .{field}'"),
                 "{name}"
             );
         }

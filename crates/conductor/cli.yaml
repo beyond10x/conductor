@@ -191,6 +191,11 @@ callables:
     result: List<conductor.host.ReclaimStep>
     errors:
       floor-not-reached: conductor.host.ReclaimFellShort
+  broker-serve:
+    target: {kind: local, owner: conductor-cli, action: broker_serve}
+    input: null
+    result: String
+    errors: {}
 commands:
   - path: [goal, goals]
     callable: goals
@@ -260,7 +265,7 @@ commands:
         source: {kind: option, long: day}
   - path: [config, validate]
     callable: config-validate
-    about: Check the config file; exit 1 naming each problem by its YAML path
+    about: Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path
     arguments:
       - field: instance
         source: {kind: option, long: instance}
@@ -272,7 +277,7 @@ commands:
         source: {kind: option, long: check}
   - path: [config, show]
     callable: config-show
-    about: Print one instance's effective config, after defaults, as a config file
+    about: Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml)
     arguments:
       - field: format
         source: {kind: option, long: format}
@@ -332,13 +337,13 @@ commands:
         source: {kind: option, long: repository}
   - path: [session, start]
     callable: session-start
-    about: Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    about: Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
     arguments:
       - field: role
         source: {kind: option, long: role}
   - path: [session, stop]
     callable: session-stop
-    about: Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+    about: Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
     arguments:
       - field: role
         source: {kind: option, long: role}
@@ -412,3 +417,7 @@ commands:
     arguments:
       - field: format
         source: {kind: option, long: format}
+  - path: [broker, serve]
+    callable: broker-serve
+    about: Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
+    arguments: []

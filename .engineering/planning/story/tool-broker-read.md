@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:tool-broker-read
 kind: story
-status: draft
+status: implemented
 title: A session reads files through the instance's broker with tool show, search and diff, over a socket and an MCP server, within its grant
 relations:
 - decomposes: epic:agent-tools
@@ -37,7 +37,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: inferred
   path: spec/domains/tool.yaml
-revision: 5
+revision: 8
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T11:55:49Z", actor: "human:timo", revision: 6}
+- {from: "proposed", to: "active", at: "2026-10-17T11:55:49Z", actor: "human:timo", revision: 7}
+- {from: "active", to: "implemented", at: "2026-10-17T11:55:50Z", actor: "human:timo", revision: 8, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: tool-broker-read
 

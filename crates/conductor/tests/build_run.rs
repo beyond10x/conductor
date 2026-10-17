@@ -137,6 +137,7 @@ impl Case {
             command: vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()],
             measure: Vec::new(),
             cwd: self.work(),
+            output: None,
         }
     }
 
@@ -3313,6 +3314,31 @@ fn a_commands_key_is_its_first_two_words_and_its_package_flags() {
     assert_ne!(key("cargo test --workspace"), plain);
     assert_ne!(key("cargo build -p foo"), plain);
     assert_eq!(key("cargo test -p a -p b"), key("cargo test -p b -p a"));
+}
+
+/// `story:tool-build-commit-report`: the broker's build verbs run through this same path, with
+/// `output` naming a log; the command's standard output and error both go there, and nothing else
+/// of the run changes.
+#[test]
+fn a_request_with_an_output_writes_the_commands_output_and_error_there() {
+    let case = Case::new("output");
+    let log = case.dir.join("command.log");
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &Request {
+            output: Some(log.clone()),
+            ..case.request(GIB, "echo to-output; echo to-error >&2; exit 3")
+        },
+    )
+    .expect("the run ends");
+
+    assert_eq!(outcome.exit_code(), 3, "{outcome:?}");
+    let written = fs::read_to_string(&log).expect("the log is written");
+    assert!(written.contains("to-output\n"), "{written}");
+    assert!(written.contains("to-error\n"), "{written}");
 }
 
 #[test]

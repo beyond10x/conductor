@@ -80,7 +80,7 @@ use tokio::runtime::{Builder, Handle, Runtime};
 mod board;
 mod controller;
 mod decision;
-mod dispatch;
+pub(crate) mod dispatch;
 mod host;
 mod improvement;
 mod marks;
@@ -91,6 +91,7 @@ pub mod series;
 mod serving;
 mod session;
 mod snapshot;
+mod tool;
 
 /// The directory under `state/` the tree store of every record but the observations lives in.
 const TREE_DIR: &str = "tree";

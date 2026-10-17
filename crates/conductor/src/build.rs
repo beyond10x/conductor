@@ -360,6 +360,9 @@ pub struct Request {
     pub measure: Vec<PathBuf>,
     /// Where it runs.
     pub cwd: PathBuf,
+    /// The file the command's standard output and error are appended to; none, `build run`'s own
+    /// (`story:tool-build-commit-report`: the broker's build verbs name a log).
+    pub output: Option<PathBuf>,
 }
 
 /// How a run ended.
@@ -1095,6 +1098,24 @@ pub fn run(
     for (name, value) in cache.iter().flat_map(|cache| &cache.set) {
         command.env(name, value);
     }
+    if let Some(output) = &request.output {
+        let opened = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(output)
+            .and_then(|file| Ok((file.try_clone()?, file)));
+        match opened {
+            Ok((out, err)) => {
+                command.stdout(out).stderr(err);
+            }
+            Err(error) => {
+                let at = host::now((sources.clock)());
+                host::release(host, &grant, Some(ReleaseReason::Exited), &at)?;
+                host::end_run(host, &grant, run_lock);
+                return Err(error).with_context(|| format!("build run: open {}", output.display()));
+            }
+        }
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -1558,6 +1579,7 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
         command: args.command.clone(),
         measure: args.measure.iter().map(PathBuf::from).collect(),
         cwd: std::env::current_dir().context("build run: read the working directory")?,
+        output: None,
     };
     let host = host::dir(state)?;
     let outcome = run(

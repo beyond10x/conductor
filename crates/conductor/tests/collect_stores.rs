@@ -1431,7 +1431,7 @@ fn absent_member_snapshot() {
 }
 
 /// A checkout whose directory is not its repository's name on the forge (the records checkout
-/// `records` is `conductor-archive` there) is matched to the owner's listing through the
+/// `records` is `records-archive` there) is matched to the owner's listing through the
 /// repository its `origin` remote names, and the snapshot completes (conductor's NEED
 /// N-20261012-03).
 #[test]

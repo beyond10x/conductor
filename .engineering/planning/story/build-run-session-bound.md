@@ -4,7 +4,7 @@ id: story:build-run-session-bound
 kind: story
 status: implemented
 title: A build request ends when the session that made it stops
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-16T11:24:26Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-16T11:24:26Z", actor: "human:timo", revision: 3}
@@ -21,7 +21,7 @@ A session that stops or pauses, for example on a usage limit, gives up its queue
 On 2026-10-15 at ~07:40Z, three conductor-dev implementors had paused on a usage limit until 11:00Z. Their `conductor build run` requests (`--reserve 8G` cargo test, `--reserve 4G` docs-generate, `--reserve 1G` cargo fmt) stayed queued in the host ledger.
 - Their `;`-chained shells started the next command each time one was killed.
 - A poll loop (`until grep -q … ; do sleep 10; done`) waited for output that would never come.
-- These processes held the trees, so `worktree discard-cache` refused with `worktree-in-use`, while builds of substrate, cortex and canon were refused for disk (conductor's DEC-20261015-27).
+- These processes held the trees, so `worktree discard-cache` refused with `worktree-in-use`, while builds of substrate, cortex and canon were refused for disk (a conductor decision).
 
 Related: story:reserve-from-peak, story:build-run-priority.
 

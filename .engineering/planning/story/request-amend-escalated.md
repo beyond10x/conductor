@@ -4,7 +4,7 @@ id: story:request-amend-escalated
 kind: story
 status: implemented
 title: An escalated decision request can be completed in place
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-16T15:45:13Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-10-16T15:45:13Z", actor: "human:timo", revision: 4}
@@ -18,7 +18,7 @@ An escalated decision request can be completed in place: its kind, lettered opti
 
 ## Context
 
-Conductor's NEED N-20261016-12, 2026-10-16: O-20261015-substrate-adopt and H-20261015-slack-adapter-removal were escalated with no default or deadline. `decision escalate-request` refuses a request that is already escalated (`RequestStateConflict`, "only an open request is escalated", crates/conductor/src/decide.rs:1052). Conductor fell back to re-sending them by text, so the Decisions page shows them without a default or deadline.
+A conductor NEED (2026-10-16): O-20261015-substrate-adopt and H-20261015-slack-adapter-removal were escalated with no default or deadline. `decision escalate-request` refuses a request that is already escalated (`RequestStateConflict`, "only an open request is escalated", crates/conductor/src/decide.rs:1052). Conductor fell back to re-sending them by text, so the Decisions page shows them without a default or deadline.
 
 ## Acceptance
 

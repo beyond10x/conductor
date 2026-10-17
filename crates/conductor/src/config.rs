@@ -107,15 +107,18 @@ use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
     Confinement, ConfinementMode, ConfinementProvider, Controllers, ForgeSecret, Gibibytes,
     GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network,
-    RepoCache, Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SessionName,
+    RepoCache, Report, RepositoryRule, Retention, Role, RoleName, SecretSource, SecretSync,
+    SessionName,
     SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember,
     Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
+use conductor_model::host::{HostConfig, HostRoleName, HostRoles};
 use conductor_model::primitives::Duration;
+use conductor_model::tool::{RoleGrant, Verb};
 use serde_json::{Map, Value};
-use serde_yaml::{Mapping, Value as Yaml};
+use serde_yaml::Value as Yaml;
 
 use crate::cli::{MigrateConfigArgs, ShowConfigArgs, ValidateConfigArgs, WriteWorkspaceArgs};
 use crate::registry;
@@ -141,15 +144,101 @@ pub const DEFAULT_FILE: &str = ".b10x/conductor/conductor.yaml";
 pub const GITLAB_HOST: &str = "gitlab.com";
 
 /// The session roles and the model each runs on today: `claude … --model opus` in `Taskfile.yml`
-/// (`conductor`, `conductor-dev`) and in `.agents/conductor.md` (a controller).
-const ROLES: [&str; 3] = ["conductor", "conductor-dev", "controller"];
+/// (`conductor`, `conductor-dev`) and in `.agents/conductor.md` (a controller). For this release
+/// they keep the old names (`conductor.config.RoleName`): the start tasks and the watch's context
+/// lines select them by these names (`story:role-name-aliases`), until `story:role-names-in-files`
+/// renames those.
+const ROLES: [&str; 3] = ["conductor", "conductor-dev", CONTROLLER];
 
-/// The role of conductor's own session.
-const CONDUCTOR_ROLE: &str = "conductor";
+/// The role of the instance's own session, which runs the instance (`conductor.config.RoleName`).
+pub const DIRECTOR: &str = "director";
+
+/// The role of the session that develops conductor itself.
+pub const MAINTAINER: &str = "maintainer";
 
 /// The role whose sessions are named per repository, `<session_prefix>-<repository>`, not after
 /// the role (`story:instance-session-names`).
+pub const LEAD: &str = "lead";
+
+/// The old name of the lead role, which the controller's session requests still carry.
 pub const CONTROLLER: &str = "controller";
+
+/// Each role's name as the file writes it, with the role it names: its own name, or its old
+/// name, read for one release (`conductor.config.RoleName`, `story:role-name-aliases`).
+const ROLE_NAMES: [(&str, RoleName); 6] = [
+    (DIRECTOR, RoleName::Director),
+    (MAINTAINER, RoleName::Maintainer),
+    (LEAD, RoleName::Lead),
+    ("conductor", RoleName::Director),
+    ("conductor-dev", RoleName::Maintainer),
+    (CONTROLLER, RoleName::Lead),
+];
+
+/// The role `name` names, by its name or its old name; `None` for a name of neither.
+#[must_use]
+pub fn role_name(name: &str) -> Option<RoleName> {
+    ROLE_NAMES
+        .iter()
+        .find(|(written, _)| *written == name)
+        .map(|(_, role)| *role)
+}
+
+/// The name of `role` (`conductor.config.RoleName`).
+#[must_use]
+pub const fn role_word(role: RoleName) -> &'static str {
+    match role {
+        RoleName::Director => DIRECTOR,
+        RoleName::Maintainer => MAINTAINER,
+        RoleName::Lead => LEAD,
+    }
+}
+
+/// The old name of `role`, read for one release.
+#[must_use]
+pub const fn old_role_word(role: RoleName) -> &'static str {
+    match role {
+        RoleName::Director => "conductor",
+        RoleName::Maintainer => "conductor-dev",
+        RoleName::Lead => CONTROLLER,
+    }
+}
+
+/// Whether `name` names `role`, by its name or its old name.
+#[must_use]
+pub fn is_role(name: &str, role: RoleName) -> bool {
+    role_name(name) == Some(role)
+}
+
+/// The note on `name` when it is a role's old name: `<old> is the old name of <role>`; `None`
+/// for a role's own name and for a name of no role.
+#[must_use]
+pub fn old_name_note(name: &str) -> Option<String> {
+    role_name(name)
+        .filter(|role| old_role_word(*role) == name)
+        .map(|role| format!("{name} is the old name of {}", role_word(role)))
+}
+
+/// The two names a session of `role` may carry for this release, `name` being the one it is
+/// derived under: `name` itself and, where `name` ends in the role's name or its old name, the
+/// same name ending in the other, so a session still named `<session_prefix>-conductor` is the
+/// director's under either (`story:role-name-aliases`).
+#[must_use]
+pub fn session_names_of(role: RoleName, name: &str) -> Vec<String> {
+    let mut names = vec![name.to_owned()];
+    let (new, old) = (role_word(role), old_role_word(role));
+    for (from, to) in [(old, new), (new, old)] {
+        if let Some(base) = name.strip_suffix(from)
+            && (base.is_empty() || base.ends_with('-'))
+        {
+            let other = format!("{base}{to}");
+            if !names.contains(&other) {
+                names.push(other);
+            }
+            break;
+        }
+    }
+    names
+}
 
 /// The characters of a `conductor.config.SessionPrefix`, the alphabet `spec/domains/config.yaml`
 /// declares for it.
@@ -280,7 +369,7 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 12] = [
+const ROLE_KEYS: [&str; 13] = [
     "role",
     "harness",
     "model",
@@ -293,7 +382,20 @@ const ROLE_KEYS: [&str; 12] = [
     "writable",
     "network",
     "forge_token_env",
+    "grant",
 ];
+/// The keys of a role's `grant` (`conductor.tool.RoleGrant`, `story:tool-broker-read`).
+const GRANT_KEYS: [&str; 5] = ["tools", "repositories", "paths", "max_output_bytes", "ttl"];
+/// The verbs a grant may name, as the file writes them: every verb of the broker
+/// ([`conductor_broker::VERBS`]), so a verb it adds is one a grant names.
+fn grant_verbs() -> Vec<(&'static str, Verb)> {
+    conductor_broker::VERBS
+        .into_iter()
+        .map(|verb| (verb_word(verb), verb))
+        .collect()
+}
+/// The most bytes one answer of the broker carries when a grant writes no `max_output_bytes`.
+pub const DEFAULT_MAX_OUTPUT_BYTES: i64 = 65_536;
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
@@ -678,15 +780,22 @@ impl Active {
     }
 }
 
-/// Whether `instance` names a `conductor` role: its own conductor. One that names none is served
-/// by the conductor of the file's `default` instance (`.agents/conductor.md`, More than one
-/// instance).
+/// Whether `instance` names a `director` role, or one under its old name `conductor`: its own
+/// conductor. One that names none is served by the conductor of the file's `default` instance
+/// (`.agents/conductor.md`, More than one instance).
 #[must_use]
 pub fn has_conductor(instance: &Instance) -> bool {
+    director(instance).is_some()
+}
+
+/// The `director` role of `instance`, under its name or its old name `conductor`
+/// (`story:role-name-aliases`).
+#[must_use]
+pub fn director(instance: &Instance) -> Option<&Role> {
     instance
         .roles
         .iter()
-        .any(|role| role.role == CONDUCTOR_ROLE)
+        .find(|role| is_role(&role.role, RoleName::Director))
 }
 
 static ACTIVE: OnceLock<Active> = OnceLock::new();
@@ -1011,6 +1120,63 @@ fn pin_problems(config: &Config) -> (Vec<Problem>, Vec<Problem>) {
     (problems, notes)
 }
 
+/// Each role the config file `file` writes under its old name, by its `role` path, as a note: the role
+/// reads as the new one for one release (`conductor.config.RoleName`, `story:role-name-aliases`).
+///
+/// Only a role the file writes is noted: the built-in roles of an instance that writes none keep
+/// the old names for this release without a note, the file naming no role.
+///
+/// A maintainer role, under either name, is noted as well: it is the host's role and moves to the
+/// host file `host` (`story:maintainer-host-config`); it is read from the instance while that
+/// file names no maintainer (`host_names_one` false), for this release.
+fn old_role_names(file: &Path, host: &Path, host_names_one: bool) -> Vec<Problem> {
+    let Some(written) = fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_yaml::from_str::<Value>(&text).ok())
+    else {
+        return Vec::new();
+    };
+    let mut notes = Vec::new();
+    let instances = written["instances"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    for (index, instance) in instances.iter().enumerate() {
+        let roles = instance["roles"].as_array().map_or(&[][..], Vec::as_slice);
+        for (at, role) in roles.iter().enumerate() {
+            let Some(name) = role["role"].as_str() else {
+                continue;
+            };
+            let old =
+                old_name_note(name).map(|note| format!("{note}, read as it for this release"));
+            let moves = is_role(name, RoleName::Maintainer).then(|| {
+                if host_names_one {
+                    format!(
+                        "the maintainer is the host's role and moves to {}, which names one: \
+                         this one is not read; remove it",
+                        host.display()
+                    )
+                } else {
+                    format!(
+                        "the maintainer is the host's role and moves to {}; while that file \
+                         names none, this one is read from here, for this release",
+                        host.display()
+                    )
+                }
+            });
+            let message = match (old, moves) {
+                (Some(old), Some(moves)) => format!("{old}; {moves}"),
+                (Some(one), None) | (None, Some(one)) => one,
+                (None, None) => continue,
+            };
+            notes.push(Problem {
+                path: format!("instances[{index}].roles[{at}].role"),
+                message,
+            });
+        }
+    }
+    notes
+}
+
 /// The host directory's name beside the config file.
 pub const HOST_DIR: &str = "host";
 
@@ -1037,6 +1203,131 @@ pub fn host_dir() -> Result<PathBuf> {
     let environment = Environment::from_process()?;
     let (file, _) = locate(None, &environment)?;
     Ok(host_of(&environment.cwd.join(file)))
+}
+
+/// The host file's name in the host's own directory, beside the registry
+/// (`conductor.host.HostConfig`, `story:maintainer-host-config`).
+pub const HOST_FILE: &str = "host.yaml";
+
+/// The version the host file carries: `conductor.host.HostConfig`'s invariant.
+pub const HOST_VERSION: &str = "conductor.host-config/1";
+
+/// The keys of the host file.
+const HOST_KEYS: [&str; 2] = ["version", "roles"];
+
+/// The name of the bridge's role (`conductor.host.HostRoleName`).
+pub const BRIDGE: &str = "bridge";
+
+/// How the host file writes each `conductor.host.HostRoleName`.
+const HOST_ROLES: [(&str, HostRoleName); 2] = [
+    (MAINTAINER, HostRoleName::Maintainer),
+    (BRIDGE, HostRoleName::Bridge),
+];
+
+/// The host file under the home directory `home`: `host.yaml` in the host's own directory
+/// ([`registry::dir`]), whatever config file a command reads.
+#[must_use]
+pub fn host_file(home: &Path) -> PathBuf {
+    registry::dir(home).join(HOST_FILE)
+}
+
+/// Reads the host file under `home` ([`host_file`]): `None` when it is not there.
+///
+/// # Errors
+///
+/// The file cannot be read, or it does not convert, answered as [`Invalid`] with every problem,
+/// each named by its path in that file.
+pub fn read_host(home: &Path) -> Result<Option<HostConfig>> {
+    let file = host_file(home);
+    let text = match fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read the host file {}", file.display()));
+        }
+    };
+    parse_host(&text, home).map(Some).map_err(|problems| {
+        Invalid {
+            file: file.clone(),
+            problems,
+        }
+        .into()
+    })
+}
+
+/// Converts the host file's text into `conductor.host.HostConfig` (`story:maintainer-host-config`):
+/// its `version`; its `roles`, each read as a config file's role is, `maintainer` or `bridge`,
+/// each at most once, its `session_name` the role's own name. Absent, `roles` is empty.
+///
+/// # Errors
+///
+/// Every problem the file has, each named by its path in that file.
+pub fn parse_host(text: &str, home: &Path) -> Result<HostConfig, Vec<Problem>> {
+    let value = yaml_value(text)?;
+    let mut reader = Reader {
+        home,
+        problems: Vec::new(),
+    };
+    reader.secrets(&value, "");
+    let host = reader.host_config(&value);
+    match (host, reader.problems.is_empty()) {
+        (Some(host), true) => Ok(host),
+        _ => Err(reader.problems),
+    }
+}
+
+/// The host's effective roles for `instance`, the instance a command runs
+/// (`conductor.host.HostRoles`): the roles of the host file under `home`, and, while it names no
+/// `maintainer`, the instance's maintainer role (written under either name, or built in), first,
+/// with the session name it has there, read from there for this release.
+///
+/// # Errors
+///
+/// What [`read_host`] answers.
+pub fn host_roles(home: &Path, instance: &Instance) -> Result<HostRoles> {
+    let written = read_host(home)?;
+    let mut roles = written.map(|host| host.roles).unwrap_or_default();
+    if !roles.iter().any(|role| role.role == MAINTAINER)
+        && let Some(left) = instance_maintainer(instance)
+    {
+        roles.insert(0, left.clone());
+    }
+    Ok(HostRoles {
+        file: text_of(&host_file(home)),
+        roles,
+    })
+}
+
+/// The maintainer role `instance` still names, under its name or its old name `conductor-dev`.
+fn instance_maintainer(instance: &Instance) -> Option<&Role> {
+    instance
+        .roles
+        .iter()
+        .find(|role| is_role(&role.role, RoleName::Maintainer))
+}
+
+/// The maintainer of the host ([`host_roles`]): the host file's, else the one `instance` names.
+///
+/// # Errors
+///
+/// What [`read_host`] answers.
+pub fn host_maintainer(home: &Path, instance: &Instance) -> Result<Option<Role>> {
+    Ok(host_roles(home, instance)?
+        .roles
+        .into_iter()
+        .find(|role| is_role(&role.role, RoleName::Maintainer)))
+}
+
+/// `host` as `config show` prints it under `host` (`conductor.host.HostRoles`).
+#[must_use]
+pub fn host_document(host: &HostRoles) -> Yaml {
+    shown::mapping([
+        ("file", shown::text(&host.file)),
+        (
+            "roles",
+            Yaml::Sequence(host.roles.iter().map(shown::role).collect()),
+        ),
+    ])
 }
 
 /// The instance this process runs. [`crate::cli::Cli::run`] fixes it with [`set_active`]; a
@@ -1108,35 +1399,49 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         secret_syncs: Vec::new(),
         // A Gates policy is named only by a user (story:gates-hooks-fresh).
         gates_policy: None,
-        // Its own conductor, `conductor` (story:instance-session-names).
+        // Its own conductor, the built-in director role's session, under the role's old name for
+        // this release (story:instance-session-names, story:role-name-aliases).
         conductor: ConductorSession {
             served_by: None,
-            session_name: Some(SessionName(CONDUCTOR_ROLE.to_owned())),
+            session_name: Some(SessionName(old_role_word(RoleName::Director).to_owned())),
         },
     }
 }
 
 /// The conductor that serves `instance` (`story:instance-session-names`): its own when it names
-/// a `conductor` role; else the conductor of `default`, the file's default instance, when that is
-/// another instance and names one; else none.
+/// a `director` role, its session named after the role as the file writes it, so a file that
+/// writes the old name `conductor` keeps `<session_prefix>-conductor` (`story:role-name-aliases`);
+/// else the conductor of `default`, the file's default instance, when that is another instance
+/// and names one; else none.
 #[must_use]
 pub fn conductor_session(instance: &Instance, default: Option<&Instance>) -> ConductorSession {
-    if has_conductor(instance) {
+    if let Some(role) = director(instance) {
         return ConductorSession {
             served_by: None,
-            session_name: Some(session_name(instance, CONDUCTOR_ROLE)),
+            session_name: Some(director_session(instance, role)),
         };
     }
-    match default.filter(|default| default.name != instance.name && has_conductor(default)) {
-        Some(default) => ConductorSession {
+    match default
+        .filter(|default| default.name != instance.name)
+        .and_then(|default| director(default).map(|role| (default, role)))
+    {
+        Some((default, role)) => ConductorSession {
             served_by: Some(default.name.clone()),
-            session_name: Some(session_name(default, CONDUCTOR_ROLE)),
+            session_name: Some(director_session(default, role)),
         },
         None => ConductorSession {
             served_by: None,
             session_name: None,
         },
     }
+}
+
+/// The session name of `role`, the director role of `instance`: the role's own, else the one
+/// derived for it.
+fn director_session(instance: &Instance, role: &Role) -> SessionName {
+    role.session_name
+        .clone()
+        .unwrap_or_else(|| session_name(instance, &role.role))
 }
 
 /// The `dashboard_port` of the instance at `index` in the file when it writes none
@@ -1179,18 +1484,39 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
             writable: default_writable(role),
             network: Network::Open,
             forge_token_env: Vec::new(),
+            grant: default_grant(),
         })
         .collect()
 }
 
+/// The grant of a role whose file writes none (`story:tool-broker-read`): the role's default
+/// tools of the design that exist as verbs, `show`, `search` and `diff`, over the session's whole
+/// working directory, [`DEFAULT_MAX_OUTPUT_BYTES`] per answer, for the session's life.
+#[must_use]
+pub fn default_grant() -> RoleGrant {
+    RoleGrant {
+        tools: vec![Verb::Show, Verb::Search, Verb::Diff],
+        repositories: Vec::new(),
+        paths: Vec::new(),
+        max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+        ttl: None,
+    }
+}
+
+/// A verb as the file and the wire write it: [`conductor_broker::verb_word`].
+#[must_use]
+pub fn verb_word(verb: Verb) -> &'static str {
+    conductor_broker::verb_word(verb)
+}
+
 /// The places a session of the role `role` writes when the file names none
 /// (`story:session-envelope-model`): every place of [`PLACES`] but the records, and for the
-/// `conductor` role, whose session keeps them, the records too.
+/// `director` role (`conductor`), whose session keeps them, the records too.
 #[must_use]
 pub fn default_writable(role: &str) -> Vec<Writable> {
     PLACES
         .iter()
-        .filter(|place| **place != RECORDS_PLACE || role == CONDUCTOR_ROLE)
+        .filter(|place| **place != RECORDS_PLACE || is_role(role, RoleName::Director))
         .map(|place| Writable((*place).to_owned()))
         .collect()
 }
@@ -1230,15 +1556,16 @@ fn named(prefix: Option<&SessionPrefix>, word: &str) -> SessionName {
     })
 }
 
-/// The `session_name` of the role `role` under `prefix`: [`named`] after the role, and none for
-/// the controller role, whose sessions are named per repository.
+/// The `session_name` of the role `role` under `prefix`: [`named`] after the role as the file
+/// writes it, an old name included (`story:role-name-aliases`), and none for the lead role
+/// (`controller`), whose sessions are named per repository.
 fn role_session_name(prefix: Option<&SessionPrefix>, role: &str) -> Option<SessionName> {
-    (role != CONTROLLER).then(|| named(prefix, role))
+    (!is_role(role, RoleName::Lead)).then(|| named(prefix, role))
 }
 
 /// The fixed session names each instance of the file without a `session_prefix` keeps, by its
-/// index, as the file writes them: its roles' names but the controller's (every built-in role's
-/// when it writes no `roles`), and `conductor` and `conductor-dev`, which the start tasks use.
+/// index, as the file writes them: its roles' names but the lead's (every built-in role's when it
+/// writes no `roles`), and `conductor` and `conductor-dev`, which the start tasks use.
 fn bare_names(items: &[Value]) -> Vec<(usize, String)> {
     let mut names = Vec::new();
     for (index, item) in items.iter().enumerate() {
@@ -1254,8 +1581,11 @@ fn bare_names(items: &[Value]) -> Vec<(usize, String)> {
         };
         let fixed = roles
             .into_iter()
-            .chain([CONDUCTOR_ROLE.to_owned(), format!("{CONDUCTOR_ROLE}-dev")])
-            .filter(|role| role != CONTROLLER);
+            .chain(
+                [RoleName::Director, RoleName::Maintainer]
+                    .map(|role| old_role_word(role).to_owned()),
+            )
+            .filter(|role| !is_role(role, RoleName::Lead));
         for name in fixed {
             if !names.contains(&(index, name.clone())) {
                 names.push((index, name));
@@ -1354,19 +1684,7 @@ fn text_of(path: &Path) -> String {
 ///
 /// Every problem the file has, each named by its YAML path.
 pub fn parse(text: &str, home: &Path) -> Result<Config, Vec<Problem>> {
-    let value: Value = match serde_yaml::from_str::<Option<Value>>(text) {
-        Ok(value) => value.unwrap_or(Value::Null),
-        Err(error) => {
-            let path = error.location().map_or_else(
-                || "the file".to_owned(),
-                |at| format!("line {}, column {}", at.line(), at.column()),
-            );
-            return Err(vec![Problem {
-                path,
-                message: redact(&format!("not YAML: {error}")),
-            }]);
-        }
-    };
+    let value = yaml_value(text)?;
     let mut reader = Reader {
         home,
         problems: Vec::new(),
@@ -1376,6 +1694,24 @@ pub fn parse(text: &str, home: &Path) -> Result<Config, Vec<Problem>> {
     match (config, reader.problems.is_empty()) {
         (Some(config), true) => Ok(config),
         _ => Err(reader.problems),
+    }
+}
+
+/// `text` read as YAML, null when it holds nothing; a syntax error is the one problem, named by
+/// its line and column.
+fn yaml_value(text: &str) -> Result<Value, Vec<Problem>> {
+    match serde_yaml::from_str::<Option<Value>>(text) {
+        Ok(value) => Ok(value.unwrap_or(Value::Null)),
+        Err(error) => {
+            let path = error.location().map_or_else(
+                || "the file".to_owned(),
+                |at| format!("line {}, column {}", at.line(), at.column()),
+            );
+            Err(vec![Problem {
+                path,
+                message: redact(&format!("not YAML: {error}")),
+            }])
+        }
     }
 }
 
@@ -1742,6 +2078,88 @@ impl Reader<'_> {
             default,
             instances,
         })
+    }
+
+    /// The host file (`conductor.host.HostConfig`, `story:maintainer-host-config`): its version
+    /// held, and each role a host role ([`HOST_ROLES`]) named once, read as a config file's role
+    /// ([`Reader::role`]) with its session name its own name.
+    fn host_config(&mut self, value: &Value) -> Option<HostConfig> {
+        let empty = Value::Object(Map::new());
+        let value = if value.is_null() { &empty } else { value };
+        let map = self.mapping(value, "", &HOST_KEYS)?;
+        let version = self.required(map, "", "version").and_then(|value| {
+            let version = self.text(value, "version")?;
+            if version != HOST_VERSION {
+                self.problem("version", format!("{} is not {HOST_VERSION}", echo(value)));
+                return None;
+            }
+            Some(version)
+        });
+        let roles = match Self::get(map, "roles") {
+            Some(value) => {
+                if let Value::Array(items) = value {
+                    self.host_role_names(items);
+                }
+                self.list(value, "roles", Self::role)
+            }
+            None => Some(Vec::new()),
+        };
+        let mut roles = roles?;
+        for (index, role) in roles.iter_mut().enumerate() {
+            let derived = SessionName(role.role.clone());
+            if let Some(written) = role.session_name.take()
+                && written != derived
+            {
+                self.problem(
+                    &format!("roles[{index}].session_name"),
+                    format!(
+                        "{} is not {:?}: a host role's session is named after the role, with no \
+                         instance prefix, since it belongs to no instance; leave it out",
+                        echo(&Value::from(written.0)),
+                        derived.0
+                    ),
+                );
+            }
+            role.session_name = Some(derived);
+        }
+        Some(HostConfig {
+            version: version?,
+            roles,
+        })
+    }
+
+    /// Each role of the host file `items` is a host role, `maintainer` or `bridge`, named once;
+    /// any other is a problem by its `role` path.
+    fn host_role_names(&mut self, items: &[Value]) {
+        let mut seen: Vec<(&str, usize)> = Vec::new();
+        for (index, item) in items.iter().enumerate() {
+            let Some(name) = item.get("role").and_then(Value::as_str) else {
+                continue;
+            };
+            let path = format!("roles[{index}].role");
+            if !HOST_ROLES.iter().any(|(word, _)| *word == name) {
+                let words: Vec<&str> = HOST_ROLES.iter().map(|(word, _)| *word).collect();
+                let old = old_name_note(name)
+                    .map(|note| format!(" ({note}; write the new name)"))
+                    .unwrap_or_default();
+                self.problem(
+                    &path,
+                    format!(
+                        "{} is not a role of the host: write {}{old}; an instance's roles stay \
+                         in its config file",
+                        echo(&Value::from(name)),
+                        words.join(" or ")
+                    ),
+                );
+            } else if let Some((_, first)) = seen.iter().find(|(seen, _)| *seen == name) {
+                self.problem(
+                    &path,
+                    format!("names the role {name} a second time, after roles[{first}]"),
+                );
+            } else {
+                seen.push((name, index));
+            }
+        }
     }
 
     /// Each instance's `conductor`, derived ([`conductor_session`]); one the file writes that is
@@ -2559,7 +2977,9 @@ impl Reader<'_> {
         // A controller starts with `--setting-sources project,local`, which loads no user-level
         // agent, so a controller role that names an agent names its profile as well
         // (`story:agent-needs-user-setting-source`).
-        if role.as_deref() == Some(CONTROLLER)
+        if role
+            .as_deref()
+            .is_some_and(|role| is_role(role, RoleName::Lead))
             && Self::get(map, "agent").is_some()
             && Self::get(map, "profile").is_none()
         {
@@ -2614,6 +3034,10 @@ impl Reader<'_> {
             Some(value) => self.list(value, &join(path, "forge_token_env"), Self::variable_name),
             None => Some(Vec::new()),
         };
+        let grant = match Self::get(map, "grant") {
+            Some(value) => self.grant(value, &join(path, "grant")),
+            None => Some(default_grant()),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
@@ -2627,6 +3051,75 @@ impl Reader<'_> {
             writable: writable?,
             network: network?,
             forge_token_env: forge_token_env?,
+            grant: grant?,
+        })
+    }
+
+    /// A role's `grant` (`conductor.tool.RoleGrant`): each key the file leaves out takes its value
+    /// from [`default_grant`].
+    fn grant(&mut self, value: &Value, path: &str) -> Option<RoleGrant> {
+        let map = self.mapping(value, path, &GRANT_KEYS)?;
+        let defaults = default_grant();
+        let tools = match Self::get(map, "tools") {
+            Some(value) => self.list(value, &join(path, "tools"), |reader, value, at| {
+                reader.word(value, at, &grant_verbs())
+            }),
+            None => Some(defaults.tools),
+        };
+        let repositories = match Self::get(map, "repositories") {
+            Some(value) => self.list(value, &join(path, "repositories"), Self::text),
+            None => Some(Vec::new()),
+        };
+        let paths = match Self::get(map, "paths") {
+            Some(value) => self.list(value, &join(path, "paths"), |reader, value, at| {
+                let text = reader.text(value, at)?;
+                let relative = Path::new(&text);
+                if relative.is_absolute()
+                    || relative
+                        .components()
+                        .any(|part| matches!(part, std::path::Component::ParentDir))
+                {
+                    reader.problem(
+                        at,
+                        format!(
+                            "{} is not a path under the session's working directory: write it \
+                             relative, without ..",
+                            echo(value)
+                        ),
+                    );
+                    None
+                } else {
+                    Some(text)
+                }
+            }),
+            None => Some(Vec::new()),
+        };
+        let max_output_bytes = match Self::get(map, "max_output_bytes") {
+            Some(value) => {
+                let bytes = value.as_i64().filter(|bytes| *bytes >= 1);
+                if bytes.is_none() {
+                    self.problem(
+                        &join(path, "max_output_bytes"),
+                        format!(
+                            "{} is not a max_output_bytes: write a whole number of 1 or more",
+                            echo(value)
+                        ),
+                    );
+                }
+                bytes
+            }
+            None => Some(defaults.max_output_bytes),
+        };
+        let ttl = match Self::get(map, "ttl") {
+            Some(value) => self.duration(value, &join(path, "ttl")).map(Some),
+            None => Some(None),
+        };
+        Some(RoleGrant {
+            tools: tools?,
+            repositories: repositories?,
+            paths: paths?,
+            max_output_bytes: max_output_bytes?,
+            ttl: ttl?,
         })
     }
 
@@ -3146,30 +3639,36 @@ fn written_tokens(tokens: &Tokens) -> String {
     }
 }
 
-/// `instance` as a config file of one instance, which is its `default`, its keys in the
-/// specification's order.
-#[must_use]
-pub fn document(instance: &Instance) -> Yaml {
-    fn mapping<const N: usize>(entries: [(&str, Yaml); N]) -> Yaml {
+/// The pieces [`document`] and [`host_document`] build a shown config from.
+mod shown {
+    use conductor_model::config::{Harness, Limits, Network, Role};
+    use serde_yaml::{Mapping, Value as Yaml};
+
+    /// A mapping of `entries`, in their order.
+    pub(super) fn mapping<const N: usize>(entries: [(&str, Yaml); N]) -> Yaml {
         let mut map = Mapping::new();
         for (key, value) in entries {
             map.insert(Yaml::from(key), value);
         }
         Yaml::Mapping(map)
     }
-    fn text(value: &str) -> Yaml {
+
+    pub(super) fn text(value: &str) -> Yaml {
         Yaml::from(value)
     }
+
     /// An optional text, null when it is absent.
-    fn optional(value: Option<&String>) -> Yaml {
+    pub(super) fn optional(value: Option<&String>) -> Yaml {
         value.map_or(Yaml::Null, |value| text(value))
     }
+
     /// A number.
-    fn number(value: i64) -> Yaml {
+    pub(super) fn number(value: i64) -> Yaml {
         Yaml::Number(serde_yaml::Number::from(value))
     }
+
     /// A box's limits, each absent one null.
-    fn limits(limits: &Limits) -> Yaml {
+    pub(super) fn limits(limits: &Limits) -> Yaml {
         mapping([
             (
                 "memory_max",
@@ -3182,6 +3681,97 @@ pub fn document(instance: &Instance) -> Yaml {
             ("tasks_max", limits.tasks_max.map_or(Yaml::Null, number)),
         ])
     }
+
+    /// One role, every key written, an absent one null.
+    pub(super) fn role(role: &Role) -> Yaml {
+        mapping([
+            ("role", text(&role.role)),
+            (
+                "harness",
+                text(match role.harness {
+                    Harness::Claude => "claude",
+                    Harness::Codex => "codex",
+                }),
+            ),
+            ("model", text(&role.model.0)),
+            ("agent", optional(role.agent.as_ref().map(|agent| &agent.0))),
+            (
+                "settings",
+                optional(role.settings.as_ref().map(|settings| &settings.0)),
+            ),
+            (
+                "profile",
+                optional(role.profile.as_ref().map(|profile| &profile.0)),
+            ),
+            (
+                "session_name",
+                optional(role.session_name.as_ref().map(|name| &name.0)),
+            ),
+            (
+                "read_only_tools",
+                Yaml::Sequence(role.read_only_tools.iter().map(|tool| text(tool)).collect()),
+            ),
+            ("limits", limits(&role.limits)),
+            (
+                "writable",
+                Yaml::Sequence(role.writable.iter().map(|place| text(&place.0)).collect()),
+            ),
+            (
+                "network",
+                text(match role.network {
+                    Network::Open => "open",
+                }),
+            ),
+            (
+                "forge_token_env",
+                Yaml::Sequence(role.forge_token_env.iter().map(|name| text(name)).collect()),
+            ),
+            (
+                "grant",
+                mapping([
+                    (
+                        "tools",
+                        Yaml::Sequence(
+                            role.grant
+                                .tools
+                                .iter()
+                                .map(|verb| text(super::verb_word(*verb)))
+                                .collect(),
+                        ),
+                    ),
+                    (
+                        "repositories",
+                        Yaml::Sequence(
+                            role.grant
+                                .repositories
+                                .iter()
+                                .map(|name| text(name))
+                                .collect(),
+                        ),
+                    ),
+                    (
+                        "paths",
+                        Yaml::Sequence(role.grant.paths.iter().map(|path| text(path)).collect()),
+                    ),
+                    ("max_output_bytes", number(role.grant.max_output_bytes)),
+                    (
+                        "ttl",
+                        role.grant
+                            .ttl
+                            .as_ref()
+                            .map_or(Yaml::Null, |ttl| text(&super::written(ttl))),
+                    ),
+                ]),
+            ),
+        ])
+    }
+}
+
+/// `instance` as a config file of one instance, which is its `default`, its keys in the
+/// specification's order.
+#[must_use]
+pub fn document(instance: &Instance) -> Yaml {
+    use shown::{limits, mapping, optional, text};
     /// A source's mapping with its `exclude`, written only when it holds an entry.
     fn excluding(mut source: Yaml, exclude: &[String]) -> Yaml {
         if let Yaml::Mapping(map) = &mut source
@@ -3194,10 +3784,6 @@ pub fn document(instance: &Instance) -> Yaml {
         }
         source
     }
-    let word = |harness: Harness| match harness {
-        Harness::Claude => "claude",
-        Harness::Codex => "codex",
-    };
     let decider = |decider: Decider| match decider {
         Decider::Conductor => "conductor",
         Decider::Operator => "operator",
@@ -3219,49 +3805,7 @@ pub fn document(instance: &Instance) -> Yaml {
             }
         })
         .collect();
-    let roles = instance
-        .roles
-        .iter()
-        .map(|role| {
-            mapping([
-                ("role", text(&role.role)),
-                ("harness", text(word(role.harness))),
-                ("model", text(&role.model.0)),
-                ("agent", optional(role.agent.as_ref().map(|agent| &agent.0))),
-                (
-                    "settings",
-                    optional(role.settings.as_ref().map(|settings| &settings.0)),
-                ),
-                (
-                    "profile",
-                    optional(role.profile.as_ref().map(|profile| &profile.0)),
-                ),
-                (
-                    "session_name",
-                    optional(role.session_name.as_ref().map(|name| &name.0)),
-                ),
-                (
-                    "read_only_tools",
-                    Yaml::Sequence(role.read_only_tools.iter().map(|tool| text(tool)).collect()),
-                ),
-                ("limits", limits(&role.limits)),
-                (
-                    "writable",
-                    Yaml::Sequence(role.writable.iter().map(|place| text(&place.0)).collect()),
-                ),
-                (
-                    "network",
-                    text(match role.network {
-                        Network::Open => "open",
-                    }),
-                ),
-                (
-                    "forge_token_env",
-                    Yaml::Sequence(role.forge_token_env.iter().map(|name| text(name)).collect()),
-                ),
-            ])
-        })
-        .collect();
+    let roles = instance.roles.iter().map(shown::role).collect();
     let repositories = instance
         .repositories
         .iter()
@@ -3555,9 +4099,14 @@ fn report(what: &str, invalid: &Invalid) {
 /// file's instance holds ([`registry::collisions`]). A valid file is written to the host registry
 /// ([`registry::register`]), which is all it writes.
 ///
+/// It reads the host file ([`read_host`], `story:maintainer-host-config`) whatever config file it
+/// reads, and exits 1 naming each of its problems by its path in that file; and it notes each
+/// maintainer role an instance still names, which moves to the host file ([`old_role_names`]).
+///
 /// # Errors
 ///
-/// A named file is not there or cannot be read, the home directory is not known, the instance
+/// A named file is not there or cannot be read, the host file cannot be read, the home directory
+/// is not known, the instance
 /// named is not in the config, or the host registry cannot be read or written.
 pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<ExitCode> {
     const WHAT: &str = "config validate";
@@ -3579,9 +4128,30 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
     }
     // No role's settings pin another instance (`story:instance-isolation`); one that pins none is
     // a note, since its sessions start with it pinned.
-    let (mut problems, notes) = pin_problems(&loaded.config);
-    let file = physical(&environment.cwd.join(&loaded.path));
+    let (mut problems, mut notes) = pin_problems(&loaded.config);
     let home = environment.home().context(WHAT)?;
+    // The host file, whatever config file is read (`story:maintainer-host-config`): each of its
+    // problems named by its path in that file.
+    let host = host_file(home);
+    let (host_invalid, host_names_one) = match read_host(home) {
+        Ok(written) => (
+            false,
+            written.is_some_and(|written| written.roles.iter().any(|role| role.role == MAINTAINER)),
+        ),
+        Err(error) => match error.downcast::<Invalid>() {
+            Ok(invalid) => {
+                report(WHAT, &invalid);
+                (true, false)
+            }
+            Err(error) => return Err(error.context(WHAT)),
+        },
+    };
+    // An old role name reads as the new one for one release, and is noted
+    // (`story:role-name-aliases`); so is a maintainer an instance still names.
+    let file = physical(&environment.cwd.join(&loaded.path));
+    if loaded.read {
+        notes.extend(old_role_names(&file, &host, host_names_one));
+    }
     if loaded.read {
         // No instance without a prefix, and none holding what another file's holds
         // (`story:instance-names-unique`).
@@ -3603,6 +4173,9 @@ pub fn validate(config: Option<&Path>, args: &ValidateConfigArgs) -> Result<Exit
                 problems,
             },
         );
+        return Ok(ExitCode::FAILURE);
+    }
+    if host_invalid {
         return Ok(ExitCode::FAILURE);
     }
     if loaded.read {
@@ -3869,12 +4442,13 @@ pub fn with_prefixes(text: &str, suggested: &[SuggestedPrefix]) -> Option<String
 /// `conductor config show`: the effective config of one instance ([`select`]), after defaults,
 /// as a config file of that instance: `text`, one `path: value` line per value; `json`; or
 /// `yaml`, which `config validate` takes back. An invalid file exits 1 as `config validate`
-/// does. Writes nothing.
+/// does. The text and the JSON add `host`, the host's roles ([`host_roles`],
+/// `story:maintainer-host-config`), which the YAML, a config file, leaves out. Writes nothing.
 ///
 /// # Errors
 ///
-/// `--format` is not one of text, json, yaml; a named file is not there or cannot be read; the
-/// home directory is not known; or no one instance is selected.
+/// `--format` is not one of text, json, yaml; a named file or the host file is not there or
+/// cannot be read; the home directory is not known; or no one instance is selected.
 pub fn show(config: Option<&Path>, args: &ShowConfigArgs) -> Result<ExitCode> {
     const WHAT: &str = "config show";
     let format = args.format.as_deref().unwrap_or("text");
@@ -3895,7 +4469,29 @@ pub fn show(config: Option<&Path>, args: &ShowConfigArgs) -> Result<ExitCode> {
         }
     };
     let instance = select(&loaded, args.instance.as_deref(), &environment).context(WHAT)?;
-    let document = document(instance);
+    let mut document = document(instance);
+    // The host's roles (`story:maintainer-host-config`), in the JSON and the text; the YAML is a
+    // config file, which holds none. A host file that does not read is named on standard error
+    // and its roles are left out: `session start --role maintainer` refuses it.
+    if format != "yaml" {
+        let home = environment.home().context(WHAT)?;
+        let host = match host_roles(home, instance) {
+            Ok(host) => host,
+            Err(error) => {
+                match error.downcast::<Invalid>() {
+                    Ok(invalid) => report(WHAT, &invalid),
+                    Err(error) => return Err(error.context(WHAT)),
+                }
+                HostRoles {
+                    file: text_of(&host_file(home)),
+                    roles: instance_maintainer(instance).into_iter().cloned().collect(),
+                }
+            }
+        };
+        if let Yaml::Mapping(map) = &mut document {
+            map.insert(Yaml::from("host"), host_document(&host));
+        }
+    }
     let rendered = match format {
         "json" => serde_json::to_string_pretty(&document).context(WHAT)? + "\n",
         "yaml" => serde_yaml::to_string(&document).context(WHAT)?,
@@ -3991,7 +4587,7 @@ fn checkouts_under(dir: &Path, yaml: &str) -> Result<Vec<String>> {
 
 /// Whether the checkout `dir` names an `origin` remote, read from its git config with no network
 /// read. The collectors read each member at `origin/main`, so a local-only checkout is no member:
-/// its `git fetch origin` fails the snapshot (conductor's NEED N-20261012-02).
+/// its `git fetch origin` fails the snapshot (a conductor NEED, 2026-10-12).
 fn has_origin(dir: &Path) -> bool {
     Command::new("git")
         .arg("-C")

@@ -4,7 +4,7 @@ id: story:gc-stale-compiler-cache
 kind: story
 status: draft
 title: gc reclaims a compiler cache no configuration or process uses
-revision: 2
+revision: 3
 ---
 # Story: gc-stale-compiler-cache
 
@@ -14,7 +14,7 @@ revision: 2
 
 ## Context
 
-Conductor's NEED N-20261016-13, 2026-10-16: `conductor gc --dry-run` kept `~/.cache/sccache` (5.4 GB) as "shared compiler cache" while / was under disk_low, although rules.md item 145(1) had retired the machine-wide wrapper. The real users turned out to be 27 tree-root `.cargo/config.toml` files. They were moved aside, and the cache was removed by hand at 13:51Z.
+A conductor NEED (2026-10-16): `conductor gc --dry-run` kept `~/.cache/sccache` (5.4 GB) as "shared compiler cache" while / was under disk_low, although rules.md item 145(1) had retired the machine-wide wrapper. The real users turned out to be 27 tree-root `.cargo/config.toml` files. They were moved aside, and the cache was removed by hand at 13:51Z.
 
 ## Acceptance
 

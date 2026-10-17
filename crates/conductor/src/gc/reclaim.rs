@@ -1022,6 +1022,14 @@ impl ReclaimRunStorage for Ports {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_tool_tool_call_id(
+        &mut self,
+    ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.tool.ToolCallId",
+        ))
+    }
+
     fn try_generate_conductor_direction_serving_id(
         &mut self,
     ) -> Result<ServingId, UnmetObligation> {

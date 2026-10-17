@@ -401,6 +401,9 @@ impl Cli {
                 }
                 FindingCommand::Findings(_) => crate::not_implemented("finding findings"),
             },
+            Group::Broker(command) => match command {
+                BrokerCommand::Serve => crate::broker::broker_serve(state),
+            },
             Group::Build(command) => match command {
                 BuildCommand::Run(args) => build::build_run(state, &args),
             },
@@ -502,6 +505,11 @@ pub enum Group {
     /// Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move
     #[command(subcommand)]
     Finding(FindingCommand),
+
+    // No help, as for `dashboard`: the binding declares the group only through `broker serve`
+    // (`story:tool-broker-read`).
+    #[command(subcommand)]
+    Broker(BrokerCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `build run`
     // (`story:build-run`).
@@ -709,7 +717,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // taken for the instance's conductor.
     (&["session", "claim"], Access::Writes),
     (&["session", "leases"], Access::Reads),
-    // Starts or stops the session of the role conductor or conductor-dev (story:sandbox-spec).
+    // Starts or stops the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) (story:sandbox-spec).
     (&["session", "start"], Access::Writes),
     (&["session", "stop"], Access::Writes),
     (&["host", "record-reclaim"], Access::Writes),
@@ -742,6 +750,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["finding", "raise-finding"], Access::Writes),
     (&["finding", "verify-finding"], Access::Writes),
     (&["finding", "findings"], Access::Reads),
+    // Serves the instance's broker and records every call in the store (story:tool-broker-read).
+    (&["broker", "serve"], Access::Writes),
     // Reserves disk in the host ledger and runs the session's own build under the disk watchdog
     // (story:build-run); the guard sends every build through it.
     (&["build", "run"], Access::RunWrites),
@@ -1197,11 +1207,11 @@ pub enum SessionCommand {
     #[command(name = "leases")]
     Leases(ViewArgs),
 
-    /// Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    /// Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
     #[command(name = "start")]
     Start(SessionRoleArgs),
 
-    /// Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+    /// Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
     #[command(name = "stop")]
     Stop(SessionRoleArgs),
 }
@@ -1382,6 +1392,16 @@ pub struct BuildRunArgs {
     /// The command and its arguments, after `--`
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+// `conductor broker`: the command the binding declares over the `local` callable `broker-serve`
+// (`story:tool-broker-read`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum BrokerCommand {
+    /// Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
+    #[command(name = "serve")]
+    Serve,
 }
 
 // `conductor dashboard`: the commands the binding declares over the `local` callable
@@ -1594,11 +1614,13 @@ pub enum ConfigCommand {
     #[command(name = "migrate")]
     Migrate(MigrateConfigArgs),
 
-    /// Print one instance's effective config, after defaults, as a config file
+    /// Print one instance's effective config, after defaults, as a config file, and the host's
+    /// roles from host.yaml under `host` (not in yaml)
     #[command(name = "show")]
     Show(ShowConfigArgs),
 
-    /// Check the config file; exit 1 naming each problem by its YAML path
+    /// Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML
+    /// path
     #[command(name = "validate")]
     Validate(ValidateConfigArgs),
 
@@ -1682,7 +1704,7 @@ pub struct SpawnArgs {
 /// `conductor.session.StartSession` and `conductor.session.StopSession`.
 #[derive(Debug, Clone, Args)]
 pub struct SessionRoleArgs {
-    /// The role whose session starts or stops: conductor or conductor-dev
+    /// The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release
     #[arg(long, value_name = "ROLE")]
     pub role: Option<String>,
 }
@@ -1703,8 +1725,8 @@ pub struct UpgradeArgs {
 /// is text the handler reads, so a value it refuses is named there.
 #[derive(Debug, Clone, Args)]
 pub struct ShowConfigArgs {
-    /// How the config is rendered: text, one `path: value` line each; json; or yaml, a config
-    /// file. Default: text
+    /// How the config is rendered: text, one `path: value` line each; json; each with the host's
+    /// roles under `host`; or yaml, a config file, without them. Default: text
     #[arg(long)]
     pub format: Option<String>,
     /// The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance
@@ -3353,7 +3375,7 @@ pub struct ReceiveMessageArgs {
     #[arg(long)]
     pub recipient: Option<String>,
     /// MessageKind
-    #[arg(long, value_parser = ["Dispatch", "Report", "DecisionRequest", "Decision", "Need", "Resource", "Escalation", "Unknown"])]
+    #[arg(long, value_parser = ["Dispatch", "Report", "DecisionRequest", "Decision", "Need", "Resource", "Escalation", "Team", "Unknown"])]
     pub kind: Option<String>,
     /// string
     #[arg(long)]

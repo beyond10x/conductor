@@ -108,6 +108,7 @@ impl Case {
             command: vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()],
             measure: Vec::new(),
             cwd: self.work(),
+            output: None,
         }
     }
 

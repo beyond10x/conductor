@@ -11,6 +11,7 @@ specification:
   - domains/session.yaml
   - domains/host.yaml
   - domains/improvement.yaml
+  - domains/tool.yaml
 scenarios:
   - scenarios/grant-disk-under-floor.yaml
   - scenarios/adv-route-need-unsent-dispatch.yaml

@@ -126,8 +126,8 @@ Every command takes these, before or after its name.
 | [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
-| [`conductor session start`](#conductor-session-start) | Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
-| [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session |
+| [`conductor session start`](#conductor-session-start) | Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
+| [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session |
 | [`conductor host`](#conductor-host) | The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk |
 | [`conductor host record-reclaim`](#conductor-host-record-reclaim) | Record a reclaim run |
 | [`conductor host record-peak`](#conductor-host-record-peak) | Record a run's peak |
@@ -156,12 +156,14 @@ Every command takes these, before or after its name.
 | [`conductor finding raise-finding`](#conductor-finding-raise-finding) | Raise a friction finding |
 | [`conductor finding verify-finding`](#conductor-finding-verify-finding) | Verify a filed finding |
 | [`conductor finding findings`](#conductor-finding-findings) | Friction findings |
+| [`conductor broker`](#conductor-broker) |  |
+| [`conductor broker serve`](#conductor-broker-serve) | Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it |
 | [`conductor build`](#conductor-build) |  |
 | [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
 | [`conductor config migrate`](#conductor-config-migrate) | Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing |
-| [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file |
-| [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
+| [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml) |
+| [`conductor config validate`](#conductor-config-validate) | Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
@@ -1392,7 +1394,7 @@ Usage: conductor message receive-message [OPTIONS]
 |---|---|---|---|
 | `--sender <SENDER>` | no | none | string |
 | `--recipient <RECIPIENT>` | no | none | string |
-| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Unknown`. |
+| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Team`, `Unknown`. |
 | `--first-line <FIRST_LINE>` | no | none | string |
 | `--transport <TRANSPORT>` | no | none | Transport One of `SendMessage`, `Mailbox`. |
 | `--received-at <RECEIVED_AT>` | no | none | timestamp, RFC 3339 |
@@ -1610,7 +1612,7 @@ Usage: conductor session leases [OPTIONS]
 
 ## `conductor session start`
 
-Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
 
 ```text
 Usage: conductor session start [OPTIONS]
@@ -1618,11 +1620,11 @@ Usage: conductor session start [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
+| `--role <ROLE>` | no | none | The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release |
 
 ## `conductor session stop`
 
-Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
 
 ```text
 Usage: conductor session stop [OPTIONS]
@@ -1630,7 +1632,7 @@ Usage: conductor session stop [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
+| `--role <ROLE>` | no | none | The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release |
 
 ## `conductor host`
 
@@ -2026,6 +2028,20 @@ Usage: conductor finding findings [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
+## `conductor broker`
+
+```text
+Usage: conductor broker [OPTIONS] <COMMAND>
+```
+
+## `conductor broker serve`
+
+Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
+
+```text
+Usage: conductor broker serve [OPTIONS]
+```
+
 ## `conductor build`
 
 ```text
@@ -2067,7 +2083,7 @@ Usage: conductor config migrate [OPTIONS]
 
 ## `conductor config show`
 
-Print one instance's effective config, after defaults, as a config file
+Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml)
 
 ```text
 Usage: conductor config show [OPTIONS]
@@ -2075,12 +2091,12 @@ Usage: conductor config show [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--format <FORMAT>` | no | none | How the config is rendered: text, one `path: value` line each; json; or yaml, a config file. Default: text |
+| `--format <FORMAT>` | no | none | How the config is rendered: text, one `path: value` line each; json; each with the host's roles under `host`; or yaml, a config file, without them. Default: text |
 | `--instance <NAME>` | no | none | The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance |
 
 ## `conductor config validate`
 
-Check the config file; exit 1 naming each problem by its YAML path
+Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path
 
 ```text
 Usage: conductor config validate [OPTIONS]

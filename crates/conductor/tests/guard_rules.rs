@@ -4654,6 +4654,89 @@ fn a_controller_messages_its_own_instance_s_conductor_only() {
     }
 }
 
+/// `story:role-name-aliases`, item 4: a lead of `alpha` messages its director under either name,
+/// `a-conductor` and `a-director`, by name, ref or socket, whether the file writes the role as
+/// `conductor`, as `director`, or no roles at all; `beta`'s, under either name, is denied naming
+/// both instances, as today.
+#[test]
+fn a_lead_messages_its_director_named_conductor_or_director() {
+    for (name, roles) in [
+        (
+            "alias-old",
+            "\x20   roles:\n\
+             \x20     - {role: conductor, harness: claude, model: opus}\n\
+             \x20     - {role: controller, harness: claude, model: opus}\n",
+        ),
+        (
+            "alias-new",
+            "\x20   roles:\n\
+             \x20     - {role: director, harness: claude, model: opus}\n\
+             \x20     - {role: lead, harness: claude, model: opus}\n",
+        ),
+        ("alias-default", ""),
+    ] {
+        let home = home(name);
+        let layout = two_instance_layout(
+            &home,
+            &format!("\x20   session_prefix: a\n{roles}"),
+            "\x20   session_prefix: b\n",
+        );
+        let sessions = sessions_named(
+            &home,
+            &[
+                ("a-conductor", 4_200_021),
+                ("a-director", 4_200_022),
+                ("b-conductor", 4_200_023),
+                ("b-director", 4_200_024),
+            ],
+        );
+        let cwd = layout.root.join("repo");
+        for to in [
+            "a-conductor",
+            "a-director",
+            "a-conductor [c0d0a1]",
+            "a-director [c0d0a1]",
+            "uds:/run/user/4242/cc-socks/4200021.sock",
+            "uds:/run/user/4242/cc-socks/4200022.sock",
+        ] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_eq!(
+                decision.verdict,
+                Verdict::Allow,
+                "{name}: {to}: {decision:#?}"
+            );
+        }
+        for to in ["b-conductor", "b-director", "b-director [c0d0a1]"] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_eq!(
+                decision.verdict,
+                Verdict::Deny,
+                "{name}: {to}: {decision:#?}"
+            );
+            for instance in ["alpha", "beta"] {
+                assert!(
+                    decision.reason.contains(instance),
+                    "{name}: {to}: the denial names {instance}: {}",
+                    decision.reason
+                );
+            }
+        }
+        for to in [
+            "director",
+            "a-director-dev",
+            "a-maintainer",
+            "uds:/run/user/4242/cc-socks/4200024.sock",
+        ] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_eq!(
+                decision.verdict,
+                Verdict::Deny,
+                "{name}: {to}: {decision:#?}"
+            );
+        }
+    }
+}
+
 /// Conductor of `alpha` messages the sessions of its own instance (`a-…`) and the agents it
 /// started; a session of `beta` is denied naming both instances, and a session of no instance's
 /// prefix is denied too.

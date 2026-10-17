@@ -467,7 +467,14 @@ fn config_validate_names_a_role_whose_settings_pin_another_instance() {
     fs::write(case.config(), fixed).unwrap();
     let output = case.run("alpha", &["config", "validate"]);
     assert!(output.status.success(), "{output:?}");
-    assert!(!stderr(&output).contains("note:"), "{output:?}");
+    // No settings note; the file's old role names are noted on their `role` paths
+    // (story:role-name-aliases), which is no note on a settings file.
+    assert!(
+        !stderr(&output)
+            .lines()
+            .any(|line| line.contains("note:") && !line.contains("].role: ")),
+        "{output:?}"
+    );
 }
 
 /// The raise of one decision request, which writes the store and the records' decision log.
