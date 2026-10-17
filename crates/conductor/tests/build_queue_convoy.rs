@@ -11,8 +11,15 @@
 //! [`store::replays_on_this_thread`]), so the cases run one at a time ([`one_at_a_time`]). The
 //! slow store of the convoy case is [`store::slow_replays`]: every replay of a tree waits, one at
 //! a time, as on a disk saturated by builds.
+//!
+//! A case leaves no process behind, whether it passes or fails
+//! (`story:convoy-test-leaks-no-process`): when it ends, its [`Case`] writes `stop` in `work/`,
+//! which ends the waiting command; on a panic it also kills the process group of each run the
+//! ledger holds running, and every process still working under the case's directory; on success it
+//! asserts that no process works there any more ([`leftover::assert_none_under`]).
 
 mod active;
+mod leftover;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,6 +36,8 @@ use eventlog_core::{
     new_event_id, request_hash,
 };
 use eventlog_tree::TreeEventStore;
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
 use serde_json::json;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -42,8 +51,31 @@ fn one_at_a_time() -> MutexGuard<'static, ()> {
 }
 
 /// One case's directory: the instance's state, the host directory, and the commands' `work/`.
+/// Dropped, it ends what the case started ([`Case::drop`]).
 struct Case {
     dir: PathBuf,
+}
+
+/// Ends the case on every path: writes `stop`, which ends [`HOLDING`]; on a panic kills the
+/// process group of every run the ledger holds `Running`, then each process still working under
+/// the case's directory, by its pid; and on success asserts none is left
+/// (`story:convoy-test-leaks-no-process`).
+impl Drop for Case {
+    fn drop(&mut self) {
+        let _ = fs::write(self.work().join("stop"), "");
+        if thread::panicking() {
+            for row in host::rows(&self.host()).unwrap_or_default() {
+                if row.state == HostGrantState::Running
+                    && let Some(group) = row.process_group.and_then(|g| i32::try_from(g).ok())
+                {
+                    let _ = killpg(Pid::from_raw(group), Signal::SIGKILL);
+                }
+            }
+            leftover::kill_under(&self.dir);
+        } else {
+            leftover::assert_none_under(&self.dir);
+        }
+    }
 }
 
 impl Case {
@@ -451,7 +483,15 @@ fn a_pass_reads_only_the_open_grants_beside_5000_closed_ones() {
 /// Acceptance 4: twenty runs wait on a slow store (every replay of a tree takes 50ms, one at a
 /// time, as on a disk saturated by builds): a head 2G short of what a running build holds, and
 /// nineteen behind it. Once the build ends and releases its grant, the head is admitted within
-/// one pause: it ran within twice `Sources::poll` of the release.
+/// one pause: it ran within twice `Sources::poll` of the release, plus what one run alone takes
+/// on this host now.
+///
+/// That last term is the calibration (`story:convoy-test-leaks-no-process`). Twice `poll` alone
+/// held on an idle host (the head ran about 140ms after the release) and failed on a host loaded
+/// with builds (about 880ms), which slows every spawn and replay of the case alike. So the case
+/// first times one run of the same kind, alone on the same slow store, and allows it on top: the
+/// pass and the spawn the head needs once admitted. A convoy, the nineteen behind passing before
+/// the head one replay each, costs nineteen replays more, and still fails the bound.
 #[test]
 fn twenty_waiters_on_a_slow_store_admit_the_head_within_one_pause_of_a_release() {
     let _one = one_at_a_time();
@@ -460,6 +500,10 @@ fn twenty_waiters_on_a_slow_store_admit_the_head_within_one_pause_of_a_release()
     let sources = case.sources(Duration::from_secs(1), poll);
     let _slow = SlowStore;
     store::slow_replays(Duration::from_millis(50));
+    // The calibration: one run alone, from its request to its end, on this host and store now.
+    let alone = Instant::now();
+    ran(arrive(&case, &sources, 6 * GIB, "touch alone"));
+    let alone = alone.elapsed();
     let first = holding(&case, &sources);
     let head = arrive(&case, &sources, 6 * GIB, "touch head");
     let behind: Vec<_> = (0..19)
@@ -483,12 +527,34 @@ fn twenty_waiters_on_a_slow_store_admit_the_head_within_one_pause_of_a_release()
     }
     eprintln!(
         "convoy: 20 waiters on a slow store: {quiet} locked passes in {window:?} with no change; \
-         the head ran {admitted:?} after the release; {replays} store replays by the 20 runs"
+         the head ran {admitted:?} after the release; {replays} store replays by the 20 runs; \
+         one run alone took {alone:?}"
     );
+    let bound = 2 * poll + alone;
     assert!(
-        admitted <= 2 * poll,
-        "the head ran {admitted:?} after the release; one pause is {poll:?}"
+        admitted <= bound,
+        "the head ran {admitted:?} after the release; the bound is {bound:?}: one pause is \
+         {poll:?}, twice that, plus {alone:?}, one run alone on this host now"
     );
+}
+
+/// `story:convoy-test-leaks-no-process`, acceptances 1 and 2: a case that fails while its
+/// holding run waits for `stop` leaves no process behind: once it has unwound, no process works
+/// under its directory.
+#[test]
+fn a_case_that_fails_while_a_run_waits_leaves_no_process_behind() {
+    let _one = one_at_a_time();
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("build_queue_convoy")
+        .join("fails");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let case = Case::new("fails");
+        let sources = case.sources(Duration::from_secs(30), Duration::from_millis(20));
+        let _first = holding(&case, &sources);
+        panic!("the case fails while its holding run waits for stop");
+    }));
+    assert!(failed.is_err(), "the case failed");
+    leftover::assert_none_under(&dir);
 }
 
 /// Appends `line` to `stderr.txt` beside the state directory `state`.

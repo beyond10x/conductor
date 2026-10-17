@@ -10,9 +10,17 @@
 //! home directory and `/var/tmp` a disk item is written against are `home/example-user/` and
 //! `var-tmp/` of the case (`Sources::home`, `Sources::var_tmp`); nothing reads the real ones.
 //! What a run writes to standard error goes to `stderr.txt` of the case (`Sources::say`).
+//!
+//! A case leaves no process behind, whether it passes or fails
+//! (`story:convoy-test-leaks-no-process`): when its [`Case`] is dropped after a panic, it kills
+//! the process group of each run the ledger holds running, then every process still working
+//! under the case's directory; after a case that passed, it asserts that none works there any
+//! more ([`leftover::assert_none_under`]). Every case that starts a waiting command ends it itself
+//! first, by its stop file.
 
 mod active;
 mod common;
+mod leftover;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,8 +43,29 @@ use time::format_description::well_known::Rfc3339;
 const GIB: u64 = 1 << 30;
 
 /// One case: its directory, the state directory under it, and the command's working directory.
+/// Dropped, it checks that the case left no process behind ([`Case::drop`]).
 struct Case {
     dir: PathBuf,
+}
+
+/// After a panic, kills the process group of every run the ledger holds `Running`, then each
+/// process still working under the case's directory, by its pid; after a case that passed,
+/// asserts that none is left (`story:convoy-test-leaks-no-process`).
+impl Drop for Case {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            for row in host::rows(&self.host()).unwrap_or_default() {
+                if row.state == HostGrantState::Running
+                    && let Some(group) = row.process_group.and_then(|g| i32::try_from(g).ok())
+                {
+                    let _ = killpg(Pid::from_raw(group), Signal::SIGKILL);
+                }
+            }
+            leftover::kill_under(&self.dir);
+        } else {
+            leftover::assert_none_under(&self.dir);
+        }
+    }
 }
 
 impl Case {
@@ -1242,6 +1271,32 @@ fn a_refused_build_run_names_no_personal_path_on_standard_error() {
         said.contains("left: ~/.cache/sccache (8G)"),
         "a path under the home directory is written with ~/: {said}"
     );
+}
+
+/// `story:convoy-test-leaks-no-process`, acceptance 3: a case that fails while its command waits
+/// for `stop` leaves no process behind: once it has unwound, no process works under its
+/// directory.
+#[test]
+fn a_case_that_fails_while_its_command_waits_leaves_no_process_behind() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("build_run")
+        .join("fails-waiting");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let case = Case::new("fails-waiting");
+        let script = "while [ ! -e stop ]; do sleep 0.05; done";
+        let (state, host) = (case.state(), case.host());
+        let (sources, request) = (case.sources(reclaim_nothing), case.request(GIB, script));
+        let _runner =
+            thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+        // The ledger is read only once the run has created it.
+        wait_until("the command runs", || {
+            host::rows(&case.host())
+                .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
+        });
+        panic!("the case fails while its command waits for stop");
+    }));
+    assert!(failed.is_err(), "the case failed");
+    leftover::assert_none_under(&dir);
 }
 
 /// Writes each of its stop files when dropped, so a failing case leaves no command running.
