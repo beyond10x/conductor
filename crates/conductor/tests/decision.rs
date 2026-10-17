@@ -1161,7 +1161,8 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
              \"decided_by\":\"Conductor\",\"choice\":\"A\",\"question\":\"which way?\",\
              \"options\":\"A: one way; B: the other\",\"reason\":\"A is reversible\",\
              \"evidence\":\"the request's own text\",\"decided_at\":\"{AT}\",\
-             \"recorded_by\":null,\"operator_words\":null,\"repository\":null}}"
+             \"recorded_by\":null,\"operator_words\":null,\"repository\":null,\
+             \"decider_name\":null,\"prompt_sha256\":null}}"
         ),
         "the view's fields in the specification's order"
     );
@@ -1176,8 +1177,10 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
         .expect("a JSON object")
         .keys()
         .collect();
-    // Eleven fields, and the five of what the operator chooses from (story:decisions-page).
-    assert_eq!(keys.len(), 16);
+    // Eleven fields, the rule that classified the request (story:decide-model-adapter), and the
+    // five of what the operator chooses from (story:decisions-page).
+    assert_eq!(keys.len(), 17);
+    assert_eq!(requests[1]["classification_rule"], Value::Null);
     assert_eq!(requests[1]["blocker"], Value::Null);
     assert_eq!(requests[1]["escalation_class"], Value::Null);
     let raw = case.ok(&["decision", "requests", "--format", "jsonl"]);
@@ -1588,14 +1591,17 @@ fn a_decision_names_its_repository_and_the_decisions_view_reads_it_back() {
     let raw = case.ok(&["decision", "decisions", "--format", "jsonl"]);
     let first = raw.lines().next().expect("a row");
     assert!(
-        first.ends_with(",\"operator_words\":null,\"repository\":\"alpha\"}"),
-        "repository is the view's last field: {first:?}"
+        first.ends_with(
+            ",\"operator_words\":null,\"repository\":\"alpha\",\"decider_name\":null,\
+             \"prompt_sha256\":null}"
+        ),
+        "repository is the view's field before the decider's two: {first:?}"
     );
     let shown = case.ok(&["decision", "show", "--decision-id", &operators]);
     assert_eq!(
-        shown.lines().last(),
+        shown.lines().rev().nth(2),
         Some("repository: beta"),
-        "`decision show` prints it last: {shown:?}"
+        "`decision show` prints it before the decider's two fields: {shown:?}"
     );
 }
 

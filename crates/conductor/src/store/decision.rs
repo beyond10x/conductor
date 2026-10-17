@@ -5,7 +5,7 @@
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage};
 use conductor_model::decision::{
     Decider, DecisionClass, DecisionData, DecisionId, DecisionRequestData, DecisionRequestSnapshot,
-    DecisionRequestState, DecisionSnapshot, DecisionState, RequestId, RequestOption,
+    DecisionRequestState, DecisionSnapshot, DecisionState, PromptHash, RequestId, RequestOption,
 };
 use conductor_model::observation::RepositoryName;
 use conductor_model::primitives::Timestamp;
@@ -106,6 +106,8 @@ fn encode_decision(decision: &DecisionSnapshot) -> Value {
         "recorded_by": data.recorded_by,
         "operator_words": data.operator_words,
         "repository": data.repository.as_ref().map(|repository| &repository.0),
+        "decider_name": data.decider_name,
+        "prompt_sha256": data.prompt_sha256.as_ref().map(|hash| &hash.0),
     })
 }
 
@@ -125,8 +127,10 @@ fn decode_decision(body: &Value) -> Result<DecisionSnapshot, String> {
             recorded_by: added_text(body, "recorded_by")?,
             operator_words: added_text(body, "operator_words")?,
             repository: added_text(body, "repository")?.map(RepositoryName),
-            decider_name: None,
-            prompt_sha256: None,
+            // Added by `story:decide-model-adapter`: a decision recorded before it, or not
+            // answered by the `Decider` adapter, carries neither.
+            decider_name: added_text(body, "decider_name")?,
+            prompt_sha256: added_text(body, "prompt_sha256")?.map(PromptHash),
         },
     })
 }
@@ -167,6 +171,7 @@ fn encode_request(request: &DecisionRequestSnapshot) -> Value {
         "recommendation": data.recommendation,
         "raised_at": data.raised_at.0,
         "blocker": data.blocker,
+        "classification_rule": data.classification_rule.map(crate::decide::rule_name),
         "escalation_class": data.escalation_class.map(class_name),
         "escalation_reason": data.escalation_reason,
         "dry_run": data.dry_run,
@@ -193,6 +198,13 @@ fn decode_request(body: &Value) -> Result<DecisionRequestSnapshot, String> {
             recommendation: text(body, "recommendation")?,
             raised_at: Timestamp(text(body, "raised_at")?),
             blocker: optional_text(body, "blocker")?,
+            // Added by `story:decide-model-adapter`: a request raised before it carries none.
+            classification_rule: added_text(body, "classification_rule")?
+                .map(|rule| {
+                    crate::decide::rule_named(&rule)
+                        .ok_or_else(|| format!("unknown ClassificationRule {rule:?}"))
+                })
+                .transpose()?,
             escalation_class: optional_text(body, "escalation_class")?
                 .map(|class| {
                     class_named(&class).ok_or_else(|| format!("unknown DecisionClass {class:?}"))
@@ -214,7 +226,6 @@ fn decode_request(body: &Value) -> Result<DecisionRequestSnapshot, String> {
             default_letters: added_text(body, "default_letters")?,
             deadline: added_text(body, "deadline")?.map(Timestamp),
             decision_id: optional_text(body, "decision_id")?.map(DecisionId),
-            classification_rule: None,
         },
     })
 }

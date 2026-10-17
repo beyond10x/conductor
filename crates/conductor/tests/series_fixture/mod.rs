@@ -220,6 +220,7 @@ impl Case {
                         recommendation: "a".to_owned(),
                         raised_at: at(raised),
                         blocker: None,
+                        classification_rule: None,
                         escalation_class: class,
                         escalation_reason: class.map(|_| "needs a person".to_owned()),
                         dry_run: None,
@@ -230,7 +231,6 @@ impl Case {
                         default_letters: None,
                         deadline: None,
                         decision_id: None,
-                        classification_rule: None,
                     },
                 },
             );

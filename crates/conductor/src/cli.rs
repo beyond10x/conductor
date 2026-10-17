@@ -3144,8 +3144,16 @@ pub struct RaiseDecisionRequestArgs {
     /// string, optional
     #[arg(long)]
     pub blocker: Option<String>,
-    /// ClassificationRule, optional
-    #[arg(long, value_parser = ["data-loss", "history-rewrite", "repository-lifecycle", "architecture", "credential", "hands", "none"])]
+    /// ClassificationRule, optional: the rule that classified the request in code
+    #[arg(long, value_parser = [
+        "data-loss",
+        "history-rewrite",
+        "repository-lifecycle",
+        "architecture",
+        "credential",
+        "hands",
+        "none",
+    ])]
     pub classification_rule: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
@@ -3182,10 +3190,11 @@ pub struct RecordConductorDecisionArgs {
     /// RepositoryName
     #[arg(long)]
     pub repository: Option<String>,
-    /// string, optional
+    /// string, optional: the `Decider` adapter that answered
     #[arg(long)]
     pub decider_name: Option<String>,
-    /// PromptHash, optional
+    /// PromptHash, optional: the SHA-256 of the adapter's prompt, 64 lower-case hexadecimal
+    /// characters
     #[arg(long)]
     pub prompt_sha256: Option<String>,
     /// Read the input fields from standard input, as one JSON object

@@ -30,6 +30,10 @@
 //! `recommended_letters`, `default_letters` and `deadline` columns, last in each row:
 //! `decision-requests.json` holds them as `null`, which is what this build reads from a request
 //! escalated, or not escalated, without them.
+//! `story:decide-model-adapter` added the requests view's `classification_rule` column after
+//! `blocker`, and the decisions view's `decider_name` and `prompt_sha256` columns, last in each
+//! row: `decision-requests.json`, `decision-decisions.json` and `decision-show.json` hold them as
+//! `null`, which is what this build reads from a request or decision recorded without them.
 //! `story:policy-secret-drift` and `story:usage-probe` added the secret-syncs and usage-readings
 //! views, which no build before them could record. The committed store stays as it was;
 //! [`fixture_store`] appends one observation of each to a copy of it, in the first snapshot,
