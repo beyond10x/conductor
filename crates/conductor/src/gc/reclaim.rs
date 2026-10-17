@@ -108,10 +108,11 @@ const SCRATCH_UNDER_HOME: [&str; 3] = [".cache/sccache", ".cache/go-build", ".ca
 const HOLDERS_FRESH: Duration = Duration::from_secs(5);
 
 /// The roots whose entries are scratch or a cache: [`SCRATCH_UNDER_HOME`] under the home
-/// directory `home`, and `var_tmp`. Reclaim deletes their stale entries nothing holds (step 3),
+/// directory `home`, `var_tmp`, and the instance's own scratch `own` (`<cache>/scratch`, whose
+/// entries are `<repo>`: no other instance's scratch is a root). Reclaim deletes their stale entries nothing holds (step 3),
 /// and a shortfall left only by them needs no person (`crate::host::needs_person`).
 #[must_use]
-pub fn scratch_roots(home: Option<&Path>, var_tmp: &Path) -> Vec<PathBuf> {
+pub fn scratch_roots(home: Option<&Path>, var_tmp: &Path, own: Option<&Path>) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = home
         .map(|home| {
             SCRATCH_UNDER_HOME
@@ -121,6 +122,7 @@ pub fn scratch_roots(home: Option<&Path>, var_tmp: &Path) -> Vec<PathBuf> {
         })
         .unwrap_or_default();
     roots.push(var_tmp.to_path_buf());
+    roots.extend(own.map(Path::to_path_buf));
     roots
 }
 
@@ -425,7 +427,11 @@ fn scratch(sources: &Sources, state: &Path, steps: &mut Steps) -> Result<()> {
         .collect();
     let homes = [sources.home.clone(), resolved(&sources.home)];
     let mut holders = Holders::default();
-    for root in scratch_roots(Some(&sources.home), &sources.var_tmp) {
+    for root in scratch_roots(
+        Some(&sources.home),
+        &sources.var_tmp,
+        Some(&sources.scratch),
+    ) {
         if fs::symlink_metadata(&root).is_ok_and(|meta| meta.file_type().is_symlink()) {
             let _ = writeln!(
                 io::stderr().lock(),

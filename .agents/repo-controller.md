@@ -143,8 +143,9 @@ on. Gates, reports and boundaries are unchanged.
   work on them in a separate tree, within the build-slot budget, instead of waiting for it. Their
   tests stay package-scoped: the full-workspace gate is still one at a time.
 - Under `merge: controller`, merge pull requests one at a time, each after the last landed.
-- Scratch: under `mktemp -d` (in `$TMPDIR`) or `~/.cache/<repo>-<purpose>/`; the Write and Edit
-  tools may write there and nowhere else outside your repository. Waits over 60 s run
+- Scratch: under `mktemp -d` (in `$TMPDIR`) or `<cache>/scratch/<repo>/<purpose>/` (`cache` in
+  `conductor config show`, the instance's own; `<repo>` your repository with `/` written `-`);
+  the Write and Edit tools may write there and nowhere else outside your repository. Waits over 60 s run
   in the background, no polling. Delete with `worktree finish` or one `rm -rf -- <paths>`, never
   a loop. Store files change only through `aep plan artifact` verbs.
 - The shell may be zsh: quote a word that starts with `=`, and guard a glob that may match

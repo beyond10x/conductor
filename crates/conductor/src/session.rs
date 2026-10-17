@@ -513,6 +513,7 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
                 repository,
                 trees: PathBuf::from(&instance.checkouts.trees),
                 records: PathBuf::from(&instance.records),
+                cache: PathBuf::from(&instance.cache),
                 harness: role.harness,
                 controller: false,
             },

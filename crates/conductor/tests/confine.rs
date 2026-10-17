@@ -287,6 +287,7 @@ fn places_resolve_each_word_for_a_controller() {
             repository: Some("group/alpha".to_owned()),
             trees: PathBuf::from("/h/trees"),
             records: PathBuf::from("/h/records"),
+            cache: PathBuf::from("/h/.cache/b10x/conductor/alpha"),
             harness: Harness::Claude,
             controller: true,
         },
@@ -299,7 +300,10 @@ fn places_resolve_each_word_for_a_controller() {
         ("checkout", vec!["/h/example-org/group/alpha"]),
         ("trees", vec!["/h/trees/group/alpha"]),
         ("build-cache", vec!["/h/.cargo", "/h/.npm"]),
-        ("scratch", vec!["/t", "/h/.cache/alpha-*"]),
+        (
+            "scratch",
+            vec!["/t", "/h/.cache/b10x/conductor/alpha/scratch/group-alpha"],
+        ),
         ("harness-state", vec!["/h/.claude", "/h/.claude.json"]),
         ("records", vec!["/h/records"]),
         ("/srv/cache", vec!["/srv/cache"]),
@@ -326,6 +330,7 @@ fn places_resolve_each_word_for_conductor() {
         repository: None,
         trees: PathBuf::from("/h/trees"),
         records: PathBuf::from("/h/.b10x/conductor/alpha/records"),
+        cache: PathBuf::from("/h/.cache/b10x/conductor/alpha"),
         harness: Harness::Codex,
         controller: false,
     };
@@ -890,4 +895,39 @@ fn session_stop_refuses_an_unknown_role_and_no_session_running() {
         "{:?}",
         calls(&case.fake())
     );
+}
+
+/// `story:scratch-per-instance`: two instances that track a repository of the same name resolve
+/// two distinct scratch directories, each under its own instance's cache; the old
+/// `~/.cache/<repo>-*` is no part of the place.
+#[test]
+fn two_instances_with_one_repository_name_have_two_scratch_directories() {
+    let scratch_of = |cache: &str| {
+        let resolved = places::resolve(
+            &words(&["scratch"]),
+            &Placement {
+                home: PathBuf::from("/h"),
+                tmpdir: PathBuf::from("/t"),
+                start: PathBuf::from("/h/example-org/alpha"),
+                repository: Some("alpha".to_owned()),
+                trees: PathBuf::from("/h/trees"),
+                records: PathBuf::from("/h/records"),
+                cache: PathBuf::from(cache),
+                harness: Harness::Claude,
+                controller: true,
+            },
+        );
+        resolved[0].paths.clone()
+    };
+    let first = scratch_of("/h/.cache/b10x/conductor/first");
+    let second = scratch_of("/h/.cache/b10x/conductor/second");
+    assert_eq!(
+        first,
+        ["/t", "/h/.cache/b10x/conductor/first/scratch/alpha"]
+    );
+    assert_eq!(
+        second,
+        ["/t", "/h/.cache/b10x/conductor/second/scratch/alpha"]
+    );
+    assert_ne!(first[1], second[1]);
 }

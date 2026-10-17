@@ -260,6 +260,7 @@ fn sources(home: &Path) -> Sources {
         sweep: cat.clone(),
         gc: cat,
         var_tmp: home.join("var-tmp"),
+        scratch: home.join(".cache/b10x/conductor/example/scratch"),
         measure_every: Duration::from_secs(600),
         measure_timeout: Duration::from_secs(30),
         context_handover: 300_000,

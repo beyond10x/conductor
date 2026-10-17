@@ -202,6 +202,10 @@ pub struct Sources {
     pub gc: Vec<OsString>,
     /// The directory whose entries the disk measurement lists as `/var/tmp`.
     pub var_tmp: PathBuf,
+    /// The instance's own scratch, `<cache>/scratch`: a controller's scratch is
+    /// `<cache>/scratch/<repo>`, and reclaim deletes stale entries here and in no other
+    /// instance's.
+    pub scratch: PathBuf,
     /// How long one disk measurement is shown before a request starts the next.
     pub measure_every: Duration,
     /// How long one command of the disk measurement may run before it is stopped.
@@ -229,7 +233,9 @@ impl Sources {
         ];
         let targets = waste::built_in_targets(&home);
         let context_handover = tokens(built_in.thresholds.context_handover.0);
-        Self::with(home, root, watch, checkouts, targets, context_handover)
+        let mut sources = Self::with(home, root, watch, checkouts, targets, context_handover);
+        sources.scratch = Path::new(&built_in.cache).join(SCRATCH);
+        sources
     }
 
     /// The sources of `instance`, which a config file names: `root` when `--root` names one, else
@@ -246,6 +252,7 @@ impl Sources {
         let targets = Path::new(&instance.cache).join("target");
         let context_handover = tokens(instance.thresholds.context_handover.0);
         let mut sources = Self::with(home, root, watch, checkouts, targets, context_handover);
+        sources.scratch = Path::new(&instance.cache).join(SCRATCH);
         sources.health = HealthSources::of(sources.home.clone(), instance);
         sources
     }
@@ -306,6 +313,7 @@ impl Sources {
             sweep: worktree("sweep"),
             gc: worktree("gc"),
             var_tmp: PathBuf::from("/var/tmp"),
+            scratch: PathBuf::new(),
             measure_every: Duration::from_secs(600),
             measure_timeout: Duration::from_secs(180),
             // The built-in instance's; [`Sources::of`] gives an instance's own.
@@ -325,6 +333,9 @@ impl Sources {
 fn tokens(count: i64) -> u64 {
     u64::try_from(count).unwrap_or(0)
 }
+
+/// The directory under an instance's cache that holds its scratch.
+pub const SCRATCH: &str = "scratch";
 
 /// The watch's directory under a state directory, as `conductor watch run` keeps it.
 const WATCH: &str = "watch";

@@ -85,6 +85,7 @@ impl Case {
             every: Duration::from_millis(50),
             home: Some(self.home()),
             var_tmp: self.var_tmp(),
+            scratch: self.home().join(".cache/b10x/conductor/example/scratch"),
             say: said_to_file,
             env: |_| None,
             // No session list: a library case names no harness session.

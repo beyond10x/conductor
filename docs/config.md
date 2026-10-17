@@ -203,7 +203,7 @@ paths for each session when it starts, whether or not they exist:
 | `checkout` | the directory the session starts in: a controller's repository's checkout, conductor's records directory, conductor-dev's working directory |
 | `trees` | the managed worktrees of that checkout, `<checkouts.trees>/<repository>` |
 | `build-cache` | the build tools' caches under the home directory: `~/.cargo` and `~/.npm` |
-| `scratch` | the session's scratch: `$TMPDIR` (else `/tmp`), and for a controller `~/.cache/<repo>-*` |
+| `scratch` | the session's scratch: `$TMPDIR` (else `/tmp`), and for a controller `<cache>/scratch/<repo>`, under the instance's own `cache` (`<repo>` its repository, `/` written `-`) |
 | `harness-state` | the harness's own state: `~/.claude` and `~/.claude.json`, or `~/.codex` |
 | `records` | the instance's `records` directory |
 

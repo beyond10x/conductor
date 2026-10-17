@@ -70,7 +70,7 @@ The target path is resolved first, `~` and links included. Then:
 | a controller may write | conductor may write |
 |---|---|
 | inside its repository's checkout and its managed worktrees | its records: `decisions/`, `dispatches/`, `charters/`, `docs/handoff/`, `docs/analysis/`, `goals.jsonl`, `STATUS.md`, `NORTHSTAR.md`, `REPORT.md` |
-| its scratch: under `$TMPDIR`, or under `~/.cache/<repo>-*/` (`<repo>` its repository, `/` written `-`) | its scratch: under `$TMPDIR` |
+| its scratch: under `$TMPDIR`, or under `<cache>/scratch/<repo>/` (`<cache>` its instance's `cache`, `<repo>` its repository, `/` written `-`) | its scratch: under `$TMPDIR` |
 
 Both are denied, wherever the file is:
 
@@ -93,7 +93,7 @@ protected file, wherever `$TMPDIR` points. A `$TMPDIR` that is the home director
 no scratch at all.
 
 A controller's denial of a file outside its checkout, or in the records, names where it may write
-instead: `scratch is under $TMPDIR or ~/.cache/<repo>-*/`. Conductor's names its records and
+instead: `scratch is under $TMPDIR or <cache>/scratch/<repo>/`. Conductor's names its records and
 `$TMPDIR`.
 
 ## SendMessage
@@ -223,7 +223,7 @@ commands:
 A path that appears only as a read operand, inside a quoted program or string, or in a
 here-document's body is not written. So a controller may copy part of the records' `rules.md`
 into its scratch (`awk '/^## Controller/,/^## Worker/' <records>/rules.md >
-~/.cache/<repo>-x/brief.md`, `sed -n '10,40p' <records>/rules.md > $TMPDIR/x`), conductor may
+<cache>/scratch/<repo>/brief.md`, `sed -n '10,40p' <records>/rules.md > $TMPDIR/x`), conductor may
 start a session with `claude … --settings <file> --append-system-prompt-file <file>`, and
 conductor may append a charter section whose body quotes a profile's path (`cat >>
 charters/x.md <<'EOF'`). `sed -i … <records>/rules.md` and `… > <records>/rules.md` stay denied.

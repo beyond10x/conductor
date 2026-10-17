@@ -847,3 +847,40 @@ fn reclaim_never_follows_a_nested_link_into_the_records() {
         shown(&output)
     );
 }
+
+/// `story:scratch-per-instance`: reclaim of scratch removes the instance's own
+/// `<cache>/scratch/<repo>` once stale, and nothing of another instance's scratch, which lies
+/// under that instance's own cache.
+#[test]
+fn reclaim_removes_only_its_own_instances_scratch() {
+    let case = Case::new("own-scratch");
+    let own = case.dir.join("cache/scratch/alpha");
+    let fresh = case.dir.join("cache/scratch/beta");
+    let other = case.dir.join("other-cache/scratch/alpha");
+    let shared = case.home().join(".cache/alpha-review");
+    for dir in [&own, &fresh, &other, &shared] {
+        fill(&dir.join("data.bin"), 64 * KIB);
+    }
+    for stale in [&own, &other, &shared] {
+        age_by(stale, TWO_DAYS);
+    }
+    let records = case.records();
+    case.readings(&[10]);
+    let output = case.reclaim_with_records(&records, &[]);
+    assert!(
+        !own.exists(),
+        "the instance's own stale scratch is removed: {}",
+        shown(&output)
+    );
+    for (kept, why) in [
+        (&fresh, "its own scratch written lately"),
+        (&other, "another instance's scratch"),
+        (&shared, "an entry of the old shared place"),
+    ] {
+        assert!(
+            kept.join("data.bin").is_file(),
+            "{why} stays: {}",
+            shown(&output)
+        );
+    }
+}

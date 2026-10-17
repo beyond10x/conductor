@@ -1076,6 +1076,8 @@ pub struct Shortfall<'a> {
     /// `/var/tmp`: its entries are none of the instance's, and the item counts them, never names
     /// them.
     pub var_tmp: &'a Path,
+    /// The instance's own scratch, `<cache>/scratch`, a root of reclaim's step 3.
+    pub scratch: Option<&'a Path>,
     /// When.
     pub at: &'a Timestamp,
 }
@@ -1148,7 +1150,8 @@ pub fn left_redacted(shortfall: &Shortfall<'_>) -> Vec<(String, u64)> {
 /// once it is stale and nothing holds it, and no person is asked to decide it.
 #[must_use]
 pub fn needs_person(shortfall: &Shortfall<'_>) -> bool {
-    let roots = crate::gc::reclaim::scratch_roots(shortfall.home, shortfall.var_tmp);
+    let roots =
+        crate::gc::reclaim::scratch_roots(shortfall.home, shortfall.var_tmp, shortfall.scratch);
     shortfall.left.is_empty()
         || shortfall
             .left

@@ -222,8 +222,8 @@ types:
   # conductor-dev's this repository's); `trees`, the managed worktrees of that checkout under
   # `checkouts.trees`; `build-cache`, the build tools' caches under the home directory (cargo's
   # among them); `scratch`, the session's scratch, under `$TMPDIR` and, for a controller,
-  # `~/.cache/<repo>-*`; `harness-state`, the harness's own state directory, `~/.claude` or
-  # `~/.codex`; `records`, the instance's records directory. Absent, a role writes `checkout`,
+  # `<cache>/scratch/<repo>`, under the instance's own `cache` (`<repo>` its repository, `/` written
+  # `-`); `harness-state`, the harness's own state directory, `~/.claude` or `~/.codex`; `records`, the instance's records directory. Absent, a role writes `checkout`,
   # `trees`, `build-cache`, `scratch` and `harness-state`, and the `conductor` role `records` as
   # well; a list the file writes takes their place.
   - name: conductor.config.Writable

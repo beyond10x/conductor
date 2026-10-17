@@ -153,6 +153,7 @@ impl Case {
             sweep: cat("sweep.json"),
             gc: cat("gc.json"),
             var_tmp: self.home.join("var-tmp"),
+            scratch: self.home.join(".cache/b10x/conductor/example/scratch"),
             measure_every: Duration::from_secs(600),
             measure_timeout: Duration::from_secs(30),
             context_handover: 300_000,

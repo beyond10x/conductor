@@ -7,7 +7,7 @@
 //! | `checkout` | the directory the session starts in |
 //! | `trees` | `<checkouts.trees>/<repository>`: the managed worktrees of that checkout, the repository being its path under the checkouts root, else the start directory's own name |
 //! | `build-cache` | `~/.cargo` and `~/.npm`, the build tools' caches under the home directory |
-//! | `scratch` | `$TMPDIR` (`/tmp` when it is not set), and for a controller `~/.cache/<repo>-*`, every entry of `~/.cache` whose name starts `<repo>-`, written as that pattern |
+//! | `scratch` | `$TMPDIR` (`/tmp` when it is not set), and for a controller `<cache>/scratch/<repo>`, under the instance's own `cache`, `<repo>` its repository with `/` written `-` ([`scratch_of`]) |
 //! | `harness-state` | `~/.claude` and `~/.claude.json` for `claude`, `~/.codex` for `codex` |
 //! | `records` | the instance's records directory |
 //!
@@ -36,6 +36,8 @@ pub struct Placement {
     pub trees: PathBuf,
     /// The instance's records directory.
     pub records: PathBuf,
+    /// The instance's own cache directory (`cache` in its config): scratch is under it.
+    pub cache: PathBuf,
     /// The harness the role runs on.
     pub harness: Harness,
     /// Whether the session is a repository's controller.
@@ -53,6 +55,13 @@ impl Placement {
                 .unwrap_or_default()
         })
     }
+}
+
+/// A controller's scratch directory: `<cache>/scratch/<repo>`, `cache` the instance's own cache
+/// directory and `<repo>` its repository with `/` written `-`. Two instances never share one.
+#[must_use]
+pub fn scratch_of(cache: &Path, repository: &str) -> PathBuf {
+    cache.join("scratch").join(repository.replace('/', "-"))
 }
 
 /// Each of `writable` resolved against `at`, in order, as the module documentation says.
@@ -80,9 +89,7 @@ fn paths(place: &str, at: &Placement) -> Vec<PathBuf> {
         "scratch" => {
             let mut paths = vec![at.tmpdir.clone()];
             if at.controller {
-                let repository = at.repository();
-                let name = repository.rsplit('/').next().unwrap_or(&repository);
-                paths.push(home(".cache").join(format!("{name}-*")));
+                paths.push(scratch_of(&at.cache, &at.repository()));
             }
             paths
         }

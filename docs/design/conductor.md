@@ -239,7 +239,8 @@ disk` or `build` with "use conductor build run".
 | a controller's build, test or gate (`cargo build\|test\|check\|clippy\|nextest\|install\|run`, `task check\|gate\|install\|ui\|regen\|docs-generate`, `npm run build\|test`, `npm ci`) runs under `conductor build run`, which reserves its disk in the host ledger | the guard: the denial names `conductor build run --reserve <size> -- <command>` |
 
 Scratch is a session's own temporary space: under `$TMPDIR` for every session, and for a
-controller also under `~/.cache/<repo>-*/`, `<repo>` its repository with `/` written `-`. Scratch
+controller also under `<cache>/scratch/<repo>/`, `<cache>` its instance's own `cache` and `<repo>`
+its repository with `/` written `-`: two instances never share a scratch directory. Scratch
 is never a repository's checkout or managed worktree, conductor's records or its config, wherever
 `$TMPDIR` points, and a `$TMPDIR` that is the home directory or holds it is no scratch at all.
 

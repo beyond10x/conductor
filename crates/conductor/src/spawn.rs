@@ -370,6 +370,7 @@ fn controller_launch(
                 repository: Some(repository.to_owned()),
                 trees: PathBuf::from(&instance.checkouts.trees),
                 records: PathBuf::from(&instance.records),
+                cache: PathBuf::from(&instance.cache),
                 harness: role.harness,
                 controller: true,
             },

@@ -3738,11 +3738,12 @@ fn decide_with_tmp(
     )
 }
 
-/// A controller writes scratch under `$TMPDIR` and under `~/.cache/<repo>-<anything>/`, and not
-/// at `~/.cache/<repo>-<anything>` itself, under another repository's prefix, or under `$TMPDIR`
-/// when the hook has none.
+/// A controller writes scratch under `$TMPDIR` and under `<cache>/scratch/<repo>/` of its own
+/// instance (`story:scratch-per-instance`), and not at that directory itself, under another
+/// repository's, under another instance's, in the old `~/.cache/<repo>-<anything>/`, or under
+/// `$TMPDIR` when the hook has none.
 #[test]
-fn a_controller_writes_scratch_under_tmpdir_and_its_own_cache_prefix() {
+fn a_controller_writes_scratch_under_tmpdir_and_its_own_instances_scratch() {
     let home = home("controller-scratch");
     let tmp = home.join(".cache/claude-tmp");
     fs::create_dir_all(&tmp).expect("create the temporary directory");
@@ -3750,14 +3751,18 @@ fn a_controller_writes_scratch_under_tmpdir_and_its_own_cache_prefix() {
         for target in [
             "~/.cache/claude-tmp/x.py",
             "~/.cache/claude-tmp/review-1/extract.py",
-            "~/.cache/.guard-probe-w04-review/x.py",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04/x.py",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04/sub/dir/y.py",
         ] {
             let decision = decide_with_tmp(name, &home, PROBE, Some(&tmp), &[(field, target)]);
             assert_verdict(&decision, Verdict::Allow, "scratch");
         }
         for target in [
-            "~/.cache/.guard-probe-w04-review",
-            "~/.cache/.guard-probe-w04x/x.py",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04x/x.py",
+            "~/.cache/conductor-watch/scratch/delta/x.py",
+            "~/.cache/b10x/conductor/other/scratch/.guard-probe-w04/x.py",
+            "~/.cache/.guard-probe-w04-review/x.py",
             "~/.cache/delta-review/x.py",
             "~/.cache/x.py",
             "~/.cache/claude-tmp",
@@ -4166,7 +4171,7 @@ fn a_role_s_profile_file_is_no_scratch() {
     let places = places_with_profiles(
         &home,
         [
-            "~/.cache/probe-notes/controller.md",
+            "~/.cache/b10x/conductor/fixture/scratch/probe/controller.md",
             "~/.cache/claude-tmp/profiles/dev.md",
             &charter,
         ],
@@ -4180,7 +4185,7 @@ fn a_role_s_profile_file_is_no_scratch() {
             name,
             &controller,
             field,
-            "~/.cache/probe-notes/controller.md",
+            "~/.cache/b10x/conductor/fixture/scratch/probe/controller.md",
         );
         assert_verdict(&decision, Verdict::Deny, "profile");
         let control = decide_in_places(
@@ -4189,7 +4194,7 @@ fn a_role_s_profile_file_is_no_scratch() {
             name,
             &controller,
             field,
-            "~/.cache/probe-notes/other.md",
+            "~/.cache/b10x/conductor/fixture/scratch/probe/other.md",
         );
         assert_verdict(&control, Verdict::Allow, "scratch");
         for cwd in [&controller, &records] {
@@ -4455,7 +4460,7 @@ fn conductor_appends_a_charter_whose_body_names_a_role_s_profile() {
     }
 }
 
-/// A controller's Write or Edit denial names its scratch, `$TMPDIR` and `~/.cache/<repo>-*/`, and
+/// A controller's Write or Edit denial names its scratch, `$TMPDIR` and `<cache>/scratch/<repo>/`, and
 /// a `cd` into another checkout or the records says to read by absolute path instead.
 #[test]
 fn a_denial_names_the_allowed_alternative() {
@@ -4468,7 +4473,11 @@ fn a_denial_names_the_allowed_alternative() {
         ] {
             let decision = decide(name, &home, PROBE, &[(field, target)]);
             assert_verdict(&decision, Verdict::Deny, "scratch is under $TMPDIR");
-            assert_verdict(&decision, Verdict::Deny, "~/.cache/.guard-probe-w04-*/");
+            assert_verdict(
+                &decision,
+                Verdict::Deny,
+                "~/.cache/conductor-watch/scratch/.guard-probe-w04/",
+            );
         }
     }
     for command in [

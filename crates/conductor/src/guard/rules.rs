@@ -131,6 +131,9 @@ pub struct Places {
     /// The instance's `state` directory, with a config file; `None` without one, when the state
     /// is under conductor's records.
     state: Option<PathBuf>,
+    /// The instance's own `cache` directory: a controller's scratch is `<cache>/scratch/<repo>`
+    /// (`story:scratch-per-instance`).
+    cache: PathBuf,
     /// The config file the process resolves ([`config::locate`]); [`config::DEFAULT_FILE`] under
     /// the home directory until [`Places::with_config_file`] names another.
     config: PathBuf,
@@ -218,6 +221,7 @@ impl Places {
             trees: PathBuf::from(&instance.checkouts.trees),
             records: from_file.then(|| PathBuf::from(&instance.records)),
             state: from_file.then(|| PathBuf::from(&instance.state)),
+            cache: PathBuf::from(&instance.cache),
             config: home.join(config::DEFAULT_FILE),
             exclude: collect::excluded_under(instance, Path::new(&instance.checkouts.root)),
             tmp: None,
@@ -946,8 +950,8 @@ impl Session<'_> {
     }
 
     /// Whether the landing `path` is a session's scratch (`story:guard-scratch`): under `$TMPDIR`
-    /// for every session, or for a controller also under `~/.cache/<repo>-<anything>/`, `<repo>`
-    /// its repository with `/` written `-`. Never a repository's checkout or managed tree,
+    /// for every session, or for a controller also under `<cache>/scratch/<repo>/` of its own
+    /// instance (`story:scratch-per-instance`), `<repo>` its repository with `/` written `-`. Never a repository's checkout or managed tree,
     /// conductor's records, its config, a `.claude/` settings file, a role's settings file or a
     /// role's profile file, wherever the temporary directory points.
     fn is_scratch(&self, landing: &Path) -> bool {
@@ -971,25 +975,29 @@ impl Session<'_> {
         if self.rules != Rules::Controller {
             return false;
         }
-        let cache = real(&self.home().join(".cache"));
-        let Ok(rest) = landing.strip_prefix(&cache) else {
-            return false;
-        };
-        let prefix = format!("{}-", self.repository.replace('/', "-"));
-        let mut steps = rest.components();
-        steps
-            .next()
-            .is_some_and(|first| first.as_os_str().to_string_lossy().starts_with(&prefix))
-            && steps.next().is_some()
+        let scratch = self.scratch_dir();
+        landing.starts_with(&scratch) && landing != scratch
+    }
+
+    /// A controller's scratch directory, `<cache>/scratch/<repo>` of its own instance, where it
+    /// lands ([`real`]).
+    fn scratch_dir(&self) -> PathBuf {
+        crate::confine::places::scratch_of(&real(&self.places.cache), &self.repository)
+    }
+
+    /// The scratch directory as a denial names it, the home directory written `~`.
+    fn scratch_shown(&self) -> String {
+        let dir = crate::confine::places::scratch_of(&self.places.cache, &self.repository);
+        match dir.strip_prefix(self.home()) {
+            Ok(under) => format!("~/{}/", under.display()),
+            Err(_) => format!("{}/", dir.display()),
+        }
     }
 
     /// Where a denied write may go instead, for a denial to name (`story:guard-write-targets`):
-    /// a controller's scratch, under `$TMPDIR` or `~/.cache/<repo>-*/`.
+    /// a controller's scratch, under `$TMPDIR` or `<cache>/scratch/<repo>/`.
     fn scratch_named(&self) -> String {
-        format!(
-            "scratch is under $TMPDIR or ~/.cache/{}-*/",
-            self.repository.replace('/', "-")
-        )
+        format!("scratch is under $TMPDIR or {}", self.scratch_shown())
     }
 
     /// Edit, Write and NotebookEdit: the verdict on writing `target`.
@@ -1055,9 +1063,8 @@ impl Session<'_> {
                     (
                         Verdict::Allow,
                         format!(
-                            "{tool} target{resolves} is scratch: under $TMPDIR or \
-                             ~/.cache/{}-*/",
-                            self.repository.replace('/', "-")
+                            "{tool} target{resolves} is scratch: under $TMPDIR or {}",
+                            self.scratch_shown()
                         ),
                     )
                 } else if inside && landing.starts_with(places.records()) {

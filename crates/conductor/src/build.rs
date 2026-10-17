@@ -240,6 +240,9 @@ pub struct Sources {
     pub home: Option<PathBuf>,
     /// `/var/tmp`, whose entries an operator item names only as a count and a total size.
     pub var_tmp: PathBuf,
+    /// The instance's own scratch, `<cache>/scratch`: reclaim deletes stale entries there, so what
+    /// is left there needs no person.
+    pub scratch: PathBuf,
     /// Writes one line of standard error, given the state directory: [`stderr`]. A case gives its
     /// own.
     pub say: fn(&Path, &str),
@@ -278,6 +281,7 @@ impl Sources {
                 .map(PathBuf::from)
                 .filter(|home| home.is_absolute()),
             var_tmp: PathBuf::from("/var/tmp"),
+            scratch: Path::new(&instance.cache).join(crate::dashboard::SCRATCH),
             say: stderr,
             env: |name| std::env::var(name).ok(),
             sessions: ["claude", "agents", "--json"].map(OsString::from).to_vec(),
@@ -638,6 +642,7 @@ pub fn run(
             disk: &sources.disk,
             home: sources.home.as_deref(),
             var_tmp: &sources.var_tmp,
+            scratch: Some(&sources.scratch),
             at: &at,
         };
         let item = escalate(&shortfall).unwrap_or_else(|error| {
