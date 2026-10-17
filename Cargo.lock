@@ -152,12 +152,22 @@ name = "conductor"
 version = "1.0.0"
 
 [[package]]
+name = "conductor-broker"
+version = "0.17.0"
+dependencies = [
+ "conductor",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "conductor-cli"
 version = "0.17.0"
 dependencies = [
  "anyhow",
  "clap",
  "conductor",
+ "conductor-broker",
  "eventlog-core",
  "eventlog-file",
  "eventlog-tree",
@@ -766,6 +776,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e95f91fcc7a621e8b030f6aa23c71fe9838ae2fb4d8118b75602a328f5144044"
 dependencies = [
  "pin-project-lite",
+]
+
+[[package]]
+name = "tool"
+version = "0.17.0"
+dependencies = [
+ "clap",
+ "conductor-broker",
+ "serde_json",
 ]
 
 [[package]]

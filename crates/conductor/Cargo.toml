@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4.6", features = ["derive"] }
+conductor-broker = { path = "../conductor-broker" }
 conductor-model = { package = "conductor", path = "../conductor-model" }
 eventlog-core = { git = "https://github.com/beyond10x/eventlog", tag = "0.8.4" }
 eventlog-file = { git = "https://github.com/beyond10x/eventlog", tag = "0.8.4" }

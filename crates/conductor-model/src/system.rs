@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest fdea8fc4fd11c9a62b9615a93d028bb158f5212953ee90b85ef8f9fbddbbd611
-// contract digest 6fbb6788206bdfd2363a35ca5d09fef29e0f00bdf148eda6107109a57fd2e4a5
+// model digest 1764fdae0b32ce2f24e5fc80cf94561db13c5ec98f2fbed6ce4aec82214adae5
+// contract digest 3b8e218d9ef9cfac8d17edf1323399bbc39840ea82ed8bd7701f4915ac99cb2c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The `conductor` system, v1: its components assembled, its bindings wired, and its one transport.
@@ -165,6 +165,8 @@ pub enum SystemEvent {
     LeaseTaken(crate::session::LeaseTaken),
     /// `conductor.session.LeaseTakenOver`.
     LeaseTakenOver(crate::session::LeaseTakenOver),
+    /// `conductor.tool.ToolCallRecorded`.
+    ToolCallRecorded(crate::tool::ToolCallRecorded),
 }
 
 impl SystemEvent {
@@ -244,6 +246,15 @@ impl SystemEvent {
             Self::WorkflowRunRecorded(_) => "conductor.observation.WorkflowRunRecorded",
             Self::LeaseTaken(_) => "conductor.session.LeaseTaken",
             Self::LeaseTakenOver(_) => "conductor.session.LeaseTakenOver",
+            Self::ToolCallRecorded(_) => "conductor.tool.ToolCallRecorded",
+        }
+    }
+}
+
+impl From<crate::ports::conductor_broker::PublishedEvent> for SystemEvent {
+    fn from(event: crate::ports::conductor_broker::PublishedEvent) -> Self {
+        match event {
+            crate::ports::conductor_broker::PublishedEvent::ToolCallRecorded(event) => Self::ToolCallRecorded(event),
         }
     }
 }
@@ -333,17 +344,20 @@ impl From<crate::ports::conductor_cli::PublishedEvent> for SystemEvent {
 /// The component fields are public because commands enter the system through a component's own
 /// port; the log and its delivery cursor are not, because publishing happens by pumping, not by
 /// writing history directly.
-pub struct System<ConductorCliBehaviors> {
+pub struct System<ConductorBrokerBehaviors, ConductorCliBehaviors> {
+    /// The `conductor-broker` component.
+    pub conductor_broker: crate::ports::conductor_broker::ConductorBroker<ConductorBrokerBehaviors>,
     /// The `conductor-cli` component.
     pub conductor_cli: crate::ports::conductor_cli::ConductorCli<ConductorCliBehaviors>,
     published: Vec<SystemEvent>,
     cursor: usize,
 }
 
-impl<ConductorCliBehaviors> System<ConductorCliBehaviors> {
+impl<ConductorBrokerBehaviors, ConductorCliBehaviors> System<ConductorBrokerBehaviors, ConductorCliBehaviors> {
     /// Assembles the system from its components.
-    pub fn new(conductor_cli: crate::ports::conductor_cli::ConductorCli<ConductorCliBehaviors>) -> Self {
+    pub fn new(conductor_broker: crate::ports::conductor_broker::ConductorBroker<ConductorBrokerBehaviors>, conductor_cli: crate::ports::conductor_cli::ConductorCli<ConductorCliBehaviors>) -> Self {
         Self {
+            conductor_broker,
             conductor_cli,
             published: Vec::new(),
             cursor: 0,
@@ -369,8 +383,9 @@ impl<ConductorCliBehaviors> System<ConductorCliBehaviors> {
     }
 }
 
-impl<ConductorCliBehaviors> System<ConductorCliBehaviors>
+impl<ConductorBrokerBehaviors, ConductorCliBehaviors> System<ConductorBrokerBehaviors, ConductorCliBehaviors>
 where
+    ConductorBrokerBehaviors: crate::tool::obligations::RecordToolCallBehavior + crate::tool::obligations::ToolCallsQuery,
     ConductorCliBehaviors: crate::decision::obligations::AmendEscalatedRequestBehavior + crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionForRequestBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::host::obligations::WithdrawDiskRequestBehavior + crate::improvement::obligations::DefineMetricBehavior + crate::improvement::obligations::FileFindingBehavior + crate::improvement::obligations::RaiseFindingBehavior + crate::improvement::obligations::RecordMetricReadingBehavior + crate::improvement::obligations::SetMetricTargetBehavior + crate::improvement::obligations::SupersedeMetricReadingBehavior + crate::improvement::obligations::VerifyFindingBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSecretSyncBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordUsageBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::improvement::obligations::FindingsQuery + crate::improvement::obligations::KpiReadingsQuery + crate::improvement::obligations::KpisQuery + crate::improvement::obligations::MetricReadingsQuery + crate::improvement::obligations::MetricsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SecretSyncsQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::UsageReadingsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::LeasesQuery,
 {
     /// Delivers until quiescent: collects every component's outbox onto the log. No binding
@@ -387,6 +402,9 @@ where
 
     /// Moves every component's outbox onto the log, in component order.
     fn collect(&mut self) {
+        for event in self.conductor_broker.drain_outbox() {
+            self.published.push(SystemEvent::from(event));
+        }
         for event in self.conductor_cli.drain_outbox() {
             self.published.push(SystemEvent::from(event));
         }

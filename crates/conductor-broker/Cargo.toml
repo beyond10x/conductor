@@ -1,0 +1,13 @@
+[package]
+name = "conductor-broker"
+description = "The broker of one conductor instance: one socket per session, the grant check, the call record and the verbs the `tool` binary calls."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+conductor-model = { package = "conductor", path = "../conductor-model" }
+serde_json = "1"
+time = { version = "0.3", features = ["formatting", "parsing"] }

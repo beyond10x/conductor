@@ -1,0 +1,17 @@
+[package]
+name = "tool"
+description = "The `tool` binary every session of an instance acts through: the verbs of its grant, from the command line or as an MCP server, each answered by the instance's broker over the session's socket. It opens no store and holds no admin command."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "tool"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive", "env"] }
+conductor-broker = { path = "../conductor-broker" }
+serde_json = "1"

@@ -401,6 +401,9 @@ impl Cli {
                 }
                 FindingCommand::Findings(_) => crate::not_implemented("finding findings"),
             },
+            Group::Broker(command) => match command {
+                BrokerCommand::Serve => crate::broker::broker_serve(state),
+            },
             Group::Build(command) => match command {
                 BuildCommand::Run(args) => build::build_run(state, &args),
             },
@@ -502,6 +505,11 @@ pub enum Group {
     /// Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move
     #[command(subcommand)]
     Finding(FindingCommand),
+
+    // No help, as for `dashboard`: the binding declares the group only through `broker serve`
+    // (`story:tool-broker-read`).
+    #[command(subcommand)]
+    Broker(BrokerCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `build run`
     // (`story:build-run`).
@@ -742,6 +750,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["finding", "raise-finding"], Access::Writes),
     (&["finding", "verify-finding"], Access::Writes),
     (&["finding", "findings"], Access::Reads),
+    // Serves the instance's broker and records every call in the store (story:tool-broker-read).
+    (&["broker", "serve"], Access::Writes),
     // Reserves disk in the host ledger and runs the session's own build under the disk watchdog
     // (story:build-run); the guard sends every build through it.
     (&["build", "run"], Access::RunWrites),
@@ -1382,6 +1392,16 @@ pub struct BuildRunArgs {
     /// The command and its arguments, after `--`
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+// `conductor broker`: the command the binding declares over the `local` callable `broker-serve`
+// (`story:tool-broker-read`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum BrokerCommand {
+    /// Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
+    #[command(name = "serve")]
+    Serve,
 }
 
 // `conductor dashboard`: the commands the binding declares over the `local` callable

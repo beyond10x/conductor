@@ -113,6 +113,7 @@ use conductor_model::config::{
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
 use conductor_model::primitives::Duration;
+use conductor_model::tool::{RoleGrant, Verb};
 use serde_json::{Map, Value};
 use serde_yaml::{Mapping, Value as Yaml};
 
@@ -268,7 +269,7 @@ const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
 const SOURCE_KINDS: [&str; 3] = ["github", "local", "gitlab"];
 const SOURCE_KEYS: [&str; 5] = ["github", "local", "gitlab", "exclude", "host"];
 const CHECKOUT_KEYS: [&str; 2] = ["root", "trees"];
-const ROLE_KEYS: [&str; 12] = [
+const ROLE_KEYS: [&str; 13] = [
     "role",
     "harness",
     "model",
@@ -281,7 +282,18 @@ const ROLE_KEYS: [&str; 12] = [
     "writable",
     "network",
     "forge_token_env",
+    "grant",
 ];
+/// The keys of a role's `grant` (`conductor.tool.RoleGrant`, `story:tool-broker-read`).
+const GRANT_KEYS: [&str; 5] = ["tools", "repositories", "paths", "max_output_bytes", "ttl"];
+/// The verbs a grant may name, as the file writes them.
+const VERBS: [(&str, Verb); 3] = [
+    ("show", Verb::Show),
+    ("search", Verb::Search),
+    ("diff", Verb::Diff),
+];
+/// The most bytes one answer of the broker carries when a grant writes no `max_output_bytes`.
+pub const DEFAULT_MAX_OUTPUT_BYTES: i64 = 65_536;
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
@@ -1164,8 +1176,33 @@ fn default_roles(prefix: Option<&SessionPrefix>) -> Vec<Role> {
             writable: default_writable(role),
             network: Network::Open,
             forge_token_env: Vec::new(),
+            grant: default_grant(),
         })
         .collect()
+}
+
+/// The grant of a role whose file writes none (`story:tool-broker-read`): the role's default
+/// tools of the design that exist as verbs, `show`, `search` and `diff`, over the session's whole
+/// working directory, [`DEFAULT_MAX_OUTPUT_BYTES`] per answer, for the session's life.
+#[must_use]
+pub fn default_grant() -> RoleGrant {
+    RoleGrant {
+        tools: vec![Verb::Show, Verb::Search, Verb::Diff],
+        repositories: Vec::new(),
+        paths: Vec::new(),
+        max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+        ttl: None,
+    }
+}
+
+/// A verb as the file and the wire write it.
+#[must_use]
+pub fn verb_word(verb: Verb) -> &'static str {
+    match verb {
+        Verb::Show => "show",
+        Verb::Search => "search",
+        Verb::Diff => "diff",
+    }
 }
 
 /// The places a session of the role `role` writes when the file names none
@@ -2596,6 +2633,10 @@ impl Reader<'_> {
             Some(value) => self.list(value, &join(path, "forge_token_env"), Self::variable_name),
             None => Some(Vec::new()),
         };
+        let grant = match Self::get(map, "grant") {
+            Some(value) => self.grant(value, &join(path, "grant")),
+            None => Some(default_grant()),
+        };
         Some(Role {
             role: role?,
             harness: harness?,
@@ -2609,6 +2650,75 @@ impl Reader<'_> {
             writable: writable?,
             network: network?,
             forge_token_env: forge_token_env?,
+            grant: grant?,
+        })
+    }
+
+    /// A role's `grant` (`conductor.tool.RoleGrant`): each key the file leaves out takes its value
+    /// from [`default_grant`].
+    fn grant(&mut self, value: &Value, path: &str) -> Option<RoleGrant> {
+        let map = self.mapping(value, path, &GRANT_KEYS)?;
+        let defaults = default_grant();
+        let tools = match Self::get(map, "tools") {
+            Some(value) => self.list(value, &join(path, "tools"), |reader, value, at| {
+                reader.word(value, at, &VERBS)
+            }),
+            None => Some(defaults.tools),
+        };
+        let repositories = match Self::get(map, "repositories") {
+            Some(value) => self.list(value, &join(path, "repositories"), Self::text),
+            None => Some(Vec::new()),
+        };
+        let paths = match Self::get(map, "paths") {
+            Some(value) => self.list(value, &join(path, "paths"), |reader, value, at| {
+                let text = reader.text(value, at)?;
+                let relative = Path::new(&text);
+                if relative.is_absolute()
+                    || relative
+                        .components()
+                        .any(|part| matches!(part, std::path::Component::ParentDir))
+                {
+                    reader.problem(
+                        at,
+                        format!(
+                            "{} is not a path under the session's working directory: write it \
+                             relative, without ..",
+                            echo(value)
+                        ),
+                    );
+                    None
+                } else {
+                    Some(text)
+                }
+            }),
+            None => Some(Vec::new()),
+        };
+        let max_output_bytes = match Self::get(map, "max_output_bytes") {
+            Some(value) => {
+                let bytes = value.as_i64().filter(|bytes| *bytes >= 1);
+                if bytes.is_none() {
+                    self.problem(
+                        &join(path, "max_output_bytes"),
+                        format!(
+                            "{} is not a max_output_bytes: write a whole number of 1 or more",
+                            echo(value)
+                        ),
+                    );
+                }
+                bytes
+            }
+            None => Some(defaults.max_output_bytes),
+        };
+        let ttl = match Self::get(map, "ttl") {
+            Some(value) => self.duration(value, &join(path, "ttl")).map(Some),
+            None => Some(None),
+        };
+        Some(RoleGrant {
+            tools: tools?,
+            repositories: repositories?,
+            paths: paths?,
+            max_output_bytes: max_output_bytes?,
+            ttl: ttl?,
         })
     }
 
@@ -3215,6 +3325,45 @@ pub fn document(instance: &Instance) -> Yaml {
                 (
                     "forge_token_env",
                     Yaml::Sequence(role.forge_token_env.iter().map(|name| text(name)).collect()),
+                ),
+                (
+                    "grant",
+                    mapping([
+                        (
+                            "tools",
+                            Yaml::Sequence(
+                                role.grant
+                                    .tools
+                                    .iter()
+                                    .map(|verb| text(verb_word(*verb)))
+                                    .collect(),
+                            ),
+                        ),
+                        (
+                            "repositories",
+                            Yaml::Sequence(
+                                role.grant
+                                    .repositories
+                                    .iter()
+                                    .map(|name| text(name))
+                                    .collect(),
+                            ),
+                        ),
+                        (
+                            "paths",
+                            Yaml::Sequence(
+                                role.grant.paths.iter().map(|path| text(path)).collect(),
+                            ),
+                        ),
+                        ("max_output_bytes", number(role.grant.max_output_bytes)),
+                        (
+                            "ttl",
+                            role.grant
+                                .ttl
+                                .as_ref()
+                                .map_or(Yaml::Null, |ttl| text(&written(ttl))),
+                        ),
+                    ]),
                 ),
             ])
         })

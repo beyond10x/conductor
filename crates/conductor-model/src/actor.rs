@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest fdea8fc4fd11c9a62b9615a93d028bb158f5212953ee90b85ef8f9fbddbbd611
-// contract digest 6fbb6788206bdfd2363a35ca5d09fef29e0f00bdf148eda6107109a57fd2e4a5
+// model digest 1764fdae0b32ce2f24e5fc80cf94561db13c5ec98f2fbed6ce4aec82214adae5
+// contract digest 3b8e218d9ef9cfac8d17edf1323399bbc39840ea82ed8bd7701f4915ac99cb2c
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -37,6 +37,8 @@ pub enum Actor {
     ObservationCollector,
     /// `conductor.session.Conductor`.
     SessionConductor,
+    /// `conductor.tool.InstanceBroker`.
+    ToolInstanceBroker,
 }
 
 impl Actor {
@@ -54,6 +56,7 @@ impl Actor {
         Actor::ImprovementOperator,
         Actor::ObservationCollector,
         Actor::SessionConductor,
+        Actor::ToolInstanceBroker,
     ];
 
     /// The actor's qualified name, as the specification spells it.
@@ -71,6 +74,7 @@ impl Actor {
             Actor::ImprovementOperator => "conductor.improvement.Operator",
             Actor::ObservationCollector => "conductor.observation.Collector",
             Actor::SessionConductor => "conductor.session.Conductor",
+            Actor::ToolInstanceBroker => "conductor.tool.InstanceBroker",
         }
     }
 }
@@ -176,6 +180,9 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
         ],
         Actor::SessionConductor => &[
             "conductor.session.ClaimLease",
+        ],
+        Actor::ToolInstanceBroker => &[
+            "conductor.tool.RecordToolCall",
         ],
     }
 }

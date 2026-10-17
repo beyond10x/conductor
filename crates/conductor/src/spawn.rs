@@ -378,7 +378,15 @@ fn controller_launch(
         network: role.network,
         forge_token_env: role.forge_token_env.clone(),
     };
-    let mut env = Vec::new();
+    // The session's socket to the instance's broker (`story:tool-broker-read`): registered with
+    // the controller role's grant before the session starts, and named in its environment.
+    let socket =
+        crate::broker::register_session(state_dir, &instance.name, role, &session_name, checkout)
+            .context(COMMAND)?;
+    let mut env = vec![(
+        conductor_broker::SOCKET_VARIABLE.to_owned(),
+        socket.display().to_string(),
+    )];
     if active.from_file {
         // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
         // path would name a file of the repository.

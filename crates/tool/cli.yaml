@@ -1,0 +1,71 @@
+format: ess-cli/2
+binary: tool
+about: The verbs of a session's grant, each answered by the instance's broker over the session's socket
+globals:
+  state: socket
+callables:
+  show:
+    target: {kind: local, owner: conductor-broker, action: show}
+    input: conductor.tool.ShowCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+  search:
+    target: {kind: local, owner: conductor-broker, action: search}
+    input: conductor.tool.SearchCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+  diff:
+    target: {kind: local, owner: conductor-broker, action: diff}
+    input: conductor.tool.DiffCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+  mcp:
+    target: {kind: local, owner: conductor-broker, action: mcp}
+    input: null
+    result: String
+    errors: {}
+commands:
+  - path: [show]
+    callable: show
+    about: Print a bounded range of one file of the grant, or that it is unchanged since this session last read it
+    arguments:
+      - field: path
+        source: {kind: positional, index: 1}
+      - field: lines
+        source: {kind: option, long: lines}
+      - field: symbol
+        source: {kind: option, long: fn}
+      - field: max
+        source: {kind: option, long: max}
+  - path: [search]
+    callable: search
+    about: Print the lines under the grant's paths that hold a text
+    arguments:
+      - field: pattern
+        source: {kind: positional, index: 1}
+      - field: path
+        source: {kind: option, long: path}
+  - path: [diff]
+    callable: diff
+    about: Print the uncommitted change of the session's checkout, as a stat (the default, or --stat), or with --patch the change itself
+    arguments:
+      - field: stat
+        source: {kind: option, long: stat}
+      - field: patch
+        source: {kind: option, long: patch}
+  - path: [mcp]
+    callable: mcp
+    about: Serve the granted verbs as MCP tools over stdio, each answered through the same socket
+    arguments: []

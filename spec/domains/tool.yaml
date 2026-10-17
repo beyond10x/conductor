@@ -1,0 +1,360 @@
+domain: conductor.tool
+
+summary: >
+  The confined tool surface of an instance's sessions (story:tool-broker-read, design
+  docs/design/roles-and-surfaces.md § 6). A session acts through the `tool` binary, a thin client
+  with no store access and no admin command, or through `tool mcp`, the same verbs as an MCP server
+  over stdio. Either sends each call over the session's own socket to the instance's broker
+  (`conductor broker serve`), which holds what the session must not: the store, and the session's
+  grant. The broker identifies the caller by the socket the call arrives on, never by a token the
+  caller passes; it checks the call against the session's grant, runs it, records it as a
+  `ToolCall`, and answers.
+
+  One broker per instance, keyed by the instance's name; it does not outlive the instance. Its
+  directory is `broker/` under the instance's state directory: `sessions/<session name>.json`, the
+  registration of each session it serves (its instance, the directory it reads in, and its grant),
+  and `sockets/<session name>.sock`, the session's socket. `conductor spawn` and
+  `conductor session start` register a session before it starts and name its socket in the
+  session's environment as `TOOL_SOCKET`; `conductor session stop` removes the registration, and a
+  call on the socket of a session that is no longer registered is refused `UnknownSession`. A
+  registration that names another instance than the broker's is refused `ForeignInstance`.
+
+  Every verb answers in a bounded form: on success, its result bounded by the grant's
+  `max_output_bytes` (and a verb's own `--max`), then one summary line; on failure, at most 40
+  lines and the path of a log under `broker/logs/` that holds the whole output. A refusal is one
+  line, `<Error>: <detail>`, and exit status 1.
+
+naming:
+  wire: tool
+  display: Tool
+
+types:
+  - name: conductor.tool.ToolCallId
+    kind: newtype
+    of: Uuid
+
+  # The verbs of the read group (design § 6.3). The file and the wire write them in lower case:
+  # `show <path> [--lines a:b | --fn <symbol>] [--max n]` prints a bounded range of one file, and
+  # `unchanged since <time>` for a re-read, in the same session, of a range whose content has not
+  # changed; `search <pattern> [--path p]` prints the lines that hold the pattern, as text, under
+  # the grant's paths; `diff [--stat]` prints the checkout's uncommitted change, as a stat by
+  # default. Later stories add the other groups.
+  - name: conductor.tool.Verb
+    kind: enum
+    variants: [Show, Search, Diff]
+
+  # How one call ended: `Done`, the verb ran and succeeded; `Failed`, it ran and failed; or one of
+  # the four refusals, each the error of the same name, before the verb ran.
+  - name: conductor.tool.CallOutcome
+    kind: enum
+    variants: [Done, Failed, NotGranted, GrantExpired, ForeignInstance, UnknownSession]
+
+  # A role's grant as the config file writes it (`instances[].roles[].grant`): the verbs its
+  # sessions may call; the repositories and the paths they may read, each path relative to the
+  # session's working directory (empty: the whole working directory); the most bytes one answer
+  # may carry; and the time to live of a session's grant from its start (absent: the session's
+  # life). Absent, a role is granted its default tools of design § 3 that exist as verbs: `show`,
+  # `search` and `diff` for every role, over its whole working directory, at most 65536 bytes per
+  # answer, for the session's life.
+  - name: conductor.tool.RoleGrant
+    kind: struct
+    fields:
+      - {name: tools, type: List<conductor.tool.Verb>}
+      - {name: repositories, type: List<String>}
+      - {name: paths, type: List<String>}
+      - {name: max_output_bytes, type: Integer}
+      - {name: ttl, type: Optional<Duration>}
+    invariants:
+      - max_output_bytes >= 1
+
+  # The arguments of one call of each verb, as `tool` sends them over the session's socket and as
+  # `tool mcp` takes them as an MCP tool's arguments. `show`: `path`, relative to the session's
+  # working directory; `lines`, a range `a:b` of 1-based lines, both ends included, either end
+  # left out for the file's start or end; `symbol` (`--fn`), the item that names it, from its line
+  # to the end of its block; `max`, the most bytes of the answer, at most the grant's
+  # `max_output_bytes`. `lines` and `symbol` exclude each other. `search`: `pattern`, text matched
+  # as written, and `path`, the file or directory under which it is searched, the whole grant
+  # without one. `diff`: a stat of the change by default and with `stat`; with `patch`, the change
+  # itself, bounded as every answer is.
+  - name: conductor.tool.ShowCall
+    kind: struct
+    fields:
+      - {name: path, type: String}
+      - {name: lines, type: Optional<String>}
+      - {name: symbol, type: Optional<String>}
+      - {name: max, type: Optional<Integer>}
+
+  - name: conductor.tool.SearchCall
+    kind: struct
+    fields:
+      - {name: pattern, type: String}
+      - {name: path, type: Optional<String>}
+
+  - name: conductor.tool.DiffCall
+    kind: struct
+    fields:
+      - {name: stat, type: Optional<Boolean>}
+      - {name: patch, type: Optional<Boolean>}
+
+  # The answer to one call: the text `tool` prints, and its exit status, 0 when the verb succeeded
+  # and 1 when it failed or was refused.
+  - name: conductor.tool.CallAnswer
+    kind: struct
+    fields:
+      - {name: text, type: String}
+      - {name: exit, type: Integer}
+
+  # A refused call as `tool` prints it, on one line, `<refusal>: <detail>`: the refusal is one of
+  # the four refusal outcomes, each the error of the same name (`NotGranted`, `GrantExpired`,
+  # `ForeignInstance`, `UnknownSession`), and the detail names the grant rule it broke or what the
+  # broker found.
+  - name: conductor.tool.CallRefused
+    kind: struct
+    fields:
+      - {name: refusal, type: conductor.tool.CallOutcome}
+      - {name: detail, type: String}
+
+entities:
+  # The broker of one instance, keyed by the instance's name: the instance owns it, one to one,
+  # and it does not outlive the instance. It owns the sessions it serves and the calls it records.
+  - name: conductor.tool.Broker
+    identity:
+      name: instance
+      type: conductor.config.InstanceName
+    fields:
+      - name: started_at
+        type: Timestamp
+    relations:
+      - name: calls
+        kind: owns
+        target: conductor.tool.ToolCall
+        cardinality: many
+        via: instance
+    lifecycle:
+      initial: Serving
+      states: [Serving]
+      terminal: [Serving]
+
+  # One session the broker serves, keyed by its session name: it belongs to exactly one instance,
+  # many sessions to one, and the broker refuses it when that is not the broker's own. Its socket
+  # is its own, one to one: the caller's identity is the socket. It owns exactly one grant.
+  - name: conductor.tool.ToolSession
+    identity:
+      name: session
+      type: conductor.config.SessionName
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: socket
+        type: String
+      - name: workdir
+        type: String
+      - name: started_at
+        type: Timestamp
+    relations:
+      - name: broker
+        kind: references
+        target: conductor.tool.Broker
+        cardinality: one
+        via: instance
+    lifecycle:
+      initial: Registered
+      states: [Registered]
+      terminal: [Registered]
+
+  # The grant of one session: the verbs it may call with their limits, from its role's `grant`.
+  # It ends at `expires_at`, the session's start plus the role's time to live, or with the session.
+  - name: conductor.tool.Grant
+    identity:
+      name: session
+      type: conductor.config.SessionName
+    fields:
+      - name: tools
+        type: List<conductor.tool.Verb>
+      - name: repositories
+        type: List<String>
+      - name: paths
+        type: List<String>
+      - name: max_output_bytes
+        type: Integer
+      - name: expires_at
+        type: Optional<Timestamp>
+    relations:
+      - name: holder
+        kind: references
+        target: conductor.tool.ToolSession
+        cardinality: one
+        via: session
+    invariants:
+      - max_output_bytes >= 1
+    lifecycle:
+      initial: Active
+      states: [Active]
+      terminal: [Active]
+
+  # One call the broker answered, refused or not, kept in the instance's store and outliving the
+  # session: the session it came in on, the verb, the paths it named (no other argument text), how
+  # it ended, the grant rule a refusal broke, how long it took and how many bytes it answered.
+  - name: conductor.tool.ToolCall
+    identity:
+      name: tool_call_id
+      type: conductor.tool.ToolCallId
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: session
+        type: conductor.config.SessionName
+      - name: verb
+        type: conductor.tool.Verb
+      - name: paths
+        type: List<String>
+      - name: outcome
+        type: conductor.tool.CallOutcome
+      - name: rule
+        type: Optional<String>
+      - name: duration_ms
+        type: Integer
+      - name: output_bytes
+        type: Integer
+      - name: called_at
+        type: Timestamp
+    relations:
+      - name: caller
+        kind: references
+        target: conductor.tool.ToolSession
+        cardinality: one
+        via: session
+    invariants:
+      - duration_ms >= 0
+      - output_bytes >= 0
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+actors:
+  # The broker records every call it answers; no session records one.
+  - name: conductor.tool.InstanceBroker
+    may:
+      - conductor.tool.RecordToolCall
+    naming:
+      display: Broker
+
+errors:
+  - name: conductor.tool.NotGranted
+    summary: >
+      The call is outside the session's grant: its verb is not among the grant's tools, or a path
+      it names lies outside the grant's paths. `rule` names the grant rule it broke, such as
+      `tools: show` or `paths: src`. The call did not run; it is recorded.
+    fields:
+      - name: rule
+        type: String
+
+  - name: conductor.tool.GrantExpired
+    summary: The session's grant has passed its time to live. The call did not run; it is recorded.
+    fields:
+      - name: expires_at
+        type: Timestamp
+
+  - name: conductor.tool.ForeignInstance
+    summary: >
+      The session belongs to another instance than the broker's. The call did not run; it is
+      recorded.
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+
+  - name: conductor.tool.UnknownSession
+    summary: >
+      No session the broker serves holds the socket the call came in on: the session stopped, or
+      was never registered. The call did not run; it is recorded.
+    fields:
+      - name: session
+        type: conductor.config.SessionName
+
+commands:
+  - name: conductor.tool.RecordToolCall
+    naming:
+      wire: record-tool-call
+      display: Record a tool call
+    input:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: session
+        type: conductor.config.SessionName
+      - name: verb
+        type: conductor.tool.Verb
+      - name: paths
+        type: List<String>
+      - name: outcome
+        type: conductor.tool.CallOutcome
+      - name: rule
+        type: Optional<String>
+      - name: duration_ms
+        type: Integer
+      - name: output_bytes
+        type: Integer
+      - name: called_at
+        type: Timestamp
+    outcomes:
+      - name: recorded
+        creates: conductor.tool.ToolCall
+        instance: tool_call_id
+        sets:
+          instance: input.instance
+          session: input.session
+          verb: input.verb
+          paths: input.paths
+          outcome: input.outcome
+          rule: input.rule
+          duration_ms: input.duration_ms
+          output_bytes: input.output_bytes
+          called_at: input.called_at
+        emits:
+          - conductor.tool.ToolCallRecorded
+        payload:
+          conductor.tool.ToolCallRecorded:
+            tool_call_id: {generated: true}
+            session: input.session
+            verb: input.verb
+            outcome: input.outcome
+        summary: The broker's answer to one call, run or refused, is recorded once it is answered.
+
+events:
+  - name: conductor.tool.ToolCallRecorded
+    fields:
+      - name: tool_call_id
+        type: conductor.tool.ToolCallId
+      - name: session
+        type: conductor.config.SessionName
+      - name: verb
+        type: conductor.tool.Verb
+      - name: outcome
+        type: conductor.tool.CallOutcome
+
+views:
+  - name: conductor.tool.ToolCalls
+    source: conductor.tool.ToolCall
+    consistency: read_your_writes
+    fields:
+      - name: tool_call_id
+        type: conductor.tool.ToolCallId
+      - name: session
+        type: conductor.config.SessionName
+      - name: verb
+        type: conductor.tool.Verb
+      - name: paths
+        type: List<String>
+      - name: outcome
+        type: conductor.tool.CallOutcome
+      - name: rule
+        type: Optional<String>
+      - name: duration_ms
+        type: Integer
+      - name: output_bytes
+        type: Integer
+      - name: called_at
+        type: Timestamp
+    naming:
+      wire: tool-calls
+      display: Tool calls

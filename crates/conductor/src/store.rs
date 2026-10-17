@@ -91,6 +91,7 @@ pub mod series;
 mod serving;
 mod session;
 mod snapshot;
+mod tool;
 
 /// The directory under `state/` the tree store of every record but the observations lives in.
 const TREE_DIR: &str = "tree";
