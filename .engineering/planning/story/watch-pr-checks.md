@@ -20,38 +20,32 @@ scope:
   path: crates/conductor/tests/watch.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 2
+revision: 3
 ---
-## Why
+# Story: watch-pr-checks
 
-The watch reads only `main` CI (design § 8). On 2026-10-13 controllers waited for their pull
-requests' checks themselves: the harness blocked a foreground `sleep N; gh pr checks` seven times,
-conductor sent seven "do not poll" messages and relayed results by hand, one controller was silent
-31 min waiting on a pull request's CI, and one red pull request went unseen for 3 h 26 min because
-its controller had reported blocked and stopped.
+## Outcome
+
+When the checks of an open pull request finish, the watch prints one line, and conductor relays the result to the controller at once. No controller polls CI.
+
+## Context
+
+Conductor's NEED N-20261017-10 (2026-10-17). In 40 minutes two controllers ran `gh pr checks --watch` in a background call (mandate PR 43, engineering-protocols PR 22), against rules items 118 and 139. The watch reports only `main` CI, so conductor learns of a PR's result at its 30-minute check-in (DEC-20261017-31) at the earliest.
+
+Decided by conductor-dev (principle 3): watch every open pull request of an Active repository rather than only the ones a controller reported blocked. That needs no parse of report text, and the forge read is one call per repository per pass.
 
 ## Acceptance
 
-- For each open pull request (a GitLab merge request is one) of an Active repository of the newest
-  complete snapshot, `conductor watch run` prints `PR checks done: <repo>#<n> <green|red> (head
-  <sha>)` once, when all its checks have concluded for that head, and again only for a new head; a
-  test in `crates/conductor/tests/watch.rs` with fake `gh` and `glab` answers reads one line for a
-  concluded red pull request, none for a pending one, and one again after a new head concludes.
-- Pull-request checks are read every `cadence.ci`, like `main` CI; design § 8's probe table has
-  the row.
-- `.agents/repo-controller.md` says: after `progress PR opened`, work the next unit or report
-  `blocked ci <pr>` and end the turn; conductor relays the watch line. `.agents/conductor.md` says
-  conductor relays a `PR checks done` line to the controller of that repository. A test in
-  `crates/conductor/tests/profiles.rs` holds both sentences.
+1. The watch prints `pr checks: <repo>#<n> green|red [<failing check>,…] <head sha7>` once per pull request and head commit, when its checks finish (none pending). A new push, which is a new head, can print again. Tests with a fake forge: pending then green prints once; red names the failing checks; an unchanged state on the next pass prints nothing.
+2. The last state printed per pull request and head is kept in the instance state, so a restart does not print it again. Test.
+3. Forge reads go through the existing forge adapter, one list call per Active repository per pass, and stay inside the watch's existing rate budget. GitLab merge requests are covered by the same adapter, or the line says unsupported for that forge.
+4. The conductor profile says: on a `pr checks` line, relay the result to that repository's controller as `[REPORT …]`-style news at once. Rules items 118 and 139 stand: controllers never watch CI. The profiles test pins the sentence.
+5. The dashboard's activity feed shows the line.
 
-## Notes
+## Out of Scope
 
-- First of the three watch stories (`story:watch-pr-checks`, `story:watch-goal-health`,
-  `story:watch-waits`); all edit `crates/conductor/src/watch.rs` and
-  `crates/conductor/tests/watch.rs`, one at a time.
-- No new record or command: a watch line is output only.
+Merging on green.
 
-## Scope
+## Ambiguities
 
-`crates/conductor/src/watch.rs`, `crates/conductor/tests/watch.rs`, `docs/design/conductor.md`,
-`.agents/repo-controller.md`, `.agents/conductor.md`, `crates/conductor/tests/profiles.rs`.
+None.
