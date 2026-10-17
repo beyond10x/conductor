@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest cffc43d30175012e6b76183b4ae84d39b597a322aacf8e7d82f3a78e195f7ada
-  contract digest 2b9a2dca64d5b779b75db27696d0022dad402bc9d3d7d8e00a9358612534a513
+  model digest d28b78c5dc974a565b8cf57941c6442bad91b1e3f9ed9648d253b278cfce49eb
+  contract digest 577691e2e1fbfae4ed8d31034fb1ba3b29dda8e7c0f5ea3aceb792189cf4ee06
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-600 capabilities: **584 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+601 capabilities: **585 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -125,6 +125,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.dispatch.SpawnRefused` |
 | domain type | `conductor.dispatch.Transport` |
 | domain type | `conductor.dispatch.Verdict` |
+| domain type | `conductor.host.BuildLane` |
 | domain type | `conductor.host.BuildRun` |
 | domain type | `conductor.host.BuildRunRefused` |
 | domain type | `conductor.host.BuildRunWithdrawn` |

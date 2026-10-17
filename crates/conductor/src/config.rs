@@ -199,6 +199,14 @@ const REPO_CACHE_GIB: i64 = 2;
 /// How the file writes each `conductor.config.RepoCache`.
 const REPO_CACHES: [(&str, RepoCache); 2] = [("on", RepoCache::On), ("off", RepoCache::Off)];
 
+/// The build slots that admit only a command the ledger knows to be short
+/// (`thresholds.short_lane_slots`, `story:build-run-short-lane`).
+const SHORT_LANE_SLOTS: i64 = 1;
+
+/// The longest p90 run time, in minutes, of a command the short lane admits
+/// (`thresholds.short_lane_max`).
+const SHORT_LANE_MAX_MINUTES: u64 = 3;
+
 /// Seconds between two reads of free disk by the full-gate watchdog.
 const WATCHDOG_EVERY: u64 = 10;
 
@@ -299,7 +307,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 15] = [
+const THRESHOLD_KEYS: [&str; 17] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -315,6 +323,8 @@ const THRESHOLD_KEYS: [&str; 15] = [
     "build_slots",
     "repo_cache",
     "repo_cache_size",
+    "short_lane_slots",
+    "short_lane_max",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1308,6 +1318,8 @@ fn default_thresholds() -> Thresholds {
         build_slots: BUILD_SLOTS,
         repo_cache: RepoCache::On,
         repo_cache_size: Gibibytes(REPO_CACHE_GIB),
+        short_lane_slots: SHORT_LANE_SLOTS,
+        short_lane_max: Duration(format!("PT{SHORT_LANE_MAX_MINUTES}M")),
     }
 }
 
@@ -2964,6 +2976,27 @@ impl Reader<'_> {
             None => Some(defaults.repo_cache),
         };
         let repo_cache_size = size(self, "repo_cache_size", defaults.repo_cache_size);
+        let short_lane_slots = match Self::get(map, "short_lane_slots") {
+            Some(value) => {
+                let slots = value.as_i64().filter(|slots| *slots >= 0);
+                if slots.is_none() {
+                    self.problem(
+                        &join(path, "short_lane_slots"),
+                        format!(
+                            "{} is not a number of builds: write a whole number of 0 or more, 0 \
+                             for no short lane",
+                            echo(value)
+                        ),
+                    );
+                }
+                slots
+            }
+            None => Some(defaults.short_lane_slots),
+        };
+        let short_lane_max = match Self::get(map, "short_lane_max") {
+            Some(value) => self.duration(value, &join(path, "short_lane_max")),
+            None => Some(defaults.short_lane_max),
+        };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -2993,6 +3026,8 @@ impl Reader<'_> {
             build_slots: build_slots?,
             repo_cache: repo_cache?,
             repo_cache_size: repo_cache_size?,
+            short_lane_slots: short_lane_slots?,
+            short_lane_max: short_lane_max?,
         })
     }
 
@@ -3399,6 +3434,11 @@ pub fn document(instance: &Instance) -> Yaml {
                     }),
                 ),
                 ("repo_cache_size", size(&thresholds.repo_cache_size)),
+                (
+                    "short_lane_slots",
+                    Yaml::Number(serde_yaml::Number::from(thresholds.short_lane_slots)),
+                ),
+                ("short_lane_max", text(&written(&thresholds.short_lane_max))),
             ]),
         ),
         (

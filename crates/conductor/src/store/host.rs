@@ -31,7 +31,10 @@ use serde_json::{Value, json};
 
 use super::observations::segment;
 use super::{DELETED, STORED, Store, StoreError, stream_id, text, undecodable};
-use crate::host::{kind_name, kind_named, reason_name, reason_named, state_name, state_named};
+use crate::host::{
+    kind_name, kind_named, lane_name, lane_named, reason_name, reason_named, state_name,
+    state_named,
+};
 
 /// `conductor.host.HostGrant`.
 const HOST_GRANT: &str = "conductor.host.HostGrant";
@@ -357,6 +360,8 @@ fn encode(grant: &HostGrantSnapshot) -> Value {
         "release_reason": data.release_reason.map(reason_name),
         "cache_hits": data.cache_hits,
         "cache_misses": data.cache_misses,
+        "lane": data.lane.map(lane_name),
+        "lane_overrun": data.lane_overrun,
     })
 }
 
@@ -391,6 +396,17 @@ fn decode(body: &Value) -> Result<HostGrantSnapshot, String> {
             },
             cache_hits: optional_integer(body, "cache_hits")?,
             cache_misses: optional_integer(body, "cache_misses")?,
+            lane: match optional_text(body, "lane")? {
+                Some(lane) => {
+                    Some(lane_named(&lane).ok_or_else(|| format!("unknown BuildLane {lane:?}"))?)
+                }
+                None => None,
+            },
+            lane_overrun: match body.get("lane_overrun") {
+                None | Some(Value::Null) => None,
+                Some(Value::Bool(overrun)) => Some(*overrun),
+                Some(_) => return Err("no boolean or null field \"lane_overrun\"".to_owned()),
+            },
         },
     })
 }

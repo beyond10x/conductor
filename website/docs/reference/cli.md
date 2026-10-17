@@ -1688,6 +1688,7 @@ Usage: conductor host release-grant [OPTIONS]
 | `--released-at <RELEASED_AT>` | no | none | timestamp, RFC 3339 |
 | `--cache-hits <CACHE_HITS>` | no | none | integer |
 | `--cache-misses <CACHE_MISSES>` | no | none | integer |
+| `--lane-overrun <LANE_OVERRUN>` | no | none | boolean One of `true`, `false`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host request-disk`
@@ -1707,6 +1708,7 @@ Usage: conductor host request-disk [OPTIONS]
 | `--bytes <BYTES>` | no | none | integer |
 | `--command <COMMAND>` | no | none | string |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host reserve-disk`
@@ -1722,6 +1724,7 @@ Usage: conductor host reserve-disk [OPTIONS]
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--shortfall-bytes <SHORTFALL_BYTES>` | no | none | integer |
 | `--reclaimed-bytes <RECLAIMED_BYTES>` | no | none | integer |
+| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host start-run`

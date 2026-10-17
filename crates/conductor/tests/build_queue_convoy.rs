@@ -137,6 +137,8 @@ fn settings() -> Settings {
         slots: 0,
         repo_cache: true,
         repo_cache_size: 2 * GIB,
+        short_slots: 0,
+        short_max: Duration::from_secs(180),
     }
 }
 
