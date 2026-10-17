@@ -420,7 +420,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 20] = [
+const THRESHOLD_KEYS: [&str; 21] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -436,6 +436,7 @@ const THRESHOLD_KEYS: [&str; 20] = [
     "build_slots",
     "repo_cache",
     "repo_cache_size",
+    "lean_debuginfo",
     "short_lane_slots",
     "short_lane_max",
     "stalled_session",
@@ -1662,6 +1663,7 @@ fn default_thresholds() -> Thresholds {
         build_slots: BUILD_SLOTS,
         repo_cache: RepoCache::On,
         repo_cache_size: Gibibytes(REPO_CACHE_GIB),
+        lean_debuginfo: true,
         short_lane_slots: SHORT_LANE_SLOTS,
         short_lane_max: Duration(format!("PT{SHORT_LANE_MAX_MINUTES}M")),
         stalled_session: Duration(format!("PT{STALLED_SESSION_MINUTES}M")),
@@ -1976,6 +1978,14 @@ impl Reader<'_> {
             );
         }
         found.map(|(_, meaning)| *meaning)
+    }
+
+    fn flag(&mut self, value: &Value, path: &str) -> Option<bool> {
+        let flag = value.as_bool();
+        if flag.is_none() {
+            self.problem(path, format!("{} is not true or false", echo(value)));
+        }
+        flag
     }
 
     fn duration(&mut self, value: &Value, path: &str) -> Option<Duration> {
@@ -3486,6 +3496,10 @@ impl Reader<'_> {
             None => Some(defaults.repo_cache),
         };
         let repo_cache_size = size(self, "repo_cache_size", defaults.repo_cache_size);
+        let lean_debuginfo = match Self::get(map, "lean_debuginfo") {
+            Some(value) => self.flag(value, &join(path, "lean_debuginfo")),
+            None => Some(defaults.lean_debuginfo),
+        };
         let short_lane_slots = match Self::get(map, "short_lane_slots") {
             Some(value) => {
                 let slots = value.as_i64().filter(|slots| *slots >= 0);
@@ -3548,6 +3562,7 @@ impl Reader<'_> {
             build_slots: build_slots?,
             repo_cache: repo_cache?,
             repo_cache_size: repo_cache_size?,
+            lean_debuginfo: lean_debuginfo?,
             short_lane_slots: short_lane_slots?,
             short_lane_max: short_lane_max?,
             stalled_session: stalled_session?,
@@ -4010,6 +4025,7 @@ pub fn document(instance: &Instance) -> Yaml {
                     }),
                 ),
                 ("repo_cache_size", size(&thresholds.repo_cache_size)),
+                ("lean_debuginfo", Yaml::Bool(thresholds.lean_debuginfo)),
                 (
                     "short_lane_slots",
                     Yaml::Number(serde_yaml::Number::from(thresholds.short_lane_slots)),

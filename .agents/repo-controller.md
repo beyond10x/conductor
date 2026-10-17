@@ -143,7 +143,8 @@ on. Gates, reports and boundaries are unchanged.
   loop: `[REPORT <repo> <dispatch-id>] blocked disk: <the refusal's line>`.
   `build run` sets `CARGO_BUILD_JOBS` and `MAKEFLAGS` to the build's share of the cores (the
   cores less `thresholds.cpu_reserve`, over `thresholds.build_slots`) and lowers a higher
-  `CARGO_BUILD_JOBS` to it: pass neither.
+  `CARGO_BUILD_JOBS` to it: pass neither. For a cargo-based command it also keeps debug
+  information to line tables (`thresholds.lean_debuginfo`): set no debug variable of your own.
 - One full-workspace gate at a time. A rerun waits until the earlier `conductor build run` has
   exited and its reservation is gone from `conductor host grants`.
 - A gate that runs over an hour resumes: after a failure, rerun only the failed steps and the

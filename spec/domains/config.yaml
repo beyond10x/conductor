@@ -386,7 +386,10 @@ types:
   # duration as `cadence` writes one. Absent, the filesystem is `/`, the silence 30 minutes, the
   # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G, the short-lane
   # slots 1 and their longest p90 3 minutes, the stall 45 minutes, the queued build 30 minutes and
-  # the staleness 48 hours.
+  # the staleness 48 hours. Whether `build run` gives a cargo-based command line-table-only debug
+  # information, `lean_debuginfo` (story:build-run-lean-debuginfo): `CARGO_PROFILE_DEV_DEBUG` and
+  # `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only`, each unless the environment sets it or
+  # the workspace manifest sets that profile's `debug`; absent, true.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -405,6 +408,7 @@ types:
       - {name: build_slots, type: Integer}
       - {name: repo_cache, type: conductor.config.RepoCache}
       - {name: repo_cache_size, type: conductor.config.Gibibytes}
+      - {name: lean_debuginfo, type: Boolean}
       - {name: short_lane_slots, type: Integer}
       - {name: short_lane_max, type: Duration}
       - {name: stalled_session, type: Duration}
