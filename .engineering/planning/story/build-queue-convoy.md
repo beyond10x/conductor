@@ -2,11 +2,15 @@
 format: aep.planning-md/3
 id: story:build-queue-convoy
 kind: story
-status: draft
+status: implemented
 title: Waiting build runs do not serialize the host
 relations:
 - decomposes: epic:disk-protocol
-revision: 2
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T08:29:50Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-17T08:29:50Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-17T08:29:50Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: build-queue-convoy
 
@@ -34,10 +38,11 @@ Cause:
 3. Closed grants (Released, Refused, Withdrawn) older than 24 h are no longer read by `sweep`, `reserved`, `ahead_bytes` or `session_bound`. They are either compacted out of the live set or skipped by an index, and `host grants` still lists them. Test with 5,000 closed grants: a pass reads only the open ones.
 4. A bench or test drives 20 concurrent waiters against a fake slow store and shows admission within one pause of a release. The report names the before and after numbers.
 5. No change to the queue order, backfill or the refusal rules. The build_run, host_ledger and conformance suites stay green.
+6. CPU admission: `thresholds.build_slots` (config spec first, default 3; 0 = unlimited). A request is granted only while fewer than `build_slots` disk grants are `Running` or `Granted`, host-wide. It waits in the same queue order, without the lock between passes, exactly like the disk wait, and is never refused for slots. `build run`'s "queued" line names the reason (disk|slots). Test: with slots=1 and one Running, a second request waits, then is granted on release.
 
 ## Out of Scope
 
-Admission by CPU load, and a daemon for the ledger.
+Admission by measured CPU load, and a daemon for the ledger.
 
 ## Ambiguities
 
