@@ -2245,6 +2245,7 @@ Usage: conductor rules show [OPTIONS]
 | `--format <FORMAT>` | no | none | How the items are printed: text (verbatim) or json. Default: text |
 | `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
 | `--changed-since <CHANGED_SINCE>` | no | none | A git revision of the records directory: print only the items whose text differs from that revision's rules.md, or that it does not hold, and name the ones it held that are gone |
+| `--role <ROLE>` | no | none | A role (all, conductor, controller, worker, maintainer): print the rules of its file, rules/&lt;role>.md of the records, one per line; with --changed-since, the changed ones |
 
 ## `conductor setup`
 
