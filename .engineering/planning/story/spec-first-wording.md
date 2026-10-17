@@ -13,7 +13,7 @@ scope:
   path: .agents/repo-controller.md
 - confidence: cited
   path: crates/conductor/tests/profiles.rs
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T13:13:54Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"review_outcome":1}}}
 - {from: "proposed", to: "active", at: "2026-10-13T13:14:06Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"review_outcome":1}}}
@@ -21,7 +21,7 @@ transitions:
 ---
 ## Why
 
-The operator, 2026-10-13 (DEC-20261013-49): "any development usually is "spec first" (ess) - so
+The operator, 2026-10-13 (a conductor decision): "any development usually is "spec first" (ess) - so
 that means any change we apply, we usually want to check if there are ess specs, and if so, those
 need to be modified first and become green first" and "make this clear in the dev profile of
 conductor". The profiles' spec-first paragraphs say model, validate, regenerate, implement; they do

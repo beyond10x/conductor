@@ -4,7 +4,7 @@ id: story:guard-no-pattern-kill
 kind: story
 status: implemented
 title: No session kills another's processes by pattern; a stopped build run never hangs on the ledger
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-17T04:41:36Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-10-17T04:41:36Z", actor: "human:timo", revision: 4}
@@ -18,7 +18,7 @@ No session on the host can kill another session's processes by pattern, and a `b
 
 ## Context
 
-Conductor's NEED N-20261017-03. The root cause was found from transcripts and the journal (scratch evidence in conductor-dev's job tmp, sigterm/):
+A conductor NEED (2026-10-17). The root cause was found from transcripts and the journal (scratch evidence in conductor-dev's job tmp, sigterm/):
 - At 02:16:38Z and 03:54:34Z on 2026-10-17, a thalamus and then a loom sub-agent ran `pkill -f "conductor build run"`. It killed ess's batch, thalamus's gate and eight mandate builds of other controllers within 125 ms (exit 143/144).
 - On 2026-10-16 at 22:43Z, a `pkill -f "xtask conform"` killed a sibling's run.
 - After the SIGTERM, thalamus's `build run` blocked in a plain `flock` on `host.lock`, in `record_run_of`/`release` after the command stopped (build.rs:984-1001, host.rs:461-480). Its signal handlers only set a flag, and SA_RESTART restarts the flock, so a second SIGTERM was ignored until it was SIGKILLed.

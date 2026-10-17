@@ -323,7 +323,7 @@ pub(crate) struct Member {
     /// Where its `origin/main` is exported.
     pub(crate) export: PathBuf,
     /// The repository its checkout's `origin` names on the forge ([`forge_name`]), when that can be
-    /// read: the records checkout `records` is `conductor-archive` there, for one.
+    /// read: the records checkout `records` is `records-archive` there, for one.
     pub(crate) forge: Option<String>,
 }
 

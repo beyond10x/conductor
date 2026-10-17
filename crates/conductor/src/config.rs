@@ -4560,7 +4560,7 @@ fn checkouts_under(dir: &Path, yaml: &str) -> Result<Vec<String>> {
 
 /// Whether the checkout `dir` names an `origin` remote, read from its git config with no network
 /// read. The collectors read each member at `origin/main`, so a local-only checkout is no member:
-/// its `git fetch origin` fails the snapshot (conductor's NEED N-20261012-02).
+/// its `git fetch origin` fails the snapshot (a conductor NEED, 2026-10-12).
 fn has_origin(dir: &Path) -> bool {
     Command::new("git")
         .arg("-C")
