@@ -77,6 +77,8 @@ components:
         - conductor.dispatch.HandleMessage
         - conductor.dispatch.RejectMessage
         - conductor.dispatch.RouteNeed
+        - conductor.dispatch.SendOperatorMessage
+        - conductor.dispatch.AckOperatorMessage
         - conductor.dispatch.RequestResource
         - conductor.dispatch.GrantResource
         - conductor.dispatch.RefuseResource
@@ -149,6 +151,9 @@ components:
         - conductor.dispatch.MessageHandled
         - conductor.dispatch.MessageRejected
         - conductor.dispatch.NeedRouted
+        - conductor.dispatch.OperatorMessageSent
+        - conductor.dispatch.OperatorMessageRead
+        - conductor.dispatch.OperatorMessageAnswered
         - conductor.dispatch.ResourceRequested
         - conductor.dispatch.ResourceGranted
         - conductor.dispatch.ResourceRefused
@@ -281,8 +286,12 @@ components:
             - conductor.dispatch.HandleMessage
             - conductor.dispatch.RejectMessage
             - conductor.dispatch.RouteNeed
+            - conductor.dispatch.SendOperatorMessage
+            - conductor.dispatch.AckOperatorMessage
           views:
             - conductor.dispatch.Messages
+            - conductor.dispatch.OperatorInbox
+            - conductor.dispatch.OperatorMessageDetail
         - name: resource
           summary: Build slots, disk and usage asked for before they are spent
           commands:

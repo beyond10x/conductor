@@ -37,3 +37,4 @@ scenarios:
   - scenarios/build-run-session-stopped.yaml
   - scenarios/mark-answer-delivered.yaml
   - scenarios/undelivered-answers-listed.yaml
+  - scenarios/operator-message-round-trip.yaml

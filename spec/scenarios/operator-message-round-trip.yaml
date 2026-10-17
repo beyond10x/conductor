@@ -1,0 +1,149 @@
+# story:mailbox-operator-messages: the operator leaves conductor a message from outside any
+# session; it is unread until conductor acks it. An ack without a reply sets it read, one with a
+# reply sets it answered, and an answered message refuses a second ack with `AlreadyAnswered` and
+# keeps its first reply. The inbox rows carry the state `inbox --status` selects on, and `show`
+# carries the time of each change and the reply.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: operator-message-round-trip
+summary: A message sent through the mailbox is unread, then read, or answered with a reply; an answered one refuses a second ack.
+
+timeline:
+  - at: 2026-10-17T11:00:00Z
+    command: conductor.dispatch.SendOperatorMessage
+    actor: conductor.dispatch.Operator
+    input:
+      message_id: MSG-20261017-1
+      to: conductor
+      from: loom-canvas
+      body: Pause the cortex controller until I say so.
+      sent_at: 2026-10-17T11:00:00Z
+    outcome: sent
+
+  - at: 2026-10-17T11:00:01Z
+    command: conductor.dispatch.SendOperatorMessage
+    actor: conductor.dispatch.Operator
+    input:
+      message_id: MSG-20261017-2
+      to: conductor
+      from: loom-canvas
+      body: What is blocking the release?
+      sent_at: 2026-10-17T11:00:01Z
+    outcome: sent
+
+  - at: 2026-10-17T11:00:02Z
+    command: conductor.dispatch.SendOperatorMessage
+    actor: conductor.dispatch.Operator
+    input:
+      message_id: MSG-20261017-3
+      to: conductor
+      from: loom-canvas
+      body: Draft the weekly note.
+      sent_at: 2026-10-17T11:00:02Z
+    outcome: sent
+
+  - at: 2026-10-17T11:00:03Z
+    command: conductor.dispatch.SendOperatorMessage
+    actor: conductor.dispatch.Operator
+    input:
+      message_id: MSG-20261017-1
+      to: conductor
+      from: loom-canvas
+      body: A second message under the same id.
+      sent_at: 2026-10-17T11:00:03Z
+    outcome: already-sent
+    error:
+      name: conductor.dispatch.OperatorMessageExists
+
+  - at: 2026-10-17T11:01:00Z
+    command: conductor.dispatch.AckOperatorMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: MSG-20261017-1
+      acked_at: 2026-10-17T11:01:00Z
+      answering: false
+    outcome: read
+
+  - at: 2026-10-17T11:01:01Z
+    command: conductor.dispatch.AckOperatorMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: MSG-20261017-1
+      acked_at: 2026-10-17T11:01:01Z
+      answering: false
+    outcome: wrong-state
+    error:
+      name: conductor.dispatch.OperatorMessageStateConflict
+
+  - at: 2026-10-17T11:02:00Z
+    command: conductor.dispatch.AckOperatorMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: MSG-20261017-2
+      acked_at: 2026-10-17T11:02:00Z
+      answering: true
+      reply: The release waits on the cortex review.
+    outcome: answered
+
+  - at: 2026-10-17T11:02:01Z
+    command: conductor.dispatch.AckOperatorMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: MSG-20261017-2
+      acked_at: 2026-10-17T11:02:01Z
+      answering: true
+      reply: A second reply.
+    outcome: already-answered
+    error:
+      name: conductor.dispatch.AlreadyAnswered
+
+  - at: 2026-10-17T11:02:02Z
+    command: conductor.dispatch.AckOperatorMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: MSG-20261017-2
+      acked_at: 2026-10-17T11:02:02Z
+      answering: false
+    outcome: already-answered
+    error:
+      name: conductor.dispatch.AlreadyAnswered
+
+  - at: 2026-10-17T11:03:00Z
+    command: conductor.dispatch.AckOperatorMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      message_id: MSG-20261017-9
+      acked_at: 2026-10-17T11:03:00Z
+      answering: false
+    outcome: no-such-message
+    error:
+      name: conductor.dispatch.OperatorMessageNotFound
+
+assert:
+  - view: conductor.dispatch.OperatorInbox
+    contains:
+      message_id: MSG-20261017-3
+      state: Unread
+      to: conductor
+      from: loom-canvas
+      body: Draft the weekly note.
+      transport: Mailbox
+  - view: conductor.dispatch.OperatorInbox
+    excludes:
+      message_id: MSG-20261017-1
+      state: Unread
+  - view: conductor.dispatch.OperatorInbox
+    excludes:
+      message_id: MSG-20261017-2
+      state: Unread
+  - view: conductor.dispatch.OperatorMessageDetail
+    contains:
+      message_id: MSG-20261017-1
+      state: Read
+      read_at: 2026-10-17T11:01:00Z
+  - view: conductor.dispatch.OperatorMessageDetail
+    contains:
+      message_id: MSG-20261017-2
+      state: Answered
+      answered_at: 2026-10-17T11:02:00Z
+      reply: The release waits on the cortex review.

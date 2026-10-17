@@ -26,6 +26,13 @@ types:
     kind: newtype
     of: Uuid
 
+  # The id of a message the operator leaves in the mailbox (story:mailbox-operator-messages):
+  # `MSG-<date>-<n>`, the date of its sending and its number that day, written by the CLI.
+  - name: conductor.dispatch.OperatorMessageId
+    kind: newtype
+    of: String
+    prefix: "MSG-"
+
   - name: conductor.dispatch.ResourceRequestId
     kind: newtype
     of: Uuid
@@ -338,6 +345,50 @@ entities:
           from: [Received]
           to: Rejected
 
+  # A free-form instruction the operator leaves conductor from outside any session, such as his
+  # desktop UI (story:mailbox-operator-messages). It travels by the `Mailbox` transport. It is not
+  # `Message` above, which records what a controller or conductor sent by `SendMessage` with its
+  # parsed first line: the story's entity is `Message`, and that name is taken, so this one is the
+  # operator's. Conductor reads it at the start of its next turn and answers it; the sender reads
+  # the status and the reply. The message's status is its lifecycle state: `unread` is `Unread`,
+  # `read` is `Read`, `answered` is `Answered`.
+  - name: conductor.dispatch.OperatorMessage
+    identity:
+      name: message_id
+      type: conductor.dispatch.OperatorMessageId
+    fields:
+      # The recipient; `conductor` (the story's `--to`).
+      - name: to
+        type: String
+      # The sender's label (`--from`): who is speaking as the operator, such as `loom-canvas`.
+      - name: from
+        type: String
+      - name: body
+        type: String
+      # Always `Mailbox`: the transport this message travels by.
+      - name: transport
+        type: conductor.dispatch.Transport
+      - name: sent_at
+        type: Timestamp
+      - name: read_at
+        type: Optional<Timestamp>
+      - name: answered_at
+        type: Optional<Timestamp>
+      - name: reply
+        type: Optional<String>
+    lifecycle:
+      initial: Unread
+      states: [Unread, Read, Answered]
+      terminal: [Answered]
+      transitions:
+        - name: read
+          from: [Unread]
+          to: Read
+        # A reply answers a message whether or not it was acked as read first.
+        - name: answer
+          from: [Unread, Read]
+          to: Answered
+
   - name: conductor.dispatch.ResourceRequest
     identity:
       name: resource_request_id
@@ -418,8 +469,19 @@ actors:
       - conductor.dispatch.RouteNeed
       - conductor.dispatch.GrantResource
       - conductor.dispatch.RefuseResource
+      - conductor.dispatch.AckOperatorMessage
     naming:
       display: Conductor
+
+  # The mailbox is the operator's channel (story:mailbox-operator-messages): any process outside a
+  # session that runs as the operator's user writes it, as for `record-operator-decision`. The
+  # guard denies `message send --to conductor` to every session; that rule is the guard's, not
+  # this specification's.
+  - name: conductor.dispatch.Operator
+    may:
+      - conductor.dispatch.SendOperatorMessage
+    naming:
+      display: Operator
 
   - name: conductor.dispatch.RepositoryController
     may:
@@ -506,6 +568,30 @@ errors:
     fields:
       - name: message_id
         type: conductor.dispatch.MessageId
+
+  - name: conductor.dispatch.OperatorMessageNotFound
+    summary: No operator message has this id.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+
+  - name: conductor.dispatch.OperatorMessageExists
+    summary: An operator message already has this id, so nothing was sent.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+
+  - name: conductor.dispatch.OperatorMessageStateConflict
+    summary: The operator message is already read and the ack carries no reply, so nothing moved.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+
+  - name: conductor.dispatch.AlreadyAnswered
+    summary: The operator message already carries an answer, so the held message is unchanged.
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
 
   - name: conductor.dispatch.NotANeed
     summary: The message is not a `[NEED]`, so it opens no dispatch.
@@ -1218,6 +1304,119 @@ commands:
             message_id: input.message_id
         summary: The message was already handled or rejected.
 
+  # `conductor message send --to conductor --from <label> (--text <text> | --text-file <path>)
+  # [--format text|json]` (story:mailbox-operator-messages): the CLI reads the text file and
+  # numbers the message (`MSG-<date>-<n>`), and prints the id. The message is `Unread`, travels by
+  # the `Mailbox` transport and is the operator's words; the guard denies it to every session.
+  - name: conductor.dispatch.SendOperatorMessage
+    naming:
+      wire: send
+      display: Leave conductor a message
+    input:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+      - name: to
+        type: String
+      - name: from
+        type: String
+      - name: body
+        type: String
+      - name: sent_at
+        type: Timestamp
+    outcomes:
+      - name: sent
+        creates: conductor.dispatch.OperatorMessage
+        instance: message_id
+        sets:
+          to: input.to
+          from: input.from
+          body: input.body
+          transport: Mailbox
+          sent_at: input.sent_at
+        emits:
+          - conductor.dispatch.OperatorMessageSent
+        payload:
+          conductor.dispatch.OperatorMessageSent:
+            message_id: input.message_id
+            to: input.to
+            from: input.from
+        summary: The message waits unread in the mailbox for conductor's next turn.
+      - name: already-sent
+        existing_instance: true
+        error: conductor.dispatch.OperatorMessageExists
+        payload:
+          conductor.dispatch.OperatorMessageExists:
+            message_id: input.message_id
+        summary: A message already has this id; the held message is unchanged.
+
+  # `conductor message ack --message-id <id> [--reply <text> | --reply-file <path>]`
+  # (story:mailbox-operator-messages): sets `read`, or `answered` when it carries a reply (the CLI
+  # reads the reply file and sets `answering`). `acked_at` is the CLI's clock: it is `read_at` for
+  # a read and `answered_at` for an answer. A message answered while unread was never acked as
+  # read, so its `read_at` stays unset. An answered message refuses `AlreadyAnswered` and is
+  # unchanged, with or without a reply. Decided here, the story leaves both open: an ack without a
+  # reply of a message already read changes nothing and is refused as a state conflict.
+  - name: conductor.dispatch.AckOperatorMessage
+    naming:
+      wire: ack
+      display: Acknowledge or answer a message
+    input:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+      - name: acked_at
+        type: Timestamp
+      # Whether the ack carries a reply (`--reply` or `--reply-file`), set by the CLI.
+      - name: answering
+        type: Boolean
+      - name: reply
+        type: Optional<String>
+    outcomes:
+      - name: already-answered
+        when_subject:
+          predicate: state == Answered
+        error: conductor.dispatch.AlreadyAnswered
+        payload:
+          conductor.dispatch.AlreadyAnswered:
+            message_id: input.message_id
+        summary: The message was answered before; it keeps its first reply and the command exits non-zero.
+      - name: answered
+        when: answering == true
+        moves: conductor.dispatch.OperatorMessage.answer
+        instance: message_id
+        sets:
+          answered_at: input.acked_at
+          reply: input.reply
+        emits:
+          - conductor.dispatch.OperatorMessageAnswered
+        payload:
+          conductor.dispatch.OperatorMessageAnswered:
+            message_id: input.message_id
+        summary: The message carries conductor's answer, which the sender reads.
+      - name: read
+        moves: conductor.dispatch.OperatorMessage.read
+        instance: message_id
+        sets:
+          read_at: input.acked_at
+        emits:
+          - conductor.dispatch.OperatorMessageRead
+        payload:
+          conductor.dispatch.OperatorMessageRead:
+            message_id: input.message_id
+        summary: Conductor has the message and has not answered it yet.
+      - name: no-such-message
+        unknown_instance: true
+        error: conductor.dispatch.OperatorMessageNotFound
+        payload:
+          conductor.dispatch.OperatorMessageNotFound:
+            message_id: input.message_id
+      - name: wrong-state
+        wrong_state: true
+        error: conductor.dispatch.OperatorMessageStateConflict
+        payload:
+          conductor.dispatch.OperatorMessageStateConflict:
+            message_id: input.message_id
+        summary: The message is already read, and an ack without a reply has nothing to change.
+
   - name: conductor.dispatch.RecordGuardDecision
     naming:
       wire: record-guard-decision
@@ -1536,6 +1735,25 @@ events:
       - name: dispatch_id
         type: conductor.dispatch.DispatchId
 
+  - name: conductor.dispatch.OperatorMessageSent
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+      - name: to
+        type: String
+      - name: from
+        type: String
+
+  - name: conductor.dispatch.OperatorMessageRead
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+
+  - name: conductor.dispatch.OperatorMessageAnswered
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+
   - name: conductor.dispatch.ResourceRequested
     fields:
       - name: resource_request_id
@@ -1653,6 +1871,69 @@ views:
     naming:
       wire: messages
       display: Messages
+
+  # `conductor message inbox --to conductor [--status unread|read|answered|all] [--format
+  # text|json]` (story:mailbox-operator-messages): the messages left for the recipient, oldest
+  # first. `--to` and `--status` select rows of this view in the CLI, as the other views' flags do;
+  # `status` is the row's `state`, in lower case on the wire.
+  - name: conductor.dispatch.OperatorInbox
+    source: conductor.dispatch.OperatorMessage
+    consistency: read_your_writes
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+      - name: state
+        type: conductor.dispatch.OperatorMessage.State
+      - name: to
+        type: String
+      - name: from
+        type: String
+      - name: body
+        type: String
+      - name: transport
+        type: conductor.dispatch.Transport
+      - name: sent_at
+        type: Timestamp
+      - name: read_at
+        type: Optional<Timestamp>
+      - name: answered_at
+        type: Optional<Timestamp>
+      - name: reply
+        type: Optional<String>
+    naming:
+      wire: inbox
+      display: Operator inbox
+
+  # `conductor message show --message-id <id> [--format text|json]`: one message with its status,
+  # the time of each change and the reply. The same fields as `OperatorInbox`, which a view binds
+  # under one wire name; a read by identity is the unfiltered view, selected by `--message-id`.
+  - name: conductor.dispatch.OperatorMessageDetail
+    source: conductor.dispatch.OperatorMessage
+    consistency: read_your_writes
+    fields:
+      - name: message_id
+        type: conductor.dispatch.OperatorMessageId
+      - name: state
+        type: conductor.dispatch.OperatorMessage.State
+      - name: to
+        type: String
+      - name: from
+        type: String
+      - name: body
+        type: String
+      - name: transport
+        type: conductor.dispatch.Transport
+      - name: sent_at
+        type: Timestamp
+      - name: read_at
+        type: Optional<Timestamp>
+      - name: answered_at
+        type: Optional<Timestamp>
+      - name: reply
+        type: Optional<String>
+    naming:
+      wire: show
+      display: Operator message
 
   - name: conductor.dispatch.ResourceRequests
     source: conductor.dispatch.ResourceRequest
