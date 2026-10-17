@@ -10,6 +10,8 @@
 //! A finding names file and line, not the text, so the failure does not repeat the leak. The
 //! scans take a root, so a scratch tree under the target directory proves they can go red.
 
+mod scratch;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -152,8 +154,8 @@ fn committed_text_names_no_private_repository() {
 
 #[test]
 fn the_scans_go_red_on_a_planted_tree_and_pass_the_placeholders() {
-    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR")).join("public_text");
-    let _ = fs::remove_dir_all(&scratch);
+    let case = scratch::Scratch::new("public_text");
+    let scratch = case.path().to_path_buf();
     for dir in [".engineering/planning", "docs", "target", "node_modules"] {
         fs::create_dir_all(scratch.join(dir)).expect("create a scratch directory");
     }
