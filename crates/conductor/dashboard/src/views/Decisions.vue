@@ -9,7 +9,7 @@
 // page's token. The server answers row by row; each row's result shows on its item and in the
 // list of what was sent, a recorded row's choice is cleared, a refused one's kept, and the page
 // reads `/api/decisions` again at once.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   answerable,
   inOptionOrder,
@@ -25,16 +25,44 @@ import {
 import PanelState from '../components/PanelState.vue';
 import DecisionItem from './decisions/DecisionItem.vue';
 
+/**
+ * `item`: the request `#/decisions/<id>` names (story:sessions-page-coherent), which the page
+ * scrolls to and marks once it is listed.
+ */
+const props = defineProps<{ item?: string | null }>();
+
 /** Milliseconds between two reads, as the rest of the app reloads. */
 const RELOAD_MS = 20_000;
 
 const read = ref<DecisionsRead | null>(null);
 const now = ref(new Date());
 let timer: ReturnType<typeof setInterval> | undefined;
+/** Whether the linked item was scrolled to: once, not on every reload. */
+let shown = false;
 
 async function load(): Promise<void> {
   read.value = await loadDecisions(undefined, read.value);
   now.value = new Date();
+  await nextTick();
+  showItem();
+}
+
+/** Scrolls to the linked item and focuses it, once it is on the page. */
+function showItem(): void {
+  if (shown || !props.item) {
+    return;
+  }
+  const element = Array.from(document.querySelectorAll<HTMLElement>('article[data-request]')).find(
+    (article) => article.dataset.request === props.item,
+  );
+  if (element === undefined) {
+    return;
+  }
+  shown = true;
+  element.classList.add('linked');
+  element.setAttribute('tabindex', '-1');
+  element.scrollIntoView?.({ block: 'start' });
+  element.focus({ preventScroll: true });
 }
 
 const open = computed(() => oldestFirst(read.value?.answer?.open ?? []));
@@ -188,6 +216,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.linked {
+  outline: 2px solid var(--amber, currentColor);
+  outline-offset: 2px;
+}
 .decisions,
 .col {
   display: flex;

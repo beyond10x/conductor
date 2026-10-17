@@ -47,6 +47,29 @@ afterEach(() => {
   window.location.hash = '';
 });
 
+// story:sessions-page-coherent: "Awaiting the operator" links each item to `#/decisions/<id>`,
+// which opens this page at that item.
+describe('the Decisions page at a linked item', () => {
+  it('marks and focuses the item the link names, once it is listed', async () => {
+    vi.stubGlobal('fetch', serving(answer()));
+    const wrapper = mount(Decisions, { props: { item: 'REQ-store' }, attachTo: document.body });
+    await flushPromises();
+    const linked = item(wrapper, 'REQ-store');
+    expect(linked.classes()).toContain('linked');
+    expect(document.activeElement).toBe(linked.element);
+    expect(item(wrapper, 'REQ-release').classes()).not.toContain('linked');
+    wrapper.unmount();
+  });
+
+  it('marks nothing for an item that is not open', async () => {
+    vi.stubGlobal('fetch', serving(answer()));
+    const wrapper = mount(Decisions, { props: { item: 'REQ-gone' }, attachTo: document.body });
+    await flushPromises();
+    expect(wrapper.findAll('article.linked')).toHaveLength(0);
+    wrapper.unmount();
+  });
+});
+
 describe('reading /api/decisions', () => {
   it('answers the open items and the history', async () => {
     const read = await loadDecisions(serving(answer()));

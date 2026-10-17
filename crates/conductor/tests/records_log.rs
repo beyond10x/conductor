@@ -898,3 +898,248 @@ fn records_check_does_not_judge_the_hand_written_lines_before_the_first_command_
         describe(&output)
     );
 }
+
+// -------------------------------------------------------------------------------------------------
+// story:rules-into-code items 1 and 2.
+// -------------------------------------------------------------------------------------------------
+
+/// A `[DECISION …]` line without a decision id is refused with the expected format, and records
+/// no `message-received` line as a received message would.
+#[test]
+fn a_decision_line_without_a_decision_id_is_refused_with_the_format() {
+    let case = Case::new("decision-without-id");
+    let output = case.run(&[
+        "message",
+        "receive-message",
+        "--sender",
+        "ex-alpha",
+        "--recipient",
+        "ex-controller",
+        "--first-line",
+        "[DECISION c-20261007-12] A the file store is enough",
+        "--transport",
+        "SendMessage",
+        "--received-at",
+        AT,
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("[DECISION <request-id>] <option> <one-line reason> (<decision-id>)"),
+        "the expected format is printed: {stdout:?}"
+    );
+    let rows = case.ok(&["message", "messages", "--format", "json"]);
+    assert!(rows.contains("\"Rejected\""), "recorded rejected: {rows}");
+}
+
+/// A message the store cannot keep leaves no line in the records' dispatch log.
+#[test]
+fn a_message_that_was_not_kept_writes_no_records_line() {
+    let case = Case::new("message-not-kept");
+    let blocked = case.dir.join("not-a-directory");
+    fs::write(&blocked, "a file where the state directory should be").expect("write the file");
+    let output = case.run(&[
+        "--state-dir",
+        &blocked.to_string_lossy(),
+        "message",
+        "receive-message",
+        "--sender",
+        "ex-alpha",
+        "--recipient",
+        "conductor",
+        "--first-line",
+        "[REPORT alpha DSP-20261007-01] done it",
+        "--transport",
+        "SendMessage",
+        "--received-at",
+        AT,
+    ]);
+    assert!(!output.status.success(), "{}", describe(&output));
+    assert!(
+        lines(&case.records().join("dispatches")).is_empty(),
+        "no line was written for a message that was not kept"
+    );
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:rules-into-code items 4 and 7: `records check` reads charters and the role rule files.
+// -------------------------------------------------------------------------------------------------
+
+/// `records check` as a case runs it: its standard output's lines, and its exit code.
+fn checked(case: &Case) -> (Vec<String>, Option<i32>) {
+    let output = case.run(&["records", "check"]);
+    let lines = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    (lines, output.status.code())
+}
+
+fn write_under(case: &Case, file: &str, text: &str) {
+    let path = case.records().join(file);
+    fs::create_dir_all(path.parent().expect("a parent")).expect("create the directory");
+    fs::write(path, text).expect("write the file");
+}
+
+/// A charter that writes a size equal to a threshold's value is flagged naming the key; a size
+/// no key holds, and a charter that names the key, are not.
+#[test]
+fn a_charter_with_a_raw_number_a_threshold_key_covers_is_flagged() {
+    let case = Case::new("raw-threshold");
+    write_under(
+        &case,
+        "charters/alpha.md",
+        "# alpha\n\nStart nothing under 20G free.\nA build of 7 GiB is small.\n\
+         Stop at thresholds.gate_stop; a slot is 60 GiB.\nThe port is 2020.\n",
+    );
+    let (lines, code) = checked(&case);
+    assert_eq!(code, Some(1), "{lines:?}");
+    assert_eq!(
+        lines.len(),
+        2,
+        "exactly the two covered numbers are flagged: {lines:?}"
+    );
+    assert!(
+        lines[0].starts_with("charters/alpha.md:3: RawThreshold:")
+            && lines[0].contains("disk_admit"),
+        "{lines:?}"
+    );
+    assert!(
+        lines[1].starts_with("charters/alpha.md:5: RawThreshold:")
+            && lines[1].contains("build_slot"),
+        "{lines:?}"
+    );
+}
+
+/// A role's rule file with more than 20 rules fails at the 21st; a rule over two lines fails at its
+/// second line; a file of 20 one-line rules, and a file of no role, pass.
+#[test]
+fn a_role_rule_file_over_the_cap_or_with_a_multi_line_rule_is_flagged() {
+    let case = Case::new("role-file-cap");
+    let rules = |count: usize| {
+        (1..=count)
+            .map(|number| format!("- rule {number}\n"))
+            .collect::<String>()
+    };
+    write_under(&case, "rules/all.md", &format!("# all\n\n{}", rules(20)));
+    write_under(&case, "rules/other.md", &rules(30));
+    let (lines, code) = checked(&case);
+    assert_eq!((lines.as_slice(), code), (&[][..], Some(0)));
+
+    write_under(
+        &case,
+        "rules/worker.md",
+        &format!("# worker\n\n{}", rules(21)),
+    );
+    write_under(
+        &case,
+        "rules/controller.md",
+        "- one line\n- a rule that goes on\n  onto a second line\n3. numbered\n",
+    );
+    let (lines, code) = checked(&case);
+    assert_eq!(code, Some(1), "{lines:?}");
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines[0].starts_with("rules/controller.md:3: RoleFileRules:"),
+        "{lines:?}"
+    );
+    assert!(
+        lines[1].starts_with("rules/worker.md:23: RoleFileRules:") && lines[1].contains("21"),
+        "{lines:?}"
+    );
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:rules-into-code item 3: `rules show --role <role>` and `--changed-since`.
+// -------------------------------------------------------------------------------------------------
+
+fn git_in(case: &Case, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+        ])
+        .args(args)
+        .current_dir(case.records())
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        describe(&output)
+    );
+}
+
+/// `--role` prints the rules of the role's file one per line; with `--changed-since` only the
+/// rules the revision's file does not hold; a role with no file, or given with `--item`, is
+/// refused.
+#[test]
+fn rules_show_reads_a_role_file_and_what_changed_since_a_revision() {
+    let case = Case::new("rules-role");
+    git_in(&case, &["init", "-q"]);
+    write_under(
+        &case,
+        "rules/worker.md",
+        "# worker\n\n- keep one\n- keep two\n- old three\n",
+    );
+    git_in(&case, &["add", "rules"]);
+    git_in(&case, &["commit", "-q", "-m", "first"]);
+    write_under(
+        &case,
+        "rules/worker.md",
+        "# worker\n\n- keep one\n- keep two\n- new three\n- added four\n",
+    );
+    git_in(&case, &["commit", "-q", "-am", "second"]);
+
+    assert_eq!(
+        case.ok(&["rules", "show", "--role", "worker"]),
+        "- keep one\n- keep two\n- new three\n- added four"
+    );
+    assert_eq!(
+        case.ok(&[
+            "rules",
+            "show",
+            "--role",
+            "worker",
+            "--changed-since",
+            "HEAD~1"
+        ]),
+        "- new three\n- added four"
+    );
+    assert_eq!(
+        case.ok(&[
+            "rules",
+            "show",
+            "--role",
+            "worker",
+            "--changed-since",
+            "HEAD"
+        ]),
+        ""
+    );
+    for args in [
+        &["rules", "show", "--role", "controller"][..],
+        &["rules", "show", "--role", "nobody"],
+        &["rules", "show", "--role", "worker", "--item", "1"],
+        &[
+            "rules",
+            "show",
+            "--role",
+            "worker",
+            "--changed-since",
+            "no-such-rev",
+        ],
+    ] {
+        let output = case.run(args);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{args:?}: {}",
+            describe(&output)
+        );
+        assert!(output.stdout.is_empty(), "{args:?}: nothing is printed");
+    }
+}

@@ -424,17 +424,8 @@ fn two_roots(case: &Case) -> PathBuf {
     work
 }
 
-fn red_repositories(data: &Value) -> Vec<&str> {
-    data["red_ci"]
-        .as_array()
-        .unwrap_or_else(|| panic!("red CI rows: {data:#}"))
-        .iter()
-        .map(|row| row["repo"].as_str().expect("a repository"))
-        .collect()
-}
-
 fn limits(data: &Value) -> Vec<&str> {
-    data["watch"]["usage_limit"]
+    data["watch"]["limits"]
         .as_array()
         .unwrap_or_else(|| panic!("usage-limit rows: {data:#}"))
         .iter()
@@ -456,7 +447,9 @@ fn with_a_config_file_the_dashboard_serves_the_instance_records_and_its_watch_st
         "{data:#}"
     );
     assert_eq!(ids(&data["decisions"]), ["DEC-20261008-07"], "{data:#}");
-    assert_eq!(red_repositories(&data), ["acme-web"], "{data:#}");
+    // Red CI on main is the Overview's, from the snapshot, not this payload's
+    // (story:sessions-page-coherent); the watch state read shows in its limits.
+    assert!(data.get("red_ci").is_none(), "{data:#}");
     assert_eq!(limits(&data), ["Instance limit reached"], "{data:#}");
     let errors = data["errors"].to_string();
     assert!(
@@ -486,7 +479,10 @@ fn the_root_flag_beats_the_instance_records_and_the_watch_state_stays_the_instan
         data["reading"]["ci_state"], "~/state/watch/ci.state",
         "{data:#}"
     );
-    assert_eq!(red_repositories(&data), ["acme-web"], "{data:#}");
+    // Red CI on main is the Overview's, from the snapshot, not this payload's
+    // (story:sessions-page-coherent); the watch state read shows in its limits.
+    assert!(data.get("red_ci").is_none(), "{data:#}");
+    assert_eq!(limits(&data), ["Instance limit reached"], "{data:#}");
 }
 
 #[test]
@@ -503,7 +499,9 @@ fn without_a_config_file_the_dashboard_reads_today_s_root_and_watch_stopgap() {
         data["reading"]["ci_state"], "~/.cache/conductor-watch/ci.state",
         "{data:#}"
     );
-    assert_eq!(red_repositories(&data), ["decoy"], "{data:#}");
+    // Red CI on main is the Overview's, from the snapshot, not this payload's
+    // (story:sessions-page-coherent); the watch state read shows in its limits.
+    assert!(data.get("red_ci").is_none(), "{data:#}");
     assert_eq!(limits(&data), ["Stopgap limit reached"], "{data:#}");
 
     let home = case.home();

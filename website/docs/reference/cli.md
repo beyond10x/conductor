@@ -127,6 +127,8 @@ Every command takes these, before or after its name.
 | [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
+| [`conductor session attach`](#conductor-session-attach) | Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher |
+| [`conductor session list`](#conductor-session-list) | Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher) |
 | [`conductor session start`](#conductor-session-start) | Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
 | [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session |
 | [`conductor host`](#conductor-host) | The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk |
@@ -1624,6 +1626,34 @@ Usage: conductor session leases [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
+## `conductor session attach`
+
+Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
+
+```text
+Usage: conductor session attach [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--name <NAME>` | no | none | The session's full name, `<session_prefix>-<role>` or a controller's |
+| `--role <ROLE>` | no | none | The role whose session attaches, as for `session start` |
+| `--instance <NAME>` | no | none | Look only in this instance of the config file. Default: every instance |
+| `--watch <BOOL>` | no | none | Attach read-only: nothing typed reaches the session. `--watch` alone is `--watch true` One of `true`, `false`. |
+
+## `conductor session list`
+
+Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)
+
+```text
+Usage: conductor session list [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | List only this instance of the config file. Default: every instance |
+| `--format <FORMAT>` | no | none | How the rows are printed: text, one `<name> <attach\|watch>` line each, or json. Default: text |
+
 ## `conductor session start`
 
 Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
@@ -2245,6 +2275,7 @@ Usage: conductor rules show [OPTIONS]
 | `--format <FORMAT>` | no | none | How the items are printed: text (verbatim) or json. Default: text |
 | `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
 | `--changed-since <CHANGED_SINCE>` | no | none | A git revision of the records directory: print only the items whose text differs from that revision's rules.md, or that it does not hold, and name the ones it held that are gone |
+| `--role <ROLE>` | no | none | A role (all, conductor, controller, worker, maintainer): print the rules of its file, rules/&lt;role>.md of the records, one per line; with --changed-since, the changed ones |
 
 ## `conductor setup`
 

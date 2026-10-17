@@ -4,6 +4,8 @@
 
 export interface Dispatch {
   id: string;
+  /** Whether it is open: its last event is none of `done`, `cancelled`, `failed`. */
+  open: boolean;
   goal: string | null;
   brief: string;
   event: string | null;
@@ -11,8 +13,18 @@ export interface Dispatch {
   event_ago: string | null;
 }
 
+/** The role a session plays for the instance (story:sessions-page-coherent). */
+export type Role = 'conductor' | 'maintainer' | 'controller';
+
+/**
+ * One of the instance's sessions, from its records: its conductor, its maintainer, each
+ * controller the store runs. A record no live session holds reads `exited`, state `not running`.
+ */
 export interface Session {
   name: string | null;
+  role: Role;
+  /** The controller's repository; null for the conductor and the maintainer. */
+  repository: string | null;
   kind: string | null;
   exited: boolean;
   status: string | null;
@@ -23,8 +35,10 @@ export interface Session {
   dispatch: Dispatch | null;
 }
 
+/** A usage limit in force: its text, when it resets, and the sessions it was found in. */
 export interface UsageLimit {
   text: string;
+  resets_at: string | null;
   sessions: string[];
 }
 
@@ -34,30 +48,40 @@ export interface ContextLine {
 }
 
 export interface Watch {
-  usage_limit: UsageLimit[] | null;
-  usage_limit_today: string[] | null;
+  limits: UsageLimit[] | null;
   context: ContextLine[] | null;
 }
 
-export interface RedRun {
-  repo: string;
-  workflow: string;
-  run_id: string;
-  conclusion: string;
-  time: string;
-}
-
 export interface Decision {
-  id: string | null;
+  id: string;
+  at: string | null;
   class: string | null;
-  choice: string | null;
+  choice: string;
   reason: string | null;
 }
 
+/**
+ * An open item that asks something of the operator, as the Decisions page lists it: `action` is
+ * one line, `answer: …` (class O, with its options) or `do: …` (class H, with the command), and
+ * `link` its place on the Decisions page.
+ */
 export interface Awaiting {
-  id: string | null;
-  class: string | null;
-  question: string | null;
+  id: string;
+  class: string;
+  repository: string;
+  question: string;
+  action: string;
+  link: string;
+}
+
+/** The newest complete snapshot and its age; `stale` when older than the instance's cycle. */
+export interface SnapshotAge {
+  id: string;
+  started_at: string;
+  age_seconds: number | null;
+  age: string | null;
+  cadence_seconds: number | null;
+  stale: boolean;
 }
 
 export interface WasteRow {
@@ -117,12 +141,13 @@ export interface Reading {
 export interface DashboardData {
   generated_at: string;
   disk: Disk;
+  /** The controller rows a live session holds. */
   controllers: number;
+  snapshot: SnapshotAge | null;
   build_slot: string;
   sessions: Session[];
   watch: Watch;
   context_handover: number;
-  red_ci: RedRun[] | null;
   decisions: Decision[];
   awaiting_operator: Awaiting[];
   usage: Usage;

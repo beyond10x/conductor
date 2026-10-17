@@ -57,6 +57,8 @@ const pill = computed(() => {
               <th scope="col">what</th>
               <th scope="col">path</th>
               <th scope="col" class="num">trees or entries</th>
+              <th scope="col">owner</th>
+              <th scope="col">age</th>
               <th scope="col">state</th>
               <th scope="col">conductor gc</th>
             </tr>
@@ -68,6 +70,8 @@ const pill = computed(() => {
               <td>{{ row.what }}</td>
               <td class="mono small">{{ cell(row.path) }}</td>
               <td class="num">{{ cell(row.count) }}</td>
+              <td>{{ cell(row.owner) }}</td>
+              <td>{{ cell(row.age) }}</td>
               <td>{{ row.state }}</td>
               <td class="mono small">{{ row.gc }}</td>
             </tr>

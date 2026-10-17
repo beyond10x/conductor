@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8
-  contract digest ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018
+  model digest d0119719c5fa9e82d3f3aa9c6885232517767922e98fc66adef80dc5f95e5530
+  contract digest f08072f39d9eb641fd551b9a93a177f5ad69e4006af3c9945b8702a9f98988c0
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-649 capabilities: **632 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+656 capabilities: **639 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -206,14 +206,21 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.observation.StatusRequest` |
 | domain type | `conductor.observation.StatusSession` |
 | domain type | `conductor.observation.StoreMigrate` |
+| domain type | `conductor.observation.TreeVerdict` |
 | domain type | `conductor.observation.UsageObservation.State` |
 | domain type | `conductor.observation.ValidationResult` |
 | domain type | `conductor.observation.Visibility` |
 | domain type | `conductor.observation.WatchRun` |
 | domain type | `conductor.observation.WorkflowRunObservation.State` |
+| domain type | `conductor.session.AttachMode` |
+| domain type | `conductor.session.AttachSession` |
+| domain type | `conductor.session.AttachableSession` |
 | domain type | `conductor.session.EnvelopeMeasurement` |
 | domain type | `conductor.session.Lease.State` |
+| domain type | `conductor.session.ListSessions` |
 | domain type | `conductor.session.PlaceResolved` |
+| domain type | `conductor.session.SessionAttachRefusal` |
+| domain type | `conductor.session.SessionAttachRefused` |
 | domain type | `conductor.session.SessionId` |
 | domain type | `conductor.session.SessionRequest` |
 | domain type | `conductor.session.SessionStartRefusal` |

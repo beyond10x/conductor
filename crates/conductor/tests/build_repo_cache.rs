@@ -54,6 +54,15 @@ impl Case {
     /// worktree of it, `tree2/`.
     fn new(name: &str) -> Self {
         active::isolate();
+        // The operator's shell may pass the two debug variables down; the cases see what `build
+        // run` sets (`story:build-run-lean-debuginfo`).
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            for name in ["CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG"] {
+                // SAFETY: nothing else in this test binary reads or writes these two names.
+                unsafe { std::env::remove_var(name) };
+            }
+        });
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("build_repo_cache")
             .join(name);
@@ -190,6 +199,7 @@ fn settings() -> Settings {
         slots: 0,
         repo_cache: true,
         repo_cache_size: 2 * GIB,
+        lean_debuginfo: true,
         short_slots: 0,
         short_max: Duration::from_secs(180),
     }
@@ -240,6 +250,27 @@ fn a_cargo_command_gets_its_repositorys_cache_in_every_worktree() {
     let port: u16 = fields[2].parse().expect("the port is a number");
     assert_eq!(port, build::cache_port("repo"), "{main}");
     assert_eq!(fields[3], "2G", "{main}");
+}
+
+/// `story:build-run-lean-debuginfo`: the manifest at the repository's root counts for a command
+/// run in a directory below it; without one, the command gets both variables.
+#[test]
+fn the_manifest_at_the_repository_root_keeps_its_debug_setting() {
+    let case = Case::new("lean-root");
+    fs::create_dir_all(case.dir.join("repo/sub")).expect("create a directory below the root");
+    let script = "echo \"$CARGO_PROFILE_DEV_DEBUG,$CARGO_PROFILE_TEST_DEBUG\" > env.txt";
+    let seen = || {
+        let outcome = case.run(&case.sources(), &case.request("repo/sub", script));
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}: {}", case.said());
+        case.read("repo/sub/env.txt").trim().to_owned()
+    };
+    assert_eq!(seen(), "line-tables-only,line-tables-only");
+    fs::write(
+        case.dir.join("repo/Cargo.toml"),
+        "[workspace]\n\n[profile.dev]\ndebug = 1\n",
+    )
+    .expect("write the root manifest");
+    assert_eq!(seen(), ",");
 }
 
 /// Acceptance 2: the port is derived stably from the repository's name, never sccache's 4226.

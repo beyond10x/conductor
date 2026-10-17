@@ -207,10 +207,17 @@ types:
   # or holds a key its log's line (`DispatchLogLine`, `conductor.decision.DecisionLogLine`) does
   # not declare; `DecisionInDispatchLog`, a line of `dispatches/` whose `event` is a decision
   # log's event, or that has no `event` and whose `id` is a decision id. A line reported as
-  # `DecisionInDispatchLog` is reported for nothing else.
+  # `DecisionInDispatchLog` is reported for nothing else. Two findings read files, not log lines
+  # (story:rules-into-code). `RawThreshold`: a line of `charters/*.md` writes a size in gibibytes
+  # (`20G`, `20 GiB`) equal to the value of one of the instance's thresholds `disk_admit`,
+  # `gate_stop`, `build_slot`, `disk_low` or `disk_clear`; the detail names the key, which the
+  # charter says instead. `RoleFileRules`: a role's rule file, `rules/<role>.md` for `all`,
+  # `conductor`, `controller`, `worker` or `maintainer`, holds more than 20 rules (a line that
+  # opens with `- ` or a number and `. `), reported at the 21st, or a rule that spans more than
+  # one line, reported at its second.
   - name: conductor.dispatch.RecordsFindingKind
     kind: enum
-    variants: [UnknownDecision, UnknownKeySet, DecisionInDispatchLog]
+    variants: [UnknownDecision, UnknownKeySet, DecisionInDispatchLog, RawThreshold, RoleFileRules]
 
   # One finding of `records check`: the file under the records directory, its 1-based line, what
   # was found and the detail that names it. Any finding exits 1.

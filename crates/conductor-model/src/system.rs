@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 5683e12a127cb6f4e7fee0b3505b726740ed9b2db62132e78c82a60c852c35e8
-// contract digest ad9bffb33065adc7ab2f9226b19b7b8bb950adcba976a9ebb58e28f4e49e0018
+// model digest d0119719c5fa9e82d3f3aa9c6885232517767922e98fc66adef80dc5f95e5530
+// contract digest f08072f39d9eb641fd551b9a93a177f5ad69e4006af3c9945b8702a9f98988c0
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The `conductor` system, v1: its components assembled, its bindings wired, and its one transport.

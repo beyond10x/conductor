@@ -72,6 +72,12 @@
 //!    no `sccache` on `PATH` nothing is set, one line says so, and the command runs as before.
 //!    `CARGO_INCREMENTAL` is left as it is: the workspace's own crates stay incremental, and
 //!    sccache does not cache an incremental unit, so the cache serves the dependencies.
+//! 9. **Lean debug information** (`story:build-run-lean-debuginfo`). A cargo-based command gets
+//!    `CARGO_PROFILE_DEV_DEBUG` and `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only` while
+//!    `thresholds.lean_debuginfo` is true, each unless the environment sets it or the workspace
+//!    manifest (the working directory's `Cargo.toml`, or its repository root's) sets `debug` of
+//!    `[profile.dev]`; the test variable also yields to `[profile.test]`, which inherits dev. The
+//!    variable overrides a profile, so a manifest's own setting is kept by not setting it.
 //! 8. **Short lane** (`story:build-run-short-lane`). Besides `thresholds.build_slots`,
 //!    `thresholds.short_lane_slots` slots admit only a command the ledger knows to be short: at
 //!    least 3 earlier runs of the repository and command in 14 days ([`command_key`]) whose p90
@@ -236,6 +242,9 @@ pub struct Settings {
     pub repo_cache: bool,
     /// The size of that cache, in bytes: `thresholds.repo_cache_size`.
     pub repo_cache_size: u64,
+    /// Whether a cargo-based command gets line-table-only debug information:
+    /// `thresholds.lean_debuginfo` (`story:build-run-lean-debuginfo`).
+    pub lean_debuginfo: bool,
     /// How many build slots besides [`Settings::slots`] admit only a command the ledger knows to
     /// be short: `thresholds.short_lane_slots`, 0 for no short lane (`story:build-run-short-lane`).
     pub short_slots: u64,
@@ -264,6 +273,7 @@ impl Settings {
             slots: u64::try_from(thresholds.build_slots).unwrap_or(0),
             repo_cache: thresholds.repo_cache == conductor_model::config::RepoCache::On,
             repo_cache_size: bytes(thresholds.repo_cache_size.0),
+            lean_debuginfo: thresholds.lean_debuginfo,
             short_slots: u64::try_from(thresholds.short_lane_slots).unwrap_or(0),
             short_max: crate::config::seconds(&thresholds.short_lane_max)
                 .map_or(SHORT_LANE_MAX, Duration::from_secs),
@@ -1231,6 +1241,9 @@ pub fn run(
     for (name, value) in cache.iter().flat_map(|cache| &cache.set) {
         command.env(name, value);
     }
+    for (name, value) in lean_debuginfo(settings, sources, request) {
+        command.env(name, value);
+    }
     if let Some(output) = &request.output {
         let opened = OpenOptions::new()
             .create(true)
@@ -1403,14 +1416,28 @@ pub fn run(
 /// The command at the lowest priority: `nice -n 19`, and `ionice -c3` (idle I/O class) when the
 /// host has one. Both exec the command, so the process group and its leader stay the command's.
 fn yielding(command: &[String]) -> Command {
-    let mut argv: Vec<&str> = vec!["nice", "-n", "19"];
-    if on_path("ionice") {
-        argv.extend(["ionice", "-c3"]);
-    }
-    argv.extend(command.iter().map(String::as_str));
-    let mut wrapped = Command::new(argv[0]);
+    let argv = yielded(command, on_path("ionice"));
+    let mut wrapped = Command::new(&argv[0]);
     wrapped.args(&argv[1..]);
     wrapped
+}
+
+/// `command` behind `nice -n 19` and (with `ionice`) `ionice -c3`, each left out when the command
+/// already starts with it (`story:rules-into-code`): `nice …`, `nice … ionice …`, or `ionice …`.
+fn yielded(command: &[String], ionice: bool) -> Vec<String> {
+    let first = command.first().map(String::as_str);
+    let has_nice = first == Some("nice");
+    let has_ionice = first == Some("ionice")
+        || (has_nice && command.iter().take(5).any(|word| word == "ionice"));
+    let mut argv: Vec<String> = Vec::new();
+    if !has_nice && first != Some("ionice") {
+        argv.extend(["nice", "-n", "19"].map(String::from));
+    }
+    if ionice && !has_ionice {
+        argv.extend(["ionice", "-c3"].map(String::from));
+    }
+    argv.extend(command.iter().cloned());
+    argv
 }
 
 fn on_path(program: &str) -> bool {
@@ -1453,6 +1480,85 @@ pub fn cargo_based(request: &Request) -> bool {
         && joined
             .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
             .any(|word| word == "cargo")
+}
+
+/// The root of the work tree holding `cwd`: `git rev-parse --show-toplevel`; none outside one.
+fn work_tree_root(cwd: &Path) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    Some(PathBuf::from(String::from_utf8(output.stdout).ok()?.trim()))
+}
+
+/// Whether the manifest text sets `debug` of `[profile.<profile>]`: a `debug` key under that
+/// table's header, or a dotted `profile.<profile>.debug` or `<profile>.debug` key under
+/// `[profile]` or at the top. A line scan, not a TOML parser: sub-tables such as
+/// `[profile.dev.package.x]` and other profiles are not the profile's own setting.
+fn manifest_sets_debug(text: &str, profile: &str) -> bool {
+    let mut table = String::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        if let Some(header) = line.strip_prefix('[') {
+            table = header
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .split_whitespace()
+                .collect();
+            continue;
+        }
+        let Some((key, _)) = line.split_once('=') else {
+            continue;
+        };
+        let key: String = key.split_whitespace().collect();
+        let full = if table.is_empty() {
+            key
+        } else {
+            format!("{table}.{key}")
+        };
+        if full == format!("profile.{profile}.debug") {
+            return true;
+        }
+    }
+    false
+}
+
+/// The debug variables `request`'s command gets (`story:build-run-lean-debuginfo`): none when
+/// `thresholds.lean_debuginfo` is false or the command is not cargo-based; otherwise
+/// `CARGO_PROFILE_DEV_DEBUG` and `CARGO_PROFILE_TEST_DEBUG` as `line-tables-only`, each unless
+/// the environment sets it or the manifest of the working directory or of its work tree's root
+/// sets `profile.dev.debug` (`profile.test.debug` too, for the test variable).
+fn lean_debuginfo(
+    settings: &Settings,
+    sources: &Sources,
+    request: &Request,
+) -> Vec<(&'static str, &'static str)> {
+    if !settings.lean_debuginfo || !cargo_based(request) {
+        return Vec::new();
+    }
+    let manifests: Vec<String> = std::iter::once(request.cwd.clone())
+        .chain(work_tree_root(&request.cwd))
+        .filter_map(|dir| fs::read_to_string(dir.join("Cargo.toml")).ok())
+        .collect();
+    let sets = |profile: &str| {
+        manifests
+            .iter()
+            .any(|text| manifest_sets_debug(text, profile))
+    };
+    let dev = sets("dev");
+    let test = dev || sets("test");
+    [
+        ("CARGO_PROFILE_DEV_DEBUG", dev),
+        ("CARGO_PROFILE_TEST_DEBUG", test),
+    ]
+    .into_iter()
+    .filter(|(name, kept)| !kept && (sources.env)(name).is_none())
+    .map(|(name, _)| (name, "line-tables-only"))
+    .collect()
 }
 
 /// The name of the repository whose work tree holds `cwd`, the same in each of its worktrees: the
@@ -2239,4 +2345,37 @@ pub fn walk(paths: &[PathBuf], bound: Duration) -> Option<u64> {
     crate::disk::tree_size(&there, Some(Instant::now() + bound))
         .ok()
         .map(|size| size.allocated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::yielded;
+
+    fn words(line: &str) -> Vec<String> {
+        line.split(' ').map(String::from).collect()
+    }
+
+    #[test]
+    fn a_command_is_run_under_nice_and_ionice() {
+        assert_eq!(
+            yielded(&words("cargo test"), true),
+            words("nice -n 19 ionice -c3 cargo test")
+        );
+        assert_eq!(
+            yielded(&words("cargo test"), false),
+            words("nice -n 19 cargo test")
+        );
+    }
+
+    #[test]
+    fn a_command_already_under_them_is_not_wrapped_again() {
+        let both = words("nice -n 19 ionice -c3 env A=1 cargo test");
+        assert_eq!(yielded(&both, true), both);
+        assert_eq!(
+            yielded(&words("nice -n 10 cargo test"), true),
+            words("ionice -c3 nice -n 10 cargo test")
+        );
+        let io = words("ionice -c2 cargo test");
+        assert_eq!(yielded(&io, true), io);
+    }
 }
