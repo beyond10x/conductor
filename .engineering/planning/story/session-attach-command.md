@@ -7,7 +7,16 @@ title: conductor session attach connects the operator's terminal to a live sessi
 relations:
 - decomposes: epic:session-attach
 - depends_on: story:session-pty-relay
-revision: 3
+scope:
+- confidence: cited
+  path: crates/conductor/src/confine/systemd.rs
+- confidence: inferred
+  path: crates/conductor/src/guard
+- confidence: cited
+  path: crates/conductor/src/session.rs
+- confidence: cited
+  path: spec/domains/session.yaml
+revision: 5
 ---
 # Story: session-attach-command
 

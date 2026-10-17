@@ -7,7 +7,30 @@ title: The binary embeds its version's profiles and conductor profiles install w
 relations:
 - decomposes: epic:binary-only-operator
 - informed_by: story:installed-profiles
-revision: 2
+scope:
+- confidence: cited
+  path: Taskfile.yml
+- confidence: cited
+  path: crates/conductor
+- confidence: cited
+  path: crates/conductor-model
+- confidence: cited
+  path: crates/conductor/cli.yaml
+- confidence: inferred
+  path: crates/conductor/src/cli.rs
+- confidence: inferred
+  path: crates/conductor/src/profiles.rs
+- confidence: cited
+  path: crates/conductor/src/upgrade.rs
+- confidence: inferred
+  path: crates/conductor/tests
+- confidence: cited
+  path: spec/domains/config.yaml
+- confidence: cited
+  path: website/docs/guides/start-conductor.md
+- confidence: cited
+  path: website/docs/reference/cli.md
+revision: 14
 ---
 # Story: profiles-embedded
 
@@ -44,3 +67,26 @@ Changing a profile's contents; per-instance profile directories; merging a hand 
 
 - Decided: `profiles install` overwrites a differing file because a profile must match the binary (`story:installed-profiles`); `--check` and `diff` are how an operator sees a hand edit first. The operator can ask for a refusal on a differing file instead.
 - Open: whether `conductor upgrade --check` also reports profile drift; as written it does not, because `--check` writes nothing and reads only the release list.
+
+## Scope
+
+## Scope
+
+Derived 2026-10-17 by `story-scoper`. Every line is **cited** (read from the story or the tree) or
+**inferred** (a reading that could be wrong).
+
+- **Primary surface:** `crates/conductor` (the CLI crate: new `profiles` command, `upgrade` hook) — cited
+- **Files:**
+  - `crates/conductor/src/upgrade.rs:232` (`replace(...)` ends `install`; the new binary's `--version` check is at :205-229, so the profiles step goes between them) — cited
+  - `crates/conductor/src/upgrade.rs:69` (`pub fn upgrade`) — cited
+  - `crates/conductor/cli.yaml:336-343` (`[upgrade]` binding; add `[profiles, install]` and `[profiles, diff]`) — cited
+  - `spec/domains/config.yaml` (add `conductor.config.InstallProfiles`, `DiffProfiles`, result and `profiles-dir-unwritable` refusal; `UpgradeRefusal` sits at :734 as the pattern) — cited
+  - `Taskfile.yml:323-332` (`install`, `profiles` tasks) — cited
+  - `crates/conductor/src/cli.rs` (new `Group::Profiles`; dispatch near :428, `Access` table near :750, `upgrade` args near :1601) — inferred, from how `upgrade` and `config-workspace` are wired
+  - new module `crates/conductor/src/profiles.rs` (`include_str!` of the 3 files in `.agents/`: `conductor.md`, `conductor-dev.md`, `repo-controller.md`; plus the completeness test) — inferred, new file
+- **Symbols:** `upgrade::upgrade`, `upgrade::install`, `upgrade::replace`, `UpgradeRefusal`, `CONDUCTOR_CONFIG` — cited; `Group::Upgrade` in `cli.rs` — inferred
+- **Also likely:** `crates/conductor-model/` (regenerated, never hand-edited) — cited, by AGENTS.md and the story; `crates/conductor/tests/` (new test for install, check, diff and upgrade) — inferred
+- **Documents:** `website/docs/reference/cli.md` (generated, regenerated after the later merge) — cited; `website/docs/guides/start-conductor.md` (hand-written, add that the binary installs its profiles) — cited
+- **Confidence:** high — the story cites Taskfile, upgrade.rs and cli.yaml lines, and I confirmed them. Medium for `cli.rs` and the new module's exact placement.
+- **Would collide with:** any unit touching `crates/conductor/cli.yaml`, `spec/domains/config.yaml`, `crates/conductor-model` or the generated `website/docs/reference/cli.md` (the other `epic:binary-only-operator` stories and `story:demo-mode`, per the story); any unit touching `crates/conductor/src/upgrade.rs` or the `upgrade` wiring in `cli.rs`; any unit renaming or adding files in `.agents/` (`story:role-names-in-files`). A rename changes the embedded list, so the test must read the directory.
+- **Safety fact:** the `upgrade` hook runs after the `--version` check and before the file swap, or after `replace` and with the old binary kept as `conductor.previous` (`upgrade.rs:232`, `replace` at :236+). Failure handling therefore cannot lose the working binary. The hook may only report a profile failure, not roll back, and the story says the replaced binary stays. Pointed at a `file:line` (level 2), unproven. The edit also reaches no config key: a role's `profile` path is read as before (Taskfile.yml:46-50), unproven.
