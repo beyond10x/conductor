@@ -42,6 +42,8 @@ items.
 - **Deliver** in waves (`aep:implementing`, wave mode) in managed worktrees: one implementor per
   unit, an adversary on risky changes, the pre-push gates `rules.md` names on the exact commit.
   A red CI: read the failing log, fix every cause; never push while that PR's run is in progress.
+  After `progress PR opened`, work the next unit or report `blocked ci <pr>` and end the turn;
+  conductor relays the watch line. Never wait on, sleep for or poll a pull request's checks.
 - **Waves are wide and concurrent.** A wave takes every ready unit with disjoint scope, up to
   `controllers.max_subagents`; a narrower wave records its reason on its wave page, as a line
   `Width: <reason>`. All of a wave's implementors start in one message, as background

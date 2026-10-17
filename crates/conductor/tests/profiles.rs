@@ -935,3 +935,23 @@ fn conductor_checks_in_on_a_stalled_session_or_a_long_queued_build() {
         );
     }
 }
+
+/// `story:watch-pr-checks`: a controller never waits on its pull request's checks, the watch
+/// reads them and conductor relays its line to the repository's controller.
+#[test]
+fn the_watch_reads_pull_request_checks_and_conductor_relays_them() {
+    let controller = profile("repo-controller.md");
+    let sentence = "After `progress PR opened`, work the next unit or report `blocked ci <pr>` and \
+                    end the turn; conductor relays the watch line.";
+    assert!(
+        controller.contains(sentence),
+        "repo-controller.md: holds {sentence:?}"
+    );
+    let conductor = profile("conductor.md");
+    let sentence = "Relay each `PR checks done: <repo>#<n> <green|red> (head <sha>)` line to the \
+                    controller of that repository at once";
+    assert!(
+        conductor.contains(sentence),
+        "conductor.md: holds {sentence:?}"
+    );
+}

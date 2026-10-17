@@ -209,6 +209,14 @@ const CONDUCTORS_REPORTED: &str = "conductors.reported";
 const SILENT_REPORTED: &str = "silent.reported";
 const REVIEW_FULL: &str = "review.full";
 
+/// The heads of open pull requests whose concluded checks were printed, one per line:
+/// `<repo>#<number> <head sha>` (`story:watch-pr-checks`).
+const PR_CHECKS_PRINTED: &str = "pr-checks.printed";
+
+/// The check-run conclusions, as `gh` prints them, a pull request is green on: every other
+/// conclusion of a completed check makes it red (`story:watch-pr-checks`).
+const PASSED: [&str; 3] = ["SUCCESS", "NEUTRAL", "SKIPPED"];
+
 /// The stalled sessions reported, one per line: `<sessionId> <newest progress, Unix seconds>`
 /// (`story:watch-stalled-sessions`).
 const STALLED_REPORTED: &str = "stalled.reported";
@@ -282,6 +290,10 @@ pub struct Sources {
     /// Prints one repository's `main` runs as one JSON array of objects with `databaseId`,
     /// `workflowName`, `status`, `conclusion` and `createdAt`; `{repository}` is filled in.
     pub runs: Vec<String>,
+    /// Prints one repository's open pull requests as one JSON array of objects with `number`,
+    /// `headRefOid` and `statusCheckRollup`; filled in as [`Sources::runs`] is
+    /// (`story:watch-pr-checks`).
+    pub pulls: Vec<String>,
     /// The path on whose file system free disk is read: `/`.
     pub disk: PathBuf,
     /// Reads the bytes free on the file system holding [`Sources::disk`]: the `available` of
@@ -345,6 +357,19 @@ impl Sources {
                 "100",
                 "--json",
                 "workflowName,conclusion,status,createdAt,databaseId",
+            ]),
+            pulls: words(&[
+                "gh",
+                "pr",
+                "list",
+                "-R",
+                "{organization}/{repository}",
+                "--state",
+                "open",
+                "--limit",
+                "100",
+                "--json",
+                "number,headRefOid,statusCheckRollup",
             ]),
             disk: PathBuf::from("/"),
             free_bytes: crate::gc::reclaim::free_bytes,
@@ -1430,10 +1455,22 @@ impl Watch {
             }
         };
         let projects = self.gitlab_projects(notes);
+        self.main_ci(&repositories, &projects, lines, notes)?;
+        self.pull_checks(&repositories, &projects, lines, notes)
+    }
+
+    /// The `main` CI lines of [`Watch::ci`] over `repositories`, `projects` the `gitlab` ones.
+    fn main_ci(
+        &mut self,
+        repositories: &[String],
+        projects: &BTreeMap<String, (usize, Project)>,
+        lines: &mut Vec<String>,
+        notes: &mut dyn Write,
+    ) -> Result<()> {
         let github = self.gitlab.is_empty() || !self.sources.organization.is_empty();
         let forges = &self.gitlab;
         let sources = &self.sources;
-        let read = each(&repositories, WIDTH, |repository| {
+        let read = each(repositories, WIDTH, |repository| {
             Ok(match projects.get(repository) {
                 Some((forge, project)) => {
                     Some(newest_pipeline(&forges[*forge], project, repository))
@@ -1495,6 +1532,79 @@ impl Watch {
             .map(|latest| format!("{}\n", latest.line()))
             .collect();
         replace(&file, &state)
+    }
+
+    /// Each open pull request (a merge request of a `gitlab` project) of `repositories` whose
+    /// checks have all concluded for its head (`story:watch-pr-checks`): `PR checks done:
+    /// <repo>#<n> <green|red> (head <sha>)`, once per head, and again only for a new head. Each
+    /// repository's list is read once ([`open_pulls`] through [`Sources::pulls`], else
+    /// [`open_merge_requests`] through its forge); one that does not answer is named on `notes`
+    /// as the source `pr checks <repo>`, and keeps what was printed for it. `pr-checks.printed`
+    /// keeps the heads printed of the pull requests still open.
+    fn pull_checks(
+        &mut self,
+        repositories: &[String],
+        projects: &BTreeMap<String, (usize, Project)>,
+        lines: &mut Vec<String>,
+        notes: &mut dyn Write,
+    ) -> Result<()> {
+        let github = self.gitlab.is_empty() || !self.sources.organization.is_empty();
+        let forges = &self.gitlab;
+        let sources = &self.sources;
+        let read = each(repositories, WIDTH, |repository| {
+            Ok(match projects.get(repository) {
+                Some((forge, project)) => {
+                    Some(open_merge_requests(&forges[*forge], project, repository))
+                }
+                None if github => Some(open_pulls(sources, repository)),
+                None => None,
+            })
+        })?;
+        let file = self.state(PR_CHECKS_PRINTED);
+        let before = read_optional(&file)?.unwrap_or_default();
+        let printed: BTreeSet<&str> = before.lines().collect();
+        let mut kept: BTreeSet<String> = BTreeSet::new();
+        for (repository, answer) in repositories.iter().zip(read) {
+            let source = format!("pr checks {repository}");
+            let pulls = match answer {
+                None => continue,
+                Some(Ok(pulls)) => {
+                    self.answered(&source);
+                    pulls
+                }
+                Some(Err(error)) => {
+                    self.failed(&source, &error, notes);
+                    let mine = format!("{repository}#");
+                    kept.extend(
+                        printed
+                            .iter()
+                            .filter(|line| line.starts_with(&mine))
+                            .map(|line| (*line).to_owned()),
+                    );
+                    continue;
+                }
+            };
+            for pull in pulls {
+                let Some(green) = pull.green else {
+                    continue;
+                };
+                let head = format!("{repository}#{} {}", pull.number, pull.head);
+                if !printed.contains(head.as_str()) {
+                    lines.push(format!(
+                        "PR checks done: {repository}#{} {} (head {})",
+                        pull.number,
+                        if green { "green" } else { "red" },
+                        pull.head
+                    ));
+                }
+                kept.insert(head);
+            }
+        }
+        let text: String = kept.iter().map(|line| format!("{line}\n")).collect();
+        if text != before {
+            replace(&file, &text)?;
+        }
+        Ok(())
     }
 
     /// The projects of [`Watch::gitlab`]'s forges that are not archived, by name, each with the
@@ -2002,6 +2112,183 @@ fn newest_runs_of(sources: &Sources, owner: &str, repository: &str) -> Result<Ve
             at: run.created_at,
         })
         .collect())
+}
+
+/// One open pull request as the pull-request probe reads it (`story:watch-pr-checks`).
+#[derive(Debug)]
+struct OpenPull {
+    number: i64,
+    /// The head commit's sha, on one line.
+    head: String,
+    /// Whether its checks concluded for its head, green (`Some(true)`) or red (`Some(false)`);
+    /// `None` while one runs or none is there.
+    green: Option<bool>,
+}
+
+/// One open pull request, as `gh pr list --json number,headRefOid,statusCheckRollup` prints it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Pull {
+    number: i64,
+    head_ref_oid: String,
+    #[serde(default)]
+    status_check_rollup: Option<Vec<Check>>,
+}
+
+/// One entry of a pull request's check rollup: a check run (`status`, `conclusion`) or a status
+/// context (`state`).
+#[derive(Deserialize)]
+struct Check {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    conclusion: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+}
+
+impl Check {
+    /// Whether it passed (`Some(true)`), failed (`Some(false)`), or has not concluded (`None`): a
+    /// check run concluded once `COMPLETED`, and passed on one of [`PASSED`]; a status context
+    /// concluded once neither `PENDING` nor `EXPECTED`, and passed on `SUCCESS`.
+    fn passed(&self) -> Option<bool> {
+        if let Some(state) = self.state.as_deref() {
+            return match state {
+                "PENDING" | "EXPECTED" | "" => None,
+                state => Some(state == "SUCCESS"),
+            };
+        }
+        if self.status.as_deref() != Some("COMPLETED") {
+            return None;
+        }
+        Some(PASSED.contains(&self.conclusion.as_deref().unwrap_or_default()))
+    }
+}
+
+/// Whether `checks` have all concluded, green or red; `None` while one runs, or when there is
+/// none, so a pull request whose checks have not started is not reported.
+fn concluded(checks: &[Check]) -> Option<bool> {
+    let mut green = true;
+    for check in checks {
+        green &= check.passed()?;
+    }
+    (!checks.is_empty()).then_some(green)
+}
+
+/// The open pull requests of `repository`, read once through [`Sources::pulls`], under each of
+/// [`Sources::owners`] in turn until one answers, as [`newest_runs`] reads its run list.
+fn open_pulls(sources: &Sources, repository: &str) -> Result<Vec<OpenPull>> {
+    let owners: &[String] = if sources.owners.is_empty() {
+        std::slice::from_ref(&sources.organization)
+    } else {
+        &sources.owners
+    };
+    let mut first = None;
+    for owner in owners {
+        match open_pulls_of(sources, owner, repository) {
+            Ok(pulls) => return Ok(pulls),
+            Err(error) => {
+                first.get_or_insert(error);
+            }
+        }
+    }
+    Err(first.unwrap_or_else(|| anyhow!("pull requests of {repository} not read: no GitHub owner")))
+}
+
+/// [`open_pulls`] of `repository` under the one GitHub owner `owner`.
+fn open_pulls_of(sources: &Sources, owner: &str, repository: &str) -> Result<Vec<OpenPull>> {
+    let fill = [("organization", owner), ("repository", repository)];
+    let command = filled(&sources.pulls, &fill);
+    let shown = command.join(" ");
+    let what = format!("pull requests of {repository} not read");
+    let (program, arguments) = command
+        .split_first()
+        .with_context(|| format!("{what}: no pull-request command is given"))?;
+    let output = collect::run(Command::new(program).args(arguments), sources.bound)
+        .with_context(|| format!("{what}: `{shown}`"))?;
+    if !output.status.success() {
+        let status = output.status.code().map_or_else(
+            || "was ended by a signal".to_owned(),
+            |code| format!("exited {code}"),
+        );
+        let stderr: String = one_line(&String::from_utf8_lossy(&output.stderr))
+            .chars()
+            .take(EXCERPT)
+            .collect();
+        if stderr.is_empty() {
+            bail!("{what}: `{shown}` {status}");
+        }
+        bail!("{what}: `{shown}` {status}: {stderr}");
+    }
+    let pulls: Vec<Pull> = serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("{what}: `{shown}` printed no pull-request list"))?;
+    Ok(pulls
+        .into_iter()
+        .map(|pull| OpenPull {
+            number: pull.number,
+            head: one_line(&pull.head_ref_oid),
+            green: concluded(&pull.status_check_rollup.unwrap_or_default()),
+        })
+        .collect())
+}
+
+/// One open merge request, as GitLab's `merge_requests?state=opened` answers it.
+#[derive(Deserialize)]
+struct MergeRequest {
+    iid: i64,
+    sha: String,
+}
+
+/// One merge request, as `merge_requests/<iid>` answers it, in the part the list lacks.
+#[derive(Deserialize)]
+struct MergeRequestDetail {
+    #[serde(default)]
+    head_pipeline: Option<HeadPipeline>,
+}
+
+/// A merge request's head pipeline.
+#[derive(Deserialize)]
+struct HeadPipeline {
+    status: String,
+    #[serde(default)]
+    sha: Option<String>,
+}
+
+/// The open merge requests of `project`, read through its forge ([`Forge::pages`], then
+/// [`Forge::get`] of each): its head pipeline is its checks, concluded once the `gitlab`
+/// collector's mapping ([`gitlab::conclusion`]) decides it, green on `Success` or `Skipped`, red on
+/// `Failure` or `Cancelled`; a pipeline of another sha than the head's is not the head's.
+fn open_merge_requests(
+    forge: &Forge,
+    project: &Project,
+    repository: &str,
+) -> Result<Vec<OpenPull>> {
+    let what = format!("merge requests of {repository} not read");
+    let opened: Vec<MergeRequest> = forge.pages(
+        &what,
+        &format!("projects/{}/merge_requests?state=opened", project.id),
+    )?;
+    let mut pulls = Vec::with_capacity(opened.len());
+    for request in opened {
+        let detail: MergeRequestDetail = forge.get(
+            &what,
+            &format!("projects/{}/merge_requests/{}", project.id, request.iid),
+        )?;
+        let green = detail
+            .head_pipeline
+            .filter(|pipeline| pipeline.sha.as_deref().is_none_or(|sha| sha == request.sha))
+            .and_then(|pipeline| match gitlab::conclusion(&pipeline.status) {
+                Some(RunConclusion::Success | RunConclusion::Skipped) => Some(true),
+                Some(RunConclusion::Failure | RunConclusion::Cancelled) => Some(false),
+                _ => None,
+            });
+        pulls.push(OpenPull {
+            number: request.iid,
+            head: one_line(&request.sha),
+            green,
+        });
+    }
+    Ok(pulls)
 }
 
 /// One pipeline, as GitLab's `pipelines` answers it.
