@@ -103,8 +103,10 @@ impl Headroom for FileHeadroom {
 
 /// The child run of this test binary ([`Case::child`]); a plain run of the suite passes at once.
 /// It fixes the case's config file as the process's instance, builds what `reviews` asks for, and
-/// runs `do`: `lines`, a watch tick over the fixture lines; `cycle`; or `daily` for `day`. It
-/// prints the tick's summary as JSON and exits 0, or names the error and exits 1.
+/// runs `do`: `lines`, a watch tick over the fixture lines; `cycle`; or `daily` for `day`. With
+/// `decide`, the tick hands a decision request to `run::handle_request`, whose decider is the fake
+/// one ([`run::DECIDER_VARIABLE`]). It prints the tick's summary as JSON and exits 0, or names
+/// the error and exits 1.
 #[test]
 fn child() {
     let Ok(spec) = std::env::var(CHILD) else {
@@ -134,7 +136,8 @@ fn child() {
         providers: &host,
         deliverer: &deliverer,
         headroom,
-        handle_request: None,
+        handle_request: (spec["decide"] == true)
+            .then_some(run::handle_request as run::HandleRequest),
         program: PathBuf::from(spec["program"].as_str().expect("the conductor binary")),
         gc: conductor_cli::gc::gc,
     };
@@ -539,6 +542,7 @@ impl Case {
             .env("PATH", self.path())
             .env(READINGS, self.fake().join("readings"))
             .env(CHILD, spec.to_string())
+            .env(run::DECIDER_VARIABLE, "fake")
             .current_dir(self.records())
             .stdin(Stdio::null())
             .output()
@@ -1235,7 +1239,7 @@ fn a_mailbox_need_waits_for_the_other_repository_s_controller() {
     assert_eq!(case.deliveries().len(), 1, "delivered once");
 }
 
-/// A `[DECISION-REQUEST]` is raised and, with no decider in this build, escalated as class O
+/// A `[DECISION-REQUEST]` is raised and, with no decider seam, escalated as class O
 /// with the options its body lists, its recommendation as the default and a deadline 48 hours
 /// out.
 #[test]
@@ -1274,6 +1278,59 @@ fn a_mailbox_decision_request_is_raised_and_escalated() {
             .expect("an RFC 3339 deadline");
     let hours = (deadline - before).whole_hours();
     assert!((47..=48).contains(&hours), "{hours} hours");
+}
+
+/// With the decider seam (`story:decide-model-adapter`), a `[DECISION-REQUEST]` reaches
+/// `decide::handle_request` whole: class C is raised with its rule, answered by the fake decider
+/// and recorded with its name, and the `[DECISION]` line is delivered to the controller of the
+/// repository that raised it (`decision-sent`).
+#[test]
+fn a_mailbox_decision_request_is_decided_and_sent_to_the_controller() {
+    let case = Case::new("mail-decision-decided");
+    case.spawn("alpha", FIRST);
+    case.mail(
+        "0001",
+        "[DECISION-REQUEST alpha R-8] Which store layout?\n\n\
+         A) tree layout: one migration\n\
+         B) keep the eventlog files: no cost now\n\n\
+         Recommendation: B, it needs no migration\n",
+    );
+    let tick = case.child(json!({"do": "lines", "decide": true}));
+    assert_eq!(tick["lines_handled"], 1);
+    assert_eq!(actions(&tick), ["decision-sent"]);
+    let requests = case.view(&["decision", "requests"]);
+    let request = requests
+        .iter()
+        .find(|row| row["request_id"] == "R-8")
+        .unwrap_or_else(|| panic!("R-8 is raised: {requests:?}"));
+    assert_eq!(request["state"], "Answered");
+    assert_eq!(request["classification_rule"], "none");
+    let decision = request["decision_id"]
+        .as_str()
+        .expect("the request names its decision")
+        .to_owned();
+    let decisions = case.view(&["decision", "decisions"]);
+    let recorded = decisions
+        .iter()
+        .find(|row| row["decision_id"] == json!(decision))
+        .unwrap_or_else(|| panic!("{decision} is recorded: {decisions:?}"));
+    assert_eq!(recorded["choice"], "B");
+    assert_eq!(recorded["decider_name"], "fake");
+    assert_eq!(
+        case.deliveries(),
+        [(
+            "ex-alpha".to_owned(),
+            format!(
+                "[DECISION R-8] B the fake decider answers the request's recommendation \
+                 ({decision})"
+            )
+        )]
+    );
+    let written = case.lines_of(&tick);
+    assert_eq!(written[0]["event"], "decision-sent");
+    assert_eq!(written[0]["id"], "R-8");
+    assert_eq!(written[0]["grant"], json!(decision));
+    assert_eq!(written[0]["session"], "ex-alpha");
 }
 
 /// A `[RESOURCE]` is answered "use conductor build run", once.

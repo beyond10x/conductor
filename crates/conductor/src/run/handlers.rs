@@ -455,7 +455,7 @@ fn notify(tick: &Tick<'_, '_>, line: &str) {
 
 /// `answered <id> <choice>`: the decision that answered the request, delivered to the controller
 /// of the repository that raised it, else kept for its next start.
-fn answered(tick: &mut Tick<'_, '_>, id: &str) -> Result<bool> {
+pub(crate) fn answered(tick: &mut Tick<'_, '_>, id: &str) -> Result<bool> {
     let store = crate::state::open(tick.state)?;
     let request = DecisionRequestStorage::get(&store, &RequestId(id.to_owned()))
         .ok_or_else(|| anyhow!("no decision request {id}"))?;

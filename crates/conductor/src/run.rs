@@ -28,9 +28,9 @@
 //!
 //! The daemon acts through [`Seams`]: the confinement providers sessions start and stop through,
 //! the [`Deliverer`] that puts a text in front of a session (`conductor session deliver`,
-//! [`ShellDeliverer`]), the [`Headroom`] reader ([`Ais`]), `decide::handle_request` once
-//! `story:decide-model-adapter` lands ([`HandleRequest`]), the binary the cycle's steps run, and
-//! `gc`. A test gives its own.
+//! [`ShellDeliverer`]), the [`Headroom`] reader ([`Ais`]), `decide::handle_request`
+//! (`story:decide-model-adapter`, [`handle_request`]), the binary the cycle's steps run, and `gc`.
+//! A test gives its own.
 
 pub mod dispatch;
 pub mod handlers;
@@ -145,10 +145,42 @@ pub fn headroom_of(status: &Value) -> bool {
         })
 }
 
-/// `decide::handle_request` (`story:decide-model-adapter`): decides or escalates the request it
-/// is given the id of, raised already, in the store under the state directory; answers whether it
-/// did. This build has none, and a request is escalated as class O ([`mailbox`]).
+/// `decide::handle_request` (`story:decide-model-adapter`): handles the `[DECISION-REQUEST]`
+/// message it is given whole, in the store under the state directory: raises it with the rule
+/// that classified it, answers and records class C, escalates class O and H; answers whether the
+/// request was decided, so its `[DECISION]` line is to be delivered. [`handle_request`] is the
+/// real one; with none, a request is raised and escalated as class O ([`mailbox`]).
 pub type HandleRequest = fn(Option<&Path>, &str) -> Result<bool>;
+
+/// The variable that chooses the `Decider` adapter of [`handle_request`]: `fake`, which answers
+/// the request's recommendation, for tests and dry runs; anything else, or none, is `claude -p`
+/// on the instance's model ([`crate::decide::model::ClaudePrint`]).
+pub const DECIDER_VARIABLE: &str = "CONDUCTOR_DECIDER";
+
+/// [`HandleRequest`] over [`crate::decide::handle_request`], with the decider
+/// [`DECIDER_VARIABLE`] chooses: answers `true` when the request was decided, `false` when it was
+/// escalated.
+///
+/// # Errors
+///
+/// The request does not read, the instance names no model for the decider, or
+/// [`crate::decide::handle_request`] fails.
+pub fn handle_request(state: Option<&Path>, text: &str) -> Result<bool> {
+    use crate::decide::model::{ClaudePrint, Decider, Fake};
+    let decider: Box<dyn Decider> = if std::env::var(DECIDER_VARIABLE).as_deref() == Ok("fake") {
+        let request = crate::decide::parse_request(text)?;
+        Box::new(Fake::answering(
+            &request.recommended,
+            "the fake decider answers the request's recommendation",
+        ))
+    } else {
+        Box::new(ClaudePrint::for_instance(&config::active().instance)?)
+    };
+    Ok(matches!(
+        crate::decide::handle_request(state, text, decider.as_ref())?,
+        crate::decide::Handled::Decided { .. }
+    ))
+}
 
 /// `gc` ([`crate::gc::gc`]), or a test's stand-in.
 pub type Cleaner = fn(&GcArgs) -> Result<ExitCode>;
@@ -161,7 +193,7 @@ pub struct Seams<'a> {
     pub deliverer: &'a dyn Deliverer,
     /// Whether usage has headroom.
     pub headroom: &'a dyn Headroom,
-    /// `decide::handle_request`, when this build has it.
+    /// `decide::handle_request` ([`handle_request`]), or none: a request is escalated as class O.
     pub handle_request: Option<HandleRequest>,
     /// The `conductor` binary the cycle's and the daily tick's steps run.
     pub program: PathBuf,
@@ -219,7 +251,7 @@ pub fn run(
         providers,
         deliverer: &deliverer,
         headroom: &Ais,
-        handle_request: None,
+        handle_request: Some(handle_request),
         program: std::env::current_exe().context("run: read the path of the conductor binary")?,
         gc: crate::gc::gc,
     };

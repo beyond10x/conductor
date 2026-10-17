@@ -10,7 +10,7 @@
 //! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch; `blocked handover <path>` is a report like any |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
 //! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start |
-//! | `[DECISION-REQUEST <repo> <request-id>] <question>` | raised (`decision raise-decision-request`), then handed to `decide::handle_request` when this build has it ([`super::HandleRequest`]); else escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
+//! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
 //! | `[RESOURCE <repo>] <kind> <amount>` | answered "use conductor build run" to the repository's running controller (`relayed`), else kept for its next start |
 //!
 //! Any other first line is handled with nothing done. A message the store recorded with this file
@@ -259,7 +259,8 @@ fn option(line: &str) -> Option<Value> {
     Some(json!({"letter": letter.to_string(), "label": label.trim(), "cost": cost.trim()}))
 }
 
-/// `[DECISION-REQUEST <repo> <request>] <question>`: raised, then decided or escalated.
+/// `[DECISION-REQUEST <repo> <request>] <question>`: handed whole to the decider seam, and its
+/// `[DECISION]` delivered when it was decided; with no seam, raised and escalated as class O.
 fn decision_request(
     tick: &mut Tick<'_, '_>,
     repo: &str,
@@ -267,6 +268,12 @@ fn decision_request(
     question: &str,
     text: &str,
 ) -> Result<bool> {
+    if let Some(handle) = tick.seams.handle_request {
+        if handle(tick.state, text)? {
+            super::handlers::answered(tick, request)?;
+        }
+        return Ok(true);
+    }
     let options: Vec<Value> = text.lines().skip(1).filter_map(option).collect();
     let recommendation = text
         .lines()
@@ -320,10 +327,6 @@ fn decision_request(
             input_json: None,
         },
     )?;
-    if let Some(handle) = tick.seams.handle_request {
-        handle(tick.state, request)?;
-        return Ok(true);
-    }
     let Some(recommended) = recommended else {
         bail!("request {request} lists no lettered option, so it is raised and not escalated");
     };
