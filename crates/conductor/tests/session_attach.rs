@@ -54,10 +54,27 @@ impl Case {
         for sub in ["home", "state/sessions", "bin", "outer"] {
             fs::create_dir_all(scratch.path().join(sub)).expect("create a case directory");
         }
-        Self {
+        let case = Self {
             scratch,
             servers: Vec::new(),
-        }
+        };
+        // The harness's session list: a fake `claude agents --json` printing the case's
+        // `agents.json`, none by default, so no case reads the host's sessions.
+        let d = case.dir().display();
+        let fake = case.dir().join("bin/claude");
+        fs::write(
+            &fake,
+            format!("#!/bin/sh\n[ \"$1\" = agents ] && cat '{d}/agents.json'\n"),
+        )
+        .expect("write the fake");
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).expect("make it runnable");
+        case.agents("[]");
+        case
+    }
+
+    /// What the fake `claude agents --json` prints.
+    fn agents(&self, json: &str) {
+        fs::write(self.dir().join("agents.json"), json).expect("write the listing");
     }
 
     fn dir(&self) -> &Path {
@@ -275,11 +292,21 @@ fn attach_types_into_the_session_and_detaches_with_ctrl_bracket_d() {
     let mut case = Case::new("read-write");
     case.start_session("ex-alpha", HARNESS);
 
+    // Busy as the harness reports it, though the screen is idle; idle once it reports so.
+    case.agents(r#"[{"name": "ex-alpha", "pid": 4242, "status": "busy"}]"#);
     let list = case.run(&["session", "list"], &[]);
     assert_eq!(list.status.code(), Some(0), "{}", describe(&list));
     assert_eq!(
-        first_words(&list, 3),
-        ["ex-alpha attach sessions"],
+        first_words(&list, 4),
+        ["ex-alpha attach sessions busy"],
+        "{}",
+        describe(&list)
+    );
+    case.agents(r#"[{"name": "ex-alpha", "pid": 4242, "status": "idle"}]"#);
+    let list = case.run(&["session", "list"], &[]);
+    assert_eq!(
+        first_words(&list, 4),
+        ["ex-alpha attach sessions idle"],
         "{}",
         describe(&list)
     );

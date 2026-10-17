@@ -163,9 +163,11 @@ types:
 
   # One row of `conductor session list` and of the attach picker: the instance, the session's
   # name and how attach reaches it; `directory`, where its harness runs (tmux's pane path), whose
-  # last component is the repository; `idle_seconds`, since its screen last changed (tmux's
-  # window activity, or the typescript's modification time), under 10 shown busy, else idle.
-  # Nothing here is read from a harness.
+  # last component is the repository; `busy`, the harness's own state of the session where the
+  # harness reports one (Claude Code: the `status` of `claude agents --json`, `busy` or not, by
+  # session name), else absent; `idle_seconds`, since its screen last changed (tmux's window
+  # activity, or the typescript's modification time), which decides busy (under 10) or idle only
+  # where `busy` is absent.
   - name: conductor.session.AttachableSession
     kind: struct
     fields:
@@ -173,6 +175,7 @@ types:
       - {name: name, type: String}
       - {name: mode, type: conductor.session.AttachMode}
       - {name: directory, type: Optional<String>}
+      - {name: busy, type: Optional<Boolean>}
       - {name: idle_seconds, type: Optional<Integer>}
 
   # One writable place of a session resolved for its start (story:sandbox-spec): the place as the

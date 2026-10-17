@@ -1222,14 +1222,6 @@ pub enum SessionCommand {
     #[command(name = "leases")]
     Leases(ViewArgs),
 
-    /// Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
-    #[command(name = "start")]
-    Start(SessionRoleArgs),
-
-    /// Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
-    #[command(name = "stop")]
-    Stop(SessionRoleArgs),
-
     /// Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
     #[command(name = "attach")]
     Attach(AttachArgs),
@@ -1237,6 +1229,14 @@ pub enum SessionCommand {
     /// Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)
     #[command(name = "list")]
     List(ListSessionsArgs),
+
+    /// Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    #[command(name = "start")]
+    Start(SessionRoleArgs),
+
+    /// Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
+    #[command(name = "stop")]
+    Stop(SessionRoleArgs),
 }
 
 /// `conductor host`: the host ledger of slots and disk reservations every instance shares, and

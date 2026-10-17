@@ -157,6 +157,7 @@ fn find(place: &Place, name: &str) -> Option<AttachableSession> {
         name: name.to_owned(),
         mode,
         directory,
+        busy: None,
         idle_seconds,
     };
     if place.sessions.join(format!("{name}.tmux")).exists()
@@ -195,7 +196,8 @@ fn find(place: &Place, name: &str) -> Option<AttachableSession> {
     None
 }
 
-/// The live sessions of `places`, in the order of the places, each by name.
+/// The live sessions of `places`, in the order of the places, each by name, each busy or not
+/// as its harness reports it ([`crate::confine::harness_busy`]).
 fn rows(places: &[Place]) -> Result<Vec<AttachableSession>> {
     let mut rows = Vec::new();
     for place in places {
@@ -203,11 +205,18 @@ fn rows(places: &[Place]) -> Result<Vec<AttachableSession>> {
             rows.extend(find(place, &name));
         }
     }
+    if !rows.is_empty() {
+        let busy = crate::confine::harness_busy();
+        for row in &mut rows {
+            row.busy = busy.get(&row.name).copied();
+        }
+    }
     Ok(rows)
 }
 
 /// The text line of one row: name, mode, repository (the last component of the harness's
-/// directory, `-` when unknown), busy or idle, and the seconds since the screen last changed.
+/// directory, `-` when unknown), busy or idle (as the harness reports it, else by the idle
+/// time), and the seconds since the screen last changed.
 #[must_use]
 pub fn line(row: &AttachableSession) -> String {
     let mode = match row.mode {
@@ -222,12 +231,17 @@ pub fn line(row: &AttachableSession) -> String {
             || "-".to_owned(),
             |name| name.to_string_lossy().into_owned(),
         );
-    let (state, idle) = row.idle_seconds.map_or(("-", "-".to_owned()), |idle| {
-        (
-            if idle < BUSY_SECONDS { "busy" } else { "idle" },
-            format!("{idle}s"),
-        )
-    });
+    let idle = row
+        .idle_seconds
+        .map_or_else(|| "-".to_owned(), |idle| format!("{idle}s"));
+    let state = match row
+        .busy
+        .or_else(|| row.idle_seconds.map(|idle| idle < BUSY_SECONDS))
+    {
+        Some(true) => "busy",
+        Some(false) => "idle",
+        None => "-",
+    };
     format!("{} {mode} {repository} {state} {idle}", row.name)
 }
 
@@ -273,6 +287,7 @@ pub fn list(
                             AttachMode::Watch => "Watch",
                         },
                         "directory": row.directory,
+                        "busy": row.busy,
                         "idle_seconds": row.idle_seconds,
                     })
                 })
@@ -324,11 +339,11 @@ pub fn attach(
             ),
         );
     }
-    if input.name.is_none() && input.role.is_none() {
-        return crate::not_implemented("session attach without --name or --role (the picker)");
-    }
     let watch = input.watch.unwrap_or(false);
     let places = places(config_flag, state, input.instance.as_deref()).context("session attach")?;
+    if input.name.is_none() && input.role.is_none() {
+        return pick(&places);
+    }
     let mut found = Vec::new();
     for place in &places {
         let by_role = input
@@ -386,13 +401,6 @@ pub fn attach(
         }
     };
     match (&row.mode, watch) {
-        (AttachMode::Attach, _) => tmux_attach(&place.sessions, &row.name, watch),
-        (AttachMode::Watch, true) => {
-            let path = place.sessions.join(format!("{}.typescript", row.name));
-            let mut file = File::open(&path).with_context(|| format!("open {}", path.display()))?;
-            let session = SessionName(row.name.clone());
-            watch_typescript(&mut file, || unit_active(&session))
-        }
         (AttachMode::Watch, false) => refuse(
             SessionAttachRefusal::NotAttachable,
             "it runs under the launcher before tmux; restart the session to attach to it \
@@ -400,6 +408,242 @@ pub fn attach(
              follows its typescript now"
                 .to_owned(),
         ),
+        _ => open(&place.sessions, &row, watch),
+    }
+}
+
+/// Attaches to `row`, whose files are in `sessions`: its tmux, read-only under `watch`, or the
+/// follow of its typescript when it runs under the launcher before tmux.
+fn open(sessions: &Path, row: &AttachableSession, watch: bool) -> Result<ExitCode> {
+    match row.mode {
+        AttachMode::Attach => tmux_attach(sessions, &row.name, watch),
+        AttachMode::Watch => {
+            let path = sessions.join(format!("{}.typescript", row.name));
+            let mut file = File::open(&path).with_context(|| format!("open {}", path.display()))?;
+            let session = SessionName(row.name.clone());
+            watch_typescript(&mut file, || unit_active(&session))
+        }
+    }
+}
+
+/// A key the picker reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    /// Up arrow or `k`.
+    Up,
+    /// Down arrow or `j`.
+    Down,
+    /// Enter.
+    Enter,
+    /// `w`: attach read-only.
+    Watch,
+    /// `q`, `ctrl-c` or `ctrl-d`.
+    Quit,
+}
+
+/// The keys in `bytes` a terminal in raw mode sent; every other byte is dropped.
+#[must_use]
+pub fn keys(bytes: &[u8]) -> Vec<Key> {
+    let mut keys = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            0x1b if matches!(bytes.get(at + 1), Some(b'[' | b'O')) => {
+                match bytes.get(at + 2) {
+                    Some(b'A') => keys.push(Key::Up),
+                    Some(b'B') => keys.push(Key::Down),
+                    _ => {}
+                }
+                at += 3;
+                continue;
+            }
+            b'k' => keys.push(Key::Up),
+            b'j' => keys.push(Key::Down),
+            b'\r' | b'\n' => keys.push(Key::Enter),
+            b'w' => keys.push(Key::Watch),
+            b'q' | 0x03 | 0x04 => keys.push(Key::Quit),
+            _ => {}
+        }
+        at += 1;
+    }
+    keys
+}
+
+/// What a key asks of the picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Choice {
+    /// Nothing to do but draw again.
+    Stay,
+    /// Attach to the row at this index, read-only when `watch`.
+    Open {
+        /// The row's index.
+        index: usize,
+        /// Read-only.
+        watch: bool,
+    },
+    /// Leave the picker.
+    Quit,
+}
+
+/// The picker's model: the rows of every instance's live sessions, in instance order, and the
+/// selected one.
+#[derive(Debug, Default)]
+pub struct Picker {
+    rows: Vec<AttachableSession>,
+    selected: usize,
+}
+
+impl Picker {
+    /// Takes fresh rows, keeping the selection on the same session where it is still there.
+    pub fn refresh(&mut self, rows: Vec<AttachableSession>) {
+        let kept = self
+            .rows
+            .get(self.selected)
+            .and_then(|old| {
+                rows.iter()
+                    .position(|row| row.instance == old.instance && row.name == old.name)
+            })
+            .unwrap_or_else(|| self.selected.min(rows.len().saturating_sub(1)));
+        self.rows = rows;
+        self.selected = kept;
+    }
+
+    /// The rows.
+    #[must_use]
+    pub fn rows(&self) -> &[AttachableSession] {
+        &self.rows
+    }
+
+    /// The selected row's index.
+    #[must_use]
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    /// Moves or chooses by `key`: Enter attaches, read-only to a session before the tmux
+    /// launcher; `w` attaches read-only.
+    pub fn key(&mut self, key: Key) -> Choice {
+        match key {
+            Key::Up => self.selected = self.selected.saturating_sub(1),
+            Key::Down => {
+                self.selected = (self.selected + 1).min(self.rows.len().saturating_sub(1));
+            }
+            Key::Quit => return Choice::Quit,
+            Key::Enter | Key::Watch => {
+                if let Some(row) = self.rows.get(self.selected) {
+                    return Choice::Open {
+                        index: self.selected,
+                        watch: key == Key::Watch || row.mode == AttachMode::Watch,
+                    };
+                }
+            }
+        }
+        Choice::Stay
+    }
+
+    /// The screen: a help line, then each instance's name and its rows, the selected one
+    /// marked `>`; a session before the tmux launcher is marked `watch only`.
+    #[must_use]
+    pub fn render(&self) -> Vec<String> {
+        let mut lines = vec![
+            "conductor sessions: up/down or j/k move, Enter attaches, w watches, q quits; \
+             detach with ctrl-] then d"
+                .to_owned(),
+        ];
+        if self.rows.is_empty() {
+            lines.push("  no live session".to_owned());
+        }
+        let width = self
+            .rows
+            .iter()
+            .map(|row| row.name.len())
+            .max()
+            .unwrap_or(0);
+        let mut instance = None;
+        for (index, row) in self.rows.iter().enumerate() {
+            if instance != Some(&row.instance) {
+                lines.push(String::new());
+                lines.push(format!("{}:", row.instance));
+                instance = Some(&row.instance);
+            }
+            let mark = if index == self.selected { ">" } else { " " };
+            let words = line(row);
+            let rest: Vec<&str> = words.split(' ').skip(2).collect();
+            let mut text = format!("{mark} {:width$}  {}", row.name, rest.join("  "));
+            if row.mode == AttachMode::Watch {
+                text.push_str("  watch only");
+            }
+            lines.push(text);
+        }
+        lines
+    }
+}
+
+/// `session attach` without a name: the picker over every place's live sessions, in raw mode,
+/// drawn again every two seconds with fresh rows and after each detach, until `q`.
+fn pick(places: &[Place]) -> Result<ExitCode> {
+    if !io::stdin().is_terminal() {
+        bail!(
+            "session attach: the picker needs a terminal; pass --name or --role \
+             (`conductor session list` lists the sessions)"
+        );
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGHUP] {
+        signal_hook::flag::register(signal, Arc::clone(&stop)).context("watch for signals")?;
+    }
+    let mut picker = Picker::default();
+    loop {
+        picker.refresh(rows(places).context("session attach")?);
+        let choice = {
+            let _raw = Raw::enter()?;
+            let mut out = io::stdout().lock();
+            write!(out, "\x1b[H\x1b[2J{}\r\n", picker.render().join("\r\n"))?;
+            out.flush()?;
+            let stdin = io::stdin();
+            let mut fds = [PollFd::new(stdin.as_fd(), PollFlags::POLLIN)];
+            let ready = poll(&mut fds, PollTimeout::from(2000_u16)).unwrap_or(0);
+            let mut choice = Choice::Stay;
+            if stop.load(Ordering::Relaxed) {
+                choice = Choice::Quit;
+            } else if ready > 0 {
+                let mut buffer = [0_u8; 64];
+                let read = stdin.lock().read(&mut buffer).unwrap_or(0);
+                if read == 0 {
+                    choice = Choice::Quit;
+                }
+                for key in keys(&buffer[..read]) {
+                    choice = picker.key(key);
+                    if choice != Choice::Stay {
+                        break;
+                    }
+                }
+            }
+            choice
+        };
+        match choice {
+            Choice::Stay => {}
+            Choice::Quit => {
+                print!("\x1b[H\x1b[2J");
+                io::stdout().flush()?;
+                return Ok(ExitCode::SUCCESS);
+            }
+            Choice::Open { index, watch } => {
+                let row = picker.rows()[index].clone();
+                let Some(place) = places
+                    .iter()
+                    .find(|place| place.instance.name.0 == row.instance)
+                else {
+                    continue;
+                };
+                print!("\x1b[H\x1b[2J");
+                io::stdout().flush()?;
+                // A session that ended meanwhile, or a tmux that fails, shows the picker again.
+                if let Err(error) = open(&place.sessions, &row, watch) {
+                    eprintln!("conductor: {error:#}");
+                }
+            }
+        }
     }
 }
 
@@ -563,7 +807,138 @@ pub fn follow(
 
 #[cfg(test)]
 mod tests {
-    use super::Detach;
+    use conductor_model::session::{AttachMode, AttachableSession};
+
+    use super::{Choice, Detach, Key, Picker, keys};
+
+    fn row(instance: &str, name: &str, mode: AttachMode, idle: i64) -> AttachableSession {
+        AttachableSession {
+            instance: instance.to_owned(),
+            name: name.to_owned(),
+            mode,
+            directory: Some(format!("/work/{name}")),
+            busy: None,
+            idle_seconds: Some(idle),
+        }
+    }
+
+    /// Three rows: one the harness reports nothing of, busy by its idle time; one before the
+    /// tmux launcher; one the harness reports busy although its screen is idle.
+    fn picker() -> Picker {
+        let mut picker = Picker::default();
+        let mut api = row("beta", "beta-api", AttachMode::Attach, 40);
+        api.busy = Some(true);
+        picker.refresh(vec![
+            row("alpha", "alpha-conductor", AttachMode::Attach, 3),
+            row("alpha", "alpha-web", AttachMode::Watch, 120),
+            api,
+        ]);
+        picker
+    }
+
+    /// Arrows (both encodings) and `j`/`k` move, Enter, `w`, `q`, `ctrl-c` and `ctrl-d` are
+    /// read; other bytes are dropped.
+    #[test]
+    fn keys_are_read_from_raw_bytes() {
+        assert_eq!(
+            keys(b"\x1b[A\x1b[B\x1bOAjkx\rw\nq\x03\x04\x1b[C"),
+            [
+                Key::Up,
+                Key::Down,
+                Key::Up,
+                Key::Down,
+                Key::Up,
+                Key::Enter,
+                Key::Watch,
+                Key::Enter,
+                Key::Quit,
+                Key::Quit,
+                Key::Quit,
+            ]
+        );
+    }
+
+    /// The selection moves within the rows and stops at either end.
+    #[test]
+    fn the_selection_moves_and_stops_at_the_ends() {
+        let mut picker = picker();
+        assert_eq!(picker.key(Key::Up), Choice::Stay);
+        assert_eq!(picker.selected(), 0);
+        picker.key(Key::Down);
+        picker.key(Key::Down);
+        picker.key(Key::Down);
+        assert_eq!(picker.selected(), 2);
+        picker.key(Key::Up);
+        assert_eq!(picker.selected(), 1);
+    }
+
+    /// Enter attaches read-write, `w` read-only, and Enter on a session before the tmux
+    /// launcher watches it; `q` quits.
+    #[test]
+    fn enter_attaches_w_watches_and_q_quits() {
+        let mut picker = picker();
+        assert_eq!(
+            picker.key(Key::Enter),
+            Choice::Open {
+                index: 0,
+                watch: false
+            }
+        );
+        assert_eq!(
+            picker.key(Key::Watch),
+            Choice::Open {
+                index: 0,
+                watch: true
+            }
+        );
+        picker.key(Key::Down);
+        assert_eq!(
+            picker.key(Key::Enter),
+            Choice::Open {
+                index: 1,
+                watch: true
+            }
+        );
+        assert_eq!(picker.key(Key::Quit), Choice::Quit);
+        assert_eq!(Picker::default().key(Key::Enter), Choice::Stay);
+    }
+
+    /// Fresh rows keep the selection on the same session, and clamp it when that one is gone.
+    #[test]
+    fn a_refresh_keeps_the_selected_session() {
+        let mut picker = picker();
+        picker.key(Key::Down);
+        picker.refresh(vec![
+            row("alpha", "alpha-new", AttachMode::Attach, 1),
+            row("alpha", "alpha-conductor", AttachMode::Attach, 3),
+            row("alpha", "alpha-web", AttachMode::Watch, 125),
+        ]);
+        assert_eq!(picker.selected(), 2);
+        picker.refresh(vec![row("beta", "beta-api", AttachMode::Attach, 1)]);
+        assert_eq!(picker.selected(), 0);
+    }
+
+    /// The screen groups the rows under their instance, marks the selected one, shows the
+    /// repository, busy or idle and the idle seconds, and marks a session before tmux.
+    #[test]
+    fn the_screen_groups_rows_by_instance() {
+        let mut picker = picker();
+        picker.key(Key::Down);
+        let lines = picker.render();
+        assert!(lines[0].contains("ctrl-] then d"), "{lines:?}");
+        assert_eq!(
+            lines[1..],
+            [
+                "",
+                "alpha:",
+                "  alpha-conductor  alpha-conductor  busy  3s",
+                "> alpha-web        alpha-web  idle  120s  watch only",
+                "",
+                "beta:",
+                "  beta-api         beta-api  busy  40s",
+            ]
+        );
+    }
 
     /// `ctrl-]` then `d` detaches, across reads too; `d` alone or after another key does not.
     #[test]
