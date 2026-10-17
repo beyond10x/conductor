@@ -599,13 +599,23 @@ fn every_build_runs_under_conductor_build_run_and_a_refusal_is_reported() {
     for name in ["repo-controller.md", "conductor-dev.md"] {
         let text = profile(name);
         for sentence in [
-            "build, test or gate runs as `conductor build run --reserve <size> -- <command>`",
+            "build, test or gate runs as `conductor build run [--reserve auto|<size>] -- <command>`",
             "refusal names the shortfall and is reported, never retried in a loop",
         ] {
             assert!(text.contains(sentence), "{name}: holds {sentence:?}");
         }
     }
     let controller = profile("repo-controller.md");
+    // `story:reserve-from-peak`: the size is the ledger's recorded peak, not a guess.
+    let flat = controller.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains("builds use `--reserve auto` unless a size is known to be larger"),
+        "repo-controller.md: builds use `--reserve auto`"
+    );
+    assert!(
+        !controller.contains("`--reserve 8G` for a cargo"),
+        "repo-controller.md: no fixed size is the default"
+    );
     for sentence in [
         "The guard denies a plain `cargo build|test|check|clippy|nextest|install|run`, \
          `task check|gate|install|ui|regen|docs-generate`, `npm run build|test` or `npm ci`, and \

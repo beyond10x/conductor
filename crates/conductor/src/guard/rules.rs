@@ -2167,10 +2167,11 @@ fn leaf_after(words: &[String], strict: bool, fed: bool) -> Option<DeniedRun> {
         .then(|| DeniedRun::Unknown(words[..at.min(words.len())].join(" ")))
 }
 
-/// The reservation a build, test or gate takes by default: cargo and `task` (8G), and npm and the
-/// dashboard's `task ui` (2G) (`story:guard-requires-build-run`).
-const BUILD_RESERVE: &str = "8G";
-const NPM_RESERVE: &str = "2G";
+/// The reservation the guard proposes for a build, test or gate: `auto`, which `conductor build
+/// run` resolves to the largest peak its host ledger recorded for the repository and command plus
+/// half (`story:reserve-from-peak`). The guard answers without opening the store, so it names no
+/// size of its own (`story:guard-requires-build-run`).
+const BUILD_RESERVE: &str = "auto";
 
 /// The cargo subcommands that compile into a target directory, aliases included. `fmt`,
 /// `metadata` and `tree` compile nothing.
@@ -2182,14 +2183,14 @@ const CARGO_BUILDS: [&str; 15] = [
 /// The cargo options that take the next word as their value.
 const CARGO_VALUES: [&str; 5] = ["--manifest-path", "--config", "--color", "-Z", "-C"];
 
-/// The tasks that build, test or gate, with the reservation each takes.
+/// The tasks that build, test or gate, with the reservation each is proposed.
 const TASK_BUILDS: [(&str, &str); 6] = [
     ("check", BUILD_RESERVE),
     ("gate", BUILD_RESERVE),
     ("install", BUILD_RESERVE),
     ("regen", BUILD_RESERVE),
     ("docs-generate", BUILD_RESERVE),
-    ("ui", NPM_RESERVE),
+    ("ui", BUILD_RESERVE),
 ];
 
 /// The `task` options that take the next word as their value.
@@ -2296,8 +2297,8 @@ fn build_reserve(program: &str, arguments: &[String]) -> Option<&'static str> {
             [
                 "ci" | "clean-install" | "install-clean" | "test" | "t" | "tst",
                 ..,
-            ] => Some(NPM_RESERVE),
-            ["run" | "run-script" | "rum" | "urn", "build" | "test", ..] => Some(NPM_RESERVE),
+            ] => Some(BUILD_RESERVE),
+            ["run" | "run-script" | "rum" | "urn", "build" | "test", ..] => Some(BUILD_RESERVE),
             _ => None,
         },
         _ => None,

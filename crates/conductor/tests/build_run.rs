@@ -128,7 +128,7 @@ impl Case {
 
     fn request(&self, reserve: u64, script: &str) -> Request {
         Request {
-            reserve,
+            reserve: Some(reserve),
             repository: Some("example-repo".to_owned()),
             session_name: None,
             command: vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()],
@@ -3130,4 +3130,208 @@ fn host_grants_shows_an_unmeasured_peak_as_unknown() {
     let json = run(&["host", "grants", "--format", "json"]);
     let rows: serde_json::Value = serde_json::from_slice(&json.stdout).expect("json rows");
     assert!(rows[0]["peak_bytes"].is_null(), "{rows}");
+}
+
+// story:reserve-from-peak: `--reserve auto`, and no `--reserve`, reserve the largest peak the
+// ledger recorded for the repository and command in the last 14 days plus 50 %.
+
+/// Records one released run of `command` in `repository` on the case's ledger, as a past run
+/// leaves it: `age` days ago, with `peak` bytes written, or none for an unmeasured run.
+fn recorded(case: &Case, repository: &str, command: &str, peak: Option<u64>, age: i64) {
+    let at = host::now(OffsetDateTime::now_utc() - time::Duration::days(age));
+    let host = case.host();
+    let grant = {
+        let mut ledger = host::Ledger::lock(&host).expect("the ledger opens");
+        let grant = ledger
+            .request_of(
+                "example-org",
+                Some(repository),
+                None,
+                None,
+                GIB,
+                command,
+                &at,
+            )
+            .expect("the request is kept");
+        ledger
+            .reserve(&grant, 0, 0)
+            .expect("the reservation is granted");
+        grant
+    };
+    host::start_run(&host, &grant, 4242, &at).expect("the run starts");
+    if let Some(peak) = peak {
+        host::record_peak_of(&host, &grant, peak).expect("the peak is recorded");
+    }
+    host::release(&host, &grant, Some(ReleaseReason::Exited), &at).expect("the grant is released");
+}
+
+/// A request to run `script` that gives no size: `--reserve auto`.
+fn auto_request(case: &Case, script: &str) -> Request {
+    Request {
+        reserve: None,
+        ..case.request(GIB, script)
+    }
+}
+
+/// Runs `request` on the case and answers the grant's row.
+fn ran(case: &Case, request: &Request) -> conductor_model::host::Grants {
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        request,
+    )
+    .expect("the run ends");
+    let Outcome::Ran { ref grant, .. } = outcome else {
+        panic!("the command ran: {outcome:?}");
+    };
+    case.grants()
+        .into_iter()
+        .find(|row| row.grant_id == *grant)
+        .expect("the ledger holds the grant")
+}
+
+#[test]
+fn auto_reserves_the_largest_recent_peak_of_the_command_plus_half() {
+    let case = Case::new("auto-peak");
+    let command = "sh -c true";
+    recorded(&case, "example-repo", command, Some(GIB), 5);
+    recorded(&case, "example-repo", command, Some(2 * GIB), 3);
+    // None of these counts: too old, another repository, another command, no measurement.
+    recorded(&case, "example-repo", command, Some(9 * GIB), 20);
+    recorded(&case, "other-repo", command, Some(9 * GIB), 1);
+    recorded(&case, "example-repo", "bash -c true", Some(9 * GIB), 1);
+    recorded(&case, "example-repo", command, None, 1);
+    let row = ran(&case, &auto_request(&case, "true"));
+    assert_eq!(
+        row.bytes,
+        Some(i64::try_from(3 * GIB).unwrap()),
+        "2G + 50 %: {row:?}"
+    );
+    let said = case.said();
+    assert!(
+        said.contains("reserving 3G") && said.contains("peak") && said.contains("2G"),
+        "the size and its source are printed:\n{said}"
+    );
+}
+
+#[test]
+fn auto_reserves_at_least_1g() {
+    let case = Case::new("auto-least");
+    recorded(&case, "example-repo", "sh -c true", Some(100 << 20), 1);
+    let row = ran(&case, &auto_request(&case, "true"));
+    assert_eq!(row.bytes, Some(i64::try_from(GIB).unwrap()), "{row:?}");
+}
+
+#[test]
+fn auto_with_no_recorded_peak_reserves_the_default_and_says_so() {
+    let case = Case::new("auto-default");
+    // An unmeasured run is no peak.
+    recorded(&case, "example-repo", "sh -c true", None, 1);
+    let row = ran(&case, &auto_request(&case, "true"));
+    assert_eq!(
+        row.bytes,
+        Some(i64::try_from(build::DEFAULT_RESERVE).unwrap()),
+        "{row:?}"
+    );
+    let said = case.said();
+    assert!(
+        said.contains("reserving 4G") && said.contains("built-in default"),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_reserve_over_twice_the_peak_warns_naming_the_peak() {
+    let case = Case::new("reserve-warns");
+    recorded(&case, "example-repo", "sh -c true", Some(GIB), 1);
+    let row = ran(&case, &case.request(5 * GIB, "true"));
+    assert_eq!(
+        row.bytes,
+        Some(i64::try_from(5 * GIB).unwrap()),
+        "the size given is kept: {row:?}"
+    );
+    let said = case.said();
+    assert!(
+        said.contains("over twice") && said.contains("peak") && said.contains("1G"),
+        "{said}"
+    );
+    let quiet = Case::new("reserve-quiet");
+    recorded(&quiet, "example-repo", "sh -c true", Some(GIB), 1);
+    ran(&quiet, &quiet.request(2 * GIB, "true"));
+    assert!(!quiet.said().contains("over twice"), "{}", quiet.said());
+}
+
+#[test]
+fn a_refusal_names_the_measured_peak_beside_the_shortfall() {
+    let case = Case::new("refused-peak");
+    case.free(12 * GIB);
+    recorded(&case, "example-repo", "sh -c true", Some(GIB), 1);
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(8 * GIB, "true"),
+    )
+    .expect("the run ends");
+    assert!(matches!(outcome, Outcome::Refused { .. }), "{outcome:?}");
+    let said = case.said();
+    let refusal = said
+        .lines()
+        .find(|line| line.contains("refused"))
+        .expect("a refusal line");
+    assert!(
+        refusal.contains("short") && refusal.contains("peak") && refusal.contains("1G"),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_commands_key_is_its_first_two_words_and_its_package_flags() {
+    let key = build::command_key;
+    let plain = key("cargo test -p foo");
+    assert_eq!(key("cargo test --package foo"), plain);
+    assert_eq!(key("cargo test -pfoo"), plain);
+    assert_eq!(key("cargo test -p foo -- --nocapture a_name"), plain);
+    assert_eq!(key("cargo test --lib -p foo"), plain);
+    assert_eq!(
+        key("nice -n 19 ionice -c3 env CARGO_BUILD_JOBS=18 cargo test -p foo"),
+        plain,
+        "the wrappers are no part of the command"
+    );
+    assert_ne!(key("cargo test -p bar"), plain);
+    assert_ne!(key("cargo test"), plain);
+    assert_ne!(key("cargo test --workspace"), plain);
+    assert_ne!(key("cargo build -p foo"), plain);
+    assert_eq!(key("cargo test -p a -p b"), key("cargo test -p b -p a"));
+}
+
+#[test]
+fn reserve_reads_a_size_or_auto() {
+    assert_eq!(build::reserve_word("auto"), Ok("auto".to_owned()));
+    assert_eq!(build::reserve_word("8G"), Ok("8G".to_owned()));
+    assert!(build::reserve_word("autoo").is_err());
+    assert!(build::reserve_word("4.2").is_err());
+}
+
+#[test]
+fn the_binary_refuses_a_reserve_that_is_no_size_and_names_auto() {
+    let case = Case::new("reserve-no-size");
+    let home = case.dir.join("home");
+    fs::create_dir_all(&home).expect("create the case's home");
+    let output = common::conductor(&home)
+        .arg("--state-dir")
+        .arg(case.state())
+        .args(["build", "run", "--reserve", "4.2", "--", "true"])
+        .current_dir(case.work())
+        .output()
+        .expect("conductor runs");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("--reserve") && said.contains("auto"),
+        "{said}"
+    );
 }

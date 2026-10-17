@@ -1367,9 +1367,11 @@ pub enum BuildCommand {
 /// repository as flags, and the command after `--`, taken as it is written.
 #[derive(Debug, Clone, Args)]
 pub struct BuildRunArgs {
-    /// The command's expected peak, in GiB: `8G`, or `8`
-    #[arg(long, value_name = "SIZE", value_parser = crate::build::gibibytes)]
-    pub reserve: Option<i64>,
+    /// The command's expected peak, in GiB: `8G`, or `8`; or `auto`, which is also what no
+    /// `--reserve` means: the largest peak the ledger recorded for the same repository and command
+    /// in the last 14 days plus 50 %, at least 1G, and 4G when none is recorded
+    #[arg(long, value_name = "SIZE")]
+    pub reserve: Option<String>,
     /// The repository the command builds, recorded with the reservation
     #[arg(long)]
     pub repository: Option<String>,

@@ -2040,7 +2040,7 @@ Usage: conductor build run [OPTIONS] [-- <COMMAND>...]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--reserve <SIZE>` | no | none | The command's expected peak, in GiB: `8G`, or `8` |
+| `--reserve <SIZE>` | no | none | The command's expected peak, in GiB: `8G`, or `8`; or `auto`, which is also what no `--reserve` means: the largest peak the ledger recorded for the same repository and command in the last 14 days plus 50 %, at least 1G, and 4G when none is recorded |
 | `--repository <REPOSITORY>` | no | none | The repository the command builds, recorded with the reservation |
 | `--measure <DIR>` | no | none | A directory to measure besides the run's own (`target/`, the working directory, and `CARGO_TARGET_DIR` when the command's environment sets it); repeatable |
 | `<COMMAND>` | no | none | The command and its arguments, after `--` |

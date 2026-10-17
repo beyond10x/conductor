@@ -121,15 +121,19 @@ types:
       - {name: path, type: String}
       - {name: bytes, type: Integer}
 
-  # The input of `conductor build run --reserve <size> [--repository <repo>] [--measure <dir>]… --
-  # <command> [args…]` (story:build-run). The size is written in GiB with `G`, as the config file
-  # writes one. Each `--measure` directory is measured with the run's own (`target/` or the working
+  # The input of `conductor build run [--reserve <size>|auto] [--repository <repo>] [--measure
+  # <dir>]… -- <command> [args…]` (story:build-run). The size is written in GiB with `G`, as the
+  # config file writes one. `auto`, or no `--reserve`, reserves the largest peak recorded in the
+  # ledger for the same repository and command (its first two words and its package flags) in the
+  # last 14 days plus 50 %, at least 1G; with none recorded, the built-in default of 4G. A size
+  # over twice that peak is run as written, with a warning naming the peak
+  # (story:reserve-from-peak). Each `--measure` directory is measured with the run's own (`target/` or the working
   # directory, and `CARGO_TARGET_DIR` when the command's environment sets it), for a run that
   # writes elsewhere (story:reserve-from-peak).
   - name: conductor.host.BuildRun
     kind: struct
     fields:
-      - {name: reserve, type: conductor.config.Gibibytes}
+      - {name: reserve, type: Optional<String>}
       - {name: repository, type: Optional<conductor.observation.RepositoryName>}
       - {name: measure, type: List<String>}
       - {name: command, type: List<String>}

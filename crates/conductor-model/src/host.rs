@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 2e5b29aaad0d8c218d79eb5543777bb5af405cb944ca970918732b16a196545d
-// contract digest aae69b636237b6a108a4697b18ff80d398c3f5cf005b230fbde3acec7a653ccb
+// model digest b4ac33dcc27ec282f3b091c19d5d6a0aebcd2d11224da3b65cb0dfbfcef109e9
+// contract digest 601464254722197d778ecf468f72c6f5b6f60f04f47c06c1fa0af8882d6c410f
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -14,8 +14,8 @@
 /// BuildRun — `conductor.host.BuildRun`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRun {
-    /// `reserve` — `conductor.config.Gibibytes`.
-    pub reserve: crate::config::Gibibytes,
+    /// `reserve` — `Optional<String>`.
+    pub reserve: Option<String>,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<crate::observation::RepositoryName>,
     /// `measure` — `List<String>`.

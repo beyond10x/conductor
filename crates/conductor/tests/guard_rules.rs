@@ -5601,76 +5601,85 @@ fn sec_forge_reads_stay_reads() {
 // -------------------------------------------------------------------------------------------------
 
 /// Each build, test or gate command a controller runs plainly is denied, and the denial names the
-/// exact `conductor build run` form with that command's default reservation: 8G for cargo and
-/// `task`, 2G for npm and `task ui`. A worker in a managed tree is held as its controller is.
+/// exact `conductor build run` form with `--reserve auto`, which reserves the command's recorded
+/// peak (`story:reserve-from-peak`), never a fixed size. A worker in a managed tree is held as its
+/// controller is.
 #[test]
 fn a_controller_s_unreserved_build_is_denied_with_the_build_run_form() {
     let home = home("build-run-deny");
     let cases = [
-        ("cargo build", "cargo build", "8G"),
-        ("cargo test -p x", "cargo test -p x", "8G"),
+        ("cargo build", "cargo build", "auto"),
+        ("cargo test -p x", "cargo test -p x", "auto"),
         (
             "cargo check --all-targets",
             "cargo check --all-targets",
-            "8G",
+            "auto",
         ),
         (
             "cargo clippy --all-targets -- -D warnings",
             "cargo clippy --all-targets -- -D warnings",
-            "8G",
+            "auto",
         ),
-        ("cargo nextest run", "cargo nextest run", "8G"),
+        ("cargo nextest run", "cargo nextest run", "auto"),
         (
             "cargo install --path crates/conductor --locked",
             "cargo install --path crates/conductor --locked",
-            "8G",
+            "auto",
         ),
-        ("cargo run -- --help", "cargo run -- --help", "8G"),
-        ("cargo +nightly test", "cargo +nightly test", "8G"),
+        ("cargo run -- --help", "cargo run -- --help", "auto"),
+        ("cargo +nightly test", "cargo +nightly test", "auto"),
         (
             "cargo --manifest-path x/Cargo.toml build",
             "cargo --manifest-path x/Cargo.toml build",
-            "8G",
+            "auto",
         ),
-        ("cargo t", "cargo t", "8G"),
-        ("task check", "task check", "8G"),
-        ("task gate", "task gate", "8G"),
-        ("task install", "task install", "8G"),
-        ("task regen", "task regen", "8G"),
-        ("task docs-generate", "task docs-generate", "8G"),
-        ("task -d crates check", "task -d crates check", "8G"),
-        ("task ui", "task ui", "2G"),
-        ("npm run build", "npm run build", "2G"),
-        ("npm run test", "npm run test", "2G"),
-        ("npm test", "npm test", "2G"),
-        ("npm ci", "npm ci", "2G"),
+        ("cargo t", "cargo t", "auto"),
+        ("task check", "task check", "auto"),
+        ("task gate", "task gate", "auto"),
+        ("task install", "task install", "auto"),
+        ("task regen", "task regen", "auto"),
+        ("task docs-generate", "task docs-generate", "auto"),
+        ("task -d crates check", "task -d crates check", "auto"),
+        ("task ui", "task ui", "auto"),
+        ("npm run build", "npm run build", "auto"),
+        ("npm run test", "npm run test", "auto"),
+        ("npm test", "npm test", "auto"),
+        ("npm ci", "npm ci", "auto"),
         (
             "npm --prefix website run build",
             "npm --prefix website run build",
-            "2G",
+            "auto",
         ),
-        ("cd src && cargo test 2>&1 | tail -5", "cargo test", "8G"),
-        ("timeout 600 cargo test", "cargo test", "8G"),
-        ("env RUSTFLAGS=-Dwarnings cargo build", "cargo build", "8G"),
-        ("/usr/bin/cargo test", "/usr/bin/cargo test", "8G"),
-        ("bash -c 'cargo test -p x'", "cargo test -p x", "8G"),
-        ("echo \"$(cargo build)\"", "cargo build", "8G"),
+        ("cd src && cargo test 2>&1 | tail -5", "cargo test", "auto"),
+        ("timeout 600 cargo test", "cargo test", "auto"),
+        (
+            "env RUSTFLAGS=-Dwarnings cargo build",
+            "cargo build",
+            "auto",
+        ),
+        ("/usr/bin/cargo test", "/usr/bin/cargo test", "auto"),
+        ("bash -c 'cargo test -p x'", "cargo test -p x", "auto"),
+        ("echo \"$(cargo build)\"", "cargo build", "auto"),
         (
             "conductor build run --reserve 8G -- true && cargo test",
             "cargo test",
-            "8G",
+            "auto",
         ),
         (
             "conductor build run --reserve 8G -- bash -c 'cargo test' && bash -c 'cargo test'",
             "cargo test",
-            "8G",
+            "auto",
         ),
         (
             "conductor build run --reserve 8G -- echo \"$(cargo build)\"",
             "cargo build",
-            "8G",
+            "auto",
         ),
-        ("cargo test -p x -- 'a b'", "cargo test -p x -- 'a b'", "8G"),
+        (
+            "cargo test -p x -- 'a b'",
+            "cargo test -p x -- 'a b'",
+            "auto",
+        ),
     ];
     for cwd in [PROBE, WORKER] {
         for (command, run, size) in cases {
@@ -5678,6 +5687,10 @@ fn a_controller_s_unreserved_build_is_denied_with_the_build_run_form() {
                 &bash(&home, cwd, command),
                 Verdict::Deny,
                 &format!("`conductor build run --reserve {size} -- {run}`"),
+            );
+            assert!(
+                !bash(&home, cwd, command).reason.contains("8G"),
+                "{command}: no fixed size is proposed"
             );
         }
     }
