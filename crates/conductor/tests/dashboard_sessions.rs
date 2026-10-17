@@ -371,6 +371,9 @@ fn the_rows_are_the_instance_s_sessions_from_its_records_with_their_open_dispatc
     assert_eq!(beta["dispatch"]["id"], "DSP-20261013-03", "{data:#}");
     assert_eq!(beta["dispatch"]["open"], true, "{data:#}");
     assert_eq!(beta["dispatch"]["goal"], "G3");
+    // The last event is the shown dispatch's own: the open one has none yet, and the closed
+    // one's `done` is not shown beside it.
+    assert_eq!(beta["dispatch"]["event"], Value::Null, "{data:#}");
     let gamma = row(&data, "ex-gamma");
     assert_eq!(gamma["repository"], "gamma");
     assert_eq!(gamma["exited"], true, "no session runs it: {data:#}");

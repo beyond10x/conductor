@@ -246,8 +246,9 @@ fn session(
 }
 
 /// The dispatch of the controller named one of `names` for `repository`: the newest open one
-/// sent to it, else its newest one, with `open` saying which; with the controller's last event,
-/// the latest by `at` of the event lines of every dispatch sent to it.
+/// sent to it, else its newest one, with `open` saying which; with that dispatch's last event,
+/// the latest by `at` of its event lines (a report of minutes ago beats a state line written after
+/// it with an older `at`).
 pub(super) fn dispatch(
     names: &[String],
     repository: &str,
@@ -288,8 +289,10 @@ pub(super) fn dispatch(
         None => (*sent.last()?, false),
     };
     let id = line["id"].as_str()?;
+    // The shown dispatch's own last event, so a row never pairs one dispatch with another's.
     let event = events
         .iter()
+        .filter(|(_, event)| event["id"].as_str() == Some(id))
         .filter_map(|(read, event)| {
             let at = OffsetDateTime::parse(event["at"].as_str()?, &Rfc3339).ok()?;
             Some(((at, *read), *event))
