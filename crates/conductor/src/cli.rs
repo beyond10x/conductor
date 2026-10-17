@@ -583,7 +583,7 @@ pub enum Group {
     #[command(subcommand)]
     Rules(RulesCommand),
 
-    /// Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute and REPORT.md. --once runs one watch tick and one cycle tick and exits; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    /// Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
     #[command(name = "run")]
     Run(RunArgs),
 
@@ -3820,6 +3820,10 @@ pub struct RunArgs {
     /// `--uninstall true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub uninstall: Option<bool>,
+    /// With --once: commit the records directory through the bot route and push it when it has
+    /// an origin, and run no tick. `--commit-records` alone is `--commit-records true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub commit_records: Option<bool>,
 }
 
 /// The input of `conductor.session.ClaimLease`.

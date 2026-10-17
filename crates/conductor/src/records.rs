@@ -58,7 +58,7 @@ pub const DECISIONS: &str = "decisions";
 
 /// The keys a line of the dispatch log may hold: the fields of `conductor.dispatch.DispatchLogLine`
 /// (`spec/domains/dispatch.yaml`), in its order.
-pub const DISPATCH_KEYS: [&str; 25] = [
+pub const DISPATCH_KEYS: [&str; 26] = [
     "at",
     "event",
     "repo",
@@ -84,6 +84,7 @@ pub const DISPATCH_KEYS: [&str; 25] = [
     "path",
     "line",
     "tick_id",
+    "commit",
 ];
 
 /// The keys every line of the dispatch log holds.
@@ -145,11 +146,13 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::Cleanup => "cleanup",
         DispatchLogEvent::DecisionSent => "decision-sent",
         DispatchLogEvent::Cycle => "cycle",
+        DispatchLogEvent::RecordsCommitted => "records-committed",
+        DispatchLogEvent::RecordsCommitRefused => "records-commit-refused",
     }
 }
 
 /// Every event of the dispatch log, in the specification's order.
-pub const DISPATCH_EVENTS: [DispatchLogEvent; 23] = [
+pub const DISPATCH_EVENTS: [DispatchLogEvent; 25] = [
     DispatchLogEvent::Sent,
     DispatchLogEvent::Started,
     DispatchLogEvent::Blocked,
@@ -173,6 +176,8 @@ pub const DISPATCH_EVENTS: [DispatchLogEvent; 23] = [
     DispatchLogEvent::Cleanup,
     DispatchLogEvent::DecisionSent,
     DispatchLogEvent::Cycle,
+    DispatchLogEvent::RecordsCommitted,
+    DispatchLogEvent::RecordsCommitRefused,
 ];
 
 /// The dispatch log event `name` spells ([`dispatch_event`]), if any.
@@ -252,6 +257,7 @@ pub fn dispatch_line(event: DispatchLogEvent, repo: &str) -> Result<DispatchLogL
         path: None,
         line: None,
         tick_id: None,
+        commit: None,
     })
 }
 
@@ -325,6 +331,7 @@ pub fn dispatch_object(line: &DispatchLogLine) -> Map<String, Value> {
     put(&mut object, "path", line.path.clone());
     put(&mut object, "line", line.line.clone());
     put(&mut object, "tick_id", line.tick_id.clone());
+    put(&mut object, "commit", line.commit.clone());
     object
 }
 

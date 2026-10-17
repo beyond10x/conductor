@@ -15,7 +15,9 @@
 //! **Daily.** `metric compute --day <the previous UTC day>`, then `status`, and the brief
 //! `<records>/REPORT.md`: the day, each reading that misses its target, each reading that could not
 //! be computed, and what `status` says asks for attention; deviations only, no reading that meets
-//! its target.
+//! its target. Then the records directory, the brief with it, is committed and pushed through the
+//! bot route for that day ([`super::commit_records`]), its `records-committed` or
+//! `records-commit-refused` line carrying the tick's id.
 
 use std::path::Path;
 use std::process::Command;
@@ -29,7 +31,7 @@ use conductor_model::session::TickKind;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use super::{Seams, Summary, Tick, one_line, write_file};
+use super::{Route, Seams, Summary, Tick, commit_records, one_line, write_file};
 
 /// How long one step of the cycle or the daily tick may run.
 const STEP_BOUND: Duration = Duration::from_secs(3600);
@@ -185,14 +187,15 @@ fn merge_human(file: &Path) -> bool {
 ///
 /// # Errors
 ///
-/// The tick cannot be started, the brief not written, or the tick not recorded.
+/// The tick cannot be started, the brief not written, the commit's line not written, or the tick
+/// not recorded.
 pub fn daily_tick(
     config_flag: Option<&Path>,
     state: Option<&Path>,
     day: &str,
     seams: &Seams<'_>,
 ) -> Result<Summary> {
-    let tick = Tick::start(config_flag, state, TickKind::Daily, seams)?;
+    let mut tick = Tick::start(config_flag, state, TickKind::Daily, seams)?;
     let mut metrics = Vec::new();
     match run_step(&tick, &["metric", "compute", "--day", day]) {
         Ok(output) => {
@@ -243,9 +246,12 @@ pub fn daily_tick(
         section(&metrics),
         section(&attention)
     );
-    write_file(
-        &Path::new(&tick.instance().records).join("REPORT.md"),
-        &brief,
-    )?;
+    let records = Path::new(&tick.instance().records);
+    write_file(&records.join("REPORT.md"), &brief)?;
+    let route = Route::new(&tick.seams.program, tick.config, tick.state);
+    if let Some(mut line) = commit_records(records, &route, day).line()? {
+        line.tick_id = Some(tick.id.clone());
+        tick.write(&line)?;
+    }
     tick.finish()
 }
