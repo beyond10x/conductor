@@ -7,7 +7,7 @@ title: conductor session attach connects the operator's terminal to a live sessi
 relations:
 - decomposes: epic:session-attach
 - depends_on: story:session-pty-relay
-revision: 2
+revision: 3
 ---
 # Story: session-attach-command
 
@@ -43,3 +43,17 @@ Read-only mode (`story:session-attach-watch`); the refusal inside a session (`st
 
 - Detach key: `ctrl-]` then `d` is proposed so `ctrl-p` and `ctrl-q` stay free for the harness; the operator may want another, and a `--detach-keys` option.
 - Replay as the typescript tail or as a redraw forced by a resize: the tail is simpler but can start mid escape sequence.
+
+## Scope
+
+## Scope
+
+Design decided on 2026-10-17 by the operator: tmux runs inside the session's systemd unit, which replaces the pty relay of story:session-pty-relay. The attach must not depend on a particular harness.
+
+- crates/conductor/src/confine/systemd.rs:74 `LAUNCHER`: today `exec 3<>"$1" && exec script -qfec "$3" "$2" <&3`. Becomes `tmux -D -S <state>/sessions/<name>.tmux new-session -s <name> -x 160 -y 50 '<harness command>'`, with `pipe-pane` keeping `<name>.typescript`. (cited)
+- crates/conductor/src/confine/systemd.rs:314-326, the FIFO creation, and :383-385, the launcher arguments. (cited)
+- crates/conductor/src/confine/systemd.rs:509-510: the only FIFO writer, the text typed into a session. Becomes `tmux -S <sock> send-keys -t <name> -l <text>` plus Enter. (cited)
+- crates/conductor/src/confine/systemd.rs:20-21: the module doc. (cited)
+- crates/conductor/src/session.rs:648 `start`: session start, plus the new `attach` (`--watch` is `tmux attach -r`, refused inside a session) and `attach` without a name, a picker across instances. (cited)
+- spec/domains/session.yaml: the attach command and the session list. (cited)
+- crates/conductor/src/guard*: deny `tmux -S <state>/sessions/…` to sessions. (inferred)
