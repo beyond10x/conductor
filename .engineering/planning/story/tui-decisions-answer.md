@@ -7,7 +7,7 @@ title: The operator answers an escalated decision in the TUI after a confirm ste
 relations:
 - decomposes: epic:tui-frontend
 - depends_on: story:tui-decisions-read
-revision: 1
+revision: 2
 ---
 # Story: tui-decisions-answer
 
@@ -21,6 +21,7 @@ The operator answers an open escalated decision (class O or H) from the Decision
 - A decision recorded by the operator needs the session that ran it and his words (`--recorded-by`, `--operator-words`, decide.rs:319-330; spec/domains/decision.yaml:193). The TUI records `tui` as the session and the words the operator typed or the label of the option he chose, as the page does for its clicks.
 - Only class O and H items are the operator's (decide.rs:283-308): the screen offers an answer for no other class.
 - The confirm step is the product's rule for the operator's irreversible act: nothing is recorded on the first keypress.
+- Shared surface: the guard table in `docs/design/conductor.md` § 7 and the guard code are also changed by `story:session-attach-refuses-sessions` and `story:demo-mode`; the merge cost is accepted, and each command's rule is its own entry.
 
 ## Acceptance
 
@@ -29,7 +30,7 @@ The operator answers an open escalated decision (class O or H) from the Decision
 3. The confirm step prints the exact command that would be recorded (`conductor decision answer-escalated-as-operator ...` with request id, choice letters and the words), says "recorded as you", and requires `y`; any other key returns to the form; `esc` cancels and records nothing (a test shows the decision log and store unchanged).
 4. After `y`, the item is answered in the store, a decision line is written with `decided_by` the operator and recorded by `tui`, and the item disappears from the open list on the next refresh; the same answer through the dashboard's endpoint for another item writes a line identical but for the recorder (one test compares both).
 5. An answer refused by the specification (`RequestNotFound`, `RequestStateConflict`, `ChoiceInvalid`, `DecisionExists`, decide.rs:545-550) shows its name and message in the form and records nothing; a request answered meanwhile by the dashboard shows `RequestStateConflict`.
-6. A guard rule keeps a conductor, controller or worker session from running `conductor tui` or answering through it (docs/design/conductor.md § 7: no `conductor` command that writes); a test shows the denial, and the security overview (`website/docs/security/overview.md`) states that a local process that can run the command is recorded as the operator, as it says for the page.
+6. This story is the sole owner of keeping sessions out of `conductor tui`: a guard rule keeps a conductor, controller or worker session from running `conductor tui` or answering through it, with its entry in the guard table of `docs/design/conductor.md` § 7 (no `conductor` command that writes); a test shows the denial, and the security overview (`website/docs/security/overview.md`) states that a local process that can run the command is recorded as the operator, as it says for the page.
 
 ## Out of Scope
 

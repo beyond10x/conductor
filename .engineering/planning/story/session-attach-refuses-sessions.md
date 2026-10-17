@@ -7,7 +7,8 @@ title: A session cannot attach to a session
 relations:
 - decomposes: epic:session-attach
 - depends_on: story:session-attach-command
-revision: 1
+- depends_on: story:session-attach-watch
+revision: 2
 ---
 # Story: session-attach-refuses-sessions
 
@@ -21,6 +22,7 @@ revision: 1
 - The same table says "no `conductor` command that writes, only its views" (docs/design/conductor.md § 7); attach writes, so the guard must name it.
 - The dashboard's answer endpoint set the pattern: the one write of the dashboard is guarded by a token and by a guard rule against sessions reaching it (crates/conductor/src/dashboard.rs:20-26).
 - The provider puts the launch's variables in a session's environment (crates/conductor/src/confine/systemd.rs:15-18); a variable gives the client a cheap first refusal but can be unset, so it is not the control.
+- Shared surface: this story shares the relay's connection-accept path and `spec/domains/session.yaml` with `story:session-attach-watch`, on which it depends, and the guard table in `docs/design/conductor.md` § 7 with `story:tui-decisions-answer` and `story:demo-mode`, each command's rule its own entry. It ships in the same release as `story:session-attach-command`, so no release carries attach without the refusal.
 
 ## Acceptance
 

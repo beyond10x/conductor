@@ -7,7 +7,7 @@ title: Anyone installs the release binary and sees conductor work in under five 
 relations:
 - decomposes: initiative:adoption
 - informed_by: epic:onboarding-from-url
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -17,7 +17,7 @@ Today the first page is long. `website/docs/getting-started.md` (237 lines) inst
 
 ## Outcome
 
-A person on Linux or macOS with no Rust toolchain, no config and no repository of conductor's kind pastes at most three commands from the front of the README or of `website/docs/quick-start.md`, and within five minutes has: the release binary installed with its checksum verified, a demo instance on a sample repository, the dashboard open in his browser showing a first dispatch, and the next step (his own repository) named. A CI job runs those same commands on every change to the page and before every release, so the page cannot rot.
+A person on Linux or macOS with no Rust toolchain, no config and no repository of conductor's kind pastes at most three commands from the front of the README or of `website/docs/quick-start.md`, and within five minutes has: the release binary installed with its checksum verified, a demo instance on a sample repository, the dashboard open in his browser showing a first dispatch, and the next step named: `conductor init` with no config writes a one-instance config for his own repositories (`story:init-defaults`), which is not on the five-minute path. A CI job runs those same commands on every change to the page and before every release, so the page cannot rot.
 
 ## Decision: a new epic, not an extension of `epic:onboarding-from-url`
 

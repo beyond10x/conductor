@@ -6,7 +6,7 @@ status: draft
 title: One pasted command installs the newest release binary with its checksum verified
 relations:
 - decomposes: epic:quick-start
-revision: 1
+revision: 2
 ---
 # Story: install-one-liner
 
@@ -24,12 +24,11 @@ One pasted command downloads the newest release's archive for the machine's targ
 ## Acceptance
 
 1. The command (a short pipeline or a function of a few lines, shown on the page) resolves the newest version from the `releases/latest` redirect of `https://github.com/beyond10x/conductor` without the GitHub API (no token, no rate limit), picks the target from `uname -s` and `uname -m`, downloads archive and `SHA256SUMS` with `curl`, and installs only after `sha256sum --check --strict` (`shasum -a 256 --check` on macOS) passes for that archive's line.
-2. A tampered archive (a byte changed) and an archive missing from `SHA256SUMS` each stop the command before anything is installed, exit non-zero and print the mismatch; `~/.local/bin/conductor` is unchanged. A test runs the command against a local file server that serves a release layout with one tampered case.
+2. A tampered archive (a byte changed) and an archive missing from `SHA256SUMS` each stop the command before anything is installed, exit non-zero and print the mismatch; `~/.local/bin/conductor` is unchanged. The command honours the environment variable `CONDUCTOR_INSTALL_BASE` (default `https://github.com/beyond10x/conductor/releases`), the base under which it resolves `latest` and downloads; a test sets it to a local file server that serves a release layout with one tampered case.
 3. On an unsupported `uname` pair the command exits 1 naming the four supported targets and `cargo install` as the other way.
 4. After the command `conductor --version` prints the release's version and, when `~/.local/bin` is not on `PATH`, the command prints the one line that adds it, and does not edit a shell profile.
 5. The command uses only `curl`, `tar`, `sed`, `uname`, `install` and a sha256 tool; nothing else is required (a test runs it in a minimal container image).
-6. Spec first: if the release must also publish a fixed-name file (a `latest` marker or version-free aliases) so the command is simpler or safer, model that asset layout where the release is specified before changing `.github/workflows/release.yml`; the story states which it chose. If none is needed, no spec change, and the story says so.
-7. The command is the same text on `website/docs/quick-start.md`, in `README.md` and in `getting-started.md` (one test compares the three).
+6. The chosen branch is no fixed-name asset: the release publishes no `latest` marker or version-free alias, the one-liner reads the version from the `releases/latest` redirect, and there is no spec change and no change to `.github/workflows/release.yml`.
 
 ## Out of Scope
 

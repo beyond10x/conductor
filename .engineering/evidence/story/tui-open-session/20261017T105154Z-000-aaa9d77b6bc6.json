@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-17T10:51:54Z",
+  "actor": "human:timo",
+  "artifact": "story:tui-open-session",
+  "kind": "story",
+  "revision": 2,
+  "change": {
+    "change": "evidence",
+    "kind": "review_outcome",
+    "source": "review-result:parallel-attach-tui-quickstart-r1",
+    "review": "review-result:parallel-attach-tui-quickstart-r1",
+    "outcome": "fixed"
+  }
+}

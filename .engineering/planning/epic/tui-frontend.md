@@ -7,7 +7,7 @@ title: The operator runs conductor from a terminal client that shows what the da
 relations:
 - decomposes: initiative:adoption
 - informed_by: epic:dashboard-decisions
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -15,7 +15,7 @@ The operator, 2026-10-17: a lean terminal client that shows what the web dashboa
 
 ## Outcome
 
-`conductor tui` opens a full-screen terminal client over the instance's records and state. It shows the overview, the sessions, the open decisions with their options, the dispatches, the activity feed, and the disk and build queue, refreshes by itself, and lets the operator answer an escalated decision (class O or H) through the same recording path the dashboard's Decisions page uses, after a confirm step. It reads the same read model as the dashboard; it never reads the records files by hand.
+`conductor tui` opens a full-screen terminal client over the instance's records and state. It shows the overview, the sessions, the open decisions with their options, the dispatches, the activity feed, and the disk and build queue, refreshes by itself, and lets the operator answer an escalated decision (class O or H) through the same recording path the dashboard's Decisions page uses, after a confirm step, and attaches to or watches a session from the sessions list with one key (`story:tui-open-session`, over `conductor session attach`). It reads the same read model as the dashboard; it never reads the records files by hand.
 
 ## Decision: a subcommand, not a binary
 

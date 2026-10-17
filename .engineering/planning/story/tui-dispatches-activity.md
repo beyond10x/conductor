@@ -7,7 +7,7 @@ title: The TUI shows the dispatches and the activity feed
 relations:
 - decomposes: epic:tui-frontend
 - depends_on: story:tui-overview
-revision: 1
+revision: 2
 ---
 # Story: tui-dispatches-activity
 
@@ -21,6 +21,7 @@ Two screens in `conductor tui`: the dispatches (open and recent, with their repo
 - `/api/events?since=<rfc3339>` answers the events since then, 00:00 UTC of the day without `since` (dashboard.rs:30-35; crates/conductor/src/dashboard/overview.rs:59).
 - `/api/waiting-on` and `/api/blockers` answer what a repository waits on (repo.rs:57-62).
 - The activity feed is the page's timeline data; the page's lanes and bars (`story:dashboard-timeline`) are out of scope here.
+- The screen registers in the screen registry `crates/conductor/src/tui/screens.rs` (`story:tui-overview`) with its key, and calls the read-model module that story extracts.
 
 ## Acceptance
 

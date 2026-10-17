@@ -6,7 +6,7 @@ status: draft
 title: conductor tui shows a read-only overview of sessions and attention lines from the dashboard's read model
 relations:
 - decomposes: epic:tui-frontend
-revision: 1
+revision: 2
 ---
 # Story: tui-overview
 
@@ -24,12 +24,13 @@ revision: 1
 ## Acceptance
 
 1. Spec first: model `conductor.observation.TuiRun` (fields `instance`, `refresh_seconds`) in `spec/domains/observation.yaml` beside `DashboardServe`, add `[tui]` to `crates/conductor/cli.yaml`, validated with `ess specify validate --path spec`; `crates/conductor-model` is regenerated, not edited.
-2. The overview's data is produced by one read-model function set shared by the dashboard and the TUI: `dashboard`'s endpoints call it, the TUI calls it, and no file under `decisions/`, `dispatches/` or the store is opened by TUI code (a test greps the TUI module for those paths and for `File::open`).
+2. The read-model functions of all the TUI's screens (overview, decisions, dispatches, activity, waiting-on, blockers and disk) are extracted from the dashboard's HTTP server into one module that both frontends use: `dashboard`'s endpoints call it, the TUI calls it, and no file under `decisions/`, `dispatches/` or the store is opened by TUI code (a test greps the TUI module for those paths and for `File::open`). The siblings `story:tui-decisions-read`, `story:tui-dispatches-activity` and `story:tui-host-disk-builds` call that module and do not move any function themselves.
 3. A snapshot test renders the overview from a fixture store and fixture session list into a fixed-size buffer and matches a stored frame: one row per session (name, repository, state, current dispatch), the attention lines (unanswered count with oldest age, red CI, exited sessions), and the data's age.
 4. Its numbers equal the dashboard's: over the same fixture, `/api/unanswered` and the TUI's attention count are equal (one test asserts both).
 5. The screen refreshes every `--refresh` seconds (default 5) without a keypress and keeps the selection; a read that fails shows the error and the last good data, not a blank screen.
 6. `q` and `ctrl-c` leave the alternate screen and restore the terminal; on a non-tty stdin or stdout the command exits 2 saying it needs a terminal.
 7. `conductor tui --help` and the generated `website/docs/reference/cli.md` name the command; `task docs-check` passes.
+8. The TUI lives in the module `crates/conductor/src/tui/`, with a screen registry in `crates/conductor/src/tui/screens.rs` where each screen and its key register; the overview registers there, and `story:tui-decisions-read`, `story:tui-dispatches-activity`, `story:tui-host-disk-builds` and `story:tui-open-session` each add their screen and key there and nowhere else.
 
 ## Out of Scope
 

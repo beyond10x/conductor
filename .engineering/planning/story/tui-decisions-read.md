@@ -7,7 +7,7 @@ title: The TUI lists the open escalated decisions with their options, and the de
 relations:
 - decomposes: epic:tui-frontend
 - depends_on: story:tui-overview
-revision: 1
+revision: 2
 ---
 # Story: tui-decisions-read
 
@@ -20,6 +20,7 @@ A Decisions screen in `conductor tui` lists the open escalated decisions with wh
 - `/api/decisions` answers `{open, history, errors}`: each open row has `request_id`, `class`, `repository`, `question`, `kind` (`yes-no`, `one-of`, `several-of`), lettered `options` with `cost`, `recommended`, `default`, `deadline`, `reason`, `options_text` and `recommendation_text`; the history is every line of the decision log, newest first (crates/conductor/src/dashboard/decisions.rs:1-30, :36-45).
 - Open items are ordered as `conductor status` orders them (`crate::status::unanswered`, decisions.rs:48-58); a request escalated before options were recorded reads `one-of` with no options and shows its words alone (decisions.rs:14-17).
 - The screen is a second view over the function `story:tui-overview` shares; no TUI code reads the decision log.
+- The screen registers in the screen registry `crates/conductor/src/tui/screens.rs` (`story:tui-overview`) with its key, and calls the read-model module that story extracts.
 
 ## Acceptance
 

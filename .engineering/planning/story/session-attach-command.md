@@ -7,7 +7,7 @@ title: conductor session attach connects the operator's terminal to a live sessi
 relations:
 - decomposes: epic:session-attach
 - depends_on: story:session-pty-relay
-revision: 1
+revision: 2
 ---
 # Story: session-attach-command
 
@@ -21,6 +21,7 @@ The operator runs `conductor session attach <name>` or `--role <r>` and gets the
 - A controller's session is named after its repository, with the instance's session prefix (website/docs/reference/config.md, instance section; website/docs/guides/start-conductor.md:139-141), so the command takes a session name as well as a role.
 - The relay and its socket come from `story:session-pty-relay`. A client joining a running session needs the current screen: the relay replays the tail of the typescript (bounded, for example 64 KiB) before live output.
 - The client puts the operator's tty in raw mode and restores it on every exit path, a signal included.
+- Shared surface: this story shares `spec/domains/session.yaml` and `crates/conductor/cli.yaml` with `story:session-list-attachable` (which depends on it), and `crates/conductor/cli.yaml`, `crates/conductor-model` and `website/docs/reference/cli.md` with `story:demo-mode` and `story:tui-overview`; the merge cost is accepted and the generated files are regenerated after merge. It ships in the same release as `story:session-attach-refuses-sessions`, so no release carries attach without the refusal.
 
 ## Acceptance
 
@@ -31,7 +32,8 @@ The operator runs `conductor session attach <name>` or `--role <r>` and gets the
 5. `attach` on a name with no live session, or on one not under the systemd provider, exits 1 naming `unknown-session` or `not-attachable` and what to run instead (`claude attach <id>` for a background session).
 6. `attach <name>` with `--role r` resolving to a different session, or a name two live sessions share, exits 1 naming `ambiguous` and each candidate; nothing is attached.
 7. A killed client leaves the session running and the relay accepting a new client; a second read-write client while one is attached is refused with the first's age, not interleaved.
-8. `website/docs/guides/start-conductor.md` and the generated `website/docs/reference/cli.md` name the command; `task docs-check` passes.
+8. `website/docs/guides/start-conductor.md` and the generated `website/docs/reference/cli.md` name the command; the guide's attach note (`website/docs/guides/start-conductor.md:134-144`) replaces the `claude attach <id>` pointer with `conductor session attach` and says how a prefixed instance's session is named; `task docs-check` passes.
+9. `task conductor:attach` (`Taskfile.yml:81-99`) runs `conductor session attach` instead of `claude attach <id>`, and works for a session of a prefixed instance.
 
 ## Out of Scope
 

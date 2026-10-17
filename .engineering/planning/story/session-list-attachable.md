@@ -7,7 +7,8 @@ title: conductor session list and task sessions show which sessions can be attac
 relations:
 - decomposes: epic:session-attach
 - depends_on: story:session-pty-relay
-revision: 1
+- depends_on: story:session-attach-command
+revision: 2
 ---
 # Story: session-list-attachable
 
@@ -20,6 +21,7 @@ revision: 1
 - There is no `session list` command: the CLI has `session start` and `session stop` (crates/conductor/cli.yaml:306-314). `task sessions` prints name, kind, id and state from `claude agents --json` (Taskfile.yml:14-27); `story:sessions-systemd-kind` makes it print the provider from the session record.
 - The dashboard's session rows come from the same list plus the current dispatch (crates/conductor/src/dashboard.rs:53-60, crates/conductor/src/dashboard/repo.rs:55-100), so the attachable flag is one more field there.
 - A session is attachable when its relay's socket answers (`story:session-pty-relay`), not merely when its unit is active.
+- Shared surface: this story depends on `story:session-attach-command` because both add to `spec/domains/session.yaml` and `crates/conductor/cli.yaml`; it also shares `crates/conductor-model` and `website/docs/reference/cli.md` with `story:demo-mode` and `story:tui-overview`, a merge cost accepted.
 
 ## Acceptance
 
