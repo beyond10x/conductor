@@ -125,6 +125,8 @@ fn decode_decision(body: &Value) -> Result<DecisionSnapshot, String> {
             recorded_by: added_text(body, "recorded_by")?,
             operator_words: added_text(body, "operator_words")?,
             repository: added_text(body, "repository")?.map(RepositoryName),
+            decider_name: None,
+            prompt_sha256: None,
         },
     })
 }
@@ -212,6 +214,7 @@ fn decode_request(body: &Value) -> Result<DecisionRequestSnapshot, String> {
             default_letters: added_text(body, "default_letters")?,
             deadline: added_text(body, "deadline")?.map(Timestamp),
             decision_id: optional_text(body, "decision_id")?.map(DecisionId),
+            classification_rule: None,
         },
     })
 }

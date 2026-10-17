@@ -120,6 +120,12 @@ callables:
       launch-failed: conductor.dispatch.SpawnRefused
       provider-unavailable: conductor.dispatch.SpawnRefused
       measurement-short: conductor.dispatch.SpawnRefused
+  message-send:
+    target: {kind: local, owner: conductor-cli, action: message_send}
+    input: conductor.dispatch.SendToMailbox
+    result: String
+    errors:
+      unparsed: conductor.dispatch.MailboxSendRefused
   session-start:
     target: {kind: local, owner: conductor-cli, action: session_start}
     input: conductor.session.StartSession
@@ -355,6 +361,16 @@ commands:
     arguments:
       - field: repository
         source: {kind: option, long: repository}
+  - path: [message, send]
+    callable: message-send
+    about: "Send a message through the mailbox: read --text, a file or - for standard input, and its first line; leave the whole text as <state>/mailbox/<to>/<ulid>.md and record it received with transport Mailbox and that body path, then print its id; print the format, exit 1 and write nothing when the first line does not parse"
+    arguments:
+      - field: to
+        source: {kind: option, long: to}
+      - field: from
+        source: {kind: option, long: from}
+      - field: text
+        source: {kind: option, long: text}
   - path: [session, start]
     callable: session-start
     about: Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request

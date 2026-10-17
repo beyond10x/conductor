@@ -182,6 +182,8 @@ impl Case {
                         recorded_by: None,
                         operator_words: None,
                         repository: Some(repo("alpha")),
+                        decider_name: None,
+                        prompt_sha256: None,
                     },
                 },
             );
@@ -228,6 +230,7 @@ impl Case {
                         default_letters: None,
                         deadline: None,
                         decision_id: None,
+                        classification_rule: None,
                     },
                 },
             );

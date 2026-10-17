@@ -181,6 +181,10 @@ pub fn raise_decision_request(
         args.input_json,
         "decision raise-decision-request --input-json",
     )?;
+    // The class set in code (story:decide-model-adapter) is not written yet.
+    if args.classification_rule.is_some() {
+        return not_implemented("decision raise-decision-request --classification-rule");
+    }
     let input = RaiseDecisionRequest {
         request_id: RequestId(flag(COMMAND, "--request-id", args.request_id)?),
         repository: RepositoryName(flag(COMMAND, "--repository", args.repository)?),
@@ -189,6 +193,7 @@ pub fn raise_decision_request(
         recommendation: flag(COMMAND, "--recommendation", args.recommendation)?,
         raised_at: Timestamp(flag(COMMAND, "--raised-at", args.raised_at)?),
         blocker: args.blocker,
+        classification_rule: None,
     };
     let request = input.request_id.clone();
     let mut line = records::decision_line(
@@ -245,6 +250,12 @@ pub fn record_conductor_decision(
         args.input_json,
         "decision record-conductor-decision --input-json",
     )?;
+    // The `Decider` adapter's evidence (story:decide-model-adapter) is not written yet.
+    if args.decider_name.is_some() || args.prompt_sha256.is_some() {
+        return not_implemented(
+            "decision record-conductor-decision --decider-name and --prompt-sha256",
+        );
+    }
     let fields = Fields::read(
         COMMAND,
         Flags {
@@ -269,6 +280,8 @@ pub fn record_conductor_decision(
         evidence: fields.evidence.clone(),
         decided_at: fields.decided_at.clone(),
         repository: fields.repository.clone(),
+        decider_name: None,
+        prompt_sha256: None,
     };
     // The specification refuses class O and H on the input alone (`reserved`, before it reads a
     // record), so it is asked over a store that holds and keeps nothing before an id is allocated:
@@ -1881,6 +1894,8 @@ impl RecordOperatorDecisionForRequestBehavior for Ports {
             recorded_by: Some(input.recorded_by),
             operator_words: Some(input.operator_words),
             repository: input.repository,
+            decider_name: None,
+            prompt_sha256: None,
         };
         DecisionStorage::put(self, AnyDecision::InForce(Decision::new(data)).snapshot());
         Ok(RecordOperatorDecisionForRequestOutcome::Recorded {
