@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest ed7cd6fe1bbec690931b9bdbf0c7447bd55967c3864d496b3d2f9574f226752c
-// contract digest 1beeecf0e711bec0a0d49e03d7b7f74ad75ab12f69f688acf36495a420332642
+// model digest 311cfd6820461f1c7de7164064666e832120335a0497d712fc9f9d97b7d672a5
+// contract digest 730711f4f3df76bbbd5b955c35905b5744a3062bbcb1076d5ca4510ecffd85bb
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -143,6 +143,15 @@ pub enum GuardDecisionState {
 /// GuardDecisionId — `conductor.dispatch.GuardDecisionId`: a distinct wrapper around `Uuid`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuardDecisionId(pub crate::primitives::Uuid);
+
+/// ListControllers — `conductor.dispatch.ListControllers`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListControllers {
+    /// `all` — `Optional<Boolean>`.
+    pub all: Option<bool>,
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
 
 /// The states of `conductor.dispatch.Message`, as runtime values.
 ///
@@ -2690,7 +2699,7 @@ pub struct WaitsOnItself {
     pub dispatch_id: DispatchId,
 }
 
-/// Controllers — one row of the view `conductor.dispatch.Controllers`.
+/// All controllers — one row of the view `conductor.dispatch.Controllers`.
 ///
 /// Projects `conductor.dispatch.Controller` at `read_your_writes` consistency.
 /// The specification fully determines every row, so its query is generated over the storage port —

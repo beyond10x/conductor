@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "ed7cd6fe1bbec690931b9bdbf0c7447bd55967c3864d496b3d2f9574f226752c",
-    "contract_digest": "1beeecf0e711bec0a0d49e03d7b7f74ad75ab12f69f688acf36495a420332642"
+    "source_digest": "311cfd6820461f1c7de7164064666e832120335a0497d712fc9f9d97b7d672a5",
+    "contract_digest": "730711f4f3df76bbbd5b955c35905b5744a3062bbcb1076d5ca4510ecffd85bb"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -692,6 +692,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.dispatch.GuardDecisionId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.ListControllers",
       "disposition": {
         "disposition": "generated"
       }

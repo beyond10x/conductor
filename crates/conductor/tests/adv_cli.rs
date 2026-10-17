@@ -306,7 +306,7 @@ const IMPLEMENTED: [&str; 99] = [
     "controller revise-charter",
     "controller start-controller",
     "controller stop-controller",
-    "controller controllers",
+    "controller all-controllers",
     "dispatch cancel-dispatch",
     "dispatch report-blocked",
     "dispatch report-done",

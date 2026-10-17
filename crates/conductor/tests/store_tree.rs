@@ -35,6 +35,9 @@
 //! [`fixture_store`] appends one observation of each to a copy of it, in the first snapshot,
 //! through eventlog's File provider, and every case reads that copy. `snapshot-secret-syncs.json`
 //! and `snapshot-usage-readings.json` hold this build's answer over them.
+//! `story:conductor-context-budget` placed the controllers view at `controller all-controllers`,
+//! `controller controllers` now listing the live controllers one line each: its answer is
+//! `controller-all-controllers.json`, the earlier `controller-controllers.json` unchanged.
 //!
 //! The organization in its repositories' URLs and working directories was then renamed
 //! `example-org`, in the store and in the views. The store is chained by hash, so it was not
@@ -112,7 +115,10 @@ const VIEWS: [(&str, &[&str]); 25] = [
         "decision-show",
         &["decision", "show", "--decision-id", "DEC-20261007-02"],
     ),
-    ("controller-controllers", &["controller", "controllers"]),
+    (
+        "controller-all-controllers",
+        &["controller", "all-controllers"],
+    ),
     ("dispatch-dispatches", &["dispatch", "dispatches"]),
     ("message-messages", &["message", "messages"]),
     (

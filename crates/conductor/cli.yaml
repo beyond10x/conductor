@@ -149,6 +149,7 @@ callables:
     errors:
       rule-item-not-found: conductor.direction.RulesRefused
       rule-section-not-found: conductor.direction.RulesRefused
+      revision-not-found: conductor.direction.RulesRefused
   upgrade:
     target: {kind: local, owner: conductor-cli, action: upgrade}
     input: conductor.config.UpgradeBinary
@@ -165,6 +166,11 @@ callables:
     result: Integer
     errors:
       refused: conductor.host.BuildRunRefused
+  controller-controllers:
+    target: {kind: local, owner: conductor-cli, action: controller_controllers}
+    input: conductor.dispatch.ListControllers
+    result: String
+    errors: {}
   status:
     target: {kind: local, owner: conductor-cli, action: status}
     input: conductor.observation.Status
@@ -365,6 +371,8 @@ commands:
         source: {kind: option, long: format}
       - field: brief
         source: {kind: option, long: brief}
+      - field: changed_since
+        source: {kind: option, long: changed-since}
   - path: [upgrade]
     callable: upgrade
     about: Check for a newer release of the repository conductor was built from; without --check, download its archive for this target and SHA256SUMS, verify the sum, run the new binary's --version and replace this binary, keeping conductor.previous; --release installs a named release
@@ -385,12 +393,22 @@ commands:
         source: {kind: option, long: measure}
       - field: command
         source: {kind: trailing}
+  - path: [controller, controllers]
+    callable: controller-controllers
+    about: Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing
+    arguments:
+      - field: all
+        source: {kind: option, long: all}
+      - field: format
+        source: {kind: option, long: format}
   - path: [status]
     callable: status
-    about: Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+    about: Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing
     arguments:
       - field: format
         source: {kind: option, long: format}
+      - field: full
+        source: {kind: option, long: full}
   - path: [host, grants]
     callable: host-grants
     about: Host grants

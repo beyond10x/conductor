@@ -822,9 +822,9 @@ fn conductor_answers_a_status_question_with_conductor_status() {
     let text = profile("conductor.md");
     assert!(
         text.contains(
-            "Answer an operator's status question with `conductor status`: the newest complete \
-             snapshot and its age, its deviations, live sessions, open dispatches, registered \
-             waits and pending requests, read from the store in one call."
+            "Answer an operator's status question with `conductor status --full`: the newest \
+             complete snapshot and its age, its deviations, live sessions, open dispatches, \
+             registered waits and pending requests, read from the store in one call."
         ),
         "conductor.md: a status question is answered with `conductor status`"
     );
@@ -909,5 +909,28 @@ fn profiles_forbid_killing_by_pattern() {
             ),
             "{name}: the no-pattern-kill sentence"
         );
+    }
+}
+
+/// `story:conductor-context-budget`, measured again: conductor reads the short forms of the
+/// commands that filled its context, and runs them without a `cd <records> &&` prefix.
+#[test]
+fn conductor_reads_the_short_forms_and_needs_no_cd_prefix() {
+    let text = profile("conductor.md");
+    for sentence in [
+        "Your shell starts in the records directory, and every `conductor` command finds the \
+         instance's records and state from any directory: no command needs a `cd <records> &&` \
+         prefix. Act in another directory with `git -C <dir>` or a subshell, `(cd <dir> && …)`, \
+         which leaves your shell where it is.",
+        "read it with `conductor status`, which starts none and prints only what asks for \
+         attention, one line each; `conductor status --full` adds the sessions and every open \
+         dispatch.",
+        "`conductor controller controllers` lists the Running and Paused controllers, one line \
+         each; `--all` prints every one",
+        "`message receive-message` answers the message's id, one line; never echo the message \
+         back.",
+        "Read the changed items with `conductor rules show --changed-since <commit>^`,",
+    ] {
+        assert!(text.contains(sentence), "conductor.md: holds {sentence:?}");
     }
 }

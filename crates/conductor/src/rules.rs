@@ -11,8 +11,13 @@
 //! `--item 43,49,51` prints those items in the order given; `--section <heading>` every item under
 //! each heading of that text (any case), its subsections' included, in file order; neither, every
 //! item. Text output is the items verbatim with one blank line between two; `--format json` a list
-//! of rows; `--brief` one line per item, `<n>. <first sentence>` ([`brief`]), so a session reads a
-//! section's titles and asks for an item whole with `--item` (`story:conductor-context-budget`). A number no item holds, or a heading the file does not hold, is refused on one line of
+//! of rows; `--brief` one line per item, `<n>. <title>` ([`brief`]), so a session reads a
+//! section's titles and asks for an item whole with `--item` (`story:conductor-context-budget`).
+//! `--changed-since <revision>` keeps, of the items selected, those whose text differs from the
+//! item of that number in the revision's `rules.md` of the records' git, or that it does not
+//! hold, and names on one line of standard error the numbers the revision held there that the
+//! file no longer holds ([`changed`]). A number no item holds, a heading the file does not hold,
+//! or a revision the records' git does not resolve, is refused on one line of
 //! standard error naming it, and nothing is printed; a heading's refusal names, on that line, every
 //! section heading the file has (`story:rules-section-names`). For one release a role's name
 //! and its old name read each other's heading, `director` a section headed `conductor`, with a
@@ -20,8 +25,8 @@
 
 use std::fs;
 use std::io::{self, Write as _};
-use std::path::PathBuf;
-use std::process::ExitCode;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode, Stdio};
 
 use anyhow::{Context as _, Result, bail};
 use conductor_model::config::RoleName;
@@ -54,7 +59,7 @@ impl Item {
     pub fn row(&self) -> RulesRow {
         RulesRow {
             item: self.number,
-            title: title(&self.text),
+            title: title(&self.text.split_whitespace().collect::<Vec<_>>().join(" ")),
             section: self.headings.join(" / "),
             source: source(&self.text),
             text: self.text.clone(),
@@ -187,40 +192,90 @@ fn title(text: &str) -> String {
     lead.trim_end_matches(['.', ':']).to_owned()
 }
 
-/// The item's number and first sentence on one line, `<n>. <first sentence>`, as the file writes
-/// the sentence: up to the first `.`, `?` or `!` followed, after any closing `*`, `_`, backtick,
-/// `)` or quote, by white space or the item's end; an item with no such end gives its first line.
+/// The item's number and title on one line, `<n>. <title>` ([`title`]): its bold lead without
+/// the asterisks, or else its first sentence, without a final full stop
+/// (`story:conductor-context-budget`).
 #[must_use]
 pub fn brief(item: &Item) -> String {
-    let first = item.text.lines().next().unwrap_or_default();
-    let words: Vec<&str> = item.text.split_whitespace().collect();
-    let joined = words.join(" ");
-    let body = joined.split_once(". ").map_or("", |(_, body)| body);
-    let chars: Vec<char> = body.chars().collect();
-    let mut end = None;
-    for (at, &ch) in chars.iter().enumerate() {
-        if !matches!(ch, '.' | '?' | '!') {
-            continue;
+    let title = title(&item.text.split_whitespace().collect::<Vec<_>>().join(" "));
+    format!("{}. {title}", item.number)
+}
+
+/// Of `chosen`, the items whose text differs from the item of the same number in `before`, or
+/// that `before` does not hold; and, in order, the numbers of `before`'s items that `still`
+/// (the file's every item) no longer holds and that `was_chosen` keeps.
+#[must_use]
+pub fn changed<'a>(
+    chosen: Vec<&'a Item>,
+    before: &[Item],
+    still: &[Item],
+    was_chosen: impl Fn(&Item) -> bool,
+) -> (Vec<&'a Item>, Vec<i64>) {
+    let kept = chosen
+        .into_iter()
+        .filter(|item| {
+            !before
+                .iter()
+                .any(|old| old.number == item.number && old.text == item.text)
+        })
+        .collect();
+    let mut gone: Vec<i64> = before
+        .iter()
+        .filter(|old| was_chosen(old) && !still.iter().any(|item| item.number == old.number))
+        .map(|old| old.number)
+        .collect();
+    gone.dedup();
+    (kept, gone)
+}
+
+/// The text of `rules.md` at `revision` of the git of `records`; empty when that revision holds
+/// no `rules.md`.
+///
+/// # Errors
+///
+/// [`RulesRefusal::RevisionNotFound`] when the records' git does not resolve `revision` to a
+/// commit, or git does not run.
+fn rules_at(records: &Path, revision: &str) -> Result<String> {
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(records)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+    };
+    let not_found = |why: &str| {
+        refuse(&RulesRefused {
+            refusal: RulesRefusal::RevisionNotFound,
+            detail: format!(
+                "the git of {} resolves no commit {revision:?}{why}",
+                records.display()
+            ),
+        })
+    };
+    let commit = format!("{revision}^{{commit}}");
+    match git(&[
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "--end-of-options",
+        &commit,
+    ]) {
+        Ok(output) if output.status.success() => {}
+        Ok(_) => {
+            not_found("")?;
         }
-        let mut after = at + 1;
-        while chars
-            .get(after)
-            .is_some_and(|&next| matches!(next, '*' | '_' | '`' | ')' | '"' | '\''))
-        {
-            after += 1;
-        }
-        if chars.get(after).is_none_or(|next| next.is_whitespace()) {
-            end = Some(after);
-            break;
+        Err(error) => {
+            not_found(&format!(" (git does not run: {error})"))?;
         }
     }
-    match end {
-        Some(end) => format!(
-            "{}. {}",
-            item.number,
-            chars[..end].iter().collect::<String>()
-        ),
-        None => first.trim_end().to_owned(),
+    let shown = git(&["show", &format!("{revision}:{RULES_FILE}")])
+        .with_context(|| format!("{COMMAND}: run git show in {}", records.display()))?;
+    if shown.status.success() {
+        String::from_utf8(shown.stdout)
+            .with_context(|| format!("{COMMAND}: {RULES_FILE} at {revision} is not UTF-8"))
+    } else {
+        Ok(String::new())
     }
 }
 
@@ -363,6 +418,7 @@ const fn refusal_name(refusal: RulesRefusal) -> &'static str {
     match refusal {
         RulesRefusal::RuleItemNotFound => "RuleItemNotFound",
         RulesRefusal::RuleSectionNotFound => "RuleSectionNotFound",
+        RulesRefusal::RevisionNotFound => "RevisionNotFound",
     }
 }
 
@@ -379,6 +435,7 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
         section: args.section.clone(),
         format: args.format.clone(),
         brief: args.brief,
+        changed_since: args.changed_since.clone(),
     };
     let json = match input.format.as_deref() {
         None | Some("text") => false,
@@ -389,11 +446,41 @@ pub fn rules_show(args: &RulesShowArgs) -> Result<ExitCode> {
     if json && brief_lines {
         bail!("{COMMAND}: give --brief or --format json, not both: a json row carries its title");
     }
-    let file = PathBuf::from(&config::active().instance.records).join(RULES_FILE);
+    let records = PathBuf::from(&config::active().instance.records);
+    let file = records.join(RULES_FILE);
     let text =
         fs::read_to_string(&file).with_context(|| format!("{COMMAND}: read {}", file.display()))?;
     let items = parse(&text);
-    let chosen = select(&items, &sections(&text), &input)?;
+    let mut chosen = select(&items, &sections(&text), &input)?;
+    if let Some(revision) = input.changed_since.as_deref() {
+        let before = parse(&rules_at(&records, revision)?);
+        let wanted = input
+            .section
+            .as_deref()
+            .map(|section| section.trim().to_lowercase());
+        let numbers: Option<Vec<i64>> = input.item.as_deref().map(|list| {
+            list.split(',')
+                .filter_map(|word| word.trim().parse().ok())
+                .collect()
+        });
+        let was_chosen = |old: &Item| match (&numbers, &wanted) {
+            (Some(numbers), _) => numbers.contains(&old.number),
+            (None, Some(wanted)) => old
+                .headings
+                .iter()
+                .any(|heading| role_headings(wanted, &heading.to_lowercase())),
+            (None, None) => true,
+        };
+        let (kept, gone) = changed(chosen, &before, &items, was_chosen);
+        chosen = kept;
+        if !gone.is_empty() {
+            let numbers: Vec<String> = gone.iter().map(i64::to_string).collect();
+            eprintln!(
+                "conductor: {COMMAND}: note: {RULES_FILE} no longer holds, since {revision}: {}",
+                numbers.join(", ")
+            );
+        }
+    }
 
     let printed = if json {
         let rows: Vec<Value> = chosen

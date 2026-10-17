@@ -236,11 +236,17 @@ types:
   # The input of the `Status` view, `conductor status` (story:status-command): the answer to
   # "what is the status" in one call. It reads the store alone: it starts no snapshot, runs no
   # collector, and opens only an existing store, creating nothing. `format` is text or json, read
-  # by the handler.
+  # by the handler. As text it prints, without `full`, only what asks for attention, one line each
+  # (story:conductor-context-budget): the snapshot's id and age, the unanswered operator items,
+  # each repository's deviations with its failing checks, each `Blocked` dispatch, each wait, each
+  # pending request and the usage line, then one line counting the open dispatches and sessions
+  # left out; with `full`, every part of the `StatusReport` under its heading. json is the whole
+  # report either way.
   - name: conductor.observation.Status
     kind: struct
     fields:
       - {name: format, type: Optional<String>}
+      - {name: full, type: Optional<Boolean>}
 
   # One live session of the `Status` view: a session the newest complete snapshot observed, by
   # its repository (absent outside the checkouts), its name (else its reference), harness, role
