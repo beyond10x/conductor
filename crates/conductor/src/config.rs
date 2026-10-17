@@ -352,6 +352,9 @@ pub const STALLED_SESSION_MINUTES: u64 = 45;
 /// Minutes a host grant may wait `Requested` before `conductor watch run` reports the build queued
 /// (`thresholds.build_queued`, `story:watch-stalled-sessions`).
 pub const BUILD_QUEUED_MINUTES: u64 = 30;
+/// Hours a managed tree that is dirty or unmerged may be untouched before reclaim removes its
+/// `target/` and lists it stale, kept (`thresholds.tree_stale`, `story:gc-finished-trees`).
+pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
@@ -417,7 +420,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 19] = [
+const THRESHOLD_KEYS: [&str; 20] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -437,6 +440,7 @@ const THRESHOLD_KEYS: [&str; 19] = [
     "short_lane_max",
     "stalled_session",
     "build_queued",
+    "tree_stale",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1662,6 +1666,7 @@ fn default_thresholds() -> Thresholds {
         short_lane_max: Duration(format!("PT{SHORT_LANE_MAX_MINUTES}M")),
         stalled_session: Duration(format!("PT{STALLED_SESSION_MINUTES}M")),
         build_queued: Duration(format!("PT{BUILD_QUEUED_MINUTES}M")),
+        tree_stale: Duration(format!("PT{TREE_STALE_HOURS}H")),
     }
 }
 
@@ -3510,6 +3515,10 @@ impl Reader<'_> {
             Some(value) => self.duration(value, &join(path, "build_queued")),
             None => Some(defaults.build_queued),
         };
+        let tree_stale = match Self::get(map, "tree_stale") {
+            Some(value) => self.duration(value, &join(path, "tree_stale")),
+            None => Some(defaults.tree_stale),
+        };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -3543,6 +3552,7 @@ impl Reader<'_> {
             short_lane_max: short_lane_max?,
             stalled_session: stalled_session?,
             build_queued: build_queued?,
+            tree_stale: tree_stale?,
         })
     }
 
@@ -4010,6 +4020,7 @@ pub fn document(instance: &Instance) -> Yaml {
                     text(&written(&thresholds.stalled_session)),
                 ),
                 ("build_queued", text(&written(&thresholds.build_queued))),
+                ("tree_stale", text(&written(&thresholds.tree_stale))),
             ]),
         ),
         (

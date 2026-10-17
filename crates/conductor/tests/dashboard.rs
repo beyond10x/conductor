@@ -152,6 +152,8 @@ impl Case {
             watch: self.home.join(".cache/conductor-watch"),
             sweep: cat("sweep.json"),
             gc: cat("gc.json"),
+            // The panel does not read the managed trees' registry; only `conductor gc` does.
+            inspect: cat("inspect.json"),
             var_tmp: self.home.join("var-tmp"),
             scratch: self.home.join(".cache/b10x/conductor/example/scratch"),
             measure_every: Duration::from_secs(600),

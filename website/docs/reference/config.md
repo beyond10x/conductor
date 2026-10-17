@@ -100,6 +100,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `thresholds.short_lane_max` | duration | `3m` |  |
 | `thresholds.stalled_session` | duration | `45m` |  |
 | `thresholds.build_queued` | duration | `30m` |  |
+| `thresholds.tree_stale` | duration | `48h` |  |
 | `retention.snapshots` | integer | `12` | `snapshots >= 1` |
 | `reports` | list of [Report](#report) | `[]` |  |
 | `reports[].channel` | string | required |  |

@@ -121,6 +121,7 @@ instances:
       short_lane_max: 5m
       stalled_session: 1h
       build_queued: 20m
+      tree_stale: 3d
     retention:
       snapshots: 3
     reports:
