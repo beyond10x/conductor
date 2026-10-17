@@ -114,6 +114,7 @@ instances:
       watchdog_every: 5s
       silent_session: 45m
       cpu_reserve: 3
+      build_slots: 2
     retention:
       snapshots: 3
     reports:

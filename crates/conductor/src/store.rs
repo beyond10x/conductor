@@ -542,6 +542,7 @@ impl Tree {
 
     /// A replay of the tree, built from files of `bytes` bytes, is alive.
     fn built(&self, bytes: u64) {
+        replayed();
         let mut held = self.held.borrow_mut();
         held.live += 1;
         held.peak = held.peak.max(held.live);
@@ -572,6 +573,47 @@ impl Tree {
             held.bytes -= held.kept;
             held.kept = 0;
         }
+    }
+}
+
+thread_local! {
+    /// The replays of a tree this thread built: each open of a store, and each reopen.
+    static REPLAYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How long each replay waits on a slow disk ([`slow_replays`]), in nanoseconds; 0 for none.
+static SLOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The one replay a slow disk serves at a time ([`slow_replays`]).
+static DISK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// How many replays of a tree this thread has built so far: an open of a store, or a reopen
+/// because another writer committed (`story:build-queue-convoy` counts a run's).
+#[must_use]
+pub fn replays_on_this_thread() -> usize {
+    REPLAYS.with(std::cell::Cell::get)
+}
+
+/// A slow disk, for a case that measures what replays cost: from now on every replay of a tree
+/// in this process takes `delay` more, one replay at a time, as on a disk saturated by builds.
+/// `Duration::ZERO` ends it. Nothing but a case calls it.
+#[doc(hidden)]
+pub fn slow_replays(delay: std::time::Duration) {
+    SLOW.store(
+        u64::try_from(delay.as_nanos()).unwrap_or(u64::MAX),
+        std::sync::atomic::Ordering::SeqCst,
+    );
+}
+
+/// Counts one replay on this thread, and waits as the slow disk of [`slow_replays`] makes it.
+fn replayed() {
+    REPLAYS.with(|count| count.set(count.get() + 1));
+    let slow = SLOW.load(std::sync::atomic::Ordering::SeqCst);
+    if slow > 0 {
+        let _disk = DISK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        thread::sleep(std::time::Duration::from_nanos(slow));
     }
 }
 

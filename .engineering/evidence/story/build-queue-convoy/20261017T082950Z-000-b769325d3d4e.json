@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-17T08:29:50Z",
+  "actor": "human:timo",
+  "artifact": "story:build-queue-convoy",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "conductor-cli 1247 passed 0 failed (--no-fail-fast, 08:29Z); build_queue_convoy red first (fbf15040); clippy/fmt/docs 0; conformance 391; dashboard_swr timing flake under load 34, 6/6 alone"
+  }
+}

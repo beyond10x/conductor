@@ -10,11 +10,14 @@
 //!    Requests are answered in arrival order (`story:build-run-queue`): while a request made
 //!    before it still waits ([`host::Ledger::ahead`]), a run waits behind it, even when it alone
 //!    would fit, and names its position in the queue on standard error once it has waited
-//!    `thresholds.watchdog_every`. The head waits for live reservations at most
-//!    [`Settings::wait`], then is refused; one whose shortfall they do not cover is answered at
-//!    once. When every request ahead lacks more than the live reservations hold together, so each
-//!    can only be refused, a run that fits beside the floor and the live reservations is granted
-//!    past them ([`host::Ledger::ahead_bytes`], `story:build-run-backfill`).
+//!    `thresholds.watchdog_every`. A waiting run keeps the store it opened and makes its next pass
+//!    under the lock only when the ledger's generation moved, its own answer may have, or no pass
+//!    has swept the ledger for `thresholds.watchdog_every`; between passes it looks every
+//!    [`Sources::poll`] without the lock (`story:build-queue-convoy`). The head waits for live
+//!    reservations at most [`Settings::wait`], then is refused; one whose shortfall they do not
+//!    cover is answered at once. When every request ahead lacks more than the live reservations
+//!    hold together, so each can only be refused, a run that fits beside the floor and the live
+//!    reservations is granted past them ([`host::Ledger::ahead_bytes`], `story:build-run-backfill`).
 //! 2. **Reclaim.** When it does not fit, one reclaim run frees what needs no decision
 //!    ([`crate::gc::reclaim::reclaim`]), and the run counts again. The reclaim never runs under
 //!    the ledger's lock: the run lets it go, reclaims, takes it again and counts from the start,
@@ -160,6 +163,9 @@ fn signal_code(signal: Signal) -> u8 {
 /// How often the watchdog reads free disk when `thresholds.watchdog_every` does not read.
 const EVERY: Duration = Duration::from_secs(10);
 
+/// How often a run waiting in the queue reads the ledger's generation ([`Sources::poll`]).
+pub const POLL: Duration = Duration::from_secs(1);
+
 /// How long one walk over the directories a run writes may take before its reading is dropped
 /// (`story:reserve-from-peak`). The walk has its own thread, so the watchdog never waits for it.
 const WALK_BOUND: Duration = Duration::from_secs(60);
@@ -196,6 +202,9 @@ pub struct Settings {
     pub cores: u64,
     /// The cores left to the desktop: `thresholds.cpu_reserve`.
     pub cpu_reserve: u64,
+    /// How many `build run` commands may hold a grant at once on the host:
+    /// `thresholds.build_slots`, 0 for no bound (`story:build-queue-convoy`).
+    pub slots: u64,
 }
 
 impl Settings {
@@ -216,6 +225,7 @@ impl Settings {
             wait: WAIT_FOR_RESERVATIONS,
             cores: std::thread::available_parallelism().map_or(1, |cores| cores.get() as u64),
             cpu_reserve: u64::try_from(thresholds.cpu_reserve).unwrap_or(0),
+            slots: u64::try_from(thresholds.build_slots).unwrap_or(0),
         }
     }
 }
@@ -249,6 +259,10 @@ pub struct Sources {
     pub clock: fn() -> OffsetDateTime,
     /// How often the watchdog reads free disk and measures the run.
     pub every: Duration,
+    /// How often a run waiting in the queue looks, without the ledger's lock, whether the ledger
+    /// changed or its own answer may have (`story:build-queue-convoy`): [`POLL`], at most
+    /// [`Sources::every`].
+    pub poll: Duration,
     /// The home directory, written `~` in an operator item: `HOME`.
     pub home: Option<PathBuf>,
     /// `/var/tmp`, whose entries an operator item names only as a count and a total size.
@@ -282,14 +296,16 @@ impl Sources {
     #[must_use]
     pub fn of(instance: &Instance) -> Self {
         let thresholds = &instance.thresholds;
+        let every = crate::config::seconds(&thresholds.watchdog_every)
+            .filter(|seconds| *seconds > 0)
+            .map_or(EVERY, Duration::from_secs);
         Self {
             disk: PathBuf::from(&thresholds.disk_path),
             free_bytes: crate::gc::reclaim::free_bytes,
             reclaim: crate::gc::reclaim::reclaim,
             clock: OffsetDateTime::now_utc,
-            every: crate::config::seconds(&thresholds.watchdog_every)
-                .filter(|seconds| *seconds > 0)
-                .map_or(EVERY, Duration::from_secs),
+            every,
+            poll: POLL.min(every),
             home: std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .filter(|home| home.is_absolute()),
@@ -625,6 +641,17 @@ pub fn shortfall(bytes: u64, free: u64, reserved: u64, floor: u64) -> u64 {
     bytes.saturating_sub(available)
 }
 
+/// Whether a request of `reserve` bytes behind the requests asking `ahead` is granted past them
+/// (`story:build-run-backfill`): every one of them lacks more than the live reservations hold
+/// (`holding`), so each can only be refused, and it fits beside the floor and the live
+/// reservations, with `free` bytes free.
+fn backfills(ahead: &[u64], reserve: u64, free: u64, holding: u64, floor: u64) -> bool {
+    ahead
+        .iter()
+        .all(|&bytes| shortfall(bytes, free, holding, floor) > holding)
+        && shortfall(reserve, free, holding, floor) == 0
+}
+
 /// Runs `request` over the ledger in the host directory `host` (`story:instance-isolation`), for
 /// the instance whose state directory is `state`: its reclaim and its operator item are that
 /// instance's.
@@ -702,7 +729,35 @@ pub fn run(
     let mut queued = Duration::ZERO;
     let mut told = None;
     let mut unread_told = false;
+    // Whether the last pass found every build slot taken (`thresholds.build_slots`).
+    let mut slots_full;
+    let slots_taken = |ledger: &Ledger| -> Result<bool> {
+        Ok(settings.slots > 0 && ledger.building(Some(&grant))? >= settings.slots)
+    };
     let pause = sources.every.max(Duration::from_millis(10));
+    // Between two passes a waiting run looks every `poll` without the lock
+    // (`story:build-queue-convoy`).
+    let poll = sources.poll.clamp(Duration::from_millis(10), pause);
+    // How long since this run last read the session list: due at its first pass.
+    let mut unlisted = pause;
+    // Waiting longer than `thresholds.watchdog_every` names the position, and again when it moves.
+    // Says what it waits for: disk, or a build slot (`thresholds.build_slots`).
+    let tell = |queued: Duration, ahead: usize, slots: bool, told: &mut Option<(usize, bool)>| {
+        if queued >= sources.every && *told != Some((ahead, slots)) {
+            let reason = if slots {
+                format!("slots: all {} build_slots are taken", settings.slots)
+            } else {
+                "disk".to_owned()
+            };
+            say(&format!(
+                "conductor: build run: queued: position {} in the queue of disk requests, {ahead} \
+                 ahead; waiting for {reason}; waited {}s",
+                ahead + 1,
+                queued.as_secs()
+            ));
+            *told = Some((ahead, slots));
+        }
+    };
     loop {
         // A signal while the request waits withdraws it: it leaves the queue, and the command
         // never runs.
@@ -754,11 +809,11 @@ pub fn run(
                     .saturating_add(reserve);
                 // Never under the ledger's lock: every other run would wait on this walk. The
                 // requests behind this one stay behind it meanwhile, as its request is held.
-                drop(ledger);
+                let idle = ledger.unlock();
                 let report = reclaim(sources, state, host, fits);
                 reclaimed = report.reclaimed_bytes;
                 left = report.left;
-                ledger = Ledger::lock(host)?;
+                ledger = idle.lock()?;
                 ledger.sweep(&host::now((sources.clock)()))?;
                 // Count again from the start, under the lock.
                 continue;
@@ -766,10 +821,16 @@ pub fn run(
             // A shortfall live reservations cover is a wait: they release as their runs end. Wait
             // for them, without the lock, rather than refuse; any other is answered now.
             let holding = ledger.reserved(Some(&grant))?;
-            if short == 0 || short > holding || held >= settings.wait {
+            // A head that fits waits for a build slot, in its place, and is never refused for one.
+            slots_full = short == 0 && slots_taken(&ledger)?;
+            if short == 0 {
+                if !slots_full {
+                    break;
+                }
+            } else if short > holding || held >= settings.wait {
                 break;
             }
-            if held.is_zero() {
+            if short > 0 && held.is_zero() {
                 say(&format!(
                     "conductor: build run: waiting: {}G short while live reservations hold {}G; \
                      they release as their runs end",
@@ -777,7 +838,6 @@ pub fn run(
                     holding.div_ceil(GIB)
                 ));
             }
-            held += pause;
         } else {
             // Backfill (`story:build-run-backfill`): when every request ahead lacks more than the
             // live reservations hold together, each can only be refused, so one that fits beside
@@ -785,10 +845,8 @@ pub fn run(
             // no more than they hold, it waits for them, and nothing behind it is granted.
             let free = free_bytes(sources)?;
             let holding = ledger.reserved(Some(&grant))?;
-            let refused_only = before
-                .iter()
-                .all(|&bytes| shortfall(bytes, free, holding, settings.floor) > holding);
-            if refused_only && shortfall(reserve, free, holding, settings.floor) == 0 {
+            slots_full = slots_taken(&ledger)?;
+            if !slots_full && backfills(&before, reserve, free, holding, settings.floor) {
                 short = 0;
                 say(&format!(
                     "conductor: build run: granted past {ahead} request(s) ahead, each short of \
@@ -797,28 +855,87 @@ pub fn run(
                 break;
             }
         }
-        // Waiting longer than `thresholds.watchdog_every` names the position, and again when it
-        // moves.
-        if queued >= sources.every && told != Some(ahead) {
-            say(&format!(
-                "conductor: build run: queued: position {} in the queue of disk requests, {ahead} \
-                 ahead; waited {}s",
-                ahead + 1,
-                queued.as_secs()
-            ));
-            told = Some(ahead);
-        }
+        tell(queued, ahead, slots_full, &mut told);
+        // What this pass answered by, read again without the lock: the bytes the live grants
+        // hold, which only a write of the ledger changes.
+        let holding = ledger.reserved(Some(&grant))?;
         // The ledger pass (`story:build-run-session-bound`): the requests waiting for a session
         // the session list shows stopped are withdrawn. The list is read without the lock, and
         // only a request that waited before it was read is withdrawn.
         let bound = ledger.session_bound()?;
-        drop(ledger);
-        let stopped = stopped_sessions(sources, state, &bound, &mut unread_told);
-        if stopped.is_empty() {
-            pause_unless_received(pause);
-            queued += pause;
-        }
-        ledger = Ledger::lock(host)?;
+        // Read under the lock, after this pass's own writes.
+        let seen = host::generation(host);
+        let idle = ledger.unlock();
+        // Read at most once a pause by each run, however often it passes: the run that sweeps the
+        // host reads it at least that often for every request waiting.
+        let stopped = if unlisted >= pause {
+            unlisted = Duration::ZERO;
+            stopped_sessions(sources, state, &bound, &mut unread_told)
+        } else {
+            Vec::new()
+        };
+        ledger = if stopped.is_empty() {
+            // The wait without the lock (`story:build-queue-convoy`): every `poll` the run reads
+            // the ledger's generation and free disk, and takes the lock for its next pass only
+            // when the ledger changed, its answer may have (free disk moved it, or the head's wait
+            // for live reservations reached its bound), a signal arrived, or no pass has swept the
+            // ledger for `thresholds.watchdog_every`: then whichever waiting run looks first sweeps
+            // it, and the others wait on.
+            let mut idle = idle;
+            let mut since = Duration::ZERO;
+            loop {
+                pause_unless_received(poll);
+                queued += poll;
+                since += poll;
+                unlisted += poll;
+                // Only a wait for live reservations counts toward the head's bound.
+                if ahead == 0 && !slots_full {
+                    held += poll;
+                }
+                tell(queued, ahead, slots_full, &mut told);
+                let changed = match (&seen, host::generation(host)) {
+                    (Some(seen), Some(now)) => *seen != now,
+                    // A generation that does not read tells nothing: a pass every pause, as before.
+                    _ => since >= pause,
+                };
+                let answer_moved = match free_bytes(sources) {
+                    // A slot frees only by a write of the ledger; free disk that no longer fits
+                    // makes it a wait for disk.
+                    Ok(free) if ahead == 0 && slots_full => {
+                        shortfall(reserve, free, holding, settings.floor) > 0
+                    }
+                    Ok(free) if ahead == 0 => {
+                        let short = shortfall(reserve, free, holding, settings.floor);
+                        short == 0 || short > holding || held >= settings.wait
+                    }
+                    Ok(_) if slots_full => false,
+                    Ok(free) => backfills(&before, reserve, free, holding, settings.floor),
+                    // The pass says why free disk does not read.
+                    Err(_) => true,
+                };
+                if received().is_some() || changed || answer_moved {
+                    break idle.lock()?;
+                }
+                if host::swept_age(host).is_some_and(|age| age < pause) {
+                    continue;
+                }
+                // The sweep of the host is due: the first run to take the lock makes it. One that
+                // finds the lock held, or the ledger swept by the time it holds it, waits on.
+                match idle.try_lock()? {
+                    host::Taken::Locked(ledger) => {
+                        let due = host::generation(host) != seen
+                            || host::swept_age(host).is_none_or(|age| age >= pause);
+                        if due {
+                            break ledger;
+                        }
+                        idle = ledger.unlock();
+                    }
+                    host::Taken::Held(back) => idle = back,
+                }
+            }
+        } else {
+            idle.lock()?
+        };
         let at = host::now((sources.clock)());
         ledger.sweep(&at)?;
         for (stopped, session) in &stopped {
@@ -839,13 +956,13 @@ pub fn run(
         // (`story:store-readers-hold-no-writer-lock`): while another writer holds it, the run lets
         // `host.lock` go, waits, and takes it again.
         let _ledger = if beyond_reservations && crate::store::tree_held(state).unwrap_or(false) {
-            drop(ledger);
+            let idle = ledger.unlock();
             if let Err(error) = crate::store::wait_for_tree(state) {
                 say(&format!(
                     "conductor: build run: wait for the store's writer lock: {error}"
                 ));
             }
-            Ledger::lock(host)?
+            idle.lock()?
         } else {
             ledger
         };
@@ -902,14 +1019,14 @@ pub fn run(
             item,
         });
     }
-    drop(ledger);
+    // The store stays open until the command started: the grant's next writes need no reopen.
+    let idle = ledger.unlock();
     // Measured before the command starts, so a run's growth counts what a fast command wrote too.
     let paths = measured(request, sources);
     let start = (sources.walk)(&paths, WALK_BOUND);
     // A signal before the command starts: the granted reservation is released, and nothing runs.
     if let Some(signal) = received() {
-        host::release(
-            host,
+        idle.lock()?.release(
             &grant,
             Some(ReleaseReason::Killed),
             &host::now((sources.clock)()),
@@ -950,12 +1067,17 @@ pub fn run(
         Ok(child) => child,
         Err(error) => {
             let at = host::now((sources.clock)());
-            host::release(host, &grant, Some(ReleaseReason::Exited), &at)?;
+            idle.lock()?
+                .release(&grant, Some(ReleaseReason::Exited), &at)?;
             return Err(error).with_context(|| format!("build run: start {program:?}"));
         }
     };
     let group = i64::from(child.id());
-    if let Err(error) = host::start_run(host, &grant, group, &host::now((sources.clock)())) {
+    // The store is let go once the run started: the command may run for hours.
+    let started = idle
+        .lock()
+        .and_then(|mut ledger| ledger.start_run(&grant, group, &host::now((sources.clock)())));
+    if let Err(error) = started {
         signal(group, Signal::SIGKILL);
         let _ = child.wait();
         let at = host::now((sources.clock)());

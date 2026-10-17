@@ -83,6 +83,7 @@ impl Case {
             reclaim,
             clock: OffsetDateTime::now_utc,
             every: Duration::from_millis(50),
+            poll: Duration::from_millis(20),
             home: Some(self.home()),
             var_tmp: self.var_tmp(),
             scratch: self.home().join(".cache/b10x/conductor/example/scratch"),
@@ -174,6 +175,8 @@ fn settings() -> Settings {
         wait: Duration::ZERO,
         cores: 20,
         cpu_reserve: 2,
+        // No bound on builds at once: these cases decide by disk alone.
+        slots: 0,
     }
 }
 

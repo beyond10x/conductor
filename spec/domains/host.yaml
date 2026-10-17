@@ -23,6 +23,16 @@ summary: >
   run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
   it was moved, and nothing is moved again.
 
+  Beside its store the ledger keeps two files every write of a grant rewrites whole, a new file
+  renamed over the old (story:build-queue-convoy): `ledger.open`, the grants still open
+  (`Requested`, `Granted`, `Running`) with each one's snapshot and stream length and the number of
+  grants the store holds, so a pass of the ledger reads the open grants and never the closed ones,
+  and reads a grant from the store only where the file is behind it; and `ledger.gen`, a counter
+  each write bumps after `ledger.open`, whose age is the time since a pass last swept the ledger.
+  A request waiting in the queue reads `ledger.gen` without `host.lock`, and takes the lock only
+  when the counter moved, its own answer may have (free disk, or its wait's bound), a session it
+  is bound to stopped, or no pass has swept the ledger for `thresholds.watchdog_every`.
+
   The host registry (story:instance-names-unique) is one per host, whatever config file a command
   reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host
   file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`)
@@ -579,7 +589,9 @@ commands:
   # reservations hold together, so each can only be refused, a later request that fits beside the
   # floor and the live reservations is granted at once (story:build-run-backfill). A request that
   # has waited longer than `thresholds.watchdog_every` names its position in the queue on standard
-  # error.
+  # error. A waiting request makes its passes of the ledger under `host.lock` only when the ledger
+  # changed (`ledger.gen`) or its answer may have, and the host's dead are swept once per
+  # `thresholds.watchdog_every` by whichever request is due first (story:build-queue-convoy).
   - name: conductor.host.RequestDisk
     naming:
       wire: request-disk
