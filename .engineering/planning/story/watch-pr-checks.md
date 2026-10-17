@@ -20,7 +20,7 @@ scope:
   path: crates/conductor/tests/watch.rs
 - confidence: cited
   path: docs/design/conductor.md
-revision: 4
+revision: 5
 ---
 ## Why
 
@@ -30,7 +30,7 @@ conductor sent seven "do not poll" messages and relayed results by hand, one con
 31 min waiting on a pull request's CI, and one red pull request went unseen for 3 h 26 min because
 its controller had reported blocked and stopped.
 
-Again on 2026-10-17 (conductor's NEED N-20261017-10): in 40 minutes mandate (PR 43) and
+Again on 2026-10-17 (a conductor NEED): in 40 minutes mandate (PR 43) and
 engineering-protocols (PR 22) watched their pull requests' CI in a background call, against rules
 items 118 and 139. Conductor learns a pull request's result only at its 30-minute check-in.
 

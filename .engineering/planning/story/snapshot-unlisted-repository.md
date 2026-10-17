@@ -4,7 +4,7 @@ id: story:snapshot-unlisted-repository
 kind: story
 status: draft
 title: A repository missing from the workspace file is a recorded row, not a failed snapshot
-revision: 1
+revision: 2
 ---
 # Story: snapshot-unlisted-repository
 
@@ -14,7 +14,7 @@ A new repository of the instance that `.engineering/workspace.yaml` does not lis
 
 ## Context
 
-Conductor's NEED N-20261015-03 (2026-10-15). The snapshot started ~02:2xZ failed at ~03:3xZ, after four collectors had run, with `specifications: repository thalamus is not archived, and no member of <records>/.engineering/workspace.yaml has it as its source`. thalamus had been created at 01:48Z. It was fixed by hand with `conductor config workspace` (records 2ec5520).
+A conductor NEED (2026-10-15). The snapshot started ~02:2xZ failed at ~03:3xZ, after four collectors had run, with `specifications: repository thalamus is not archived, and no member of <records>/.engineering/workspace.yaml has it as its source`. thalamus had been created at 01:48Z. It was fixed by hand with `conductor config workspace` (records 2ec5520).
 
 story:snapshot-member-failures and story:snapshot-absent-member cover a member that cannot be read, but not a repository that is no member at all.
 

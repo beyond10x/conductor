@@ -4,7 +4,7 @@ id: story:need-id-unique
 kind: story
 status: draft
 title: Each NEED carries an id that was never used before
-revision: 1
+revision: 2
 ---
 # Story: need-id-unique
 
@@ -14,7 +14,7 @@ Every `[NEED conductor <id>]` conductor sends has an id no earlier NEED used, so
 
 ## Context
 
-Conductor sent `[NEED conductor N-20261015-02]` twice: at ~01:29Z, asking for restart 8 (hand-over docs/handoff/2026-10-15-0129.md), and at 02:18Z, asking for restart 9 (hand-over docs/handoff/2026-10-15-0218.md). Each session minted the id by hand, and the second did not know the first had used it.
+Conductor sent one NEED id twice (2026-10-15): at ~01:29Z, asking for restart 8 (hand-over docs/handoff/2026-10-15-0129.md), and at 02:18Z, asking for restart 9 (hand-over docs/handoff/2026-10-15-0218.md). Each session minted the id by hand, and the second did not know the first had used it.
 
 ## Acceptance
 

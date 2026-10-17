@@ -6,7 +6,7 @@ status: draft
 title: The watch names a session that makes no progress and a build that waits too long
 relations:
 - decomposes: epic:controller-health
-revision: 2
+revision: 3
 ---
 # Story: watch-stalled-sessions
 
@@ -16,9 +16,9 @@ The watch names a driven session that is making no progress, even while its tran
 
 ## Context
 
-Conductor's NEED N-20261017-08. The operator's words (2026-10-17, DEC-20261017-30): "tell conductor about things ended up stuck, its conductors responsibility to check in on you and make sure things keep moving".
+A conductor NEED (2026-10-17). The operator's words (2026-10-17, a conductor decision): "tell conductor about things ended up stuck, its conductors responsibility to check in on you and make sure things keep moving".
 
-What was missed: the llm w08 wave made no commit for 63 min while its builds sat in the host.lock convoy (story:build-queue-convoy). `session silent` (`thresholds.silent_session`, 30m) did not fire, because the session kept writing to its transcript. The 2 h cycle was too slow to catch it. Meanwhile conductor runs the check as a 30-minute job with a 45-minute threshold (DEC-20261017-31).
+What was missed: the llm w08 wave made no commit for 63 min while its builds sat in the host.lock convoy (story:build-queue-convoy). `session silent` (`thresholds.silent_session`, 30m) did not fire, because the session kept writing to its transcript. The 2 h cycle was too slow to catch it. Meanwhile conductor runs the check as a 30-minute job with a 45-minute threshold (a conductor decision).
 
 ## Acceptance
 

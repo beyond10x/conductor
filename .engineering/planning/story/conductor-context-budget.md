@@ -7,7 +7,7 @@ title: Conductor runs 4 hours before its hand-over threshold
 summary: Measure what fills conductor's context and cut the largest source
 relations:
 - decomposes: epic:measured-self-improvement
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -50,7 +50,7 @@ Sessions 8a98b1a4, 4e3194ba and d1bd2be9 handed over at 208.6k, 213.9k and 225.7
 
 ## Measured again (2026-10-17, conductor-dev)
 
-Conductor filled 200k three times between 05:50Z and 08:06Z, about every 75 min (NEEDs N-20261017-06, -09, -11). Session 7b51080e (06:50Z–08:06Z), in characters:
+Conductor filled 200k three times between 05:50Z and 08:06Z, about every 75 min (three conductor NEEDs, 2026-10-17). Session 7b51080e (06:50Z–08:06Z), in characters:
 - tool results 217k over 216; Bash inputs 120k over 193 calls; SendMessage 45k over 66.
 - Largest results:
   - `message receive-message`: 22.7k (it echoes the message back).

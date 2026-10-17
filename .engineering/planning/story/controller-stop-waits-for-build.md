@@ -4,7 +4,7 @@ id: story:controller-stop-waits-for-build
 kind: story
 status: draft
 title: Stopping a controller never kills its running build by accident
-revision: 2
+revision: 3
 ---
 # Story: controller-stop-waits-for-build
 
@@ -14,7 +14,7 @@ Stopping or pausing a controller session never kills a build it is running by ac
 
 ## Context
 
-Conductor's NEED N-20261016-17, 2026-10-16: EKR's 0.0.36 full gate (`build run --reserve 42G … task check`, about 100 min in, 186 targets green) died at 19:08:03Z. Its controller session had handed over and was ended with `kill -TERM`, because `claude stop` does not reach a session that `conductor spawn` started. Ending the session's unit stops its cgroup, and `build run` passes the signal to its process group (story:build-run-cancel-group), so the build died with it. rules.md item 146 is the stopgap.
+A conductor NEED (2026-10-16): EKR's 0.0.36 full gate (`build run --reserve 42G … task check`, about 100 min in, 186 targets green) died at 19:08:03Z. Its controller session had handed over and was ended with `kill -TERM`, because `claude stop` does not reach a session that `conductor spawn` started. Ending the session's unit stops its cgroup, and `build run` passes the signal to its process group (story:build-run-cancel-group), so the build died with it. rules.md item 146 is the stopgap.
 
 ## Acceptance
 
