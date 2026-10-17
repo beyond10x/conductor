@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 24891f6bfa6cd64ea45845de0d871db2e16a70eef887a388501bc92a1d798712
-// contract digest e47d94c96d2bec2c02b72b5e382a052c93a104208ee2db411ad75a45a7098828
+// model digest a170d642d29c2184ce7e8b3c8d17d2b385dd4864d8ed6404038ccaadc537c3e3
+// contract digest 2f83829bb3307485133d8dc635d3d409dfcee0833c87be9e1a20a4625bc949af
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -574,6 +574,24 @@ pub trait LeaseStorage {
     fn list(&self) -> Vec<crate::session::LeaseSnapshot>;
 }
 
+/// Where `conductor.tool.ToolCall` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `tool_call_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait ToolCallStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::tool::ToolCallId) -> Option<crate::tool::ToolCallSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::tool::ToolCallSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::tool::ToolCallId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::tool::ToolCallSnapshot>;
+}
+
 /// What the specification leaves to the implementor's context — a port the implementor provides.
 ///
 /// The caller's attributes, the values the model says the implementation assigns, and the answer
@@ -614,6 +632,10 @@ pub trait Context {
     /// A new `conductor.observation.SnapshotId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_observation_snapshot_id(&mut self) -> crate::observation::SnapshotId;
+
+    /// A new `conductor.tool.ToolCallId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_tool_tool_call_id(&mut self) -> crate::tool::ToolCallId;
 }
 
 /// Context answers that may be unavailable, without fabricated values.
@@ -637,6 +659,8 @@ fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::obser
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation>;
 }
 
 impl<T: Context + ?Sized> TryContext for T {
@@ -649,6 +673,7 @@ fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::
 fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation> { Ok(Context::generate_conductor_observation_board_id(self)) }
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation> { Ok(Context::generate_conductor_observation_observation_id(self)) }
 fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation> { Ok(Context::generate_conductor_observation_snapshot_id(self)) }
+fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation> { Ok(Context::generate_conductor_tool_tool_call_id(self)) }
 }
 
 /// An unavailable runtime context answer, rather than a new planned capability.
@@ -1386,7 +1411,7 @@ where
         };
         let _ = &held;
         // `need-unrouted`: selected by the addressed row.
-        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.HandleMessage")? {
+        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Team => "Team", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.HandleMessage")? {
             return Ok(crate::dispatch::HandleMessageOutcome::NeedUnrouted { error: crate::dispatch::NeedNotRouted { message_id: input.message_id.clone() } });
         }
         // `handled`: the default.
@@ -1440,7 +1465,7 @@ where
     fn receive_message(&mut self, input: crate::dispatch::ReceiveMessage) -> Result<crate::dispatch::ReceiveMessageOutcome, UnmetObligation> {
         let _ = &input;
         // `unparsed`: an accepting branch, in declaration order.
-        if decided(any(&[equal(Some(&input.parsed).map(|value| *value), Some(false)), equal(Some(&input.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Unknown".to_owned()))]), "conductor.dispatch.ReceiveMessage")? {
+        if decided(any(&[equal(Some(&input.parsed).map(|value| *value), Some(false)), equal(Some(&input.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Team => "Team", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Unknown".to_owned()))]), "conductor.dispatch.ReceiveMessage")? {
             let identity: crate::dispatch::MessageId = self.ports.try_generate_conductor_dispatch_message_id()?;
             let data = crate::dispatch::MessageData {
                 message_id: identity.clone(),
@@ -1837,7 +1862,7 @@ where
         };
         let _ = &held;
         // `not-a-need`: selected by the addressed row.
-        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())).map(|value| !value), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.RouteNeed")? {
+        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Team => "Team", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())).map(|value| !value), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.RouteNeed")? {
             return Ok(crate::dispatch::RouteNeedOutcome::NotANeed { error: crate::dispatch::NotANeed { message_id: input.message_id.clone() } });
         }
         // `routed`: the default.
@@ -3204,6 +3229,37 @@ impl<P: crate::session::obligations::ClaimLeaseBehavior> crate::session::obligat
     }
 }
 
+/// `conductor.tool.RecordToolCall`, generated: every outcome is one the specification fully determines.
+impl<P> crate::tool::obligations::RecordToolCallBehavior for Generated<P>
+where
+    P: TryContext + ToolCallStorage,
+{
+    fn record_tool_call(&mut self, input: crate::tool::RecordToolCall) -> Result<crate::tool::RecordToolCallOutcome, UnmetObligation> {
+        let _ = &input;
+        // `recorded`: the default.
+        let identity: crate::tool::ToolCallId = self.ports.try_generate_conductor_tool_tool_call_id()?;
+        let data = crate::tool::ToolCallData {
+            tool_call_id: identity.clone(),
+            instance: input.instance.clone(),
+            session: input.session.clone(),
+            verb: input.verb.clone(),
+            paths: input.paths.clone(),
+            outcome: input.outcome.clone(),
+            rule: input.rule.clone(),
+            duration_ms: input.duration_ms.clone(),
+            output_bytes: input.output_bytes.clone(),
+            called_at: input.called_at.clone(),
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::tool::RecordToolCallOutcome::Recorded { tool_call_recorded: crate::tool::ToolCallRecorded { tool_call_id: identity.clone(), session: input.session.clone(), verb: input.verb.clone(), outcome: input.outcome.clone() } };
+        ToolCallStorage::put(&mut self.ports, crate::tool::AnyToolCall::Recorded(crate::tool::ToolCall::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.decision.Decisions`, generated: every row is one the specification fully determines from the stored `conductor.decision.Decision`s.
 impl<P> crate::decision::obligations::DecisionsQuery for Generated<P>
 where
@@ -4007,6 +4063,30 @@ where
                 taken_at: held.data.taken_at,
                 taken_over_session_id: held.data.taken_over_session_id,
                 taken_over_pid: held.data.taken_over_pid,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.tool.ToolCalls`, generated: every row is one the specification fully determines from the stored `conductor.tool.ToolCall`s.
+impl<P> crate::tool::obligations::ToolCallsQuery for Generated<P>
+where
+    P: ToolCallStorage,
+{
+    fn tool_calls(&self) -> Result<Vec<crate::tool::ToolCalls>, UnmetObligation> {
+        let admitted = ToolCallStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::tool::ToolCalls {
+                tool_call_id: held.data.tool_call_id,
+                session: held.data.session,
+                verb: held.data.verb,
+                paths: held.data.paths,
+                outcome: held.data.outcome,
+                rule: held.data.rule,
+                duration_ms: held.data.duration_ms,
+                output_bytes: held.data.output_bytes,
+                called_at: held.data.called_at,
             })
             .collect())
     }

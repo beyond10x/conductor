@@ -212,6 +212,7 @@ impl Case {
                  i=0\n\
                  for arg; do i=$((i + 1)); printf '%s' \"$arg\" > '{launch}'/\"$i\"; done\n\
                  pwd -P > '{launch}/cwd'\n\
+                 printf '%s' \"$TOOL_SOCKET\" > '{launch}/tool_socket'\n\
                  if [ -e '{fail}' ]; then echo 'Workspace not trusted' >&2; exit 1; fi\n\
                  echo '{SESSION_ID}'\n",
                 agents = self.dir.join("agents.json").display(),
@@ -420,6 +421,50 @@ fn spawn_starts_the_controller_start_form_in_the_checkout_and_records_it_running
     assert_eq!(row["harness"], "Claude", "{row}");
     assert_eq!(row["session_name"], "ex-alpha", "{row}");
     assert_eq!(row["charter_revision"], 1, "{row}");
+}
+
+/// `story:tool-broker-read`, acceptance 3: spawn registers the session with the instance's broker
+/// before it starts, with the controller role's grant (the default: `show`, `search` and `diff`)
+/// over the checkout, and names the session's socket in its environment as `TOOL_SOCKET`.
+#[test]
+fn spawn_registers_the_session_with_the_broker_and_names_its_socket() {
+    let case = Case::new("broker");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+
+    let socket = fs::read_to_string(case.launch().join("tool_socket"))
+        .expect("the launch recorded TOOL_SOCKET");
+    let broker = case.state().join("broker");
+    assert_eq!(
+        socket,
+        broker.join("sockets/ex-alpha.sock").display().to_string()
+    );
+    let registration: Value = serde_json::from_str(
+        &fs::read_to_string(broker.join("sessions/ex-alpha.json"))
+            .expect("the session is registered"),
+    )
+    .expect("the registration is JSON");
+    assert_eq!(registration["session"], "ex-alpha", "{registration}");
+    assert_eq!(registration["instance"], "example-org", "{registration}");
+    assert_eq!(
+        registration["workdir"],
+        case.checkout().display().to_string(),
+        "{registration}"
+    );
+    assert_eq!(
+        registration["grant"]["tools"],
+        json!(["show", "search", "diff"]),
+        "{registration}"
+    );
+    assert_eq!(registration["grant"]["max_output_bytes"], 65_536);
+    assert_eq!(registration["grant"]["expires_at"], Value::Null);
+    // `story:tool-build-commit-report`: the controller is its repository's lead, in the team named
+    // after it, reporting to the instance's director.
+    assert_eq!(
+        registration["place"],
+        json!({"role": "controller", "level": "lead", "team": "alpha", "above": "ex-conductor"}),
+        "{registration}"
+    );
 }
 
 /// The records lines of `log` (`dispatches` or `decisions`) under the case's records directory,

@@ -128,6 +128,18 @@ fn received() -> Option<Signal> {
         .filter(|signal| STOPPING.contains(signal))
 }
 
+/// Forgets the signals received so far, so that [`received`] answers only one that arrives after
+/// this call.
+fn clear_received() {
+    if let Some(received) = RECEIVED.get() {
+        received.store(0, Ordering::SeqCst);
+    }
+}
+
+/// How long a stopped run waits for the host ledger before it exits and leaves its grant to
+/// [`Ledger::sweep`].
+pub const LEDGER_BOUND: Duration = Duration::from_secs(30);
+
 /// Sleeps `pause`, waking early once a signal was received ([`received`]).
 fn pause_unless_received(pause: Duration) {
     let until = Instant::now() + pause;
@@ -307,6 +319,9 @@ pub struct Request {
     pub measure: Vec<PathBuf>,
     /// Where it runs.
     pub cwd: PathBuf,
+    /// The file the command's standard output and error are appended to; none, `build run`'s own
+    /// (`story:tool-build-commit-report`: the broker's build verbs name a log).
+    pub output: Option<PathBuf>,
 }
 
 /// How a run ended.
@@ -913,6 +928,24 @@ pub fn run(
     for (name, value) in job_variables(settings, sources) {
         command.env(name, value);
     }
+    if let Some(output) = &request.output {
+        let opened = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(output)
+            .and_then(|file| Ok((file.try_clone()?, file)));
+        match opened {
+            Ok((out, err)) => {
+                command.stdout(out).stderr(err);
+            }
+            Err(error) => {
+                let at = host::now((sources.clock)());
+                host::release(host, &grant, Some(ReleaseReason::Exited), &at)?;
+                host::end_run(host, &grant, run_lock);
+                return Err(error).with_context(|| format!("build run: open {}", output.display()));
+            }
+        }
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -982,24 +1015,53 @@ pub fn run(
         .start
         .zip([watched.peak, last].into_iter().flatten().max())
         .map(|(start, peak)| peak.saturating_sub(start));
-    if let Some(peak) = peak
-        && let Err(error) = host::record_run_of(host, &grant, peak, watched.paused)
-    {
-        (sources.say)(
-            state,
-            &format!("conductor: build run: the peak was not recorded: {error:#}"),
-        );
-    }
     let reason = if killed {
         ReleaseReason::Killed
     } else {
         ReleaseReason::Exited
     };
-    if let Err(error) = host::release(host, &grant, Some(reason), &host::now((sources.clock)())) {
-        (sources.say)(
+    // The ledger is taken with a bounded try-lock loop: a holder that never lets go, or a stopping
+    // signal while this waits, must not keep a stopped run from exiting. It then leaves the grant
+    // Running, for `Ledger::sweep` to release once its process group is gone.
+    clear_received();
+    let finished = host::finish_run(
+        host,
+        &grant,
+        peak.map(|peak| (peak, watched.paused)),
+        Some(reason),
+        || host::now((sources.clock)()),
+        LEDGER_BOUND,
+        || received().is_some(),
+    );
+    let mut code = code;
+    match finished {
+        Ok(host::Finish::Released { peak }) => {
+            if let Some(error) = peak {
+                (sources.say)(
+                    state,
+                    &format!("conductor: build run: the peak was not recorded: {error:#}"),
+                );
+            }
+        }
+        Ok(host::Finish::GaveUp) => {
+            if let Some(signal) = received() {
+                code = signal_code(signal);
+            }
+            (sources.say)(
+                state,
+                &format!(
+                    "conductor: build run: the ledger was not free within {}s, or a signal \
+                     arrived: grant {} stays Running, and the next command that reads the ledger \
+                     releases it once its process group is gone",
+                    LEDGER_BOUND.as_secs(),
+                    grant.0
+                ),
+            );
+        }
+        Err(error) => (sources.say)(
             state,
             &format!("conductor: build run: the grant was not released: {error:#}"),
-        );
+        ),
     }
     host::end_run(host, &grant, run_lock);
     Ok(Outcome::Ran {
@@ -1121,6 +1183,7 @@ pub fn build_run(state: Option<&Path>, args: &BuildRunArgs) -> Result<ExitCode> 
         command: args.command.clone(),
         measure: args.measure.iter().map(PathBuf::from).collect(),
         cwd: std::env::current_dir().context("build run: read the working directory")?,
+        output: None,
     };
     let host = host::dir(state)?;
     let outcome = run(

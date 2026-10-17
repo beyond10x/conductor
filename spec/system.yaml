@@ -11,3 +11,4 @@ domains:
   - conductor.session
   - conductor.host
   - conductor.improvement
+  - conductor.tool

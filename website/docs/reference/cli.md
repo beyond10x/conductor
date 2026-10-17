@@ -156,6 +156,8 @@ Every command takes these, before or after its name.
 | [`conductor finding raise-finding`](#conductor-finding-raise-finding) | Raise a friction finding |
 | [`conductor finding verify-finding`](#conductor-finding-verify-finding) | Verify a filed finding |
 | [`conductor finding findings`](#conductor-finding-findings) | Friction findings |
+| [`conductor broker`](#conductor-broker) |  |
+| [`conductor broker serve`](#conductor-broker-serve) | Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it |
 | [`conductor build`](#conductor-build) |  |
 | [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
@@ -1392,7 +1394,7 @@ Usage: conductor message receive-message [OPTIONS]
 |---|---|---|---|
 | `--sender <SENDER>` | no | none | string |
 | `--recipient <RECIPIENT>` | no | none | string |
-| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Unknown`. |
+| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Team`, `Unknown`. |
 | `--first-line <FIRST_LINE>` | no | none | string |
 | `--transport <TRANSPORT>` | no | none | Transport One of `SendMessage`, `Mailbox`. |
 | `--received-at <RECEIVED_AT>` | no | none | timestamp, RFC 3339 |
@@ -2023,6 +2025,20 @@ Usage: conductor finding findings [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor broker`
+
+```text
+Usage: conductor broker [OPTIONS] <COMMAND>
+```
+
+## `conductor broker serve`
+
+Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
+
+```text
+Usage: conductor broker serve [OPTIONS]
+```
 
 ## `conductor build`
 

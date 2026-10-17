@@ -30,6 +30,10 @@
 //! file's instance is registered, and a message to that instance's session is denied.
 //! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
+//! A Bash command that kills by pattern, name or group is denied for every role, before the rows
+//! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
+//! is not given numeric process ids (rules.md item 147).
+//!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
 //! role's `read_only_tools` (`conductor` for conductor's rules, `controller` for a controller's),
@@ -1459,6 +1463,9 @@ impl Session<'_> {
                         .is_some_and(|(_, value)| contains_word(value, forge.program()))
             })
         };
+        if let Some(reason) = kill_denial(&commands) {
+            return (Verdict::Deny, reason);
+        }
         for words in &commands {
             if let Some(gh) = bot_route(words)
                 && let Some(reason) = self.bot_route_denial(&gh)
@@ -2270,6 +2277,86 @@ fn unreserved_build(commands: &[Vec<String>]) -> Option<(String, &'static str)> 
         }
     }
     None
+}
+
+/// The programs that kill by name or pattern.
+const KILL_BY_NAME: [&str; 4] = ["pkill", "killall", "killall5", "skill"];
+
+/// The options of `kill` that list signals and signal nobody.
+const KILL_LISTS: [&str; 6] = ["-l", "-L", "-t", "--list", "--table", "--help"];
+
+/// A kill of something the caller did not start, by pattern or by name (`story:guard-no-pattern-
+/// kill`): the run of `pkill`, `killall`, `killall5` or `skill`, and of `kill` unless every
+/// operand is a numeric process id (or `$!`, the last background job the shell started) after at
+/// most one signal (`-9`, `-TERM`, `-s TERM`, `-n 9`, `--signal=TERM`); an operand that is a
+/// name, `0`, a negative id (`-1`, a group), a `%job`, an expansion or a command substitution; or
+/// a `kill` whose operands `xargs` supplies. A program word is read as in [`is_program_word`]; and
+/// after a launcher (`sudo -u root pkill x`) every word, since its own options take values. The
+/// answer is the denial's reason.
+fn kill_denial(commands: &[Vec<String>]) -> Option<String> {
+    for words in commands {
+        let name = words.len() - command_words(words).len();
+        if name >= words.len() {
+            continue;
+        }
+        let launched = LAUNCHERS.contains(&shell::program(&words[name]));
+        for at in name..words.len() {
+            if !(at == name || launched || FIND_RUNS.contains(&words[at - 1].as_str())) {
+                continue;
+            }
+            let program = shell::program(&words[at]);
+            let by_name = KILL_BY_NAME.contains(&program);
+            let fed = words[name..at]
+                .iter()
+                .any(|word| matches!(shell::program(word), "xargs" | "parallel"));
+            if by_name || (program == "kill" && (fed || !kills_pids(&words[at + 1..]))) {
+                let run: Vec<String> = words[at..].iter().map(|word| shell::quoted(word)).collect();
+                return Some(format!(
+                    "`{}` kills by pattern, by name or by group, so it can kill another \
+                     session's processes (rules.md item 147): never `pkill`, `killall` or `kill` \
+                     by pattern, name, `-1`, a negative group or `%job`. Stop what you started \
+                     with TaskStop, or `kill <pid>` / `kill -<SIG> <pid>` with the numeric pid of \
+                     a process you started",
+                    run.join(" ")
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Whether the arguments of a `kill` name only numeric process ids: an optional signal first,
+/// then one or more ids, each digits and not `0` (the caller's own group), or `$!`; or only list
+/// signals ([`KILL_LISTS`]).
+fn kills_pids(arguments: &[String]) -> bool {
+    if arguments
+        .first()
+        .is_some_and(|word| KILL_LISTS.contains(&word.as_str()))
+    {
+        return true;
+    }
+    let mut rest = arguments;
+    if let Some(first) = rest.first() {
+        if first == "-s" || first == "-n" || first == "--signal" {
+            rest = rest.get(2..).unwrap_or_default();
+        } else if first.starts_with("--signal=")
+            || (first.len() > 1
+                && first.starts_with('-')
+                && first[1..].chars().all(|c| c.is_ascii_alphanumeric()))
+        {
+            rest = &rest[1..];
+        }
+    }
+    if rest.first().is_some_and(|word| word == "--") {
+        rest = &rest[1..];
+    }
+    !rest.is_empty()
+        && rest.iter().all(|word| {
+            word == "$!"
+                || (!word.is_empty()
+                    && word.chars().all(|c| c.is_ascii_digit())
+                    && word.chars().any(|c| c != '0'))
+        })
 }
 
 /// The words a `conductor build run` in `words` runs: those after its `--`, or after `run`

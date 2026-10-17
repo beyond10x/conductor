@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-17T04:41:37Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-no-pattern-kill",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "guard_rules 133, build_run 60, profiles 42, adv_guard 4, conformance 391 at 5db2a3ec; guard and run tests red first"
+  }
+}

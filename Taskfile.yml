@@ -317,6 +317,68 @@ tasks:
         fi
         rm -f "$pidfile"
 
+  broker:
+    desc: Start the active instance's broker (conductor broker serve), which serves each session of the instance on its own socket under broker/ of the instance's state directory, checks every tool call against the session's grant and records it; the broker serves that instance (CONDUCTOR_INSTANCE); where systemctl is on PATH as the instance's user service, <session_prefix>-conductor-broker or conductor-broker without a prefix, unless it is active, elsewhere in the background with nohup, its pid in broker.pid and its output in broker.log of the instance's state directory (conductor config show), refusing while that pid runs
+    silent: true
+    vars:
+      STATE:
+        sh: conductor config show --format json | jq -r '.instances[0].state'
+      INSTANCE:
+        sh: conductor config show --format json | jq -r '.instances[0].name'
+      UNIT:
+        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-broker" else "conductor-broker" end'
+    preconditions:
+      - sh: test -n {{shellQuote .INSTANCE}}
+        msg: conductor config show names no instance
+    cmds:
+      - |
+        if command -v systemctl >/dev/null 2>&1; then
+          set -- --setenv=PATH="$PATH" --setenv=CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}}
+          if [ -n "${CONDUCTOR_CONFIG:-}" ]; then set -- "$@" --setenv=CONDUCTOR_CONFIG="$CONDUCTOR_CONFIG"; fi
+          systemctl --user is-active --quiet {{shellQuote .UNIT}} || systemd-run --user --unit {{shellQuote .UNIT}} --collect "$@" "$(command -v conductor)" broker serve
+          exit
+        fi
+        state={{shellQuote .STATE}}
+        pidfile="$state/broker.pid"
+        if [ -f "$pidfile" ]; then
+          pid=$(cat "$pidfile")
+          if ps -p "$pid" -o args= 2>/dev/null | grep -q 'broker serve'; then
+            echo "the broker runs already as pid $pid ($pidfile); see task broker:stop" >&2
+            exit 1
+          fi
+        fi
+        mkdir -p "$state"
+        pid=$(CONDUCTOR_INSTANCE={{shellQuote .INSTANCE}} sh -c 'nohup "$0" broker serve </dev/null >>"$1" 2>&1 & echo $!' "$(command -v conductor)" "$state/broker.log")
+        echo "$pid" > "$pidfile"
+        echo "the broker runs as pid $pid; its output is in $state/broker.log"
+
+  broker:stop:
+    desc: Stop the active instance's broker; where systemctl is on PATH its user service, <session_prefix>-conductor-broker or conductor-broker without a prefix, elsewhere the pid in broker.pid of the instance's state directory (conductor config show), whose file it removes
+    vars:
+      STATE:
+        sh: conductor config show --format json | jq -r '.instances[0].state'
+      UNIT:
+        sh: conductor config show --format json | jq -r '.instances[0] | if .session_prefix then .session_prefix + "-conductor-broker" else "conductor-broker" end'
+    preconditions:
+      - sh: test -n {{shellQuote .UNIT}}
+        msg: conductor config show names no instance
+    cmds:
+      - |
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl --user stop {{shellQuote .UNIT}}
+          exit
+        fi
+        pidfile={{shellQuote .STATE}}/broker.pid
+        if [ ! -f "$pidfile" ]; then
+          echo "no broker pid file at $pidfile; nothing to stop"
+          exit 0
+        fi
+        pid=$(cat "$pidfile")
+        if ps -p "$pid" -o args= 2>/dev/null | grep -q 'broker serve'; then
+          sh -c 'kill "$0"' "$pid"
+        fi
+        rm -f "$pidfile"
+
   status:
     desc: Take a snapshot of every repository the active instance tracks (conductor snapshot start-snapshot runs the collectors) and publish it as the board, STATUS.md in the instance's records directory (conductor snapshot publish-board); publishes nothing when the snapshot fails
     cmds:

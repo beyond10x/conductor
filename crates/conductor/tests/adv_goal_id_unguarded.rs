@@ -133,6 +133,9 @@ impl Context for Ports {
     fn generate_conductor_host_reclaim_run_id(&mut self) -> conductor_model::host::ReclaimRunId {
         unreachable!("AddServing and SendDispatch assign no reclaim run id")
     }
+    fn generate_conductor_tool_tool_call_id(&mut self) -> conductor_model::tool::ToolCallId {
+        unreachable!("AddServing and SendDispatch assign no tool call id")
+    }
 }
 
 fn state_dir(case: &str) -> PathBuf {

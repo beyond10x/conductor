@@ -793,8 +793,24 @@ pub fn start(
         ),
         _ => role_settings(found, cwd),
     };
+    let request = request(instance, found, cwd, home);
+    // The session's socket to the instance's broker (`story:tool-broker-read`): registered with
+    // its role's grant before it starts, and named in its environment.
+    let socket = crate::broker::register_session(
+        &state_dir,
+        &instance.name,
+        found,
+        &name,
+        Path::new(&request.cwd),
+        crate::broker::placement(instance, &found.role, None),
+    )
+    .context("session start")?;
+    env.push((
+        conductor_broker::SOCKET_VARIABLE.to_owned(),
+        socket.display().to_string(),
+    ));
     let launch = Launch {
-        request: request(instance, found, cwd, home),
+        request,
         program: confine::CLAUDE.to_owned(),
         args: harness_args(found, &name, settings),
         env,
@@ -832,7 +848,13 @@ pub fn start(
             writeln!(io::stdout().lock(), "{line}").context("write the started session")?;
             Ok(ExitCode::SUCCESS)
         }
-        Err(refusal) => refuse_start(&refuse, refusal),
+        Err(refusal) => {
+            // A session that did not start has no calls to make.
+            if let Err(error) = crate::broker::unregister_session(&state_dir, &name) {
+                eprintln!("conductor: session start: {error:#}");
+            }
+            refuse_start(&refuse, refusal)
+        }
     }
 }
 
@@ -930,6 +952,7 @@ pub fn stop(
         .stop(&session, &request)
         .with_context(|| format!("session stop: stop {} ({id})", name.0))?;
     confine::remove_measurement(&state_dir, &name).context("session stop")?;
+    crate::broker::unregister_session(&state_dir, &name).context("session stop")?;
     note_old_name("session stop", &role)?;
     writeln!(io::stdout().lock(), "stopped {} ({id})", name.0)
         .context("write the stopped session")?;

@@ -960,6 +960,58 @@ fn peak_answer(command: &str, outcome: RecordPeakOutcome) -> Result<()> {
     }
 }
 
+/// How a bounded [`finish_run`] ended.
+#[derive(Debug)]
+pub enum Finish {
+    /// The ledger was taken: the grant is released, and `peak` is why recording the run's growth
+    /// failed, if it did.
+    Released {
+        /// The error of recording the peak, if any.
+        peak: Option<anyhow::Error>,
+    },
+    /// The ledger was not taken within the bound, or `stop` answered `true`: the grant stays
+    /// Running, for [`Ledger::sweep`] to release once its process group is gone
+    /// (`ProcessGroupGone`).
+    GaveUp,
+}
+
+/// How long [`finish_run`] pauses between two tries of the ledger's lock.
+const FINISH_EVERY: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// What a `build run` does once its command stopped: records the run's growth (`peak`, with its
+/// pauses) and releases `grant` for `reason`, taking the ledger with a bounded try-lock loop
+/// instead of waiting for it (`story:guard-no-pattern-kill`). A holder that never lets go, or a
+/// stopping signal (`stop`), must not keep a stopped run from exiting: it gives up after `bound`
+/// or when `stop` answers `true`, and leaves the grant to [`Ledger::sweep`].
+///
+/// # Errors
+///
+/// The store does not open, or the specification refuses the release.
+pub fn finish_run(
+    state: &Path,
+    grant: &GrantId,
+    peak: Option<(u64, u32)>,
+    reason: Option<ReleaseReason>,
+    clock: impl Fn() -> Timestamp,
+    bound: std::time::Duration,
+    stop: impl Fn() -> bool,
+) -> Result<Finish> {
+    let until = std::time::Instant::now() + bound;
+    loop {
+        if let Some(mut ledger) = Ledger::try_lock(state)? {
+            let peak = peak.and_then(|(bytes, pauses)| {
+                record_peak_in(&mut ledger, grant, bytes, pauses).err()
+            });
+            release_in(&mut ledger.generated, grant, reason, &clock())?;
+            return Ok(Finish::Released { peak });
+        }
+        if stop() || std::time::Instant::now() >= until {
+            return Ok(Finish::GaveUp);
+        }
+        std::thread::sleep(FINISH_EVERY);
+    }
+}
+
 /// `ReleaseGrant`: `grant` is released for `reason`.
 ///
 /// # Errors
@@ -1872,6 +1924,14 @@ impl HostGrantStorage for Ports {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_tool_tool_call_id(
+        &mut self,
+    ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.tool.ToolCallId",
+        ))
+    }
+
     fn try_generate_conductor_direction_serving_id(
         &mut self,
     ) -> Result<ServingId, UnmetObligation> {

@@ -203,6 +203,11 @@ types:
   # use: each a name of capital letters, digits and `_`, not starting with a digit. It is carried
   # on the session request a provider receives (`conductor.session.SessionRequest`); the variables'
   # values are never part of the config. Absent, it is empty.
+  # `grant` (story:tool-broker-read) is what each session of the role may call through `tool`
+  # (`conductor.tool.RoleGrant`): its verbs, the repositories and paths they read, the most bytes
+  # one answer carries and the grant's time to live. Absent, the role's default tools that exist as
+  # verbs: `show`, `search` and `diff`, over the whole working directory, 65536 bytes per answer,
+  # for the session's life.
   # A settings file pins its instance (story:instance-isolation): its `env.CONDUCTOR_INSTANCE` is
   # the instance's name, and each of its hook commands that runs `conductor` names the instance
   # first, `CONDUCTOR_INSTANCE=<name> conductor guard …`, since the harness does not pass the
@@ -229,6 +234,7 @@ types:
       - {name: writable, type: List<conductor.config.Writable>}
       - {name: network, type: conductor.config.Network}
       - {name: forge_token_env, type: List<String>}
+      - {name: grant, type: conductor.tool.RoleGrant}
 
   # The CPU, memory and process limits of a box (story:session-envelope-model), as systemd sets
   # them on a cgroup: `memory_max` its `MemoryMax`, in GiB, written as a size, `15G`;

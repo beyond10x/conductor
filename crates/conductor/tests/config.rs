@@ -2784,7 +2784,20 @@ fn with_envelope(mut role: Value) -> Value {
     map.insert("writable".to_owned(), default_writable(&name));
     map.insert("network".to_owned(), Value::from("open"));
     map.insert("forge_token_env".to_owned(), serde_json::json!([]));
+    map.insert("grant".to_owned(), default_grant());
     role
+}
+
+/// The grant of a role that writes none (`story:tool-broker-read`): `show`, `search` and `diff`
+/// over the whole working directory, 65536 bytes per answer, for the session's life.
+fn default_grant() -> Value {
+    serde_json::json!({
+        "tools": ["show", "search", "diff"],
+        "repositories": [],
+        "paths": [],
+        "max_output_bytes": 65536,
+        "ttl": null,
+    })
 }
 
 /// Without a `confinement`, or with an empty one, an instance reports an unboxed session rather
@@ -3156,6 +3169,80 @@ fn a_role_s_forge_token_env_shows_as_written_and_refuses_a_bad_name_by_its_path(
             &one_instance(&format!(
                 "\x20   roles: [{{role: controller, harness: claude, model: opus, \
                  forge_token_env: {value}}}]\n"
+            )),
+        );
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
+    }
+}
+
+/// `story:tool-broker-read`: a role's `grant` is what its sessions may call through `tool`.
+/// Written, it is shown as written, each key it leaves out at its default, and survives a YAML
+/// round trip; absent, it is the default grant. A verb that is not one, a path that leaves the
+/// working directory, a limit under 1 and a time to live that is no duration are each refused by
+/// their own path.
+#[test]
+fn a_role_s_grant_shows_as_written_and_refuses_a_bad_key_by_its_path() {
+    let case = Case::new("grant");
+    let file = case.write(
+        "grant.yaml",
+        &one_instance(
+            "\x20   roles:\n\
+             \x20     - {role: controller, harness: claude, model: opus, grant: \
+             {tools: [show], paths: [src], ttl: 4h}}\n\
+             \x20     - {role: conductor, harness: claude, model: opus}\n",
+        ),
+    );
+    let validated = case.with_file(&file, &["config", "validate"]);
+    assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+    let shown = case.show(&file, &[]);
+    let one = instance(&shown);
+    assert_eq!(
+        one["roles"][0]["grant"],
+        serde_json::json!({
+            "tools": ["show"],
+            "repositories": [],
+            "paths": ["src"],
+            "max_output_bytes": 65536,
+            "ttl": "4h",
+        }),
+        "{shown:#}"
+    );
+    assert_eq!(one["roles"][1]["grant"], default_grant(), "{shown:#}");
+    let yaml = case.with_file(&file, &["config", "show", "--format", "yaml"]);
+    assert_eq!(yaml.status.code(), Some(0), "{}", describe(&yaml));
+    let written = case.write("shown.yaml", &String::from_utf8_lossy(&yaml.stdout));
+    assert_eq!(case.show(&written, &[]), shown, "the round trip");
+
+    for (name, value, path) in [
+        (
+            "verb",
+            "{tools: [show, edit]}",
+            "instances[0].roles[0].grant.tools[1]: ",
+        ),
+        (
+            "climbs",
+            "{paths: [../other]}",
+            "instances[0].roles[0].grant.paths[0]: ",
+        ),
+        (
+            "absolute",
+            "{paths: [/etc]}",
+            "instances[0].roles[0].grant.paths[0]: ",
+        ),
+        (
+            "limit",
+            "{max_output_bytes: 0}",
+            "instances[0].roles[0].grant.max_output_bytes: ",
+        ),
+        ("ttl", "{ttl: soon}", "instances[0].roles[0].grant.ttl: "),
+        ("key", "{budget: 3}", "instances[0].roles[0].grant.budget: "),
+    ] {
+        let file = case.write(
+            &format!("grant-{name}.yaml"),
+            &one_instance(&format!(
+                "\x20   roles: [{{role: controller, harness: claude, model: opus, \
+                 grant: {value}}}]\n"
             )),
         );
         let problems = refused(&case, &file);

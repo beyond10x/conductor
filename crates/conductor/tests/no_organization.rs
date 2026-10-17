@@ -2,9 +2,10 @@
 //! organization's name, so a second organization runs conductor from a config file alone.
 //!
 //! The words `beyond10x` and `b10x` are looked for, case-insensitively, in every file under
-//! `crates/conductor/src`, `crates/conductor/tests`, `crates/conductor-model/src` and `spec`, and
-//! in `Taskfile.yml` and `crates/conductor/Cargo.toml`. These uses are allowed, each by its exact
-//! text:
+//! `crates/conductor/src`, `crates/conductor/tests`, `crates/conductor-model/src`, `spec`, and the
+//! broker's and `tool`'s crates, `crates/conductor-broker` and `crates/tool`
+//! (`story:tool-broker-read`), and in `Taskfile.yml` and `crates/conductor/Cargo.toml`. These uses
+//! are allowed, each by its exact text:
 //! - `.b10x/conductor`, `~/.b10x` and `".b10x"`, the directory of the config file and the default
 //!   instance directories, and `.cache/b10x/conductor`, the default cache of an instance;
 //! - `b10x-gates`, the name of the Gates scanner the guard and `task check` call, and
@@ -96,6 +97,8 @@ fn no_file_of_the_product_names_an_organization() {
         "crates/conductor/tests",
         "crates/conductor-model/src",
         "spec",
+        "crates/conductor-broker",
+        "crates/tool",
     ] {
         files(&root.join(dir), &mut paths);
     }

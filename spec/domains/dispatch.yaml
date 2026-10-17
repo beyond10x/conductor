@@ -30,9 +30,12 @@ types:
     kind: newtype
     of: Uuid
 
+  # `Team`: a message between two sessions of one team, which the broker records for `tool send`
+  # (story:tool-build-commit-report); its first line is `[TEAM <repo>] <text>`.
   - name: conductor.dispatch.MessageKind
     kind: enum
-    variants: [Dispatch, Report, DecisionRequest, Decision, Need, Resource, Escalation, Unknown]
+    variants:
+      [Dispatch, Report, DecisionRequest, Decision, Need, Resource, Escalation, Team, Unknown]
 
   - name: conductor.dispatch.Transport
     kind: enum
