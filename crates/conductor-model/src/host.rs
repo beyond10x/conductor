@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 711e41e220ea20a197438abc9bb542c33a5d868fb0b8f57d5279228df5c00eb8
-// contract digest 465da555ab9721cbe2dfa8fd47ba9872758fa8194e33c07d262b31a8d7b11ea0
+// model digest cffc43d30175012e6b76183b4ae84d39b597a322aacf8e7d82f3a78e195f7ada
+// contract digest 2b9a2dca64d5b779b75db27696d0022dad402bc9d3d7d8e00a9358612534a513
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -308,6 +308,10 @@ pub struct HostGrantData {
     pub released_at: Option<crate::primitives::Timestamp>,
     /// `release_reason` — `Optional<conductor.host.ReleaseReason>`.
     pub release_reason: Option<ReleaseReason>,
+    /// `cache_hits` — `Optional<Integer>`.
+    pub cache_hits: Option<i64>,
+    /// `cache_misses` — `Optional<Integer>`.
+    pub cache_misses: Option<i64>,
 }
 
 /// The states of `conductor.host.HostGrant`, at the type level.
@@ -852,6 +856,10 @@ pub struct ReleaseGrant {
     pub reason: Option<ReleaseReason>,
     /// `released_at` — `Timestamp`.
     pub released_at: crate::primitives::Timestamp,
+    /// `cache_hits` — `Optional<Integer>`.
+    pub cache_hits: Option<i64>,
+    /// `cache_misses` — `Optional<Integer>`.
+    pub cache_misses: Option<i64>,
 }
 
 /// Everything `conductor.host.ReleaseGrant` can result in — one variant per declared outcome.
@@ -1309,6 +1317,10 @@ pub struct Grants {
     pub released_at: Option<crate::primitives::Timestamp>,
     /// `release_reason` — `Optional<conductor.host.ReleaseReason>`.
     pub release_reason: Option<ReleaseReason>,
+    /// `cache_hits` — `Optional<Integer>`.
+    pub cache_hits: Option<i64>,
+    /// `cache_misses` — `Optional<Integer>`.
+    pub cache_misses: Option<i64>,
 }
 
 /// Reclaim runs — one row of the view `conductor.host.ReclaimRuns`.

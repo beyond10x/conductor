@@ -1970,6 +1970,12 @@ pub struct ReleaseGrantArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub released_at: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub cache_hits: Option<i64>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub cache_misses: Option<i64>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,

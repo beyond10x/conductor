@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 711e41e220ea20a197438abc9bb542c33a5d868fb0b8f57d5279228df5c00eb8
-// contract digest 465da555ab9721cbe2dfa8fd47ba9872758fa8194e33c07d262b31a8d7b11ea0
+// model digest cffc43d30175012e6b76183b4ae84d39b597a322aacf8e7d82f3a78e195f7ada
+// contract digest 2b9a2dca64d5b779b75db27696d0022dad402bc9d3d7d8e00a9358612534a513
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -396,6 +396,15 @@ pub struct ProviderAvailability {
     pub reason: Option<String>,
 }
 
+/// RepoCache — `conductor.config.RepoCache`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepoCache {
+    /// `On`.
+    On,
+    /// `Off`.
+    Off,
+}
+
 /// Report — `conductor.config.Report`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
@@ -587,6 +596,10 @@ pub struct Thresholds {
     pub cpu_reserve: i64,
     /// `build_slots` — `Integer`.
     pub build_slots: i64,
+    /// `repo_cache` — `conductor.config.RepoCache`.
+    pub repo_cache: RepoCache,
+    /// `repo_cache_size` — `conductor.config.Gibibytes`.
+    pub repo_cache_size: Gibibytes,
 }
 
 /// TimeOfDay — `conductor.config.TimeOfDay`: a distinct wrapper around `String`.

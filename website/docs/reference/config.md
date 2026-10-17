@@ -89,6 +89,8 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `thresholds.silent_session` | duration | `30m` |  |
 | `thresholds.cpu_reserve` | integer | `2` | `cpu_reserve >= 0` |
 | `thresholds.build_slots` | integer | `3` | `build_slots >= 0` |
+| `thresholds.repo_cache` | `on` \| `off` | `on` |  |
+| `thresholds.repo_cache_size` | [Gibibytes](#gibibytes) | `2G` |  |
 | `retention.snapshots` | integer | `12` | `snapshots >= 1` |
 | `reports` | list of [Report](#report) | `[]` |  |
 | `reports[].channel` | string | required |  |
@@ -246,6 +248,12 @@ What sets up a session's box. The file writes it in lower case: `systemd`, a `sy
 
 One of `systemd` | `none`. Specified as `conductor.config.ConfinementProvider`.
 
+### RepoCache
+
+Whether `conductor build run` gives a cargo-based command its repository's compile cache. The file writes it in lower case: `on` or `off`.
+
+One of `on` | `off`. Specified as `conductor.config.RepoCache`.
+
 ### Confinement
 
 How the instance's sessions are boxed: the `mode`, the `provider`, and the `limits` of the instance as a whole, the slice every session of the instance runs in. They take over the `instances[].limits` an earlier plan named. Absent, the mode is `report`, the provider `systemd`, and no limit is set.
@@ -278,9 +286,9 @@ Keys: `cycle`, `daily`, `watch`, `ci`. Specified as `conductor.config.Cadence`.
 
 ### Thresholds
 
-Conductor's context above which it hands over; the filesystem whose free space the disk thresholds read, written absolute or under `~`; free disk under which the watch reports it, from which a further fall is reported again, under which no session starts, and under which a full gate takes a build slot; the size above which a build is expected to write enough to ask for a slot; free disk under which the full-gate watchdog stops the gate's process group and from which it resumes it; how often the watchdog reads it; and how long a live controller session, and every one of its sub-agents, may write nothing to its transcript before the watch reports it silent, a duration as `cadence` writes one; and how many CPU cores `conductor build run` leaves to the desktop: its command's job count is the cores less this; and how many `conductor build run` commands run at once on the host, every instance's together: a request is granted only while fewer disk grants than this are `Granted` or `Running`, waits in the queue's order while they are not, and is never refused for it, 0 for no bound. Absent, the filesystem is `/`, the silence 30 minutes, the reserve 2 cores and the build slots 3.
+Conductor's context above which it hands over; the filesystem whose free space the disk thresholds read, written absolute or under `~`; free disk under which the watch reports it, from which a further fall is reported again, under which no session starts, and under which a full gate takes a build slot; the size above which a build is expected to write enough to ask for a slot; free disk under which the full-gate watchdog stops the gate's process group and from which it resumes it; how often the watchdog reads it; and how long a live controller session, and every one of its sub-agents, may write nothing to its transcript before the watch reports it silent, a duration as `cadence` writes one; and how many CPU cores `conductor build run` leaves to the desktop: its command's job count is the cores less this; and how many `conductor build run` commands run at once on the host, every instance's together: a request is granted only while fewer disk grants than this are `Granted` or `Running`, waits in the queue's order while they are not, and is never refused for it, 0 for no bound; whether `build run` gives a cargo-based command its repository's compile cache, one sccache server and directory per repository that all of its worktrees share, and that cache's size. Absent, the filesystem is `/`, the silence 30 minutes, the reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G.
 
-Keys: `context_handover`, `disk_path`, `disk_low`, `disk_clear`, `disk_admit`, `build_slot`, `build_size`, `gate_stop`, `gate_resume`, `watchdog_every`, `silent_session`, `cpu_reserve`, `build_slots`. Specified as `conductor.config.Thresholds`.
+Keys: `context_handover`, `disk_path`, `disk_low`, `disk_clear`, `disk_admit`, `build_slot`, `build_size`, `gate_stop`, `gate_resume`, `watchdog_every`, `silent_session`, `cpu_reserve`, `build_slots`, `repo_cache`, `repo_cache_size`. Specified as `conductor.config.Thresholds`.
 
 ### Retention
 

@@ -107,8 +107,9 @@ use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
     Confinement, ConfinementMode, ConfinementProvider, Controllers, ForgeSecret, Gibibytes,
     GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network,
-    Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SessionName, SessionPrefix,
-    Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember, Writable,
+    RepoCache, Report, RepositoryRule, Retention, Role, SecretSource, SecretSync, SessionName,
+    SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage, WorkspaceMember,
+    Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -190,6 +191,13 @@ const CPU_RESERVE: i64 = 2;
 /// How many `build run` commands run at once on the host (`thresholds.build_slots`,
 /// `story:build-queue-convoy`).
 const BUILD_SLOTS: i64 = 3;
+
+/// The size of a repository's compile cache (`thresholds.repo_cache_size`,
+/// `story:build-run-repo-cache`).
+const REPO_CACHE_GIB: i64 = 2;
+
+/// How the file writes each `conductor.config.RepoCache`.
+const REPO_CACHES: [(&str, RepoCache); 2] = [("on", RepoCache::On), ("off", RepoCache::Off)];
 
 /// Seconds between two reads of free disk by the full-gate watchdog.
 const WATCHDOG_EVERY: u64 = 10;
@@ -291,7 +299,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 13] = [
+const THRESHOLD_KEYS: [&str; 15] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -305,6 +313,8 @@ const THRESHOLD_KEYS: [&str; 13] = [
     "silent_session",
     "cpu_reserve",
     "build_slots",
+    "repo_cache",
+    "repo_cache_size",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1296,6 +1306,8 @@ fn default_thresholds() -> Thresholds {
         silent_session: Duration(format!("PT{SILENT_SESSION_MINUTES}M")),
         cpu_reserve: CPU_RESERVE,
         build_slots: BUILD_SLOTS,
+        repo_cache: RepoCache::On,
+        repo_cache_size: Gibibytes(REPO_CACHE_GIB),
     }
 }
 
@@ -2947,6 +2959,11 @@ impl Reader<'_> {
             }
             None => Some(defaults.build_slots),
         };
+        let repo_cache = match Self::get(map, "repo_cache") {
+            Some(value) => self.word(value, &join(path, "repo_cache"), &REPO_CACHES),
+            None => Some(defaults.repo_cache),
+        };
+        let repo_cache_size = size(self, "repo_cache_size", defaults.repo_cache_size);
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -2974,6 +2991,8 @@ impl Reader<'_> {
             silent_session: silent_session?,
             cpu_reserve: cpu_reserve?,
             build_slots: build_slots?,
+            repo_cache: repo_cache?,
+            repo_cache_size: repo_cache_size?,
         })
     }
 
@@ -3372,6 +3391,14 @@ pub fn document(instance: &Instance) -> Yaml {
                     "build_slots",
                     Yaml::Number(serde_yaml::Number::from(thresholds.build_slots)),
                 ),
+                (
+                    "repo_cache",
+                    text(match thresholds.repo_cache {
+                        RepoCache::On => "on",
+                        RepoCache::Off => "off",
+                    }),
+                ),
+                ("repo_cache_size", size(&thresholds.repo_cache_size)),
             ]),
         ),
         (

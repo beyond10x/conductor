@@ -95,6 +95,8 @@ impl Case {
             env: |_| None,
             sessions: Vec::new(),
             walk: build::walk,
+            // No compile cache: these cases run no cargo command.
+            sccache: None,
         }
     }
 
@@ -133,6 +135,8 @@ fn settings() -> Settings {
         cores: 20,
         cpu_reserve: 2,
         slots: 0,
+        repo_cache: true,
+        repo_cache_size: 2 * GIB,
     }
 }
 

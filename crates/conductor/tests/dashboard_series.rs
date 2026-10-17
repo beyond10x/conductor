@@ -342,6 +342,8 @@ fn disk_peak_vs_reserved_charts_the_runs_peak_over_their_reservation() {
                     started_at: Some(at(requested)),
                     released_at: (state == HostGrantState::Released).then(|| at(requested)),
                     release_reason: None,
+                    cache_hits: None,
+                    cache_misses: None,
                 },
             },
         );

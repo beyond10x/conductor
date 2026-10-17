@@ -109,6 +109,8 @@ instances:
       silent_session: 45m
       cpu_reserve: 3
       build_slots: 2
+      repo_cache: off
+      repo_cache_size: 4G
     retention:
       snapshots: 3
     reports:

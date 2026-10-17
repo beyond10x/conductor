@@ -1686,6 +1686,8 @@ Usage: conductor host release-grant [OPTIONS]
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
 | `--released-at <RELEASED_AT>` | no | none | timestamp, RFC 3339 |
+| `--cache-hits <CACHE_HITS>` | no | none | integer |
+| `--cache-misses <CACHE_MISSES>` | no | none | integer |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host request-disk`

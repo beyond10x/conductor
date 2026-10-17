@@ -316,6 +316,15 @@ entities:
         type: Optional<Timestamp>
       - name: release_reason
         type: Optional<conductor.host.ReleaseReason>
+      # The compile cache's hits and misses over the run (story:build-run-repo-cache): its
+      # repository's sccache server's counts when the command ended less those when it started,
+      # recorded as the grant is released. Absent when `build run` gave the command no cache, or
+      # the counts did not read. The server is shared by every run of the repository at once, so
+      # two runs that overlap count each other's compilations too.
+      - name: cache_hits
+        type: Optional<Integer>
+      - name: cache_misses
+        type: Optional<Integer>
     lifecycle:
       initial: Requested
       states: [Requested, Granted, Running, Released, Refused, Withdrawn]
@@ -799,6 +808,12 @@ commands:
         type: Optional<conductor.host.ReleaseReason>
       - name: released_at
         type: Timestamp
+      # The compile cache's hits and misses over the run, when `build run` gave it a cache
+      # (story:build-run-repo-cache).
+      - name: cache_hits
+        type: Optional<Integer>
+      - name: cache_misses
+        type: Optional<Integer>
     outcomes:
       - name: released
         moves: conductor.host.HostGrant.release
@@ -806,6 +821,8 @@ commands:
         sets:
           release_reason: input.reason
           released_at: input.released_at
+          cache_hits: input.cache_hits
+          cache_misses: input.cache_misses
         emits:
           - conductor.host.HostGrantReleased
         payload:
@@ -992,6 +1009,10 @@ views:
         type: Optional<Timestamp>
       - name: release_reason
         type: Optional<conductor.host.ReleaseReason>
+      - name: cache_hits
+        type: Optional<Integer>
+      - name: cache_misses
+        type: Optional<Integer>
     naming:
       wire: grants
       display: Host grants

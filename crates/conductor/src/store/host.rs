@@ -355,6 +355,8 @@ fn encode(grant: &HostGrantSnapshot) -> Value {
         "started_at": data.started_at.as_ref().map(|at| &at.0),
         "released_at": data.released_at.as_ref().map(|at| &at.0),
         "release_reason": data.release_reason.map(reason_name),
+        "cache_hits": data.cache_hits,
+        "cache_misses": data.cache_misses,
     })
 }
 
@@ -387,6 +389,8 @@ fn decode(body: &Value) -> Result<HostGrantSnapshot, String> {
                 ),
                 None => None,
             },
+            cache_hits: optional_integer(body, "cache_hits")?,
+            cache_misses: optional_integer(body, "cache_misses")?,
         },
     })
 }

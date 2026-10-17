@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 711e41e220ea20a197438abc9bb542c33a5d868fb0b8f57d5279228df5c00eb8
-  contract digest 465da555ab9721cbe2dfa8fd47ba9872758fa8194e33c07d262b31a8d7b11ea0
+  model digest cffc43d30175012e6b76183b4ae84d39b597a322aacf8e7d82f3a78e195f7ada
+  contract digest 2b9a2dca64d5b779b75db27696d0022dad402bc9d3d7d8e00a9358612534a513
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-599 capabilities: **583 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+600 capabilities: **584 generated**, **4 obligations**, **12 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -47,6 +47,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.Prerequisite` |
 | domain type | `conductor.config.PrerequisiteState` |
 | domain type | `conductor.config.ProviderAvailability` |
+| domain type | `conductor.config.RepoCache` |
 | domain type | `conductor.config.Report` |
 | domain type | `conductor.config.RepositoryCheck` |
 | domain type | `conductor.config.RepositoryRule` |

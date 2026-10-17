@@ -249,6 +249,12 @@ types:
     kind: enum
     variants: [Systemd, None]
 
+  # Whether `conductor build run` gives a cargo-based command its repository's compile cache
+  # (story:build-run-repo-cache). The file writes it in lower case: `on` or `off`.
+  - name: conductor.config.RepoCache
+    kind: enum
+    variants: [On, Off]
+
   # How the instance's sessions are boxed (story:session-envelope-model): the `mode`, the
   # `provider`, and the `limits` of the instance as a whole, the slice every session of the
   # instance runs in. They take over the `instances[].limits` an earlier plan named
@@ -318,8 +324,11 @@ types:
   # cores less this (story:build-run-spare-cores); and how many `conductor build run` commands
   # run at once on the host, every instance's together: a request is granted only while fewer disk
   # grants than this are `Granted` or `Running`, waits in the queue's order while they are not, and
-  # is never refused for it, 0 for no bound (story:build-queue-convoy). Absent, the filesystem is
-  # `/`, the silence 30 minutes, the reserve 2 cores and the build slots 3.
+  # is never refused for it, 0 for no bound (story:build-queue-convoy); whether `build run` gives a
+  # cargo-based command its repository's compile cache, one sccache server and directory per
+  # repository that all of its worktrees share, and that cache's size
+  # (story:build-run-repo-cache). Absent, the filesystem is `/`, the silence 30 minutes, the
+  # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -336,6 +345,8 @@ types:
       - {name: silent_session, type: Duration}
       - {name: cpu_reserve, type: Integer}
       - {name: build_slots, type: Integer}
+      - {name: repo_cache, type: conductor.config.RepoCache}
+      - {name: repo_cache_size, type: conductor.config.Gibibytes}
     invariants:
       - gate_resume > gate_stop
       - cpu_reserve >= 0

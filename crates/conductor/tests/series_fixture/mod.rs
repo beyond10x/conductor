@@ -313,6 +313,8 @@ impl Case {
                         started_at: started.map(at),
                         released_at: None,
                         release_reason: None,
+                        cache_hits: None,
+                        cache_misses: None,
                     },
                 },
             );

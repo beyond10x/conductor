@@ -58,6 +58,20 @@
 //!    was says `withdrawn: session <id> stopped` and exits 2; its command never ran. A list that
 //!    does not read withdraws nothing. The list shows no paused session apart from a working one,
 //!    so a session paused on a usage limit keeps its requests until it stops.
+//! 7. **Repository cache** (`story:build-run-repo-cache`). A cargo-based command ([`cargo_based`])
+//!    gets its repository's compile cache while `thresholds.repo_cache` is `on`: `RUSTC_WRAPPER`
+//!    names `sccache`, and `SCCACHE_DIR` (`<cache home>/sccache/<repository>`),
+//!    `SCCACHE_SERVER_PORT` ([`cache_port`]) and `SCCACHE_CACHE_SIZE`
+//!    (`thresholds.repo_cache_size`) are the repository's, the name from `git rev-parse
+//!    --git-common-dir`, so every worktree of a repository shares one cache and one server, and no
+//!    server is shared between repositories. Each variable the environment already sets is kept,
+//!    and a `RUSTC_WRAPPER` of its own gets no cache at all. Before the command starts, the
+//!    repository's server is started in a process group of its own, with `SCCACHE_IDLE_TIMEOUT`,
+//!    so the signals `build run` sends its command's group never reach it and an idle server ends
+//!    itself; the grant records the server's hits and misses over the run (`--show-stats`). With
+//!    no `sccache` on `PATH` nothing is set, one line says so, and the command runs as before.
+//!    `CARGO_INCREMENTAL` is left as it is: the workspace's own crates stay incremental, and
+//!    sccache does not cache an incremental unit, so the cache serves the dependencies.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -205,6 +219,11 @@ pub struct Settings {
     /// How many `build run` commands may hold a grant at once on the host:
     /// `thresholds.build_slots`, 0 for no bound (`story:build-queue-convoy`).
     pub slots: u64,
+    /// Whether a cargo-based command gets its repository's compile cache: `thresholds.repo_cache`
+    /// (`story:build-run-repo-cache`).
+    pub repo_cache: bool,
+    /// The size of that cache, in bytes: `thresholds.repo_cache_size`.
+    pub repo_cache_size: u64,
 }
 
 impl Settings {
@@ -226,6 +245,8 @@ impl Settings {
             cores: std::thread::available_parallelism().map_or(1, |cores| cores.get() as u64),
             cpu_reserve: u64::try_from(thresholds.cpu_reserve).unwrap_or(0),
             slots: u64::try_from(thresholds.build_slots).unwrap_or(0),
+            repo_cache: thresholds.repo_cache == conductor_model::config::RepoCache::On,
+            repo_cache_size: bytes(thresholds.repo_cache_size.0),
         }
     }
 }
@@ -283,6 +304,9 @@ pub struct Sources {
     /// The bytes under the directories `paths`, or none when the walk takes longer than the
     /// bound: [`walk`]. A case gives a slow or a failing one.
     pub walk: fn(&[PathBuf], Duration) -> Option<u64>,
+    /// The `sccache` program on `PATH`, none when there is none (`story:build-run-repo-cache`). A
+    /// case gives a fake one.
+    pub sccache: Option<PathBuf>,
 }
 
 /// Writes `line` to standard error.
@@ -315,6 +339,7 @@ impl Sources {
             env: |name| std::env::var(name).ok(),
             sessions: ["claude", "agents", "--json"].map(OsString::from).to_vec(),
             walk,
+            sccache: find_on_path("sccache"),
         }
     }
 }
@@ -538,6 +563,24 @@ pub fn command_key(command: &str) -> String {
         key.push_str(&flag);
     }
     key
+}
+
+/// The first port of the range a repository's compile-cache server listens in
+/// (`story:build-run-repo-cache`): above sccache's own 4226, so a server started outside
+/// `build run` is never one of them.
+const CACHE_PORTS: u16 = 4300;
+
+/// How many ports that range holds.
+const CACHE_PORT_COUNT: u16 = 1000;
+
+/// The port of the compile-cache server of the repository `name`: derived from the name alone
+/// (FNV-1a), the same for every worktree and every run, in `4300..5300`.
+#[must_use]
+pub fn cache_port(name: &str) -> u16 {
+    let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    CACHE_PORTS + u16::try_from(hash % u64::from(CACHE_PORT_COUNT)).unwrap_or(0)
 }
 
 /// `program` without its directory.
@@ -1037,9 +1080,19 @@ pub fn run(
         return Ok(Outcome::Stopped { grant, signal });
     }
 
+    // The repository's compile cache (`story:build-run-repo-cache`): its server is started, and its
+    // counts read, before the command starts.
+    let cache = repo_cache(settings, sources, request, &|line| say(line));
+    let counted = cache.as_ref().and_then(|cache| {
+        cache.start();
+        cache.counts()
+    });
     let mut command = yielding(&request.command);
     command.current_dir(&request.cwd).process_group(0);
     for (name, value) in job_variables(settings, sources) {
+        command.env(name, value);
+    }
+    for (name, value) in cache.iter().flat_map(|cache| &cache.set) {
         command.env(name, value);
     }
     let mut child = match command.spawn() {
@@ -1124,12 +1177,24 @@ pub fn run(
     // The ledger is taken with a bounded try-lock loop: a holder that never lets go, or a stopping
     // signal while this waits, must not keep a stopped run from exiting. It then leaves the grant
     // Running, for `Ledger::sweep` to release once its process group is gone.
+    // The cache's hits and misses over the run: its server's counts now less those at the start.
+    let cache_counts = cache.as_ref().zip(counted).and_then(|(cache, before)| {
+        cache.counts().map(|after| {
+            if after.0 < before.0 || after.1 < before.1 {
+                // The server ended and a new one started meanwhile: its counts are the run's.
+                after
+            } else {
+                (after.0 - before.0, after.1 - before.1)
+            }
+        })
+    });
     clear_received();
     let finished = host::finish_run(
         host,
         &grant,
         peak.map(|peak| (peak, watched.paused)),
         Some(reason),
+        cache_counts,
         || host::now((sources.clock)()),
         LEDGER_BOUND,
         || received().is_some(),
@@ -1190,8 +1255,217 @@ fn yielding(command: &[String]) -> Command {
 }
 
 fn on_path(program: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    find_on_path(program).is_some()
+}
+
+/// `program` in the first directory of `PATH` that holds it.
+fn find_on_path(program: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
+/// How long a repository's compile-cache server lives with no compilation before it ends itself
+/// (`SCCACHE_IDLE_TIMEOUT`): half an hour, longer than a queue's wait between two runs.
+const CACHE_IDLE: Duration = Duration::from_secs(30 * 60);
+
+/// How long one call of `sccache` (`--start-server`, `--show-stats`) may take.
+const SCCACHE_BOUND: Duration = Duration::from_secs(20);
+
+/// The shells whose `-c` script is read for `cargo`.
+const SHELLS: [&str; 4] = ["sh", "bash", "dash", "zsh"];
+
+/// Whether `request` runs cargo (`story:build-run-repo-cache`): its program, past the launchers
+/// [`command_key`] skips, is `cargo`; or `task` in a Cargo project; or a shell whose words name
+/// `cargo`.
+#[must_use]
+pub fn cargo_based(request: &Request) -> bool {
+    let joined = request.command.join(" ");
+    let key = command_key(&joined);
+    let program = program_name(key.split(' ').next().unwrap_or_default());
+    if program == "cargo" {
+        return true;
+    }
+    if program == "task" {
+        return request.cwd.join("Cargo.toml").exists();
+    }
+    SHELLS.contains(&program)
+        && joined
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+            .any(|word| word == "cargo")
+}
+
+/// The name of the repository whose work tree holds `cwd`, the same in each of its worktrees: the
+/// directory `git rev-parse --git-common-dir` answers, or the one holding it when that is `.git`,
+/// without a `.git` suffix, every character but letters, digits, `.`, `_` and `-` written `-`.
+/// None outside a git repository.
+fn repository_name(cwd: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    let common = PathBuf::from(String::from_utf8(output.stdout).ok()?.trim());
+    let named = if common.file_name()? == ".git" {
+        common.parent()?.file_name()?
+    } else {
+        common.file_name()?
+    };
+    let named = named.to_string_lossy();
+    let named = named.strip_suffix(".git").unwrap_or(&named);
+    let clean: String = named
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    (!clean.is_empty() && clean != "." && clean != "..").then_some(clean)
+}
+
+/// The compile cache of one run's repository (`story:build-run-repo-cache`).
+struct Cache {
+    /// The `sccache` program.
+    program: PathBuf,
+    /// The variables the command gets: each one the environment of `build run` does not set.
+    set: Vec<(&'static str, String)>,
+    /// The variables `sccache` is called with: the cache's directory, port and size, the
+    /// environment's where it sets one, and the idle timeout of a server it starts.
+    server: Vec<(&'static str, String)>,
+}
+
+/// The compile cache `request` gets: none when `thresholds.repo_cache` is `off`, the command is not
+/// cargo-based ([`cargo_based`]) or the environment of `build run` names a `RUSTC_WRAPPER` of its
+/// own; none, said in one line, when `sccache` is not on `PATH`, the working directory is in no git
+/// repository, or no home directory is known. Otherwise `RUSTC_WRAPPER=sccache` and the
+/// repository's `SCCACHE_DIR` (`<cache home>/sccache/<repository>`, the cache home
+/// `XDG_CACHE_HOME`, else `~/.cache`), `SCCACHE_SERVER_PORT` ([`cache_port`]) and
+/// `SCCACHE_CACHE_SIZE` (`thresholds.repo_cache_size`), each unless the environment sets it.
+fn repo_cache(
+    settings: &Settings,
+    sources: &Sources,
+    request: &Request,
+    say: &dyn Fn(&str),
+) -> Option<Cache> {
+    if !settings.repo_cache || !cargo_based(request) || (sources.env)("RUSTC_WRAPPER").is_some() {
+        return None;
+    }
+    let Some(program) = sources.sccache.clone() else {
+        say("conductor: build run: no compile cache: sccache is not on PATH");
+        return None;
+    };
+    let Some(name) = repository_name(&request.cwd) else {
+        say(
+            "conductor: build run: no compile cache: the working directory is in no git \
+             repository",
+        );
+        return None;
+    };
+    let home = (sources.env)("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|home| home.is_absolute())
+        .or_else(|| sources.home.as_ref().map(|home| home.join(".cache")));
+    let Some(home) = home else {
+        say("conductor: build run: no compile cache: no home directory is known");
+        return None;
+    };
+    let ours = [
+        ("RUSTC_WRAPPER", program.display().to_string()),
+        (
+            "SCCACHE_DIR",
+            home.join("sccache").join(&name).display().to_string(),
+        ),
+        ("SCCACHE_SERVER_PORT", cache_port(&name).to_string()),
+        ("SCCACHE_CACHE_SIZE", size(settings.repo_cache_size)),
+    ];
+    let set = ours
+        .iter()
+        .filter(|(variable, _)| (sources.env)(variable).is_none())
+        .cloned()
+        .collect();
+    let mut server: Vec<(&'static str, String)> = ours
+        .into_iter()
+        .skip(1)
+        .map(|(variable, value)| (variable, (sources.env)(variable).unwrap_or(value)))
+        .collect();
+    server.push((
+        "SCCACHE_IDLE_TIMEOUT",
+        (sources.env)("SCCACHE_IDLE_TIMEOUT").unwrap_or_else(|| CACHE_IDLE.as_secs().to_string()),
+    ));
+    Some(Cache {
+        program,
+        set,
+        server,
+    })
+}
+
+impl Cache {
+    /// `sccache` with `arguments`, in a process group of its own, so a server it starts is never
+    /// in the command's group and `build run`'s signal to that group never stops it; at nice 19
+    /// and in the idle I/O class, which the server's compilations inherit.
+    fn call(&self, arguments: &[&str]) -> Command {
+        let mut argv = vec![self.program.display().to_string()];
+        argv.extend(arguments.iter().map(|argument| (*argument).to_owned()));
+        let mut command = yielding(&argv);
+        command
+            .envs(self.server.iter().map(|(name, value)| (name, value)))
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .process_group(0);
+        command
+    }
+
+    /// Starts the repository's server unless one listens on its port already (`sccache` then
+    /// answers that the address is in use, which is no failure). The client is waited for at most
+    /// [`SCCACHE_BOUND`]; the server it starts runs on.
+    fn start(&self) {
+        let mut command = self.call(&["--start-server"]);
+        command.stdout(std::process::Stdio::null());
+        let _ = bounded(command, SCCACHE_BOUND);
+    }
+
+    /// The server's hits and misses so far, every language's together; none when they do not
+    /// read.
+    fn counts(&self) -> Option<(u64, u64)> {
+        let mut command = self.call(&["--show-stats", "--stats-format", "json"]);
+        command.stdout(std::process::Stdio::piped());
+        let output = bounded(command, SCCACHE_BOUND)?;
+        let stats: Value = serde_json::from_slice(&output).ok()?;
+        let sum = |field: &str| -> Option<u64> {
+            let counts = stats["stats"][field]["counts"].as_object()?;
+            Some(counts.values().filter_map(Value::as_u64).sum())
+        };
+        Some((sum("cache_hits")?, sum("cache_misses")?))
+    }
+}
+
+/// Runs `command` and answers its standard output, or none when it does not start, fails, or
+/// takes longer than `bound`: then the process itself is killed, never its group, which may hold a
+/// server it started.
+fn bounded(mut command: Command, bound: Duration) -> Option<Vec<u8>> {
+    let child = command.spawn().ok()?;
+    let pid = child.id();
+    let (sent, answer) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let _ = sent.send(child.wait_with_output());
+    });
+    match answer.recv_timeout(bound) {
+        Ok(Ok(output)) if output.status.success() => Some(output.stdout),
+        Ok(_) => None,
+        Err(_) => {
+            if let Ok(pid) = i32::try_from(pid) {
+                let _ = nix::sys::signal::kill(Pid::from_raw(pid), Signal::SIGKILL);
+            }
+            None
+        }
+    }
 }
 
 /// The variables that keep the command's builds off the desktop's last cores: `CARGO_BUILD_JOBS`

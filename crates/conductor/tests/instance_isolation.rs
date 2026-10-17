@@ -278,6 +278,8 @@ fn legacy_grant(id: &str, state: HostGrantState) -> HostGrantSnapshot {
             started_at: None,
             released_at: Some(Timestamp("2026-10-14T12:05:00Z".to_owned())),
             release_reason: None,
+            cache_hits: None,
+            cache_misses: None,
         },
     }
 }

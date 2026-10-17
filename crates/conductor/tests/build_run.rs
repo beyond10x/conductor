@@ -92,6 +92,8 @@ impl Case {
             // No session list: a library case names no harness session.
             sessions: Vec::new(),
             walk: build::walk,
+            // No compile cache: these cases run no cargo command.
+            sccache: None,
         }
     }
 
@@ -176,6 +178,8 @@ fn settings() -> Settings {
         cpu_reserve: 2,
         // No bound on builds at once: these cases decide by disk alone.
         slots: 0,
+        repo_cache: true,
+        repo_cache_size: 2 * GIB,
     }
 }
 

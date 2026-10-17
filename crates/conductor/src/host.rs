@@ -641,7 +641,7 @@ impl Ledger {
         reason: Option<ReleaseReason>,
         at: &Timestamp,
     ) -> Result<()> {
-        release_in(&mut self.generated, grant, reason, at)
+        release_in(&mut self.generated, grant, reason, at, None)
     }
 
     /// Closes every grant whose `build run` is gone, and answers their ids: a request no run holds
@@ -695,6 +695,7 @@ impl Ledger {
                 &grant,
                 Some(ReleaseReason::ProcessGroupGone),
                 at,
+                None,
             )?;
             closed.push(grant);
         }
@@ -1220,7 +1221,8 @@ pub enum Finish {
 const FINISH_EVERY: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// What a `build run` does once its command stopped: records the run's growth (`peak`, with its
-/// pauses) and releases `grant` for `reason`, taking the ledger with a bounded try-lock loop
+/// pauses) and releases `grant` for `reason`, with the compile cache's hits and misses over the run
+/// (`cache`, `story:build-run-repo-cache`), taking the ledger with a bounded try-lock loop
 /// instead of waiting for it (`story:guard-no-pattern-kill`). A holder that never lets go, or a
 /// stopping signal (`stop`), must not keep a stopped run from exiting: it gives up after `bound`
 /// or when `stop` answers `true`, and leaves the grant to [`Ledger::sweep`].
@@ -1228,11 +1230,13 @@ const FINISH_EVERY: std::time::Duration = std::time::Duration::from_millis(25);
 /// # Errors
 ///
 /// The store does not open, or the specification refuses the release.
+#[allow(clippy::too_many_arguments)]
 pub fn finish_run(
     state: &Path,
     grant: &GrantId,
     peak: Option<(u64, u32)>,
     reason: Option<ReleaseReason>,
+    cache: Option<(u64, u64)>,
     clock: impl Fn() -> Timestamp,
     bound: std::time::Duration,
     stop: impl Fn() -> bool,
@@ -1252,7 +1256,7 @@ pub fn finish_run(
                 let peak = peak.and_then(|(bytes, pauses)| {
                     record_peak_in(&mut ledger, grant, bytes, pauses).err()
                 });
-                release_in(&mut ledger.generated, grant, reason, &clock())?;
+                release_in(&mut ledger.generated, grant, reason, &clock(), cache)?;
                 return Ok(Finish::Released { peak });
             }
             Some(Taken::Held(back)) => idle = Some(back),
@@ -1277,7 +1281,7 @@ pub fn release(
     at: &Timestamp,
 ) -> Result<()> {
     let mut ledger = Ledger::lock(state)?;
-    release_in(&mut ledger.generated, grant, reason, at)
+    release_in(&mut ledger.generated, grant, reason, at, None)
 }
 
 fn release_in(
@@ -1285,13 +1289,17 @@ fn release_in(
     grant: &GrantId,
     reason: Option<ReleaseReason>,
     at: &Timestamp,
+    cache: Option<(u64, u64)>,
 ) -> Result<()> {
     const COMMAND: &str = "host release-grant";
+    let count = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
     let outcome = generated
         .release_grant(ReleaseGrant {
             grant_id: grant.clone(),
             reason,
             released_at: at.clone(),
+            cache_hits: cache.map(|(hits, _)| count(hits)),
+            cache_misses: cache.map(|(_, misses)| count(misses)),
         })
         .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
     kept(COMMAND, &generated.ports.store)?;
@@ -1969,7 +1977,21 @@ pub fn release_grant(state: Option<&Path>, args: ReleaseGrantArgs) -> Result<Exi
         None => None,
     };
     let at = Timestamp(flag(COMMAND, "--released-at", args.released_at)?);
-    release(&dir(state)?, &grant, reason, &at)?;
+    let cache = match (args.cache_hits, args.cache_misses) {
+        (None, None) => None,
+        (hits, misses) => {
+            let count = |flag: &str, value: Option<i64>| {
+                u64::try_from(value.unwrap_or(0))
+                    .map_err(|_| anyhow!("{COMMAND}: {flag} is a count, not negative"))
+            };
+            Some((
+                count("--cache-hits", hits)?,
+                count("--cache-misses", misses)?,
+            ))
+        }
+    };
+    let mut ledger = Ledger::lock(&dir(state)?)?;
+    release_in(&mut ledger.generated, &grant, reason, &at, cache)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2007,7 +2029,7 @@ pub fn withdraw_disk_request(
 /// There is no store, it does not open, a grant does not read, or the rows cannot be written.
 pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     /// The view's fields, in the specification's order (`spec/domains/host.yaml`).
-    const COLUMNS: [&str; 18] = [
+    const COLUMNS: [&str; 20] = [
         "grant_id",
         "state",
         "instance",
@@ -2026,6 +2048,8 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "started_at",
         "released_at",
         "release_reason",
+        "cache_hits",
+        "cache_misses",
     ];
     // A reader, as [`rows`]: it never takes the store's writer lock.
     let generated = Generated::new(Ports {
@@ -2068,6 +2092,8 @@ pub fn grants(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.started_at.map(|at| at.0)),
                 Value::from(row.released_at.map(|at| at.0)),
                 Value::from(row.release_reason.map(reason_name)),
+                Value::from(row.cache_hits),
+                Value::from(row.cache_misses),
             ]
         })
         .collect();
