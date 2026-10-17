@@ -17,6 +17,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::registry::{self, control_path, socket_path, well_formed};
+use crate::services::Services;
 use crate::wire::{Answer, Request};
 use crate::{CallOutcome, Verb, outcome_word, verb_named, verb_word, verbs};
 
@@ -77,6 +78,7 @@ pub(crate) struct Inner {
     pub dir: PathBuf,
     pub instance: String,
     recorder: Arc<dyn Recorder>,
+    pub services: Services,
     stop: AtomicBool,
     listeners: Mutex<BTreeMap<String, JoinHandle<()>>>,
     pub reads: Mutex<Reads>,
@@ -98,6 +100,21 @@ impl Broker {
     ///
     /// When the directory or a socket cannot be made.
     pub fn start(dir: &Path, instance: &str, recorder: Arc<dyn Recorder>) -> io::Result<Self> {
+        Self::start_with(dir, instance, recorder, Services::none())
+    }
+
+    /// [`Broker::start`], with the ledger, the bot route and the store the build, commit and
+    /// team verbs reach through `services`.
+    ///
+    /// # Errors
+    ///
+    /// When the directory or a socket cannot be made.
+    pub fn start_with(
+        dir: &Path,
+        instance: &str,
+        recorder: Arc<dyn Recorder>,
+        services: Services,
+    ) -> io::Result<Self> {
         fs::create_dir_all(registry::sessions_dir(dir))?;
         let sockets = dir.join("sockets");
         fs::create_dir_all(&sockets)?;
@@ -115,6 +132,7 @@ impl Broker {
             dir: dir.to_owned(),
             instance: instance.to_owned(),
             recorder,
+            services,
             stop: AtomicBool::new(false),
             listeners: Mutex::new(BTreeMap::new()),
             reads: Mutex::new(HashMap::new()),
@@ -273,8 +291,10 @@ pub(crate) fn handle(inner: &Inner, session: &str, request: &Request) -> Answer 
             let context = verbs::Context {
                 dir: &inner.dir,
                 session,
+                instance: &inner.instance,
                 registration: &registration,
                 reads: &inner.reads,
+                services: &inner.services,
                 now,
             };
             match verbs::run(&context, verb, &request.args) {

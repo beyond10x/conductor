@@ -232,7 +232,7 @@ fn message_state_named(name: &str) -> Option<MessageState> {
 
 /// The kind's name as the specification spells it. Exhaustive, so a kind the specification adds
 /// fails to compile here rather than being written under a guessed name.
-fn kind_name(kind: MessageKind) -> &'static str {
+pub(crate) fn kind_name(kind: MessageKind) -> &'static str {
     match kind {
         MessageKind::Dispatch => "Dispatch",
         MessageKind::Report => "Report",
@@ -241,11 +241,12 @@ fn kind_name(kind: MessageKind) -> &'static str {
         MessageKind::Need => "Need",
         MessageKind::Resource => "Resource",
         MessageKind::Escalation => "Escalation",
+        MessageKind::Team => "Team",
         MessageKind::Unknown => "Unknown",
     }
 }
 
-fn kind_named(name: &str) -> Option<MessageKind> {
+pub(crate) fn kind_named(name: &str) -> Option<MessageKind> {
     [
         MessageKind::Dispatch,
         MessageKind::Report,
@@ -254,6 +255,7 @@ fn kind_named(name: &str) -> Option<MessageKind> {
         MessageKind::Need,
         MessageKind::Resource,
         MessageKind::Escalation,
+        MessageKind::Team,
         MessageKind::Unknown,
     ]
     .into_iter()

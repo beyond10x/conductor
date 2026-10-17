@@ -3367,7 +3367,7 @@ pub struct ReceiveMessageArgs {
     #[arg(long)]
     pub recipient: Option<String>,
     /// MessageKind
-    #[arg(long, value_parser = ["Dispatch", "Report", "DecisionRequest", "Decision", "Need", "Resource", "Escalation", "Unknown"])]
+    #[arg(long, value_parser = ["Dispatch", "Report", "DecisionRequest", "Decision", "Need", "Resource", "Escalation", "Team", "Unknown"])]
     pub kind: Option<String>,
     /// string
     #[arg(long)]

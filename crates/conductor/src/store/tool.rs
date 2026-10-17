@@ -70,30 +70,23 @@ pub(crate) fn verb_name(verb: Verb) -> &'static str {
         Verb::Show => "Show",
         Verb::Search => "Search",
         Verb::Diff => "Diff",
+        Verb::Test => "Test",
+        Verb::Check => "Check",
+        Verb::Fmt => "Fmt",
+        Verb::Commit => "Commit",
+        Verb::Send => "Send",
+        Verb::Report => "Report",
     }
 }
 
-/// An outcome as the specification spells it; exhaustive, as [`verb_name`].
+/// An outcome as the specification spells it: [`conductor_broker::outcome_word`], exhaustive.
 pub(crate) fn outcome_name(outcome: CallOutcome) -> &'static str {
-    match outcome {
-        CallOutcome::Done => "Done",
-        CallOutcome::Failed => "Failed",
-        CallOutcome::NotGranted => "NotGranted",
-        CallOutcome::GrantExpired => "GrantExpired",
-        CallOutcome::ForeignInstance => "ForeignInstance",
-        CallOutcome::UnknownSession => "UnknownSession",
-    }
+    conductor_broker::outcome_word(outcome)
 }
 
-const VERBS: [Verb; 3] = [Verb::Show, Verb::Search, Verb::Diff];
-const OUTCOMES: [CallOutcome; 6] = [
-    CallOutcome::Done,
-    CallOutcome::Failed,
-    CallOutcome::NotGranted,
-    CallOutcome::GrantExpired,
-    CallOutcome::ForeignInstance,
-    CallOutcome::UnknownSession,
-];
+/// Every verb and every outcome a record may hold: the broker's own lists.
+const VERBS: [Verb; conductor_broker::VERBS.len()] = conductor_broker::VERBS;
+const OUTCOMES: [CallOutcome; conductor_broker::OUTCOMES.len()] = conductor_broker::OUTCOMES;
 
 fn encode(call: &ToolCallSnapshot) -> Value {
     let data = &call.data;

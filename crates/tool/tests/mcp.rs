@@ -1,6 +1,8 @@
 //! `tool mcp` serves the session's granted verbs as MCP tools over stdio, backed by the same
 //! socket as the command line (`story:tool-broker-read`, acceptance 6): `tools/list` returns
-//! exactly the granted verbs, and `tools/call show` answers what `tool show` prints.
+//! exactly the granted verbs, and `tools/call show` answers what `tool show` prints. The build,
+//! commit and team verbs (`story:tool-build-commit-report`, acceptance 6) are listed when granted
+//! and each reaches the broker through `tools/call`.
 //!
 //! The broker runs in this process over a case directory under the system's temporary directory
 //! (a socket's path is short); the `tool` binary runs with that session's socket as `TOOL_SOCKET`
@@ -12,7 +14,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
-use conductor_broker::{Broker, MemoryRecorder, Registration, SessionGrant, Verb, register};
+use conductor_broker::{
+    Broker, MemoryRecorder, Placement, Registration, SessionGrant, Verb, register,
+};
 use serde_json::{Value, json};
 
 const INSTANCE: &str = "example-org";
@@ -51,6 +55,7 @@ impl Case {
                     expires_at: None,
                 },
                 started_at: "2026-10-17T00:00:00Z".to_owned(),
+                place: Placement::default(),
             },
         )
         .expect("register the session")
@@ -226,4 +231,104 @@ fn tool_without_a_broker_says_so_on_one_line() {
     let said = String::from_utf8_lossy(&output.stdout);
     assert_eq!(said.lines().count(), 1, "{said}");
     assert!(said.starts_with("UnknownSession: "), "{said}");
+}
+
+#[test]
+fn tools_list_names_every_granted_verb_and_tools_call_reaches_each_new_one() {
+    let mut case = Case::new("all");
+    let socket = case.register("example-org-a", &conductor_broker::VERBS);
+    // No ledger, no Gates policy, no store and no place: each new verb reaches the broker and is
+    // answered by it, failed or refused, which is what this case looks at.
+    case.serve();
+    let call = |id: i64, name: &str, arguments: Value| {
+        json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": {
+            "name": name, "arguments": arguments
+        }})
+    };
+
+    let responses = mcp(
+        &mut case.tool(&socket),
+        &[
+            initialize(),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+            call(3, "test", json!({"package": "fixture", "filter": "adds"})),
+            call(4, "check", json!({})),
+            call(5, "fmt", json!({})),
+            call(
+                6,
+                "commit",
+                json!({"message": "feat: x", "paths": ["../outside.txt"]}),
+            ),
+            call(7, "send", json!({"to": "controller", "text": "green"})),
+            call(8, "report", json!({"status": "done", "line": "green"})),
+        ],
+    );
+
+    let tools = responses[1]["result"]["tools"]
+        .as_array()
+        .expect("tools/list answers a list of tools");
+    let names: Vec<&str> = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a tool's name"))
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "show", "search", "diff", "test", "check", "fmt", "commit", "send", "report"
+        ]
+    );
+    for tool in tools {
+        assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
+        assert!(tool["description"].is_string(), "{tool}");
+    }
+    let schema = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .map(|tool| tool["inputSchema"].clone())
+            .expect("the tool is listed")
+    };
+    assert_eq!(schema("commit")["required"], json!(["message", "paths"]));
+    assert_eq!(schema("send")["required"], json!(["to", "text"]));
+    assert_eq!(schema("report")["required"], json!(["status", "line"]));
+
+    let text = |at: usize| {
+        let result = &responses[at]["result"];
+        assert_eq!(result["isError"], true, "{result}");
+        result["content"][0]["text"]
+            .as_str()
+            .expect("an answer's text")
+            .to_owned()
+    };
+    for (at, verb) in [(2, "test"), (3, "check"), (4, "fmt")] {
+        let answer = text(at);
+        assert!(
+            answer.starts_with(&format!(
+                "BuildFailed: {verb}: the host ledger refused it: "
+            )),
+            "{answer}"
+        );
+    }
+    assert_eq!(text(5), "NotGranted: paths: the working directory\n");
+    assert!(text(6).starts_with("OutsideTeam: "), "{}", text(6));
+    assert!(text(7).starts_with("NotOneLevelUp: "), "{}", text(7));
+}
+
+#[test]
+fn tool_commit_takes_its_paths_after_a_double_dash() {
+    let mut case = Case::new("commit");
+    let socket = case.register("example-org-a", &[Verb::Commit]);
+    case.serve();
+
+    let output = case
+        .tool(&socket)
+        .args(["commit", "-m", "feat: x", "--", "../outside.txt"])
+        .output()
+        .expect("run tool commit");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "NotGranted: paths: the working directory\n"
+    );
 }

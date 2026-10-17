@@ -13,7 +13,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use conductor_broker::{
-    Answer, Broker, MemoryRecorder, Registration, Request, SessionGrant, broker_dir, call, register,
+    Answer, Broker, MemoryRecorder, Placement, Registration, Request, Services, SessionGrant,
+    broker_dir, call, register,
 };
 use conductor_model::tool::Verb;
 
@@ -74,6 +75,18 @@ impl Case {
         workdir: &Path,
         grant: SessionGrant,
     ) -> PathBuf {
+        self.register_placed(session, instance, workdir, grant, Placement::default())
+    }
+
+    /// [`Case::register`], at `place`.
+    pub fn register_placed(
+        &self,
+        session: &str,
+        instance: &str,
+        workdir: &Path,
+        grant: SessionGrant,
+        place: Placement,
+    ) -> PathBuf {
         register(
             &self.dir(),
             &Registration {
@@ -82,6 +95,7 @@ impl Case {
                 workdir: workdir.to_owned(),
                 grant,
                 started_at: "2026-10-17T00:00:00Z".to_owned(),
+                place,
             },
         )
         .expect("register the session")
@@ -89,9 +103,16 @@ impl Case {
 
     /// Starts the instance's broker over the case's state.
     pub fn serve(&mut self) {
+        self.serve_with(Services::none());
+    }
+
+    /// Starts the instance's broker over the case's state, reaching `services`.
+    pub fn serve_with(&mut self, services: Services) {
         let recorder: Arc<dyn conductor_broker::Recorder> = self.recorder.clone();
-        self.broker =
-            Some(Broker::start(&self.dir(), INSTANCE, recorder).expect("start the broker"));
+        self.broker = Some(
+            Broker::start_with(&self.dir(), INSTANCE, recorder, services)
+                .expect("start the broker"),
+        );
     }
 }
 

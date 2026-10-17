@@ -1,11 +1,11 @@
 // generated from conductor v1
-// model digest 1764fdae0b32ce2f24e5fc80cf94561db13c5ec98f2fbed6ce4aec82214adae5
-// contract digest 3b8e218d9ef9cfac8d17edf1323399bbc39840ea82ed8bd7701f4915ac99cb2c
+// model digest b5e034c9d90c1db4e2b61d64b5f84558ca665f62d6c63fb9081b70a336e431fd
+// contract digest d573d116b2bce05149492c1d37f8b71e578471e55bed45cbfe524990edd4fafc
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-broker — the `conductor-broker` component of `conductor` v1.
 //!
-//! The broker of one instance. It serves each session of the instance on that session's own socket under the instance's state directory, checks every call against the session's grant, runs the read verbs, and records every call, run or refused, as a tool call in the instance's store.
+//! The broker of one instance. It serves each session of the instance on that session's own socket under the instance's state directory, checks every call against the session's grant, runs the verb (a read; a build through the host ledger; a commit through the bot route with the instance's Gates policy; a team message or a report one level up, recorded as a message), and records every call, run or refused, as a tool call in the instance's store.
 //!
 //! The component's outer surface exactly as the specification declares it: accepted commands as
 //! handlers, declared views as queries, published events as a typed outbox. The behaviour behind

@@ -10,9 +10,11 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::grant::SessionGrant;
+use crate::{Level, level_named, level_word};
 
 /// One session the broker serves (`conductor.tool.ToolSession`): its name, its instance, the
-/// directory its verbs read in, its grant, and when it started (RFC 3339).
+/// directory its verbs read in, its grant, when it started (RFC 3339), and its place among the
+/// instance's sessions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Registration {
     pub session: String,
@@ -20,6 +22,46 @@ pub struct Registration {
     pub workdir: PathBuf,
     pub grant: SessionGrant,
     pub started_at: String,
+    pub place: Placement,
+}
+
+/// A session's place (design § 2): its role, as the config file names it; its level; the team it
+/// works in, a repository's name; and the session one level above it. Each unknown is none: a
+/// session with no team sends to no one, and one with nothing above it reports to no one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Placement {
+    pub role: Option<String>,
+    pub level: Option<Level>,
+    pub team: Option<String>,
+    pub above: Option<String>,
+}
+
+impl Placement {
+    fn to_json(&self) -> Value {
+        json!({
+            "role": self.role,
+            "level": self.level.map(level_word),
+            "team": self.team,
+            "above": self.above,
+        })
+    }
+
+    /// The place a registration writes; absent, or written before places were, none of it.
+    fn from_json(value: &Value) -> Result<Self, String> {
+        let text = |key: &str| value[key].as_str().map(str::to_owned);
+        let level = match value["level"].as_str() {
+            Some(word) => Some(
+                level_named(word).ok_or_else(|| format!("registration names no level {word:?}"))?,
+            ),
+            None => None,
+        };
+        Ok(Self {
+            role: text("role"),
+            level,
+            team: text("team"),
+            above: text("above"),
+        })
+    }
 }
 
 /// The broker's directory under an instance's state directory: `<state>/broker`.
@@ -63,6 +105,7 @@ impl Registration {
             "workdir": self.workdir.to_string_lossy(),
             "grant": self.grant.to_json(),
             "started_at": self.started_at,
+            "place": self.place.to_json(),
         })
     }
 
@@ -79,6 +122,7 @@ impl Registration {
             workdir: PathBuf::from(text("workdir")?),
             grant: SessionGrant::from_json(&value["grant"])?,
             started_at: text("started_at")?,
+            place: Placement::from_json(&value["place"])?,
         })
     }
 }

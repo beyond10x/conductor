@@ -61,7 +61,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `roles[].writable` | list of [Writable](#writable) | `[checkout, trees, build-cache, scratch, harness-state]` |  |
 | `roles[].network` | `open` | `open` |  |
 | `roles[].forge_token_env` | list of string | `[]` |  |
-| `roles[].grant.tools` | list of `show` \| `search` \| `diff` | `[show, search, diff]` |  |
+| `roles[].grant.tools` | list of `show` \| `search` \| `diff` \| `test` \| `check` \| `fmt` \| `commit` \| `send` \| `report` | `[show, search, diff]` |  |
 | `roles[].grant.repositories` | list of string | `[]` |  |
 | `roles[].grant.paths` | list of string | `[]` |  |
 | `roles[].grant.max_output_bytes` | integer | `65536` | `max_output_bytes >= 1` |
@@ -336,9 +336,9 @@ Keys: `tools`, `repositories`, `paths`, `max_output_bytes`, `ttl`. Specified as 
 
 ### Verb
 
-The verbs of the read group (design § 6.3). The file and the wire write them in lower case: `show <path> [--lines a:b | --fn <symbol>] [--max n]` prints a bounded range of one file, and `unchanged since <time>` for a re-read, in the same session, of a range whose content has not changed; `search <pattern> [--path p]` prints the lines that hold the pattern, as text, under the grant's paths; `diff [--stat]` prints the checkout's uncommitted change, as a stat by default. Later stories add the other groups.
+The verbs of the read group (design § 6.3). The file and the wire write them in lower case: `show <path> [--lines a:b | --fn <symbol>] [--max n]` prints a bounded range of one file, and `unchanged since <time>` for a re-read, in the same session, of a range whose content has not changed; `search <pattern> [--path p]` prints the lines that hold the pattern, as text, under the grant's paths; `diff [--stat]` prints the checkout's uncommitted change, as a stat by default. The build group: `test [<package>] [--filter f]`, `check [<package>]` (clippy over every target, warnings denied) and `fmt [<package>]`. Version control: `commit -m <message> -- <paths>`. Team: `send <role-or-name> <text>` and `report <status> <line>`. Later stories add the other groups.
 
-One of `show` | `search` | `diff`. Specified as `conductor.tool.Verb`.
+One of `show` | `search` | `diff` | `test` | `check` | `fmt` | `commit` | `send` | `report`. Specified as `conductor.tool.Verb`.
 
 ### Activity
 

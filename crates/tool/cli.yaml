@@ -31,6 +31,66 @@ callables:
       grant-expired: conductor.tool.CallRefused
       foreign-instance: conductor.tool.CallRefused
       unknown-session: conductor.tool.CallRefused
+  test:
+    target: {kind: local, owner: conductor-broker, action: test}
+    input: conductor.tool.TestCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+      build-failed: conductor.tool.CallAnswer
+  check:
+    target: {kind: local, owner: conductor-broker, action: check}
+    input: conductor.tool.CheckCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+      build-failed: conductor.tool.CallAnswer
+  fmt:
+    target: {kind: local, owner: conductor-broker, action: fmt}
+    input: conductor.tool.FmtCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+      build-failed: conductor.tool.CallAnswer
+  commit:
+    target: {kind: local, owner: conductor-broker, action: commit}
+    input: conductor.tool.CommitCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+      commit-refused: conductor.tool.CallAnswer
+  send:
+    target: {kind: local, owner: conductor-broker, action: send}
+    input: conductor.tool.SendCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+      outside-team: conductor.tool.CallRefused
+  report:
+    target: {kind: local, owner: conductor-broker, action: report}
+    input: conductor.tool.ReportCall
+    result: conductor.tool.CallAnswer
+    errors:
+      not-granted: conductor.tool.CallRefused
+      grant-expired: conductor.tool.CallRefused
+      foreign-instance: conductor.tool.CallRefused
+      unknown-session: conductor.tool.CallRefused
+      not-one-level-up: conductor.tool.CallRefused
   mcp:
     target: {kind: local, owner: conductor-broker, action: mcp}
     input: null
@@ -65,6 +125,52 @@ commands:
         source: {kind: option, long: stat}
       - field: patch
         source: {kind: option, long: patch}
+  - path: [test]
+    callable: test
+    about: Run the tests of the session's checkout through the host ledger at nice 19; print `ok test <n> passed`, or the failing tests and the log
+    arguments:
+      - field: package
+        source: {kind: positional, index: 1}
+      - field: filter
+        source: {kind: option, long: filter}
+  - path: [check]
+    callable: check
+    about: Lint the session's checkout (clippy over every target, warnings denied) through the host ledger at nice 19; print `ok check`, or the errors and the log
+    arguments:
+      - field: package
+        source: {kind: positional, index: 1}
+  - path: [fmt]
+    callable: fmt
+    about: Format the session's checkout through the host ledger at nice 19; print `ok fmt <n> files changed`
+    arguments:
+      - field: package
+        source: {kind: positional, index: 1}
+  - path: [commit]
+    callable: commit
+    about: Stage the named paths, new ones included, and commit them through the bot route; print `<sha> <n> files`
+    arguments:
+      - field: message
+        source: {kind: option, long: message}
+      - field: paths
+        source: {kind: positional, index: 1}
+  - path: [send]
+    callable: send
+    about: Send a message to a session of the caller's team, by its name or its role; the broker records it and answers whom to deliver it to
+    arguments:
+      - field: to
+        source: {kind: positional, index: 1}
+      - field: text
+        source: {kind: positional, index: 2}
+  - path: [report]
+    callable: report
+    about: Report the caller's status one level up, moving its open dispatch when it is a lead; the broker records it and answers whom to deliver it to
+    arguments:
+      - field: status
+        source: {kind: positional, index: 1}
+      - field: line
+        source: {kind: positional, index: 2}
+      - field: to
+        source: {kind: option, long: to}
   - path: [mcp]
     callable: mcp
     about: Serve the granted verbs as MCP tools over stdio, each answered through the same socket

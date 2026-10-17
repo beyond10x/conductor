@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 1764fdae0b32ce2f24e5fc80cf94561db13c5ec98f2fbed6ce4aec82214adae5
-  contract digest 3b8e218d9ef9cfac8d17edf1323399bbc39840ea82ed8bd7701f4915ac99cb2c
+  model digest b5e034c9d90c1db4e2b61d64b5f84558ca665f62d6c63fb9081b70a336e431fd
+  contract digest d573d116b2bce05149492c1d37f8b71e578471e55bed45cbfe524990edd4fafc
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-627 capabilities: **610 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+642 capabilities: **625 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -220,11 +220,21 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.tool.CallAnswer` |
 | domain type | `conductor.tool.CallOutcome` |
 | domain type | `conductor.tool.CallRefused` |
+| domain type | `conductor.tool.CheckCall` |
+| domain type | `conductor.tool.CommitCall` |
 | domain type | `conductor.tool.DiffCall` |
+| domain type | `conductor.tool.FmtCall` |
 | domain type | `conductor.tool.Grant.State` |
+| domain type | `conductor.tool.Level` |
+| domain type | `conductor.tool.ReportCall` |
+| domain type | `conductor.tool.ReportStatus` |
 | domain type | `conductor.tool.RoleGrant` |
 | domain type | `conductor.tool.SearchCall` |
+| domain type | `conductor.tool.SendCall` |
 | domain type | `conductor.tool.ShowCall` |
+| domain type | `conductor.tool.Team.State` |
+| domain type | `conductor.tool.TeamName` |
+| domain type | `conductor.tool.TestCall` |
 | domain type | `conductor.tool.ToolCall.State` |
 | domain type | `conductor.tool.ToolCallId` |
 | domain type | `conductor.tool.ToolSession.State` |
@@ -262,6 +272,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | entity lifecycle | `conductor.session.Lease` |
 | entity lifecycle | `conductor.tool.Broker` |
 | entity lifecycle | `conductor.tool.Grant` |
+| entity lifecycle | `conductor.tool.Team` |
 | entity lifecycle | `conductor.tool.ToolCall` |
 | entity lifecycle | `conductor.tool.ToolSession` |
 | command contract | `conductor.decision.AmendEscalatedRequest` |
@@ -550,9 +561,13 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | error type | `conductor.observation.SnapshotNotComplete` |
 | error type | `conductor.observation.SnapshotNotFound` |
 | error type | `conductor.session.LeaseHeld` |
+| error type | `conductor.tool.BuildFailed` |
+| error type | `conductor.tool.CommitRefused` |
 | error type | `conductor.tool.ForeignInstance` |
 | error type | `conductor.tool.GrantExpired` |
 | error type | `conductor.tool.NotGranted` |
+| error type | `conductor.tool.NotOneLevelUp` |
+| error type | `conductor.tool.OutsideTeam` |
 | error type | `conductor.tool.UnknownSession` |
 | view type | `conductor.decision.Decisions` |
 | view query | `conductor.decision.Decisions` |
@@ -659,4 +674,4 @@ What the specification fully determines is generated; what it cannot determine i
 | actor grants | `conductor.improvement.Operator` | planning | may invoke `conductor.improvement.SetMetricTarget`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.observation.Collector` | planning | may invoke `conductor.observation.CompleteSnapshot`, `conductor.observation.FailSnapshot`, `conductor.observation.PublishBoard`, `conductor.observation.RecordBlocker`, `conductor.observation.RecordCollectorRun`, `conductor.observation.RecordDailySeries`, `conductor.observation.RecordMemberFailure`, `conductor.observation.RecordMergedPullRequest`, `conductor.observation.RecordPullRequest`, `conductor.observation.RecordRelease`, `conductor.observation.RecordRepository`, `conductor.observation.RecordSession`, `conductor.observation.RecordSpecification`, `conductor.observation.RecordWorkflowRun`, `conductor.observation.ReviseDailySeries`, `conductor.observation.StartSnapshot`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
 | actor grants | `conductor.session.Conductor` | planning | may invoke `conductor.session.ClaimLease`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
-| actor grants | `conductor.tool.InstanceBroker` | planning | may invoke `conductor.tool.RecordToolCall`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |
+| actor grants | `conductor.tool.InstanceBroker` | planning | may invoke `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.tool.RecordToolCall`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry |

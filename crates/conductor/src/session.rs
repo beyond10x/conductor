@@ -730,6 +730,7 @@ pub fn start(
         found,
         &name,
         Path::new(&request.cwd),
+        crate::broker::placement(instance, &found.role, None),
     )
     .context("session start")?;
     env.push((

@@ -458,6 +458,13 @@ fn spawn_registers_the_session_with_the_broker_and_names_its_socket() {
     );
     assert_eq!(registration["grant"]["max_output_bytes"], 65_536);
     assert_eq!(registration["grant"]["expires_at"], Value::Null);
+    // `story:tool-build-commit-report`: the controller is its repository's lead, in the team named
+    // after it, reporting to the instance's director.
+    assert_eq!(
+        registration["place"],
+        json!({"role": "controller", "level": "lead", "team": "alpha", "above": "ex-conductor"}),
+        "{registration}"
+    );
 }
 
 /// The records lines of `log` (`dispatches` or `decisions`) under the case's records directory,

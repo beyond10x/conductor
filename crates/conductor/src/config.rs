@@ -286,12 +286,14 @@ const ROLE_KEYS: [&str; 13] = [
 ];
 /// The keys of a role's `grant` (`conductor.tool.RoleGrant`, `story:tool-broker-read`).
 const GRANT_KEYS: [&str; 5] = ["tools", "repositories", "paths", "max_output_bytes", "ttl"];
-/// The verbs a grant may name, as the file writes them.
-const VERBS: [(&str, Verb); 3] = [
-    ("show", Verb::Show),
-    ("search", Verb::Search),
-    ("diff", Verb::Diff),
-];
+/// The verbs a grant may name, as the file writes them: every verb of the broker
+/// ([`conductor_broker::VERBS`]), so a verb it adds is one a grant names.
+fn grant_verbs() -> Vec<(&'static str, Verb)> {
+    conductor_broker::VERBS
+        .into_iter()
+        .map(|verb| (verb_word(verb), verb))
+        .collect()
+}
 /// The most bytes one answer of the broker carries when a grant writes no `max_output_bytes`.
 pub const DEFAULT_MAX_OUTPUT_BYTES: i64 = 65_536;
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
@@ -1195,14 +1197,10 @@ pub fn default_grant() -> RoleGrant {
     }
 }
 
-/// A verb as the file and the wire write it.
+/// A verb as the file and the wire write it: [`conductor_broker::verb_word`].
 #[must_use]
 pub fn verb_word(verb: Verb) -> &'static str {
-    match verb {
-        Verb::Show => "show",
-        Verb::Search => "search",
-        Verb::Diff => "diff",
-    }
+    conductor_broker::verb_word(verb)
 }
 
 /// The places a session of the role `role` writes when the file names none
@@ -2661,7 +2659,7 @@ impl Reader<'_> {
         let defaults = default_grant();
         let tools = match Self::get(map, "tools") {
             Some(value) => self.list(value, &join(path, "tools"), |reader, value, at| {
-                reader.word(value, at, &VERBS)
+                reader.word(value, at, &grant_verbs())
             }),
             None => Some(defaults.tools),
         };

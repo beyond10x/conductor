@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "1764fdae0b32ce2f24e5fc80cf94561db13c5ec98f2fbed6ce4aec82214adae5",
-    "contract_digest": "3b8e218d9ef9cfac8d17edf1323399bbc39840ea82ed8bd7701f4915ac99cb2c"
+    "source_digest": "b5e034c9d90c1db4e2b61d64b5f84558ca665f62d6c63fb9081b70a336e431fd",
+    "contract_digest": "d573d116b2bce05149492c1d37f8b71e578471e55bed45cbfe524990edd4fafc"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -1454,6 +1454,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.tool.CheckCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.CommitCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.tool.DiffCall",
       "disposition": {
         "disposition": "generated"
@@ -1461,7 +1475,35 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.tool.FmtCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.tool.Grant.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.Level",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ReportCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ReportStatus",
       "disposition": {
         "disposition": "generated"
       }
@@ -1482,7 +1524,35 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.tool.SendCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.tool.ShowCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.Team.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.TeamName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.TestCall",
       "disposition": {
         "disposition": "generated"
       }
@@ -1742,6 +1812,13 @@
     {
       "kind": "entity_lifecycle",
       "source": "conductor.tool.Grant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.tool.Team",
       "disposition": {
         "disposition": "generated"
       }
@@ -3812,6 +3889,20 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.tool.BuildFailed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.CommitRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.tool.ForeignInstance",
       "disposition": {
         "disposition": "generated"
@@ -3827,6 +3918,20 @@
     {
       "kind": "error_type",
       "source": "conductor.tool.NotGranted",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.NotOneLevelUp",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.OutsideTeam",
       "disposition": {
         "disposition": "generated"
       }
@@ -4441,7 +4546,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.tool.RecordToolCall`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.tool.RecordToolCall`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {

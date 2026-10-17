@@ -271,11 +271,6 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
         );
     }
     let repo = named_repository(&first_line).unwrap_or_else(|| sender.clone());
-    let mut line = records::dispatch_line(DispatchLogEvent::MessageReceived, &repo)?;
-    line.from = Some(sender.clone());
-    line.to = Some(recipient.clone());
-    line.kind = Some(kind_name(kind).to_owned());
-    line.first_line = Some(first_line.clone());
     let input = ReceiveMessage {
         sender,
         recipient,
@@ -286,18 +281,7 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
         body_path: args.body_path,
         parsed: reading.parsed,
     };
-    let mut generated = Generated::new(Ports {
-        store: crate::state::open(state)?,
-    });
-    let outcome = generated
-        .receive_message(input)
-        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
-    kept(COMMAND, &generated.ports.store)?;
-    let (ReceiveMessageOutcome::Received { message_received }
-    | ReceiveMessageOutcome::Unparsed { message_received }) = &outcome;
-    line.id = Some(message_received.message_id.0.0.clone());
-    records::append_dispatch(&line)
-        .with_context(|| format!("{COMMAND}: message {}", message_received.message_id.0.0))?;
+    let outcome = record(COMMAND, state, input, &repo)?;
     match outcome {
         ReceiveMessageOutcome::Received { message_received } => {
             print(COMMAND, &format!("{}\n", message_received.message_id.0.0))
@@ -311,6 +295,40 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
             )
         }
     }
+}
+
+/// Records `input` as `receive-message` does: the generated `ReceiveMessage` on the store under
+/// `state`, checked kept, then one `message-received` line in the records' dispatch log with
+/// `repo` as its repository. The broker's `send` and `report` record through it
+/// (`story:tool-build-commit-report`).
+///
+/// # Errors
+///
+/// The store does not open or keep the message, or the records line is not appended.
+pub(crate) fn record(
+    command: &str,
+    state: Option<&Path>,
+    input: ReceiveMessage,
+    repo: &str,
+) -> Result<ReceiveMessageOutcome> {
+    let mut line = records::dispatch_line(DispatchLogEvent::MessageReceived, repo)?;
+    line.from = Some(input.sender.clone());
+    line.to = Some(input.recipient.clone());
+    line.kind = Some(kind_name(input.kind).to_owned());
+    line.first_line = Some(input.first_line.clone());
+    let mut generated = Generated::new(Ports {
+        store: crate::state::open(state)?,
+    });
+    let outcome = generated
+        .receive_message(input)
+        .map_err(|unmet| anyhow!("{command}: {unmet}"))?;
+    kept(command, &generated.ports.store)?;
+    let (ReceiveMessageOutcome::Received { message_received }
+    | ReceiveMessageOutcome::Unparsed { message_received }) = &outcome;
+    line.id = Some(message_received.message_id.0.0.clone());
+    records::append_dispatch(&line)
+        .with_context(|| format!("{command}: message {}", message_received.message_id.0.0))?;
+    Ok(outcome)
 }
 
 /// `conductor message handle-message`: the command `conductor.dispatch.HandleMessage`.
@@ -453,34 +471,14 @@ pub fn messages(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
     crate::store::show(&generated.ports, "messages", &view.render(&COLUMNS, &rows))
 }
 
-/// The kind's name as the specification spells it. Exhaustive, so a kind the specification adds
-/// fails to compile here rather than being read or rendered under a guessed name.
+/// The kind's name as the specification spells it: the store's, which is exhaustive, so the
+/// command line, the records and the store spell a kind one way.
 fn kind_name(kind: MessageKind) -> &'static str {
-    match kind {
-        MessageKind::Dispatch => "Dispatch",
-        MessageKind::Report => "Report",
-        MessageKind::DecisionRequest => "DecisionRequest",
-        MessageKind::Decision => "Decision",
-        MessageKind::Need => "Need",
-        MessageKind::Resource => "Resource",
-        MessageKind::Escalation => "Escalation",
-        MessageKind::Unknown => "Unknown",
-    }
+    crate::store::dispatch::kind_name(kind)
 }
 
 fn kind_named(name: &str) -> Option<MessageKind> {
-    [
-        MessageKind::Dispatch,
-        MessageKind::Report,
-        MessageKind::DecisionRequest,
-        MessageKind::Decision,
-        MessageKind::Need,
-        MessageKind::Resource,
-        MessageKind::Escalation,
-        MessageKind::Unknown,
-    ]
-    .into_iter()
-    .find(|kind| kind_name(*kind) == name)
+    crate::store::dispatch::kind_named(name)
 }
 
 /// The transport's name as the specification spells it. Exhaustive, so a transport the

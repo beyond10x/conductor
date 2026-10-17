@@ -379,10 +379,17 @@ fn controller_launch(
         forge_token_env: role.forge_token_env.clone(),
     };
     // The session's socket to the instance's broker (`story:tool-broker-read`): registered with
-    // the controller role's grant before the session starts, and named in its environment.
-    let socket =
-        crate::broker::register_session(state_dir, &instance.name, role, &session_name, checkout)
-            .context(COMMAND)?;
+    // the controller role's grant before the session starts, and named in its environment. It is
+    // the repository's lead, reporting to the director (`story:tool-build-commit-report`).
+    let socket = crate::broker::register_session(
+        state_dir,
+        &instance.name,
+        role,
+        &session_name,
+        checkout,
+        crate::broker::placement(instance, config::CONTROLLER, Some(repository)),
+    )
+    .context(COMMAND)?;
     let mut env = vec![(
         conductor_broker::SOCKET_VARIABLE.to_owned(),
         socket.display().to_string(),

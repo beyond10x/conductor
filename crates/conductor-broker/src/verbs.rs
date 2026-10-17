@@ -17,6 +17,7 @@ use crate::Verb;
 use crate::grant::Refusal;
 use crate::registry::Registration;
 use crate::server::{Reads, rfc3339};
+use crate::services::Services;
 use crate::wire::Answer;
 
 /// The most lines a failure prints, its log line included.
@@ -33,8 +34,10 @@ const SKIPPED: [&str; 3] = [".git", "target", "node_modules"];
 pub(crate) struct Context<'a> {
     pub dir: &'a Path,
     pub session: &'a str,
+    pub instance: &'a str,
     pub registration: &'a Registration,
     pub reads: &'a Mutex<Reads>,
+    pub services: &'a Services,
     pub now: OffsetDateTime,
 }
 
@@ -45,16 +48,31 @@ pub(crate) fn paths(verb: Verb, args: &Value) -> Vec<String> {
             .as_str()
             .map(|path| vec![path.to_owned()])
             .unwrap_or_default(),
-        Verb::Diff => Vec::new(),
+        Verb::Commit => args["paths"]
+            .as_array()
+            .map(|paths| {
+                paths
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Verb::Diff | Verb::Test | Verb::Check | Verb::Fmt | Verb::Send | Verb::Report => Vec::new(),
     }
 }
 
-/// Runs `verb` with `args`: its answer, or the refusal of a path outside the grant.
+/// Runs `verb` with `args`: its answer, or the refusal of what lies outside the grant, the team
+/// or the level above.
 pub(crate) fn run(context: &Context<'_>, verb: Verb, args: &Value) -> Result<Answer, Refusal> {
     match verb {
         Verb::Show => show(context, args),
         Verb::Search => search(context, args),
         Verb::Diff => Ok(diff(context, args)),
+        Verb::Test | Verb::Check | Verb::Fmt => Ok(crate::build::run(context, verb, args)),
+        Verb::Commit => crate::commit::run(context, args),
+        Verb::Send => crate::team::send(context, args),
+        Verb::Report => crate::team::report(context, args),
     }
 }
 
@@ -67,9 +85,18 @@ pub fn failure(dir: &Path, head: &str, text: &str) -> Answer {
     if !whole.ends_with('\n') {
         whole.push('\n');
     }
-    let log = write_log(dir, &whole);
-    let mut shown: Vec<&str> = whole.lines().take(FAILURE_LINES - 1).collect();
-    let reference = match &log {
+    let log = log_path(dir).and_then(|path| fs::write(&path, &whole).map(|()| path));
+    logged_failure(whole.lines(), log.as_deref().map_err(ToString::to_string))
+}
+
+/// The answer to a verb that failed whose whole output is in `log` already: the first of `lines`,
+/// at most [`FAILURE_LINES`] in all with the last, `log: <path>`. Exit status 1.
+pub(crate) fn logged_failure<'a>(
+    lines: impl IntoIterator<Item = &'a str>,
+    log: Result<&Path, String>,
+) -> Answer {
+    let mut shown: Vec<&str> = lines.into_iter().take(FAILURE_LINES - 1).collect();
+    let reference = match log {
         Ok(path) => format!("log: {}", path.display()),
         Err(error) => format!("log: none, it could not be written: {error}"),
     };
@@ -80,18 +107,17 @@ pub fn failure(dir: &Path, head: &str, text: &str) -> Answer {
     }
 }
 
-fn write_log(dir: &Path, text: &str) -> std::io::Result<PathBuf> {
+/// A new log's path under `dir`'s `logs/`, which is made if it is missing.
+pub(crate) fn log_path(dir: &Path) -> std::io::Result<PathBuf> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let logs = dir.join("logs");
     fs::create_dir_all(&logs)?;
     let stamp = OffsetDateTime::now_utc().unix_timestamp_nanos();
-    let path = logs.join(format!(
+    Ok(logs.join(format!(
         "{stamp}-{}-{}.log",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    fs::write(&path, text)?;
-    Ok(path)
+    )))
 }
 
 /// `body` cut at `limit` bytes, on a character boundary, ending in a newline; and whether it was

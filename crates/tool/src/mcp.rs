@@ -88,8 +88,14 @@ fn failure(id: &Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
+/// The schema of a build verb's `package` argument.
+fn package() -> Value {
+    json!({"type": "string", "description": "The Cargo package (cargo's -p); none, the working directory's own"})
+}
+
 /// The MCP tool of one verb: its name, what it does and its arguments' schema
-/// (`conductor.tool.ShowCall`, `SearchCall`, `DiffCall`).
+/// (`conductor.tool.ShowCall`, `SearchCall`, `DiffCall`, `TestCall`, `CheckCall`, `FmtCall`,
+/// `CommitCall`, `SendCall`, `ReportCall`).
 fn tool(verb: &str) -> Option<Value> {
     let (description, properties, required) = match verb {
         "show" => (
@@ -117,6 +123,58 @@ fn tool(verb: &str) -> Option<Value> {
                 "patch": {"type": "boolean", "description": "The change itself, bounded as every answer is"},
             }),
             json!([]),
+        ),
+        "test" => (
+            "Run the tests of the session's checkout through the host ledger at nice 19; answers `ok test <n> passed`, or the failing tests with their first assertion lines and the log",
+            json!({
+                "package": package(),
+                "filter": {"type": "string", "description": "Only the tests whose name holds this text"},
+            }),
+            json!([]),
+        ),
+        "check" => (
+            "Lint the session's checkout (clippy over every target, warnings denied) through the host ledger at nice 19; answers `ok check`, or the errors and the log",
+            json!({"package": package()}),
+            json!([]),
+        ),
+        "fmt" => (
+            "Format the session's checkout through the host ledger at nice 19; answers `ok fmt <n> files changed`",
+            json!({"package": package()}),
+            json!([]),
+        ),
+        "commit" => (
+            "Stage the named paths, new ones included, and commit them through the bot route; answers `<sha> <n> files`",
+            json!({
+                "message": {"type": "string", "description": "The commit message"},
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "description": "The paths to commit, each relative to the session's working directory and under the grant's paths",
+                },
+            }),
+            json!(["message", "paths"]),
+        ),
+        "send" => (
+            "Send a message to a session of the caller's team, by its name or its role; the broker records it and answers whom to deliver it to",
+            json!({
+                "to": {"type": "string", "description": "The recipient: a session of the caller's team, by its session name or its role"},
+                "text": {"type": "string", "description": "The message"},
+            }),
+            json!(["to", "text"]),
+        ),
+        "report" => (
+            "Report the caller's status one level up, moving its open dispatch when it is a lead; the broker records it and answers whom to deliver it to",
+            json!({
+                "status": {
+                    "type": "string",
+                    "enum": ["started", "progress", "blocked", "unblocked", "done", "failed"],
+                    "description": "What the report says of the caller's work",
+                },
+                "line": {"type": "string", "description": "One line: the reason, the evidence or the progress"},
+                "to": {"type": "string", "description": "The session the report goes to; it must be the one one level above the caller"},
+            }),
+            json!(["status", "line"]),
         ),
         _ => return None,
     };

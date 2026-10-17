@@ -80,7 +80,7 @@ use tokio::runtime::{Builder, Handle, Runtime};
 mod board;
 mod controller;
 mod decision;
-mod dispatch;
+pub(crate) mod dispatch;
 mod host;
 mod improvement;
 mod marks;

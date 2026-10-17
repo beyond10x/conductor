@@ -24,6 +24,18 @@ summary: >
   lines and the path of a log under `broker/logs/` that holds the whole output. A refusal is one
   line, `<Error>: <detail>`, and exit status 1.
 
+  The build, version-control and team verbs (story:tool-build-commit-report, design § 6.3) run what
+  the session must not run itself. `test`, `check` and `fmt` run cargo in the session's working
+  directory through the host ledger, at nice 19, as `conductor build run --reserve auto` runs a
+  command: the reservation is the measured peak of that command, and a run waits in the ledger's
+  queue for its turn. `commit` stages the named paths and commits them through the bot route
+  (`b10x-gates bot`) with the instance's Gates policy, which only the broker holds. `send` and
+  `report` record a `conductor.dispatch.Message`: `send` to a session of the caller's team, and
+  `report` to the session one level above the caller, moving the caller's open dispatch as
+  `conductor dispatch report-*` does when the caller is a team's lead. The broker cannot drive the
+  harness's own channel (SendMessage), so it records the message and answers it for the caller to
+  deliver.
+
 naming:
   wire: tool
   display: Tool
@@ -33,21 +45,47 @@ types:
     kind: newtype
     of: Uuid
 
+  # A team's name: the name of the repository its lead and workers work in.
+  - name: conductor.tool.TeamName
+    kind: newtype
+    of: String
+
   # The verbs of the read group (design § 6.3). The file and the wire write them in lower case:
   # `show <path> [--lines a:b | --fn <symbol>] [--max n]` prints a bounded range of one file, and
   # `unchanged since <time>` for a re-read, in the same session, of a range whose content has not
   # changed; `search <pattern> [--path p]` prints the lines that hold the pattern, as text, under
   # the grant's paths; `diff [--stat]` prints the checkout's uncommitted change, as a stat by
-  # default. Later stories add the other groups.
+  # default. The build group (story:tool-build-commit-report): `test [<package>] [--filter f]`,
+  # `check [<package>]` (clippy over every target, warnings denied) and `fmt [<package>]`. Version
+  # control: `commit -m <message> -- <paths>`. Team: `send <role-or-name> <text>` and
+  # `report <status> <line>`. Later stories add the other groups.
   - name: conductor.tool.Verb
     kind: enum
-    variants: [Show, Search, Diff]
+    variants: [Show, Search, Diff, Test, Check, Fmt, Commit, Send, Report]
 
-  # How one call ended: `Done`, the verb ran and succeeded; `Failed`, it ran and failed; or one of
-  # the four refusals, each the error of the same name, before the verb ran.
+  # How one call ended: `Done`, the verb ran and succeeded; `Failed`, it ran and failed (a failed
+  # build, `BuildFailed`, and a commit the bot route refused, `CommitRefused`, are `Failed`); or one
+  # of the refusals, each the error of the same name, before the verb ran.
   - name: conductor.tool.CallOutcome
     kind: enum
-    variants: [Done, Failed, NotGranted, GrantExpired, ForeignInstance, UnknownSession]
+    variants:
+      [Done, Failed, NotGranted, GrantExpired, ForeignInstance, UnknownSession, OutsideTeam,
+       NotOneLevelUp]
+
+  # The level a session works at (design § 2): an instance's director, a repository's lead, or a
+  # worker of a lead's team. A message goes one level up or down; the only sideways channel is a
+  # team's.
+  - name: conductor.tool.Level
+    kind: enum
+    variants: [Director, Lead, Worker]
+
+  # What a `report` says of the caller's work, as the § 6 `[REPORT]` form writes it in lower case.
+  # A lead's report moves its open dispatch: `started` starts it, `blocked` blocks it with the line
+  # as the reason, `unblocked` unblocks it, `done` finishes it with the line as the evidence, and
+  # `failed` fails it with the line as the reason; `progress` moves nothing.
+  - name: conductor.tool.ReportStatus
+    kind: enum
+    variants: [Started, Progress, Blocked, Unblocked, Done, Failed]
 
   # A role's grant as the config file writes it (`instances[].roles[].grant`): the verbs its
   # sessions may call; the repositories and the paths they may read, each path relative to the
@@ -96,6 +134,55 @@ types:
       - {name: stat, type: Optional<Boolean>}
       - {name: patch, type: Optional<Boolean>}
 
+  # The arguments of the build verbs. `package` is the Cargo package to run on (cargo's `-p`); none,
+  # the working directory's own. `test`'s `filter` selects the tests whose name holds it. `test`
+  # answers `ok test <n> passed`; a failure, the failing tests' names and the first line of each
+  # one's panic, or the compiler's errors, at most 40 lines with the log. `check` answers `ok
+  # check`; `fmt` answers `ok fmt <n> files changed`.
+  - name: conductor.tool.TestCall
+    kind: struct
+    fields:
+      - {name: package, type: Optional<String>}
+      - {name: filter, type: Optional<String>}
+
+  - name: conductor.tool.CheckCall
+    kind: struct
+    fields:
+      - {name: package, type: Optional<String>}
+
+  - name: conductor.tool.FmtCall
+    kind: struct
+    fields:
+      - {name: package, type: Optional<String>}
+
+  # `commit -m <message> -- <paths>`: the paths, each relative to the session's working directory
+  # and under the grant's paths, new files included, are staged and committed through the bot
+  # route. A path outside the grant or outside the working directory refuses the whole call
+  # `NotGranted` before anything is staged. Answers `<sha> <n> files`.
+  - name: conductor.tool.CommitCall
+    kind: struct
+    fields:
+      - {name: message, type: String}
+      - {name: paths, type: List<String>}
+
+  # `send <role-or-name> <text>`: `to` is a session of the caller's team, by its session name or
+  # by its role. Answers the recorded message's id and whom to deliver it to, on one line.
+  - name: conductor.tool.SendCall
+    kind: struct
+    fields:
+      - {name: to, type: String}
+      - {name: text, type: String}
+
+  # `report <status> <line> [--to <session>]`: the report goes to the session one level above the
+  # caller; `to`, when given, must name that session. Answers the recorded message's id, the
+  # dispatch it moved if any, and whom to deliver it to, on one line.
+  - name: conductor.tool.ReportCall
+    kind: struct
+    fields:
+      - {name: status, type: conductor.tool.ReportStatus}
+      - {name: line, type: String}
+      - {name: to, type: Optional<conductor.config.SessionName>}
+
   # The answer to one call: the text `tool` prints, and its exit status, 0 when the verb succeeded
   # and 1 when it failed or was refused.
   - name: conductor.tool.CallAnswer
@@ -105,9 +192,9 @@ types:
       - {name: exit, type: Integer}
 
   # A refused call as `tool` prints it, on one line, `<refusal>: <detail>`: the refusal is one of
-  # the four refusal outcomes, each the error of the same name (`NotGranted`, `GrantExpired`,
-  # `ForeignInstance`, `UnknownSession`), and the detail names the grant rule it broke or what the
-  # broker found.
+  # the refusal outcomes, each the error of the same name (`NotGranted`, `GrantExpired`,
+  # `ForeignInstance`, `UnknownSession`, `OutsideTeam`, `NotOneLevelUp`), and the detail names the
+  # grant rule it broke or what the broker found.
   - name: conductor.tool.CallRefused
     kind: struct
     fields:
@@ -138,6 +225,9 @@ entities:
   # One session the broker serves, keyed by its session name: it belongs to exactly one instance,
   # many sessions to one, and the broker refuses it when that is not the broker's own. Its socket
   # is its own, one to one: the caller's identity is the socket. It owns exactly one grant.
+  # Its place among the instance's sessions (story:tool-build-commit-report, design § 2): its role,
+  # as the config file names it, by which `send` may address it; its level; the team it works in, many sessions to one team, none for a director; and the session
+  # one level above it, many sessions to one, none for a director while no level above it serves.
   - name: conductor.tool.ToolSession
     identity:
       name: session
@@ -151,16 +241,63 @@ entities:
         type: String
       - name: started_at
         type: Timestamp
+      - name: role
+        type: Optional<String>
+      - name: level
+        type: Optional<conductor.tool.Level>
+      - name: team
+        type: Optional<conductor.tool.TeamName>
+      - name: above
+        type: Optional<conductor.config.SessionName>
     relations:
       - name: broker
         kind: references
         target: conductor.tool.Broker
         cardinality: one
         via: instance
+      - name: member_of
+        kind: references
+        target: conductor.tool.Team
+        cardinality: one
+        via: team
+      - name: reports_to
+        kind: references
+        target: conductor.tool.ToolSession
+        cardinality: one
+        via: above
     lifecycle:
       initial: Registered
       states: [Registered]
       terminal: [Registered]
+
+  # A team: a lead and its workers in one repository of one instance, keyed by the repository's
+  # name; the broker serves one instance, so the name is unique within it. Every session of the
+  # team names it as its `team`. `send` never leaves a team: the only sideways channel is a team's
+  # (design § 2, § 6.3).
+  - name: conductor.tool.Team
+    identity:
+      name: team
+      type: conductor.tool.TeamName
+    fields:
+      - name: instance
+        type: conductor.config.InstanceName
+      - name: lead
+        type: Optional<conductor.config.SessionName>
+    relations:
+      - name: broker
+        kind: references
+        target: conductor.tool.Broker
+        cardinality: one
+        via: instance
+      - name: led_by
+        kind: references
+        target: conductor.tool.ToolSession
+        cardinality: one
+        via: lead
+    lifecycle:
+      initial: Formed
+      states: [Formed]
+      terminal: [Formed]
 
   # The grant of one session: the verbs it may call with their limits, from its role's `grant`.
   # It ends at `expires_at`, the session's start plus the role's time to live, or with the session.
@@ -233,10 +370,18 @@ entities:
       terminal: [Recorded]
 
 actors:
-  # The broker records every call it answers; no session records one.
+  # The broker records every call it answers; no session records one. For `send` and `report` it
+  # records the message, and for a lead's `report` it moves the lead's open dispatch, as
+  # `conductor message receive-message` and `conductor dispatch report-*` do.
   - name: conductor.tool.InstanceBroker
     may:
       - conductor.tool.RecordToolCall
+      - conductor.dispatch.ReceiveMessage
+      - conductor.dispatch.ReportStarted
+      - conductor.dispatch.ReportBlocked
+      - conductor.dispatch.ReportUnblocked
+      - conductor.dispatch.ReportDone
+      - conductor.dispatch.ReportFailed
     naming:
       display: Broker
 
@@ -271,6 +416,41 @@ errors:
     fields:
       - name: session
         type: conductor.config.SessionName
+
+  - name: conductor.tool.OutsideTeam
+    summary: >
+      A `send` names a recipient that is no other session of the caller's team: a session of
+      another team, a session with no team, or none the broker serves. A recipient registered
+      under another instance is refused `ForeignInstance` instead. Nothing was recorded but the
+      call.
+    fields:
+      - name: recipient
+        type: String
+
+  - name: conductor.tool.NotOneLevelUp
+    summary: >
+      A `report` goes to another session than the one one level above the caller, or the caller
+      has no level above it. Nothing was recorded but the call.
+    fields:
+      - name: recipient
+        type: String
+
+  - name: conductor.tool.BuildFailed
+    summary: >
+      `test`, `check` or `fmt` ran and failed, or the host ledger refused its reservation. The
+      answer is the failing tests' names and the first line of each one's panic, or the compiler's
+      errors, at most 40 lines; `log` holds the whole output. The call is recorded `Failed`.
+    fields:
+      - name: log
+        type: String
+
+  - name: conductor.tool.CommitRefused
+    summary: >
+      The bot route refused the commit, or the broker holds no Gates policy, or a path did not
+      stage. `reason` is the route's first line; the call is recorded `Failed`.
+    fields:
+      - name: reason
+        type: String
 
 commands:
   - name: conductor.tool.RecordToolCall

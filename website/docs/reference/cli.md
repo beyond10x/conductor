@@ -1394,7 +1394,7 @@ Usage: conductor message receive-message [OPTIONS]
 |---|---|---|---|
 | `--sender <SENDER>` | no | none | string |
 | `--recipient <RECIPIENT>` | no | none | string |
-| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Unknown`. |
+| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Team`, `Unknown`. |
 | `--first-line <FIRST_LINE>` | no | none | string |
 | `--transport <TRANSPORT>` | no | none | Transport One of `SendMessage`, `Mailbox`. |
 | `--received-at <RECEIVED_AT>` | no | none | timestamp, RFC 3339 |

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 1764fdae0b32ce2f24e5fc80cf94561db13c5ec98f2fbed6ce4aec82214adae5
-// contract digest 3b8e218d9ef9cfac8d17edf1323399bbc39840ea82ed8bd7701f4915ac99cb2c
+// model digest b5e034c9d90c1db4e2b61d64b5f84558ca665f62d6c63fb9081b70a336e431fd
+// contract digest d573d116b2bce05149492c1d37f8b71e578471e55bed45cbfe524990edd4fafc
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Tool — `conductor.tool`.
@@ -8,6 +8,7 @@
 //! The confined tool surface of an instance's sessions (story:tool-broker-read, design docs/design/roles-and-surfaces.md § 6). A session acts through the `tool` binary, a thin client with no store access and no admin command, or through `tool mcp`, the same verbs as an MCP server over stdio. Either sends each call over the session's own socket to the instance's broker (`conductor broker serve`), which holds what the session must not: the store, and the session's grant. The broker identifies the caller by the socket the call arrives on, never by a token the caller passes; it checks the call against the session's grant, runs it, records it as a `ToolCall`, and answers.
 //! One broker per instance, keyed by the instance's name; it does not outlive the instance. Its directory is `broker/` under the instance's state directory: `sessions/<session name>.json`, the registration of each session it serves (its instance, the directory it reads in, and its grant), and `sockets/<session name>.sock`, the session's socket. `conductor spawn` and `conductor session start` register a session before it starts and name its socket in the session's environment as `TOOL_SOCKET`; `conductor session stop` removes the registration, and a call on the socket of a session that is no longer registered is refused `UnknownSession`. A registration that names another instance than the broker's is refused `ForeignInstance`.
 //! Every verb answers in a bounded form: on success, its result bounded by the grant's `max_output_bytes` (and a verb's own `--max`), then one summary line; on failure, at most 40 lines and the path of a log under `broker/logs/` that holds the whole output. A refusal is one line, `<Error>: <detail>`, and exit status 1.
+//! The build, version-control and team verbs (story:tool-build-commit-report, design § 6.3) run what the session must not run itself. `test`, `check` and `fmt` run cargo in the session's working directory through the host ledger, at nice 19, as `conductor build run --reserve auto` runs a command: the reservation is the measured peak of that command, and a run waits in the ledger's queue for its turn. `commit` stages the named paths and commits them through the bot route (`b10x-gates bot`) with the instance's Gates policy, which only the broker holds. `send` and `report` record a `conductor.dispatch.Message`: `send` to a session of the caller's team, and `report` to the session one level above the caller, moving the caller's open dispatch as `conductor dispatch report-*` does when the caller is a team's lead. The broker cannot drive the harness's own channel (SendMessage), so it records the message and answers it for the caller to deliver.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
 
@@ -45,6 +46,10 @@ pub enum CallOutcome {
     ForeignInstance,
     /// `UnknownSession`.
     UnknownSession,
+    /// `OutsideTeam`.
+    OutsideTeam,
+    /// `NotOneLevelUp`.
+    NotOneLevelUp,
 }
 
 /// CallRefused — `conductor.tool.CallRefused`.
@@ -56,6 +61,22 @@ pub struct CallRefused {
     pub detail: String,
 }
 
+/// CheckCall — `conductor.tool.CheckCall`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckCall {
+    /// `package` — `Optional<String>`.
+    pub package: Option<String>,
+}
+
+/// CommitCall — `conductor.tool.CommitCall`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitCall {
+    /// `message` — `String`.
+    pub message: String,
+    /// `paths` — `List<String>`.
+    pub paths: Vec<String>,
+}
+
 /// DiffCall — `conductor.tool.DiffCall`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffCall {
@@ -63,6 +84,13 @@ pub struct DiffCall {
     pub stat: Option<bool>,
     /// `patch` — `Optional<Boolean>`.
     pub patch: Option<bool>,
+}
+
+/// FmtCall — `conductor.tool.FmtCall`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FmtCall {
+    /// `package` — `Optional<String>`.
+    pub package: Option<String>,
 }
 
 /// The states of `conductor.tool.Grant`, as runtime values.
@@ -73,6 +101,45 @@ pub struct DiffCall {
 pub enum GrantState {
     /// `Active`.
     Active,
+}
+
+/// Level — `conductor.tool.Level`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Level {
+    /// `Director`.
+    Director,
+    /// `Lead`.
+    Lead,
+    /// `Worker`.
+    Worker,
+}
+
+/// ReportCall — `conductor.tool.ReportCall`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportCall {
+    /// `status` — `conductor.tool.ReportStatus`.
+    pub status: ReportStatus,
+    /// `line` — `String`.
+    pub line: String,
+    /// `to` — `Optional<conductor.config.SessionName>`.
+    pub to: Option<crate::config::SessionName>,
+}
+
+/// ReportStatus — `conductor.tool.ReportStatus`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportStatus {
+    /// `Started`.
+    Started,
+    /// `Progress`.
+    Progress,
+    /// `Blocked`.
+    Blocked,
+    /// `Unblocked`.
+    Unblocked,
+    /// `Done`.
+    Done,
+    /// `Failed`.
+    Failed,
 }
 
 /// RoleGrant — `conductor.tool.RoleGrant`.
@@ -101,6 +168,15 @@ pub struct SearchCall {
     pub path: Option<String>,
 }
 
+/// SendCall — `conductor.tool.SendCall`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SendCall {
+    /// `to` — `String`.
+    pub to: String,
+    /// `text` — `String`.
+    pub text: String,
+}
+
 /// ShowCall — `conductor.tool.ShowCall`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShowCall {
@@ -112,6 +188,29 @@ pub struct ShowCall {
     pub symbol: Option<String>,
     /// `max` — `Optional<Integer>`.
     pub max: Option<i64>,
+}
+
+/// The states of `conductor.tool.Team`, as runtime values.
+///
+/// Synthesised from the lifecycle, so the two cannot disagree. Which *moves* are legal is not
+/// carried here — it is carried by `Team<S>`, where an undeclared move does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeamState {
+    /// `Formed`.
+    Formed,
+}
+
+/// TeamName — `conductor.tool.TeamName`: a distinct wrapper around `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamName(pub String);
+
+/// TestCall — `conductor.tool.TestCall`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestCall {
+    /// `package` — `Optional<String>`.
+    pub package: Option<String>,
+    /// `filter` — `Optional<String>`.
+    pub filter: Option<String>,
 }
 
 /// The states of `conductor.tool.ToolCall`, as runtime values.
@@ -147,6 +246,18 @@ pub enum Verb {
     Search,
     /// `Diff`.
     Diff,
+    /// `Test`.
+    Test,
+    /// `Check`.
+    Check,
+    /// `Fmt`.
+    Fmt,
+    /// `Commit`.
+    Commit,
+    /// `Send`.
+    Send,
+    /// `Report`.
+    Report,
 }
 
 /// What Broker — `conductor.tool.Broker` — holds, apart from where it is in its lifecycle.
@@ -433,6 +544,140 @@ impl AnyGrant {
     }
 }
 
+/// What Team — `conductor.tool.Team` — holds, apart from where it is in its lifecycle.
+///
+/// The identity and every declared field. The state is deliberately not one: inside the domain it
+/// is carried by the type parameter of [`Team<S>`], and at a boundary by [`TeamSnapshot::state`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamData {
+    /// The identity: `team` — `conductor.tool.TeamName`.
+    pub team: TeamName,
+    /// `instance` — `conductor.config.InstanceName`.
+    ///
+    /// Carries `broker`: `conductor.tool.Team` references one `conductor.tool.Broker`.
+    pub instance: crate::config::InstanceName,
+    /// `lead` — `Optional<conductor.config.SessionName>`.
+    ///
+    /// Carries `led_by`: `conductor.tool.Team` references one `conductor.tool.ToolSession`.
+    pub lead: Option<crate::config::SessionName>,
+}
+
+/// The states of `conductor.tool.Team`, at the type level.
+///
+/// One marker type per declared state, sealed: a state the lifecycle does not declare cannot
+/// implement [`Marker`](team_state::Marker), so [`Team<S>`](Team) can only ever rest in a real state.
+pub mod team_state {
+    /// Closes [`Marker`] over the declared states.
+    mod sealed {
+        /// Implemented only by the marker types beside this module.
+        pub trait Sealed {}
+        impl Sealed for super::Formed {}
+    }
+
+    /// A declared state of `Team`, as a type.
+    pub trait Marker: sealed::Sealed {
+        /// The same state, as the runtime value.
+        const STATE: super::TeamState;
+    }
+
+    /// `Formed`. Where a new instance starts.
+    pub struct Formed;
+
+    impl Marker for Formed {
+        const STATE: super::TeamState = super::TeamState::Formed;
+    }
+}
+
+/// Team — `conductor.tool.Team` — with its lifecycle state carried by the type.
+///
+/// The one constructor rests in `Formed`, and the only way to change `S` is a method generated from
+/// a declared transition. A move the specification does not declare is therefore not an error
+/// case: it does not compile. Where the state is data — wire, storage — use [`TeamSnapshot`]
+/// and [`TeamSnapshot::refine`].
+pub struct Team<S: team_state::Marker> {
+    data: TeamData,
+    state: core::marker::PhantomData<S>,
+}
+
+impl<S: team_state::Marker> Team<S> {
+    /// The state this instance rests in, as the runtime value.
+    pub fn state(&self) -> TeamState {
+        S::STATE
+    }
+
+    /// What it holds.
+    pub fn data(&self) -> &TeamData {
+        &self.data
+    }
+
+    /// Hands the data back, giving up the typed state.
+    pub fn into_data(self) -> TeamData {
+        self.data
+    }
+}
+
+impl Team<team_state::Formed> {
+    /// A new instance, resting in `Formed` — the only state the lifecycle starts one in.
+    pub fn new(data: TeamData) -> Self {
+        Self {
+            data,
+            state: core::marker::PhantomData,
+        }
+    }
+}
+
+/// `conductor.tool.Team` as it crosses a boundary: the state as a value beside the data.
+///
+/// Wire and storage know states only at runtime; [`TeamSnapshot::refine`] is the one door back
+/// into the typed lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamSnapshot {
+    /// Where the instance is in its lifecycle.
+    pub state: TeamState,
+    /// What it holds.
+    pub data: TeamData,
+}
+
+/// An `Team` in whichever declared state it was found.
+pub enum AnyTeam {
+    /// Resting in `Formed`.
+    Formed(Team<team_state::Formed>),
+}
+
+impl TeamSnapshot {
+    /// Refines the runtime state into the typed one.
+    ///
+    /// Total: every declared state has an arm, and an undeclared state cannot reach here because
+    /// `TeamState` cannot spell one.
+    pub fn refine(self) -> AnyTeam {
+        match self.state {
+            TeamState::Formed => AnyTeam::Formed(Team {
+                data: self.data,
+                state: core::marker::PhantomData,
+            }),
+        }
+    }
+}
+
+impl AnyTeam {
+    /// The state, as the runtime value.
+    pub fn state(&self) -> TeamState {
+        match self {
+            Self::Formed(_) => TeamState::Formed,
+        }
+    }
+
+    /// Back to the boundary shape.
+    pub fn snapshot(self) -> TeamSnapshot {
+        match self {
+            Self::Formed(instance) => TeamSnapshot {
+                state: TeamState::Formed,
+                data: instance.into_data(),
+            },
+        }
+    }
+}
+
 /// What ToolCall — `conductor.tool.ToolCall` — holds, apart from where it is in its lifecycle.
 ///
 /// The identity and every declared field. The state is deliberately not one: inside the domain it
@@ -621,6 +866,18 @@ pub struct ToolSessionData {
     pub workdir: String,
     /// `started_at` — `Timestamp`.
     pub started_at: crate::primitives::Timestamp,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
+    /// `level` — `Optional<conductor.tool.Level>`.
+    pub level: Option<Level>,
+    /// `team` — `Optional<conductor.tool.TeamName>`.
+    ///
+    /// Carries `member_of`: `conductor.tool.ToolSession` references one `conductor.tool.Team`.
+    pub team: Option<TeamName>,
+    /// `above` — `Optional<conductor.config.SessionName>`.
+    ///
+    /// Carries `reports_to`: `conductor.tool.ToolSession` references one `conductor.tool.ToolSession`.
+    pub above: Option<crate::config::SessionName>,
 }
 
 /// The states of `conductor.tool.ToolSession`, at the type level.
@@ -793,6 +1050,24 @@ pub struct ToolCallRecorded {
     pub outcome: CallOutcome,
 }
 
+/// The declared error `conductor.tool.BuildFailed`.
+///
+/// `test`, `check` or `fmt` ran and failed, or the host ledger refused its reservation. The answer is the failing tests' names and the first line of each one's panic, or the compiler's errors, at most 40 lines; `log` holds the whole output. The call is recorded `Failed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildFailed {
+    /// `log` — `String`.
+    pub log: String,
+}
+
+/// The declared error `conductor.tool.CommitRefused`.
+///
+/// The bot route refused the commit, or the broker holds no Gates policy, or a path did not stage. `reason` is the route's first line; the call is recorded `Failed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitRefused {
+    /// `reason` — `String`.
+    pub reason: String,
+}
+
 /// The declared error `conductor.tool.ForeignInstance`.
 ///
 /// The session belongs to another instance than the broker's. The call did not run; it is recorded.
@@ -818,6 +1093,24 @@ pub struct GrantExpired {
 pub struct NotGranted {
     /// `rule` — `String`.
     pub rule: String,
+}
+
+/// The declared error `conductor.tool.NotOneLevelUp`.
+///
+/// A `report` goes to another session than the one one level above the caller, or the caller has no level above it. Nothing was recorded but the call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotOneLevelUp {
+    /// `recipient` — `String`.
+    pub recipient: String,
+}
+
+/// The declared error `conductor.tool.OutsideTeam`.
+///
+/// A `send` names a recipient that is no other session of the caller's team: a session of another team, a session with no team, or none the broker serves. A recipient registered under another instance is refused `ForeignInstance` instead. Nothing was recorded but the call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutsideTeam {
+    /// `recipient` — `String`.
+    pub recipient: String,
 }
 
 /// The declared error `conductor.tool.UnknownSession`.

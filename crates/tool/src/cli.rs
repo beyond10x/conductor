@@ -1,5 +1,5 @@
 //! The `tool` command tree: the binding `crates/tool/cli.yaml`, in clap derive form. Its words are
-//! the verbs of the read group and `mcp`; nothing else parses.
+//! the verbs of the read, build, version-control and team groups and `mcp`; nothing else parses.
 
 use std::path::PathBuf;
 
@@ -56,6 +56,51 @@ pub enum Verb {
         #[arg(long)]
         patch: bool,
     },
+    /// Run the tests of the session's checkout through the host ledger at nice 19; print `ok test <n> passed`, or the failing tests and the log
+    Test {
+        /// The Cargo package to test (cargo's -p); none, the working directory's own
+        package: Option<String>,
+        /// Only the tests whose name holds this text
+        #[arg(long)]
+        filter: Option<String>,
+    },
+    /// Lint the session's checkout (clippy over every target, warnings denied) through the host ledger at nice 19; print `ok check`, or the errors and the log
+    Check {
+        /// The Cargo package to lint (cargo's -p); none, the working directory's own
+        package: Option<String>,
+    },
+    /// Format the session's checkout through the host ledger at nice 19; print `ok fmt <n> files changed`
+    Fmt {
+        /// The Cargo package to format (cargo's -p); none, the working directory's own
+        package: Option<String>,
+    },
+    /// Stage the named paths, new ones included, and commit them through the bot route; print `<sha> <n> files`
+    Commit {
+        /// The commit message
+        #[arg(short = 'm', long = "message")]
+        message: String,
+        /// The paths to commit, each relative to the session's working directory and under the grant's paths
+        #[arg(last = true, required = true, value_name = "PATHS")]
+        paths: Vec<String>,
+    },
+    /// Send a message to a session of the caller's team, by its name or its role; the broker records it and answers whom to deliver it to
+    Send {
+        /// The recipient: a session of the caller's team, by its session name or its role
+        to: String,
+        /// The message
+        text: String,
+    },
+    /// Report the caller's status one level up, moving its open dispatch when it is a lead; the broker records it and answers whom to deliver it to
+    Report {
+        /// What the report says of the caller's work
+        #[arg(value_parser = ["started", "progress", "blocked", "unblocked", "done", "failed"])]
+        status: String,
+        /// One line: the reason, the evidence or the progress
+        line: String,
+        /// The session the report goes to; it must be the one one level above the caller
+        #[arg(long)]
+        to: Option<String>,
+    },
     /// Serve the granted verbs as MCP tools over stdio, each answered through the same socket
     Mcp,
 }
@@ -93,11 +138,44 @@ impl Verb {
                 ("search", Value::Object(args))
             }
             Self::Diff { stat, patch } => ("diff", json!({"stat": stat, "patch": patch})),
+            Self::Test { package, filter } => {
+                let mut args = Map::new();
+                if let Some(package) = package {
+                    args.insert("package".to_owned(), json!(package));
+                }
+                if let Some(filter) = filter {
+                    args.insert("filter".to_owned(), json!(filter));
+                }
+                ("test", Value::Object(args))
+            }
+            Self::Check { package } => ("check", package_args(package.as_deref())),
+            Self::Fmt { package } => ("fmt", package_args(package.as_deref())),
+            Self::Commit { message, paths } => {
+                ("commit", json!({"message": message, "paths": paths}))
+            }
+            Self::Send { to, text } => ("send", json!({"to": to, "text": text})),
+            Self::Report { status, line, to } => {
+                let mut args = Map::new();
+                args.insert("status".to_owned(), json!(status));
+                args.insert("line".to_owned(), json!(line));
+                if let Some(to) = to {
+                    args.insert("to".to_owned(), json!(to));
+                }
+                ("report", Value::Object(args))
+            }
             Self::Mcp => return None,
         };
         Some(Request {
             verb: verb.to_owned(),
             args,
         })
+    }
+}
+
+/// The arguments of a build verb that names at most a package.
+fn package_args(package: Option<&str>) -> Value {
+    match package {
+        Some(package) => json!({"package": package}),
+        None => json!({}),
     }
 }
