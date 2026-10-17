@@ -329,6 +329,15 @@ pub const DISK_CLEAR_GIB: u64 = 110;
 /// transcript before `conductor watch run` reports it silent (`story:watch-silent-controller`).
 pub const SILENT_SESSION_MINUTES: u64 = 30;
 
+/// Minutes a live driven session may make no progress, neither a report conductor received nor a
+/// commit in its checkout or any of its trees, before `conductor watch run` reports it stalled
+/// (`thresholds.stalled_session`, `story:watch-stalled-sessions`).
+pub const STALLED_SESSION_MINUTES: u64 = 45;
+
+/// Minutes a host grant may wait `Requested` before `conductor watch run` reports the build queued
+/// (`thresholds.build_queued`, `story:watch-stalled-sessions`).
+pub const BUILD_QUEUED_MINUTES: u64 = 30;
+
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
 const INSTANCE_KEYS: [&str; 23] = [
@@ -393,7 +402,7 @@ const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
 const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
-const THRESHOLD_KEYS: [&str; 13] = [
+const THRESHOLD_KEYS: [&str; 15] = [
     "context_handover",
     "disk_path",
     "disk_low",
@@ -407,6 +416,8 @@ const THRESHOLD_KEYS: [&str; 13] = [
     "silent_session",
     "cpu_reserve",
     "build_slots",
+    "stalled_session",
+    "build_queued",
 ];
 const RETENTION_KEYS: [&str; 1] = ["snapshots"];
 const REPORT_KEYS: [&str; 3] = ["channel", "as", "when"];
@@ -1626,6 +1637,8 @@ fn default_thresholds() -> Thresholds {
         silent_session: Duration(format!("PT{SILENT_SESSION_MINUTES}M")),
         cpu_reserve: CPU_RESERVE,
         build_slots: BUILD_SLOTS,
+        stalled_session: Duration(format!("PT{STALLED_SESSION_MINUTES}M")),
+        build_queued: Duration(format!("PT{BUILD_QUEUED_MINUTES}M")),
     }
 }
 
@@ -3440,6 +3453,14 @@ impl Reader<'_> {
             }
             None => Some(defaults.build_slots),
         };
+        let stalled_session = match Self::get(map, "stalled_session") {
+            Some(value) => self.duration(value, &join(path, "stalled_session")),
+            None => Some(defaults.stalled_session),
+        };
+        let build_queued = match Self::get(map, "build_queued") {
+            Some(value) => self.duration(value, &join(path, "build_queued")),
+            None => Some(defaults.build_queued),
+        };
         if let (Some(stop), Some(resume)) = (&gate_stop, &gate_resume)
             && resume.0 <= stop.0
         {
@@ -3467,6 +3488,8 @@ impl Reader<'_> {
             silent_session: silent_session?,
             cpu_reserve: cpu_reserve?,
             build_slots: build_slots?,
+            stalled_session: stalled_session?,
+            build_queued: build_queued?,
         })
     }
 
@@ -3916,6 +3939,11 @@ pub fn document(instance: &Instance) -> Yaml {
                     "build_slots",
                     Yaml::Number(serde_yaml::Number::from(thresholds.build_slots)),
                 ),
+                (
+                    "stalled_session",
+                    text(&written(&thresholds.stalled_session)),
+                ),
+                ("build_queued", text(&written(&thresholds.build_queued))),
             ]),
         ),
         (

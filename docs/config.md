@@ -140,6 +140,8 @@ accepted, defaulted and shown by `config show`.
 | `thresholds.silent_session` | duration | `30m` | watch, conductor profile | time a live controller (`working` or `waiting`) and every one of its sub-agents may write nothing to their transcripts before the watch reports `session silent:` |
 | `thresholds.cpu_reserve` | cores | `2` | `conductor build run` | cores `build run` leaves to the desktop: its command gets `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j` of the cores less this, unless it sets them, at nice 19 and idle I/O class |
 | `thresholds.build_slots` | integer ≥ 0 | `3` | `conductor build run` | `build run` commands granted or running at once on the host, every instance's together: a request waits in the queue, in its order, while this many hold a grant, and is never refused for it; `0` for no bound |
+| `thresholds.stalled_session` | duration | `45m` | watch, conductor profile | time a live controller a dispatch was sent to (`working` or `waiting`) may go with neither a report conductor received nor a commit in its checkout or any of its managed trees before the watch reports `session stalled:`, however its transcript moves |
+| `thresholds.build_queued` | duration | `30m` | watch, conductor profile | time a host grant of the instance may wait `Requested` before the watch reports `build queued:` |
 | `retention.snapshots` | integer ≥ 1 | `12` | store | complete snapshots whose observations are kept |
 | `reports` | list of report | `[]` | nothing yet | where reports go |
 | `reports[].channel` | string | required | | the destination |

@@ -24,7 +24,15 @@ export interface FromSnapshot<Row> {
 
 /** One cause a repository waits on. `on` names the repository an `another-repository` waits for. */
 export interface Cause {
-  cause: 'operator' | 'ci' | 'build-slot' | 'another-repository' | 'usage-limit' | 'silent';
+  cause:
+    | 'operator'
+    | 'ci'
+    | 'build-slot'
+    | 'another-repository'
+    | 'usage-limit'
+    | 'silent'
+    | 'stalled'
+    | 'build-queued';
   detail: string;
   on?: string;
 }

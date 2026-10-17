@@ -3617,3 +3617,76 @@ fn a_maintainer_under_an_instance_is_noted_and_read_until_host_yaml_names_one() 
         assert_eq!(roles[0]["model"], "haiku", "{written}: {shown:#}");
     }
 }
+
+/// `story:watch-stalled-sessions`, acceptance 3: `thresholds.stalled_session` is 45 minutes and
+/// `thresholds.build_queued` 30 without the key; each takes a duration as written, which `config
+/// show` prints in both formats; and each refuses what is no duration by its YAML path.
+#[test]
+fn the_stall_and_queue_thresholds_default_show_as_written_and_are_refused_by_their_path() {
+    let case = Case::new("stall-and-queue-thresholds");
+    for (name, extra, stalled, queued) in [
+        ("absent", "", 45 * 60, 30 * 60),
+        ("empty", "\x20   thresholds: {}\n", 45 * 60, 30 * 60),
+        (
+            "written",
+            "\x20   thresholds: {stalled_session: 1h, build_queued: 20m}\n",
+            3600,
+            20 * 60,
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(
+            validated.status.code(),
+            Some(0),
+            "{name}: {}",
+            describe(&validated)
+        );
+        let shown = case.show(&file, &[]);
+        let thresholds = &instance(&shown)["thresholds"];
+        assert_eq!(
+            seconds(&thresholds["stalled_session"]),
+            stalled,
+            "{name}: {shown:#}"
+        );
+        assert_eq!(
+            seconds(&thresholds["build_queued"]),
+            queued,
+            "{name}: {shown:#}"
+        );
+    }
+
+    let file = case.write(
+        "written-text.yaml",
+        &one_instance("\x20   thresholds: {stalled_session: 1h, build_queued: 20m}\n"),
+    );
+    let text = case.with_file(&file, &["config", "show"]);
+    assert_eq!(text.status.code(), Some(0), "{}", describe(&text));
+    let text = String::from_utf8_lossy(&text.stdout);
+    for line in [
+        "instances[0].thresholds.stalled_session: 1h",
+        "instances[0].thresholds.build_queued: 20m",
+    ] {
+        assert!(
+            text.lines().any(|shown| shown == line),
+            "no line `{line}`: {text}"
+        );
+    }
+
+    for (name, extra, path) in [
+        (
+            "stalled-not-a-duration",
+            "\x20   thresholds: {stalled_session: soon}\n",
+            "instances[0].thresholds.stalled_session: ",
+        ),
+        (
+            "queued-not-a-duration",
+            "\x20   thresholds: {build_queued: 30}\n",
+            "instances[0].thresholds.build_queued: ",
+        ),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
+    }
+}

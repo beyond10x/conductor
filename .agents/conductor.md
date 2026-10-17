@@ -56,6 +56,14 @@ this session and expire after 7 days, so a restart loses them.
   Decisions page or through you), tell the controller that raised it the decision and its choice
   at once, as you relay any answer. Session starts print nothing. When the monitor ends, start it
   again.
+- On each `session stalled: <name> <id> <m>m` or `build queued: <grant> <repository|session>
+  <m>m`, check in within the cycle: ask that session what blocks it and act on the answer. The
+  watch prints the first for a live controller you sent a dispatch that has had neither a report
+  nor a commit in its checkout or trees for `thresholds.stalled_session`, however its transcript
+  moves, and the second for a build waiting in the host queue longer than
+  `thresholds.build_queued`. Acting is yours: nothing restarts a session for a stall. The
+  operator's words: "tell conductor about things ended up stuck, its conductors responsibility to
+  check in on you and make sure things keep moving" (the operator, 2026-10-17).
 
 1. **Sense.** Build the snapshot with `id=$(conductor snapshot start-snapshot) && conductor snapshot
    publish-board --snapshot-id "$id"` (the collectors, then the board; the same as the product's

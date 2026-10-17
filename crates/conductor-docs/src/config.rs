@@ -115,6 +115,8 @@ instances:
       silent_session: 45m
       cpu_reserve: 3
       build_slots: 2
+      stalled_session: 1h
+      build_queued: 20m
     retention:
       snapshots: 3
     reports:

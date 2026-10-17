@@ -10,7 +10,8 @@
 //! its first `github` owner and its `gitlab` sources ([`Watch::with_gitlab`]), its cadence
 //! (`cadence.watch` and `cadence.ci`, which `--every` and `--ci-every` override;
 //! [`Options::of`]) and its thresholds (`thresholds.context_handover`,
-//! `disk_low`, `disk_clear`, `disk_admit`, `gate_stop`, `gate_resume` and `silent_session`;
+//! `disk_low`, `disk_clear`, `disk_admit`, `gate_stop`, `gate_resume`, `silent_session`,
+//! `stalled_session` and `build_queued`;
 //! [`Settings::of`]), and names it in the
 //! usage-limit notification's title. Without a config file that is the built-in instance.
 //!
@@ -22,6 +23,8 @@
 //! | usage limit | the last [`TAIL`] lines of each such session's transcript | `usage limit: <text>; <n> sessions: <names>` |
 //! | context | the newest line with a usage in the transcript of each such session that has a `pid` | `context: <repo> <n>k tokens (session <id>)` |
 //! | silent controllers | the modification times of the transcript of each such session that is a controller, and of its sub-agents' transcripts | `session silent: <name> <id> <minutes>m` |
+//! | stalled sessions | the dispatch log's `sent` and report lines of each such session that is a live controller, and the newest commit of its checkout and managed trees (`git log -1`) | `session stalled: <name> <id> <minutes>m` |
+//! | queued builds | the open grants of the host ledger in the host directory ([`Watch::with_host`]) | `build queued: <grant> <repository\|session> <minutes>m` |
 //! | `main` CI, on the first pass and then every [`Options::ci_every`] | the newest completed `main` run per workflow of each repository the newest complete snapshot holds Active ([`crate::repository::activity`]); for a project of a `gitlab` source, the newest pipeline of its default branch that decided something, the workflow `pipeline` (`story:watch-gitlab-ci`) | `CI red on main: <repo> / <workflow> (run <id>)`, `CI green again on main: <repo> / <workflow>` |
 //! | review, with each `main` CI read | the pull requests that wait for review in the newest complete snapshot, counted per repository as the board counts them ([`crate::status::waiting_in`]), against `controllers.max_open_reviews` ([`Settings::max_open_reviews`], `0` no limit) | `review full: <repo> <k>/<n>` once when a repository reaches its limit, `review open: <repo>` once when it falls under it (`story:review-limit`) |
 //! | Gates hooks, with each `main` CI read | the repositories the board names `stale gates hooks` in the newest complete snapshot ([`crate::status::stale_gates_hooks`]) | `gates hooks stale: <n> checkouts` once per new snapshot that finds any (`story:gates-hooks-fresh`) |
@@ -62,6 +65,15 @@
 //!   modification time among them (`story:watch-silent-controller`). Once per silence
 //!   (`silent.reported`, `<sessionId> <newest write>` per line): it is reported again only after
 //!   it has written and fallen silent anew. A session without a transcript is not read.
+//! - **stalled** when a live controller a `sent` line of the dispatch log names has had neither
+//!   a report conductor received nor a commit in its checkout or any of its managed trees for
+//!   longer than the instance's `stalled_session`, however its transcript moves
+//!   (`story:watch-stalled-sessions`): its progress is the newest of that `sent` line, its newest
+//!   report and its newest commit. Once per stall (`stalled.reported`, `<sessionId> <progress>`
+//!   per line), and again only after it progressed and stalled anew.
+//! - **queued** when a grant of the instance has waited `Requested` in the host ledger for longer
+//!   than the instance's `build_queued`, by the repository it names, else its session; once per
+//!   grant (`build-queued.reported`, `<grant>\t<repository|session>` per line).
 //! - **CI** when a workflow's newest `main` run that decided something (completed, `success` or
 //!   one of [`RED`], as the github collector maps them) is not older than the one kept and turns
 //!   it red (one of [`RED`] after another conclusion), or green again (`success` after one of
@@ -84,7 +96,7 @@
 //!   with the GiB still lacking by a reading taken after it, so conductor raises it to the
 //!   operator. A reclaim that fails is named on standard error, as a source that does not answer.
 //!
-//! An empty or unreadable session list skips the five session probes for that pass. A source
+//! An empty or unreadable session list skips the six session probes for that pass. A source
 //! that does not answer is named once on standard error, `conductor watch: <error>`, until it
 //! answers again; the watch goes on. A CI pass runs each repository's run list once, and a
 //! repository whose list does not answer is such a source of its own, named in its line; a
@@ -94,6 +106,7 @@
 //! with [`Options::follow`] it prints and goes on, for the harness `Monitor` tool. Its state is
 //! kept under `<state>/watch/`: `sessions.json` (the kept list and the instant it was taken),
 //! `exited.seen`, `conductors.reported` (the ids last reported, on one line), `silent.reported`,
+//! `stalled.reported`, `build-queued.reported`,
 //! `review.full` (the repositories last reported full, one per line), `gates-hooks.snapshot`
 //! (the id of the snapshot the Gates hooks probe read last), `escalated.seen` (each escalated
 //! request printed, when, whether its 30-minute unanswered line was, and whether its line at the
@@ -127,6 +140,7 @@ use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage, Snapsh
 use conductor_model::config::{Instance, Source};
 use conductor_model::decision::RequestId;
 use conductor_model::direction::Activity;
+use conductor_model::host::HostGrantState;
 use conductor_model::observation::{RunConclusion, SnapshotState};
 
 use crate::cli::WatchRunArgs;
@@ -194,6 +208,18 @@ const DISK_FREE: &str = "disk.free";
 const CONDUCTORS_REPORTED: &str = "conductors.reported";
 const SILENT_REPORTED: &str = "silent.reported";
 const REVIEW_FULL: &str = "review.full";
+
+/// The stalled sessions reported, one per line: `<sessionId> <newest progress, Unix seconds>`
+/// (`story:watch-stalled-sessions`).
+const STALLED_REPORTED: &str = "stalled.reported";
+
+/// The host grants reported queued, one per line: `<grant id>\t<repository, else session>`
+/// (`story:watch-stalled-sessions`).
+const BUILD_QUEUED: &str = "build-queued.reported";
+
+/// The events of the dispatch log the `Report*` commands write: a controller's report moved its
+/// dispatch.
+const REPORT_EVENTS: [&str; 5] = ["started", "blocked", "unblocked", "done", "failed"];
 
 /// The id of the last complete snapshot the Gates hooks probe read.
 const GATES_HOOKS_READ: &str = "gates-hooks.snapshot";
@@ -358,6 +384,13 @@ pub struct Settings {
     /// How long a live controller, and each of its sub-agents, may write nothing to its
     /// transcript before it is reported silent: `thresholds.silent_session`.
     pub silent_session: Duration,
+    /// How long a live driven session may make no progress, neither a report conductor received
+    /// nor a commit in its checkout or any of its trees, before it is reported stalled:
+    /// `thresholds.stalled_session` (`story:watch-stalled-sessions`).
+    pub stalled_session: Duration,
+    /// How long a host grant of the instance may wait `Requested` before it is reported queued:
+    /// `thresholds.build_queued` (`story:watch-stalled-sessions`).
+    pub build_queued: Duration,
     /// The full session name of the instance's conductor role (`<session_prefix>-conductor`, or
     /// `conductor` without a prefix), two live sessions of which are reported; `None` for an
     /// instance without a conductor role.
@@ -385,6 +418,14 @@ impl Settings {
             silent_session: Duration::from_secs(
                 config::seconds(&thresholds.silent_session)
                     .unwrap_or(config::SILENT_SESSION_MINUTES * 60),
+            ),
+            stalled_session: Duration::from_secs(
+                config::seconds(&thresholds.stalled_session)
+                    .unwrap_or(config::STALLED_SESSION_MINUTES * 60),
+            ),
+            build_queued: Duration::from_secs(
+                config::seconds(&thresholds.build_queued)
+                    .unwrap_or(config::BUILD_QUEUED_MINUTES * 60),
             ),
             // The director's session, whose session name two live sessions must not carry: its
             // role under its name or its old name `conductor` (story:role-name-aliases).
@@ -711,6 +752,7 @@ impl Watch {
                     self.limits(now, &sessions, &mut lines, notes)?;
                     self.context(&sessions, &mut lines)?;
                     self.silent(now, &sessions, &mut lines)?;
+                    self.stalled(now, &sessions, &mut lines)?;
                 }
             }
             Err(error) => self.failed("sessions", &error, notes),
@@ -721,6 +763,7 @@ impl Watch {
             self.gates_hooks(&mut lines)?;
             self.workspace_stale(&mut lines)?;
         }
+        self.build_queued(now, &mut lines)?;
         self.disk(&mut lines, notes)?;
         self.usage(&mut lines)?;
         self.decisions(now, &mut lines)?;
@@ -1178,6 +1221,187 @@ impl Watch {
                 ));
                 kept.push_str(&format!("{} {written}\n", session.session));
             }
+        }
+        if kept != before {
+            replace(&file, &kept)?;
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Stalled sessions
+    // -----------------------------------------------------------------------------------------
+
+    /// Each live driven session that has made no progress for longer than the instance's
+    /// `stalled_session` at `now`, however its transcript moves (`story:watch-stalled-sessions`):
+    /// `session stalled: <name> <id> <minutes>m`. A session is live as the silent probe reads it
+    /// (a `pid`, list state `working` or `waiting`, not named as one of the instance's roles), and
+    /// driven when a `sent` line of the dispatch log read ([`Watch::dispatches_since`]) names it,
+    /// by its session name in `to` or its `sessionId` in `session_id`. Its progress is the newest
+    /// of that `sent` line, the newest report conductor received of it ([`reported_by`]) and the
+    /// newest commit in its checkout or any of its managed trees ([`Watch::newest_commit`]), which
+    /// is read only when the log shows nothing within the threshold. Once per stall:
+    /// `stalled.reported` keeps, per session, the progress its report was of, and forgets it once
+    /// the session progresses or is no longer live and driven.
+    fn stalled(
+        &self,
+        now: OffsetDateTime,
+        sessions: &[Session],
+        lines: &mut Vec<String>,
+    ) -> Result<()> {
+        let file = self.state(STALLED_REPORTED);
+        let before = read_optional(&file)?.unwrap_or_default();
+        let reported: BTreeMap<&str, &str> = before
+            .lines()
+            .filter_map(|line| line.split_once(' '))
+            .collect();
+        // A threshold of more than a year reads the log of a year: no dispatch outlives a month.
+        let threshold = time::Duration::try_from(self.settings.stalled_session)
+            .unwrap_or(time::Duration::MAX)
+            .min(time::Duration::days(366));
+        let log: Vec<Value> = self
+            .dispatches_since(now - threshold, now)
+            .read
+            .iter()
+            .filter_map(|line| serde_json::from_str(&line.text).ok())
+            .collect();
+        let mut kept = String::new();
+        for session in sessions {
+            let live = session.pid.is_some() && LIVE.contains(&session.phase.as_str());
+            if !live || role_named(&session.name).is_some() {
+                continue;
+            }
+            let Some(mut progress) = driven_since(&log, session) else {
+                continue;
+            };
+            let repository = self.sources.repository(&session.cwd);
+            if let Some(report) = reported_by(&log, session, repository.as_deref()) {
+                progress = progress.max(report);
+            }
+            if now - progress <= threshold {
+                continue;
+            }
+            if let Some(commit) = repository
+                .as_deref()
+                .and_then(|repository| self.newest_commit(repository))
+            {
+                progress = progress.max(commit);
+            }
+            let stall = now - progress;
+            if stall <= threshold {
+                continue;
+            }
+            let key = progress.unix_timestamp().to_string();
+            if reported.get(session.session.as_str()) != Some(&key.as_str()) {
+                lines.push(format!(
+                    "session stalled: {} {} {}m",
+                    session.name,
+                    session.id,
+                    stall.whole_minutes()
+                ));
+            }
+            kept.push_str(&format!("{} {key}\n", session.session));
+        }
+        if kept != before {
+            replace(&file, &kept)?;
+        }
+        Ok(())
+    }
+
+    /// The committer time of the newest `HEAD` commit among the checkout of `repository`
+    /// (`<root>/<repository>`) and each of its managed trees (each directory under
+    /// `<trees>/<repository>/`), read with `git log` under the sources' bound; `None` when none
+    /// of them is a git checkout with a commit.
+    fn newest_commit(&self, repository: &str) -> Option<OffsetDateTime> {
+        let mut places = vec![self.sources.root.join(repository)];
+        if let Ok(entries) = fs::read_dir(self.sources.trees.join(repository)) {
+            places.extend(
+                entries
+                    .flatten()
+                    .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                    .map(|entry| entry.path()),
+            );
+        }
+        places
+            .iter()
+            .filter(|place| place.join(".git").exists())
+            .filter_map(|place| {
+                let output = collect::run(
+                    Command::new("git").arg("-C").arg(place).args([
+                        "-c",
+                        "log.showSignature=false",
+                        "log",
+                        "-1",
+                        "--format=%ct",
+                        "HEAD",
+                    ]),
+                    self.sources.bound,
+                )
+                .ok()
+                .filter(|output| output.status.success())?;
+                let seconds = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse()
+                    .ok()?;
+                OffsetDateTime::from_unix_timestamp(seconds).ok()
+            })
+            .max()
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Queued builds
+    // -----------------------------------------------------------------------------------------
+
+    /// Each grant of the instance in the host ledger of [`Watch::with_host`]'s directory that has
+    /// waited `Requested` for longer than the instance's `build_queued` at `now`
+    /// (`story:watch-stalled-sessions`): `build queued: <grant> <repository|session> <minutes>m`,
+    /// named by the repository it names, else its session name, else its session id, else `-`;
+    /// oldest first, each grant once (`build-queued.reported`), forgotten once it leaves
+    /// `Requested`. The open grants are read as a `build run` pass reads them, never the closed
+    /// ones; without a host directory or a ledger in it nothing is read.
+    fn build_queued(&self, now: OffsetDateTime, lines: &mut Vec<String>) -> Result<()> {
+        let Some(host) = &self.host else {
+            return Ok(());
+        };
+        let file = self.state(BUILD_QUEUED);
+        let before = read_optional(&file)?.unwrap_or_default();
+        let grants = crate::store::open_reader(host)
+            .map(|store| store.open_grants().0)
+            .unwrap_or_default();
+        let threshold =
+            time::Duration::try_from(self.settings.build_queued).unwrap_or(time::Duration::MAX);
+        let mut waiting: Vec<(OffsetDateTime, String, String)> = grants
+            .into_iter()
+            .filter(|grant| {
+                grant.state == HostGrantState::Requested
+                    && grant.data.instance.0 == self.settings.instance
+            })
+            .filter_map(|grant| {
+                let data = grant.data;
+                let at = OffsetDateTime::parse(&data.requested_at.0, &Rfc3339).ok()?;
+                let who = data
+                    .repository
+                    .map(|name| name.0)
+                    .or_else(|| data.session_name.map(|name| name.0))
+                    .or_else(|| data.session_id.map(|id| id.0))
+                    .map_or_else(|| "-".to_owned(), |who| one_line(&who));
+                (now - at > threshold).then(|| (at, one_line(&data.grant_id.0), who))
+            })
+            .collect();
+        waiting.sort();
+        let reported: BTreeSet<&str> = before
+            .lines()
+            .filter_map(|line| line.split('\t').next())
+            .collect();
+        let mut kept = String::new();
+        for (at, grant, who) in &waiting {
+            if !reported.contains(grant.as_str()) {
+                lines.push(format!(
+                    "build queued: {grant} {who} {}m",
+                    (now - *at).whole_minutes()
+                ));
+            }
+            kept.push_str(&format!("{grant}\t{who}\n"));
         }
         if kept != before {
             replace(&file, &kept)?;
@@ -1923,6 +2147,60 @@ fn explained(log: &Dispatches, id: &str, pid: Option<u64>) -> bool {
             .as_deref()
             .is_some_and(|dispatch| dispatches.contains(dispatch))
     })
+}
+
+/// When the dispatch-log line `line` was written: its `at`, else `sent_at`, else `decided_at`.
+fn written_at(line: &Value) -> Option<OffsetDateTime> {
+    ["at", "sent_at", "decided_at"]
+        .iter()
+        .find_map(|key| line.get(*key).and_then(Value::as_str))
+        .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok())
+}
+
+/// The newest `sent` line of `log` that names `session`, by its session name in `to` or its
+/// `sessionId` in `session_id`: when conductor last drove it. `None`: no line drives it.
+fn driven_since(log: &[Value], session: &Session) -> Option<OffsetDateTime> {
+    log.iter()
+        .filter(|line| line["event"] == "sent")
+        .filter(|line| {
+            line["to"].as_str() == Some(session.name.as_str())
+                || line["session_id"].as_str() == Some(session.session.as_str())
+        })
+        .filter_map(written_at)
+        .max()
+}
+
+/// The newest report of `log` conductor received of `session`, which works on `repository`: a
+/// received message of kind `Report` its session name sent or that names its repository, or a
+/// line of a `Report*` command ([`REPORT_EVENTS`]) of its repository or of a dispatch a `sent`
+/// line sent it.
+fn reported_by(
+    log: &[Value],
+    session: &Session,
+    repository: Option<&str>,
+) -> Option<OffsetDateTime> {
+    let name = Some(session.name.as_str());
+    let dispatches: BTreeSet<&str> = log
+        .iter()
+        .filter(|line| line["event"] == "sent" && line["to"].as_str() == name)
+        .filter_map(|line| line["id"].as_str())
+        .collect();
+    let of_repository = |line: &Value| repository.is_some() && line["repo"].as_str() == repository;
+    log.iter()
+        .filter(|line| match line["event"].as_str() {
+            Some("message-received") => {
+                line["kind"] == "Report" && (line["from"].as_str() == name || of_repository(line))
+            }
+            Some(event) if REPORT_EVENTS.contains(&event) => {
+                of_repository(line)
+                    || line["id"]
+                        .as_str()
+                        .is_some_and(|id| dispatches.contains(id))
+            }
+            _ => false,
+        })
+        .filter_map(written_at)
+        .max()
 }
 
 /// Whether `word` occurs in `line` with no letter, digit or `_` on either side.

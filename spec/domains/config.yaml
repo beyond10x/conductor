@@ -360,8 +360,12 @@ types:
   # cores less this (story:build-run-spare-cores); and how many `conductor build run` commands
   # run at once on the host, every instance's together: a request is granted only while fewer disk
   # grants than this are `Granted` or `Running`, waits in the queue's order while they are not, and
-  # is never refused for it, 0 for no bound (story:build-queue-convoy). Absent, the filesystem is
-  # `/`, the silence 30 minutes, the reserve 2 cores and the build slots 3.
+  # is never refused for it, 0 for no bound (story:build-queue-convoy); how long a live driven
+  # session may make no progress, neither a report conductor received nor a commit in its checkout
+  # or any of its trees, before the watch reports it stalled, and how long a host grant may stay
+  # `Requested` before the watch reports the build queued (story:watch-stalled-sessions), each a
+  # duration as `cadence` writes one. Absent, the filesystem is `/`, the silence 30 minutes, the
+  # reserve 2 cores, the build slots 3, the stall 45 minutes and the queued build 30 minutes.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -378,6 +382,8 @@ types:
       - {name: silent_session, type: Duration}
       - {name: cpu_reserve, type: Integer}
       - {name: build_slots, type: Integer}
+      - {name: stalled_session, type: Duration}
+      - {name: build_queued, type: Duration}
     invariants:
       - gate_resume > gate_stop
       - cpu_reserve >= 0

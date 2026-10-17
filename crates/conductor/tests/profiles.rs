@@ -911,3 +911,27 @@ fn profiles_forbid_killing_by_pattern() {
         );
     }
 }
+
+/// `story:watch-stalled-sessions`, acceptance 4: the cycle names the check-in on a stalled session
+/// or a long-queued build, with the operator's words that ask for it.
+#[test]
+fn conductor_checks_in_on_a_stalled_session_or_a_long_queued_build() {
+    let text = profile("conductor.md");
+    let cycle = text
+        .split("## What you do, every cycle")
+        .nth(1)
+        .and_then(|rest| rest.split("## ").next())
+        .expect("conductor.md: the cycle section");
+    for sentence in [
+        "On each `session stalled: <name> <id> <m>m` or `build queued: <grant> \
+         <repository|session> <m>m`, check in within the cycle: ask that session what blocks it \
+         and act on the answer.",
+        "\"tell conductor about things ended up stuck, its conductors responsibility to check in \
+         on you and make sure things keep moving\" (the operator, 2026-10-17)",
+    ] {
+        assert!(
+            cycle.contains(sentence),
+            "conductor.md, What you do, every cycle: holds {sentence:?}"
+        );
+    }
+}
