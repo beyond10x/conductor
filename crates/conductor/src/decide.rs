@@ -189,6 +189,7 @@ pub fn raise_decision_request(
         recommendation: flag(COMMAND, "--recommendation", args.recommendation)?,
         raised_at: Timestamp(flag(COMMAND, "--raised-at", args.raised_at)?),
         blocker: args.blocker,
+        classification_rule: None,
     };
     let request = input.request_id.clone();
     let mut line = records::decision_line(
@@ -269,6 +270,8 @@ pub fn record_conductor_decision(
         evidence: fields.evidence.clone(),
         decided_at: fields.decided_at.clone(),
         repository: fields.repository.clone(),
+        decider_name: None,
+        prompt_sha256: None,
     };
     // The specification refuses class O and H on the input alone (`reserved`, before it reads a
     // record), so it is asked over a store that holds and keeps nothing before an id is allocated:
@@ -1881,6 +1884,8 @@ impl RecordOperatorDecisionForRequestBehavior for Ports {
             recorded_by: Some(input.recorded_by),
             operator_words: Some(input.operator_words),
             repository: input.repository,
+            decider_name: None,
+            prompt_sha256: None,
         };
         DecisionStorage::put(self, AnyDecision::InForce(Decision::new(data)).snapshot());
         Ok(RecordOperatorDecisionForRequestOutcome::Recorded {

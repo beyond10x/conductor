@@ -2046,6 +2046,26 @@ delegate! {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(unmet_context("conductor.session.DeliveryId"))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(unmet_context("conductor.session.TickId"))
+    }
+
+    fn try_external(
+        &mut self,
+        _command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(unmet_context("an external branch"))
+    }
+
     fn try_generate_conductor_tool_tool_call_id(
         &mut self,
     ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {

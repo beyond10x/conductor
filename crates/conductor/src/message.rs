@@ -294,6 +294,12 @@ pub fn receive_message(state: Option<&Path>, args: ReceiveMessageArgs) -> Result
                 message_received.message_id.0.0
             )
         }
+        ReceiveMessageOutcome::MailboxWithoutBody { error } => bail!(
+            "{COMMAND}: refused: MailboxBodyMissing: a mailbox message from {} to {} is the file \
+             it was left in, and --body-path names none; nothing was recorded",
+            error.sender,
+            error.recipient
+        ),
     }
 }
 
@@ -323,8 +329,12 @@ pub(crate) fn record(
         .receive_message(input)
         .map_err(|unmet| anyhow!("{command}: {unmet}"))?;
     kept(command, &generated.ports.store)?;
-    let (ReceiveMessageOutcome::Received { message_received }
-    | ReceiveMessageOutcome::Unparsed { message_received }) = &outcome;
+    let message_received = match &outcome {
+        ReceiveMessageOutcome::Received { message_received }
+        | ReceiveMessageOutcome::Unparsed { message_received } => message_received,
+        // Nothing was recorded, so no line is written.
+        ReceiveMessageOutcome::MailboxWithoutBody { .. } => return Ok(outcome),
+    };
     line.id = Some(message_received.message_id.0.0.clone());
     records::append_dispatch(&line)
         .with_context(|| format!("{command}: message {}", message_received.message_id.0.0))?;
@@ -521,6 +531,26 @@ impl MessageStorage for Ports {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(unmet_context("conductor.session.DeliveryId"))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(unmet_context("conductor.session.TickId"))
+    }
+
+    fn try_external(
+        &mut self,
+        _command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(unmet_context("an external branch"))
+    }
+
     fn try_generate_conductor_tool_tool_call_id(
         &mut self,
     ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {

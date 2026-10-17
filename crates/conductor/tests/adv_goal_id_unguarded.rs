@@ -136,6 +136,19 @@ impl Context for Ports {
     fn generate_conductor_tool_tool_call_id(&mut self) -> conductor_model::tool::ToolCallId {
         unreachable!("AddServing and SendDispatch assign no tool call id")
     }
+    fn generate_conductor_session_delivery_id(&mut self) -> conductor_model::session::DeliveryId {
+        unreachable!("AddServing and SendDispatch assign no delivery id")
+    }
+    fn generate_conductor_session_tick_id(&mut self) -> conductor_model::session::TickId {
+        unreachable!("AddServing and SendDispatch assign no tick id")
+    }
+    fn external(
+        &mut self,
+        _command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> bool {
+        unreachable!("AddServing and SendDispatch have no external branch")
+    }
 }
 
 fn state_dir(case: &str) -> PathBuf {

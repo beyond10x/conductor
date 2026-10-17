@@ -193,9 +193,15 @@ impl StoreMessages {
     fn record(&self, command: &str, input: ReceiveMessage, repo: &str) -> Result<String, String> {
         let outcome = crate::message::record(command, Some(&self.state), input, repo)
             .map_err(|error| format!("{error:#}"))?;
-        let (ReceiveMessageOutcome::Received { message_received }
-        | ReceiveMessageOutcome::Unparsed { message_received }) = outcome;
-        Ok(message_received.message_id.0.0)
+        match outcome {
+            ReceiveMessageOutcome::Received { message_received }
+            | ReceiveMessageOutcome::Unparsed { message_received } => {
+                Ok(message_received.message_id.0.0)
+            }
+            ReceiveMessageOutcome::MailboxWithoutBody { .. } => {
+                Err("a mailbox message names no body_path; nothing was recorded".to_owned())
+            }
+        }
     }
 
     /// The open dispatch of `repository` a lead's report names: the one sent, started or blocked,
@@ -428,6 +434,26 @@ impl ToolCallStorage for Ports {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(unmet_context("conductor.session.DeliveryId"))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(unmet_context("conductor.session.TickId"))
+    }
+
+    fn try_external(
+        &mut self,
+        _command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(unmet_context("an external branch"))
+    }
+
     fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<ToolCallId, UnmetObligation> {
         Ok(ToolCallId(Uuid(eventlog_core::new_event_id())))
     }

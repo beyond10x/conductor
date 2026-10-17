@@ -58,7 +58,7 @@ pub const DECISIONS: &str = "decisions";
 
 /// The keys a line of the dispatch log may hold: the fields of `conductor.dispatch.DispatchLogLine`
 /// (`spec/domains/dispatch.yaml`), in its order.
-pub const DISPATCH_KEYS: [&str; 19] = [
+pub const DISPATCH_KEYS: [&str; 25] = [
     "at",
     "event",
     "repo",
@@ -78,6 +78,12 @@ pub const DISPATCH_KEYS: [&str; 19] = [
     "first_line",
     "resource",
     "amount",
+    "body_path",
+    "session",
+    "grant",
+    "path",
+    "line",
+    "tick_id",
 ];
 
 /// The keys every line of the dispatch log holds.
@@ -124,7 +130,54 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::ResourceGranted => "resource-granted",
         DispatchLogEvent::ResourceRefused => "resource-refused",
         DispatchLogEvent::CharterRevised => "charter-revised",
+        DispatchLogEvent::Delivered => "delivered",
+        DispatchLogEvent::HandoverSent => "handover-sent",
+        DispatchLogEvent::Handover => "handover",
+        DispatchLogEvent::ControllerRestarted => "controller-restarted",
+        DispatchLogEvent::UsageLimit => "usage-limit",
+        DispatchLogEvent::Resumed => "resumed",
+        DispatchLogEvent::Relayed => "relayed",
+        DispatchLogEvent::RedCi => "red-ci",
+        DispatchLogEvent::Stalled => "stalled",
+        DispatchLogEvent::Cleanup => "cleanup",
+        DispatchLogEvent::DecisionSent => "decision-sent",
+        DispatchLogEvent::Cycle => "cycle",
     }
+}
+
+/// Every event of the dispatch log, in the specification's order.
+pub const DISPATCH_EVENTS: [DispatchLogEvent; 23] = [
+    DispatchLogEvent::Sent,
+    DispatchLogEvent::Started,
+    DispatchLogEvent::Blocked,
+    DispatchLogEvent::Unblocked,
+    DispatchLogEvent::Done,
+    DispatchLogEvent::Failed,
+    DispatchLogEvent::Cancelled,
+    DispatchLogEvent::MessageReceived,
+    DispatchLogEvent::ResourceGranted,
+    DispatchLogEvent::ResourceRefused,
+    DispatchLogEvent::CharterRevised,
+    DispatchLogEvent::Delivered,
+    DispatchLogEvent::HandoverSent,
+    DispatchLogEvent::Handover,
+    DispatchLogEvent::ControllerRestarted,
+    DispatchLogEvent::UsageLimit,
+    DispatchLogEvent::Resumed,
+    DispatchLogEvent::Relayed,
+    DispatchLogEvent::RedCi,
+    DispatchLogEvent::Stalled,
+    DispatchLogEvent::Cleanup,
+    DispatchLogEvent::DecisionSent,
+    DispatchLogEvent::Cycle,
+];
+
+/// The dispatch log event `name` spells ([`dispatch_event`]), if any.
+#[must_use]
+pub fn dispatch_event_named(name: &str) -> Option<DispatchLogEvent> {
+    DISPATCH_EVENTS
+        .into_iter()
+        .find(|event| dispatch_event(*event) == name)
 }
 
 /// The `event` of a decision line, as the specification spells it in the log.
@@ -190,6 +243,12 @@ pub fn dispatch_line(event: DispatchLogEvent, repo: &str) -> Result<DispatchLogL
         first_line: None,
         resource: None,
         amount: None,
+        body_path: None,
+        session: None,
+        grant: None,
+        path: None,
+        line: None,
+        tick_id: None,
     })
 }
 
@@ -221,6 +280,9 @@ pub fn decision_line(
         blocker: None,
         decision_id: None,
         escalation_class: None,
+        classification_rule: None,
+        decider_name: None,
+        prompt_sha256: None,
     })
 }
 
@@ -254,6 +316,12 @@ pub fn dispatch_object(line: &DispatchLogLine) -> Map<String, Value> {
     put(&mut object, "first_line", line.first_line.clone());
     put(&mut object, "resource", line.resource.clone());
     put(&mut object, "amount", line.amount);
+    put(&mut object, "body_path", line.body_path.clone());
+    put(&mut object, "session", line.session.clone());
+    put(&mut object, "grant", line.grant.clone());
+    put(&mut object, "path", line.path.clone());
+    put(&mut object, "line", line.line.clone());
+    put(&mut object, "tick_id", line.tick_id.clone());
     object
 }
 
