@@ -1,0 +1,116 @@
+# story:decision-relay-recorded-answers: an answer recorded outside conductor's chat (here by
+# `loom-canvas`, through `record-operator-decision` and `answer-escalated-request`) is listed as
+# undelivered until conductor marks it delivered; the mark is set once, and a second one is refused
+# with `AlreadyDelivered` and leaves the first delivery as it was. A request not yet answered has no
+# answer to deliver.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: mark-answer-delivered
+summary: A recorded answer is listed as undelivered until it is marked delivered once; a second mark is refused and an unanswered request has nothing to deliver.
+
+timeline:
+  - at: 2026-10-17T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-relay-1
+      repository: cortex
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      recommendation: B
+      raised_at: 2026-10-17T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-17T09:00:01Z
+    command: conductor.decision.MarkAnswerDelivered
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-relay-1
+      delivered_at: 2026-10-17T09:00:01Z
+      delivered_by: conductor
+    outcome: not-answered
+    error:
+      name: conductor.decision.RequestStateConflict
+
+  - at: 2026-10-17T09:00:02Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-relay-1
+      escalation_class: O
+      reason: an architecture choice
+      kind: one-of
+      lettered_options:
+        - {letter: A, label: keep the file store, cost: nothing now}
+        - {letter: B, label: move to the tree store, cost: half a day of one controller}
+      recommended_letters: B
+      default_letters: A
+      deadline: 2026-10-18T09:00:00Z
+    outcome: escalated
+
+  - at: 2026-10-17T09:00:03Z
+    command: conductor.decision.RecordOperatorDecision
+    actor: conductor.decision.Operator
+    input:
+      decision_id: DEC-relay-1
+      decision_class: O
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      choice: B
+      reason: the tree store, as recommended
+      evidence: request REQ-relay-1, recorded from the desktop UI
+      decided_at: 2026-10-17T09:00:03Z
+      recorded_by: loom-canvas
+      operator_words: "B, the tree store"
+      repository: cortex
+    outcome: recorded
+
+  - at: 2026-10-17T09:00:04Z
+    command: conductor.decision.AnswerEscalatedRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-relay-1
+      decision_id: DEC-relay-1
+    outcome: answered
+
+  - at: 2026-10-17T09:00:05Z
+    command: conductor.decision.MarkAnswerDelivered
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-relay-1
+      delivered_at: 2026-10-17T09:00:05Z
+      delivered_by: conductor
+    outcome: delivered
+
+  - at: 2026-10-17T09:00:06Z
+    command: conductor.decision.MarkAnswerDelivered
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-relay-1
+      delivered_at: 2026-10-17T09:00:06Z
+      delivered_by: conductor-2
+    outcome: already-delivered
+    error:
+      name: conductor.decision.AlreadyDelivered
+
+  - at: 2026-10-17T09:00:07Z
+    command: conductor.decision.MarkAnswerDelivered
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-relay-nobody
+      delivered_at: 2026-10-17T09:00:07Z
+      delivered_by: conductor
+    outcome: no-such-request
+    error:
+      name: conductor.decision.RequestNotFound
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-relay-1
+      state: Answered
+      decision_id: DEC-relay-1
+      delivered_by: conductor
+  - view: conductor.decision.UndeliveredAnswers
+    excludes:
+      request_id: REQ-relay-1

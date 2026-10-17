@@ -57,6 +57,7 @@ components:
         - conductor.decision.RecordOperatorDecisionForRequest
         - conductor.decision.EscalateRequest
         - conductor.decision.AmendEscalatedRequest
+        - conductor.decision.MarkAnswerDelivered
         - conductor.decision.WithdrawRequest
         - conductor.decision.ReverseConductorDecision
         - conductor.decision.ReverseOperatorDecision
@@ -129,6 +130,7 @@ components:
         - conductor.decision.RequestAnswered
         - conductor.decision.RequestEscalated
         - conductor.decision.RequestAmended
+        - conductor.decision.AnswerDelivered
         - conductor.decision.RequestWithdrawn
         - conductor.decision.DecisionReversedEvent
         - conductor.dispatch.ControllerStarted
@@ -241,11 +243,13 @@ components:
             - conductor.decision.RecordOperatorDecisionForRequest
             - conductor.decision.EscalateRequest
             - conductor.decision.AmendEscalatedRequest
+            - conductor.decision.MarkAnswerDelivered
             - conductor.decision.WithdrawRequest
             - conductor.decision.ReverseConductorDecision
             - conductor.decision.ReverseOperatorDecision
           views:
             - conductor.decision.Requests
+            - conductor.decision.UndeliveredAnswers
             - conductor.decision.HandsTodo
             - conductor.decision.Decisions
         - name: controller

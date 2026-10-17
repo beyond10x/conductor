@@ -143,6 +143,14 @@ entities:
         type: Optional<Timestamp>
       - name: decision_id
         type: Optional<conductor.decision.DecisionId>
+      # Delivery of the answer to the controller that asked (story:decision-relay-recorded-answers):
+      # when conductor sent the `[DECISION]` line and the session that did. Unset on every request
+      # until `MarkAnswerDelivered`; set once, whoever recorded the answer. The store's migration
+      # marks a request answered before this release delivered, so nothing is sent twice.
+      - name: delivered_at
+        type: Optional<Timestamp>
+      - name: delivered_by
+        type: Optional<String>
     relations:
       - name: decision
         kind: references
@@ -223,6 +231,7 @@ actors:
       - conductor.decision.AnswerRequest
       - conductor.decision.EscalateRequest
       - conductor.decision.AmendEscalatedRequest
+      - conductor.decision.MarkAnswerDelivered
       - conductor.decision.ReverseConductorDecision
     naming:
       display: Conductor
@@ -289,6 +298,12 @@ errors:
 
   - name: conductor.decision.RequestNotFound
     summary: No decision request has this id.
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
+  - name: conductor.decision.AlreadyDelivered
+    summary: The request's answer was already delivered, so the held delivery is unchanged.
     fields:
       - name: request_id
         type: conductor.decision.RequestId
@@ -885,6 +900,67 @@ commands:
             request_id: input.request_id
         summary: Only an escalated request is amended; an open, answered or withdrawn one is unchanged.
 
+  # The delivery of an answer is a record on the request, not a test of who recorded the answer
+  # (story:decision-relay-recorded-answers): conductor relays every answer, its own and one recorded
+  # outside its chat, as `[DECISION <request-id>] <option> <reason> (<decision-id>)` and then marks
+  # it delivered, so "once" is enforced by the record and not by conductor's memory. `delivered_by`
+  # names the session that marks it, as `recorded_by` does for a decision; the CLI fills
+  # `delivered_at` from its clock. The guard (a rule table, not this specification) lets conductor
+  # run it and denies it to controllers and workers. Writes no line to the records' decision log:
+  # delivery moves no decision and no request state, and `DecisionLogLine` declares no event for it.
+  - name: conductor.decision.MarkAnswerDelivered
+    naming:
+      wire: mark-answer-delivered
+      display: Mark an answer delivered
+    input:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: delivered_at
+        type: Timestamp
+      - name: delivered_by
+        type: String
+    outcomes:
+      - name: already-delivered
+        when_subject:
+          predicate:
+            all:
+              - state == Answered
+              - defined(delivered_at)
+        error: conductor.decision.AlreadyDelivered
+        payload:
+          conductor.decision.AlreadyDelivered:
+            request_id: input.request_id
+        summary: The answer was delivered before; the held delivery is unchanged and the command exits non-zero.
+      - name: delivered
+        when_subject:
+          predicate:
+            all:
+              - state == Answered
+              - not defined(delivered_at)
+        updates: conductor.decision.DecisionRequest
+        instance: request_id
+        sets:
+          delivered_at: input.delivered_at
+          delivered_by: input.delivered_by
+        emits:
+          - conductor.decision.AnswerDelivered
+        payload:
+          conductor.decision.AnswerDelivered:
+            request_id: input.request_id
+        summary: The answer reached its controller and will not be sent again.
+      - name: no-such-request
+        unknown_instance: true
+        error: conductor.decision.RequestNotFound
+        payload:
+          conductor.decision.RequestNotFound:
+            request_id: input.request_id
+      - name: not-answered
+        error: conductor.decision.RequestStateConflict
+        payload:
+          conductor.decision.RequestStateConflict:
+            request_id: input.request_id
+        summary: Only an answered request has an answer to deliver; an open, escalated or withdrawn one is unchanged.
+
   # Records line (`DecisionLogLine`): `withdrawn`, with `id` and `reason`.
   - name: conductor.decision.WithdrawRequest
     naming:
@@ -1027,6 +1103,11 @@ events:
       - name: decision_id
         type: conductor.decision.DecisionId
 
+  - name: conductor.decision.AnswerDelivered
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+
   - name: conductor.decision.RequestEscalated
     fields:
       - name: request_id
@@ -1090,9 +1171,47 @@ views:
         type: Optional<String>
       - name: deadline
         type: Optional<Timestamp>
+      # When the answer reached its controller and which session delivered it
+      # (story:decision-relay-recorded-answers); null until delivered.
+      - name: delivered_at
+        type: Optional<Timestamp>
+      - name: delivered_by
+        type: Optional<String>
     naming:
       wire: requests
       display: Decision requests
+
+  # The answered requests whose answer has not reached its controller
+  # (story:decision-relay-recorded-answers): conductor reads it at the start of every turn, sends
+  # each `[DECISION]` line and marks it delivered. A request lists here whoever recorded the answer.
+  # UNMAPPED: the story lists, per row, the option, the reason and `recorded_by`. They are the
+  # fields of the decision the request cites (`conductor.decision.Decisions`: `choice`, `reason`,
+  # `recorded_by`), and a view publishes the fields of its one source entity, so this view cannot
+  # carry them. The CLI joins `decision_id` to `Decisions` for them; copying them onto the request
+  # would be a new stored field the story does not name. Open question for the owner.
+  - name: conductor.decision.UndeliveredAnswers
+    source: conductor.decision.DecisionRequest
+    consistency: read_your_writes
+    filter:
+      all:
+        - state == Answered
+        - not defined(delivered_at)
+    fields:
+      - name: request_id
+        type: conductor.decision.RequestId
+      - name: state
+        type: conductor.decision.DecisionRequest.State
+      - name: repository
+        type: conductor.observation.RepositoryName
+      - name: decision_id
+        type: Optional<conductor.decision.DecisionId>
+      - name: delivered_at
+        type: Optional<Timestamp>
+      - name: delivered_by
+        type: Optional<String>
+    naming:
+      wire: undelivered-answers
+      display: Undelivered answers
 
   # The numbered to-do of the daily brief (design § 5): every request escalated as class H,
   # waiting for the operator's hands. The controller waiting on each is its `repository`.

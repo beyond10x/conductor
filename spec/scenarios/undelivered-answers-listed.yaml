@@ -1,0 +1,90 @@
+# story:decision-relay-recorded-answers: an answer recorded by `answer-escalated-request` with
+# `recorded_by: loom-canvas` is listed by `undelivered-answers` until it is marked delivered; a
+# request not yet answered is not listed.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: undelivered-answers-listed
+summary: An answered request nobody delivered is listed as undelivered, and an open one is not.
+
+timeline:
+  - at: 2026-10-17T10:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-relay-2
+      repository: cortex
+      question: Which store backs the queue?
+      options: "A: the file store; B: a database"
+      recommendation: A
+      raised_at: 2026-10-17T10:00:00Z
+    outcome: raised
+
+  - at: 2026-10-17T10:00:01Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-relay-3
+      repository: cortex
+      question: Which format does the export use?
+      options: "A: json; B: csv"
+      recommendation: A
+      raised_at: 2026-10-17T10:00:01Z
+    outcome: raised
+
+  - at: 2026-10-17T10:00:02Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-relay-2
+      escalation_class: O
+      reason: an architecture choice
+      kind: one-of
+      lettered_options:
+        - {letter: A, label: the file store, cost: nothing now}
+        - {letter: B, label: a database, cost: a week of one controller}
+      recommended_letters: A
+      default_letters: A
+      deadline: 2026-10-18T10:00:00Z
+    outcome: escalated
+
+  - at: 2026-10-17T10:00:03Z
+    command: conductor.decision.RecordOperatorDecision
+    actor: conductor.decision.Operator
+    input:
+      decision_id: DEC-relay-2
+      decision_class: O
+      question: Which store backs the queue?
+      options: "A: the file store; B: a database"
+      choice: A
+      reason: the file store is enough
+      evidence: request REQ-relay-2, recorded from the desktop UI
+      decided_at: 2026-10-17T10:00:03Z
+      recorded_by: loom-canvas
+      operator_words: "A, the file store"
+      repository: cortex
+    outcome: recorded
+
+  - at: 2026-10-17T10:00:04Z
+    command: conductor.decision.AnswerEscalatedRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-relay-2
+      decision_id: DEC-relay-2
+    outcome: answered
+
+assert:
+  - view: conductor.decision.UndeliveredAnswers
+    contains:
+      request_id: REQ-relay-2
+      state: Answered
+      repository: cortex
+      decision_id: DEC-relay-2
+  - view: conductor.decision.UndeliveredAnswers
+    excludes:
+      request_id: REQ-relay-3
+  - view: conductor.decision.Decisions
+    contains:
+      decision_id: DEC-relay-2
+      choice: A
+      reason: the file store is enough
+      recorded_by: loom-canvas
