@@ -436,15 +436,12 @@ fn state_name(state: LeaseState) -> &'static str {
     }
 }
 
-/// The first prompt of conductor's session (`session start --role conductor`).
-pub const CONDUCTOR_PROMPT: &str = "Start of session. After the session-start reading and the \
-lease check of your profile, arm what wakes you; the hand-over does not list it. Run CronList, \
-then CronCreate each recurring job it does not show: one every cadence.cycle, one at \
-cadence.daily (UTC) for the daily cycle, both values from conductor config show, with the prompts \
-your profile gives. Start the watch once with the Monitor tool: conductor watch run --follow. \
-Then act on the first task of the hand-over your start reading opened, the one committed last \
-(git log -1 --name-only --format= -- docs/handoff/), without reading it again, then run one \
-cycle.";
+/// The first prompt of a director's session (`session start --role director`), started by hand
+/// (`story:run-daemon`): `conductor run` runs the instance's loop, so the session schedules,
+/// watches and relays nothing.
+pub const DIRECTOR_PROMPT: &str = "Start of session. conductor run runs this instance's loop: \
+the cycle, the watch, hand-overs, resumes and relays. Read your profile's start-of-session list, \
+then answer the operator.";
 
 /// The first prompt of conductor-dev's session (`session start --role conductor-dev`).
 pub const DEV_PROMPT: &str = "Start of session. Read your profile's start-of-session list in its \
@@ -456,7 +453,7 @@ instance's state directory (conductor config show prints state), then begin.";
 const SESSION_ROLES: [RoleName; 2] = [RoleName::Director, RoleName::Maintainer];
 
 /// The settings file conductor starts with when its role names none, under the working
-/// directory: the product checkout `task conductor:start` runs in.
+/// directory: the product checkout a director session is started from.
 const CONDUCTOR_SETTINGS: &str = ".claude/conductor-settings.json";
 
 /// The role `role` of the active instance, when it is one `session start` starts: `director` or
@@ -704,7 +701,7 @@ fn stop_refused(answer: &SessionStopRefused) -> Result<ExitCode> {
 
 /// `conductor session start --role <role>`: starts the session of `conductor` or
 /// `conductor-dev` under its session name through the provider the instance's `confinement`
-/// names ([`confine`]), delivers its first prompt ([`CONDUCTOR_PROMPT`], [`DEV_PROMPT`]),
+/// names ([`confine`]), delivers its first prompt ([`DIRECTOR_PROMPT`], [`DEV_PROMPT`]),
 /// measures its box and writes the measurement under the state directory. Prints what the
 /// harness printed, then one line naming the session started, its provider and its id.
 ///
@@ -824,7 +821,7 @@ pub fn start(
         state: state_dir.clone(),
     };
     let prompt = if config::is_role(&found.role, RoleName::Director) {
-        CONDUCTOR_PROMPT
+        DIRECTOR_PROMPT
     } else {
         DEV_PROMPT
     };
@@ -1085,19 +1082,26 @@ pub fn deliver(name: &str, text: &str) -> Result<Delivery> {
 
 #[cfg(test)]
 mod tests {
-    use super::CONDUCTOR_PROMPT;
+    use super::DIRECTOR_PROMPT;
 
-    /// `story:conductor-context-budget`: the profile's start reading opens the newest hand-over,
-    /// so the first prompt acts on it and does not have it read a second time.
+    /// `story:run-daemon`: `conductor run` runs the loop, so a director's first prompt arms no
+    /// timer, starts no watch and asks for no restart; and, as before
+    /// (`story:conductor-context-budget`), it has no hand-over read a second time.
     #[test]
-    fn the_first_prompt_does_not_read_the_hand_over_again() {
+    fn the_director_s_first_prompt_arms_nothing_the_daemon_runs() {
+        for gone in [
+            "CronCreate",
+            "CronList",
+            "Monitor",
+            "watch run",
+            "[RESTART",
+            "read the hand-over",
+        ] {
+            assert!(!DIRECTOR_PROMPT.contains(gone), "{gone}: {DIRECTOR_PROMPT}");
+        }
         assert!(
-            !CONDUCTOR_PROMPT.contains("read the hand-over"),
-            "{CONDUCTOR_PROMPT}"
-        );
-        assert!(
-            CONDUCTOR_PROMPT.contains("act on the first task of the hand-over"),
-            "{CONDUCTOR_PROMPT}"
+            DIRECTOR_PROMPT.contains("conductor run runs this instance's loop"),
+            "{DIRECTOR_PROMPT}"
         );
     }
 }

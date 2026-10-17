@@ -43,7 +43,7 @@ use clap::Parser as _;
 use conductor_cli::cli::Cli;
 use conductor_cli::config;
 use conductor_cli::confine::{Host, Launch, Providers as _, systemd};
-use conductor_cli::session::CONDUCTOR_PROMPT;
+use conductor_cli::session::DIRECTOR_PROMPT;
 use conductor_model::config::{ConfinementProvider, Gibibytes, Limits, Network, SessionName};
 use conductor_model::session::{SessionRequest, StartedSession};
 use serde_json::{Value, json};
@@ -723,7 +723,7 @@ const CONDUCTOR_CGROUP: &str = "/user.slice/user-1000.slice/user@1000.service/co
 #[test]
 fn conductor_starts_in_its_unit_inside_the_unprefixed_slice() {
     let case = conductor_case("conductor");
-    case.session("conductor", CONDUCTOR_PROMPT);
+    case.session("conductor", DIRECTOR_PROMPT);
     case.unit_cgroup(CONDUCTOR_CGROUP, "4294967296", "100", "max");
     let output = case.run(
         &case.dir.join("work"),
@@ -808,7 +808,7 @@ fn conductor_starts_in_its_unit_inside_the_unprefixed_slice() {
         )),
         "{command}"
     );
-    assert_eq!(case.typed(CONDUCTOR_PROMPT), typed(CONDUCTOR_PROMPT));
+    assert_eq!(case.typed(DIRECTOR_PROMPT), typed(DIRECTOR_PROMPT));
 
     let record = case
         .record("conductor")
@@ -835,12 +835,12 @@ fn conductor_starts_in_its_unit_inside_the_unprefixed_slice() {
 #[test]
 fn conductor_stops_with_systemctl_stop() {
     let case = conductor_case("stop");
-    case.session("conductor", CONDUCTOR_PROMPT);
+    case.session("conductor", DIRECTOR_PROMPT);
     case.unit_cgroup(CONDUCTOR_CGROUP, "4294967296", "100", "max");
     let work = case.dir.join("work");
     let started = case.run(&work, &["session", "start", "--role", "conductor"]);
     assert_eq!(started.status.code(), Some(0), "{}", describe(&started));
-    case.typed(CONDUCTOR_PROMPT);
+    case.typed(DIRECTOR_PROMPT);
     case.unit_states(&["LoadState=loaded ActiveState=active"]);
     let stopped = case.run(&work, &["session", "stop", "--role", "conductor"]);
     assert_eq!(stopped.status.code(), Some(0), "{}", describe(&stopped));
