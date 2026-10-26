@@ -11,6 +11,15 @@ a recorded, checkable process: every decision conductor takes or relays is a rec
 a reason and its evidence, and conductor-dev turns what went wrong into stories and delivers the
 fixes in waves.
 
+## Serves
+
+The objectives of the collection this repository moves, by id from `atlas/ROADMAP.md`:
+
+- **O2 — decisions as data, with evidence.** Every decision conductor takes or relays is a record
+  with a class, a reason and its evidence.
+- **O6 — self-improvement.** conductor-dev turns what went wrong into stories and delivers the
+  fixes in waves.
+
 ## Who reads this
 
 - **`conductor run`**, a process and no session, runs one instance's loop
