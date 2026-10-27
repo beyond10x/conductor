@@ -30,10 +30,22 @@ types:
     kind: newtype
     of: Uuid
 
+  # `Team`: a message between two sessions of one team, which the broker records for `tool send`
+  # (story:tool-build-commit-report); its first line is `[TEAM <repo>] <text>`.
+  # `Handover` (story:mailbox-send-and-deliver, docs/design/conductor-run.md § 3): the run
+  # daemon's `[HANDOVER <repo>] context <n>k` or `[HANDOVER <repo>] context shutdown` to a
+  # controller over its context threshold; a controller's own `[REPORT <repo> <id>] blocked
+  # handover <path>` stays a report. The first-line grammar of every form is the `FORMS` table of
+  # `crates/conductor/src/message.rs`; this enum names only the kinds.
   - name: conductor.dispatch.MessageKind
     kind: enum
-    variants: [Dispatch, Report, DecisionRequest, Decision, Need, Resource, Escalation, Unknown]
+    variants:
+      [Dispatch, Report, DecisionRequest, Decision, Need, Resource, Escalation, Team, Handover, Unknown]
 
+  # `SendMessage`: the harness's tool from one session to another. `Mailbox`
+  # (docs/design/conductor-run.md § 3): a file the sender leaves under
+  # `<state>/mailbox/<recipient>/` with `conductor message send`, whose path the message's
+  # `body_path` carries; the run daemon reads its own directory, `mailbox/conductor/`, each tick.
   - name: conductor.dispatch.Transport
     kind: enum
     variants: [SendMessage, Mailbox]
@@ -49,6 +61,18 @@ types:
   - name: conductor.dispatch.Verdict
     kind: enum
     variants: [Allow, Deny]
+
+  # The input of `conductor controller controllers` (story:conductor-context-budget), the
+  # `Controllers` view as the binding serves it. It opens only an existing store and creates
+  # nothing. Without `all` or `format` it prints one line per controller `Running` or `Paused`:
+  # its repository, state, session name and id, and a line saying so when there is none; `all`
+  # prints the text table of every controller the view lists, and `format` (text, json, jsonl or
+  # markdown) renders every row so, as `controller all-controllers` does.
+  - name: conductor.dispatch.ListControllers
+    kind: struct
+    fields:
+      - {name: all, type: Optional<Boolean>}
+      - {name: format, type: Optional<String>}
 
   # The input of `conductor spawn` (story:spawn), which starts the controller session of
   # `repository`. With its working directory the checkout `<checkouts.root>/<repository>`, it runs,
@@ -116,6 +140,39 @@ types:
       - {name: refusal, type: conductor.dispatch.SpawnRefusal}
       - {name: detail, type: String}
 
+  # The input of `conductor message send` (story:mailbox-send-and-deliver,
+  # docs/design/conductor-run.md § 3): a controller's message to conductor through the mailbox,
+  # with no conductor session to receive it. `to` is the recipient, `conductor`; `from` the sending
+  # session's name; `text` the file holding the message, or `-` for standard input. The command
+  # parses the first line with the § 6 grammar; a parsed one it writes as
+  # `<state>/mailbox/<to>/<ulid>.md` and records with `ReceiveMessage` (transport `Mailbox`,
+  # `body_path` that file, `received_at` now), which appends the `message-received` line; an
+  # unparsed one is refused before anything is written (`MailboxSendRefusal`). The guard allows
+  # it to a controller.
+  - name: conductor.dispatch.SendToMailbox
+    kind: struct
+    fields:
+      - {name: to, type: String}
+      - {name: from, type: String}
+      - {name: text, type: String}
+
+  # Why `conductor message send` wrote nothing: `Unparsed`, the first line is none of the § 6
+  # forms, so the command prints `FORMAT` and exits 1. The message is not recorded, unlike one
+  # received over `SendMessage`, which `ReceiveMessage` keeps as Rejected.
+  - name: conductor.dispatch.MailboxSendRefusal
+    kind: enum
+    variants:
+      - Unparsed
+
+  # A refusal of `conductor message send`: the sender, the recipient, why, and what was found.
+  - name: conductor.dispatch.MailboxSendRefused
+    kind: struct
+    fields:
+      - {name: from, type: String}
+      - {name: to, type: String}
+      - {name: refusal, type: conductor.dispatch.MailboxSendRefusal}
+      - {name: detail, type: String}
+
   # What a line of the records' dispatch log says happened (story:records-from-commands). A command
   # that records one of these appends exactly one line to `<records>/dispatches/YYYY-MM.jsonl`, the
   # month of the line's `at` in UTC, once the store has kept the record; nobody writes such a line
@@ -124,6 +181,26 @@ types:
   # commands), `cancelled` (`CancelDispatch`), `message-received` (`ReceiveMessage`),
   # `resource-granted`, `resource-refused` (`GrantResource`, `RefuseResource`) and
   # `charter-revised` (`ReviseCharter`).
+  # The run daemon writes the rest (story:run-daemon, docs/design/conductor-run.md § 3), one per
+  # action its handlers take, and `conductor session deliver` writes `delivered`
+  # (`conductor.session.DeliverMessage`): `handover-sent`, a `[HANDOVER]` delivered to a session
+  # over its context threshold; `handover`, that session stopped once its hand-over file exists or
+  # at 1.25× the threshold; `controller-restarted`, a controller spawned again from its charter
+  # (after a hand-over, a second stall, or a gone session with an open dispatch); `usage-limit`,
+  # sessions marked by a usage limit; `resumed`, a marked session resumed once headroom is back;
+  # `relayed`, a watch line delivered to the live controller as `[REPORT <repo> -] watch: …`, a
+  # mailbox `[NEED]` delivered to the live controller of the repository it asks, or the answer to
+  # a mailbox `[RESOURCE]`; `red-ci`, a red main with no controller, dispatched or noted;
+  # `stalled`, a check-in delivered to a stalled or silent session; `cleanup`, `gc` run on `disk
+  # low`; `decision-sent`, an answered request's `[DECISION]` delivered to the controller that
+  # raised it; `cycle`, one per cycle tick, after `snapshot start-snapshot`, `publish-board`,
+  # `records check` and dispatch v1 ran (story:run-daemon acceptance 5); `records-committed`, the
+  # records directory committed (and pushed, when it has an `origin`) through the bot route by the
+  # daily tick or `conductor run --once --commit-records`, and `records-commit-refused`, that
+  # commit or push refused, once, never retried in a loop (story:records-committed-by-daemon). A
+  # tick of the daemon (`conductor.session.RunTick`) lists the lines it wrote by these names, and
+  # the lines the commands it ran wrote (`sent` by a spawn, a report's `started` … `failed`) by
+  # theirs.
   - name: conductor.dispatch.DispatchLogEvent
     kind: enum
     variants:
@@ -138,6 +215,20 @@ types:
       - ResourceGranted
       - ResourceRefused
       - CharterRevised
+      - Delivered
+      - HandoverSent
+      - Handover
+      - ControllerRestarted
+      - UsageLimit
+      - Resumed
+      - Relayed
+      - RedCi
+      - Stalled
+      - Cleanup
+      - DecisionSent
+      - Cycle
+      - RecordsCommitted
+      - RecordsCommitRefused
 
   # One line of `<records>/dispatches/YYYY-MM.jsonl`: a JSON object holding `at` (when it was
   # written, RFC 3339 UTC), `event`, `repo` (the repository; the key is `repo`, never
@@ -153,7 +244,34 @@ types:
   # - `message-received`: `id`, `from`, `to`, `kind`, `first_line`; `repo` is the repository the
   #   first line names, else the sender;
   # - `resource-granted`: `id`, `resource`, `amount`; `resource-refused`: those and `reason`;
-  # - `charter-revised`: `controller_id`, `to`, `charter_revision`, the revision it moved to.
+  # - `charter-revised`: `controller_id`, `to`, `charter_revision`, the revision it moved to;
+  # - `delivered`, by `conductor session deliver` (story:mailbox-send-and-deliver): `to` (the
+  #   session), `first_line` and `body_path`; `repo` is the repository the first line names,
+  #   else the session.
+  # The run daemon's lines (story:run-daemon) each carry `tick_id`, the `conductor.session.RunTick`
+  # the line belongs to; `repo` is the repository acted on, or `-` for an action on none (a
+  # cleanup, a cycle, a usage limit of a session of no repository). Beside those:
+  # - `handover-sent`, `stalled`, `usage-limit`: `session` (the session's name) and `line` (the
+  #   watch line acted on);
+  # - `handover`: `session`, `reason` (`hand-over file` or `context over 1.25x`) and `path` (the
+  #   hand-over file, when one was found);
+  # - `controller-restarted`: `session`, `reason` (`handover`, `stalled again`, `gone`, `exited`,
+  #   `limit over the context threshold`) and `path` (the resume point appended to the charter,
+  #   when any);
+  # - `resumed`: `session`;
+  # - `relayed`: `session` (the controller delivered to) and `line` (the watch line, or the
+  #   mailbox message's first line);
+  # - `red-ci`: `line`, `reason` (`spawned`, `no charter` or why the spawn was refused) and
+  #   `session` when one was spawned;
+  # - `cleanup`: `line`, and `evidence`, what `gc` reports freed;
+  # - `decision-sent`: `id` (the request), `session` and `grant` (the decision that answered it);
+  # - `cycle`: `line`, one line naming what each step of the cycle did;
+  # - `records-committed`: `commit` (the commit's id as the bot route printed it), `line` (the
+  #   commit's message) and `evidence` (`pushed origin main`, or `no origin`);
+  # - `records-commit-refused`: `reason` (`records check`, `repository`, `commit` or `push`), `line`
+  #   (what `records check` printed, or the last line the bot route or git printed) and `commit`
+  #   when the commit was made and its push refused.
+  # `conductor run --once --commit-records` writes its line with no `tick_id`: it runs no tick.
   - name: conductor.dispatch.DispatchLogLine
     kind: struct
     fields:
@@ -176,6 +294,13 @@ types:
       - {name: first_line, type: Optional<String>}
       - {name: resource, type: Optional<String>}
       - {name: amount, type: Optional<Integer>}
+      - {name: body_path, type: Optional<String>}
+      - {name: session, type: Optional<String>}
+      - {name: grant, type: Optional<String>}
+      - {name: path, type: Optional<String>}
+      - {name: line, type: Optional<String>}
+      - {name: tick_id, type: Optional<String>}
+      - {name: commit, type: Optional<String>}
 
   # The input of `conductor records check` (story:records-from-commands), a view over the records'
   # two logs and the store: it reads `<records>/dispatches/*.jsonl` and
@@ -192,10 +317,17 @@ types:
   # or holds a key its log's line (`DispatchLogLine`, `conductor.decision.DecisionLogLine`) does
   # not declare; `DecisionInDispatchLog`, a line of `dispatches/` whose `event` is a decision
   # log's event, or that has no `event` and whose `id` is a decision id. A line reported as
-  # `DecisionInDispatchLog` is reported for nothing else.
+  # `DecisionInDispatchLog` is reported for nothing else. Two findings read files, not log lines
+  # (story:rules-into-code). `RawThreshold`: a line of `charters/*.md` writes a size in gibibytes
+  # (`20G`, `20 GiB`) equal to the value of one of the instance's thresholds `disk_admit`,
+  # `gate_stop`, `build_slot`, `disk_low` or `disk_clear`; the detail names the key, which the
+  # charter says instead. `RoleFileRules`: a role's rule file, `rules/<role>.md` for `all`,
+  # `conductor`, `controller`, `worker` or `maintainer`, holds more than 20 rules (a line that
+  # opens with `- ` or a number and `. `), reported at the 21st, or a rule that spans more than
+  # one line, reported at its second.
   - name: conductor.dispatch.RecordsFindingKind
     kind: enum
-    variants: [UnknownDecision, UnknownKeySet, DecisionInDispatchLog]
+    variants: [UnknownDecision, UnknownKeySet, DecisionInDispatchLog, RawThreshold, RoleFileRules]
 
   # One finding of `records check`: the file under the records directory, its 1-based line, what
   # was found and the detail that names it. Any finding exits 1.
@@ -421,6 +553,8 @@ actors:
     naming:
       display: Conductor
 
+  # A controller's `conductor message send` records its own message through the mailbox
+  # (`ReceiveMessage`, transport `Mailbox`); the guard allows it (docs/design/conductor-run.md § 3).
   - name: conductor.dispatch.RepositoryController
     may:
       - conductor.dispatch.ReportStarted
@@ -428,6 +562,7 @@ actors:
       - conductor.dispatch.ReportUnblocked
       - conductor.dispatch.ReportDone
       - conductor.dispatch.ReportFailed
+      - conductor.dispatch.ReceiveMessage
       - conductor.dispatch.RequestResource
       - conductor.dispatch.RecordGuardDecision
       - conductor.dispatch.ReleaseResource
@@ -518,6 +653,17 @@ errors:
     fields:
       - name: message_id
         type: conductor.dispatch.MessageId
+
+  - name: conductor.dispatch.MailboxBodyMissing
+    summary: >
+      A message with transport `Mailbox` is the file it was left in under
+      `<state>/mailbox/<recipient>/` (docs/design/conductor-run.md § 3), and this one names no
+      `body_path`; nothing was recorded.
+    fields:
+      - name: sender
+        type: String
+      - name: recipient
+        type: String
 
   - name: conductor.dispatch.InvalidAmount
     summary: A resource amount is a positive number.
@@ -1021,6 +1167,9 @@ commands:
 
   # Records line (`DispatchLogLine`): `message-received`, with `id`, `from`, `to`, `kind` and
   # `first_line`, whether the message is received or rejected at receipt.
+  # Over `Mailbox` (story:mailbox-send-and-deliver) the caller is `conductor message send`, which
+  # has parsed the first line and written the body under `<state>/mailbox/<recipient>/` before
+  # it records; `body_path` is that file, and a mailbox message without one is refused.
   - name: conductor.dispatch.ReceiveMessage
     naming:
       wire: receive-message
@@ -1044,6 +1193,17 @@ commands:
       - name: parsed
         type: Boolean
     outcomes:
+      - name: mailbox-without-body
+        when:
+          all:
+            - transport == Mailbox
+            - missing(body_path)
+        error: conductor.dispatch.MailboxBodyMissing
+        payload:
+          conductor.dispatch.MailboxBodyMissing:
+            sender: input.sender
+            recipient: input.recipient
+        summary: A mailbox message is the file it was left in; without its path nothing is recorded.
       - name: unparsed
         when:
           any:
@@ -1598,9 +1758,11 @@ views:
         type: conductor.config.SessionName
       - name: charter_revision
         type: Integer
+    # `controller all-controllers` serves the view as it is, every row; `controller controllers`,
+    # the binding's (`ListControllers`), lists the live ones on one line each by default.
     naming:
-      wire: controllers
-      display: Controllers
+      wire: all-controllers
+      display: All controllers
 
   - name: conductor.dispatch.Dispatches
     source: conductor.dispatch.Dispatch

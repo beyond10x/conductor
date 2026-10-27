@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Observation — `conductor.observation`.
@@ -81,6 +81,37 @@ pub enum DailySeriesState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DailySeriesId(pub String);
 
+/// DashboardMemory — `conductor.observation.DashboardMemory`.
+///
+/// Every value satisfies `store_handles >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `store_replays >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `store_replays_peak >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `store_bytes >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `memo_entries >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `memo_entries_peak_endpoint >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `memo_bytes >= 0` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardMemory {
+    /// `rss_bytes` — `Optional<Integer>`.
+    pub rss_bytes: Option<i64>,
+    /// `swap_bytes` — `Optional<Integer>`.
+    pub swap_bytes: Option<i64>,
+    /// `store_handles` — `Integer`.
+    pub store_handles: i64,
+    /// `store_replays` — `Integer`.
+    pub store_replays: i64,
+    /// `store_replays_peak` — `Integer`.
+    pub store_replays_peak: i64,
+    /// `store_bytes` — `Integer`.
+    pub store_bytes: i64,
+    /// `memo_entries` — `Integer`.
+    pub memo_entries: i64,
+    /// `memo_entries_peak_endpoint` — `Integer`.
+    pub memo_entries_peak_endpoint: i64,
+    /// `memo_bytes` — `Integer`.
+    pub memo_bytes: i64,
+}
+
 /// DashboardServe — `conductor.observation.DashboardServe`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DashboardServe {
@@ -142,6 +173,10 @@ pub struct GarbageRow {
     pub outcome: GarbageOutcome,
     /// `detail` — `Optional<String>`.
     pub detail: Option<String>,
+    /// `tree` — `Optional<String>`.
+    pub tree: Option<String>,
+    /// `verdict` — `Optional<conductor.observation.TreeVerdict>`.
+    pub verdict: Option<TreeVerdict>,
 }
 
 /// Harness — `conductor.observation.Harness`: one of a closed set of names.
@@ -389,6 +424,8 @@ pub enum SpecificationPresence {
     OptedOut,
     /// `Missing`.
     Missing,
+    /// `NotInWorkspace`.
+    NotInWorkspace,
 }
 
 /// Status — `conductor.observation.Status`.
@@ -396,6 +433,8 @@ pub enum SpecificationPresence {
 pub struct Status {
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
+    /// `full` — `Optional<Boolean>`.
+    pub full: Option<bool>,
 }
 
 /// StatusDispatch — `conductor.observation.StatusDispatch`.
@@ -481,6 +520,15 @@ pub struct StatusSession {
 pub struct StoreMigrate {
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
+}
+
+/// TreeVerdict — `conductor.observation.TreeVerdict`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeVerdict {
+    /// `Finished`.
+    Finished,
+    /// `Stale`.
+    Stale,
 }
 
 /// The states of `conductor.observation.UsageObservation`, as runtime values.
@@ -850,6 +898,10 @@ pub struct CollectorRunObservationData {
     pub duration_ms: i64,
     /// `outcome` — `conductor.observation.CollectorRunOutcome`.
     pub outcome: CollectorRunOutcome,
+    /// `read_bytes` — `Optional<Integer>`.
+    pub read_bytes: Option<i64>,
+    /// `written_bytes` — `Optional<Integer>`.
+    pub written_bytes: Option<i64>,
 }
 
 impl CollectorRunObservationData {
@@ -3072,6 +3124,10 @@ pub struct RecordCollectorRun {
     pub duration_ms: i64,
     /// `outcome` — `conductor.observation.CollectorRunOutcome`.
     pub outcome: CollectorRunOutcome,
+    /// `read_bytes` — `Optional<Integer>`.
+    pub read_bytes: Option<i64>,
+    /// `written_bytes` — `Optional<Integer>`.
+    pub written_bytes: Option<i64>,
 }
 
 /// Everything `conductor.observation.RecordCollectorRun` can result in — one variant per declared outcome.
@@ -4164,6 +4220,10 @@ pub struct CollectorRuns {
     pub duration_ms: i64,
     /// `outcome` — `conductor.observation.CollectorRunOutcome`.
     pub outcome: CollectorRunOutcome,
+    /// `read_bytes` — `Optional<Integer>`.
+    pub read_bytes: Option<i64>,
+    /// `written_bytes` — `Optional<Integer>`.
+    pub written_bytes: Option<i64>,
 }
 
 /// Members a collector could not read — one row of the view `conductor.observation.MemberFailures`.

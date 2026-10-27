@@ -103,6 +103,7 @@ fn adv_w03_u1_another_instance_s_conductor_dev_is_not_labelled_conductor() {
         store: None,
         repositories: Vec::new(),
         runs: vec!["false".to_owned()],
+        pulls: vec!["false".to_owned()],
         disk: dir.join("free.txt"),
         free_bytes: free,
         notify: vec![OsString::from("true")],

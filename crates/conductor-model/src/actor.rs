@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -37,6 +37,8 @@ pub enum Actor {
     ObservationCollector,
     /// `conductor.session.Conductor`.
     SessionConductor,
+    /// `conductor.tool.InstanceBroker`.
+    ToolInstanceBroker,
 }
 
 impl Actor {
@@ -54,6 +56,7 @@ impl Actor {
         Actor::ImprovementOperator,
         Actor::ObservationCollector,
         Actor::SessionConductor,
+        Actor::ToolInstanceBroker,
     ];
 
     /// The actor's qualified name, as the specification spells it.
@@ -71,6 +74,7 @@ impl Actor {
             Actor::ImprovementOperator => "conductor.improvement.Operator",
             Actor::ObservationCollector => "conductor.observation.Collector",
             Actor::SessionConductor => "conductor.session.Conductor",
+            Actor::ToolInstanceBroker => "conductor.tool.InstanceBroker",
         }
     }
 }
@@ -80,6 +84,7 @@ impl Actor {
 pub fn may(actor: Actor) -> &'static [&'static str] {
     match actor {
         Actor::DecisionConductor => &[
+            "conductor.decision.AmendEscalatedRequest",
             "conductor.decision.AnswerRequest",
             "conductor.decision.EscalateRequest",
             "conductor.decision.RecordConductorDecision",
@@ -132,6 +137,7 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.dispatch.StopController",
         ],
         Actor::DispatchRepositoryController => &[
+            "conductor.dispatch.ReceiveMessage",
             "conductor.dispatch.RecordGuardDecision",
             "conductor.dispatch.ReleaseResource",
             "conductor.dispatch.ReportBlocked",
@@ -175,6 +181,17 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
         ],
         Actor::SessionConductor => &[
             "conductor.session.ClaimLease",
+            "conductor.session.DeliverMessage",
+            "conductor.session.RecordRunTick",
+        ],
+        Actor::ToolInstanceBroker => &[
+            "conductor.dispatch.ReceiveMessage",
+            "conductor.dispatch.ReportBlocked",
+            "conductor.dispatch.ReportDone",
+            "conductor.dispatch.ReportFailed",
+            "conductor.dispatch.ReportStarted",
+            "conductor.dispatch.ReportUnblocked",
+            "conductor.tool.RecordToolCall",
         ],
     }
 }

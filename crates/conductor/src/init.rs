@@ -41,14 +41,14 @@ const RULES: &str = "\
 # Rules
 
 The rules of this organization, each with its source: a decision, a message or a document. Every
-session reads this file at start and follows the section of its role; conductor passes the other
-sections on in the charters and briefs it writes.
+session reads this file at start and follows the section of its role; the director passes the
+other sections on in the charters and briefs it writes.
 
-## Conductor
+## Director
 
-## Repository controller
+## Lead
 
-## conductor-dev
+## Maintainer
 ";
 
 const README: &str = "\

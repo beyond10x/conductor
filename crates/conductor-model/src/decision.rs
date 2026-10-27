@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -8,6 +8,25 @@
 //! Decisions moved one layer up. A repository controller raises a decision request; conductor answers it with a recorded decision when its class is C, and escalates it to the operator when its class is O (he decides: architecture, risk, spending) or H (he acts: a secret, a login, a permission; listed in the daily brief's numbered to-do, never asked one at a time). A decision carries its class, its options, its choice and its reason, and stays in force until it is reversed. Design: docs/design/conductor.md §§ 5–6.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// ClassificationRule — `conductor.decision.ClassificationRule`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassificationRule {
+    /// `data-loss`.
+    DataLoss,
+    /// `history-rewrite`.
+    HistoryRewrite,
+    /// `repository-lifecycle`.
+    RepositoryLifecycle,
+    /// `architecture`.
+    Architecture,
+    /// `credential`.
+    Credential,
+    /// `hands`.
+    Hands,
+    /// `none`.
+    None,
+}
 
 /// Decider — `conductor.decision.Decider`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +77,8 @@ pub enum DecisionLogEvent {
     Answered,
     /// `Escalated`.
     Escalated,
+    /// `Amended`.
+    Amended,
     /// `Withdrawn`.
     Withdrawn,
     /// `Reversed`.
@@ -101,6 +122,12 @@ pub struct DecisionLogLine {
     pub decision_id: Option<DecisionId>,
     /// `escalation_class` — `Optional<conductor.decision.DecisionClass>`.
     pub escalation_class: Option<DecisionClass>,
+    /// `classification_rule` — `Optional<conductor.decision.ClassificationRule>`.
+    pub classification_rule: Option<ClassificationRule>,
+    /// `decider_name` — `Optional<String>`.
+    pub decider_name: Option<String>,
+    /// `prompt_sha256` — `Optional<conductor.decision.PromptHash>`.
+    pub prompt_sha256: Option<PromptHash>,
 }
 
 /// The states of `conductor.decision.DecisionRequest`, as runtime values.
@@ -118,6 +145,21 @@ pub enum DecisionRequestState {
     /// `Withdrawn`.
     Withdrawn,
 }
+
+/// HandleRequest — `conductor.decision.HandleRequest`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandleRequest {
+    /// `request` — `String`.
+    pub request: String,
+    /// `decider` — `Optional<String>`.
+    pub decider: Option<String>,
+}
+
+/// PromptHash — `conductor.decision.PromptHash`: a distinct wrapper around `String`.
+///
+/// Every character is one of `0123456789abcdef`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptHash(pub String);
 
 /// RequestId — `conductor.decision.RequestId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +226,10 @@ pub struct DecisionData {
     pub operator_words: Option<String>,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<crate::observation::RepositoryName>,
+    /// `decider_name` — `Optional<String>`.
+    pub decider_name: Option<String>,
+    /// `prompt_sha256` — `Optional<conductor.decision.PromptHash>`.
+    pub prompt_sha256: Option<PromptHash>,
 }
 
 /// The states of `conductor.decision.Decision`, at the type level.
@@ -351,6 +397,8 @@ pub struct DecisionRequestData {
     pub raised_at: crate::primitives::Timestamp,
     /// `blocker` — `Optional<String>`.
     pub blocker: Option<String>,
+    /// `classification_rule` — `Optional<conductor.decision.ClassificationRule>`.
+    pub classification_rule: Option<ClassificationRule>,
     /// `escalation_class` — `Optional<conductor.decision.DecisionClass>`.
     pub escalation_class: Option<DecisionClass>,
     /// `escalation_reason` — `Optional<String>`.
@@ -592,6 +640,57 @@ impl AnyDecisionRequest {
     }
 }
 
+/// Amend an escalated decision request — the input of `conductor.decision.AmendEscalatedRequest`.
+///
+/// Everything it can result in is [`AmendEscalatedRequestOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmendEscalatedRequest {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+    /// `reason` — `String`.
+    pub reason: String,
+    /// `kind` — `Optional<conductor.decision.RequestKind>`.
+    pub kind: Option<RequestKind>,
+    /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
+    pub lettered_options: Option<Vec<RequestOption>>,
+    /// `recommended_letters` — `Optional<String>`.
+    pub recommended_letters: Option<String>,
+    /// `default_letters` — `Optional<String>`.
+    pub default_letters: Option<String>,
+    /// `deadline` — `Optional<Timestamp>`.
+    pub deadline: Option<crate::primitives::Timestamp>,
+    /// `dry_run` — `Optional<String>`.
+    pub dry_run: Option<String>,
+}
+
+/// Everything `conductor.decision.AmendEscalatedRequest` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AmendEscalatedRequestOutcome {
+    /// `amended` — when the existing subject is in Escalated.
+    ///
+    /// The escalated request carries the fields given and waits for the operator.
+    Amended {
+        /// The `conductor.decision.RequestAmended` this outcome publishes.
+        request_amended: RequestAmended,
+    },
+    /// `no-such-request` — for an identity no record carries.
+    NoSuchRequest {
+        /// Why it was refused: `conductor.decision.RequestNotFound`.
+        error: RequestNotFound,
+    },
+    /// `not-escalated` — otherwise.
+    ///
+    /// Only an escalated request is amended; an open, answered or withdrawn one is unchanged.
+    NotEscalated {
+        /// Why it was refused: `conductor.decision.RequestStateConflict`.
+        error: RequestStateConflict,
+    },
+}
+
 /// Answer an escalated decision request — the input of `conductor.decision.AnswerEscalatedRequest`.
 ///
 /// Everything it can result in is [`AnswerEscalatedRequestOutcome`].
@@ -793,6 +892,8 @@ pub struct RaiseDecisionRequest {
     pub raised_at: crate::primitives::Timestamp,
     /// `blocker` — `Optional<String>`.
     pub blocker: Option<String>,
+    /// `classification_rule` — `Optional<conductor.decision.ClassificationRule>`.
+    pub classification_rule: Option<ClassificationRule>,
 }
 
 /// Everything `conductor.decision.RaiseDecisionRequest` can result in — one variant per declared outcome.
@@ -841,6 +942,10 @@ pub struct RecordConductorDecision {
     pub decided_at: crate::primitives::Timestamp,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<crate::observation::RepositoryName>,
+    /// `decider_name` — `Optional<String>`.
+    pub decider_name: Option<String>,
+    /// `prompt_sha256` — `Optional<conductor.decision.PromptHash>`.
+    pub prompt_sha256: Option<PromptHash>,
 }
 
 /// Everything `conductor.decision.RecordConductorDecision` can result in — one variant per declared outcome.
@@ -1146,6 +1251,13 @@ pub struct DecisionReversedEvent {
     pub reason: String,
 }
 
+/// RequestAmended — the event `conductor.decision.RequestAmended`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestAmended {
+    /// `request_id` — `conductor.decision.RequestId`.
+    pub request_id: RequestId,
+}
+
 /// RequestAnswered — the event `conductor.decision.RequestAnswered`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAnswered {
@@ -1330,6 +1442,10 @@ pub struct Decisions {
     pub operator_words: Option<String>,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<crate::observation::RepositoryName>,
+    /// `decider_name` — `Optional<String>`.
+    pub decider_name: Option<String>,
+    /// `prompt_sha256` — `Optional<conductor.decision.PromptHash>`.
+    pub prompt_sha256: Option<PromptHash>,
 }
 
 /// Class-H to-do — one row of the view `conductor.decision.HandsTodo`.
@@ -1396,6 +1512,8 @@ pub struct Requests {
     pub raised_at: crate::primitives::Timestamp,
     /// `blocker` — `Optional<String>`.
     pub blocker: Option<String>,
+    /// `classification_rule` — `Optional<conductor.decision.ClassificationRule>`.
+    pub classification_rule: Option<ClassificationRule>,
     /// `kind` — `Optional<conductor.decision.RequestKind>`.
     pub kind: Option<RequestKind>,
     /// `lettered_options` — `Optional<List<conductor.decision.RequestOption>>`.
@@ -1414,6 +1532,17 @@ pub struct Requests {
 /// per generated behaviour, which [`Generated`](crate::behaviour::Generated) implements.
 /// [`Unimplemented`](obligations::Unimplemented) satisfies every owed trait by refusing in the type system.
 pub mod obligations {
+    /// The behaviour `conductor.decision.AmendEscalatedRequest` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait AmendEscalatedRequestBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.decision.AmendEscalatedRequest`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn amend_escalated_request(&mut self, input: super::AmendEscalatedRequest) -> Result<super::AmendEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
+    }
+
     /// The behaviour `conductor.decision.AnswerEscalatedRequest` — generated.
     ///
     /// The specification fully determines it: [`crate::behaviour::Generated`] implements it

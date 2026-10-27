@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:build-run-load-races
 kind: story
-status: draft
+status: implemented
 title: Two in-process build_run cases pass under heavy load
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T15:45:12Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-16T15:45:12Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-16T15:45:12Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: build-run-load-races
 

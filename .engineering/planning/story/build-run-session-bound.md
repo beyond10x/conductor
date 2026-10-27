@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:build-run-session-bound
 kind: story
-status: draft
+status: implemented
 title: A build request ends when the session that made it stops
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T11:24:26Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T11:24:26Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T11:24:27Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: build-run-session-bound
 
@@ -17,7 +21,7 @@ A session that stops or pauses, for example on a usage limit, gives up its queue
 On 2026-10-15 at ~07:40Z, three conductor-dev implementors had paused on a usage limit until 11:00Z. Their `conductor build run` requests (`--reserve 8G` cargo test, `--reserve 4G` docs-generate, `--reserve 1G` cargo fmt) stayed queued in the host ledger.
 - Their `;`-chained shells started the next command each time one was killed.
 - A poll loop (`until grep -q … ; do sleep 10; done`) waited for output that would never come.
-- These processes held the trees, so `worktree discard-cache` refused with `worktree-in-use`, while builds of substrate, cortex and canon were refused for disk (a conductor decision, 2026-10-15).
+- These processes held the trees, so `worktree discard-cache` refused with `worktree-in-use`, while builds of substrate, cortex and canon were refused for disk (a conductor decision).
 
 Related: story:reserve-from-peak, story:build-run-priority.
 

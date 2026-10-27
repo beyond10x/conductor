@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-17T13:54:10Z",
+  "actor": "human:timo",
+  "artifact": "story:build-run-repo-cache",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "build-run-repo-cache committed 1eadd88e by its implementor with red-first tests; CI on the 0.17.3 PR is the gate"
+  }
+}

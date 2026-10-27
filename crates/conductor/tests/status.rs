@@ -880,7 +880,7 @@ fn status_prints_its_six_parts_from_the_store_and_starts_no_snapshot() {
     .to_owned();
     let snapshots = snapshot_count(&root);
 
-    let status = status_of(&root, &[]);
+    let status = status_of(&root, &["--full"]);
 
     assert_eq!(headings(&status), STATUS_PARTS, "{status}");
     let header = section(&status, "# Status");
@@ -949,7 +949,7 @@ fn status_without_a_complete_snapshot_says_so_and_prints_the_rest() {
     propose_goal(&root);
     let open = dispatch_to(&root, "alpha");
 
-    let status = status_of(&root, &[]);
+    let status = status_of(&root, &["--full"]);
 
     assert_eq!(headings(&status), STATUS_PARTS, "{status}");
     assert!(
@@ -1088,7 +1088,7 @@ fn status_counts_the_unanswered_operator_items_and_the_oldest_one_s_age() {
             .expect("a fixed instant");
 
     let before = (time::OffsetDateTime::now_utc() - raised).whole_seconds();
-    let text = status_of(&root, &[]);
+    let text = status_of(&root, &["--full"]);
     let json: Value =
         serde_json::from_str(&status_of(&root, &["--format", "json"])).expect("the status is JSON");
     let after = (time::OffsetDateTime::now_utc() - raised).whole_seconds();
@@ -1116,7 +1116,7 @@ fn status_without_an_unanswered_operator_item_counts_none() {
     complete(&root, EARLIER, "base");
     raise_at(&root, "REQ-OPEN", EARLIER);
 
-    let text = status_of(&root, &[]);
+    let text = status_of(&root, &["--full"]);
     let json: Value =
         serde_json::from_str(&status_of(&root, &["--format", "json"])).expect("the status is JSON");
 
@@ -1127,6 +1127,100 @@ fn status_without_an_unanswered_operator_item_counts_none() {
     assert_eq!(json["unanswered_operator_items"], 0, "{json}");
     assert_eq!(json["oldest_unanswered_request_id"], Value::Null, "{json}");
     assert_eq!(json["oldest_unanswered_age_seconds"], Value::Null, "{json}");
+}
+
+/// `story:conductor-context-budget`: without `--full`, `conductor status` prints only what asks
+/// for attention, one line each and no heading: the snapshot, each repository's deviations with
+/// its failing checks, each blocked dispatch, each pending request; a dispatch that is only sent
+/// and the sessions are left out, and one closing line counts them and names `--full`. The
+/// unanswered operator items are named when there are any.
+#[test]
+fn status_prints_the_attention_lines_by_default_and_full_prints_every_part() {
+    let root = case_dir("status-attention");
+    let snapshot = complete(&root, EARLIER, "checks");
+    propose_goal(&root);
+    let sent = dispatch_to(&root, "alpha");
+    let blocked = dispatch_to(&root, "beta");
+    printed(
+        &root,
+        &["dispatch", "report-started", "--dispatch-id", &blocked],
+    );
+    printed(
+        &root,
+        &[
+            "dispatch",
+            "report-blocked",
+            "--dispatch-id",
+            &blocked,
+            "--reason",
+            "waits on a token",
+        ],
+    );
+    raise_at(&root, "REQ-1", LATER);
+
+    let brief = status_of(&root, &[]);
+    let full = status_of(&root, &["--full"]);
+
+    assert!(
+        brief.lines().all(|line| !line.starts_with('#')),
+        "the attention lines carry no heading:\n{brief}"
+    );
+    let has = |start: &str| brief.lines().any(|line| line.starts_with(start));
+    assert!(
+        has(&format!("snapshot {snapshot}")),
+        "a line names the snapshot:\n{brief}"
+    );
+    assert!(
+        brief
+            .lines()
+            .any(|line| line.starts_with("deviation alpha: failing PR")
+                && line.contains(&CHECKS_ALPHA.join("; "))),
+        "alpha's deviations with its failing checks, on one line:\n{brief}"
+    );
+    assert!(
+        has("deviation beta: no checkout"),
+        "beta's deviation:\n{brief}"
+    );
+    assert!(
+        has(&format!("blocked {blocked} beta")),
+        "the blocked dispatch:\n{brief}"
+    );
+    assert!(
+        brief
+            .lines()
+            .any(|line| line.starts_with("request decision REQ-1 alpha")
+                && line.contains("which token scope?")),
+        "the pending request:\n{brief}"
+    );
+    assert!(
+        !brief.contains(&sent),
+        "a dispatch that is only sent asks for no attention:\n{brief}"
+    );
+    assert!(
+        !brief.contains("Busy"),
+        "the sessions are left out:\n{brief}"
+    );
+    let last = brief.lines().last().unwrap_or_default();
+    assert!(
+        last.contains("2 open dispatches") && last.contains("--full"),
+        "the closing line counts what it left out and names --full: {last:?}"
+    );
+    assert!(
+        !has("unanswered"),
+        "no unanswered operator item, no line for it:\n{brief}"
+    );
+
+    assert_eq!(headings(&full), STATUS_PARTS, "{full}");
+    assert!(
+        section(&full, "## Open dispatches").contains(&sent),
+        "--full lists the sent dispatch:\n{full}"
+    );
+    assert!(
+        brief.len() * 2 < full.len(),
+        "the attention lines are under half of the full status: {} of {} bytes",
+        brief.len(),
+        full.len()
+    );
 }
 
 /// Rule 7: `conductor status` is a view; it opens only an existing store and creates none.
@@ -1170,7 +1264,7 @@ fn status_names_every_failing_check_of_a_pull_request() {
     let root = case_dir("status-check-names");
     complete(&root, EARLIER, "checks");
 
-    let status = status_of(&root, &[]);
+    let status = status_of(&root, &["--full"]);
     assert_eq!(
         failing_checks_cell(&status, "alpha"),
         CHECKS_ALPHA.join("; "),

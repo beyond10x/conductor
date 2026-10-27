@@ -22,7 +22,7 @@
 //! to the records' dispatch log ([`crate::records`]): `sent`, `started`, `blocked`, `unblocked`,
 //! `done`, `failed`, `cancelled`, with the dispatch's id and its repository as `repo`.
 //!
-//! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
+//! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing. It
 //! lists every row it can read, in the order the dispatches were first stored, and answers through
 //! [`crate::store::show`].
 
@@ -426,7 +426,7 @@ pub fn dispatches(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "waits_on",
     ];
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .dispatches()
         .map_err(|unmet| anyhow!("dispatch dispatches: {unmet}"))?;

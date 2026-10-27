@@ -1021,7 +1021,15 @@ fn a_request_id_is_given_and_never_reused() {
 #[test]
 fn every_command_names_a_missing_flag() {
     let case = Case::new("missing-flags");
-    let missing: [(&[&str], &str); 8] = [
+    let missing: [(&[&str], &str); 10] = [
+        (
+            &["decision", "amend-escalated-request", "--request-id", "r"],
+            "--reason",
+        ),
+        (
+            &["decision", "amend-escalated-request", "--reason", "x"],
+            "--request-id",
+        ),
         (
             &[
                 "decision",
@@ -1153,7 +1161,8 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
              \"decided_by\":\"Conductor\",\"choice\":\"A\",\"question\":\"which way?\",\
              \"options\":\"A: one way; B: the other\",\"reason\":\"A is reversible\",\
              \"evidence\":\"the request's own text\",\"decided_at\":\"{AT}\",\
-             \"recorded_by\":null,\"operator_words\":null,\"repository\":null}}"
+             \"recorded_by\":null,\"operator_words\":null,\"repository\":null,\
+             \"decider_name\":null,\"prompt_sha256\":null}}"
         ),
         "the view's fields in the specification's order"
     );
@@ -1168,8 +1177,10 @@ fn each_export_lists_rows_in_the_order_first_stored_and_is_byte_identical() {
         .expect("a JSON object")
         .keys()
         .collect();
-    // Eleven fields, and the five of what the operator chooses from (story:decisions-page).
-    assert_eq!(keys.len(), 16);
+    // Eleven fields, the rule that classified the request (story:decide-model-adapter), and the
+    // five of what the operator chooses from (story:decisions-page).
+    assert_eq!(keys.len(), 17);
+    assert_eq!(requests[1]["classification_rule"], Value::Null);
     assert_eq!(requests[1]["blocker"], Value::Null);
     assert_eq!(requests[1]["escalation_class"], Value::Null);
     let raw = case.ok(&["decision", "requests", "--format", "jsonl"]);
@@ -1580,14 +1591,17 @@ fn a_decision_names_its_repository_and_the_decisions_view_reads_it_back() {
     let raw = case.ok(&["decision", "decisions", "--format", "jsonl"]);
     let first = raw.lines().next().expect("a row");
     assert!(
-        first.ends_with(",\"operator_words\":null,\"repository\":\"alpha\"}"),
-        "repository is the view's last field: {first:?}"
+        first.ends_with(
+            ",\"operator_words\":null,\"repository\":\"alpha\",\"decider_name\":null,\
+             \"prompt_sha256\":null}"
+        ),
+        "repository is the view's field before the decider's two: {first:?}"
     );
     let shown = case.ok(&["decision", "show", "--decision-id", &operators]);
     assert_eq!(
-        shown.lines().last(),
+        shown.lines().rev().nth(2),
         Some("repository: beta"),
-        "`decision show` prints it last: {shown:?}"
+        "`decision show` prints it before the decider's two fields: {shown:?}"
     );
 }
 
@@ -1780,4 +1794,161 @@ fn options_that_do_not_fit_their_kind_are_refused() {
         &with("several-of", two, "A,B", "A"),
     ));
     assert_eq!(case.request("o-bad")["recommended_letters"], "A,B");
+}
+
+/// The arguments of `amend-escalated-request` of `request`, with `more` after them.
+fn amendment<'a>(request: &'a str, more: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec![
+        "decision",
+        "amend-escalated-request",
+        "--request-id",
+        request,
+        "--reason",
+        "the profile asks for a default",
+    ];
+    args.extend_from_slice(more);
+    args
+}
+
+/// `story:request-amend-escalated`: an escalated request is completed in place. A field given
+/// replaces the held one, a field left out stays, and the `requests` view reads the result.
+#[test]
+fn an_escalated_request_is_amended_in_place() {
+    let case = Case::new("amend-escalated");
+    case.raise("a-1", "alpha");
+    case.quiet(&escalation("a-1", "O", &O_CHOICES));
+
+    case.quiet(&amendment(
+        "a-1",
+        &[
+            "--default-letters",
+            "A",
+            "--deadline",
+            "2026-10-20T10:00:00Z",
+        ],
+    ));
+    let row = case.request("a-1");
+    assert_eq!(row["state"], "Escalated");
+    assert_eq!(row["default_letters"], "A");
+    assert_eq!(row["deadline"], "2026-10-20T10:00:00Z");
+    assert_eq!(row["kind"], "one-of", "a field left out stays");
+    assert_eq!(row["recommended_letters"], "A", "a field left out stays");
+    assert_eq!(
+        row["lettered_options"],
+        serde_json::from_str::<Value>(LETTERED).expect("the options are JSON"),
+        "the options are left as they were"
+    );
+
+    case.quiet(&amendment(
+        "a-1",
+        &[
+            "--kind",
+            "several-of",
+            "--lettered-options",
+            r#"[{"letter":"A","label":"keep the file store","cost":"nothing now"},{"letter":"C","label":"a third way","cost":"a day"}]"#,
+            "--recommended-letters",
+            "A,C",
+            "--default-letters",
+            "C",
+            "--dry-run",
+            "nothing to run",
+        ],
+    ));
+    let row = case.request("a-1");
+    assert_eq!(row["kind"], "several-of");
+    assert_eq!(row["recommended_letters"], "A,C");
+    assert_eq!(row["default_letters"], "C");
+    assert_eq!(
+        row["lettered_options"],
+        json!([
+            {"letter": "A", "label": "keep the file store", "cost": "nothing now"},
+            {"letter": "C", "label": "a third way", "cost": "a day"},
+        ])
+    );
+}
+
+/// `story:request-amend-escalated`: an open, answered or withdrawn request is refused with
+/// `RequestStateConflict` and stays as it was; so is one nobody raised.
+#[test]
+fn only_an_escalated_request_is_amended() {
+    let case = Case::new("amend-not-escalated");
+    case.raise("open-1", "alpha");
+    let stderr = case.refused(
+        &amendment("open-1", &["--default-letters", "A"]),
+        "RequestStateConflict",
+    );
+    assert!(stderr.contains("open-1"), "{stderr:?}");
+    assert_eq!(case.request("open-1")["default_letters"], Value::Null);
+
+    case.raise("answered-1", "alpha");
+    case.quiet(&escalation("answered-1", "O", &O_CHOICES));
+    let decision = case.operator_decision("O");
+    case.quiet(&[
+        "decision",
+        "answer-escalated-request",
+        "--request-id",
+        "answered-1",
+        "--decision-id",
+        &decision,
+    ]);
+    case.refused(
+        &amendment("answered-1", &["--default-letters", "A"]),
+        "RequestStateConflict",
+    );
+    assert_eq!(case.request("answered-1")["default_letters"], "B");
+
+    case.raise("gone-1", "alpha");
+    case.quiet(&[
+        "decision",
+        "withdraw-request",
+        "--request-id",
+        "gone-1",
+        "--reason",
+        "x",
+    ]);
+    case.refused(
+        &amendment("gone-1", &["--default-letters", "A"]),
+        "RequestStateConflict",
+    );
+
+    case.refused(
+        &amendment("nobody-1", &["--default-letters", "A"]),
+        "RequestNotFound",
+    );
+}
+
+/// `story:request-amend-escalated`: a default or recommended letter that names no option, an
+/// option without a cost and letters that do not fit the kind are refused with `OptionsInvalid`,
+/// and the request is as it was.
+#[test]
+fn an_amendment_naming_an_unknown_letter_is_refused() {
+    let case = Case::new("amend-invalid");
+    case.raise("bad-1", "alpha");
+    case.quiet(&escalation("bad-1", "O", &O_CHOICES));
+    for (more, says) in [
+        (vec!["--default-letters", "Z"], "Z"),
+        (vec!["--recommended-letters", "Q"], "Q"),
+        (
+            vec![
+                "--lettered-options",
+                r#"[{"letter":"A","label":"one","cost":"x"}]"#,
+            ],
+            "\"B\"",
+        ),
+        (
+            vec![
+                "--lettered-options",
+                r#"[{"letter":"A","label":"one","cost":""},{"letter":"B","label":"two","cost":"y"}]"#,
+            ],
+            "cost",
+        ),
+        (vec!["--kind", "yes-no"], "Y and N"),
+        (vec!["--default-letters", "A,B"], "one letter"),
+    ] {
+        let stderr = case.refused(&amendment("bad-1", &more), "OptionsInvalid");
+        assert!(stderr.contains(says), "says {says:?}: {stderr:?}");
+        let row = case.request("bad-1");
+        assert_eq!(row["default_letters"], "B", "nothing moved");
+        assert_eq!(row["kind"], "one-of", "nothing moved");
+    }
 }

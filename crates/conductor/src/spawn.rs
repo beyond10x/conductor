@@ -68,7 +68,7 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
     CommandWord, ConfinementProvider, Harness as RoleHarness, Instance, Limits, Network, Role,
-    SessionName,
+    RoleName, SessionName,
 };
 use conductor_model::dispatch::obligations::{StartControllerBehavior, StopControllerBehavior};
 use conductor_model::dispatch::{
@@ -370,6 +370,7 @@ fn controller_launch(
                 repository: Some(repository.to_owned()),
                 trees: PathBuf::from(&instance.checkouts.trees),
                 records: PathBuf::from(&instance.records),
+                cache: PathBuf::from(&instance.cache),
                 harness: role.harness,
                 controller: true,
             },
@@ -377,7 +378,22 @@ fn controller_launch(
         network: role.network,
         forge_token_env: role.forge_token_env.clone(),
     };
-    let mut env = Vec::new();
+    // The session's socket to the instance's broker (`story:tool-broker-read`): registered with
+    // the controller role's grant before the session starts, and named in its environment. It is
+    // the repository's lead, reporting to the director (`story:tool-build-commit-report`).
+    let socket = crate::broker::register_session(
+        state_dir,
+        &instance.name,
+        role,
+        &session_name,
+        checkout,
+        crate::broker::placement(instance, config::CONTROLLER, Some(repository)),
+    )
+    .context(COMMAND)?;
+    let mut env = vec![(
+        conductor_broker::SOCKET_VARIABLE.to_owned(),
+        socket.display().to_string(),
+    )];
     if active.from_file {
         // Absolute, as the guard resolves it: the session runs in the checkout, where a relative
         // path would name a file of the repository.
@@ -666,12 +682,13 @@ fn outside_records(instance: &Instance, checkout: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The `controller` role, with its profile, settings and model, each file checked to be one.
+/// The `lead` role, or one under its old name `controller` (`story:role-name-aliases`), with its
+/// profile, settings and model, each file checked to be one.
 fn role(instance: &Instance) -> Result<(&Role, String, String, String), (SpawnRefusal, String)> {
     let Some(role) = instance
         .roles
         .iter()
-        .find(|role| role.role == config::CONTROLLER)
+        .find(|role| config::is_role(&role.role, RoleName::Lead))
     else {
         return Err((
             SpawnRefusal::NoControllerRole,

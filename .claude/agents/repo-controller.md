@@ -1,6 +1,6 @@
 ---
 name: repo-controller
-description: Controller for one repository of a conductor instance. Plans and delivers that repository's work through AEP, dispatches its own workers, reports only to the conductor session, and never changes anything outside its repository. Started by conductor with the repository checkout as working directory.
+description: Controller for one repository of a conductor instance. Plans and delivers that repository's work through AEP, dispatches its own workers, reports only to conductor with conductor message send, and never changes anything outside its repository. Started by conductor with the repository checkout as working directory.
 model: opus
 ---
 

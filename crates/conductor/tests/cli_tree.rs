@@ -1126,6 +1126,8 @@ fn local_flags_accept(base: &[&str], flags: &[LocalFlag], problems: &mut Vec<Str
         let (accepted, refused): (&[&str], &[&str]) = match flag.holds.as_str() {
             "integer" => (&["42"], &["4.2", "x"]),
             "string" => (&["a value"], &[]),
+            // A list is a repeatable flag: each occurrence is one item.
+            "list" => (&["a value"], &[]),
             "boolean" => (&["true", "false"], &["maybe"]),
             other => {
                 problems.push(format!(

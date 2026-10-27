@@ -35,6 +35,9 @@ export interface CollectorRun {
   duration_ms: number | null;
   /** How the run ended, as the specification names it: `Completed`, `Failed`, `OverBudget`. */
   outcome: string;
+  /** The bytes the snapshot read and wrote while it ran; `null` where they were not recorded. */
+  read_bytes: number | null;
+  written_bytes: number | null;
 }
 
 /** The class of a member failure's first line, as `/api/health` names it. */
@@ -64,11 +67,20 @@ export interface WasteRow {
 }
 
 /** `ok` above `thresholds.disk_low`, `low` at or below it, `admit-only` at or below `disk_admit`. */
+/** One instance's open fall of free disk and its operator item. */
+export interface DiskFall {
+  prefix: string;
+  instance: string;
+  item: string;
+}
+
 export type DiskState = 'ok' | 'low' | 'admit-only';
 
 /** The free disk against the instance's floors, and every disk-waste row. */
 export interface DiskHealth {
   path: string;
+  /** Every instance's open fall of free disk on the host (`falls/<prefix>.json`). */
+  falls: DiskFall[];
   free_bytes: number | null;
   disk_low_bytes: number;
   disk_admit_bytes: number;
@@ -81,6 +93,25 @@ export interface DiskHealth {
   rows: WasteRow[];
 }
 
+/**
+ * What the dashboard's process holds in memory (story:dashboard-memory-bound):
+ * `conductor.observation.DashboardMemory`.
+ */
+export interface MemoryHealth {
+  /** Its resident set; null where the system does not report it. */
+  rss_bytes: number | null;
+  /** What of it is swapped out; null where the system does not report it. */
+  swap_bytes: number | null;
+  store_handles: number;
+  store_replays: number;
+  /** The most replays of one tree alive at once since start: 1 when bounded. */
+  store_replays_peak: number;
+  store_bytes: number;
+  memo_entries: number;
+  memo_entries_peak_endpoint: number;
+  memo_bytes: number;
+}
+
 /** `/api/health`. */
 export interface HealthData {
   generated_at: string;
@@ -89,6 +120,7 @@ export interface HealthData {
   collector_runs: CollectorRun[];
   member_failures: MemberFailure[];
   disk: DiskHealth;
+  memory: MemoryHealth;
   errors: string[];
 }
 

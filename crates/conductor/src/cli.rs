@@ -37,16 +37,20 @@
 //! stop` (`story:sandbox-spec`) the `session` group; `build run` (`story:build-run`)
 //! alone also takes the words after `--`, as written: the command it runs.
 //!
+//! `config migrate` (`story:instance-names-unique`) joins the `config` group, and `message send`
+//! and `session deliver` (`story:mailbox-send-and-deliver`) the `message` and `session` groups.
+//!
 //! `config validate` and `config show` (`story:config-file`) are such commands too, and the only
 //! ones that read the global `--config`, named by `globals.config` of the binding, which is taken
 //! before or after any subcommand as `--state-dir` is.
 //!
-//! Eight such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
+//! Nine such commands are one word, with no group: `trust` (`story:portable-trust`) and `init`
 //! (`story:first-run-seed`), which read the config file themselves as `config show` does,
 //! `doctor` (`story:install-prerequisites`) and `setup` (`story:setup-command`), which read it
 //! for what they report and stop on no problem of it, `gc` (`story:conductor-gc`), `spawn`
-//! (`story:spawn`), `status` (`story:status-command`), a view over the store, and `upgrade`
-//! (`story:conductor-upgrade`), which reads no config file.
+//! (`story:spawn`), `run` (`story:run-daemon`), the instance's loop, `status`
+//! (`story:status-command`), a view over the store, and `upgrade` (`story:conductor-upgrade`),
+//! which reads no config file.
 //!
 //! [`LEAVES`] declares of every leaf whether it writes, and so whether a controller's session may
 //! run it ([`Access`]); the guard reads that declaration, not a list of its own
@@ -116,6 +120,7 @@ pub fn access_of(words: &[String]) -> Option<Access> {
 /// Whether the leaf `words` names writes the instance's records, or reads them into what it
 /// writes (`story:instance-isolation`): every writing leaf of `decision`, `dispatch`, `message`,
 /// `resource` and `controller`, whose events are lines of the decision and dispatch logs; `spawn`;
+/// `session deliver`, whose delivery is a line of the dispatch log;
 /// `snapshot publish-board`; `snapshot start-snapshot` and `complete-snapshot`, whose rollups read
 /// the dispatch log; and `build run`, whose shortfall raises an operator item. Such a leaf writes
 /// its records to the instance's `records`, so its store is the instance's `state` too
@@ -125,7 +130,7 @@ pub fn writes_records(words: &[String]) -> bool {
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     let writes = matches!(
         access_of_words(&words),
-        Some(Access::Writes | Access::RunWrites)
+        Some(Access::Writes | Access::RunWrites | Access::MailboxWrites)
     );
     writes
         && matches!(
@@ -134,6 +139,8 @@ pub fn writes_records(words: &[String]) -> bool {
                 "decision" | "dispatch" | "message" | "resource" | "controller",
                 _
             ] | ["spawn"]
+                | ["session", "deliver"]
+                | ["run"]
                 | ["build", "run"]
                 | [
                     "snapshot",
@@ -186,6 +193,9 @@ impl Cli {
                     .err()
                     .map(|error| format!("{error:#}"));
             }
+            // Attach and its listing read every instance of the file, from any directory, so
+            // they select none.
+            Group::Session(SessionCommand::Attach(_) | SessionCommand::List(_)) => {}
             _ => crate::config::set_active(self.config.as_deref())?,
         }
         if let Some(dir) = &self.state_dir {
@@ -286,6 +296,9 @@ impl Cli {
                     decide::answer_escalated_request(state, args)
                 }
                 DecisionCommand::EscalateRequest(args) => decide::escalate_request(state, args),
+                DecisionCommand::AmendEscalatedRequest(args) => {
+                    decide::amend_escalated_request(state, args)
+                }
                 DecisionCommand::WithdrawRequest(args) => decide::withdraw_request(state, args),
                 DecisionCommand::ReverseConductorDecision(args) => {
                     decide::reverse_conductor_decision(state, args)
@@ -297,6 +310,10 @@ impl Cli {
                 DecisionCommand::HandsTodo(view) => decide::hands_todo(state, view),
                 DecisionCommand::Decisions(view) => decide::decisions(state, view),
                 DecisionCommand::Show(args) => decide::show(state, args),
+                DecisionCommand::Handle(args) => match args.request {
+                    Some(request) => decide::handle(state, &request, args.decider.as_deref()),
+                    None => anyhow::bail!("decision handle: --request is missing"),
+                },
             },
             Group::Controller(command) => match command {
                 ControllerCommand::StartController(args) => {
@@ -312,7 +329,8 @@ impl Cli {
                     controller::stop_controller(state, args, providers)
                 }
                 ControllerCommand::ReviseCharter(args) => controller::revise_charter(state, args),
-                ControllerCommand::Controllers(view) => controller::controllers(state, view),
+                ControllerCommand::AllControllers(view) => controller::all_controllers(state, view),
+                ControllerCommand::Controllers(args) => controller::controllers(state, &args),
             },
             Group::Dispatch(command) => match command {
                 DispatchCommand::SendDispatch(args) => dispatch::send_dispatch(state, args),
@@ -330,6 +348,7 @@ impl Cli {
                 MessageCommand::RejectMessage(args) => message::reject_message(state, args),
                 MessageCommand::RouteNeed(args) => message::route_need(state, args),
                 MessageCommand::Messages(view) => message::messages(state, view),
+                MessageCommand::Send(args) => message::send(state, &args),
             },
             Group::Resource(command) => match command {
                 ResourceCommand::RequestResource(args) => resource::request_resource(state, args),
@@ -347,11 +366,27 @@ impl Cli {
             },
             Group::Session(command) => match command {
                 SessionCommand::Claim(args) => session::claim(state, args),
+                // `session deliver` types the text and records its own delivery
+                // (story:mailbox-send-and-deliver); the placed deliver-message leaf, a record
+                // with nothing typed, is not written.
+                SessionCommand::DeliverMessage(_) => {
+                    crate::not_implemented("session deliver-message")
+                }
+                SessionCommand::RecordRunTick(args) => crate::run::record_run_tick(state, &args),
+                SessionCommand::Deliveries(view) => session::deliveries(state, view),
                 SessionCommand::Leases(view) => session::leases(state, view),
+                SessionCommand::RunTicks(view) => crate::run::run_ticks(state, view),
+                SessionCommand::Deliver(args) => session::deliver(state, &args),
                 SessionCommand::Start(args) => {
                     session::start(self.config.as_deref(), state, &args, providers)
                 }
                 SessionCommand::Stop(args) => session::stop(state, &args, providers),
+                SessionCommand::Attach(args) => {
+                    crate::attach::attach(self.config.as_deref(), state, &args)
+                }
+                SessionCommand::List(args) => {
+                    crate::attach::list(self.config.as_deref(), state, &args)
+                }
             },
             Group::Host(command) => match command {
                 // `host reclaim` records its own runs (`crate::gc::reclaim`); the placed
@@ -369,6 +404,7 @@ impl Cli {
                 HostCommand::Reclaim(args) => {
                     crate::gc::reclaim::run_reclaim(state, args.format.as_deref())
                 }
+                HostCommand::Slices(args) => crate::slices::host_slices(&args),
             },
             // The metrics and their readings (story:kpi-records).
             Group::Metric(command) => match command {
@@ -395,10 +431,16 @@ impl Cli {
                 }
                 FindingCommand::Findings(_) => crate::not_implemented("finding findings"),
             },
+            Group::Broker(command) => match command {
+                BrokerCommand::Serve => crate::broker::broker_serve(state),
+            },
             Group::Build(command) => match command {
                 BuildCommand::Run(args) => build::build_run(state, &args),
             },
             Group::Config(command) => match command {
+                ConfigCommand::Migrate(args) => {
+                    crate::config::migrate(self.config.as_deref(), &args)
+                }
                 ConfigCommand::Show(args) => crate::config::show(self.config.as_deref(), &args),
                 ConfigCommand::Validate(args) => {
                     crate::config::validate(self.config.as_deref(), &args)
@@ -413,12 +455,16 @@ impl Cli {
             Group::Doctor => crate::doctor::doctor_with(self.config.as_deref(), providers),
             Group::Gc(args) => crate::gc::gc(&args),
             Group::Init(args) => crate::init::init(self.config.as_deref(), &args),
+            Group::Need(command) => match command {
+                NeedCommand::New(args) => crate::need::need_new(&args),
+            },
             Group::Records(command) => match command {
                 RecordsCommand::Check(args) => crate::records::records_check(state, &args),
             },
             Group::Rules(command) => match command {
                 RulesCommand::Show(args) => crate::rules::rules_show(&args),
             },
+            Group::Run(args) => crate::run::run(self.config.as_deref(), state, &args, providers),
             Group::Setup(args) => crate::setup::setup(self.config.as_deref(), &args),
             Group::Spawn(args) => {
                 crate::spawn::spawn(self.config.as_deref(), state, &args, providers)
@@ -475,7 +521,7 @@ pub enum Group {
     #[command(subcommand)]
     Guard(GuardCommand),
 
-    /// The instance's one conductor session and the lease it holds
+    /// The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks
     #[command(subcommand)]
     Session(SessionCommand),
 
@@ -490,6 +536,11 @@ pub enum Group {
     /// Friction the loop detected, the draft story each is filed as, and the week-later check of the metric it should move
     #[command(subcommand)]
     Finding(FindingCommand),
+
+    // No help, as for `dashboard`: the binding declares the group only through `broker serve`
+    // (`story:tool-broker-read`).
+    #[command(subcommand)]
+    Broker(BrokerCommand),
 
     // No help, as for `dashboard`: the binding declares the group only through `build run`
     // (`story:build-run`).
@@ -517,6 +568,11 @@ pub enum Group {
     #[command(name = "init")]
     Init(InitArgs),
 
+    // No help, as for `dashboard`: the binding declares the group only through `need new`
+    // (`story:need-id-unique`).
+    #[command(subcommand)]
+    Need(NeedCommand),
+
     // No help, as for `dashboard`: the binding declares the group only through `records check`
     // (`story:records-from-commands`).
     #[command(subcommand)]
@@ -527,6 +583,10 @@ pub enum Group {
     #[command(subcommand)]
     Rules(RulesCommand),
 
+    /// Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_<instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+    #[command(name = "run")]
+    Run(RunArgs),
+
     /// Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run
     #[command(name = "setup")]
     Setup(SetupArgs),
@@ -535,7 +595,7 @@ pub enum Group {
     #[command(name = "spawn")]
     Spawn(SpawnArgs),
 
-    /// Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+    /// Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing
     #[command(name = "status")]
     Status(StatusArgs),
 
@@ -576,19 +636,29 @@ pub enum Access {
     /// Writes the host ledger for the session's own run: every session runs it, a controller's
     /// builds included (`build run`, `story:build-run`).
     RunWrites,
+    /// Writes the session's own message: its file in the mailbox under the state directory, its
+    /// record in the store and its line in the records' dispatch log. Every session runs it, a
+    /// controller's reports included (`message send`, `story:mailbox-send-and-deliver`).
+    MailboxWrites,
 }
 
 impl Access {
     /// Whether the leaf writes.
     #[must_use]
     pub const fn writes(self) -> bool {
-        matches!(self, Self::Writes | Self::HookWrites | Self::RunWrites)
+        matches!(
+            self,
+            Self::Writes | Self::HookWrites | Self::RunWrites | Self::MailboxWrites
+        )
     }
 
     /// Whether a controller's session may run the leaf.
     #[must_use]
     pub const fn controller_runs(self) -> bool {
-        matches!(self, Self::Reads | Self::HookWrites | Self::RunWrites)
+        matches!(
+            self,
+            Self::Reads | Self::HookWrites | Self::RunWrites | Self::MailboxWrites
+        )
     }
 }
 
@@ -650,6 +720,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     ),
     (&["decision", "answer-request"], Access::Writes),
     (&["decision", "escalate-request"], Access::Writes),
+    (&["decision", "amend-escalated-request"], Access::Writes),
     (&["decision", "raise-decision-request"], Access::Writes),
     (&["decision", "record-conductor-decision"], Access::Writes),
     (&["decision", "record-operator-decision"], Access::Writes),
@@ -660,11 +731,14 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["decision", "hands-todo"], Access::Reads),
     (&["decision", "requests"], Access::Reads),
     (&["decision", "show"], Access::Reads),
+    // Raises, records or escalates the request, as the run daemon does (story:decide-model-adapter).
+    (&["decision", "handle"], Access::Writes),
     (&["controller", "pause-controller"], Access::Writes),
     (&["controller", "resume-controller"], Access::Writes),
     (&["controller", "revise-charter"], Access::Writes),
     (&["controller", "start-controller"], Access::Writes),
     (&["controller", "stop-controller"], Access::Writes),
+    (&["controller", "all-controllers"], Access::Reads),
     (&["controller", "controllers"], Access::Reads),
     (&["dispatch", "cancel-dispatch"], Access::Writes),
     (&["dispatch", "report-blocked"], Access::Writes),
@@ -679,6 +753,8 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["message", "reject-message"], Access::Writes),
     (&["message", "route-need"], Access::Writes),
     (&["message", "messages"], Access::Reads),
+    // A controller reports through the mailbox (story:mailbox-send-and-deliver).
+    (&["message", "send"], Access::MailboxWrites),
     (&["resource", "grant-resource"], Access::Writes),
     (&["resource", "refuse-resource"], Access::Writes),
     (&["resource", "release-resource"], Access::Writes),
@@ -690,10 +766,23 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Conductor's own SessionStart hook runs it; a controller that claimed the lease would be
     // taken for the instance's conductor.
     (&["session", "claim"], Access::Writes),
+    // Types into another session and records the delivery; the run daemon delivers, a
+    // controller reports with `message send` (story:mailbox-send-and-deliver,
+    // docs/design/conductor-run.md § 3).
+    (&["session", "deliver"], Access::Writes),
+    (&["session", "deliver-message"], Access::Writes),
+    // The run daemon records its ticks (story:run-daemon).
+    (&["session", "record-run-tick"], Access::Writes),
+    (&["session", "deliveries"], Access::Reads),
     (&["session", "leases"], Access::Reads),
-    // Starts or stops the session of the role conductor or conductor-dev (story:sandbox-spec).
+    (&["session", "run-ticks"], Access::Reads),
+    // Starts or stops the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) (story:sandbox-spec).
     (&["session", "start"], Access::Writes),
     (&["session", "stop"], Access::Writes),
+    // Types into a live session's terminal; no session attaches to another
+    // (story:session-attach-command, story:session-attach-refuses-sessions).
+    (&["session", "attach"], Access::Writes),
+    (&["session", "list"], Access::Reads),
     (&["host", "record-reclaim"], Access::Writes),
     (&["host", "record-peak"], Access::Writes),
     (&["host", "release-grant"], Access::Writes),
@@ -706,6 +795,9 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["host", "reclaim-runs"], Access::Reads),
     // Removes what needs no decision until free disk is back over the floor (story:disk-reclaim).
     (&["host", "reclaim"], Access::Writes),
+    // Lists the user manager's conductor slices; --gc stops an empty one no instance names
+    // (story:slice-remove).
+    (&["host", "slices"], Access::Writes),
     (&["metric", "define-metric"], Access::Writes),
     (&["metric", "record-metric-reading"], Access::Writes),
     (&["metric", "set-metric-target"], Access::Writes),
@@ -721,10 +813,17 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     (&["finding", "raise-finding"], Access::Writes),
     (&["finding", "verify-finding"], Access::Writes),
     (&["finding", "findings"], Access::Reads),
+    // Serves the instance's broker and records every call in the store (story:tool-broker-read).
+    (&["broker", "serve"], Access::Writes),
     // Reserves disk in the host ledger and runs the session's own build under the disk watchdog
     // (story:build-run); the guard sends every build through it.
     (&["build", "run"], Access::RunWrites),
+    // Writes a session_prefix into the config file (story:instance-names-unique).
+    (&["config", "migrate"], Access::Writes),
     (&["config", "show"], Access::Reads),
+    // Every session checks its config. Its one write is the host registry's entry of the file it
+    // found valid (story:instance-names-unique): what the file says, under the registry's lock,
+    // none of the store, the records or the instance's files.
     (&["config", "validate"], Access::Reads),
     (&["config", "workspace"], Access::Writes),
     (&["dashboard", "serve"], Access::ConductorReads),
@@ -732,11 +831,17 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // Removes the build caches, trees and targets the disk panel marks reclaimable.
     (&["gc"], Access::Writes),
     (&["init"], Access::Writes),
+    // Keeps the id it prints in the state directory (story:need-id-unique).
+    (&["need", "new"], Access::Writes),
     // Reads conductor's records logs and the store's decisions (story:records-from-commands).
     (&["records", "check"], Access::ConductorReads),
     // Reads the instance's rules.md and nothing else; a controller cites its items in a worker's
     // brief (story:rules-show).
     (&["rules", "show"], Access::Reads),
+    // The instance's loop: records ticks, writes the records' logs and charters, starts and
+    // stops controllers, and with --install or --uninstall starts or stops its user unit
+    // (story:run-daemon).
+    (&["run"], Access::Writes),
     // With --apply, writes the config file, the records and ~/.claude.json (story:setup-command).
     (&["setup"], Access::Writes),
     // Starts a controller's session and records the controller in the store.
@@ -946,6 +1051,10 @@ pub enum RepositoryCommand {
 /// `conductor decision`: decision requests and the decisions that answer them.
 #[derive(Debug, Subcommand)]
 pub enum DecisionCommand {
+    /// Amend an escalated decision request
+    #[command(name = "amend-escalated-request")]
+    AmendEscalatedRequest(AmendEscalatedRequestArgs),
+
     /// Answer an escalated decision request
     #[command(name = "answer-escalated-request")]
     AnswerEscalatedRequest(AnswerEscalatedRequestArgs),
@@ -998,9 +1107,25 @@ pub enum DecisionCommand {
     #[command(name = "requests")]
     Requests(ViewArgs),
 
+    /// Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line
+    #[command(name = "handle")]
+    Handle(HandleRequestArgs),
+
     /// Show one decision
     #[command(name = "show")]
     Show(ShowDecisionArgs),
+}
+
+/// The input of the binding's `decision-handle` callable, `conductor.decision.HandleRequest`
+/// (`story:decide-model-adapter`).
+#[derive(Debug, Clone, Args)]
+pub struct HandleRequestArgs {
+    /// The file holding one `[DECISION-REQUEST]` message, or `-` for standard input
+    #[arg(long, value_name = "FILE")]
+    pub request: Option<String>,
+    /// The Decider adapter that answers class C: claude (the default) or fake
+    #[arg(long)]
+    pub decider: Option<String>,
 }
 
 /// The input of the binding's `decision-show` callable, `conductor.decision.ShowDecision`.
@@ -1037,9 +1162,13 @@ pub enum ControllerCommand {
     #[command(name = "stop-controller")]
     StopController(StopControllerArgs),
 
-    /// Controllers
+    /// All controllers
+    #[command(name = "all-controllers")]
+    AllControllers(ViewArgs),
+
+    /// Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing
     #[command(name = "controllers")]
-    Controllers(ViewArgs),
+    Controllers(ControllersArgs),
 }
 
 /// `conductor dispatch`: briefs to controllers and their reports.
@@ -1100,6 +1229,27 @@ pub enum MessageCommand {
     /// Messages
     #[command(name = "messages")]
     Messages(ViewArgs),
+
+    /// Send a message through the mailbox: read --text, a file or - for standard input, and its first line; leave the whole text as <state>/mailbox/<to>/<ulid>.md and record it received with transport Mailbox and that body path, then print its id; print the format, exit 1 and write nothing when the first line does not parse
+    #[command(name = "send")]
+    Send(SendArgs),
+}
+
+/// The input of the binding's `message-send` callable, `conductor.dispatch.SendToMailbox`
+/// (`story:mailbox-send-and-deliver`).
+#[derive(Debug, Clone, Args)]
+pub struct SendArgs {
+    /// The recipient, whose mailbox directory under the state directory receives the file:
+    /// conductor
+    #[arg(long)]
+    pub to: Option<String>,
+    /// The sending session's full name
+    #[arg(long)]
+    pub from: Option<String>,
+    /// The file holding the message, or - for standard input; its first line is one of the
+    /// message forms
+    #[arg(long, value_name = "FILE")]
+    pub text: Option<String>,
 }
 
 /// `conductor resource`: build slots, disk and usage asked for before they are spent.
@@ -1154,22 +1304,51 @@ pub enum GuardCommand {
     GuardDecisions(ViewArgs),
 }
 
-/// `conductor session`: the instance's one conductor session and the lease it holds.
+/// `conductor session`: the instance's conductor lease, what the run daemon delivers to its
+/// sessions, and the daemon's ticks.
 #[derive(Debug, Subcommand)]
 pub enum SessionCommand {
     /// Claim the conductor lease
     #[command(name = "claim")]
     Claim(ClaimLeaseArgs),
 
+    /// Deliver a message to a session
+    #[command(name = "deliver-message")]
+    DeliverMessage(DeliverMessageArgs),
+
+    /// Record a tick of the run daemon
+    #[command(name = "record-run-tick")]
+    RecordRunTick(RecordRunTickArgs),
+
+    /// Deliveries to sessions
+    #[command(name = "deliveries")]
+    Deliveries(ViewArgs),
+
     /// Conductor leases
     #[command(name = "leases")]
     Leases(ViewArgs),
 
-    /// Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+    /// Ticks of the run daemon
+    #[command(name = "run-ticks")]
+    RunTicks(ViewArgs),
+
+    /// Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
+    #[command(name = "attach")]
+    Attach(AttachArgs),
+
+    /// Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as <state>/mailbox/delivered/<ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again
+    #[command(name = "deliver")]
+    Deliver(DeliverArgs),
+
+    /// Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)
+    #[command(name = "list")]
+    List(ListSessionsArgs),
+
+    /// Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
     #[command(name = "start")]
     Start(SessionRoleArgs),
 
-    /// Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+    /// Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
     #[command(name = "stop")]
     Stop(SessionRoleArgs),
 }
@@ -1221,6 +1400,10 @@ pub enum HostCommand {
     /// Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached
     #[command(name = "reclaim")]
     Reclaim(HostReclaimArgs),
+
+    /// List each systemd user slice of conductor, conductor.slice or conductor_<prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
+    #[command(name = "slices")]
+    Slices(HostSlicesArgs),
 }
 
 /// `conductor metric`: the measured quantities of the self-improvement loop, their daily
@@ -1304,6 +1487,19 @@ pub struct HostReclaimArgs {
     pub format: Option<String>,
 }
 
+/// The input of the binding's `host-slices` callable, `conductor.host.ListSlices`. The format is
+/// text the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct HostSlicesArgs {
+    /// How the slices are printed: text or json. Default: text
+    #[arg(long)]
+    pub format: Option<String>,
+    /// Stop each slice that holds no unit and that no instance of the config file names.
+    /// `--gc` alone is `--gc true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub gc: Option<bool>,
+}
+
 // `conductor build`: the command the binding declares over the `local` callable `build-run`
 // (`story:build-run`). A plain comment, as for `dashboard`.
 #[allow(missing_docs)]
@@ -1318,15 +1514,31 @@ pub enum BuildCommand {
 /// repository as flags, and the command after `--`, taken as it is written.
 #[derive(Debug, Clone, Args)]
 pub struct BuildRunArgs {
-    /// The command's expected peak, in GiB: `8G`, or `8`
-    #[arg(long, value_name = "SIZE", value_parser = crate::build::gibibytes)]
-    pub reserve: Option<i64>,
+    /// The command's expected peak, in GiB: `8G`, or `8`; or `auto`, which is also what no
+    /// `--reserve` means: the largest peak the ledger recorded for the same repository and command
+    /// in the last 14 days plus 50 %, at least 1G, and 4G when none is recorded
+    #[arg(long, value_name = "SIZE")]
+    pub reserve: Option<String>,
     /// The repository the command builds, recorded with the reservation
     #[arg(long)]
     pub repository: Option<String>,
+    /// A directory to measure besides the run's own (`target/`, the working directory, and
+    /// `CARGO_TARGET_DIR` when the command's environment sets it); repeatable
+    #[arg(long, value_name = "DIR")]
+    pub measure: Vec<String>,
     /// The command and its arguments, after `--`
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+// `conductor broker`: the command the binding declares over the `local` callable `broker-serve`
+// (`story:tool-broker-read`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum BrokerCommand {
+    /// Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
+    #[command(name = "serve")]
+    Serve,
 }
 
 // `conductor dashboard`: the commands the binding declares over the `local` callable
@@ -1397,6 +1609,24 @@ pub struct StatusArgs {
     /// How the status is printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+    /// Print every part under its heading, sessions and every open dispatch included, instead of
+    /// the attention lines. `--full` alone is `--full true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub full: Option<bool>,
+}
+
+/// The input of the binding's `controller-controllers` callable,
+/// `conductor.dispatch.ListControllers` (`story:conductor-context-budget`). The format is text
+/// the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct ControllersArgs {
+    /// Print the table of every controller instead of one line per Running or Paused one.
+    /// `--all` alone is `--all true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub all: Option<bool>,
+    /// Render every controller as text, json, jsonl or markdown, as `all-controllers` does
+    #[arg(long)]
+    pub format: Option<String>,
 }
 
 /// The input of the binding's `records-check` callable, `conductor.dispatch.CheckRecords`. The
@@ -1406,6 +1636,25 @@ pub struct RecordsCheckArgs {
     /// How the findings are printed: text or json. Default: text
     #[arg(long)]
     pub format: Option<String>,
+}
+
+// `conductor need`: the command the binding declares over the `local` callable `need-new`
+// (`story:need-id-unique`). A plain comment, as for `dashboard`.
+#[allow(missing_docs)]
+#[derive(Debug, Subcommand)]
+pub enum NeedCommand {
+    /// Print the next NEED id no earlier NEED used, N-<yyyymmdd>-<nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
+    #[command(name = "new")]
+    New(NeedNewArgs),
+}
+
+/// The input of the binding's `need-new` callable, `conductor.direction.NewNeed`. The day is text
+/// the handler reads, so a value it refuses is named there.
+#[derive(Debug, Clone, Args)]
+pub struct NeedNewArgs {
+    /// The UTC date the id is minted for, yyyy-mm-dd. Default: today
+    #[arg(long)]
+    pub day: Option<String>,
 }
 
 // `conductor rules`: the command the binding declares over the `local` callable `rules-show`
@@ -1438,6 +1687,16 @@ pub struct RulesShowArgs {
     /// `--brief true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub brief: Option<bool>,
+
+    /// A git revision of the records directory: print only the items whose text differs from
+    /// that revision's rules.md, or that it does not hold, and name the ones it held that are gone
+    #[arg(long)]
+    pub changed_since: Option<String>,
+
+    /// A role (all, conductor, controller, worker, maintainer): print the rules of its file,
+    /// rules/<role>.md of the records, one per line; with --changed-since, the changed ones
+    #[arg(long)]
+    pub role: Option<String>,
 }
 
 // `conductor store`: the command the binding declares over the `local` callable `store-migrate`
@@ -1515,11 +1774,18 @@ pub struct RepositoryActivityArgs {
 #[allow(missing_docs)]
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
-    /// Print one instance's effective config, after defaults, as a config file
+    /// Write a session_prefix into each instance of the config file that names none; --check
+    /// prints them and writes nothing
+    #[command(name = "migrate")]
+    Migrate(MigrateConfigArgs),
+
+    /// Print one instance's effective config, after defaults, as a config file, and the host's
+    /// roles from host.yaml under `host` (not in yaml)
     #[command(name = "show")]
     Show(ShowConfigArgs),
 
-    /// Check the config file; exit 1 naming each problem by its YAML path
+    /// Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML
+    /// path
     #[command(name = "validate")]
     Validate(ValidateConfigArgs),
 
@@ -1537,6 +1803,16 @@ pub struct WriteWorkspaceArgs {
     pub instance: Option<String>,
     /// Write nothing; exit 1 naming each member that differs from the file. `--check` alone is
     /// `--check true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub check: Option<bool>,
+}
+
+/// The input of the binding's `config-migrate` callable, `conductor.config.MigrateConfig`
+/// (`story:instance-names-unique`).
+#[derive(Debug, Clone, Args)]
+pub struct MigrateConfigArgs {
+    /// Write nothing; print the session_prefix each instance without one would get. `--check`
+    /// alone is `--check true`
     #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
     pub check: Option<bool>,
 }
@@ -1589,13 +1865,74 @@ pub struct SpawnArgs {
     pub repository: Option<String>,
 }
 
+/// The input of the binding's `session-deliver` callable, `conductor.session.DeliverToSession`
+/// (`story:mailbox-send-and-deliver`).
+#[derive(Debug, Clone, Args)]
+pub struct DeliverArgs {
+    /// The session's full name, as its launcher socket <state>/sessions/<name>.tmux names it
+    #[arg(long)]
+    pub name: Option<String>,
+    /// The file holding the text, or - for standard input
+    #[arg(long, value_name = "FILE")]
+    pub text: Option<String>,
+}
+
+/// The input of `conductor.session.DeliverMessage`.
+#[derive(Debug, Clone, Args)]
+pub struct DeliverMessageArgs {
+    /// SessionName
+    #[arg(long)]
+    pub session_name: Option<String>,
+    /// string
+    #[arg(long)]
+    pub first_line: Option<String>,
+    /// string, optional
+    #[arg(long)]
+    pub body_path: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub delivered_at: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
 /// The input of the binding's `session-start` and `session-stop` callables,
 /// `conductor.session.StartSession` and `conductor.session.StopSession`.
 #[derive(Debug, Clone, Args)]
 pub struct SessionRoleArgs {
-    /// The role whose session starts or stops: conductor or conductor-dev
+    /// The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release
     #[arg(long, value_name = "ROLE")]
     pub role: Option<String>,
+}
+
+/// The input of the binding's `session-attach` callable, `conductor.session.AttachSession`.
+#[derive(Debug, Clone, Args)]
+pub struct AttachArgs {
+    /// The session's full name, `<session_prefix>-<role>` or a controller's
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+    /// The role whose session attaches, as for `session start`
+    #[arg(long, value_name = "ROLE")]
+    pub role: Option<String>,
+    /// Look only in this instance of the config file. Default: every instance
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// Attach read-only: nothing typed reaches the session. `--watch` alone is `--watch true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub watch: Option<bool>,
+}
+
+/// The input of the binding's `session-list` callable, `conductor.session.ListSessions`.
+#[derive(Debug, Clone, Args)]
+pub struct ListSessionsArgs {
+    /// List only this instance of the config file. Default: every instance
+    #[arg(long, value_name = "NAME")]
+    pub instance: Option<String>,
+    /// How the rows are printed: text, one `<name> <attach|watch>` line each, or json. Default:
+    /// text
+    #[arg(long)]
+    pub format: Option<String>,
 }
 
 /// The input of the binding's `upgrade` callable, `conductor.config.UpgradeBinary`.
@@ -1614,8 +1951,8 @@ pub struct UpgradeArgs {
 /// is text the handler reads, so a value it refuses is named there.
 #[derive(Debug, Clone, Args)]
 pub struct ShowConfigArgs {
-    /// How the config is rendered: text, one `path: value` line each; json; or yaml, a config
-    /// file. Default: text
+    /// How the config is rendered: text, one `path: value` line each; json; each with the host's
+    /// roles under `host`; or yaml, a config file, without them. Default: text
     #[arg(long)]
     pub format: Option<String>,
     /// The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance
@@ -1876,11 +2213,20 @@ pub struct ReleaseGrantArgs {
     #[arg(long)]
     pub grant_id: Option<String>,
     /// ReleaseReason, optional
-    #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone"])]
+    #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone", "SessionStopped"])]
     pub reason: Option<String>,
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub released_at: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub cache_hits: Option<i64>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub cache_misses: Option<i64>,
+    /// boolean
+    #[arg(long)]
+    pub lane_overrun: Option<bool>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -1898,6 +2244,9 @@ pub struct RequestDiskArgs {
     /// SessionName, optional
     #[arg(long)]
     pub session_name: Option<String>,
+    /// SessionId, optional
+    #[arg(long)]
+    pub session_id: Option<String>,
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub bytes: Option<i64>,
@@ -1907,6 +2256,9 @@ pub struct RequestDiskArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub requested_at: Option<String>,
+    /// BuildLane, optional
+    #[arg(long, value_parser = ["Regular", "Short"])]
+    pub lane: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -1924,6 +2276,9 @@ pub struct ReserveDiskArgs {
     /// integer
     #[arg(long, allow_negative_numbers = true)]
     pub reclaimed_bytes: Option<i64>,
+    /// BuildLane, optional
+    #[arg(long, value_parser = ["Regular", "Short"])]
+    pub lane: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2136,6 +2491,9 @@ pub struct WithdrawDiskRequestArgs {
     /// timestamp, RFC 3339
     #[arg(long, value_parser = timestamp)]
     pub withdrawn_at: Option<String>,
+    /// ReleaseReason, optional
+    #[arg(long, value_parser = ["Exited", "Killed", "ProcessGroupGone", "SessionStopped"])]
+    pub reason: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2477,6 +2835,12 @@ pub struct RecordCollectorRunArgs {
     /// CollectorRunOutcome
     #[arg(long, value_parser = ["Completed", "Failed", "OverBudget"])]
     pub outcome: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub read_bytes: Option<i64>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub written_bytes: Option<i64>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2544,7 +2908,7 @@ pub struct RecordSpecificationArgs {
     #[arg(long)]
     pub repository: Option<String>,
     /// SpecificationPresence
-    #[arg(long, value_parser = ["Present", "OptedOut", "Missing"])]
+    #[arg(long, value_parser = ["Present", "OptedOut", "Missing", "NotInWorkspace"])]
     pub presence: Option<String>,
     /// string, optional
     #[arg(long)]
@@ -2791,6 +3155,17 @@ pub struct RaiseDecisionRequestArgs {
     /// string, optional
     #[arg(long)]
     pub blocker: Option<String>,
+    /// ClassificationRule, optional: the rule that classified the request in code
+    #[arg(long, value_parser = [
+        "data-loss",
+        "history-rewrite",
+        "repository-lifecycle",
+        "architecture",
+        "credential",
+        "hands",
+        "none",
+    ])]
+    pub classification_rule: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2826,6 +3201,13 @@ pub struct RecordConductorDecisionArgs {
     /// RepositoryName
     #[arg(long)]
     pub repository: Option<String>,
+    /// string, optional: the `Decider` adapter that answered
+    #[arg(long)]
+    pub decider_name: Option<String>,
+    /// PromptHash, optional: the SHA-256 of the adapter's prompt, 64 lower-case hexadecimal
+    /// characters
+    #[arg(long)]
+    pub prompt_sha256: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -2984,6 +3366,40 @@ pub struct EscalateRequestArgs {
     /// timestamp, RFC 3339: when the default stands. Required for class O
     #[arg(long, value_parser = timestamp)]
     pub deadline: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.decision.AmendEscalatedRequest` (`story:request-amend-escalated`). A
+/// field given replaces the held one; a field left out stays.
+#[derive(Debug, Clone, Args)]
+pub struct AmendEscalatedRequestArgs {
+    /// RequestId of the escalated request
+    #[arg(long)]
+    pub request_id: Option<String>,
+    /// Why the request is completed
+    #[arg(long)]
+    pub reason: Option<String>,
+    /// RequestKind: how the operator answers
+    #[arg(long, value_parser = ["yes-no", "one-of", "several-of"])]
+    pub kind: Option<String>,
+    /// list of RequestOption, a JSON array of `{letter, label, cost}`; replaces the held options
+    #[arg(long, value_parser = json_list)]
+    pub lettered_options: Option<String>,
+    /// The letter conductor recommends, or several joined by `,` for `several-of`
+    #[arg(long, value_name = "LETTERS")]
+    pub recommended_letters: Option<String>,
+    /// The letter that stands when the operator has not answered by the deadline, or several
+    /// joined by `,` for `several-of`
+    #[arg(long, value_name = "LETTERS")]
+    pub default_letters: Option<String>,
+    /// timestamp, RFC 3339: when the default stands
+    #[arg(long, value_parser = timestamp)]
+    pub deadline: Option<String>,
+    /// The dry run of a class-H item, as text (not a file, unlike `escalate-request`)
+    #[arg(long, value_name = "TEXT")]
+    pub dry_run: Option<String>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
@@ -3212,7 +3628,7 @@ pub struct ReceiveMessageArgs {
     #[arg(long)]
     pub recipient: Option<String>,
     /// MessageKind
-    #[arg(long, value_parser = ["Dispatch", "Report", "DecisionRequest", "Decision", "Need", "Resource", "Escalation", "Unknown"])]
+    #[arg(long, value_parser = ["Dispatch", "Report", "DecisionRequest", "Decision", "Need", "Resource", "Escalation", "Team", "Handover", "Unknown"])]
     pub kind: Option<String>,
     /// string
     #[arg(long)]
@@ -3366,6 +3782,48 @@ pub struct RecordGuardDecisionArgs {
     /// shell's parent, `--pid "$PPID"`); the conductor lease denies a write from another process
     #[arg(long, allow_negative_numbers = true)]
     pub pid: Option<i64>,
+}
+
+/// The input of `conductor.session.RecordRunTick` (`story:run-daemon`).
+#[derive(Debug, Clone, Args)]
+pub struct RecordRunTickArgs {
+    /// TickKind
+    #[arg(long, value_parser = ["watch", "cycle", "daily"])]
+    pub kind: Option<String>,
+    /// timestamp, RFC 3339
+    #[arg(long, value_parser = timestamp)]
+    pub started_at: Option<String>,
+    /// integer
+    #[arg(long, allow_negative_numbers = true)]
+    pub lines_handled: Option<i64>,
+    /// list of DispatchLogEvent, a JSON array of the events as the dispatch log writes them
+    /// (`relayed`, `handover-sent`, …)
+    #[arg(long, value_parser = json_list)]
+    pub actions: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of the binding's `run` callable, `conductor.session.RunDaemon` (`story:run-daemon`).
+#[derive(Debug, Clone, Default, Args)]
+pub struct RunArgs {
+    /// Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub once: Option<bool>,
+    /// Start the loop as the user unit conductor_<instance>-run.service through systemd-run;
+    /// under the none provider print the command to run instead. `--install` alone is
+    /// `--install true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub install: Option<bool>,
+    /// Stop the user unit conductor_<instance>-run.service. `--uninstall` alone is
+    /// `--uninstall true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub uninstall: Option<bool>,
+    /// With --once: commit the records directory through the bot route and push it when it has
+    /// an origin, and run no tick. `--commit-records` alone is `--commit-records true`
+    #[arg(long, value_name = "BOOL", num_args = 0..=1, default_missing_value = "true")]
+    pub commit_records: Option<bool>,
 }
 
 /// The input of `conductor.session.ClaimLease`.

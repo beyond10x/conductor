@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -556,6 +556,24 @@ pub trait WorkflowRunObservationStorage {
     fn list(&self) -> Vec<crate::observation::WorkflowRunObservationSnapshot>;
 }
 
+/// Where `conductor.session.Delivery` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `delivery_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait DeliveryStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::session::DeliveryId) -> Option<crate::session::DeliverySnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::session::DeliverySnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::session::DeliveryId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::session::DeliverySnapshot>;
+}
+
 /// Where `conductor.session.Lease` is stored — a port the implementor provides.
 ///
 /// Keyed by the identity `instance`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
@@ -572,6 +590,60 @@ pub trait LeaseStorage {
     /// Every stored instance, in the order the store keeps them: the order a generated query
     /// answers an unordered view in.
     fn list(&self) -> Vec<crate::session::LeaseSnapshot>;
+}
+
+/// Where `conductor.session.RunTick` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `tick_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait RunTickStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::session::TickId) -> Option<crate::session::RunTickSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::session::RunTickSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::session::TickId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::session::RunTickSnapshot>;
+}
+
+/// Where `conductor.tool.ToolCall` is stored — a port the implementor provides.
+///
+/// Keyed by the identity `tool_call_id`. Generated network entries supply an ephemeral implementation; durable storage remains a port.
+pub trait ToolCallStorage {
+    /// The instance with this identity, or `None` where none is stored.
+    fn get(&self, identity: &crate::tool::ToolCallId) -> Option<crate::tool::ToolCallSnapshot>;
+
+    /// Stores this instance under its identity, replacing what was held.
+    fn put(&mut self, snapshot: crate::tool::ToolCallSnapshot);
+
+    /// Removes the instance with this identity.
+    fn delete(&mut self, identity: &crate::tool::ToolCallId);
+
+    /// Every stored instance, in the order the store keeps them: the order a generated query
+    /// answers an unordered view in.
+    fn list(&self) -> Vec<crate::tool::ToolCallSnapshot>;
+}
+
+/// The exact executing command input supplied to an external decision.
+///
+/// This supplies facts, not authority: the context must verify its request-bound proof.
+#[derive(Debug, Clone, Copy)]
+pub enum ExternalCommand<'a> {
+    /// The executing `conductor.session.DeliverMessage` input.
+    ConductorSessionDeliverMessage(&'a crate::session::DeliverMessage),
+}
+
+impl ExternalCommand<'_> {
+    /// The canonical qualified identity of this command.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::ConductorSessionDeliverMessage(_) => "conductor.session.DeliverMessage",
+        }
+    }
 }
 
 /// What the specification leaves to the implementor's context — a port the implementor provides.
@@ -614,6 +686,25 @@ pub trait Context {
     /// A new `conductor.observation.SnapshotId`, which the model says the implementation assigns — a created identity, a
     /// `{generated: true}` value, or an event field the model leaves undetermined.
     fn generate_conductor_observation_snapshot_id(&mut self) -> crate::observation::SnapshotId;
+
+    /// A new `conductor.session.DeliveryId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_session_delivery_id(&mut self) -> crate::session::DeliveryId;
+
+    /// A new `conductor.session.TickId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_session_tick_id(&mut self) -> crate::session::TickId;
+
+    /// A new `conductor.tool.ToolCallId`, which the model says the implementation assigns — a created identity, a
+    /// `{generated: true}` value, or an event field the model leaves undetermined.
+    fn generate_conductor_tool_tool_call_id(&mut self) -> crate::tool::ToolCallId;
+
+    /// Whether the external branch `outcome` of `command` is taken on this invocation.
+    ///
+    /// Asked in declaration order, before the branch's input guard is read; the first branch
+    /// answered `true` whose guard holds is taken. A test forces a branch by answering `true`
+    /// for it alone; a deployment asks whatever decides it.
+    fn external(&mut self, command: ExternalCommand<'_>, outcome: &'static str) -> bool;
 }
 
 /// Context answers that may be unavailable, without fabricated values.
@@ -637,6 +728,14 @@ fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::obser
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation>;
 /// Assigns the value, or names the unavailable answer.
 fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_session_delivery_id(&mut self) -> Result<crate::session::DeliveryId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_session_tick_id(&mut self) -> Result<crate::session::TickId, UnmetObligation>;
+/// Assigns the value, or names the unavailable answer.
+fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation>;
+/// Decides the named external branch, or names the unavailable answer.
+fn try_external(&mut self, command: ExternalCommand<'_>, outcome: &'static str) -> Result<bool, UnmetObligation>;
 }
 
 impl<T: Context + ?Sized> TryContext for T {
@@ -649,6 +748,10 @@ fn try_generate_conductor_host_reclaim_run_id(&mut self) -> Result<crate::host::
 fn try_generate_conductor_observation_board_id(&mut self) -> Result<crate::observation::BoardId, UnmetObligation> { Ok(Context::generate_conductor_observation_board_id(self)) }
 fn try_generate_conductor_observation_observation_id(&mut self) -> Result<crate::observation::ObservationId, UnmetObligation> { Ok(Context::generate_conductor_observation_observation_id(self)) }
 fn try_generate_conductor_observation_snapshot_id(&mut self) -> Result<crate::observation::SnapshotId, UnmetObligation> { Ok(Context::generate_conductor_observation_snapshot_id(self)) }
+fn try_generate_conductor_session_delivery_id(&mut self) -> Result<crate::session::DeliveryId, UnmetObligation> { Ok(Context::generate_conductor_session_delivery_id(self)) }
+fn try_generate_conductor_session_tick_id(&mut self) -> Result<crate::session::TickId, UnmetObligation> { Ok(Context::generate_conductor_session_tick_id(self)) }
+fn try_generate_conductor_tool_tool_call_id(&mut self) -> Result<crate::tool::ToolCallId, UnmetObligation> { Ok(Context::generate_conductor_tool_tool_call_id(self)) }
+fn try_external(&mut self, command: ExternalCommand<'_>, outcome: &'static str) -> Result<bool, UnmetObligation> { Ok(Context::external(self, command, outcome)) }
 }
 
 /// An unavailable runtime context answer, rather than a new planned capability.
@@ -668,6 +771,40 @@ impl<P> Generated<P> {
     /// The generated behaviours, over `ports`.
     pub fn new(ports: P) -> Self {
         Self { ports }
+    }
+}
+
+/// `conductor.decision.AmendEscalatedRequest`, generated: every outcome is one the specification fully determines.
+impl<P> crate::decision::obligations::AmendEscalatedRequestBehavior for Generated<P>
+where
+    P: DecisionRequestStorage,
+{
+    fn amend_escalated_request(&mut self, input: crate::decision::AmendEscalatedRequest) -> Result<crate::decision::AmendEscalatedRequestOutcome, UnmetObligation> {
+        let _ = &input;
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
+            return Ok(crate::decision::AmendEscalatedRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
+        };
+        let _ = &held;
+        // `amended`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::decision::DecisionRequestState::Escalated)), "conductor.decision.AmendEscalatedRequest")? {
+            let Some(held) = DecisionRequestStorage::get(&self.ports, &input.request_id) else {
+                return Ok(crate::decision::AmendEscalatedRequestOutcome::NoSuchRequest { error: crate::decision::RequestNotFound { request_id: input.request_id.clone() } });
+            };
+            let _ = &held;
+            let mut next = held;
+            next.data.dry_run = input.dry_run.clone();
+            next.data.kind = input.kind.clone();
+            next.data.lettered_options = input.lettered_options.clone();
+            next.data.recommended_letters = input.recommended_letters.clone();
+            next.data.default_letters = input.default_letters.clone();
+            next.data.deadline = input.deadline.clone();
+            let answer = crate::decision::AmendEscalatedRequestOutcome::Amended { request_amended: crate::decision::RequestAmended { request_id: input.request_id.clone() } };
+            DecisionRequestStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `not-escalated`: the default.
+        return Ok(crate::decision::AmendEscalatedRequestOutcome::NotEscalated { error: crate::decision::RequestStateConflict { request_id: input.request_id.clone() } });
     }
 }
 
@@ -840,6 +977,7 @@ where
             recommendation: input.recommendation.clone(),
             raised_at: input.raised_at.clone(),
             blocker: input.blocker.clone(),
+            classification_rule: input.classification_rule.clone(),
             escalation_class: None,
             escalation_reason: None,
             dry_run: None,
@@ -887,6 +1025,8 @@ where
             recorded_by: None,
             operator_words: None,
             repository: input.repository.clone(),
+            decider_name: input.decider_name.clone(),
+            prompt_sha256: input.prompt_sha256.clone(),
         };
         let answer = crate::decision::RecordConductorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Conductor } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
@@ -920,6 +1060,8 @@ where
             recorded_by: Some(input.recorded_by.clone()),
             operator_words: Some(input.operator_words.clone()),
             repository: input.repository.clone(),
+            decider_name: None,
+            prompt_sha256: None,
         };
         let answer = crate::decision::RecordOperatorDecisionOutcome::Recorded { decision_recorded: crate::decision::DecisionRecorded { decision_id: identity.clone(), decision_class: input.decision_class.clone(), decided_by: crate::decision::Decider::Operator } };
         DecisionStorage::put(&mut self.ports, crate::decision::AnyDecision::InForce(crate::decision::Decision::new(data)).snapshot());
@@ -1352,7 +1494,7 @@ where
         };
         let _ = &held;
         // `need-unrouted`: selected by the addressed row.
-        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.HandleMessage")? {
+        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Team => "Team", crate::dispatch::MessageKind::Handover => "Handover", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.HandleMessage")? {
             return Ok(crate::dispatch::HandleMessageOutcome::NeedUnrouted { error: crate::dispatch::NeedNotRouted { message_id: input.message_id.clone() } });
         }
         // `handled`: the default.
@@ -1405,8 +1547,12 @@ where
 {
     fn receive_message(&mut self, input: crate::dispatch::ReceiveMessage) -> Result<crate::dispatch::ReceiveMessageOutcome, UnmetObligation> {
         let _ = &input;
+        // `mailbox-without-body`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(all(&[equal(Some(&input.transport).map(|value| match value { crate::dispatch::Transport::SendMessage => "SendMessage", crate::dispatch::Transport::Mailbox => "Mailbox" }.to_owned()), Some("Mailbox".to_owned())), (Some(Some(&input.body_path).and_then(|value| value.as_ref()).is_some())).map(|value| !value)]), "conductor.dispatch.ReceiveMessage")? {
+            return Ok(crate::dispatch::ReceiveMessageOutcome::MailboxWithoutBody { error: crate::dispatch::MailboxBodyMissing { sender: input.sender.clone(), recipient: input.recipient.clone() } });
+        }
         // `unparsed`: an accepting branch, in declaration order.
-        if decided(any(&[equal(Some(&input.parsed).map(|value| *value), Some(false)), equal(Some(&input.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Unknown".to_owned()))]), "conductor.dispatch.ReceiveMessage")? {
+        if decided(any(&[equal(Some(&input.parsed).map(|value| *value), Some(false)), equal(Some(&input.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Team => "Team", crate::dispatch::MessageKind::Handover => "Handover", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Unknown".to_owned()))]), "conductor.dispatch.ReceiveMessage")? {
             let identity: crate::dispatch::MessageId = self.ports.try_generate_conductor_dispatch_message_id()?;
             let data = crate::dispatch::MessageData {
                 message_id: identity.clone(),
@@ -1803,7 +1949,7 @@ where
         };
         let _ = &held;
         // `not-a-need`: selected by the addressed row.
-        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())).map(|value| !value), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.RouteNeed")? {
+        if decided(all(&[equal(Some(&held.data.kind).map(|value| match value { crate::dispatch::MessageKind::Dispatch => "Dispatch", crate::dispatch::MessageKind::Report => "Report", crate::dispatch::MessageKind::DecisionRequest => "DecisionRequest", crate::dispatch::MessageKind::Decision => "Decision", crate::dispatch::MessageKind::Need => "Need", crate::dispatch::MessageKind::Resource => "Resource", crate::dispatch::MessageKind::Escalation => "Escalation", crate::dispatch::MessageKind::Team => "Team", crate::dispatch::MessageKind::Handover => "Handover", crate::dispatch::MessageKind::Unknown => "Unknown" }.to_owned()), Some("Need".to_owned())).map(|value| !value), equal(Some(&held.state).map(|value| match value { crate::dispatch::MessageState::Handled => "Handled", crate::dispatch::MessageState::Received => "Received", crate::dispatch::MessageState::Rejected => "Rejected" }.to_owned()), Some("Received".to_owned()))]), "conductor.dispatch.RouteNeed")? {
             return Ok(crate::dispatch::RouteNeedOutcome::NotANeed { error: crate::dispatch::NotANeed { message_id: input.message_id.clone() } });
         }
         // `routed`: the default.
@@ -2020,6 +2166,9 @@ where
         let mut next = moved.snapshot();
         next.data.released_at = Some(input.released_at.clone());
         next.data.release_reason = input.reason.clone();
+        next.data.cache_hits = input.cache_hits.clone();
+        next.data.cache_misses = input.cache_misses.clone();
+        next.data.lane_overrun = input.lane_overrun.clone();
         let answer = crate::host::ReleaseGrantOutcome::Released { host_grant_released: crate::host::HostGrantReleased { grant_id: input.grant_id.clone(), reason: input.reason.clone() } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -2050,12 +2199,17 @@ where
             command: Some(input.command.clone()),
             process_group: None,
             session_name: input.session_name.clone(),
+            session_id: input.session_id.clone(),
             reclaimed_bytes: None,
             shortfall_bytes: None,
             requested_at: input.requested_at.clone(),
             started_at: None,
             released_at: None,
             release_reason: None,
+            cache_hits: None,
+            cache_misses: None,
+            lane: input.lane.clone(),
+            lane_overrun: None,
         };
         let answer = crate::host::RequestDiskOutcome::Requested { disk_requested: crate::host::DiskRequested { grant_id: identity.clone(), instance: input.instance.clone(), bytes: input.bytes.clone() } };
         HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Requested(crate::host::HostGrant::new(data)).snapshot());
@@ -2105,6 +2259,7 @@ where
             };
             let mut next = moved.snapshot();
             next.data.reclaimed_bytes = Some(input.reclaimed_bytes.clone());
+            next.data.lane = input.lane.clone();
             let answer = crate::host::ReserveDiskOutcome::GrantedAfterReclaim { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: input.reclaimed_bytes.clone() } };
             HostGrantStorage::put(&mut self.ports, next);
             return Ok(answer);
@@ -2121,6 +2276,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.reclaimed_bytes = Some(0);
+        next.data.lane = input.lane.clone();
         let answer = crate::host::ReserveDiskOutcome::Granted { disk_reserved: crate::host::DiskReserved { grant_id: input.grant_id.clone(), bytes: before.bytes.clone(), reclaimed_bytes: 0 } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -2185,12 +2341,17 @@ where
             command: None,
             process_group: None,
             session_name: Some(input.session_name.clone()),
+            session_id: None,
             reclaimed_bytes: None,
             shortfall_bytes: None,
             requested_at: input.requested_at.clone(),
             started_at: None,
             released_at: None,
             release_reason: None,
+            cache_hits: None,
+            cache_misses: None,
+            lane: None,
+            lane_overrun: None,
         };
         let answer = crate::host::TakeHostGrantOutcome::Granted { host_grant_taken: crate::host::HostGrantTaken { grant_id: identity.clone(), instance: input.instance.clone(), kind: input.kind.clone() } };
         HostGrantStorage::put(&mut self.ports, crate::host::AnyHostGrant::Granted(crate::host::HostGrant::new_granted(data)).snapshot());
@@ -2216,6 +2377,7 @@ where
         };
         let mut next = moved.snapshot();
         next.data.released_at = Some(input.withdrawn_at.clone());
+        next.data.release_reason = input.reason.clone();
         let answer = crate::host::WithdrawDiskRequestOutcome::Withdrawn { disk_request_withdrawn: crate::host::DiskRequestWithdrawn { grant_id: input.grant_id.clone() } };
         HostGrantStorage::put(&mut self.ports, next);
         return Ok(answer);
@@ -2596,6 +2758,8 @@ where
             started_at: input.started_at.clone(),
             duration_ms: input.duration_ms.clone(),
             outcome: input.outcome.clone(),
+            read_bytes: input.read_bytes.clone(),
+            written_bytes: input.written_bytes.clone(),
         };
         if let Some(broken) = data.broken_invariant() {
             let capability = "entity invariant";
@@ -3165,6 +3329,93 @@ impl<P: crate::session::obligations::ClaimLeaseBehavior> crate::session::obligat
     }
 }
 
+/// `conductor.session.DeliverMessage`, generated: every outcome is one the specification fully determines.
+impl<P> crate::session::obligations::DeliverMessageBehavior for Generated<P>
+where
+    P: TryContext + DeliveryStorage,
+{
+    fn deliver_message(&mut self, input: crate::session::DeliverMessage) -> Result<crate::session::DeliverMessageOutcome, UnmetObligation> {
+        let _ = &input;
+        // `unreachable`: an external branch, where the context takes it.
+        if self.ports.try_external(ExternalCommand::ConductorSessionDeliverMessage(&input), "unreachable")? {
+            return Ok(crate::session::DeliverMessageOutcome::Unreachable { error: crate::session::SessionNotReachable { session_name: input.session_name.clone() } });
+        }
+        // `delivered`: the default.
+        let identity: crate::session::DeliveryId = self.ports.try_generate_conductor_session_delivery_id()?;
+        let data = crate::session::DeliveryData {
+            delivery_id: identity.clone(),
+            session_name: input.session_name.clone(),
+            first_line: input.first_line.clone(),
+            body_path: input.body_path.clone(),
+            delivered_at: input.delivered_at.clone(),
+        };
+        let answer = crate::session::DeliverMessageOutcome::Delivered { message_delivered: crate::session::MessageDelivered { delivery_id: identity.clone(), session_name: input.session_name.clone(), first_line: input.first_line.clone(), body_path: input.body_path.clone(), delivered_at: input.delivered_at.clone() } };
+        DeliveryStorage::put(&mut self.ports, crate::session::AnyDelivery::Delivered(crate::session::Delivery::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.session.RecordRunTick`, generated: every outcome is one the specification fully determines.
+impl<P> crate::session::obligations::RecordRunTickBehavior for Generated<P>
+where
+    P: TryContext + RunTickStorage,
+{
+    fn record_run_tick(&mut self, input: crate::session::RecordRunTick) -> Result<crate::session::RecordRunTickOutcome, UnmetObligation> {
+        let _ = &input;
+        // `negative-count`: an input-guarded refusal, before the addressed subject is loaded.
+        if decided(compare_numbers(Some(&input.lines_handled).map(|value| value.to_string()), Some("0".to_owned()), core::cmp::Ordering::is_lt), "conductor.session.RecordRunTick")? {
+            return Ok(crate::session::RecordRunTickOutcome::NegativeCount { error: crate::session::InvalidLineCount { lines_handled: input.lines_handled.clone() } });
+        }
+        // `recorded`: the default.
+        let identity: crate::session::TickId = self.ports.try_generate_conductor_session_tick_id()?;
+        let data = crate::session::RunTickData {
+            tick_id: identity.clone(),
+            kind: input.kind.clone(),
+            started_at: input.started_at.clone(),
+            lines_handled: input.lines_handled.clone(),
+            actions: input.actions.clone(),
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::session::RecordRunTickOutcome::Recorded { run_tick_recorded: crate::session::RunTickRecorded { tick_id: identity.clone(), kind: input.kind.clone(), started_at: input.started_at.clone(), lines_handled: input.lines_handled.clone() } };
+        RunTickStorage::put(&mut self.ports, crate::session::AnyRunTick::Recorded(crate::session::RunTick::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
+/// `conductor.tool.RecordToolCall`, generated: every outcome is one the specification fully determines.
+impl<P> crate::tool::obligations::RecordToolCallBehavior for Generated<P>
+where
+    P: TryContext + ToolCallStorage,
+{
+    fn record_tool_call(&mut self, input: crate::tool::RecordToolCall) -> Result<crate::tool::RecordToolCallOutcome, UnmetObligation> {
+        let _ = &input;
+        // `recorded`: the default.
+        let identity: crate::tool::ToolCallId = self.ports.try_generate_conductor_tool_tool_call_id()?;
+        let data = crate::tool::ToolCallData {
+            tool_call_id: identity.clone(),
+            instance: input.instance.clone(),
+            session: input.session.clone(),
+            verb: input.verb.clone(),
+            paths: input.paths.clone(),
+            outcome: input.outcome.clone(),
+            rule: input.rule.clone(),
+            duration_ms: input.duration_ms.clone(),
+            output_bytes: input.output_bytes.clone(),
+            called_at: input.called_at.clone(),
+        };
+        if let Some(broken) = data.broken_invariant() {
+            let capability = "entity invariant";
+            return Err(UnmetObligation { capability, source: broken });
+        }
+        let answer = crate::tool::RecordToolCallOutcome::Recorded { tool_call_recorded: crate::tool::ToolCallRecorded { tool_call_id: identity.clone(), session: input.session.clone(), verb: input.verb.clone(), outcome: input.outcome.clone() } };
+        ToolCallStorage::put(&mut self.ports, crate::tool::AnyToolCall::Recorded(crate::tool::ToolCall::new(data)).snapshot());
+        return Ok(answer);
+    }
+}
+
 /// `conductor.decision.Decisions`, generated: every row is one the specification fully determines from the stored `conductor.decision.Decision`s.
 impl<P> crate::decision::obligations::DecisionsQuery for Generated<P>
 where
@@ -3188,6 +3439,8 @@ where
                 recorded_by: held.data.recorded_by,
                 operator_words: held.data.operator_words,
                 repository: held.data.repository,
+                decider_name: held.data.decider_name,
+                prompt_sha256: held.data.prompt_sha256,
             })
             .collect())
     }
@@ -3244,6 +3497,7 @@ where
                 recommendation: held.data.recommendation,
                 raised_at: held.data.raised_at,
                 blocker: held.data.blocker,
+                classification_rule: held.data.classification_rule,
                 kind: held.data.kind,
                 lettered_options: held.data.lettered_options,
                 recommended_letters: held.data.recommended_letters,
@@ -3448,12 +3702,17 @@ where
                 command: held.data.command,
                 process_group: held.data.process_group,
                 session_name: held.data.session_name,
+                session_id: held.data.session_id,
                 reclaimed_bytes: held.data.reclaimed_bytes,
                 shortfall_bytes: held.data.shortfall_bytes,
                 requested_at: held.data.requested_at,
                 started_at: held.data.started_at,
                 released_at: held.data.released_at,
                 release_reason: held.data.release_reason,
+                cache_hits: held.data.cache_hits,
+                cache_misses: held.data.cache_misses,
+                lane: held.data.lane,
+                lane_overrun: held.data.lane_overrun,
             })
             .collect())
     }
@@ -3666,6 +3925,8 @@ where
                 started_at: held.data.started_at,
                 duration_ms: held.data.duration_ms,
                 outcome: held.data.outcome,
+                read_bytes: held.data.read_bytes,
+                written_bytes: held.data.written_bytes,
             })
             .collect())
     }
@@ -3948,6 +4209,27 @@ where
     }
 }
 
+/// `conductor.session.Deliveries`, generated: every row is one the specification fully determines from the stored `conductor.session.Delivery`s.
+impl<P> crate::session::obligations::DeliveriesQuery for Generated<P>
+where
+    P: DeliveryStorage,
+{
+    fn deliveries(&self) -> Result<Vec<crate::session::Deliveries>, UnmetObligation> {
+        let admitted = DeliveryStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::session::Deliveries {
+                delivery_id: held.data.delivery_id,
+                state: held.state,
+                session_name: held.data.session_name,
+                first_line: held.data.first_line,
+                body_path: held.data.body_path,
+                delivered_at: held.data.delivered_at,
+            })
+            .collect())
+    }
+}
+
 /// `conductor.session.Leases`, generated: every row is one the specification fully determines from the stored `conductor.session.Lease`s.
 impl<P> crate::session::obligations::LeasesQuery for Generated<P>
 where
@@ -3965,6 +4247,51 @@ where
                 taken_at: held.data.taken_at,
                 taken_over_session_id: held.data.taken_over_session_id,
                 taken_over_pid: held.data.taken_over_pid,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.session.RunTicks`, generated: every row is one the specification fully determines from the stored `conductor.session.RunTick`s.
+impl<P> crate::session::obligations::RunTicksQuery for Generated<P>
+where
+    P: RunTickStorage,
+{
+    fn run_ticks(&self) -> Result<Vec<crate::session::RunTicks>, UnmetObligation> {
+        let admitted = RunTickStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::session::RunTicks {
+                tick_id: held.data.tick_id,
+                state: held.state,
+                kind: held.data.kind,
+                started_at: held.data.started_at,
+                lines_handled: held.data.lines_handled,
+                actions: held.data.actions,
+            })
+            .collect())
+    }
+}
+
+/// `conductor.tool.ToolCalls`, generated: every row is one the specification fully determines from the stored `conductor.tool.ToolCall`s.
+impl<P> crate::tool::obligations::ToolCallsQuery for Generated<P>
+where
+    P: ToolCallStorage,
+{
+    fn tool_calls(&self) -> Result<Vec<crate::tool::ToolCalls>, UnmetObligation> {
+        let admitted = ToolCallStorage::list(&self.ports);
+        Ok(admitted
+            .into_iter()
+            .map(|held| crate::tool::ToolCalls {
+                tool_call_id: held.data.tool_call_id,
+                session: held.data.session,
+                verb: held.data.verb,
+                paths: held.data.paths,
+                outcome: held.data.outcome,
+                rule: held.data.rule,
+                duration_ms: held.data.duration_ms,
+                output_bytes: held.data.output_bytes,
+                called_at: held.data.called_at,
             })
             .collect())
     }

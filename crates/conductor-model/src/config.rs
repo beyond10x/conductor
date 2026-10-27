@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -81,6 +81,8 @@ pub struct ConductorSession {
 /// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.session_prefix` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `distinct instance in instances by instance.dashboard_port` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct instance in instances by instance.state` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct instance in instances by instance.records` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `(not (defined(default)) or exists instance in instances: (instance.name == default))` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -339,6 +341,13 @@ pub struct Machine {
     pub conductor: String,
 }
 
+/// MigrateConfig — `conductor.config.MigrateConfig`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrateConfig {
+    /// `check` — `Optional<Boolean>`.
+    pub check: Option<bool>,
+}
+
 /// Network — `conductor.config.Network`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Network {
@@ -385,6 +394,15 @@ pub struct ProviderAvailability {
     pub available: bool,
     /// `reason` — `Optional<String>`.
     pub reason: Option<String>,
+}
+
+/// RepoCache — `conductor.config.RepoCache`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepoCache {
+    /// `On`.
+    On,
+    /// `Off`.
+    Off,
 }
 
 /// Report — `conductor.config.Report`.
@@ -456,6 +474,19 @@ pub struct Role {
     pub network: Network,
     /// `forge_token_env` — `List<String>`.
     pub forge_token_env: Vec<String>,
+    /// `grant` — `conductor.tool.RoleGrant`.
+    pub grant: crate::tool::RoleGrant,
+}
+
+/// RoleName — `conductor.config.RoleName`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoleName {
+    /// `Director`.
+    Director,
+    /// `Maintainer`.
+    Maintainer,
+    /// `Lead`.
+    Lead,
 }
 
 /// SecretSource — `conductor.config.SecretSource`.
@@ -536,10 +567,21 @@ pub enum Source {
     Local(LocalSource),
 }
 
+/// SuggestedPrefix — `conductor.config.SuggestedPrefix`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SuggestedPrefix {
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: InstanceName,
+    /// `session_prefix` — `conductor.config.SessionPrefix`.
+    pub session_prefix: SessionPrefix,
+}
+
 /// Thresholds — `conductor.config.Thresholds`.
 ///
 /// Every value satisfies `gate_resume > gate_stop` — declared here, enforced by whatever behaviour constructs one.
 /// Every value satisfies `cpu_reserve >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `build_slots >= 0` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `short_lane_slots >= 0` — declared here, enforced by whatever behaviour constructs one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thresholds {
     /// `context_handover` — `conductor.config.Tokens`.
@@ -566,6 +608,24 @@ pub struct Thresholds {
     pub silent_session: crate::primitives::Duration,
     /// `cpu_reserve` — `Integer`.
     pub cpu_reserve: i64,
+    /// `build_slots` — `Integer`.
+    pub build_slots: i64,
+    /// `repo_cache` — `conductor.config.RepoCache`.
+    pub repo_cache: RepoCache,
+    /// `repo_cache_size` — `conductor.config.Gibibytes`.
+    pub repo_cache_size: Gibibytes,
+    /// `lean_debuginfo` — `Boolean`.
+    pub lean_debuginfo: bool,
+    /// `short_lane_slots` — `Integer`.
+    pub short_lane_slots: i64,
+    /// `short_lane_max` — `Duration`.
+    pub short_lane_max: crate::primitives::Duration,
+    /// `stalled_session` — `Duration`.
+    pub stalled_session: crate::primitives::Duration,
+    /// `build_queued` — `Duration`.
+    pub build_queued: crate::primitives::Duration,
+    /// `tree_stale` — `Duration`.
+    pub tree_stale: crate::primitives::Duration,
 }
 
 /// TimeOfDay — `conductor.config.TimeOfDay`: a distinct wrapper around `String`.

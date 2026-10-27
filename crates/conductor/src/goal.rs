@@ -8,7 +8,7 @@
 //! what it means. A flag left out is named on standard error (exit 1) before any store is opened.
 //! `--input-json` is not read yet, and answers [`NotImplemented`](crate::NotImplemented).
 //!
-//! A view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
+//! A view opens only an existing store ([`crate::state::open_reader`]) and creates nothing. It
 //! lists every row it can read, and answers through [`crate::store::show`]: a record it cannot
 //! read is named on standard error and exits 1, after the other rows.
 
@@ -309,7 +309,7 @@ pub fn goals(state: Option<&std::path::Path>, view: ViewArgs) -> Result<ExitCode
         }
     }
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .goals()
         .map_err(|unmet| anyhow!("goal goals: {unmet}"))?;
@@ -351,7 +351,7 @@ pub fn goal_servings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         }
     }
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .goal_servings()
         .map_err(|unmet| anyhow!("goal servings: {unmet}"))?;
@@ -445,6 +445,14 @@ impl GoalServingStorage for Ports {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_tool_tool_call_id(
+        &mut self,
+    ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.tool.ToolCallId",
+        ))
+    }
+
     fn try_generate_conductor_direction_serving_id(
         &mut self,
     ) -> Result<ServingId, UnmetObligation> {
@@ -493,6 +501,30 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
         Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
     }
 }
 

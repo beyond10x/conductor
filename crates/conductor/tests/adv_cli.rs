@@ -238,13 +238,15 @@ fn adv_every_typed_flag_refuses_values_outside_its_type() {
 /// `guard guard-decisions` by `tests/guard_hook.rs` (`story:guard-hook`), the `decision` leaves by
 /// `tests/decision.rs` and the `dispatch` and `message` leaves by `tests/dispatch.rs`
 /// (`story:decision-commands`), and the `session` leaves by `tests/session.rs`
-/// (`story:single-conductor-lease`). `snapshot publish-board` and `snapshot boards` are decided by
+/// (`story:single-conductor-lease`), but `session deliveries`, by `tests/deliver.rs`
+/// (`story:mailbox-send-and-deliver`), and `session record-run-tick` and `session run-ticks`, by
+/// `tests/run.rs` (`story:run-daemon`). `snapshot publish-board` and `snapshot boards` are decided by
 /// `tests/status.rs` (`story:status-board`); the member-failure and collector-run leaves by
 /// `tests/snapshot.rs` (`story:snapshot-member-failures`, `story:snapshot-duration`); the `host`
 /// ledger leaves by `tests/build_run.rs` (`story:build-run`); the usage leaves by
 /// `tests/usage_probe.rs` (`story:usage-probe`); the `metric` leaves by `tests/metric.rs`
 /// (`story:kpi-records`). In the order the leaves are placed.
-const IMPLEMENTED: [&str; 98] = [
+const IMPLEMENTED: [&str; 102] = [
     "snapshot complete-snapshot",
     "snapshot fail-snapshot",
     "snapshot publish-board",
@@ -287,6 +289,7 @@ const IMPLEMENTED: [&str; 98] = [
     "repository deactivate-repository",
     "repository mark-repository",
     "repository repository-marks",
+    "decision amend-escalated-request",
     "decision answer-escalated-request",
     "decision answer-request",
     "decision escalate-request",
@@ -305,7 +308,7 @@ const IMPLEMENTED: [&str; 98] = [
     "controller revise-charter",
     "controller start-controller",
     "controller stop-controller",
-    "controller controllers",
+    "controller all-controllers",
     "dispatch cancel-dispatch",
     "dispatch report-blocked",
     "dispatch report-done",
@@ -326,7 +329,10 @@ const IMPLEMENTED: [&str; 98] = [
     "resource resource-requests",
     "guard guard-decisions",
     "session claim",
+    "session record-run-tick",
+    "session deliveries",
     "session leases",
+    "session run-ticks",
     "host record-peak",
     "host release-grant",
     "host request-disk",

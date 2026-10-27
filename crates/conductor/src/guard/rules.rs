@@ -23,8 +23,16 @@
 //!
 //! `<conductor>` is the instance's conductor session name (`story:instance-session-names`):
 //! `<p>-conductor` when the instance has a `session_prefix` `<p>`, else `conductor`. A denied
-//! recipient whose name carries another instance's prefix is named with both instances.
+//! recipient whose name carries another instance's prefix is named with both instances. The
+//! instances a recipient is read against are those of the config file and, for a SendMessage
+//! only, those of every other file the host registry lists (`story:instance-names-unique`,
+//! [`Places::with_registered`]): a conductor without a prefix is no longer alone when another
+//! file's instance is registered, and a message to that instance's session is denied.
 //! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//!
+//! A Bash command that kills by pattern, name or group is denied for every role, before the rows
+//! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
+//! is not given numeric process ids (rules.md item 147).
 //!
 //! Monitor runs a shell command, and is decided by the Bash row. Any other tool has no row: it is
 //! allowed from the built-in read-only allowlist (`READ_ONLY` in `guard.rs`) or the session's
@@ -63,7 +71,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::{Instance, SessionPrefix};
+use conductor_model::config::{Instance, RoleName, SessionPrefix};
 use conductor_model::dispatch::Verdict;
 use serde_json::Value;
 
@@ -127,6 +135,9 @@ pub struct Places {
     /// The instance's `state` directory, with a config file; `None` without one, when the state
     /// is under conductor's records.
     state: Option<PathBuf>,
+    /// The instance's own `cache` directory: a controller's scratch is `<cache>/scratch/<repo>`
+    /// (`story:scratch-per-instance`).
+    cache: PathBuf,
     /// The config file the process resolves ([`config::locate`]); [`config::DEFAULT_FILE`] under
     /// the home directory until [`Places::with_config_file`] names another.
     config: PathBuf,
@@ -214,6 +225,7 @@ impl Places {
             trees: PathBuf::from(&instance.checkouts.trees),
             records: from_file.then(|| PathBuf::from(&instance.records)),
             state: from_file.then(|| PathBuf::from(&instance.state)),
+            cache: PathBuf::from(&instance.cache),
             config: home.join(config::DEFAULT_FILE),
             exclude: collect::excluded_under(instance, Path::new(&instance.checkouts.root)),
             tmp: None,
@@ -243,7 +255,7 @@ impl Places {
                 instance
                     .roles
                     .iter()
-                    .filter(|role| role.role == rules.role())
+                    .filter(|role| config::is_role(&role.role, rules.role_name()))
                     .flat_map(|role| role.read_only_tools.iter().cloned())
                     .collect()
             }),
@@ -280,6 +292,17 @@ impl Places {
     /// The instance itself.
     fn this(&self) -> Option<&Instance> {
         self.instances.first()
+    }
+
+    /// The names the director's session a controller of the instance messages may carry for this
+    /// release (`story:role-name-aliases`): [`Places::conductor_session`] under the old name
+    /// `conductor` and under `director`, the old one first, `<prefix>-conductor` and
+    /// `<prefix>-director`.
+    fn director_sessions(&self) -> Vec<String> {
+        let mut names = config::session_names_of(RoleName::Director, &self.conductor_session());
+        let old = config::old_role_word(RoleName::Director);
+        names.sort_by_key(|name| !name.ends_with(old));
+        names
     }
 
     /// The name of the conductor session a controller of the instance messages: the instance's
@@ -361,6 +384,33 @@ impl Places {
     pub fn with_config_file(mut self, file: &Path) -> Self {
         self.config = file.to_path_buf();
         self
+    }
+
+    /// These places with the instances of every other config file the host registry lists
+    /// after the file's own (`story:instance-names-unique`, [`crate::registry::others`]), each
+    /// with the checkouts and prefix it registered; `None` without a config file, or when the
+    /// registry lists no other file or cannot be read.
+    #[must_use]
+    pub fn with_registered(&self) -> Option<Self> {
+        self.records.as_ref()?;
+        let file = config::physical(&self.config);
+        let others = crate::registry::others(&self.home, &file).ok()?;
+        if others.is_empty() {
+            return None;
+        }
+        let mut widened = self.clone();
+        for (_, other) in others {
+            let mut instance = config::built_in(&self.home, &self.home);
+            instance.name = other.name;
+            instance.session_prefix = other.session_prefix;
+            instance.dashboard_port = other.dashboard_port;
+            instance.records = String::new();
+            instance.state = String::new();
+            instance.cache = String::new();
+            instance.checkouts = other.checkouts;
+            widened.instances.push(instance);
+        }
+        Some(widened)
     }
 
     /// Conductor's records, as the config writes them: the instance's `records`, or without a
@@ -872,12 +922,18 @@ pub(super) enum Rules {
 }
 
 impl Rules {
-    /// The config role whose sessions this rule set decides.
-    pub(super) fn role(self) -> &'static str {
+    /// The config role whose sessions this rule set decides, under its name or its old name
+    /// (`story:role-name-aliases`).
+    pub(super) const fn role_name(self) -> RoleName {
         match self {
-            Self::Controller => config::CONTROLLER,
-            Self::Conductor => CONDUCTOR,
+            Self::Controller => RoleName::Lead,
+            Self::Conductor => RoleName::Director,
         }
+    }
+
+    /// The name of [`Rules::role_name`].
+    pub(super) const fn role(self) -> &'static str {
+        config::role_word(self.role_name())
     }
 }
 
@@ -915,8 +971,8 @@ impl Session<'_> {
     }
 
     /// Whether the landing `path` is a session's scratch (`story:guard-scratch`): under `$TMPDIR`
-    /// for every session, or for a controller also under `~/.cache/<repo>-<anything>/`, `<repo>`
-    /// its repository with `/` written `-`. Never a repository's checkout or managed tree,
+    /// for every session, or for a controller also under `<cache>/scratch/<repo>/` of its own
+    /// instance (`story:scratch-per-instance`), `<repo>` its repository with `/` written `-`. Never a repository's checkout or managed tree,
     /// conductor's records, its config, a `.claude/` settings file, a role's settings file or a
     /// role's profile file, wherever the temporary directory points.
     fn is_scratch(&self, landing: &Path) -> bool {
@@ -940,25 +996,29 @@ impl Session<'_> {
         if self.rules != Rules::Controller {
             return false;
         }
-        let cache = real(&self.home().join(".cache"));
-        let Ok(rest) = landing.strip_prefix(&cache) else {
-            return false;
-        };
-        let prefix = format!("{}-", self.repository.replace('/', "-"));
-        let mut steps = rest.components();
-        steps
-            .next()
-            .is_some_and(|first| first.as_os_str().to_string_lossy().starts_with(&prefix))
-            && steps.next().is_some()
+        let scratch = self.scratch_dir();
+        landing.starts_with(&scratch) && landing != scratch
+    }
+
+    /// A controller's scratch directory, `<cache>/scratch/<repo>` of its own instance, where it
+    /// lands ([`real`]).
+    fn scratch_dir(&self) -> PathBuf {
+        crate::confine::places::scratch_of(&real(&self.places.cache), &self.repository)
+    }
+
+    /// The scratch directory as a denial names it, the home directory written `~`.
+    fn scratch_shown(&self) -> String {
+        let dir = crate::confine::places::scratch_of(&self.places.cache, &self.repository);
+        match dir.strip_prefix(self.home()) {
+            Ok(under) => format!("~/{}/", under.display()),
+            Err(_) => format!("{}/", dir.display()),
+        }
     }
 
     /// Where a denied write may go instead, for a denial to name (`story:guard-write-targets`):
-    /// a controller's scratch, under `$TMPDIR` or `~/.cache/<repo>-*/`.
+    /// a controller's scratch, under `$TMPDIR` or `<cache>/scratch/<repo>/`.
     fn scratch_named(&self) -> String {
-        format!(
-            "scratch is under $TMPDIR or ~/.cache/{}-*/",
-            self.repository.replace('/', "-")
-        )
+        format!("scratch is under $TMPDIR or {}", self.scratch_shown())
     }
 
     /// Edit, Write and NotebookEdit: the verdict on writing `target`.
@@ -1024,9 +1084,8 @@ impl Session<'_> {
                     (
                         Verdict::Allow,
                         format!(
-                            "{tool} target{resolves} is scratch: under $TMPDIR or \
-                             ~/.cache/{}-*/",
-                            self.repository.replace('/', "-")
+                            "{tool} target{resolves} is scratch: under $TMPDIR or {}",
+                            self.scratch_shown()
                         ),
                     )
                 } else if inside && landing.starts_with(places.records()) {
@@ -1121,7 +1180,25 @@ impl Session<'_> {
 
     /// SendMessage: the verdict on messaging `to`, whose `recipient` field, when present, must
     /// name the same session: in either form of its name ([`named`]), otherwise as `to` does.
+    /// Whose a recipient is, is read against the instances of every config file the host
+    /// registry lists (`story:instance-names-unique`, [`Places::with_registered`]), so a session
+    /// of another file's instance is refused too; only this call reads the registry.
     pub(super) fn message(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
+        match self.places.with_registered() {
+            Some(widened) => Session {
+                places: &widened,
+                cwd: self.cwd.clone(),
+                repository: self.repository.clone(),
+                rules: self.rules,
+                sessions: self.sessions,
+            }
+            .message_among(to, recipient),
+            None => self.message_among(to, recipient),
+        }
+    }
+
+    /// [`Session::message`] against the instances of its places.
+    fn message_among(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
         match (self.rules, &self.places.prefix) {
             // Alone in its file, a conductor without a prefix keeps today's rule.
             (Rules::Conductor, None) if self.places.instances.len() <= 1 => (
@@ -1134,9 +1211,11 @@ impl Session<'_> {
     }
 
     /// A controller's SendMessage: to its instance's conductor session ([`Places::conductor_session`])
-    /// by name, ref or socket, or to an agent it started.
+    /// by name, ref or socket, under either name of the director's session for this release
+    /// ([`Places::director_sessions`]), or to an agent it started.
     fn controller_message(&self, to: Option<&str>, recipient: Option<&str>) -> (Verdict, String) {
-        let conductor = self.places.conductor_session();
+        let names = self.places.director_sessions();
+        let conductor = names.join(" or ");
         let only = format!("a controller messages only {conductor}");
         let Some(to) = to else {
             return (
@@ -1154,18 +1233,21 @@ impl Session<'_> {
                 ),
             )
         };
-        if let Some(reference) = named(to, &conductor) {
+        if let Some((name, reference)) = names
+            .iter()
+            .find_map(|name| named(to, name).map(|reference| (name.as_str(), reference)))
+        {
             let same = |other: Option<&str>| match (reference, other) {
                 (Some(reference), Some(other)) => reference == other,
                 _ => true,
             };
             return match recipient {
-                Some(recipient) if !named(recipient, &conductor).is_some_and(same) => {
+                Some(recipient) if !named(recipient, name).is_some_and(same) => {
                     denied(&format!(" with recipient {recipient:?}"))
                 }
                 _ => (
                     Verdict::Allow,
-                    format!("SendMessage to {to:?}: a session named {conductor}"),
+                    format!("SendMessage to {to:?}: a session named {name}"),
                 ),
             };
         }
@@ -1179,7 +1261,9 @@ impl Session<'_> {
             );
         }
         match to.strip_prefix(SOCKET_SCHEME) {
-            Some(path) => self.socket(to, path, &conductor, &only, &|name, _| name == conductor),
+            Some(path) => self.socket(to, path, &conductor, &only, &|name, _| {
+                names.iter().any(|director| director == name)
+            }),
             None => denied(""),
         }
     }
@@ -1379,6 +1463,9 @@ impl Session<'_> {
                         .is_some_and(|(_, value)| contains_word(value, forge.program()))
             })
         };
+        if let Some(reason) = kill_denial(&commands) {
+            return (Verdict::Deny, reason);
+        }
         for words in &commands {
             if let Some(gh) = bot_route(words)
                 && let Some(reason) = self.bot_route_denial(&gh)
@@ -1477,6 +1564,9 @@ impl Session<'_> {
                     ),
                 },
             );
+        }
+        if let Some(reason) = timeout_snapshot_denial(&commands) {
+            return (Verdict::Deny, reason);
         }
         if self.rules == Rules::Controller
             && let Some((run, size)) = unreserved_build(&commands)
@@ -2111,10 +2201,11 @@ fn leaf_after(words: &[String], strict: bool, fed: bool) -> Option<DeniedRun> {
         .then(|| DeniedRun::Unknown(words[..at.min(words.len())].join(" ")))
 }
 
-/// The reservation a build, test or gate takes by default: cargo and `task` (8G), and npm and the
-/// dashboard's `task ui` (2G) (`story:guard-requires-build-run`).
-const BUILD_RESERVE: &str = "8G";
-const NPM_RESERVE: &str = "2G";
+/// The reservation the guard proposes for a build, test or gate: `auto`, which `conductor build
+/// run` resolves to the largest peak its host ledger recorded for the repository and command plus
+/// half (`story:reserve-from-peak`). The guard answers without opening the store, so it names no
+/// size of its own (`story:guard-requires-build-run`).
+const BUILD_RESERVE: &str = "auto";
 
 /// The cargo subcommands that compile into a target directory, aliases included. `fmt`,
 /// `metadata` and `tree` compile nothing.
@@ -2126,14 +2217,14 @@ const CARGO_BUILDS: [&str; 15] = [
 /// The cargo options that take the next word as their value.
 const CARGO_VALUES: [&str; 5] = ["--manifest-path", "--config", "--color", "-Z", "-C"];
 
-/// The tasks that build, test or gate, with the reservation each takes.
+/// The tasks that build, test or gate, with the reservation each is proposed.
 const TASK_BUILDS: [(&str, &str); 6] = [
     ("check", BUILD_RESERVE),
     ("gate", BUILD_RESERVE),
     ("install", BUILD_RESERVE),
     ("regen", BUILD_RESERVE),
     ("docs-generate", BUILD_RESERVE),
-    ("ui", NPM_RESERVE),
+    ("ui", BUILD_RESERVE),
 ];
 
 /// The `task` options that take the next word as their value.
@@ -2191,6 +2282,129 @@ fn unreserved_build(commands: &[Vec<String>]) -> Option<(String, &'static str)> 
     None
 }
 
+/// A `timeout` bounding `conductor snapshot` (`story:rules-into-code`): the program word is
+/// `timeout` (as in [`is_program_word`], after other launchers too) and a later word runs
+/// `conductor` with `snapshot start-snapshot` as its operands (the views read and end at once). A timeout kills the snapshot mid-write. The
+/// answer is the denial's reason.
+fn timeout_snapshot_denial(commands: &[Vec<String>]) -> Option<String> {
+    for words in commands {
+        let name = words.len() - command_words(words).len();
+        if name >= words.len() {
+            continue;
+        }
+        let Some(at) = (name..words.len()).find(|&at| {
+            shell::program(&words[at]) == "timeout" && is_program_word(words, name, at)
+        }) else {
+            continue;
+        };
+        for (run, word) in words.iter().enumerate().skip(at + 1) {
+            if shell::program(word) != "conductor" {
+                continue;
+            }
+            let mut rest = words[run + 1..].iter();
+            let mut operands: Vec<&str> = Vec::new();
+            while operands.len() < 2
+                && let Some(next) = rest.next()
+            {
+                if GLOBAL_VALUES.contains(&next.as_str()) {
+                    rest.next();
+                } else if !next.starts_with('-') {
+                    operands.push(next.as_str());
+                }
+            }
+            if operands == ["snapshot", "start-snapshot"] {
+                return Some(
+                    "`timeout` around `conductor snapshot start-snapshot` kills the snapshot \
+                     mid-write and leaves a partial record (story rules-into-code): run it \
+                     without a timeout; it ends on its own"
+                        .to_owned(),
+                );
+            }
+        }
+    }
+    None
+}
+
+/// The programs that kill by name or pattern.
+const KILL_BY_NAME: [&str; 4] = ["pkill", "killall", "killall5", "skill"];
+
+/// The options of `kill` that list signals and signal nobody.
+const KILL_LISTS: [&str; 6] = ["-l", "-L", "-t", "--list", "--table", "--help"];
+
+/// A kill of something the caller did not start, by pattern or by name (`story:guard-no-pattern-
+/// kill`): the run of `pkill`, `killall`, `killall5` or `skill`, and of `kill` unless every
+/// operand is a numeric process id (or `$!`, the last background job the shell started) after at
+/// most one signal (`-9`, `-TERM`, `-s TERM`, `-n 9`, `--signal=TERM`); an operand that is a
+/// name, `0`, a negative id (`-1`, a group), a `%job`, an expansion or a command substitution; or
+/// a `kill` whose operands `xargs` supplies. A program word is read as in [`is_program_word`]; and
+/// after a launcher (`sudo -u root pkill x`) every word, since its own options take values. The
+/// answer is the denial's reason.
+fn kill_denial(commands: &[Vec<String>]) -> Option<String> {
+    for words in commands {
+        let name = words.len() - command_words(words).len();
+        if name >= words.len() {
+            continue;
+        }
+        let launched = LAUNCHERS.contains(&shell::program(&words[name]));
+        for at in name..words.len() {
+            if !(at == name || launched || FIND_RUNS.contains(&words[at - 1].as_str())) {
+                continue;
+            }
+            let program = shell::program(&words[at]);
+            let by_name = KILL_BY_NAME.contains(&program);
+            let fed = words[name..at]
+                .iter()
+                .any(|word| matches!(shell::program(word), "xargs" | "parallel"));
+            if by_name || (program == "kill" && (fed || !kills_pids(&words[at + 1..]))) {
+                let run: Vec<String> = words[at..].iter().map(|word| shell::quoted(word)).collect();
+                return Some(format!(
+                    "`{}` kills by pattern, by name or by group, so it can kill another \
+                     session's processes (rules.md item 147): never `pkill`, `killall` or `kill` \
+                     by pattern, name, `-1`, a negative group or `%job`. Stop what you started \
+                     with TaskStop, or `kill <pid>` / `kill -<SIG> <pid>` with the numeric pid of \
+                     a process you started",
+                    run.join(" ")
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Whether the arguments of a `kill` name only numeric process ids: an optional signal first,
+/// then one or more ids, each digits and not `0` (the caller's own group), or `$!`; or only list
+/// signals ([`KILL_LISTS`]).
+fn kills_pids(arguments: &[String]) -> bool {
+    if arguments
+        .first()
+        .is_some_and(|word| KILL_LISTS.contains(&word.as_str()))
+    {
+        return true;
+    }
+    let mut rest = arguments;
+    if let Some(first) = rest.first() {
+        if first == "-s" || first == "-n" || first == "--signal" {
+            rest = rest.get(2..).unwrap_or_default();
+        } else if first.starts_with("--signal=")
+            || (first.len() > 1
+                && first.starts_with('-')
+                && first[1..].chars().all(|c| c.is_ascii_alphanumeric()))
+        {
+            rest = &rest[1..];
+        }
+    }
+    if rest.first().is_some_and(|word| word == "--") {
+        rest = &rest[1..];
+    }
+    !rest.is_empty()
+        && rest.iter().all(|word| {
+            word == "$!"
+                || (!word.is_empty()
+                    && word.chars().all(|c| c.is_ascii_digit())
+                    && word.chars().any(|c| c != '0'))
+        })
+}
+
 /// The words a `conductor build run` in `words` runs: those after its `--`, or after `run`
 /// when it has none. `None` when `words` runs no `conductor build run`.
 fn build_run(words: &[String]) -> Option<&[String]> {
@@ -2240,8 +2454,8 @@ fn build_reserve(program: &str, arguments: &[String]) -> Option<&'static str> {
             [
                 "ci" | "clean-install" | "install-clean" | "test" | "t" | "tst",
                 ..,
-            ] => Some(NPM_RESERVE),
-            ["run" | "run-script" | "rum" | "urn", "build" | "test", ..] => Some(NPM_RESERVE),
+            ] => Some(BUILD_RESERVE),
+            ["run" | "run-script" | "rum" | "urn", "build" | "test", ..] => Some(BUILD_RESERVE),
             _ => None,
         },
         _ => None,

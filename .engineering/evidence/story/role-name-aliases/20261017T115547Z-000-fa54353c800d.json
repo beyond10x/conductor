@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-17T11:55:47Z",
+  "actor": "human:timo",
+  "artifact": "story:role-name-aliases",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "0.18.0 gate (10:21Z, merged U4-U7 + 0.17.2): conductor-cli, conductor-broker, tool, conductor-docs 1340 passed, 1 timing failure under load 36 (build_queue_convoy twenty_waiters; 5/5 alone at 10:5xZ); clippy -D warnings 0; conformance 393; model equals a fresh generation; docs current; fmt clean"
+  }
+}

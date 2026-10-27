@@ -56,6 +56,7 @@ components:
         - conductor.decision.AnswerEscalatedRequest
         - conductor.decision.RecordOperatorDecisionForRequest
         - conductor.decision.EscalateRequest
+        - conductor.decision.AmendEscalatedRequest
         - conductor.decision.WithdrawRequest
         - conductor.decision.ReverseConductorDecision
         - conductor.decision.ReverseOperatorDecision
@@ -81,6 +82,8 @@ components:
         - conductor.dispatch.ReleaseResource
         - conductor.dispatch.RecordGuardDecision
         - conductor.session.ClaimLease
+        - conductor.session.DeliverMessage
+        - conductor.session.RecordRunTick
         - conductor.host.TakeHostGrant
         - conductor.host.RequestDisk
         - conductor.host.ReserveDisk
@@ -127,6 +130,7 @@ components:
         - conductor.decision.DecisionRecorded
         - conductor.decision.RequestAnswered
         - conductor.decision.RequestEscalated
+        - conductor.decision.RequestAmended
         - conductor.decision.RequestWithdrawn
         - conductor.decision.DecisionReversedEvent
         - conductor.dispatch.ControllerStarted
@@ -152,6 +156,8 @@ components:
         - conductor.dispatch.GuardDecisionRecorded
         - conductor.session.LeaseTaken
         - conductor.session.LeaseTakenOver
+        - conductor.session.MessageDelivered
+        - conductor.session.RunTickRecorded
         - conductor.host.HostGrantTaken
         - conductor.host.DiskRequested
         - conductor.host.DiskReserved
@@ -238,6 +244,7 @@ components:
             - conductor.decision.AnswerEscalatedRequest
             - conductor.decision.RecordOperatorDecisionForRequest
             - conductor.decision.EscalateRequest
+            - conductor.decision.AmendEscalatedRequest
             - conductor.decision.WithdrawRequest
             - conductor.decision.ReverseConductorDecision
             - conductor.decision.ReverseOperatorDecision
@@ -292,11 +299,15 @@ components:
           views:
             - conductor.dispatch.GuardDecisions
         - name: session
-          summary: The instance's one conductor session and the lease it holds
+          summary: The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks
           commands:
             - conductor.session.ClaimLease
+            - conductor.session.DeliverMessage
+            - conductor.session.RecordRunTick
           views:
             - conductor.session.Leases
+            - conductor.session.Deliveries
+            - conductor.session.RunTicks
         - name: host
           summary: The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk
           commands:
@@ -333,3 +344,27 @@ components:
             - conductor.improvement.VerifyFinding
           views:
             - conductor.improvement.Findings
+
+  # story:tool-broker-read, design docs/design/roles-and-surfaces.md § 6.1: the instance's broker,
+  # run by `conductor broker serve`, and the `tool` binary every session of the instance calls it
+  # through. The broker holds the store and the grants; `tool` holds neither. `tool` is not a
+  # component of its own: ess refuses one that owns, accepts and publishes nothing
+  # (`empty_declaration`), and every verb it offers is the broker's. Its command tree is the
+  # `ess-cli/1` binding `crates/tool/cli.yaml`, whose callables are the broker's.
+  - component: conductor-broker
+    summary: >
+      The broker of one instance. It serves each session of the instance on that session's own
+      socket under the instance's state directory, checks every call against the session's grant,
+      runs the verb (a read; a build through the host ledger; a commit through the bot route with
+      the instance's Gates policy; a team message or a report one level up, recorded as a
+      message), and records every call, run or refused, as a tool call in the instance's store.
+    owns:
+      domains:
+        - conductor.tool
+    accepts:
+      commands:
+        - conductor.tool.RecordToolCall
+    publishes:
+      events:
+        - conductor.tool.ToolCallRecorded
+    reached_by: in_process

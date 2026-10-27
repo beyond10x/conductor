@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:role-name-aliases
 kind: story
-status: draft
+status: implemented
 title: The config and the binary know director, maintainer and lead, and read the old role names as aliases for one release
 relations:
 - decomposes: epic:role-names
@@ -41,7 +41,11 @@ scope:
   path: spec/domains/config.yaml
 - confidence: cited
   path: website/docs/reference
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T11:55:46Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-10-17T11:55:46Z", actor: "human:timo", revision: 5}
+- {from: "active", to: "implemented", at: "2026-10-17T11:55:47Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: role-name-aliases
 

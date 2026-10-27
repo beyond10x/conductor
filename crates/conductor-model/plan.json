@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9",
-    "contract_digest": "5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082"
+    "source_digest": "6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303",
+    "contract_digest": "670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -208,6 +208,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.MigrateConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.Network",
       "disposition": {
         "disposition": "generated"
@@ -230,6 +237,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.ProviderAvailability",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.RepoCache",
       "disposition": {
         "disposition": "generated"
       }
@@ -265,6 +279,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Role",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.RoleName",
       "disposition": {
         "disposition": "generated"
       }
@@ -321,6 +342,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Source",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.SuggestedPrefix",
       "disposition": {
         "disposition": "generated"
       }
@@ -425,6 +453,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.decision.ClassificationRule",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.decision.Decider",
       "disposition": {
         "disposition": "generated"
@@ -468,6 +503,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.decision.DecisionRequest.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.decision.HandleRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.decision.PromptHash",
       "disposition": {
         "disposition": "generated"
       }
@@ -545,6 +594,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.direction.MarkedRepository",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.NewNeed",
       "disposition": {
         "disposition": "generated"
       }
@@ -670,6 +726,27 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.dispatch.ListControllers",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.MailboxSendRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.dispatch.MailboxSendRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.dispatch.Message.State",
       "disposition": {
         "disposition": "generated"
@@ -726,6 +803,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.dispatch.SendToMailbox",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.dispatch.SpawnController",
       "disposition": {
         "disposition": "generated"
@@ -761,6 +845,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.host.BuildLane",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.host.BuildRun",
       "disposition": {
         "disposition": "generated"
@@ -769,6 +860,20 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.BuildRunRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.BuildRunWithdrawn",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.CollisionKey",
       "disposition": {
         "disposition": "generated"
       }
@@ -789,6 +894,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.host.HostConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.host.HostGrant.State",
       "disposition": {
         "disposition": "generated"
@@ -796,7 +908,42 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.host.HostRoleName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.HostRoles",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.InstanceCollision",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.InstanceRegistry",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.host.LeftOver",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.ListSlices",
       "disposition": {
         "disposition": "generated"
       }
@@ -852,6 +999,20 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.host.RegisteredFile",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.RegisteredInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.host.ReleaseReason",
       "disposition": {
         "disposition": "generated"
@@ -860,6 +1021,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.host.ShowGrants",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.host.SliceRow",
       "disposition": {
         "disposition": "generated"
       }
@@ -979,6 +1147,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.observation.DailySeriesId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.observation.DashboardMemory",
       "disposition": {
         "disposition": "generated"
       }
@@ -1223,6 +1398,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.observation.TreeVerdict",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.observation.UsageObservation.State",
       "disposition": {
         "disposition": "generated"
@@ -1258,6 +1440,48 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.AttachMode",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.AttachSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.AttachableSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.DeliverToSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.Delivery.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.DeliveryId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.EnvelopeMeasurement",
       "disposition": {
         "disposition": "generated"
@@ -1272,7 +1496,42 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.session.ListSessions",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.session.PlaceResolved",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.RunDaemon",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.RunTick.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionAttachRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.SessionAttachRefused",
       "disposition": {
         "disposition": "generated"
       }
@@ -1336,6 +1595,181 @@
     {
       "kind": "domain_type",
       "source": "conductor.session.StopSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.TickId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.session.TickKind",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.Broker.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.CallAnswer",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.CallOutcome",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.CallRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.CheckCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.CommitCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.DiffCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.FmtCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.Grant.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.Level",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ReportCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ReportStatus",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.RoleGrant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.SearchCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.SendCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ShowCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.Team.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.TeamName",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.TestCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ToolCall.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ToolCallId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.ToolSession.State",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.tool.Verb",
       "disposition": {
         "disposition": "generated"
       }
@@ -1552,7 +1986,70 @@
     },
     {
       "kind": "entity_lifecycle",
+      "source": "conductor.session.Delivery",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
       "source": "conductor.session.Lease",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.session.RunTick",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.tool.Broker",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.tool.Grant",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.tool.Team",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.tool.ToolCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "entity_lifecycle",
+      "source": "conductor.tool.ToolSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.decision.AmendEscalatedRequest",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.decision.AmendEscalatedRequest",
       "disposition": {
         "disposition": "generated"
       }
@@ -2614,6 +3111,48 @@
       }
     },
     {
+      "kind": "command_contract",
+      "source": "conductor.session.DeliverMessage",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.session.DeliverMessage",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.session.RecordRunTick",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.session.RecordRunTick",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_contract",
+      "source": "conductor.tool.RecordToolCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "command_behavior",
+      "source": "conductor.tool.RecordToolCall",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
       "kind": "event_type",
       "source": "conductor.decision.DecisionRecorded",
       "disposition": {
@@ -2630,6 +3169,13 @@
     {
       "kind": "event_type",
       "source": "conductor.decision.DecisionReversedEvent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.decision.RequestAmended",
       "disposition": {
         "disposition": "generated"
       }
@@ -3132,6 +3678,27 @@
       }
     },
     {
+      "kind": "event_type",
+      "source": "conductor.session.MessageDelivered",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.session.RunTickRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "event_type",
+      "source": "conductor.tool.ToolCallRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
       "kind": "error_type",
       "source": "conductor.decision.ChoiceInvalid",
       "disposition": {
@@ -3371,6 +3938,13 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.dispatch.MailboxBodyMissing",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.dispatch.MessageNotFound",
       "disposition": {
         "disposition": "generated"
@@ -3560,12 +4134,82 @@
     },
     {
       "kind": "error_type",
+      "source": "conductor.session.InvalidLineCount",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
       "source": "conductor.session.LeaseHeld",
       "disposition": {
         "disposition": "generated"
       }
     },
     {
+      "kind": "error_type",
+      "source": "conductor.session.SessionNotReachable",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.BuildFailed",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.CommitRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.ForeignInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.GrantExpired",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.NotGranted",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.NotOneLevelUp",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.OutsideTeam",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.tool.UnknownSession",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
       "kind": "view_type",
       "source": "conductor.decision.Decisions",
       "disposition": {
@@ -4015,6 +4659,20 @@
     },
     {
       "kind": "view_type",
+      "source": "conductor.session.Deliveries",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.session.Deliveries",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
       "source": "conductor.session.Leases",
       "disposition": {
         "disposition": "generated"
@@ -4023,6 +4681,34 @@
     {
       "kind": "view_query",
       "source": "conductor.session.Leases",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.session.RunTicks",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.session.RunTicks",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_type",
+      "source": "conductor.tool.ToolCalls",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "view_query",
+      "source": "conductor.tool.ToolCalls",
       "disposition": {
         "disposition": "generated"
       }
@@ -4034,7 +4720,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.decision.AmendEscalatedRequest`, `conductor.decision.AnswerRequest`, `conductor.decision.EscalateRequest`, `conductor.decision.RecordConductorDecision`, `conductor.decision.ReverseConductorDecision`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {
@@ -4094,7 +4780,7 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.dispatch.RecordGuardDecision`, `conductor.dispatch.ReleaseResource`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.RequestResource`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.RecordGuardDecision`, `conductor.dispatch.ReleaseResource`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.dispatch.RequestResource`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
       }
     },
     {
@@ -4144,7 +4830,24 @@
         "disposition": "refused",
         "reason": "needs_caller_identity",
         "stage": "planning",
-        "detail": "may invoke `conductor.session.ClaimLease`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+        "detail": "may invoke `conductor.session.ClaimLease`, `conductor.session.DeliverMessage`, `conductor.session.RecordRunTick`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+      }
+    },
+    {
+      "kind": "actor_grants",
+      "source": "conductor.tool.InstanceBroker",
+      "disposition": {
+        "disposition": "refused",
+        "reason": "needs_caller_identity",
+        "stage": "planning",
+        "detail": "may invoke `conductor.dispatch.ReceiveMessage`, `conductor.dispatch.ReportBlocked`, `conductor.dispatch.ReportDone`, `conductor.dispatch.ReportFailed`, `conductor.dispatch.ReportStarted`, `conductor.dispatch.ReportUnblocked`, `conductor.tool.RecordToolCall`; generated as data, not enforced: the grant is available as the declared actors and the qualified commands each may invoke, and enforcement stays with the caller, because a grant is checked against a caller identity, which types do not carry"
+      }
+    },
+    {
+      "kind": "component_port",
+      "source": "conductor-broker",
+      "disposition": {
+        "disposition": "generated"
       }
     },
     {

@@ -449,6 +449,7 @@ fn quiet(case: &Case) -> Sources {
         store: None,
         repositories: Vec::new(),
         runs: Vec::new(),
+        pulls: Vec::new(),
         disk: case.dir.clone(),
         free_bytes: plenty,
         notify: vec![OsString::from("true")],
@@ -510,7 +511,7 @@ fn conductor_status_shows_the_usage_line() {
     case.take("2026-10-14T09:00:00Z", r#"{"accounts": []}"#);
     let state = case.state();
     let state = state.to_str().expect("a UTF-8 path");
-    let text = case.conductor(None, &["--state-dir", state, "status"]);
+    let text = case.conductor(None, &["--state-dir", state, "status", "--full"]);
     assert!(text.status.success(), "{}", describe(&text));
     assert!(
         String::from_utf8_lossy(&text.stdout).ends_with("## Usage\n\nNone: no usage reading.\n"),
@@ -519,10 +520,20 @@ fn conductor_status_shows_the_usage_line() {
     );
 
     two_readings(&case);
-    let text = case.conductor(None, &["--state-dir", state, "status"]);
+    let text = case.conductor(None, &["--state-dir", state, "status", "--full"]);
     assert!(text.status.success(), "{}", describe(&text));
     assert!(
         String::from_utf8_lossy(&text.stdout).ends_with(&format!("## Usage\n\n{TWO_READINGS}\n")),
+        "{}",
+        describe(&text)
+    );
+    // Without --full, the usage line is one of the attention lines (story:conductor-context-budget).
+    let text = case.conductor(None, &["--state-dir", state, "status"]);
+    assert!(text.status.success(), "{}", describe(&text));
+    assert!(
+        String::from_utf8_lossy(&text.stdout)
+            .lines()
+            .any(|line| line == TWO_READINGS),
         "{}",
         describe(&text)
     );
@@ -605,9 +616,10 @@ fn doctor_reports_the_usage_watcher_running_or_not() {
 
     systemctl("active", 0);
     assert_eq!(doctor(&config), ["usage watcher: rotator.service running"]);
+    // Doctor also asks after the instance's run unit (`story:run-daemon`), after the watcher.
     assert_eq!(
         fs::read_to_string(&calls).expect("systemctl was asked"),
-        "--user is-active rotator.service\n"
+        "--user is-active rotator.service\n--user is-active conductor_acme-run.service\n"
     );
 
     systemctl("inactive", 3);

@@ -29,7 +29,7 @@ use conductor_cli::collect::Collector;
 use conductor_cli::collect::sessions::{self, Sources};
 use conductor_cli::config;
 use conductor_cli::confine::places::{self, Placement};
-use conductor_cli::session::{CONDUCTOR_PROMPT, DEV_PROMPT};
+use conductor_cli::session::{DEV_PROMPT, DIRECTOR_PROMPT};
 use conductor_cli::snapshot;
 use conductor_model::config::{Checkouts, Harness, Writable};
 use fake_provider::{Child, call_names, calls};
@@ -287,6 +287,7 @@ fn places_resolve_each_word_for_a_controller() {
             repository: Some("group/alpha".to_owned()),
             trees: PathBuf::from("/h/trees"),
             records: PathBuf::from("/h/records"),
+            cache: PathBuf::from("/h/.cache/b10x/conductor/alpha"),
             harness: Harness::Claude,
             controller: true,
         },
@@ -299,7 +300,10 @@ fn places_resolve_each_word_for_a_controller() {
         ("checkout", vec!["/h/example-org/group/alpha"]),
         ("trees", vec!["/h/trees/group/alpha"]),
         ("build-cache", vec!["/h/.cargo", "/h/.npm"]),
-        ("scratch", vec!["/t", "/h/.cache/alpha-*"]),
+        (
+            "scratch",
+            vec!["/t", "/h/.cache/b10x/conductor/alpha/scratch/group-alpha"],
+        ),
         ("harness-state", vec!["/h/.claude", "/h/.claude.json"]),
         ("records", vec!["/h/records"]),
         ("/srv/cache", vec!["/srv/cache"]),
@@ -326,6 +330,7 @@ fn places_resolve_each_word_for_conductor() {
         repository: None,
         trees: PathBuf::from("/h/trees"),
         records: PathBuf::from("/h/.b10x/conductor/alpha/records"),
+        cache: PathBuf::from("/h/.cache/b10x/conductor/alpha"),
         harness: Harness::Codex,
         controller: false,
     };
@@ -653,6 +658,37 @@ fn report_and_a_provider_not_available_starts_unboxed_with_the_reason() {
     assert_eq!(record["session"]["provider"], "none", "{record:#}");
 }
 
+/// `story:instance-names-unique`: a session start writes its config file to the host registry,
+/// `~/.b10x/conductor/host/instances.json`, with the file's instances, even for an instance that
+/// has no `session_prefix` yet: it still starts, under its bare name, for one release.
+#[test]
+fn a_session_start_writes_its_config_file_to_the_host_registry() {
+    let case = Case::new("registry", REPORT);
+    case.fake_file("systemd.unavailable", "no delegated cgroup controllers");
+    let output = case.start("conductor");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    let file = case.home().join(".b10x/conductor/host/instances.json");
+    let registry: Value = serde_json::from_str(
+        &fs::read_to_string(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display())),
+    )
+    .expect("the registry is JSON");
+    let files = registry["files"].as_array().expect("the registry's files");
+    assert_eq!(files.len(), 1, "{registry:#}");
+    assert_eq!(
+        files[0]["config"],
+        case.config().display().to_string(),
+        "{registry:#}"
+    );
+    let alpha = &files[0]["instances"][0];
+    assert_eq!(alpha["name"], "alpha", "{registry:#}");
+    assert_eq!(alpha["session_prefix"], Value::Null, "{registry:#}");
+    assert_eq!(
+        alpha["state"],
+        case.state().display().to_string(),
+        "{registry:#}"
+    );
+}
+
 /// The provider is given the role's request (absolute places, limits, forge token variables) and
 /// harness arguments, and conductor's first prompt; conductor starts in the records directory,
 /// conductor-dev in the working directory, each with its own prompt. The started session is
@@ -711,7 +747,7 @@ fn the_provider_is_given_the_role_s_request_and_first_prompt() {
             settings.display().to_string(),
         ])
     );
-    assert_eq!(logged[1]["prompt"], CONDUCTOR_PROMPT);
+    assert_eq!(logged[1]["prompt"], DIRECTOR_PROMPT);
     assert_eq!(case.claude_calls(), "", "the fake provider ran no claude");
 
     let output = case.start("conductor-dev");
@@ -847,6 +883,248 @@ fn session_stop_stops_through_the_provider_that_started_it() {
     assert_eq!(case.record("conductor"), None, "the measurement is removed");
 }
 
+/// `story:role-name-aliases`, item 3: `--role director` and `--role conductor` start the same
+/// role, the file's `conductor`, under its session name as today; the old name is noted on
+/// standard error, the new one is not. `--role maintainer` starts the file's `conductor-dev`.
+#[test]
+fn director_and_conductor_start_the_same_role_the_old_name_with_a_note() {
+    for (name, role, noted) in [
+        ("role-director", "director", false),
+        ("role-conductor", "conductor", true),
+    ] {
+        let case = Case::new(name, STRICT);
+        let output = case.start(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "started conductor: provider systemd, unit conductor-conductor.service, session \
+             fake-conductor\n",
+            "{role}"
+        );
+        let logged = calls(&case.fake());
+        assert_eq!(
+            logged[0]["request"]["cwd"],
+            case.records().display().to_string()
+        );
+        assert_eq!(logged[1]["prompt"], DIRECTOR_PROMPT, "{role}");
+        let note = stderr(&output);
+        assert_eq!(
+            note.contains("--role conductor is the old name of director"),
+            noted,
+            "{role}: {}",
+            describe(&output)
+        );
+    }
+    let case = Case::new("role-maintainer", STRICT);
+    let output = case.start("maintainer");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).starts_with("started conductor-dev: "),
+        "{}",
+        describe(&output)
+    );
+    assert!(stderr(&output).is_empty(), "{}", describe(&output));
+}
+
+/// `story:role-name-aliases`, item 3: a file that writes the new name `director` starts its
+/// session as `director`, with the agent `conductor` (the adapter's file name for this release);
+/// while a session still named `conductor` lives, start refuses it as running, and `session stop
+/// --role director` and `--role conductor` stop that session as the director's.
+#[test]
+fn a_director_finds_a_live_session_still_named_conductor() {
+    let case = Case::new("director-named", STRICT);
+    let config = fs::read_to_string(case.config()).expect("read the config");
+    write(
+        &case.config(),
+        &config.replace("{role: conductor,", "{role: director,"),
+    );
+    let output = case.start("director");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).starts_with("started director: "),
+        "{}",
+        describe(&output)
+    );
+    let start = calls(&case.fake())
+        .into_iter()
+        .find(|call| call["call"] == "start")
+        .expect("a start");
+    let args = start["args"].as_array().expect("args");
+    let agent = args
+        .iter()
+        .position(|arg| arg == "--agent")
+        .expect("an --agent");
+    assert_eq!(args[agent + 1], "conductor", "{args:?}");
+
+    for role in ["director", "conductor"] {
+        let case = Case::new(&format!("director-stops-{role}"), STRICT);
+        let config = fs::read_to_string(case.config()).expect("read the config");
+        write(
+            &case.config(),
+            &config.replace("{role: conductor,", "{role: director,"),
+        );
+        case.agents(&json!([
+            {"id": "s-old", "name": "conductor", "cwd": case.records(), "pid": 4242,
+             "kind": "background", "status": "idle"}
+        ]));
+        let output = case.start("director");
+        assert_refused(&output, "session start", "SessionRunning");
+        assert!(stderr(&output).contains("s-old"), "{}", describe(&output));
+        let output = case.stop(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "stopped conductor (s-old)\n",
+            "{role}"
+        );
+        let stops: Vec<Value> = calls(&case.fake())
+            .into_iter()
+            .filter(|call| call["call"] == "stop")
+            .collect();
+        assert_eq!(stops.len(), 1, "{role}: {stops:#?}");
+        assert_eq!(stops[0]["session_id"], "s-old", "{role}");
+    }
+}
+
+/// `story:maintainer-host-config`, item 4: with `host.yaml` naming a maintainer, `session start
+/// --role maintainer` (and `--role conductor-dev`, with its note) starts that role, not the one
+/// the instance's `roles` still writes: under the session name `maintainer`, with no instance
+/// prefix, its model and places, in the working directory with the maintainer's first prompt,
+/// pinned to the instance it runs for; `session stop --role maintainer` stops it.
+#[test]
+fn the_maintainer_starts_from_the_host_file() {
+    for (name, role) in [
+        ("host-maintainer", "maintainer"),
+        ("host-maintainer-old-name", "conductor-dev"),
+    ] {
+        let case = Case::new(name, STRICT);
+        write(
+            &case.home().join(".b10x/conductor/host/host.yaml"),
+            &format!(
+                "version: conductor.host-config/1\n\
+                 roles:\n\
+                 \x20 - {{role: maintainer, harness: claude, model: haiku, writable: [checkout], \
+                 settings: {settings}}}\n",
+                settings = case.dev_settings().display(),
+            ),
+        );
+        let output = case.start(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).starts_with("started maintainer: "),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            stderr(&output).contains("--role conductor-dev is the old name of maintainer"),
+            role == "conductor-dev",
+            "{role}: {}",
+            describe(&output)
+        );
+        let logged = calls(&case.fake());
+        let start = logged
+            .iter()
+            .find(|call| call["call"] == "start")
+            .expect("a start");
+        let work = case.work().display().to_string();
+        assert_eq!(
+            start["request"],
+            json!({
+                "role": "maintainer", "session_name": "maintainer", "cwd": work,
+                "memory_max": null, "cpu_weight": null, "tasks_max": null,
+                "writable": [{"place": "checkout", "paths": [work]}],
+                "forge_token_env": [],
+            }),
+            "{role}"
+        );
+        assert_eq!(
+            start["args"],
+            json!([
+                "-n",
+                "maintainer",
+                "--agent",
+                "conductor-dev",
+                "--model",
+                "haiku",
+                "--permission-mode",
+                "bypassPermissions",
+                "--setting-sources",
+                "project,local",
+                "--settings",
+                case.dev_settings().display().to_string(),
+            ]),
+            "{role}"
+        );
+        assert!(
+            logged
+                .iter()
+                .any(|call| call["call"] == "prompt" && call["prompt"] == DEV_PROMPT),
+            "{role}: {logged:#?}"
+        );
+
+        case.agents(&json!([
+            {"id": "s-maintainer", "name": "maintainer", "cwd": case.work(), "pid": 4242,
+             "kind": "background", "status": "idle"}
+        ]));
+        assert_refused(&case.start(role), "session start", "SessionRunning");
+        let output = case.stop(role);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{role}: {}",
+            describe(&output)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "stopped maintainer (s-maintainer)\n",
+            "{role}"
+        );
+    }
+}
+
+/// `story:maintainer-host-config`, item 4: a `host.yaml` that does not read refuses `session start
+/// --role maintainer` (`UnknownRole`), naming the file, and starts nothing; the director starts
+/// as before, reading no host file.
+#[test]
+fn a_host_file_that_does_not_read_refuses_the_maintainer_only() {
+    let case = Case::new("host-maintainer-invalid", STRICT);
+    let host = case.home().join(".b10x/conductor/host/host.yaml");
+    write(
+        &host,
+        "version: conductor.host-config/1\nroles:\n  - {role: director, harness: claude, model: opus}\n",
+    );
+    let output = case.start("maintainer");
+    assert_refused(&output, "session start", "UnknownRole");
+    assert!(
+        stderr(&output).contains(&host.display().to_string()),
+        "{}",
+        describe(&output)
+    );
+    assert!(
+        !calls(&case.fake())
+            .iter()
+            .any(|call| call["call"] == "start"),
+        "nothing started"
+    );
+    let output = case.start("director");
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+}
+
 /// `session stop` refuses a role it does not stop and a role with no live session, stopping
 /// nothing.
 #[test]
@@ -859,4 +1137,39 @@ fn session_stop_refuses_an_unknown_role_and_no_session_running() {
         "{:?}",
         calls(&case.fake())
     );
+}
+
+/// `story:scratch-per-instance`: two instances that track a repository of the same name resolve
+/// two distinct scratch directories, each under its own instance's cache; the old
+/// `~/.cache/<repo>-*` is no part of the place.
+#[test]
+fn two_instances_with_one_repository_name_have_two_scratch_directories() {
+    let scratch_of = |cache: &str| {
+        let resolved = places::resolve(
+            &words(&["scratch"]),
+            &Placement {
+                home: PathBuf::from("/h"),
+                tmpdir: PathBuf::from("/t"),
+                start: PathBuf::from("/h/example-org/alpha"),
+                repository: Some("alpha".to_owned()),
+                trees: PathBuf::from("/h/trees"),
+                records: PathBuf::from("/h/records"),
+                cache: PathBuf::from(cache),
+                harness: Harness::Claude,
+                controller: true,
+            },
+        );
+        resolved[0].paths.clone()
+    };
+    let first = scratch_of("/h/.cache/b10x/conductor/first");
+    let second = scratch_of("/h/.cache/b10x/conductor/second");
+    assert_eq!(
+        first,
+        ["/t", "/h/.cache/b10x/conductor/first/scratch/alpha"]
+    );
+    assert_eq!(
+        second,
+        ["/t", "/h/.cache/b10x/conductor/second/scratch/alpha"]
+    );
+    assert_ne!(first[1], second[1]);
 }

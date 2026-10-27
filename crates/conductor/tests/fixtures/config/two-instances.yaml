@@ -1,6 +1,7 @@
 version: conductor.config/1
 instances:
   - name: first-org
+    session_prefix: first
     sources:
       - github: first-org
     checkouts: {root: ~/first-org, trees: ~/.local/state/worktree/trees/first}

@@ -130,6 +130,8 @@ impl Store {
     /// unreadable `Snapshot` is left with its observations), the observation store does not open,
     /// or a tenant cannot be erased; the tenants erased before that stay erased.
     pub fn retain(&self, keep: usize) -> Result<Vec<SnapshotId>> {
+        self.commit_observations()
+            .context("commit the observations held back")?;
         let mut ordered: Vec<_> = SnapshotStorage::list(self)
             .into_iter()
             .enumerate()

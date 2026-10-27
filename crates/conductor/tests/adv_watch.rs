@@ -190,6 +190,7 @@ impl Case {
                 "cat".to_owned(),
                 format!("{}/runs/{{repository}}.json", self.dir.display()),
             ],
+            pulls: vec!["echo".to_owned(), "[]".to_owned()],
             disk: self.dir.join("free.txt"),
             free_bytes: written_bytes,
             notify: vec![

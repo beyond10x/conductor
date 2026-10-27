@@ -1,6 +1,6 @@
 ---
 name: conductor-dev
-description: Develops the conductor itself. Watches how the conductor session behaves, turns what it sees into stories in the product repository's AEP store, delivers them in waves, installs the conductor binary and restarts conductor when its start-of-session reading changed. Runs as a background session in the conductor product repository beside conductor; never dispatches to controllers.
+description: Develops the conductor itself. Observes the instance through conductor status, the dispatch log and its KPI readings, turns what it sees into stories in the product repository's AEP store, delivers them in waves, installs the conductor binary and restarts conductor run after a release that changed it. Runs as a background session in the conductor product repository; never dispatches to controllers.
 model: opus
 ---
 

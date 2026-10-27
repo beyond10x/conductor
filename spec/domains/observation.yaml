@@ -55,7 +55,7 @@ types:
 
   - name: conductor.observation.SpecificationPresence
     kind: enum
-    variants: [Present, OptedOut, Missing]
+    variants: [Present, OptedOut, Missing, NotInWorkspace]
 
   - name: conductor.observation.ValidationResult
     kind: enum
@@ -94,6 +94,37 @@ types:
       - {name: port, type: Optional<Integer>}
       - {name: root, type: Optional<String>}
 
+  # The `memory` part of the dashboard's health view (story:dashboard-memory-bound): what the
+  # serving process holds. `rss_bytes` is its resident set (`VmRSS` of `/proc/self/status`) and
+  # `swap_bytes` what of it the system swapped out (`VmSwap`), each absent where the system does
+  # not report it. `store_handles` is the store handles it keeps, one per state directory;
+  # `store_replays` the trees those handles hold replayed in memory now, and `store_bytes` the
+  # bytes of the files those replays were built from. `store_replays_peak` is the most replays of
+  # one tree alive at once since the server started: 1 while each reopen drops the old replay
+  # before it builds the new one. `memo_entries` is the answers kept, `memo_entries_peak_endpoint`
+  # the most kept for any one endpoint (each query string its own answer) and `memo_bytes` their
+  # size.
+  - name: conductor.observation.DashboardMemory
+    kind: struct
+    fields:
+      - {name: rss_bytes, type: Optional<Integer>}
+      - {name: swap_bytes, type: Optional<Integer>}
+      - {name: store_handles, type: Integer}
+      - {name: store_replays, type: Integer}
+      - {name: store_replays_peak, type: Integer}
+      - {name: store_bytes, type: Integer}
+      - {name: memo_entries, type: Integer}
+      - {name: memo_entries_peak_endpoint, type: Integer}
+      - {name: memo_bytes, type: Integer}
+    invariants:
+      - store_handles >= 0
+      - store_replays >= 0
+      - store_replays_peak >= 0
+      - store_bytes >= 0
+      - memo_entries >= 0
+      - memo_entries_peak_endpoint >= 0
+      - memo_bytes >= 0
+
   - name: conductor.observation.WatchRun
     kind: struct
     fields:
@@ -124,8 +155,9 @@ types:
       - {name: format, type: Optional<String>}
 
   # The input of `conductor gc` (story:conductor-gc), which removes what the dashboard's disk panel
-  # marks reclaimable and nothing else. `dry_run` lists those rows and removes nothing; `format` is
-  # text or json, read by the handler.
+  # marks reclaimable, the finished managed trees and the `target/` of the stale ones
+  # (story:gc-finished-trees), and nothing else. `dry_run` lists those rows and removes nothing;
+  # `format` is text or json, read by the handler.
   - name: conductor.observation.CollectGarbage
     kind: struct
     fields:
@@ -138,9 +170,19 @@ types:
     kind: enum
     variants: [Reclaimable, Removed, Refused]
 
+  # What `conductor gc` found a managed tree to be (story:gc-finished-trees): finished (merged
+  # into its default branch on origin, clean apart from `target/` and `.check/`, in use by no
+  # process, held by no lease), which it finishes and removes through `worktree`; or stale (dirty or
+  # unmerged, untouched for longer than `thresholds.tree_stale`), whose `target/` it removes and
+  # whose tree it keeps.
+  - name: conductor.observation.TreeVerdict
+    kind: enum
+    variants: [Finished, Stale]
+
   # One row `conductor gc` reports: a row the disk panel marks reclaimable, as the panel measured
   # it (`what`, `repository`, the paths it sums, `count`, `bytes`), the bytes its removal freed,
-  # measured on the disk before and after, and its outcome with the reason for a refusal.
+  # measured on the disk before and after, and its outcome with the reason for a refusal. A row of
+  # one managed tree also names the tree's registered id (`tree`) and its verdict.
   - name: conductor.observation.GarbageRow
     kind: struct
     fields:
@@ -152,6 +194,8 @@ types:
       - {name: freed, type: Optional<Integer>}
       - {name: outcome, type: conductor.observation.GarbageOutcome}
       - {name: detail, type: Optional<String>}
+      - {name: tree, type: Optional<String>}
+      - {name: verdict, type: Optional<conductor.observation.TreeVerdict>}
 
   # The input of `conductor repository refresh-hooks` (story:gates-hooks-fresh), which lists each
   # checkout of the instance whose Gates hook (`.git/b10x-gates-hooks/b10x-gates`) lags the
@@ -205,11 +249,17 @@ types:
   # The input of the `Status` view, `conductor status` (story:status-command): the answer to
   # "what is the status" in one call. It reads the store alone: it starts no snapshot, runs no
   # collector, and opens only an existing store, creating nothing. `format` is text or json, read
-  # by the handler.
+  # by the handler. As text it prints, without `full`, only what asks for attention, one line each
+  # (story:conductor-context-budget): the snapshot's id and age, the unanswered operator items,
+  # each repository's deviations with its failing checks, each `Blocked` dispatch, each wait, each
+  # pending request and the usage line, then one line counting the open dispatches and sessions
+  # left out; with `full`, every part of the `StatusReport` under its heading. json is the whole
+  # report either way.
   - name: conductor.observation.Status
     kind: struct
     fields:
       - {name: format, type: Optional<String>}
+      - {name: full, type: Optional<Boolean>}
 
   # One live session of the `Status` view: a session the newest complete snapshot observed, by
   # its repository (absent outside the checkouts), its name (else its reference), harness, role
@@ -615,7 +665,9 @@ entities:
   # One repository's ESS specification status, for every repository the instance tracks from
   # any source: read at origin/main, or at HEAD for a local source's. Present means an
   # `ess-inputs.yaml` or `system.yaml` outside build output; OptedOut means the repository's
-  # AGENTS.md records an ESS opt-out; Missing means neither.
+  # AGENTS.md records an ESS opt-out; Missing means neither; NotInWorkspace means the repository
+  # is listed, not archived, and no member of the workspace file has it as its source, so nothing
+  # was read (story:snapshot-unlisted-repository).
   - name: conductor.observation.SpecificationObservation
     identity:
       name: observation_id
@@ -736,7 +788,10 @@ entities:
 
   # One collector's run in one snapshot (story:snapshot-duration): when it started, how long it
   # took in milliseconds, and how it ended. The driver records one per collector it ran, so the
-  # collector a slow snapshot spends its time in can be named.
+  # collector a slow snapshot spends its time in can be named. `read_bytes` and `written_bytes`
+  # are what the snapshot's process read and wrote while the collector ran, its records kept
+  # included (story:snapshot-store-cost); absent where the system does not report them, and on a
+  # run recorded before they were.
   - name: conductor.observation.CollectorRunObservation
     identity:
       name: observation_id
@@ -752,6 +807,10 @@ entities:
         type: Integer
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
+      - name: read_bytes
+        type: Optional<Integer>
+      - name: written_bytes
+        type: Optional<Integer>
     relations:
       - name: snapshot
         kind: references
@@ -1718,6 +1777,12 @@ commands:
         example: 41250
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
+      - name: read_bytes
+        type: Optional<Integer>
+        example: 52428800
+      - name: written_bytes
+        type: Optional<Integer>
+        example: 1048576
     outcomes:
       - name: no-such-snapshot
         when_related: {via: input.snapshot_id, exists: false}
@@ -1749,6 +1814,8 @@ commands:
           started_at: input.started_at
           duration_ms: input.duration_ms
           outcome: input.outcome
+          read_bytes: input.read_bytes
+          written_bytes: input.written_bytes
         emits:
           - conductor.observation.CollectorRunRecorded
         payload:
@@ -2481,8 +2548,8 @@ views:
       wire: member-failures
       display: Members a collector could not read
 
-  # Each collector's run of every kept snapshot, with its start, duration and outcome
-  # (story:snapshot-duration).
+  # Each collector's run of every kept snapshot, with its start, duration, outcome and bytes read
+  # and written (story:snapshot-duration, story:snapshot-store-cost).
   - name: conductor.observation.CollectorRuns
     source: conductor.observation.CollectorRunObservation
     consistency: read_your_writes
@@ -2499,6 +2566,10 @@ views:
         type: Integer
       - name: outcome
         type: conductor.observation.CollectorRunOutcome
+      - name: read_bytes
+        type: Optional<Integer>
+      - name: written_bytes
+        type: Optional<Integer>
     naming:
       wire: collector-runs
       display: Collector runs

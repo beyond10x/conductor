@@ -14,8 +14,9 @@ planned. "Planned" means a story exists in the product's plan; it is not a date.
 Every session runs with `--permission-mode bypassPermissions`. Nothing asks the operator before a
 tool call. If the guard is not wired, nothing checks at all.
 
-- **Do:** start sessions only through `task conductor:start` and the controller start form, both
-  with the role's settings file ([confinement](/docs/security/confinement)). Provoke a denial after
+- **Do:** start sessions only through `conductor run`, which starts each controller with its role's
+  settings file, and `task maintainer:start` with a `settings` for its role
+  ([confinement](/docs/security/confinement)). Provoke a denial after
   every change to the settings or the binary ([hardening](/docs/security/hardening)).
 - **Planned:** no change to the permission mode; the stories below narrow what a session can do.
 
@@ -57,7 +58,7 @@ connection. A URL can carry data out.
 
 ## Unguarded sessions
 
-- **conductor-dev runs without the guard by default.** `task dev:start` passes `--settings` only
+- **conductor-dev runs without the guard by default.** `task maintainer:start` passes `--settings` only
   when the `conductor-dev` role names a settings file.
 - **A session started or resumed by hand** without `--settings <role settings file>` is not
   guarded.

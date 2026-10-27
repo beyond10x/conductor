@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:dashboard-memory-bound
 kind: story
-status: draft
+status: implemented
 title: The dashboard's memory stays bounded however long it runs
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T11:24:24Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-10-16T11:24:24Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-10-16T11:24:25Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: dashboard-memory-bound
 

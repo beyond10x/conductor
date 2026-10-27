@@ -1803,7 +1803,8 @@ fn runs(path: &[String]) -> Vec<String> {
         format!("conductor {words}"),
         format!("conductor --state-dir ~/example-org/conductor/state {words} --format json"),
         format!("bash -c 'conductor {words} --input-json -' < input.json"),
-        format!("ls && env timeout 5 conductor {words} | head"),
+        // `nice`, not `timeout`: a timeout around `snapshot start-snapshot` is denied by name.
+        format!("ls && env nice -n 5 conductor {words} | head"),
     ];
     if let [group, leaf] = path {
         runs.push(format!(
@@ -3738,11 +3739,12 @@ fn decide_with_tmp(
     )
 }
 
-/// A controller writes scratch under `$TMPDIR` and under `~/.cache/<repo>-<anything>/`, and not
-/// at `~/.cache/<repo>-<anything>` itself, under another repository's prefix, or under `$TMPDIR`
-/// when the hook has none.
+/// A controller writes scratch under `$TMPDIR` and under `<cache>/scratch/<repo>/` of its own
+/// instance (`story:scratch-per-instance`), and not at that directory itself, under another
+/// repository's, under another instance's, in the old `~/.cache/<repo>-<anything>/`, or under
+/// `$TMPDIR` when the hook has none.
 #[test]
-fn a_controller_writes_scratch_under_tmpdir_and_its_own_cache_prefix() {
+fn a_controller_writes_scratch_under_tmpdir_and_its_own_instances_scratch() {
     let home = home("controller-scratch");
     let tmp = home.join(".cache/claude-tmp");
     fs::create_dir_all(&tmp).expect("create the temporary directory");
@@ -3750,14 +3752,18 @@ fn a_controller_writes_scratch_under_tmpdir_and_its_own_cache_prefix() {
         for target in [
             "~/.cache/claude-tmp/x.py",
             "~/.cache/claude-tmp/review-1/extract.py",
-            "~/.cache/.guard-probe-w04-review/x.py",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04/x.py",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04/sub/dir/y.py",
         ] {
             let decision = decide_with_tmp(name, &home, PROBE, Some(&tmp), &[(field, target)]);
             assert_verdict(&decision, Verdict::Allow, "scratch");
         }
         for target in [
-            "~/.cache/.guard-probe-w04-review",
-            "~/.cache/.guard-probe-w04x/x.py",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04",
+            "~/.cache/conductor-watch/scratch/.guard-probe-w04x/x.py",
+            "~/.cache/conductor-watch/scratch/delta/x.py",
+            "~/.cache/b10x/conductor/other/scratch/.guard-probe-w04/x.py",
+            "~/.cache/.guard-probe-w04-review/x.py",
             "~/.cache/delta-review/x.py",
             "~/.cache/x.py",
             "~/.cache/claude-tmp",
@@ -4166,7 +4172,7 @@ fn a_role_s_profile_file_is_no_scratch() {
     let places = places_with_profiles(
         &home,
         [
-            "~/.cache/probe-notes/controller.md",
+            "~/.cache/b10x/conductor/fixture/scratch/probe/controller.md",
             "~/.cache/claude-tmp/profiles/dev.md",
             &charter,
         ],
@@ -4180,7 +4186,7 @@ fn a_role_s_profile_file_is_no_scratch() {
             name,
             &controller,
             field,
-            "~/.cache/probe-notes/controller.md",
+            "~/.cache/b10x/conductor/fixture/scratch/probe/controller.md",
         );
         assert_verdict(&decision, Verdict::Deny, "profile");
         let control = decide_in_places(
@@ -4189,7 +4195,7 @@ fn a_role_s_profile_file_is_no_scratch() {
             name,
             &controller,
             field,
-            "~/.cache/probe-notes/other.md",
+            "~/.cache/b10x/conductor/fixture/scratch/probe/other.md",
         );
         assert_verdict(&control, Verdict::Allow, "scratch");
         for cwd in [&controller, &records] {
@@ -4455,7 +4461,7 @@ fn conductor_appends_a_charter_whose_body_names_a_role_s_profile() {
     }
 }
 
-/// A controller's Write or Edit denial names its scratch, `$TMPDIR` and `~/.cache/<repo>-*/`, and
+/// A controller's Write or Edit denial names its scratch, `$TMPDIR` and `<cache>/scratch/<repo>/`, and
 /// a `cd` into another checkout or the records says to read by absolute path instead.
 #[test]
 fn a_denial_names_the_allowed_alternative() {
@@ -4468,7 +4474,11 @@ fn a_denial_names_the_allowed_alternative() {
         ] {
             let decision = decide(name, &home, PROBE, &[(field, target)]);
             assert_verdict(&decision, Verdict::Deny, "scratch is under $TMPDIR");
-            assert_verdict(&decision, Verdict::Deny, "~/.cache/.guard-probe-w04-*/");
+            assert_verdict(
+                &decision,
+                Verdict::Deny,
+                "~/.cache/conductor-watch/scratch/.guard-probe-w04/",
+            );
         }
     }
     for command in [
@@ -4645,6 +4655,89 @@ fn a_controller_messages_its_own_instance_s_conductor_only() {
     }
 }
 
+/// `story:role-name-aliases`, item 4: a lead of `alpha` messages its director under either name,
+/// `a-conductor` and `a-director`, by name, ref or socket, whether the file writes the role as
+/// `conductor`, as `director`, or no roles at all; `beta`'s, under either name, is denied naming
+/// both instances, as today.
+#[test]
+fn a_lead_messages_its_director_named_conductor_or_director() {
+    for (name, roles) in [
+        (
+            "alias-old",
+            "\x20   roles:\n\
+             \x20     - {role: conductor, harness: claude, model: opus}\n\
+             \x20     - {role: controller, harness: claude, model: opus}\n",
+        ),
+        (
+            "alias-new",
+            "\x20   roles:\n\
+             \x20     - {role: director, harness: claude, model: opus}\n\
+             \x20     - {role: lead, harness: claude, model: opus}\n",
+        ),
+        ("alias-default", ""),
+    ] {
+        let home = home(name);
+        let layout = two_instance_layout(
+            &home,
+            &format!("\x20   session_prefix: a\n{roles}"),
+            "\x20   session_prefix: b\n",
+        );
+        let sessions = sessions_named(
+            &home,
+            &[
+                ("a-conductor", 4_200_021),
+                ("a-director", 4_200_022),
+                ("b-conductor", 4_200_023),
+                ("b-director", 4_200_024),
+            ],
+        );
+        let cwd = layout.root.join("repo");
+        for to in [
+            "a-conductor",
+            "a-director",
+            "a-conductor [c0d0a1]",
+            "a-director [c0d0a1]",
+            "uds:/run/user/4242/cc-socks/4200021.sock",
+            "uds:/run/user/4242/cc-socks/4200022.sock",
+        ] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_eq!(
+                decision.verdict,
+                Verdict::Allow,
+                "{name}: {to}: {decision:#?}"
+            );
+        }
+        for to in ["b-conductor", "b-director", "b-director [c0d0a1]"] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_eq!(
+                decision.verdict,
+                Verdict::Deny,
+                "{name}: {to}: {decision:#?}"
+            );
+            for instance in ["alpha", "beta"] {
+                assert!(
+                    decision.reason.contains(instance),
+                    "{name}: {to}: the denial names {instance}: {}",
+                    decision.reason
+                );
+            }
+        }
+        for to in [
+            "director",
+            "a-director-dev",
+            "a-maintainer",
+            "uds:/run/user/4242/cc-socks/4200024.sock",
+        ] {
+            let decision = layout.decide("send-message", &cwd, "to", to, &sessions);
+            assert_eq!(
+                decision.verdict,
+                Verdict::Deny,
+                "{name}: {to}: {decision:#?}"
+            );
+        }
+    }
+}
+
 /// Conductor of `alpha` messages the sessions of its own instance (`a-…`) and the agents it
 /// started; a session of `beta` is denied naming both instances, and a session of no instance's
 /// prefix is denied too.
@@ -4757,44 +4850,43 @@ fn an_instance_without_a_prefix_beside_one_with_keeps_today_s_rules() {
 // Adversary, wave 03 U1 (`story:instance-session-names`).
 // -------------------------------------------------------------------------------------------------
 
-/// The controller profile, `.agents/repo-controller.md`, tells a controller where its messages
-/// go ("Messages go only to `<recipient>`"). A controller of an instance with a `session_prefix`
-/// that follows its profile must be let through by the guard: the recipient the profile names,
-/// `<session_prefix>` read as the instance's prefix, is allowed from the controller's checkout.
+/// The controller profile, `.agents/repo-controller.md`, tells a controller how its messages go:
+/// every report is sent as the `conductor message send` command it names
+/// (`story:controller-profile-for-run`). A controller that follows its profile must be let through
+/// by the guard: that command, its session name filled in and the message on standard input, is
+/// allowed from the controller's checkout and from a worker's tree.
 #[test]
-fn adv_w03_u1_the_recipient_the_controller_profile_names_is_allowed_under_a_prefix() {
+fn adv_w03_u1_the_report_command_the_controller_profile_names_is_allowed() {
     let profile = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agents/repo-controller.md"),
     )
     .expect("read the controller profile");
-    let marker = "Messages go only to `";
+    let marker = "is sent as `";
     let start = profile
         .find(marker)
         .map(|at| at + marker.len())
-        .expect("the controller profile names where its messages go");
+        .expect("the controller profile names how its messages are sent");
     let end = profile[start..]
         .find('`')
         .map(|at| start + at)
-        .expect("the recipient is closed by a backtick");
-    let recipient = profile[start..end].replace("<session_prefix>", "a");
-    let home = home("adv-w03-u1-profile-recipient");
-    let layout = two_instance_layout(
-        &home,
-        "\x20   session_prefix: a\n",
-        "\x20   session_prefix: b\n",
+        .expect("the command is closed by a backtick");
+    let command = profile[start..end]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("<session name>", "ex-probe");
+    assert!(
+        command.starts_with("conductor message send "),
+        "the profile sends a controller's messages with `conductor message send`: {command:?}"
     );
-    let decision = layout.decide(
-        "send-message",
-        &layout.root.join("repo"),
-        "to",
-        &recipient,
-        &unlisted(),
-    );
-    assert_eq!(
-        decision.verdict,
-        Verdict::Allow,
-        "the profile sends a controller's messages to {recipient:?}: {decision:#?}"
-    );
+    let home = home("adv-w03-u1-profile-command");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        let piped = format!("printf '%s\\n' '[REPORT probe -] started' | {command}");
+        assert_verdict(&bash(&home, cwd, &piped), Verdict::Allow, "");
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -5592,76 +5684,85 @@ fn sec_forge_reads_stay_reads() {
 // -------------------------------------------------------------------------------------------------
 
 /// Each build, test or gate command a controller runs plainly is denied, and the denial names the
-/// exact `conductor build run` form with that command's default reservation: 8G for cargo and
-/// `task`, 2G for npm and `task ui`. A worker in a managed tree is held as its controller is.
+/// exact `conductor build run` form with `--reserve auto`, which reserves the command's recorded
+/// peak (`story:reserve-from-peak`), never a fixed size. A worker in a managed tree is held as its
+/// controller is.
 #[test]
 fn a_controller_s_unreserved_build_is_denied_with_the_build_run_form() {
     let home = home("build-run-deny");
     let cases = [
-        ("cargo build", "cargo build", "8G"),
-        ("cargo test -p x", "cargo test -p x", "8G"),
+        ("cargo build", "cargo build", "auto"),
+        ("cargo test -p x", "cargo test -p x", "auto"),
         (
             "cargo check --all-targets",
             "cargo check --all-targets",
-            "8G",
+            "auto",
         ),
         (
             "cargo clippy --all-targets -- -D warnings",
             "cargo clippy --all-targets -- -D warnings",
-            "8G",
+            "auto",
         ),
-        ("cargo nextest run", "cargo nextest run", "8G"),
+        ("cargo nextest run", "cargo nextest run", "auto"),
         (
             "cargo install --path crates/conductor --locked",
             "cargo install --path crates/conductor --locked",
-            "8G",
+            "auto",
         ),
-        ("cargo run -- --help", "cargo run -- --help", "8G"),
-        ("cargo +nightly test", "cargo +nightly test", "8G"),
+        ("cargo run -- --help", "cargo run -- --help", "auto"),
+        ("cargo +nightly test", "cargo +nightly test", "auto"),
         (
             "cargo --manifest-path x/Cargo.toml build",
             "cargo --manifest-path x/Cargo.toml build",
-            "8G",
+            "auto",
         ),
-        ("cargo t", "cargo t", "8G"),
-        ("task check", "task check", "8G"),
-        ("task gate", "task gate", "8G"),
-        ("task install", "task install", "8G"),
-        ("task regen", "task regen", "8G"),
-        ("task docs-generate", "task docs-generate", "8G"),
-        ("task -d crates check", "task -d crates check", "8G"),
-        ("task ui", "task ui", "2G"),
-        ("npm run build", "npm run build", "2G"),
-        ("npm run test", "npm run test", "2G"),
-        ("npm test", "npm test", "2G"),
-        ("npm ci", "npm ci", "2G"),
+        ("cargo t", "cargo t", "auto"),
+        ("task check", "task check", "auto"),
+        ("task gate", "task gate", "auto"),
+        ("task install", "task install", "auto"),
+        ("task regen", "task regen", "auto"),
+        ("task docs-generate", "task docs-generate", "auto"),
+        ("task -d crates check", "task -d crates check", "auto"),
+        ("task ui", "task ui", "auto"),
+        ("npm run build", "npm run build", "auto"),
+        ("npm run test", "npm run test", "auto"),
+        ("npm test", "npm test", "auto"),
+        ("npm ci", "npm ci", "auto"),
         (
             "npm --prefix website run build",
             "npm --prefix website run build",
-            "2G",
+            "auto",
         ),
-        ("cd src && cargo test 2>&1 | tail -5", "cargo test", "8G"),
-        ("timeout 600 cargo test", "cargo test", "8G"),
-        ("env RUSTFLAGS=-Dwarnings cargo build", "cargo build", "8G"),
-        ("/usr/bin/cargo test", "/usr/bin/cargo test", "8G"),
-        ("bash -c 'cargo test -p x'", "cargo test -p x", "8G"),
-        ("echo \"$(cargo build)\"", "cargo build", "8G"),
+        ("cd src && cargo test 2>&1 | tail -5", "cargo test", "auto"),
+        ("timeout 600 cargo test", "cargo test", "auto"),
+        (
+            "env RUSTFLAGS=-Dwarnings cargo build",
+            "cargo build",
+            "auto",
+        ),
+        ("/usr/bin/cargo test", "/usr/bin/cargo test", "auto"),
+        ("bash -c 'cargo test -p x'", "cargo test -p x", "auto"),
+        ("echo \"$(cargo build)\"", "cargo build", "auto"),
         (
             "conductor build run --reserve 8G -- true && cargo test",
             "cargo test",
-            "8G",
+            "auto",
         ),
         (
             "conductor build run --reserve 8G -- bash -c 'cargo test' && bash -c 'cargo test'",
             "cargo test",
-            "8G",
+            "auto",
         ),
         (
             "conductor build run --reserve 8G -- echo \"$(cargo build)\"",
             "cargo build",
-            "8G",
+            "auto",
         ),
-        ("cargo test -p x -- 'a b'", "cargo test -p x -- 'a b'", "8G"),
+        (
+            "cargo test -p x -- 'a b'",
+            "cargo test -p x -- 'a b'",
+            "auto",
+        ),
     ];
     for cwd in [PROBE, WORKER] {
         for (command, run, size) in cases {
@@ -5669,6 +5770,10 @@ fn a_controller_s_unreserved_build_is_denied_with_the_build_run_form() {
                 &bash(&home, cwd, command),
                 Verdict::Deny,
                 &format!("`conductor build run --reserve {size} -- {run}`"),
+            );
+            assert!(
+                !bash(&home, cwd, command).reason.contains("8G"),
+                "{command}: no fixed size is proposed"
             );
         }
     }
@@ -5819,5 +5924,230 @@ fn adv_a_python_one_liner_posting_a_body_to_the_port_is_denied() {
                 "the operator's answers",
             );
         }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:guard-no-pattern-kill: no session kills processes it did not start, by pattern or name.
+// -------------------------------------------------------------------------------------------------
+
+/// `pkill`, `killall` and a `kill` given a pattern, a name, `-1`, a negative group or a `%job`
+/// are denied for every role, in a compound command, behind `sudo` or `env`, through `xargs`, and
+/// fed by a command substitution. The denial names rules item 147 and the safe forms.
+#[test]
+fn a_session_s_pattern_kill_is_denied_naming_item_147() {
+    let home = home("no-pattern-kill-deny");
+    for cwd in [PROBE, WORKER, CONDUCTOR] {
+        for command in [
+            "pkill -f \"conductor build run\"",
+            "pkill conductor",
+            "/usr/bin/pkill -9 -f xtask",
+            "killall conductor",
+            "killall -9 cargo",
+            "kill -9 -1",
+            "kill -TERM -1",
+            "kill -- -1234",
+            "kill -9 -4321",
+            "kill %1",
+            "kill -9 %2",
+            "kill conductor",
+            "kill $(pgrep -f conductor)",
+            "kill -9 `pgrep cargo`",
+            "kill $(pgrep -f x) 2>/dev/null",
+            "pgrep -f x | xargs kill",
+            "pgrep -f x | xargs -r kill -9",
+            "ps aux | grep cargo | awk '{print $2}' | xargs kill -9",
+            "echo done; pkill -f cargo",
+            "cargo --version && killall cargo",
+            "true || pkill x",
+            "sudo pkill -f x",
+            "sudo -u root killall x",
+            "env FOO=1 pkill x",
+            "env FOO=1 kill -9 -1",
+            "nohup pkill x",
+            "timeout 5 killall x",
+            "bash -c 'pkill -f x'",
+            "kill",
+            "kill -9",
+            "kill 0",
+            "kill -9 0",
+            "kill 123 -1",
+            "find . -exec kill {} \\;",
+        ] {
+            let decision = bash(&home, cwd, command);
+            assert_verdict(&decision, Verdict::Deny, "item 147");
+            assert!(
+                decision.reason.contains("TaskStop") && decision.reason.contains("kill <pid>"),
+                "{command}: the denial names the safe forms: {}",
+                decision.reason
+            );
+        }
+    }
+}
+
+/// `kill <numeric pid>` and `kill -<SIG> <numeric pid>` are allowed, and so is a word that only
+/// names a kill program.
+#[test]
+fn a_session_may_kill_a_numeric_pid() {
+    let home = home("no-pattern-kill-allow");
+    for cwd in [PROBE, WORKER, CONDUCTOR] {
+        for command in [
+            "kill 1234",
+            "kill -9 1234",
+            "kill -TERM 1234",
+            "kill -SIGTERM 1234 5678",
+            "kill -s TERM 1234",
+            "kill -n 9 1234",
+            "kill --signal=TERM 1234",
+            "kill -- 1234",
+            "kill -0 1234",
+            "kill -l",
+            "kill $!",
+            "sleep 60 & kill $!",
+            "sudo kill -9 1234",
+            "env FOO=1 kill 1234",
+            "echo 1 && kill 77; echo 2",
+            "/bin/kill -KILL 99",
+            "echo pkill is denied",
+            "grep -rn pkill docs",
+            "git commit -m 'no killall'",
+            "pgrep -f conductor",
+            "ps aux | grep conductor",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// story:rules-into-code: `timeout … conductor snapshot` is denied.
+// -------------------------------------------------------------------------------------------------
+
+/// A `timeout` that bounds `conductor snapshot` kills the snapshot mid-write; the denial names why.
+#[test]
+fn a_timeout_around_conductor_snapshot_is_denied_with_its_reason() {
+    let home = home("timeout-snapshot-deny");
+    // A controller's session (and a worker in its tree) is denied the leaf itself (it writes
+    // records), so the reason of the timeout is read in the conductor's session.
+    for cwd in [CONDUCTOR] {
+        for command in [
+            "timeout 60 conductor snapshot start-snapshot",
+            "timeout -k 5 60 conductor snapshot start-snapshot --format json",
+            "timeout 60 /usr/local/bin/conductor snapshot start-snapshot",
+            "env A=1 timeout 60 conductor --state-dir /tmp/x snapshot start-snapshot",
+            "echo a; timeout 5 conductor snapshot start-snapshot | head",
+        ] {
+            let decision = bash(&home, cwd, command);
+            assert_verdict(&decision, Verdict::Deny, "kills the snapshot");
+        }
+        for command in [
+            "conductor snapshot start-snapshot",
+            "timeout 60 cargo test",
+            "timeout 60 conductor status",
+            "timeout 5 conductor snapshot sessions",
+            "echo timeout conductor snapshot start-snapshot",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+}
+
+/// `story:mailbox-send-and-deliver` (docs/design/conductor-run.md § 3): a controller reports with
+/// `conductor message send`, which `cli::LEAVES` declares a controller runs, in its checkout and in
+/// a worker's tree, from a file or from standard input. Conductor runs it too.
+#[test]
+fn a_controller_runs_message_send() {
+    let leaf = ["message".to_owned(), "send".to_owned()];
+    assert!(
+        tree_leaves().iter().any(|(path, _)| *path == leaf),
+        "`conductor message send` is a leaf of the tree"
+    );
+    assert!(
+        declared(&leaf).is_some_and(Access::controller_runs),
+        "`message send` is declared a leaf a controller runs: {:?}",
+        declared(&leaf)
+    );
+    let home = home("controller-message-send");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for command in [
+            "conductor message send --to conductor --from ex-probe --text report.md",
+            "printf '%s\\n' '[REPORT probe -] started' | conductor message send --to conductor \
+             --from ex-probe --text -",
+            "conductor --config c.yaml message send --to conductor --from ex-probe --text -",
+        ] {
+            assert_verdict(&bash(&home, cwd, command), Verdict::Allow, "");
+        }
+    }
+    assert_verdict(
+        &bash(
+            &home,
+            CONDUCTOR,
+            "conductor message send --to conductor --from ex-conductor --text -",
+        ),
+        Verdict::Allow,
+        "",
+    );
+}
+
+/// `story:mailbox-send-and-deliver`: `conductor session deliver` types into another session, so a
+/// controller is denied it, and the raw `session deliver-message` record, in its checkout and in a
+/// worker's tree, naming the leaf. Conductor, which the run daemon is, runs both.
+#[test]
+fn a_controller_is_denied_session_deliver() {
+    // Denied as a declared write, not as words the guard does not know as a leaf.
+    for leaf in ["deliver", "deliver-message"] {
+        let leaf = ["session".to_owned(), leaf.to_owned()];
+        assert!(
+            tree_leaves().iter().any(|(path, _)| *path == leaf),
+            "`conductor {}` is a leaf of the tree",
+            leaf.join(" ")
+        );
+        assert_eq!(
+            declared(&leaf),
+            Some(Access::Writes),
+            "`conductor {}` is declared a write only conductor runs",
+            leaf.join(" ")
+        );
+    }
+    let home = home("controller-session-deliver");
+    for cwd in [
+        PROBE,
+        "~/.local/state/worktree/trees/example-org/.guard-probe-w04/t",
+    ] {
+        for (command, leaf) in [
+            (
+                "conductor session deliver --name ex-atlas --text note.md",
+                "session deliver",
+            ),
+            (
+                "echo '[HANDOVER atlas] context 210k' | conductor session deliver --name ex-atlas \
+                 --text -",
+                "session deliver",
+            ),
+            (
+                "conductor --state-dir state session deliver --name ex-atlas --text -",
+                "session deliver",
+            ),
+            (
+                "conductor session deliver-message --session-name ex-atlas --first-line x \
+                 --delivered-at 2026-10-17T09:00:00Z",
+                "session deliver-message",
+            ),
+        ] {
+            assert_verdict(
+                &bash(&home, cwd, command),
+                Verdict::Deny,
+                &format!("`conductor {leaf}` writes conductor's records; only conductor runs it"),
+            );
+        }
+    }
+    for command in [
+        "conductor session deliver --name ex-atlas --text -",
+        "conductor session deliveries --format json",
+    ] {
+        assert_verdict(&bash(&home, CONDUCTOR, command), Verdict::Allow, "");
     }
 }

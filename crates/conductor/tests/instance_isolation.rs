@@ -271,12 +271,17 @@ fn legacy_grant(id: &str, state: HostGrantState) -> HostGrantSnapshot {
             command: Some("cargo test".to_owned()),
             process_group: None,
             session_name: None,
+            session_id: None,
             reclaimed_bytes: None,
             shortfall_bytes: None,
             requested_at: Timestamp("2026-10-14T12:00:00Z".to_owned()),
             started_at: None,
             released_at: Some(Timestamp("2026-10-14T12:05:00Z".to_owned())),
             release_reason: None,
+            cache_hits: None,
+            cache_misses: None,
+            lane: None,
+            lane_overrun: None,
         },
     }
 }
@@ -464,7 +469,14 @@ fn config_validate_names_a_role_whose_settings_pin_another_instance() {
     fs::write(case.config(), fixed).unwrap();
     let output = case.run("alpha", &["config", "validate"]);
     assert!(output.status.success(), "{output:?}");
-    assert!(!stderr(&output).contains("note:"), "{output:?}");
+    // No settings note; the file's old role names are noted on their `role` paths
+    // (story:role-name-aliases), which is no note on a settings file.
+    assert!(
+        !stderr(&output)
+            .lines()
+            .any(|line| line.contains("note:") && !line.contains("].role: ")),
+        "{output:?}"
+    );
 }
 
 /// The raise of one decision request, which writes the store and the records' decision log.

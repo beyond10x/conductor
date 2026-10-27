@@ -19,6 +19,8 @@
 //! | `another-repository` | a `[NEED]` its controller session sent that conductor routed to a dispatch of another repository, and that dispatch is not `Done`, `Failed` or `Cancelled` |
 //! | `usage-limit` | the watch's `limit.new` names its controller session |
 //! | `silent` | the watch's `silent.reported` holds the id of its controller session |
+//! | `stalled` | the watch's `stalled.reported` holds the id of a session of the repository, in its checkout or a managed tree (`story:watch-stalled-sessions`) |
+//! | `build-queued` | the watch's `build-queued.reported` names a grant of the repository, or of a session of it by its name (`story:watch-stalled-sessions`) |
 //!
 //! The snapshot records a pull request's failing checks, not its pending ones, so a pull request
 //! whose checks still run is not a `ci` cause.
@@ -45,13 +47,15 @@ use crate::snapshot::{specification_presence_name, validation_result_name};
 use crate::store::Store;
 
 /// The causes, as `/api/waiting-on` names them, in the order a row lists them.
-pub const CAUSES: [&str; 6] = [
+pub const CAUSES: [&str; 8] = [
     "operator",
     "ci",
     "build-slot",
     "another-repository",
     "usage-limit",
     "silent",
+    "stalled",
+    "build-queued",
 ];
 
 /// The paths this module answers.
@@ -246,6 +250,11 @@ pub struct Facts {
     pub limits: Option<String>,
     /// The watch's `silent.reported`, `<session id> <newest write>` per line, when it is there.
     pub silent: Option<String>,
+    /// The watch's `stalled.reported`, `<session id> <newest progress>` per line, when it is there.
+    pub stalled: Option<String>,
+    /// The watch's `build-queued.reported`, `<grant id>\t<repository, else session>` per line,
+    /// when it is there.
+    pub queued: Option<String>,
 }
 
 /// The facts `/api/waiting-on` reads from `store` (when there is one), the session list `agents`
@@ -259,6 +268,8 @@ pub fn facts(store: Option<&Store>, sources: &Sources, agents: &[Value]) -> Fact
         sessions: agents.to_vec(),
         limits: read("limit.new"),
         silent: read("silent.reported"),
+        stalled: read("stalled.reported"),
+        queued: read("build-queued.reported"),
         ..Facts::default()
     };
     let Some(store) = store else {
@@ -515,6 +526,53 @@ pub fn causes(facts: &Facts, repository: &str) -> Vec<Value> {
             }
         }
     }
+
+    // The sessions of the repository, in its checkout or a managed tree: a stall or a queued
+    // build is any one's (story:watch-stalled-sessions).
+    let of_it: Vec<&Value> = facts
+        .sessions
+        .iter()
+        .filter(|row| of_repository(row, &facts.checkouts, &facts.trees, repository))
+        .collect();
+    if let Some(stalled) = &facts.stalled {
+        for line in stalled.lines() {
+            let id = line.split_whitespace().next().unwrap_or_default();
+            if let Some(row) = of_it
+                .iter()
+                .find(|row| !id.is_empty() && row["sessionId"].as_str() == Some(id))
+            {
+                out.push(json!({
+                    "cause": "stalled",
+                    "detail": format!(
+                        "session {} ({}) made no progress, no report or commit, for longer than \
+                         the watch allows",
+                        row["name"].as_str().unwrap_or_default(),
+                        id.chars().take(8).collect::<String>()
+                    ),
+                }));
+            }
+        }
+    }
+
+    if let Some(queued) = &facts.queued {
+        let sessions: BTreeSet<&str> = of_it
+            .iter()
+            .filter_map(|row| row["name"].as_str())
+            .chain(names.iter().copied())
+            .collect();
+        for line in queued.lines() {
+            let (grant, who) = line.split_once('\t').unwrap_or((line, ""));
+            let who = who.trim();
+            if who == repository || sessions.contains(who) {
+                out.push(json!({
+                    "cause": "build-queued",
+                    "detail": format!(
+                        "build {grant} of {who} waits for a grant longer than the watch allows"
+                    ),
+                }));
+            }
+        }
+    }
     out
 }
 
@@ -565,7 +623,17 @@ pub fn sessions(
             });
             let exited = super::exited(row);
             let dispatch = name
-                .and_then(|name| super::dispatch(name, dispatches, now))
+                .and_then(|name| {
+                    // The repository's controller, `<session_prefix>-<repository>`, takes the
+                    // dispatches sent to the repository too (story:sessions-page-coherent);
+                    // another session of it only those sent to its own name.
+                    let controller =
+                        crate::config::session_name(&crate::config::active().instance, repository)
+                            .0
+                            == name;
+                    let to = if controller { repository } else { name };
+                    super::sessions::dispatch(&[name.to_owned()], to, dispatches, now)
+                })
                 .map_or(
                     Value::Null,
                     |dispatch| json!({"id": dispatch["id"], "brief": dispatch["brief"]}),

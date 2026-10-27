@@ -38,11 +38,10 @@ function nothing(): Record<string, unknown> {
   empty.sessions = [];
   empty.decisions = [];
   empty.awaiting_operator = [];
-  empty.red_ci = [];
   empty.usage.rows = [];
   empty.disk.rows = [];
   empty.errors = [];
-  empty.watch = { usage_limit: [], usage_limit_today: [], context: [] };
+  empty.watch = { limits: [], context: [] };
   return {
     '/data.json': empty,
     '/api/board': none,
@@ -177,7 +176,13 @@ describe('the sessions page', () => {
     const wrapper = mount(App);
     await flushPromises();
     const empty = wrapper.findAll('main .state-empty').map((state) => state.text());
-    for (const text of ['no session', 'nothing awaits the operator', 'no decision yet', 'no spend measured']) {
+    for (const text of [
+      'no session of this instance',
+      'Nothing awaits you.',
+      'no limit in force, no context warning',
+      'no decision yet',
+      'no spend measured',
+    ]) {
       expect(empty).toContain(text);
     }
     wrapper.unmount();

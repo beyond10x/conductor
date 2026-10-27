@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:tool-build-commit-report
 kind: story
-status: draft
+status: implemented
 title: A session tests, checks, formats, commits, sends and reports through tool, and the broker holds the bot route and the store writes
 relations:
 - decomposes: epic:agent-tools
@@ -24,7 +24,11 @@ scope:
   path: crates/tool
 - confidence: inferred
   path: spec/domains/tool.yaml
-revision: 4
+revision: 7
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T11:55:50Z", actor: "human:timo", revision: 5}
+- {from: "proposed", to: "active", at: "2026-10-17T11:55:50Z", actor: "human:timo", revision: 6}
+- {from: "active", to: "implemented", at: "2026-10-17T11:55:51Z", actor: "human:timo", revision: 7, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: tool-build-commit-report
 

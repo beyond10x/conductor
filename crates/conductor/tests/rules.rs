@@ -291,24 +291,25 @@ fn json_rows_carry_item_title_section_source_and_text() {
     );
 }
 
-/// `story:conductor-context-budget`: `--brief` prints one line per item, its number and its first
-/// sentence as written, so conductor's start reads a section's titles and fetches an item whole
-/// with `--item` when it needs it.
+/// `story:conductor-context-budget`: `--brief` prints one line per item, its number and its
+/// title only (the bold lead without the asterisks, or else its first sentence, without a final
+/// full stop), so conductor's start reads a section's titles and fetches an item whole with
+/// `--item` when it needs it.
 #[test]
-fn brief_prints_each_item_s_number_and_first_sentence_on_one_line() {
+fn brief_prints_each_item_s_number_and_title_on_one_line() {
     let case = Case::new("brief");
     assert_eq!(
         case.ok(&["--section", "conductor", "--brief"]),
-        "1. Read the newest hand-over first, then the open dispatches.\n\
-         43. **Never discard uncommitted changes.**\n\
-         2. Answer a report within one cycle.\n\
-         51. **Builds and disk.**\n\
-         102. **A decision never waits on a session that is gone.**\n"
+        "1. Read the newest hand-over first, then the open dispatches\n\
+         43. Never discard uncommitted changes\n\
+         2. Answer a report within one cycle\n\
+         51. Builds and disk\n\
+         102. A decision never waits on a session that is gone\n"
     );
     assert_eq!(
         case.ok(&["--item", "49,3", "--brief"]),
-        "49. **No work files in `/tmp`.**\n\
-         3. Report `started` before the first change.\n"
+        "49. No work files in `/tmp`\n\
+         3. Report `started` before the first change\n"
     );
     // The fixture's seven items: 1, 43, 2, 51, 49, 3 and 102.
     assert_eq!(
@@ -320,6 +321,145 @@ fn brief_prints_each_item_s_number_and_first_sentence_on_one_line() {
     assert!(
         error.contains("--brief") && error.contains("json"),
         "json rows already carry the title: {error}"
+    );
+}
+
+/// `story:role-name-aliases`, item 5: for one release a role's new name reads the section its old
+/// name heads, and the old name the new one's, each with a note on standard error naming the
+/// heading it read; the heading's own name reads it with no note.
+#[test]
+fn a_role_s_new_name_reads_the_section_its_old_name_heads_with_a_note() {
+    let case = Case::new("role-names");
+    let conductor = joined(&[ITEM_1, ITEM_43, ITEM_2, ITEM_51, ITEM_102]);
+    let controller = joined(&[ITEM_49, "3. Report `started` before the first change.\n"]);
+    for (section, items, heading) in [
+        ("director", &conductor, "\"Conductor\""),
+        ("Director", &conductor, "\"Conductor\""),
+        ("lead", &controller, "\"Repository controller\""),
+    ] {
+        let output = case.show(&["--section", section]);
+        assert!(output.status.success(), "{section}: {}", describe(&output));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            items.as_str(),
+            "{section}"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("note:") && stderr.contains(heading) && stderr.contains(section),
+            "{section}: a note names the heading it read: {}",
+            describe(&output)
+        );
+    }
+    let output = case.show(&["--section", "conductor"]);
+    assert!(
+        output.stderr.is_empty(),
+        "the heading's own name: {}",
+        describe(&output)
+    );
+
+    // A file written under the new names reads under the old ones too.
+    let text = fs::read_to_string(case.records().join("rules.md")).expect("read rules.md");
+    fs::write(
+        case.records().join("rules.md"),
+        text.replace("## Conductor", "## Director")
+            .replace("### Conductor", "### Director")
+            .replace("## Repository controller", "## Lead"),
+    )
+    .expect("write rules.md");
+    assert_eq!(case.ok(&["--section", "conductor"]), conductor);
+    assert_eq!(case.ok(&["--section", "controller"]), controller);
+    assert_eq!(case.ok(&["--section", "director"]), conductor);
+}
+
+/// Runs `git <args>` in the case's records directory, with the case's home and a fixed author,
+/// and asserts it succeeded.
+fn records_git(case: &Case, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(case.records())
+        .args(args)
+        .env("HOME", case.dir.join("home"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "Example Operator")
+        .env("GIT_AUTHOR_EMAIL", "operator@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Example Operator")
+        .env("GIT_COMMITTER_EMAIL", "operator@example.invalid")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .stdin(Stdio::null())
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "`git {}`: {}",
+        args.join(" "),
+        describe(&output)
+    );
+}
+
+/// `story:conductor-context-budget`: `--changed-since <revision>` prints only the items whose
+/// text differs from that revision's `rules.md`, or that it does not hold, within the selection,
+/// and names on standard error the numbers it held that are gone; a revision the records'
+/// git does not resolve is refused with `RevisionNotFound` and prints nothing.
+#[test]
+fn changed_since_prints_only_the_items_changed_since_a_revision() {
+    let case = Case::new("changed-since");
+    records_git(&case, &["init", "-q"]);
+    records_git(&case, &["add", "rules.md"]);
+    records_git(&case, &["commit", "-q", "-m", "rules"]);
+    let file = case.records().join("rules.md");
+    let text = fs::read_to_string(&file).expect("read rules.md");
+    let changed = text
+        .replace(
+            "2. Answer a report within one cycle.\n",
+            "2. Answer a report within one cycle, or say why not.\n",
+        )
+        .replace("3. Report `started` before the first change.\n", "")
+        .replace(
+            "### Briefs\n",
+            "7. **Hand over before the threshold.** Write it first.\n\n### Briefs\n",
+        );
+    assert_ne!(changed, text, "the fixture changed");
+    fs::write(&file, changed).expect("write rules.md");
+
+    let output = case.show(&["--changed-since", "HEAD", "--brief"]);
+    assert!(output.status.success(), "{}", describe(&output));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "2. Answer a report within one cycle, or say why not\n\
+         7. Hand over before the threshold\n",
+        "{}",
+        describe(&output)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.lines().count() == 1 && stderr.contains("3") && stderr.contains("HEAD"),
+        "one line names the item gone since HEAD: {}",
+        describe(&output)
+    );
+
+    assert_eq!(
+        case.ok(&["--section", "conductor", "--changed-since", "HEAD"]),
+        "2. Answer a report within one cycle, or say why not.\n\n\
+         7. **Hand over before the threshold.** Write it first.\n",
+        "the changed items of a section, verbatim"
+    );
+    assert_eq!(
+        case.ok(&[
+            "--section",
+            "repository controller",
+            "--changed-since",
+            "HEAD"
+        ]),
+        "",
+        "nothing of that section changed but item 3, which is gone"
+    );
+
+    let error = case.refused(&["--changed-since", "no-such-revision", "--brief"]);
+    assert!(
+        error.contains("RevisionNotFound") && error.contains("no-such-revision"),
+        "{error}"
     );
 }
 

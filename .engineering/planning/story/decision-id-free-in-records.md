@@ -18,7 +18,7 @@ transitions:
 ## Why
 
 On 2026-10-12 `conductor decision record-operator-decision` without `--decision-id` allocated
-an id the instance's hand-written `decisions/2026-10.jsonl` already held, because
+`DEC-<date>-<nn>`, an id the instance's hand-written `decisions/2026-10.jsonl` already held, because
 the store allocates the next id from its own records only and the hand-written lines were never
 imported (`story:log-import` has not run). Conductor recorded the decision again by hand under the
 next free id (reported by conductor, 2026-10-13). The conductor profile warns about this but the

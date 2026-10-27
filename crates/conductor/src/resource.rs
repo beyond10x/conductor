@@ -14,7 +14,7 @@
 //! dispatch log ([`crate::records`]): `resource-granted` or `resource-refused`, with the request's
 //! id, repository, resource and amount, and the refusal's reason.
 //!
-//! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing.
+//! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -256,7 +256,7 @@ pub fn resource_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCod
         }
     }
 
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .resource_requests()
         .map_err(|unmet| anyhow!("resource resource-requests: {unmet}"))?;
@@ -314,6 +314,14 @@ impl ResourceRequestStorage for Ports {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_tool_tool_call_id(
+        &mut self,
+    ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.tool.ToolCallId",
+        ))
+    }
+
     fn try_generate_conductor_direction_serving_id(
         &mut self,
     ) -> Result<ServingId, UnmetObligation> {
@@ -362,6 +370,30 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
         Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
     }
 }
 

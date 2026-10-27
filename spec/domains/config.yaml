@@ -136,20 +136,55 @@ types:
     kind: newtype
     of: String
 
-  # The harness and model one session role runs on, such as `conductor` or `controller`; the
+  # The name of a session role (story:role-name-aliases, docs/design/roles-and-surfaces.md § 2).
+  # The file writes it in lower case: `director`, the instance's own session, which runs the
+  # instance from its records directory; `maintainer`, the session that develops conductor
+  # itself; `lead`, a repository's session, one per repository. Each had an old name, which a file
+  # may still write for one release and which reads as the new one:
+  #
+  #   | old name        | role         |
+  #   |-----------------|--------------|
+  #   | `conductor`     | `director`   |
+  #   | `conductor-dev` | `maintainer` |
+  #   | `controller`    | `lead`       |
+  #
+  # The new name owns the meaning. `config validate` notes each old name the file writes by its
+  # `role` path, such as `instances[0].roles[2].role: controller is the old name of lead`, and
+  # exits 0 for it. A role keeps the name the file writes: `config show` prints it as written, and
+  # its session is named after it, so a running instance whose file writes `conductor` keeps the
+  # session `<session_prefix>-conductor` for this release. `session start` and `session stop`
+  # take either name of a role, an old one with a note on standard error; `rules show
+  # --section` reads a heading under either name of a role (`conductor.direction.Rules`). The old
+  # names are removed after this release (story:role-alias-removal).
+  - name: conductor.config.RoleName
+    kind: enum
+    variants: [Director, Maintainer, Lead]
+
+  # The harness and model one session role runs on, such as `director` or `lead`
+  # (`conductor.config.RoleName`, or its old name, as the file writes it); the
   # harness agent the role starts with, such as `repo-controller`; the settings file it starts
   # with; and the profile file its session starts with through `--append-system-prompt-file`, in
   # place of the agent. The settings and profile files are written absolute or under `~`. Absent,
   # a role names no agent, no settings file and no profile. `session_name` is derived, never
   # chosen: the name the role's session starts under, `<session_prefix>-<role>`, or `<role>` when
-  # the instance has no prefix; absent for `controller`, whose sessions are named per repository,
+  # the instance has no prefix, `<role>` as the file writes it; absent for `lead` (`controller`),
+  # whose sessions are named per repository,
   # `<session_prefix>-<repository>` or `<repository>`. The file may leave it out, and may write
-  # only that value. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
+  # only that value. An instance whose file writes no `roles` has the three roles `director`,
+  # `maintainer` and `lead`, each on `claude` with the model `opus`, written for this release
+  # under their old names `conductor`, `conductor-dev` and `controller`, which the start tasks and
+  # the watch's context lines select them by; they move to the new names with the tasks
+  # (story:role-names-in-files), so that no running instance's sessions are renamed. Without a
+  # profile or an agent, `director` and `maintainer` start with the agents `conductor` and
+  # `conductor-dev`, the adapters' file names for this release. The maintainer is a role of the
+  # host, not of an instance: it is configured once, in `host.yaml` (`conductor.host.HostConfig`)
+  # (story:maintainer-host-config); one an instance's `roles` still writes is read, with a note,
+  # while `host.yaml` names none, for this release. `read_only_tools` (story:guard-all-tools) names the tools, beyond the guard's
   # built-in read-only allowlist, that the guard allows the role's sessions without a rule of its
   # own, such as a read-only MCP tool; every other tool outside the guard's ruled set is denied.
   # A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is
   # decided by that rule whatever this list says. Absent, it is empty.
-  # A `controller` role the file writes that names an `agent` names a `profile` as well
+  # A `lead` (`controller`) role the file writes that names an `agent` names a `profile` as well
   # (story:agent-needs-user-setting-source): every session of the instance starts with
   # `--setting-sources project,local`, which loads no user-level agent, so a controller starts
   # only from its profile, never from its agent; a controller role with an agent and no profile
@@ -168,6 +203,11 @@ types:
   # use: each a name of capital letters, digits and `_`, not starting with a digit. It is carried
   # on the session request a provider receives (`conductor.session.SessionRequest`); the variables'
   # values are never part of the config. Absent, it is empty.
+  # `grant` (story:tool-broker-read) is what each session of the role may call through `tool`
+  # (`conductor.tool.RoleGrant`): its verbs, the repositories and paths they read, the most bytes
+  # one answer carries and the grant's time to live. Absent, the role's default tools that exist as
+  # verbs: `show`, `search` and `diff`, over the whole working directory, 65536 bytes per answer,
+  # for the session's life.
   # A settings file pins its instance (story:instance-isolation): its `env.CONDUCTOR_INSTANCE` is
   # the instance's name, and each of its hook commands that runs `conductor` names the instance
   # first, `CONDUCTOR_INSTANCE=<name> conductor guard …`, since the harness does not pass the
@@ -194,6 +234,7 @@ types:
       - {name: writable, type: List<conductor.config.Writable>}
       - {name: network, type: conductor.config.Network}
       - {name: forge_token_env, type: List<String>}
+      - {name: grant, type: conductor.tool.RoleGrant}
 
   # The CPU, memory and process limits of a box (story:session-envelope-model), as systemd sets
   # them on a cgroup: `memory_max` its `MemoryMax`, in GiB, written as a size, `15G`;
@@ -222,8 +263,8 @@ types:
   # conductor-dev's this repository's); `trees`, the managed worktrees of that checkout under
   # `checkouts.trees`; `build-cache`, the build tools' caches under the home directory (cargo's
   # among them); `scratch`, the session's scratch, under `$TMPDIR` and, for a controller,
-  # `~/.cache/<repo>-*`; `harness-state`, the harness's own state directory, `~/.claude` or
-  # `~/.codex`; `records`, the instance's records directory. Absent, a role writes `checkout`,
+  # `<cache>/scratch/<repo>`, under the instance's own `cache` (`<repo>` its repository, `/` written
+  # `-`); `harness-state`, the harness's own state directory, `~/.claude` or `~/.codex`; `records`, the instance's records directory. Absent, a role writes `checkout`,
   # `trees`, `build-cache`, `scratch` and `harness-state`, and the `conductor` role `records` as
   # well; a list the file writes takes their place.
   - name: conductor.config.Writable
@@ -249,6 +290,12 @@ types:
     kind: enum
     variants: [Systemd, None]
 
+  # Whether `conductor build run` gives a cargo-based command its repository's compile cache
+  # (story:build-run-repo-cache). The file writes it in lower case: `on` or `off`.
+  - name: conductor.config.RepoCache
+    kind: enum
+    variants: [On, Off]
+
   # How the instance's sessions are boxed (story:session-envelope-model): the `mode`, the
   # `provider`, and the `limits` of the instance as a whole, the slice every session of the
   # instance runs in. They take over the `instances[].limits` an earlier plan named
@@ -262,8 +309,9 @@ types:
       - {name: limits, type: conductor.config.Limits}
 
   # The conductor a session of the instance messages (story:instance-session-names): its own,
-  # `session_name` being `<session_prefix>-conductor` or `conductor`, when the instance names a
-  # `conductor` role; else the conductor of the file's `default` instance, which serves it,
+  # `session_name` being its director role's, `<session_prefix>-<role>` or `<role>` with the role
+  # as the file writes it (`<session_prefix>-conductor` for the old name), when the instance names
+  # a `director` (`conductor`) role (story:role-name-aliases); else the conductor of the file's `default` instance, which serves it,
   # `served_by` naming that instance; neither when no conductor serves it. Derived, never chosen:
   # a file may leave it out, and may write only that value.
   - name: conductor.config.ConductorSession
@@ -314,9 +362,34 @@ types:
   # from which it resumes it; how often the watchdog reads it; and how long a live controller
   # session, and every one of its sub-agents, may write nothing to its transcript before the watch
   # reports it silent (story:watch-silent-controller), a duration as `cadence` writes one; and how
-  # many CPU cores `conductor build run` leaves to the desktop: its command's job count is the
-  # cores less this (story:build-run-spare-cores). Absent, the filesystem is `/`, the silence 30
-  # minutes and the reserve 2 cores.
+  # many CPU cores `conductor build run` leaves to the desktop (story:build-run-spare-cores); and
+  # how many `conductor build run` commands run at once on the host, every instance's together: a
+  # request is granted only while fewer disk grants than this are `Granted` or `Running`, waits in
+  # the queue's order while they are not, and is never refused for it, 0 for no bound
+  # (story:build-queue-convoy). A command's job count, `CARGO_BUILD_JOBS` and `MAKEFLAGS=-j`, is
+  # its share of the cores: the cores less the reserve, over the build slots (all of them at 0),
+  # at least 1; a `CARGO_BUILD_JOBS` in the environment above that share is lowered to it, and one
+  # line says so (story:build-jobs-per-slot). Then whether `build run` gives a cargo-based command
+  # its repository's compile cache, one sccache server and directory per repository that all of
+  # its worktrees share, and that cache's size (story:build-run-repo-cache); and the short lane
+  # (story:build-run-short-lane): how many build slots besides `build_slots` admit only a command
+  # the ledger knows to be short, 0 turning the lane off, and the longest p90 run time of such a
+  # command, a duration as `cadence` writes one. A request is short when the ledger holds at least
+  # 3 earlier runs of its repository and command in 14 days whose p90 run time is at most
+  # `short_lane_max`, and no short-lane run of it outlived twice that in the last 24 hours; a
+  # short-lane run's job count is its share, at most 4. Then how long a live driven session may
+  # make no progress, neither a report conductor received nor a commit in its checkout or any of
+  # its trees, before the watch reports it stalled, and how long a host grant may stay `Requested`
+  # before the watch reports the build queued (story:watch-stalled-sessions), each a duration as
+  # `cadence` writes one. Then how long a managed tree that is dirty or unmerged may be untouched
+  # before reclaim removes its `target/` and lists it stale, kept (story:gc-finished-trees), a
+  # duration as `cadence` writes one. Absent, the filesystem is `/`, the silence 30 minutes, the
+  # reserve 2 cores, the build slots 3, the repository cache `on` and its size 2G, the short-lane
+  # slots 1 and their longest p90 3 minutes, the stall 45 minutes, the queued build 30 minutes and
+  # the staleness 48 hours. Whether `build run` gives a cargo-based command line-table-only debug
+  # information, `lean_debuginfo` (story:build-run-lean-debuginfo): `CARGO_PROFILE_DEV_DEBUG` and
+  # `CARGO_PROFILE_TEST_DEBUG` set to `line-tables-only`, each unless the environment sets it or
+  # the workspace manifest sets that profile's `debug`; absent, true.
   - name: conductor.config.Thresholds
     kind: struct
     fields:
@@ -332,9 +405,20 @@ types:
       - {name: watchdog_every, type: Duration}
       - {name: silent_session, type: Duration}
       - {name: cpu_reserve, type: Integer}
+      - {name: build_slots, type: Integer}
+      - {name: repo_cache, type: conductor.config.RepoCache}
+      - {name: repo_cache_size, type: conductor.config.Gibibytes}
+      - {name: lean_debuginfo, type: Boolean}
+      - {name: short_lane_slots, type: Integer}
+      - {name: short_lane_max, type: Duration}
+      - {name: stalled_session, type: Duration}
+      - {name: build_queued, type: Duration}
+      - {name: tree_stale, type: Duration}
     invariants:
       - gate_resume > gate_stop
       - cpu_reserve >= 0
+      - build_slots >= 0
+      - short_lane_slots >= 0
 
   # How many snapshots' observations the instance keeps: those of the newest `snapshots` complete
   # ones (story:observation-retention). Absent, it is 12, a day at the 2-hour cadence.
@@ -416,8 +500,13 @@ types:
 
   # One instance. A path is written absolute or under `~`, which is the home directory; the
   # effective path is absolute. `operator` is how sessions name the person who decides class O.
-  # `session_prefix` is the prefix of every session the instance starts; without one its sessions
-  # keep the bare names `conductor`, `conductor-dev` and `<repository>`. `dashboard_port` is the
+  # `session_prefix` is the prefix of every session the instance starts, and of its slice and its
+  # dashboard's unit (story:instance-names-unique). It is required: `config validate` refuses an
+  # instance that writes none, naming the prefix `conductor config migrate` would write
+  # (`SuggestedPrefix`). For one release a file without it still loads, so that a running instance
+  # keeps working until the operator migrates it: its sessions keep the bare names `conductor`,
+  # `conductor-dev` and `<repository>`, its slice `conductor.slice` and its dashboard's unit
+  # `conductor-dashboard`. `dashboard_port` is the
   # port on 127.0.0.1 the instance's dashboard serves (story:instance-scoped-tasks), 1 to 65535.
   # `conductor` is derived: the conductor that serves the instance.
   # Absent from the file, `records`, `state` and `cache` are ~/.b10x/conductor/<name>/records,
@@ -464,7 +553,9 @@ types:
   # `conductor-instance` setting names one (story:grouped-instance); it names an instance of the
   # file. No two instances share a `session_prefix`, and at most one has none
   # (story:instance-session-names); no two share a `dashboard_port`, so that each instance's
-  # dashboard binds its own (story:instance-scoped-tasks).
+  # dashboard binds its own (story:instance-scoped-tasks); no two share a `state` or a `records`
+  # directory (story:instance-names-unique). The same holds across every config file of the host:
+  # `config validate` checks each instance against the host registry (`conductor.host`).
   - name: conductor.config.Config
     kind: struct
     fields:
@@ -476,20 +567,48 @@ types:
       - distinct: {in: instances, as: instance, by: instance.name}
       - distinct: {in: instances, as: instance, by: instance.session_prefix}
       - distinct: {in: instances, as: instance, by: instance.dashboard_port}
+      - distinct: {in: instances, as: instance, by: instance.state}
+      - distinct: {in: instances, as: instance, by: instance.records}
       - any:
           - not defined(default)
           - exists: {in: instances, as: instance, that: instance.name == default}
 
   # The input of `conductor config validate`: the instance to resolve, else the
-  # `conductor-instance` setting, else none.
+  # `conductor-instance` setting, else none. A valid file is written to the host registry
+  # (`conductor.host.InstanceRegistry`), which is all it writes. It also reads the host file
+  # `host.yaml` (`conductor.host.HostConfig`): each problem of it is named by its path in that file.
   - name: conductor.config.ValidateConfig
     kind: struct
     fields:
       - {name: instance, type: Optional<String>}
 
+  # The input of `conductor config migrate` (story:instance-names-unique), which writes a
+  # `session_prefix` into every instance of the config file that writes none: the prefix
+  # `SuggestedPrefix` names. It edits only those lines of the file, keeping every other line and
+  # comment, and refuses, writing nothing, when the edited file would read back as anything but
+  # the old one with those prefixes. `check` writes nothing and prints the prefixes it would
+  # write. A prefix renames the instance's sessions, slice and dashboard unit: stop them before
+  # migrating and start them again after.
+  - name: conductor.config.MigrateConfig
+    kind: struct
+    fields:
+      - {name: check, type: Optional<Boolean>}
+
+  # The prefix `config migrate` writes, and `config validate` names, for an instance without one:
+  # its name in letters, digits and `-` (any other character written `-`, runs of `-` as one,
+  # none at either end; `i<index>` when nothing is left), with the first of 2, 3, … appended when
+  # another instance of the file or of the host registry holds that prefix, or one of them
+  # followed by `-` begins the other.
+  - name: conductor.config.SuggestedPrefix
+    kind: struct
+    fields:
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: session_prefix, type: conductor.config.SessionPrefix}
+
   # The input of `conductor config show`. `format` is one of text, json, yaml, read by the
   # handler; `instance` is the instance shown, else the `conductor-instance` setting, else the
-  # file's `default`, else its only instance.
+  # file's `default`, else its only instance. The JSON and the text add `host`, the host's roles
+  # (`conductor.host.HostRoles`); the YAML, a config file, holds none.
   - name: conductor.config.ShowConfig
     kind: struct
     fields:
@@ -531,7 +650,8 @@ types:
 
   # The input of `conductor init` (story:first-run-seed), which writes the instance's records
   # directory skeleton — a git repository holding `NORTHSTAR.md`, `docs/handoff/<date>.md` with a
-  # first task, `rules.md` with one section per role, a `README.md`, the workspace file
+  # first task, `rules.md` with one section per role, headed by the role's name
+  # (`conductor.config.RoleName`: `Director`, `Lead`, `Maintainer`), a `README.md`, the workspace file
   # `.engineering/workspace.yaml` as `config workspace` writes it, and `decisions/`,
   # `dispatches/` and `charters/` — and commits it, refusing to overwrite any file. `instance` is
   # selected as for `config show`; a config file must name it.

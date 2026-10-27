@@ -3,7 +3,7 @@ title: Disk
 sidebar_position: 6
 description: How the conductor binary runs disk as a protocol in five steps (reserve, reclaim, watch, escalate, enforce) so that no build waits on a message and no session has to remember to free space.
 lede: Every build, test or gate reserves its disk from one host ledger, and the binary frees, pauses, refuses and reports on its own.
-source: docs/design/conductor.md sections 7 and 9; spec/domains/host.yaml; crates/conductor/src/guard/rules.rs; .agents/conductor.md, .agents/repo-controller.md, .agents/conductor-dev.md; crates/conductor/tests/guard_rules.rs, crates/conductor/tests/profiles.rs
+source: docs/design/conductor.md sections 7 and 9; spec/domains/host.yaml; crates/conductor/src/guard/rules.rs; .agents/repo-controller.md, .agents/conductor-dev.md; crates/conductor/tests/guard_rules.rs, crates/conductor/tests/profiles.rs
 ---
 
 Several sessions build on one machine, and a build that runs out of disk stops everyone's work.

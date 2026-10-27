@@ -40,8 +40,9 @@ fn taskfile() -> serde_yaml::Value {
 /// (`story:session-limits-systemd`).
 const UNBOXED: &str = "\x20   confinement: {provider: none}\n";
 
-/// The tasks that run a conductor session.
-const CONDUCTOR_TASKS: [&str; 3] = ["conductor:start", "conductor:attach", "conductor:restart"];
+/// The task that reaches a conductor session: `conductor:attach`. `conductor run` retired
+/// `conductor:start` and `conductor:restart` (`story:run-daemon`).
+const CONDUCTOR_TASKS: [&str; 1] = ["conductor:attach"];
 
 /// The records directory of the instance `conductor config show` reports: the one it selects.
 const RECORDS: &str = "conductor config show --format json | jq -r '.instances[0].records'";
@@ -49,12 +50,8 @@ const RECORDS: &str = "conductor config show --format json | jq -r '.instances[0
 /// The prefix every shell command of a conductor task starts with.
 const CD_RECORDS: &str = "cd {{shellQuote .RECORDS}} && ";
 
-/// The agent the role conductor starts with: its `agent`, else `conductor`.
-const AGENT: &str = "conductor config show --format json | jq -r '.instances[0].roles[] | \
-                     select(.role == \"conductor\") | .agent // \"conductor\"'";
-
-/// The adapters `task agents:link` links.
-const AGENTS: [&str; 3] = ["conductor", "repo-controller", "conductor-dev"];
+/// The adapters `task agents:link` links; the conductor adapter is retired (`story:run-daemon`).
+const AGENTS: [&str; 2] = ["repo-controller", "conductor-dev"];
 
 /// The shell commands of `task`: its `cmds:` entries that are text (not `task:` calls).
 fn shell_commands(task: &serde_yaml::Value) -> Vec<String> {
@@ -96,74 +93,43 @@ fn each_conductor_task_changes_to_the_records_directory_config_show_names() {
     }
 }
 
-#[test]
-fn conductor_starts_as_the_conductor_agent_with_the_role_settings_or_this_checkouts() {
-    let taskfile = taskfile();
-    let task = &taskfile["tasks"]["conductor:start"];
-    assert_eq!(
-        task["vars"]["ROLE_SETTINGS"]["sh"].as_str(),
-        Some(
-            "conductor config show --format json | jq -r '.instances[0].roles[] | \
-             select(.role == \"conductor\") | .settings // empty'"
-        ),
-        "{task:?}"
-    );
-    assert_eq!(
-        task["vars"]["SETTINGS"].as_str(),
-        Some(
-            "{{.ROLE_SETTINGS | default (printf \"%s/.claude/conductor-settings.json\" \
-             .ROOT_DIR)}}"
-        ),
-        "{task:?}"
-    );
-    // The role's `agent` when it names one, else `conductor` (coordinator decision 4, pass 1).
-    assert_eq!(
-        task["vars"]["AGENT"]["sh"].as_str(),
-        Some(AGENT),
-        "{task:?}"
-    );
-    // The role's `profile` when it names one (W02 U1).
-    assert_eq!(
-        task["vars"]["PROFILE"]["sh"].as_str(),
-        Some(
-            "conductor config show --format json | jq -r '.instances[0].roles[] | \
-             select(.role == \"conductor\") | .profile // empty'"
-        ),
-        "{task:?}"
-    );
-    // The start itself is the binary's (`story:session-envelope-seam`): the role's settings,
-    // else this checkout's, which the task's working directory is.
-    assert_eq!(
-        shell_commands(task),
-        ["conductor session start --role conductor"],
-        "{task:?}"
-    );
-}
-
-/// `story:session-envelope-seam`: `conductor:start`, `conductor:restart` and `dev:start` start
-/// their session with `conductor session start --role …`, and `conductor:restart` stops the old
-/// one with `conductor session stop --role conductor`; no task starts or stops a session with
-/// `claude --bg`, `claude stop` or `claude rm` itself.
+/// `story:session-envelope-seam`: `maintainer:start` (`dev:start`) starts its session with
+/// `conductor session start --role maintainer`; no task starts or stops a session with `claude
+/// --bg`, `claude stop` or `claude rm` itself.
 #[test]
 fn the_session_tasks_start_and_stop_through_conductor_session() {
     let taskfile = taskfile();
-    for (name, expected) in [
-        (
-            "conductor:start",
-            "conductor session start --role conductor",
-        ),
-        (
-            "conductor:restart",
-            "conductor session stop --role conductor",
-        ),
-        ("dev:start", "conductor session start --role conductor-dev"),
+    let task = &taskfile["tasks"]["maintainer:start"];
+    assert_eq!(
+        shell_commands(task),
+        ["conductor session start --role maintainer"],
+        "maintainer:start: {task:?}"
+    );
+    let text = serde_yaml::to_string(&task["cmds"]).expect("the commands as text");
+    for old in ["claude --bg", "claude stop", "claude rm"] {
+        assert!(!text.contains(old), "maintainer:start runs {old}: {text}");
+    }
+}
+
+/// `story:run-daemon`: `conductor run` is the instance's loop, so `conductor:start` and
+/// `conductor:restart` are retired, and no task starts or stops conductor's session.
+#[test]
+fn the_conductor_session_tasks_are_retired() {
+    let taskfile = taskfile();
+    for task in ["conductor:start", "conductor:restart"] {
+        assert!(
+            taskfile["tasks"][task].is_null(),
+            "Taskfile.yml still has {task}"
+        );
+    }
+    let text = fs::read_to_string(root().join("Taskfile.yml")).expect("read Taskfile.yml");
+    for gone in [
+        "session start --role conductor",
+        "session stop --role conductor",
+        "task: conductor:start",
+        ".agents/conductor.md",
     ] {
-        let task = &taskfile["tasks"][name];
-        assert_eq!(shell_commands(task), [expected], "{name}: {task:?}");
-        let text = serde_yaml::to_string(&task["cmds"]).expect("the commands as text");
-        for old in ["claude --bg", "claude stop", "claude rm"] {
-            assert!(!text.contains(old), "{name} runs {old}: {text}");
-        }
+        assert!(!text.contains(gone), "Taskfile.yml holds {gone:?}");
     }
 }
 
@@ -206,14 +172,23 @@ fn trust_runs_the_conductor_command() {
     );
 }
 
+/// `story:run-daemon` retired the conductor adapter: agents:link links the two left, and still
+/// takes back an old link of all three under `~/.claude/agents/`.
 #[test]
-fn agents_link_names_the_three_adapters_and_never_overwrites() {
+fn agents_link_names_the_two_adapters_and_never_overwrites() {
     let taskfile = taskfile();
     let task = &taskfile["tasks"]["agents:link"];
     assert!(!task.is_null(), "Taskfile.yml has no task agents:link");
     let commands = shell_commands(task).join("\n");
+    assert_eq!(
+        commands
+            .matches("for name in repo-controller conductor-dev; do")
+            .count(),
+        2,
+        "{commands}"
+    );
     assert!(
-        commands.contains("for name in conductor repo-controller conductor-dev"),
+        commands.contains("for name in conductor repo-controller conductor-dev; do\n  old="),
         "{commands}"
     );
     for forbidden in ["ln -sf", "ln -fs", "ln -f", "mv ", "--force"] {
@@ -335,11 +310,6 @@ impl Case {
             "{\"skipDangerousModePermissionPrompt\": true}\n",
         )
         .expect("write ~/.claude/settings.json");
-    }
-
-    /// Removes the record of the disclaimer: a home that never ran claude interactively.
-    fn withdraw_disclaimer(&self) {
-        fs::remove_file(self.user_settings()).expect("remove ~/.claude/settings.json");
     }
 
     fn records(&self) -> PathBuf {
@@ -477,15 +447,6 @@ impl Case {
             })
             .collect()
     }
-
-    /// Puts the agent `name` where claude finds it when conductor starts in the records
-    /// directory with `--setting-sources project,local`, which loads no user-level agent: the
-    /// records' own `.claude/agents/<name>.md` (story:agent-needs-user-setting-source).
-    fn link_agent(&self, name: &str) {
-        let agents = self.records().join(".claude/agents");
-        fs::create_dir_all(&agents).expect("create the records' .claude/agents");
-        fs::write(agents.join(format!("{name}.md")), "an agent\n").expect("write the agent");
-    }
 }
 
 fn shown(output: &Output) -> String {
@@ -497,135 +458,23 @@ fn shown(output: &Output) -> String {
     )
 }
 
-/// Its settings are this checkout's, written pinned to the instance (`story:instance-isolation`).
 #[test]
-fn conductor_start_runs_claude_in_the_records_directory_with_this_checkouts_settings() {
-    let Some(case) = Case::new("start-default-settings") else {
+fn conductor_attach_runs_in_the_records_directory() {
+    let Some(case) = Case::new("attach") else {
         return;
     };
-    case.link_agent("conductor");
-    let config = case.config("sonnet", None);
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    let (cwd, args) = &calls[0];
-    assert_eq!(cwd, &case.records(), "{args}");
-    let settings = case.pinned_default("conductor");
-    let pinned: Value =
-        serde_json::from_str(&fs::read_to_string(&settings).expect("the pinned settings"))
-            .expect("JSON");
-    assert_eq!(pinned["env"]["CONDUCTOR_INSTANCE"], "alpha", "{pinned}");
-    assert!(
-        args.starts_with(&format!(
-            "--bg -n conductor --agent conductor --model sonnet --permission-mode \
-             bypassPermissions --setting-sources project,local --settings {} Start of session.",
-            settings.display()
-        )),
-        "{args}"
-    );
-    assert!(
-        args.contains("-- docs/handoff/") && !args.contains("ROOT_DIR"),
-        "the prompt reads docs/handoff/ of the directory conductor runs in: {args}"
-    );
-}
-
-#[test]
-fn conductor_start_takes_the_settings_of_the_role_conductor() {
-    let Some(case) = Case::new("start-role-settings") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let settings = case.dir.join("home/settings.json");
-    let config = case.config("opus", Some(&settings));
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    assert_eq!(calls[0].0, case.records());
-    assert!(
-        calls[0]
-            .1
-            .contains(&format!("--settings {} ", settings.display())),
-        "{calls:?}"
-    );
-}
-
-#[test]
-fn conductor_start_refuses_a_records_directory_that_is_not_there() {
-    let Some(case) = Case::new("start-no-records") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    fs::remove_dir(case.records()).expect("remove records/");
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-#[test]
-fn conductor_attach_and_restart_run_in_the_records_directory() {
-    let Some(case) = Case::new("attach-restart") else {
-        return;
-    };
-    case.link_agent("conductor");
     let config = case.config("opus", None);
     fs::write(case.dir.join("claude/live"), "").expect("a live session");
 
     let output = case.task("conductor:attach", Some(&config));
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let output = case.task("conductor:restart", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
 
     let calls = case.calls();
-    let verbs: Vec<&str> = calls
-        .iter()
-        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
-        .collect();
-    assert_eq!(verbs, ["attach", "stop", "rm", "--bg"], "{calls:?}");
+    assert_eq!(calls.len(), 1, "{calls:?}");
     assert_eq!(calls[0].1, "attach s-0001");
-    assert_eq!(calls[1].1, "stop s-0001");
-    assert_eq!(calls[2].1, "rm s-0001");
     for (cwd, args) in &calls {
         assert_eq!(cwd, &case.records(), "{args}");
     }
-}
-
-/// `story:conductor-start-reading`: when conductor-dev is unreachable, conductor restarts itself
-/// from its records directory, naming this checkout's `Taskfile.yml`, in the form its profile
-/// gives: the task stops the live conductor and starts the new one in the records directory.
-#[test]
-fn conductor_restart_runs_from_the_records_directory() {
-    let Some(case) = Case::new("restart-from-records") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let config = case.config("opus", None);
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case
-        .command("conductor:restart", Some(&config))
-        .current_dir(case.records())
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    let verbs: Vec<&str> = calls
-        .iter()
-        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
-        .collect();
-    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
-    for (cwd, args) in &calls {
-        assert_eq!(cwd, &case.records(), "{args}");
-    }
-
-    let conductor = fs::read_to_string(root().join(".agents/conductor.md"))
-        .expect("read the conductor profile");
-    let conductor = conductor.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        conductor.contains("task --taskfile <product checkout>/Taskfile.yml conductor:restart"),
-        "conductor.md names the form this case runs"
-    );
 }
 
 #[test]
@@ -689,8 +538,8 @@ fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_differe
     );
     assert!(!agents.exists(), "{}", shown(&output));
 
-    // An earlier agents:link left a link into this checkout under ~/.claude/agents/; the user
-    // keeps a file of their own there too.
+    // An earlier agents:link left a link into this checkout under ~/.claude/agents/, of the
+    // conductor adapter `story:run-daemon` retired; the user keeps a file of their own there too.
     fs::create_dir_all(&home).expect("create ~/.claude/agents");
     let old = home.join("conductor.md");
     std::os::unix::fs::symlink(root().join(".claude/agents/conductor.md"), &old)
@@ -752,16 +601,14 @@ fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_differe
     }
 
     // A different file and a link elsewhere are refused and kept as they are.
-    let file = agents.join("conductor.md");
+    let file = agents.join("repo-controller.md");
     fs::remove_file(&file).expect("remove the link");
     fs::write(&file, "the user's own\n").expect("write a different file");
     let elsewhere = case.dir.join("home/elsewhere.md");
     fs::write(&elsewhere, "another\n").expect("write another file");
-    let link = agents.join("repo-controller.md");
+    let link = agents.join("conductor-dev.md");
     fs::remove_file(&link).expect("remove the link");
     std::os::unix::fs::symlink(&elsewhere, &link).expect("link elsewhere");
-    let missing = agents.join("conductor-dev.md");
-    fs::remove_file(&missing).expect("remove the link");
 
     let output = case.agents_link(&repo);
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
@@ -778,6 +625,12 @@ fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_differe
     );
     assert!(!fs::symlink_metadata(&file).expect("the file").is_symlink());
     assert_eq!(fs::read_link(&link).expect("the link"), elsewhere);
+
+    // With one file in the way and the other adapter missing, nothing is linked.
+    let missing = link;
+    fs::remove_file(&missing).expect("remove the link elsewhere");
+    let output = case.agents_link(&repo);
+    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
     assert!(
         fs::symlink_metadata(&missing).is_err(),
         "nothing is linked while one file is refused"
@@ -787,89 +640,6 @@ fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_differe
 // ---------------------------------------------------------------------------------------------
 // Adversary cases (wave 01, U2, pass 1)
 // ---------------------------------------------------------------------------------------------
-
-/// Writes a config file of one instance `alpha` whose `records` is the text `records`, written
-/// as a JSON string (which YAML reads as a double-quoted scalar), and whose role conductor
-/// carries `role_extra` (such as `, agent: other`).
-fn adv_config(case: &Case, records: &str, role_extra: &str) -> PathBuf {
-    let text = format!(
-        "version: conductor.config/1\n\
-         instances:\n\
-         \x20 - name: alpha\n\
-         \x20   sources:\n\
-         \x20     - github: example-org\n\
-         \x20   checkouts:\n\
-         \x20     root: {root}\n\
-         \x20     trees: {trees}\n\
-         \x20   records: {records}\n\
-         \x20   roles:\n\
-         \x20     - {{role: conductor, harness: claude, model: opus{role_extra}}}\n\
-         \x20     - {{role: conductor-dev, harness: claude, model: opus}}\n\
-         \x20     - {{role: controller, harness: claude, model: opus}}\n\
-         {UNBOXED}",
-        root = case.dir.join("checkouts").display(),
-        trees = case.dir.join("trees").display(),
-        records = serde_json::to_string(records).expect("records as a JSON string"),
-    );
-    let file = case.dir.join("conductor.yaml");
-    fs::write(&file, text).expect("write the config file");
-    file
-}
-
-/// The agent is found in the records directory's own `.claude/agents/`, the one place
-/// `--setting-sources project,local` reads it from there (story:agent-needs-user-setting-source).
-#[test]
-fn conductor_start_finds_the_agent_in_the_records_directory() {
-    let Some(case) = Case::new("start-agent-in-records") else {
-        return;
-    };
-    let agents = case.records().join(".claude/agents");
-    fs::create_dir_all(&agents).expect("create the records' agents");
-    fs::write(agents.join("conductor.md"), "an agent\n").expect("write the agent");
-    let config = case.config("opus", None);
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
-}
-
-/// The refusal says why the agent is not found and names the profile as the way to start.
-#[test]
-fn conductor_start_without_the_agent_names_the_profile() {
-    let Some(case) = Case::new("start-no-agent-message") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("name a profile for the role conductor"),
-        "{}",
-        shown(&output)
-    );
-}
-
-/// `conductor:restart` refuses before it stops anything when the agent its new session would
-/// start with is not found (coordinator decision 3, pass 1): the running conductor is kept.
-#[test]
-fn conductor_restart_stops_nothing_when_the_agent_is_not_found() {
-    let Some(case) = Case::new("restart-no-agent") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-    let output = case.task("conductor:restart", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("name a profile for the role conductor"),
-        "{}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-    assert!(
-        case.dir.join("claude/live").exists(),
-        "the session was stopped"
-    );
-}
 
 // ---------------------------------------------------------------------------------------------
 // Sessions without the user's global config (wave 02, U1)
@@ -914,140 +684,6 @@ fn w02_profile(case: &Case, name: &str) -> PathBuf {
     let file = dir.join(name);
     fs::write(&file, "a profile\n").expect("write the profile");
     file
-}
-
-/// With a role `profile`, conductor starts with that file appended to its system prompt and no
-/// `--agent`, so no adapter in `~/.claude/agents/` is needed; and it starts without the user's
-/// settings, with the role's settings file (by default this checkout's).
-#[test]
-fn conductor_start_with_a_role_profile_appends_it_and_passes_no_agent() {
-    let Some(case) = Case::new("w02-start-profile") else {
-        return;
-    };
-    let profile = w02_profile(&case, "conductor.md");
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-    assert!(!case.dir.join("home/.claude/agents/conductor.md").exists());
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    let (cwd, args) = &calls[0];
-    assert_eq!(cwd, &case.records(), "{args}");
-    assert!(
-        args.starts_with(&format!(
-            "--bg -n conductor --append-system-prompt-file {} --model opus --permission-mode \
-             bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
-            profile.display(),
-            case.pinned_default("conductor").display()
-        )),
-        "{args}"
-    );
-    assert!(!args.contains("--agent"), "{args}");
-}
-
-/// A role `profile` that is not a file is refused before anything starts, by its path, even when
-/// the agent is linked.
-#[test]
-fn conductor_start_refuses_a_role_profile_that_is_not_a_file() {
-    let Some(case) = Case::new("w02-start-profile-missing") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let profile = case.dir.join("home/profiles/missing.md");
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains(&profile.display().to_string()),
-        "the refusal names the profile: {}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// Without a profile, conductor keeps `--agent` and still starts without the user's settings.
-#[test]
-fn conductor_start_without_a_profile_keeps_the_agent_and_drops_user_settings() {
-    let Some(case) = Case::new("w02-start-no-profile") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let settings = case.dir.join("home/conductor-settings.json");
-    case.pin(&settings);
-    let config = w02_config(&case, &format!(", settings: {}", settings.display()), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    let args = &calls[0].1;
-    assert!(
-        args.starts_with(&format!(
-            "--bg -n conductor --agent conductor --model opus --permission-mode \
-             bypassPermissions {SETTING_SOURCES} --settings {} Start of session.",
-            settings.display()
-        )),
-        "{args}"
-    );
-    assert!(!args.contains("--append-system-prompt-file"), "{args}");
-}
-
-/// `conductor:restart` with a role profile needs no linked agent: it stops the running conductor
-/// and starts one with the profile.
-#[test]
-fn conductor_restart_with_a_role_profile_needs_no_agent() {
-    let Some(case) = Case::new("w02-restart-profile") else {
-        return;
-    };
-    let profile = w02_profile(&case, "conductor.md");
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case.task("conductor:restart", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    let verbs: Vec<&str> = calls
-        .iter()
-        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
-        .collect();
-    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
-    let start = &calls[2].1;
-    assert!(
-        start.contains(&format!(
-            "--append-system-prompt-file {} ",
-            profile.display()
-        )) && start.contains(SETTING_SOURCES)
-            && !start.contains("--agent"),
-        "{start}"
-    );
-}
-
-/// `conductor:restart` stops nothing when the role profile its new session would start with is
-/// not a file.
-#[test]
-fn conductor_restart_stops_nothing_when_the_role_profile_is_not_a_file() {
-    let Some(case) = Case::new("w02-restart-profile-missing") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let profile = case.dir.join("home/profiles/missing.md");
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case.task("conductor:restart", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains(&profile.display().to_string()),
-        "the refusal names the profile: {}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-    assert!(
-        case.dir.join("claude/live").exists(),
-        "the session was stopped"
-    );
 }
 
 /// Without a settings file or profile on the role conductor-dev, conductor-dev starts in this
@@ -1132,54 +768,8 @@ fn dev_start_refuses_a_role_profile_that_is_not_a_file() {
     assert!(case.calls().is_empty(), "{:?}", case.calls());
 }
 
-/// `conductor:start` now runs claude outside this checkout, where the project-level
-/// `.claude/agents/conductor.md` is not found; `--agent conductor` resolves only when the
-/// records carry their own adapter (`--setting-sources project,local` loads no user-level
-/// agent, story:agent-needs-user-setting-source). Without it, start must
-/// refuse rather than start a bypass-permissions session without conductor's agent; this is the
-/// first `conductor:restart` after the merge, which conductor-dev runs on its own.
-#[test]
-fn adv_conductor_start_refuses_when_the_conductor_agent_is_not_found_from_the_records() {
-    let Some(case) = Case::new("adv-start-no-agent") else {
-        return;
-    };
-    let config = case.config("opus", None);
-    assert!(!case.dir.join("home/.claude/agents/conductor.md").exists());
-    assert!(!case.records().join(".claude/agents/conductor.md").exists());
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(
-        output.status.code(),
-        Some(0),
-        "started with --agent conductor where no conductor agent is found: {}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// The specification's `conductor.config.Role`: "the harness agent the role starts with". The
-/// task reads the role's model and settings and ignores its `agent`.
-#[test]
-fn adv_conductor_start_uses_the_agent_the_role_conductor_names() {
-    let Some(case) = Case::new("adv-start-role-agent") else {
-        return;
-    };
-    case.link_agent("alt-conductor");
-    let records = case.records().display().to_string();
-    let config = adv_config(&case, &records, ", agent: alt-conductor");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    assert!(
-        calls[0].1.contains("--agent alt-conductor "),
-        "the role conductor names the agent alt-conductor: {calls:?}"
-    );
-}
-
 /// The refusal of `agents:link` is all or nothing: when only the last adapter is in the way,
-/// the first two are not linked either. The unit's own case puts the conflict on the first
+/// the first is not linked either. The unit's own case puts the conflict on the first
 /// adapter, where `ln -s` failing on it stops the loop anyway, so it stays green with the
 /// `[ "$refused" = 0 ] || exit 1` gate deleted; this one does not.
 #[test]
@@ -1195,158 +785,17 @@ fn adv_agents_link_links_nothing_when_only_the_last_adapter_is_in_the_way() {
 
     let output = case.agents_link(&repo);
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    for agent in ["conductor", "repo-controller"] {
-        assert!(
-            fs::symlink_metadata(agents.join(format!("{agent}.md"))).is_err(),
-            "{agent}.md was linked while conductor-dev.md is refused: {}",
-            shown(&output)
-        );
-    }
+    assert!(
+        fs::symlink_metadata(agents.join("repo-controller.md")).is_err(),
+        "repo-controller.md was linked while conductor-dev.md is refused: {}",
+        shown(&output)
+    );
     assert_eq!(fs::read_to_string(&last).expect("read"), "the user's own\n");
-}
-
-/// A records path with a space, a quote and a command substitution reaches the shell as one
-/// word: claude starts in that directory and nothing runs.
-#[test]
-fn adv_conductor_start_quotes_a_records_path_with_shell_metacharacters() {
-    let Some(case) = Case::new("adv-start-metachar") else {
-        return;
-    };
-    let records = case.dir.join("rec ords 'q' $(touch pwned) `touch pwned2`");
-    fs::create_dir_all(records.join(".claude/agents")).expect("create the records directory");
-    fs::write(records.join(".claude/agents/conductor.md"), "an agent\n").expect("the agent");
-    let config = adv_config(&case, &records.display().to_string(), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    assert_eq!(calls[0].0, records, "{calls:?}");
-    for planted in ["pwned", "pwned2"] {
-        assert!(!case.dir.join(planted).exists(), "{planted} ran");
-        assert!(!root().join(planted).exists(), "{planted} ran");
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Adversary cases (wave 01, U2, pass 2)
 // ---------------------------------------------------------------------------------------------
-
-/// Writes a config file of one instance `alpha` whose checkouts root is the text `checkouts`,
-/// whose records are the case's `records/`, and whose role conductor is `{role: conductor,
-/// <conductor>}`.
-fn adv2_config(case: &Case, checkouts: &str, conductor: &str) -> PathBuf {
-    let text = format!(
-        "version: conductor.config/1\n\
-         instances:\n\
-         \x20 - name: alpha\n\
-         \x20   sources:\n\
-         \x20     - github: example-org\n\
-         \x20   checkouts:\n\
-         \x20     root: {checkouts}\n\
-         \x20     trees: {trees}\n\
-         \x20   records: {records}\n\
-         \x20   roles:\n\
-         \x20     - {{role: conductor, {conductor}}}\n\
-         \x20     - {{role: conductor-dev, harness: claude, model: opus}}\n\
-         \x20     - {{role: controller, harness: claude, model: opus}}\n\
-         {UNBOXED}",
-        checkouts = serde_json::to_string(checkouts).expect("checkouts as a JSON string"),
-        trees = case.dir.join("trees").display(),
-        records = case.records().display(),
-    );
-    let file = case.dir.join("conductor.yaml");
-    fs::write(&file, text).expect("write the config file");
-    file
-}
-
-/// The config lets a role's `agent` hold `.` and `/`, so `../../stray` is a valid agent. The
-/// precondition tests `"$HOME"/.claude/agents/../../stray.md`, which is `~/stray.md`: a file
-/// outside `~/.claude/agents/` satisfies the check whose message says the agent is in
-/// `~/.claude/agents/`, and start runs `claude --agent ../../stray`.
-#[test]
-fn adv2_conductor_start_refuses_an_agent_found_only_outside_the_agents_directories() {
-    let Some(case) = Case::new("adv2-start-agent-climbs-out") else {
-        return;
-    };
-    fs::write(case.dir.join("home/stray.md"), "not an agent\n").expect("write a stray file");
-    let config = adv2_config(
-        &case,
-        &case.dir.join("checkouts").display().to_string(),
-        "harness: claude, model: opus, agent: ../../stray",
-    );
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(
-        output.status.code(),
-        Some(0),
-        "started with an agent in neither agents directory: {}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// `conductor:restart` checks the agent before it stops (pass 1, decision 3) but not the other
-/// preconditions of the `conductor:start` it ends with: with the role conductor on another
-/// harness, it stops and removes the running conductor and then `conductor:start` refuses, so
-/// no conductor runs.
-#[test]
-fn adv2_conductor_restart_stops_nothing_when_start_would_refuse() {
-    let Some(case) = Case::new("adv2-restart-start-refuses") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let config = adv2_config(
-        &case,
-        &case.dir.join("checkouts").display().to_string(),
-        "harness: codex, model: opus",
-    );
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case.task("conductor:restart", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        case.calls().is_empty(),
-        "restart stopped the running conductor and started none: {:?}\n{}",
-        case.calls(),
-        shown(&output)
-    );
-    assert!(
-        case.dir.join("claude/live").exists(),
-        "the session was stopped"
-    );
-}
-
-/// `conductor:restart` keeps its own copy of the `AGENT` variable for its pre-stop check, and no
-/// case runs it with a role agent other than the default: with `AGENT` there replaced by the
-/// constant `conductor`, the suite stays green. The role conductor names `alt-conductor`, only
-/// `conductor.md` is linked: restart must stop nothing.
-#[test]
-fn adv2_conductor_restart_checks_the_agent_the_role_conductor_names() {
-    let Some(case) = Case::new("adv2-restart-role-agent") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let config = adv2_config(
-        &case,
-        &case.dir.join("checkouts").display().to_string(),
-        "harness: claude, model: opus, agent: alt-conductor",
-    );
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case.task("conductor:restart", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("alt-conductor"),
-        "the refusal names the role's agent: {}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-    assert!(
-        case.dir.join("claude/live").exists(),
-        "the session was stopped"
-    );
-}
 
 // ---------------------------------------------------------------------------------------------
 // The dashboard without systemd (wave 02, U6, `story:portable-dashboard-service`)
@@ -1624,138 +1073,6 @@ fn dashboard_with_systemctl_keeps_the_user_service() {
 // The bypass-permissions disclaimer (wave 02, U6, `story:first-run-bypass-disclaimer`)
 // ---------------------------------------------------------------------------------------------
 
-/// Claude Code 2.1.295 refuses `claude --bg` in bypassPermissions mode until the disclaimer is
-/// accepted: `skipDangerousModePermissionPrompt: true` in the user's settings (which the
-/// interactive acceptance writes), the local or `--settings` file, or the older
-/// `bypassPermissionsModeAccepted: true` of `~/.claude.json`. Without any of them `conductor:start`
-/// refuses before claude runs, and says how to accept.
-#[test]
-fn conductor_start_refuses_when_the_bypass_disclaimer_is_not_accepted() {
-    let Some(case) = Case::new("w02-start-no-disclaimer") else {
-        return;
-    };
-    case.link_agent("conductor");
-    case.withdraw_disclaimer();
-    let config = case.config("opus", None);
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    for part in [
-        "claude --dangerously-skip-permissions",
-        "skipDangerousModePermissionPrompt",
-        "~/.claude.json",
-        &case.records().display().to_string(),
-        &root()
-            .join(".claude/conductor-settings.json")
-            .display()
-            .to_string(),
-    ] {
-        assert!(stderr.contains(part), "{part}: {}", shown(&output));
-    }
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// The role's settings file setting `skipDangerousModePermissionPrompt: true` is enough.
-#[test]
-fn conductor_start_takes_the_disclaimer_from_the_role_settings_file() {
-    let Some(case) = Case::new("w02-start-disclaimer-role-settings") else {
-        return;
-    };
-    case.link_agent("conductor");
-    case.withdraw_disclaimer();
-    let settings = case.dir.join("home/role-settings.json");
-    fs::write(&settings, "{\"skipDangerousModePermissionPrompt\": true}\n")
-        .expect("write the role settings");
-    let config = case.config("opus", Some(&settings));
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
-
-    // `false` there is not an acceptance.
-    fs::write(
-        &settings,
-        "{\"skipDangerousModePermissionPrompt\": false}\n",
-    )
-    .expect("write the role settings");
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
-}
-
-/// The older record of the acceptance, `bypassPermissionsModeAccepted: true` in `~/.claude.json`,
-/// still counts (Claude Code moves it into the user settings when it next starts).
-#[test]
-fn conductor_start_takes_the_disclaimer_from_claude_json() {
-    let Some(case) = Case::new("w02-start-disclaimer-claude-json") else {
-        return;
-    };
-    case.link_agent("conductor");
-    case.withdraw_disclaimer();
-    fs::write(
-        case.dir.join("home/.claude.json"),
-        "{\"bypassPermissionsModeAccepted\": true}\n",
-    )
-    .expect("write .claude.json");
-    let config = case.config("opus", None);
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
-}
-
-/// With `CLAUDE_CONFIG_DIR` set, Claude Code keeps its user settings there, and so does the check.
-#[test]
-fn conductor_start_takes_the_disclaimer_from_claude_config_dir() {
-    let Some(case) = Case::new("w02-start-disclaimer-config-dir") else {
-        return;
-    };
-    case.link_agent("conductor");
-    case.withdraw_disclaimer();
-    let dir = case.dir.join("claude-config");
-    fs::create_dir_all(&dir).expect("create the config dir");
-    fs::write(
-        dir.join("settings.json"),
-        "{\"skipDangerousModePermissionPrompt\": true}\n",
-    )
-    .expect("write its settings");
-    let config = case.config("opus", None);
-
-    let output = case
-        .command("conductor:start", Some(&config))
-        .env("CLAUDE_CONFIG_DIR", &dir)
-        .output()
-        .expect("task runs");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
-}
-
-/// `conductor:restart` stops nothing when the start it ends with would refuse for the disclaimer.
-#[test]
-fn conductor_restart_stops_nothing_when_the_bypass_disclaimer_is_not_accepted() {
-    let Some(case) = Case::new("w02-restart-no-disclaimer") else {
-        return;
-    };
-    case.link_agent("conductor");
-    case.withdraw_disclaimer();
-    let config = case.config("opus", None);
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case.task("conductor:restart", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("claude --dangerously-skip-permissions"),
-        "{}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-    assert!(
-        case.dir.join("claude/live").exists(),
-        "the session was stopped"
-    );
-}
-
 // ---------------------------------------------------------------------------------------------
 // `story:instance-session-names`: the sessions start under the instance's prefixed names
 // ---------------------------------------------------------------------------------------------
@@ -1787,56 +1104,46 @@ fn named_config(case: &Case, prefix: Option<&str>) -> PathBuf {
     file
 }
 
-/// `conductor:start` and `dev:start` pass `-n <prefix>-conductor` and `-n <prefix>-conductor-dev`
-/// with a prefix, and `-n conductor` and `-n conductor-dev` without one: the name each reads from
-/// the role's `session_name` in `conductor config show`.
+/// `dev:start` passes `-n <prefix>-conductor-dev` with a prefix, and `-n conductor-dev` without
+/// one: the name it reads from the role's `session_name` in `conductor config show`.
 #[test]
 fn the_start_tasks_name_the_session_from_config_show() {
-    for (prefix, conductor, dev) in [
-        (Some("a"), "a-conductor", "a-conductor-dev"),
-        (None, "conductor", "conductor-dev"),
-    ] {
+    for (prefix, dev) in [(Some("a"), "a-conductor-dev"), (None, "conductor-dev")] {
         let Some(case) = Case::new(&format!("named-start-{}", prefix.unwrap_or("none"))) else {
             return;
         };
-        case.link_agent("conductor");
         let config = named_config(&case, prefix);
-        for (task, name, agent) in [
-            ("conductor:start", conductor, "conductor"),
-            ("dev:start", dev, "conductor-dev"),
-        ] {
-            let output = case.task(task, Some(&config));
-            assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
-            let calls = case.calls();
-            let args = &calls.last().expect("a start").1;
-            assert!(
-                args.starts_with(&format!("--bg -n {name} --agent {agent} --model opus ")),
-                "{task}: {args}"
-            );
-        }
+        let output = case.task("dev:start", Some(&config));
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "dev:start: {}",
+            shown(&output)
+        );
+        let calls = case.calls();
+        let args = &calls.last().expect("a start").1;
+        assert!(
+            args.starts_with(&format!(
+                "--bg -n {dev} --agent conductor-dev --model opus "
+            )),
+            "dev:start: {args}"
+        );
     }
 }
 
-/// Each start task and `conductor:restart` read the name from `conductor config show`, and use
-/// no literal session name.
+/// The start task reads the name from `conductor config show`, and uses no literal session name.
 #[test]
 fn the_session_tasks_read_the_name_from_config_show() {
     let taskfile = taskfile();
-    for (task, role) in [
-        ("conductor:start", "conductor"),
-        ("conductor:restart", "conductor"),
-        ("dev:start", "conductor-dev"),
-    ] {
+    // `conductor:start` and `conductor:restart` read the role conductor's name until
+    // `story:run-daemon` retired them; the maintainer's is the host's.
+    let (task, role) = ("maintainer:start", "conductor-dev");
+    {
         let task_body = &taskfile["tasks"][task];
+        let wanted = host_select("session_name // empty");
         assert_eq!(
             task_body["vars"]["NAME"]["sh"].as_str(),
-            Some(
-                format!(
-                    "conductor config show --format json | jq -r '.instances[0].roles[] | \
-                     select(.role == \"{role}\") | .session_name // empty'"
-                )
-                .as_str()
-            ),
+            Some(wanted.as_str()),
             "{task}"
         );
         let body = scalars(task_body).join("\n");
@@ -1851,127 +1158,120 @@ fn the_session_tasks_read_the_name_from_config_show() {
     }
 }
 
-/// With a prefix, `conductor:start` refuses while a live session holds `<prefix>-conductor`, and
-/// starts beside a live `conductor` that is not this instance's.
-#[test]
-fn conductor_start_with_a_prefix_refuses_only_its_own_name() {
-    let Some(case) = Case::new("named-start-running") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let config = named_config(&case, Some("a"));
-    fs::write(case.dir.join("claude/live"), "a-conductor").expect("a live a-conductor");
-    let output = case.task("conductor:start", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("a-conductor"),
-        "the refusal names the session: {}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-
-    fs::write(case.dir.join("claude/live"), "conductor").expect("a live conductor");
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
+/// The `sh:` of a variable of the maintainer's tasks that reads `field` of the host's maintainer
+/// from `conductor config show`: `host.roles`, the role under its name or its old name
+/// (`story:maintainer-host-config`).
+fn host_select(field: &str) -> String {
+    format!(
+        "conductor config show --format json | jq -r '.host.roles[] | select(.role == \
+         \"maintainer\" or .role == \"conductor-dev\") | .{field}'"
+    )
 }
 
-/// With a prefix, `conductor:restart` stops the live `<prefix>-conductor` and starts it again
-/// under that name; a live `conductor` of no prefix is not this instance's, and is left running.
+/// Writes the host file of the case's home, `~/.b10x/conductor/host/host.yaml`, holding `roles`,
+/// the lines of a `roles:` list.
+fn write_host(case: &Case, roles: &str) {
+    let dir = case.dir.join("home/.b10x/conductor/host");
+    fs::create_dir_all(&dir).expect("create the host directory");
+    fs::write(
+        dir.join("host.yaml"),
+        format!("version: conductor.host-config/1\nroles:\n{roles}"),
+    )
+    .expect("write the host file");
+}
+
+/// `story:maintainer-host-config`, item 4: `maintainer:start` and `maintainer:attach` read the
+/// maintainer from `host.roles` of `conductor config show`, and `dev:start` and `dev:attach`
+/// stay their names for this release. With `host.yaml` naming a maintainer it starts under the
+/// session name `maintainer`, on its model; without one, the maintainer an instance's `roles`
+/// still writes starts under the name it has there, as before.
 #[test]
-fn conductor_restart_with_a_prefix_stops_only_its_own_conductor() {
-    let Some(case) = Case::new("named-restart") else {
+fn the_maintainer_tasks_read_the_host_s_roles_from_config_show() {
+    let taskfile = taskfile();
+    for (task, alias) in [
+        ("maintainer:start", "dev:start"),
+        ("maintainer:attach", "dev:attach"),
+    ] {
+        let body = &taskfile["tasks"][task];
+        assert_eq!(
+            body["vars"]["NAME"]["sh"].as_str(),
+            Some(host_select("session_name // empty").as_str()),
+            "{task}"
+        );
+        assert!(
+            body["aliases"]
+                .as_sequence()
+                .is_some_and(|aliases| aliases.iter().any(|one| one.as_str() == Some(alias))),
+            "{task} keeps {alias} as an alias: {body:?}"
+        );
+    }
+    let start = &taskfile["tasks"]["maintainer:start"];
+    assert_eq!(
+        shell_commands(start),
+        ["conductor session start --role maintainer"],
+        "{start:?}"
+    );
+    for (var, field) in [
+        ("HARNESS", "harness"),
+        ("MODEL", "model"),
+        ("PROFILE", "profile // empty"),
+        ("SETTINGS", "settings // empty"),
+    ] {
+        assert_eq!(
+            start["vars"][var]["sh"].as_str(),
+            Some(host_select(field).as_str()),
+            "maintainer:start {var}"
+        );
+    }
+
+    let Some(case) = Case::new("maintainer-host") else {
         return;
     };
-    case.link_agent("conductor");
     let config = named_config(&case, Some("a"));
-    fs::write(case.dir.join("claude/live"), "conductor").expect("a live conductor");
-    let output = case.task("conductor:restart", Some(&config));
-    assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("a-conductor"),
-        "the refusal names the session: {}",
-        shown(&output)
-    );
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-    assert!(
-        case.dir.join("claude/live").exists(),
-        "conductor was stopped"
-    );
-
-    fs::write(case.dir.join("claude/live"), "a-conductor").expect("a live a-conductor");
-    let output = case.task("conductor:restart", Some(&config));
+    // No host file: the instance's built-in conductor-dev, as before.
+    let output = case.task("maintainer:start", Some(&config));
     assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
     let calls = case.calls();
-    let verbs: Vec<&str> = calls
-        .iter()
-        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
-        .collect();
-    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
-    assert_eq!(calls[0].1, "stop s-0001");
-    assert!(calls[2].1.starts_with("--bg -n a-conductor "), "{calls:?}");
+    assert!(
+        calls
+            .last()
+            .expect("a start")
+            .1
+            .starts_with("--bg -n a-conductor-dev --agent conductor-dev --model opus "),
+        "{calls:?}"
+    );
+    write_host(
+        &case,
+        "  - {role: maintainer, harness: claude, model: haiku}\n",
+    );
+    for task in ["maintainer:start", "dev:start"] {
+        let output = case.task(task, Some(&config));
+        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+        let calls = case.calls();
+        let (cwd, args) = calls.last().expect("a start");
+        assert_eq!(cwd, &root(), "{task}: {args}");
+        assert!(
+            args.starts_with("--bg -n maintainer --agent conductor-dev --model haiku "),
+            "{task}: {args}"
+        );
+    }
+
+    sessions_claude(
+        &case,
+        &[("a-conductor-dev", "s-old"), ("maintainer", "s-m")],
+    );
+    for task in ["maintainer:attach", "dev:attach"] {
+        let _ = fs::remove_file(case.dir.join("claude/log"));
+        let output = case.task(task, Some(&config));
+        assert_eq!(output.status.code(), Some(0), "{task}: {}", shown(&output));
+        assert_eq!(case.calls(), [(root(), "attach s-m".to_owned())], "{task}");
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
 // The start form of each role under `--setting-sources project,local`
 // (story:agent-needs-user-setting-source)
 // ---------------------------------------------------------------------------------------------
-
-/// `--setting-sources project,local` loads no user-level agent, so `--agent <name>` resolves only
-/// from the start directory's own `.claude/agents/`. The choice the tasks hold: a role that names
-/// a `profile` starts with `--append-system-prompt-file` and no `--agent`
-/// (`conductor_start_with_a_role_profile_appends_it_and_passes_no_agent`,
-/// `dev_start_takes_the_settings_and_profile_of_the_role_conductor_dev`); without one,
-/// `conductor:start` and `conductor:restart` start `--agent <agent>` only when the records
-/// directory, where they start, holds `.claude/agents/<agent>.md`, and refuse an agent found only
-/// in `~/.claude/agents/`; `dev:start` starts `--agent conductor-dev` in this checkout, which
-/// holds `.claude/agents/conductor-dev.md`.
-#[test]
-fn an_agent_start_needs_the_adapter_in_the_start_directory() {
-    let dev = &taskfile()["tasks"]["dev:start"];
-    assert!(dev["dir"].is_null(), "dev:start starts in this checkout");
-    for command in shell_commands(dev) {
-        assert!(
-            !command.contains("cd "),
-            "dev:start starts in this checkout: {command}"
-        );
-        assert!(
-            command.contains("conductor session start --role conductor-dev"),
-            "dev:start starts through the binary, which picks the adapter or the profile: {command}"
-        );
-    }
-    assert!(
-        root().join(".claude/agents/conductor-dev.md").is_file(),
-        "this checkout holds the conductor-dev adapter"
-    );
-
-    for task in ["conductor:start", "conductor:restart"] {
-        let Some(case) = Case::new(&format!("user-agent-only-{}", task.replace(':', "-"))) else {
-            return;
-        };
-        let agents = case.dir.join("home/.claude/agents");
-        fs::create_dir_all(&agents).expect("create ~/.claude/agents");
-        fs::write(agents.join("conductor.md"), "an agent\n").expect("write the agent");
-        let config = case.config("opus", None);
-        if task == "conductor:restart" {
-            fs::write(case.dir.join("claude/live"), "").expect("a live session");
-        }
-        let output = case.task(task, Some(&config));
-        assert_ne!(
-            output.status.code(),
-            Some(0),
-            "{task} started --agent conductor found only in ~/.claude/agents/: {}",
-            shown(&output)
-        );
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("--setting-sources project,local"),
-            "{task}: the refusal says why: {}",
-            shown(&output)
-        );
-        assert!(case.calls().is_empty(), "{task}: {:?}", case.calls());
-    }
-}
 
 /// Every text scalar of `value`, depth first, as written.
 fn scalars(value: &serde_yaml::Value) -> Vec<String> {
@@ -1983,242 +1283,9 @@ fn scalars(value: &serde_yaml::Value) -> Vec<String> {
     }
 }
 
-/// The conductor profile starts sessions only through the binary (`story:session-envelope-seam`):
-/// `conductor spawn` for a controller, `conductor session start` for conductor and conductor-dev,
-/// so the session name comes from the instance's config inside the binary and no raw `claude --bg`
-/// form, which could name a session after the bare repository, is left in the profile.
-#[test]
-fn the_conductor_profile_names_controllers_by_their_session_name() {
-    let text = fs::read_to_string(root().join(".agents/conductor.md")).expect("read the profile");
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        !flat.contains("claude --bg"),
-        "the profile starts no session with a raw claude form"
-    );
-    for form in [
-        "`conductor spawn --repository <repo>`",
-        "`conductor session start --role <role>`",
-    ] {
-        assert!(
-            flat.contains(form),
-            "the profile names the start form {form}"
-        );
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // `story:restart-current-profile`: a start refuses a profile checkout behind its upstream
 // ---------------------------------------------------------------------------------------------
-
-/// Runs git in `dir` with no configuration of the user's and answers its standard output; a
-/// failing git fails the case.
-fn fixture_git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .args([
-            "-c",
-            "user.name=fixture",
-            "-c",
-            "user.email=fixture@example.invalid",
-            "-c",
-            "commit.gpgsign=false",
-            "-c",
-            "init.defaultBranch=main",
-            "-c",
-            "core.hooksPath=/dev/null",
-        ])
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .expect("git runs");
-    assert!(
-        output.status.success(),
-        "git {}: {}",
-        args.join(" "),
-        shown(&output)
-    );
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-/// What the upstream of a profile checkout holds.
-#[derive(Clone, Copy)]
-enum Upstream {
-    /// No upstream: the checkout tracks nothing.
-    Absent,
-    /// The commit the checkout holds.
-    Even,
-    /// One commit more, pushed from another clone, which the checkout has not fetched.
-    Ahead,
-}
-
-/// A git checkout `product/` of the case holding the committed profile `.agents/conductor.md`;
-/// with an upstream, its branch `main` tracks `origin/main` of the bare `upstream.git` of the
-/// case. Answers the checkout and the profile.
-fn profile_checkout(case: &Case, upstream: Upstream) -> (PathBuf, PathBuf) {
-    let checkout = case.dir.join("product");
-    let profile = checkout.join(".agents/conductor.md");
-    fs::create_dir_all(checkout.join(".agents")).expect("create the checkout");
-    fixture_git(&checkout, &["init", "--quiet"]);
-    fs::write(&profile, "a profile\n").expect("write the profile");
-    fixture_git(&checkout, &["add", "."]);
-    fixture_git(&checkout, &["commit", "--quiet", "-m", "profile"]);
-    if let Upstream::Absent = upstream {
-        return (checkout, profile);
-    }
-    fixture_git(&case.dir, &["init", "--quiet", "--bare", "upstream.git"]);
-    let bare = case.dir.join("upstream.git").display().to_string();
-    fixture_git(&checkout, &["remote", "add", "origin", &bare]);
-    fixture_git(&checkout, &["push", "--quiet", "-u", "origin", "main"]);
-    if let Upstream::Ahead = upstream {
-        fixture_git(&case.dir, &["clone", "--quiet", &bare, "other"]);
-        let other = case.dir.join("other");
-        fs::write(other.join(".agents/conductor.md"), "a newer profile\n")
-            .expect("write the newer profile");
-        fixture_git(&other, &["commit", "--quiet", "-am", "newer profile"]);
-        fixture_git(&other, &["push", "--quiet", "origin", "main"]);
-    }
-    (checkout, profile)
-}
-
-/// Asserts that `output` is a refusal naming the checkout and the command that fast-forwards it.
-fn assert_refused_behind(output: &Output, checkout: &Path) {
-    assert_ne!(output.status.code(), Some(0), "{}", shown(output));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains(&format!("git -C {} merge --ff-only", checkout.display())),
-        "the refusal names the checkout and the fast-forward: {}",
-        shown(output)
-    );
-}
-
-/// The profile's checkout is behind its upstream once fetched: `conductor:start` refuses, names
-/// the checkout and `git -C <checkout> merge --ff-only`, and starts nothing.
-#[test]
-fn conductor_start_refuses_a_profile_checkout_behind_its_upstream() {
-    let Some(case) = Case::new("start-profile-behind") else {
-        return;
-    };
-    let (checkout, profile) = profile_checkout(&case, Upstream::Ahead);
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_refused_behind(&output, &checkout);
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// `conductor:restart` stops nothing when the profile's checkout is behind its upstream: the
-/// running conductor keeps running and no new one starts.
-#[test]
-fn conductor_restart_stops_nothing_when_the_profile_checkout_is_behind() {
-    let Some(case) = Case::new("restart-profile-behind") else {
-        return;
-    };
-    let (checkout, profile) = profile_checkout(&case, Upstream::Ahead);
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case.task("conductor:restart", Some(&config));
-    assert_refused_behind(&output, &checkout);
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-    assert!(
-        case.dir.join("claude/live").exists(),
-        "the session was stopped"
-    );
-}
-
-/// A fetch that fails does not block the check: the checkout is compared with the upstream ref
-/// it already has, which is ahead of it, so `conductor:start` refuses.
-#[test]
-fn conductor_start_refuses_a_checkout_behind_the_ref_it_has_when_the_fetch_fails() {
-    let Some(case) = Case::new("start-profile-behind-no-fetch") else {
-        return;
-    };
-    let (checkout, profile) = profile_checkout(&case, Upstream::Ahead);
-    fixture_git(&checkout, &["fetch", "--quiet"]);
-    fs::remove_dir_all(case.dir.join("upstream.git")).expect("remove the upstream");
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_refused_behind(&output, &checkout);
-    assert!(case.calls().is_empty(), "{:?}", case.calls());
-}
-
-/// The profile's checkout is even with its upstream: `conductor:start` starts with the profile.
-#[test]
-fn conductor_start_starts_from_a_profile_checkout_even_with_its_upstream() {
-    let Some(case) = Case::new("start-profile-even") else {
-        return;
-    };
-    let (_, profile) = profile_checkout(&case, Upstream::Even);
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    assert!(
-        calls[0].1.starts_with(&format!(
-            "--bg -n conductor --append-system-prompt-file {} ",
-            profile.display()
-        )),
-        "{calls:?}"
-    );
-}
-
-/// The profile's checkout is even with its upstream: `conductor:restart` stops the running
-/// conductor and starts a new one.
-#[test]
-fn conductor_restart_restarts_from_a_profile_checkout_even_with_its_upstream() {
-    let Some(case) = Case::new("restart-profile-even") else {
-        return;
-    };
-    let (_, profile) = profile_checkout(&case, Upstream::Even);
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-    fs::write(case.dir.join("claude/live"), "").expect("a live session");
-
-    let output = case.task("conductor:restart", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    let verbs: Vec<&str> = calls
-        .iter()
-        .map(|(_, args)| args.split(' ').next().unwrap_or_default())
-        .collect();
-    assert_eq!(verbs, ["stop", "rm", "--bg"], "{calls:?}");
-}
-
-/// A fetch that fails does not block the start: the checkout is even with the upstream ref it
-/// has, so `conductor:start` starts.
-#[test]
-fn conductor_start_starts_when_the_fetch_of_an_even_checkout_fails() {
-    let Some(case) = Case::new("start-profile-even-no-fetch") else {
-        return;
-    };
-    let (_, profile) = profile_checkout(&case, Upstream::Even);
-    fs::remove_dir_all(case.dir.join("upstream.git")).expect("remove the upstream");
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
-}
-
-/// The profile's checkout has no upstream: `conductor:start` starts as before.
-#[test]
-fn conductor_start_starts_from_a_profile_checkout_without_an_upstream() {
-    let Some(case) = Case::new("start-profile-no-upstream") else {
-        return;
-    };
-    let (_, profile) = profile_checkout(&case, Upstream::Absent);
-    let config = w02_config(&case, &format!(", profile: {}", profile.display()), "");
-
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    assert_eq!(case.calls().len(), 1, "{:?}", case.calls());
-}
 
 // ---------------------------------------------------------------------------------------------
 // `story:instance-scoped-tasks`: every task acts on the active instance's sessions only
@@ -2321,40 +1388,37 @@ fn instance_task(case: &Case, name: &str, config: &Path, instance: &str) -> Outp
 #[test]
 fn every_session_task_reads_the_names_from_config_show() {
     let taskfile = taskfile();
-    for (task, role) in [
-        ("conductor:attach", "conductor"),
-        ("dev:attach", "conductor-dev"),
-    ] {
-        let task_body = &taskfile["tasks"][task];
-        assert_eq!(
-            task_body["vars"]["NAME"]["sh"].as_str(),
-            Some(
-                format!(
-                    "conductor config show --format json | jq -r '.instances[0].roles[] | \
-                     select(.role == \"{role}\") | .session_name // empty'"
-                )
-                .as_str()
-            ),
-            "{task}"
-        );
-    }
+    assert_eq!(
+        taskfile["tasks"]["conductor:attach"]["vars"]["NAME"]["sh"].as_str(),
+        Some(
+            "conductor config show --format json | jq -r '.instances[0].roles[] | \
+             select(.role == \"conductor\") | .session_name // empty'"
+        ),
+    );
+    assert_eq!(
+        taskfile["tasks"]["maintainer:attach"]["vars"]["NAME"]["sh"].as_str(),
+        Some(host_select("session_name // empty").as_str()),
+    );
+    // The instance's roles' names and the host's (`story:maintainer-host-config`), each once.
     let sessions = &taskfile["tasks"]["sessions"];
     assert_eq!(
         sessions["vars"]["NAMES"]["sh"].as_str(),
         Some(
-            "conductor config show --format json | jq -c '[.instances[0].roles[] | \
-             .session_name // empty]'"
+            "conductor config show --format json | jq -c '[.instances[0].roles[], .host.roles[] \
+             | .session_name // empty] | unique'"
         ),
         "{sessions:?}"
     );
     for task in [
         "sessions",
-        "conductor:start",
         "conductor:attach",
-        "conductor:restart",
-        "dev:start",
-        "dev:attach",
+        "maintainer:start",
+        "maintainer:attach",
     ] {
+        assert!(
+            !taskfile["tasks"][task].is_null(),
+            "Taskfile.yml has no {task}"
+        );
         let body = scalars(&taskfile["tasks"][task]).join("\n");
         for role in ["conductor", "conductor-dev"] {
             for literal in [
@@ -2367,50 +1431,6 @@ fn every_session_task_reads_the_names_from_config_show() {
             }
         }
     }
-}
-
-/// Two instances in one config, each with its conductor running: `conductor:restart` of one
-/// stops and restarts only its own conductor, in its own records directory, and leaves the other
-/// instance's running.
-#[test]
-fn conductor_restart_of_one_instance_leaves_the_other_instances_conductor_running() {
-    let Some(case) = Case::new("scoped-restart") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let config = two_instance_config(&case);
-    let agents = case.dir.join("records-b/.claude/agents");
-    fs::create_dir_all(&agents).expect("create records-b/.claude/agents");
-    fs::write(agents.join("conductor.md"), "an agent\n").expect("write the agent");
-    sessions_claude(&case, &[("a-conductor", "s-a"), ("b-conductor", "s-b")]);
-
-    let output = instance_task(&case, "conductor:restart", &config, "alpha");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    let args: Vec<&str> = calls.iter().map(|(_, args)| args.as_str()).collect();
-    assert_eq!(args.len(), 3, "{calls:?}");
-    assert_eq!(args[0], "stop s-a", "{calls:?}");
-    assert_eq!(args[1], "rm s-a", "{calls:?}");
-    assert!(args[2].starts_with("--bg -n a-conductor "), "{calls:?}");
-    for (cwd, args) in &calls {
-        assert_eq!(cwd, &case.records(), "{args}");
-    }
-    assert_eq!(live_sessions(&case), ["b-conductor s-b"], "{calls:?}");
-
-    write_sessions(&case, &[("a-conductor", "s-a2"), ("b-conductor", "s-b")]);
-    fs::remove_file(case.dir.join("claude/log")).expect("clear the log");
-    let output = instance_task(&case, "conductor:restart", &config, "beta");
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    let args: Vec<&str> = calls.iter().map(|(_, args)| args.as_str()).collect();
-    assert_eq!(args.len(), 3, "{calls:?}");
-    assert_eq!(args[0], "stop s-b", "{calls:?}");
-    assert_eq!(args[1], "rm s-b", "{calls:?}");
-    assert!(args[2].starts_with("--bg -n b-conductor "), "{calls:?}");
-    for (cwd, args) in &calls {
-        assert_eq!(cwd, &case.dir.join("records-b"), "{args}");
-    }
-    assert_eq!(live_sessions(&case), ["a-conductor s-a2"], "{calls:?}");
 }
 
 /// The attach tasks open the active instance's session, beside another instance's and a bare
@@ -2491,15 +1511,15 @@ fn the_attach_tasks_and_sessions_find_the_active_instance_s_sessions() {
     }
 }
 
-/// A name that more than one live background session holds is refused by every task that
-/// resolves it: `conductor:restart` stops nothing, the attach tasks attach nothing, and `task
-/// sessions` exits 1 naming it.
+/// A name that more than one live session holds is refused by every task that resolves it: the
+/// attach tasks attach nothing, and `task sessions` exits 1 naming it. `task sessions` counts a
+/// live session of any kind (one the systemd provider started lists as interactive), the attach
+/// tasks a background one.
 #[test]
 fn a_name_more_than_one_live_session_holds_is_refused() {
     let Some(case) = Case::new("scoped-ambiguous") else {
         return;
     };
-    case.link_agent("conductor");
     let config = two_instance_config(&case);
     sessions_claude(
         &case,
@@ -2511,19 +1531,17 @@ fn a_name_more_than_one_live_session_holds_is_refused() {
         ],
     );
     let before = live_sessions(&case);
-    for (task, name) in [
-        ("conductor:restart", "a-conductor"),
-        ("conductor:attach", "a-conductor"),
-        ("dev:attach", "a-conductor-dev"),
-        ("sessions", "a-conductor"),
-        ("sessions", "a-conductor-dev"),
+    for (task, name, kind) in [
+        ("conductor:attach", "a-conductor", "live background session"),
+        ("dev:attach", "a-conductor-dev", "live background session"),
+        ("sessions", "a-conductor", "live session"),
+        ("sessions", "a-conductor-dev", "live session"),
     ] {
         let output = instance_task(&case, task, &config, "alpha");
         assert_ne!(output.status.code(), Some(0), "{task}: {}", shown(&output));
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains(&format!(
-                "more than one live background session is named {name}"
-            )),
+            String::from_utf8_lossy(&output.stderr)
+                .contains(&format!("more than one {kind} is named {name}")),
             "{task}: the refusal names {name}: {}",
             shown(&output)
         );
@@ -2799,48 +1817,4 @@ fn status_publishes_the_snapshot_it_took_and_nothing_when_it_failed() {
     let output = case.task("status", None);
     assert_ne!(output.status.code(), Some(0), "{}", shown(&output));
     assert_eq!(calls(), ["snapshot start-snapshot"], "{}", shown(&output));
-}
-
-/// `story:self-arming-restart`: `conductor:restart` starts the new session through
-/// `conductor:start`, whose prompt names the two recurring jobs by their cadence keys in
-/// `conductor config show` and the watch command, so the session arms them without a hand-over.
-#[test]
-fn the_restart_prompt_names_the_recurring_jobs_and_the_watch() {
-    let taskfile = taskfile();
-    let restart = serde_yaml::to_string(&taskfile["tasks"]["conductor:restart"]["cmds"])
-        .expect("conductor:restart cmds as text");
-    assert!(
-        restart.contains("task: conductor:start"),
-        "conductor:restart starts the new session through conductor:start: {restart}"
-    );
-    // The prompt is the one `conductor session start --role conductor` passes
-    // (`story:session-envelope-seam`): the last argument of the session it starts.
-    let Some(case) = Case::new("self-arming-prompt") else {
-        return;
-    };
-    case.link_agent("conductor");
-    let config = case.config("opus", None);
-    let output = case.task("conductor:start", Some(&config));
-    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
-    let calls = case.calls();
-    assert_eq!(calls.len(), 1, "{calls:?}");
-    let at = calls[0].1.find("Start of session.").expect("the prompt");
-    let prompt = &calls[0].1[at..];
-    for part in [
-        "CronList",
-        "CronCreate",
-        "cadence.cycle",
-        "cadence.daily",
-        "conductor config show",
-        "Monitor",
-        "conductor watch run --follow",
-    ] {
-        assert!(prompt.contains(part), "the prompt names {part}: {prompt}");
-    }
-    let arm = prompt.find("cadence.cycle").expect("cadence.cycle");
-    let handoff = prompt.find("-- docs/handoff/").expect("the hand-over");
-    assert!(
-        arm < handoff,
-        "the prompt arms the jobs before it reads the hand-over: {prompt}"
-    );
 }

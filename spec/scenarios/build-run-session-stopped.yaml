@@ -1,0 +1,54 @@
+# story:build-run-session-bound: a disk request records the harness session that made it. While it
+# still waits, the next ledger pass withdraws it once that session is no longer running, naming
+# why (`SessionStopped`); `conductor host grants` shows the session beside the request. A request
+# withdrawn so is not withdrawn again.
+type: ess-scenario/1
+domain: conductor.host
+scenario: build-run-session-stopped
+summary: A waiting disk request whose session stopped is withdrawn with SessionStopped, and the grants view shows its session.
+
+arrange:
+  - instance: bound
+    entity: conductor.host.HostGrant
+
+timeline:
+  - at: 2026-10-15T07:40:00Z
+    command: conductor.host.RequestDisk
+    input:
+      instance: example-org
+      session_id: example-session-stopped
+      bytes: 8589934592
+      command: cargo test
+      requested_at: 2026-10-15T07:40:00Z
+    outcome: requested
+    capture: {instance: bound, event: conductor.host.DiskRequested, field: grant_id}
+
+  - at: 2026-10-15T07:41:00Z
+    command: conductor.host.WithdrawDiskRequest
+    input:
+      grant_id: {$instance: bound}
+      withdrawn_at: 2026-10-15T07:41:00Z
+      reason: SessionStopped
+    outcome: withdrawn
+    events:
+      - event: conductor.host.DiskRequestWithdrawn
+        payload:
+          grant_id: {$instance: bound}
+
+  - at: 2026-10-15T07:42:00Z
+    command: conductor.host.WithdrawDiskRequest
+    input:
+      grant_id: {$instance: bound}
+      withdrawn_at: 2026-10-15T07:42:00Z
+      reason: SessionStopped
+    outcome: wrong-state
+    error:
+      name: conductor.host.HostGrantStateConflict
+
+assert:
+  - view: conductor.host.Grants
+    contains:
+      grant_id: {$instance: bound}
+      state: Withdrawn
+      session_id: example-session-stopped
+      release_reason: SessionStopped

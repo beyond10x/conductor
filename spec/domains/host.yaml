@@ -14,11 +14,37 @@ summary: >
   instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an
   instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks
   `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the
-  marker of the open fall of free disk `host.fall`, which names the item's instance: only that
-  instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its
-  `state` before is moved there once, at its first host command: every grant of its store, its run
-  locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
+  open falls of free disk, one file per instance, `falls/<prefix>.json` (the instance's session
+  prefix, its name without one), which names the item and its instance: only that instance reads,
+  withdraws or removes its file, and the dashboard lists every instance's. A `host.fall` of 0.16.x
+  is read once as the fall of the instance it names and moved to that instance's file
+  (story:host-fall-per-instance). A `--state-dir` does not move it. The ledger an instance kept in
+  its `state` before is moved there once, at its first host command: every grant of its store, its
+  run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that
   it was moved, and nothing is moved again.
+
+  Beside its store the ledger keeps two files every write of a grant rewrites whole, a new file
+  renamed over the old (story:build-queue-convoy): `ledger.open`, the grants still open
+  (`Requested`, `Granted`, `Running`) with each one's snapshot and stream length and the number of
+  grants the store holds, so a pass of the ledger reads the open grants and never the closed ones,
+  and reads a grant from the store only where the file is behind it; and `ledger.gen`, a counter
+  each write bumps after `ledger.open`, whose age is the time since a pass last swept the ledger.
+  A request waiting in the queue reads `ledger.gen` without `host.lock`, and takes the lock only
+  when the counter moved, its own answer may have (free disk, or its wait's bound), a session it
+  is bound to stopped, or no pass has swept the ledger for `thresholds.watchdog_every`.
+
+  The host registry (story:instance-names-unique) is one per host, whatever config file a command
+  reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host
+  file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`)
+  (story:maintainer-host-config). It lists every config file that has run on the
+  host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is
+  valid, and `conductor session start` writes it whenever a config file starts a session, each
+  under the lock `instances.lock` beside it. No two instances on the host share a session prefix,
+  a dashboard port, a state directory or a records directory, whether they are in one config file
+  or in several: `config validate` refuses an instance that holds one another registered file's
+  instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing
+  then. A registered file that is no longer there is dropped from the registry when it is next
+  written, so a removed config file holds nothing.
 
 naming:
   wire: host
@@ -45,16 +71,29 @@ types:
 
   # Why a grant was released: the command exited, it was killed, or the next command that read
   # the ledger found its process group gone. A slot handed back by conductor carries no reason.
+  # `SessionStopped` is why a waiting request was withdrawn when the session that made it was no
+  # longer running (story:build-run-session-bound); a request withdrawn on a signal carries none.
   - name: conductor.host.ReleaseReason
     kind: enum
-    variants: [Exited, Killed, ProcessGroupGone]
+    variants: [Exited, Killed, ProcessGroupGone, SessionStopped]
+
+  # Which build slots a `conductor build run` grant takes (story:build-run-short-lane): one of
+  # `thresholds.build_slots` (`Regular`), or one of `thresholds.short_lane_slots`, which admit
+  # only a command the ledger knows to be short (`Short`).
+  - name: conductor.host.BuildLane
+    kind: enum
+    variants: [Regular, Short]
 
   # What one reclaim step freed, from the reclaimable rows of `conductor gc` that need no
   # decision: the build output of an idle managed tree (no live session, no running gate), build
-  # output stripped from a worktree archive, a cache past its age, a snapshot past retention.
+  # output stripped from a worktree archive, a cache past its age, a snapshot past retention; a
+  # finished managed tree (merged into its default branch, clean apart from `target/` and
+  # `.check/`, in use by no process, held by no lease), finished and removed through `worktree`;
+  # the `target/` of a stale managed tree, dirty or unmerged and untouched for longer than
+  # `thresholds.tree_stale`, whose tree is kept (story:gc-finished-trees).
   - name: conductor.host.ReclaimKind
     kind: enum
-    variants: [IdleTreeBuildOutput, ArchiveBuildOutput, Cache, Snapshot]
+    variants: [IdleTreeBuildOutput, ArchiveBuildOutput, Cache, Snapshot, FinishedTree, StaleTreeBuildOutput]
 
   # How a reclaim run ended: free disk back over the floor, or every reclaimable row applied and
   # the floor still not reached.
@@ -71,6 +110,32 @@ types:
       - {name: kind, type: conductor.host.ReclaimKind}
       - {name: bytes, type: Integer}
 
+  # One row of `conductor host slices` (story:slice-remove): a systemd user slice of the
+  # `conductor` family (`conductor.slice`, `conductor_<prefix>.slice`) the user manager has
+  # loaded, read when asked for and never stored. `units` counts the units loaded in it, running
+  # or not. `instance` names the config file's instance whose `session_prefix` makes that slice's
+  # name, and is absent for a slice no instance of the file names: the leftover of an instance
+  # that is gone or renamed. `stopped` is true when `--gc` stopped the slice in this call.
+  - name: conductor.host.SliceRow
+    kind: struct
+    fields:
+      - {name: slice, type: String}
+      - {name: instance, type: Optional<String>}
+      - {name: units, type: Integer}
+      - {name: stopped, type: Boolean}
+
+  # The input of `conductor host slices`: it lists each slice of the `conductor` family with its
+  # unit count and the instance it belongs to. With `gc` it stops, with `systemctl --user stop`,
+  # each slice that holds no unit and that no instance of the config file names, and never one
+  # that still holds a unit or belongs to an instance. `format` is text or json (a list of
+  # `SliceRow`), read by the handler, which refuses another value. It reads the user manager
+  # only, opens no store and writes no record.
+  - name: conductor.host.ListSlices
+    kind: struct
+    fields:
+      - {name: format, type: Optional<String>}
+      - {name: gc, type: Optional<Boolean>}
+
   # What a reclaim run left on the disk that only a person may remove: its path and its size.
   - name: conductor.host.LeftOver
     kind: struct
@@ -78,13 +143,21 @@ types:
       - {name: path, type: String}
       - {name: bytes, type: Integer}
 
-  # The input of `conductor build run --reserve <size> [--repository <repo>] -- <command> [args…]`
-  # (story:build-run). The size is written in GiB with `G`, as the config file writes one.
+  # The input of `conductor build run [--reserve <size>|auto] [--repository <repo>] [--measure
+  # <dir>]… -- <command> [args…]` (story:build-run). The size is written in GiB with `G`, as the
+  # config file writes one. `auto`, or no `--reserve`, reserves the largest peak recorded in the
+  # ledger for the same repository and command (its first two words and its package flags) in the
+  # last 14 days plus 50 %, at least 1G; with none recorded, the built-in default of 4G. A size
+  # over twice that peak is run as written, with a warning naming the peak
+  # (story:reserve-from-peak). Each `--measure` directory is measured with the run's own (`target/` or the working
+  # directory, and `CARGO_TARGET_DIR` when the command's environment sets it), for a run that
+  # writes elsewhere (story:reserve-from-peak).
   - name: conductor.host.BuildRun
     kind: struct
     fields:
-      - {name: reserve, type: conductor.config.Gibibytes}
+      - {name: reserve, type: Optional<String>}
       - {name: repository, type: Optional<conductor.observation.RepositoryName>}
+      - {name: measure, type: List<String>}
       - {name: command, type: List<String>}
 
   # `conductor build run` refused: the bytes asked for and the bytes the disk still lacks after
@@ -95,6 +168,117 @@ types:
       - {name: bytes, type: Integer}
       - {name: shortfall_bytes, type: Integer}
       - {name: left, type: List<conductor.host.LeftOver>}
+
+  # `conductor build run` withdrawn while its request waited, because the session that made it is
+  # no longer running (story:build-run-session-bound): standard error says
+  # `withdrawn: session <id> stopped`; the command never ran; the exit is 2.
+  - name: conductor.host.BuildRunWithdrawn
+    kind: struct
+    fields:
+      - {name: grant_id, type: conductor.host.GrantId}
+      - {name: session_id, type: conductor.session.SessionId}
+
+  # One instance of a registered config file (story:instance-names-unique): what no other
+  # instance on the host may hold, its session prefix (absent for an instance that writes none,
+  # which `config validate` refuses), its dashboard port, and its state and records directories,
+  # each absolute; and its checkouts root and managed trees, which say whose a session working
+  # there is.
+  - name: conductor.host.RegisteredInstance
+    kind: struct
+    fields:
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: session_prefix, type: Optional<conductor.config.SessionPrefix>}
+      - {name: dashboard_port, type: Integer}
+      - {name: state, type: String}
+      - {name: records, type: String}
+      - {name: checkouts, type: conductor.config.Checkouts}
+
+  # One config file of the host registry: its absolute path, when an entry was last written for
+  # it, and its instances as it wrote them then.
+  - name: conductor.host.RegisteredFile
+    kind: struct
+    fields:
+      - {name: config, type: String}
+      - {name: registered_at, type: Timestamp}
+      - {name: instances, type: List<conductor.host.RegisteredInstance>}
+    invariants:
+      - distinct: {in: instances, as: instance, by: instance.name}
+
+  # The host registry, `<host>/instances.json` (story:instance-names-unique): every config file
+  # that has run on the host, each once.
+  - name: conductor.host.InstanceRegistry
+    kind: struct
+    fields:
+      - {name: version, type: String}
+      - {name: files, type: List<conductor.host.RegisteredFile>}
+    invariants:
+      - version == "conductor.host.instances/1"
+      - distinct: {in: files, as: file, by: file.config}
+
+  # What two instances on the host would share (story:instance-names-unique): the session prefix
+  # (equal, or one followed by `-` begins the other, so one session name would carry both), the
+  # dashboard port, the state directory or the records directory.
+  - name: conductor.host.CollisionKey
+    kind: enum
+    variants: [SessionPrefix, DashboardPort, State, Records]
+
+  # `config validate` refused an instance of the file because another registered file's instance
+  # holds the same `key` (story:instance-names-unique): the value, both instances and both files.
+  # It is reported as a problem of the instance's YAML path, `instances[<i>].<key>`, on one line.
+  - name: conductor.host.InstanceCollision
+    kind: struct
+    fields:
+      - {name: key, type: conductor.host.CollisionKey}
+      - {name: value, type: String}
+      - {name: instance, type: conductor.config.InstanceName}
+      - {name: config, type: String}
+      - {name: other_instance, type: conductor.config.InstanceName}
+      - {name: other_config, type: String}
+
+  # A role of the host, not of an instance (story:maintainer-host-config): `maintainer`, the
+  # session that develops conductor, and `bridge`, the session between the host's instances
+  # (epic:host-bridge). Each is one per host and outlives every instance.
+  - name: conductor.host.HostRoleName
+    kind: enum
+    variants: [Maintainer, Bridge]
+
+  # The host file, `host.yaml` in the host's own directory (`~/.b10x/conductor/host/`, beside the
+  # registry `instances.json`), version `conductor.host-config/1` (story:maintainer-host-config).
+  # Every config file's commands read it, whatever file they read: it holds the host's roles,
+  # each a `conductor.config.Role` whose `role` is a `HostRoleName` written in lower case,
+  # `maintainer` or `bridge`, each at most once; any other role, an old role name such as
+  # `conductor-dev` among them, is refused by its YAML path in the file, as is a key it does not
+  # declare. A role's keys, defaults and checks are a config file's role's, but `session_name`:
+  # derived, never chosen, the role's own name with no instance prefix (`maintainer`,
+  # `bridge`), since the session belongs to no instance; the file may write only that value.
+  # Absent, the file names no host role. `conductor config validate` reads it and names each
+  # problem as `<host.yaml>: <path>: <what>`, exiting 1; a config file holds no maintainer: a
+  # `maintainer` role under `instances[].roles`, or one under its old name `conductor-dev`, is a
+  # note of `config validate` naming its YAML path and that it moves to `host.yaml`. For one
+  # release such a role is read from there, with the session name it has there, while
+  # `host.yaml` names no `maintainer`: the role of the instance the command runs, written or
+  # built in; a `maintainer` in `host.yaml` wins.
+  - name: conductor.host.HostConfig
+    kind: struct
+    fields:
+      - {name: version, type: String}
+      - {name: roles, type: List<conductor.config.Role>}
+    invariants:
+      - version == "conductor.host-config/1"
+      - distinct: {in: roles, as: role, by: role.role}
+
+  # The host's effective roles, as `conductor config show` prints them under `host` in its JSON
+  # and text (story:maintainer-host-config): `file`, the path of `host.yaml`, whether or not it is
+  # there; `roles`, its roles after defaults, each with its derived `session_name`, and, while it
+  # names no `maintainer`, the instance's (`HostConfig`). `session start --role maintainer` (or
+  # `conductor-dev`) starts that role, and `task maintainer:start` and `task maintainer:attach`
+  # read its session name from `host.roles`. The YAML of `config show` is a config file of the
+  # instance, which `config validate` takes back, and so holds no `host`.
+  - name: conductor.host.HostRoles
+    kind: struct
+    fields:
+      - {name: file, type: String}
+      - {name: roles, type: List<conductor.config.Role>}
 
   # The input of `conductor host grants`.
   - name: conductor.host.ShowGrants
@@ -148,8 +332,11 @@ entities:
       # Requested: the expected peak a disk reservation or a build slot holds.
       - name: bytes
         type: Optional<Integer>
-      # Measured: the largest size of the directories the run writes (the tree's `target/`, or
-      # the working directory), as recorded while it ran.
+      # Measured: the growth of the directories the run writes (the tree's `target/` or the working
+      # directory, each `--measure` directory, `CARGO_TARGET_DIR`), as recorded while it ran.
+      # Absent while a run has recorded none, and absent on a released grant whose size could not
+      # be measured: the peak is unknown, never 0 (story:reserve-from-peak). A run whose size
+      # was not measured records no peak.
       - name: peak_bytes
         type: Optional<Integer>
       # How often the disk watchdog paused the run, as recorded with its peak
@@ -164,6 +351,14 @@ entities:
         type: Optional<Integer>
       - name: session_name
         type: Optional<conductor.config.SessionName>
+      # The harness's id of the session whose `build run` made the request, from the environment
+      # the harness sets for its commands (Claude Code's `CLAUDE_CODE_SESSION_ID`)
+      # (story:build-run-session-bound). A request in `Requested` whose session the harness's
+      # session list no longer shows running is withdrawn at the next ledger pass, with
+      # `SessionStopped`. Absent when the caller is no harness session; such a request is bound
+      # to its process only.
+      - name: session_id
+        type: Optional<conductor.session.SessionId>
       # What a reclaim run freed before the reservation was granted, or before it was refused.
       - name: reclaimed_bytes
         type: Optional<Integer>
@@ -178,6 +373,25 @@ entities:
         type: Optional<Timestamp>
       - name: release_reason
         type: Optional<conductor.host.ReleaseReason>
+      # The compile cache's hits and misses over the run (story:build-run-repo-cache): its
+      # repository's sccache server's counts when the command ended less those when it started,
+      # recorded as the grant is released. Absent when `build run` gave the command no cache, or
+      # the counts did not read. The server is shared by every run of the repository at once, so
+      # two runs that overlap count each other's compilations too.
+      - name: cache_hits
+        type: Optional<Integer>
+      - name: cache_misses
+        type: Optional<Integer>
+      # The lane of a `build run` request (story:build-run-short-lane). While it waits in the queue:
+      # `Short` when the ledger knows its command to be short, so it may take a short-lane slot,
+      # else `Regular`. Once granted: the lane whose slot it holds. Absent on a slot and on a
+      # grant of a binary before the lane, which count as `Regular`.
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
+      # True on a short-lane run that outlived twice `thresholds.short_lane_max`, recorded as it is
+      # released: its command takes no short-lane slot for 24 hours. The run is not stopped.
+      - name: lane_overrun
+        type: Optional<Boolean>
     lifecycle:
       initial: Requested
       states: [Requested, Granted, Running, Released, Refused, Withdrawn]
@@ -405,7 +619,9 @@ commands:
   # reservations hold together, so each can only be refused, a later request that fits beside the
   # floor and the live reservations is granted at once (story:build-run-backfill). A request that
   # has waited longer than `thresholds.watchdog_every` names its position in the queue on standard
-  # error.
+  # error. A waiting request makes its passes of the ledger under `host.lock` only when the ledger
+  # changed (`ledger.gen`) or its answer may have, and the host's dead are swept once per
+  # `thresholds.watchdog_every` by whichever request is due first (story:build-queue-convoy).
   - name: conductor.host.RequestDisk
     naming:
       wire: request-disk
@@ -417,6 +633,8 @@ commands:
         type: Optional<conductor.observation.RepositoryName>
       - name: session_name
         type: Optional<conductor.config.SessionName>
+      - name: session_id
+        type: Optional<conductor.session.SessionId>
       - name: bytes
         type: Integer
         example: 8589934592
@@ -424,6 +642,10 @@ commands:
         type: String
       - name: requested_at
         type: Timestamp
+      # The lane the request may take a slot in (story:build-run-short-lane): `Short` when the
+      # ledger knows its command to be short, else `Regular`.
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
     outcomes:
       - name: invalid-size
         when: bytes <= 0
@@ -439,10 +661,12 @@ commands:
           instance: input.instance
           repository: input.repository
           session_name: input.session_name
+          session_id: input.session_id
           kind: Disk
           bytes: input.bytes
           command: input.command
           requested_at: input.requested_at
+          lane: input.lane
         emits:
           - conductor.host.DiskRequested
         payload:
@@ -472,6 +696,9 @@ commands:
       - name: reclaimed_bytes
         type: Integer
         example: 0
+      # The lane whose slot a granted request takes (story:build-run-short-lane).
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
     outcomes:
       - name: invalid-size
         when:
@@ -506,6 +733,7 @@ commands:
         instance: grant_id
         sets:
           reclaimed_bytes: input.reclaimed_bytes
+          lane: input.lane
         emits:
           - conductor.host.DiskReserved
         payload:
@@ -519,6 +747,7 @@ commands:
         instance: grant_id
         sets:
           reclaimed_bytes: 0
+          lane: input.lane
         emits:
           - conductor.host.DiskReserved
         payload:
@@ -592,8 +821,9 @@ commands:
             grant_id: input.grant_id
         summary: Only a granted reservation starts its run, once.
 
-  # The run's measured peak: the largest reading so far of the directories it writes. Recorded
-  # while it runs, and once more as it exits, before the grant is released.
+  # The run's measured peak: the growth so far of the directories it writes, by the last complete
+  # reading. Recorded while it runs, and once more as it exits, before the grant is released; a
+  # run none of whose readings completed records none, and its peak stays absent: unknown.
   - name: conductor.host.RecordPeak
     naming:
       wire: record-peak
@@ -655,6 +885,16 @@ commands:
         type: Optional<conductor.host.ReleaseReason>
       - name: released_at
         type: Timestamp
+      # The compile cache's hits and misses over the run, when `build run` gave it a cache
+      # (story:build-run-repo-cache).
+      - name: cache_hits
+        type: Optional<Integer>
+      - name: cache_misses
+        type: Optional<Integer>
+      # Whether a short-lane run outlived twice `thresholds.short_lane_max`
+      # (story:build-run-short-lane).
+      - name: lane_overrun
+        type: Optional<Boolean>
     outcomes:
       - name: released
         moves: conductor.host.HostGrant.release
@@ -662,6 +902,9 @@ commands:
         sets:
           release_reason: input.reason
           released_at: input.released_at
+          cache_hits: input.cache_hits
+          cache_misses: input.cache_misses
+          lane_overrun: input.lane_overrun
         emits:
           - conductor.host.HostGrantReleased
         payload:
@@ -686,7 +929,9 @@ commands:
 
   # A request still waiting in the queue whose `build run` received SIGTERM, SIGINT or SIGHUP
   # (story:build-run-cancel-group): it leaves the queue, its command never runs, and `build run`
-  # exits with 128 + the signal. `released_at` is when it was withdrawn.
+  # exits with 128 + the signal. `released_at` is when it was withdrawn. A request whose session
+  # stopped (story:build-run-session-bound) is withdrawn by the next ledger pass with `reason`
+  # `SessionStopped`, and its `build run` exits 2 (`BuildRunWithdrawn`).
   - name: conductor.host.WithdrawDiskRequest
     naming:
       wire: withdraw-disk-request
@@ -696,12 +941,15 @@ commands:
         type: conductor.host.GrantId
       - name: withdrawn_at
         type: Timestamp
+      - name: reason
+        type: Optional<conductor.host.ReleaseReason>
     outcomes:
       - name: withdrawn
         moves: conductor.host.HostGrant.withdraw
         instance: grant_id
         sets:
           released_at: input.withdrawn_at
+          release_reason: input.reason
         emits:
           - conductor.host.DiskRequestWithdrawn
         payload:
@@ -829,6 +1077,8 @@ views:
         type: Optional<Integer>
       - name: session_name
         type: Optional<conductor.config.SessionName>
+      - name: session_id
+        type: Optional<conductor.session.SessionId>
       - name: reclaimed_bytes
         type: Optional<Integer>
       - name: shortfall_bytes
@@ -841,6 +1091,14 @@ views:
         type: Optional<Timestamp>
       - name: release_reason
         type: Optional<conductor.host.ReleaseReason>
+      - name: cache_hits
+        type: Optional<Integer>
+      - name: cache_misses
+        type: Optional<Integer>
+      - name: lane
+        type: Optional<conductor.host.BuildLane>
+      - name: lane_overrun
+        type: Optional<Boolean>
     naming:
       wire: grants
       display: Host grants

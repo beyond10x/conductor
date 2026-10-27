@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Dispatch — `conductor.dispatch`.
@@ -85,6 +85,34 @@ pub enum DispatchLogEvent {
     ResourceRefused,
     /// `CharterRevised`.
     CharterRevised,
+    /// `Delivered`.
+    Delivered,
+    /// `HandoverSent`.
+    HandoverSent,
+    /// `Handover`.
+    Handover,
+    /// `ControllerRestarted`.
+    ControllerRestarted,
+    /// `UsageLimit`.
+    UsageLimit,
+    /// `Resumed`.
+    Resumed,
+    /// `Relayed`.
+    Relayed,
+    /// `RedCi`.
+    RedCi,
+    /// `Stalled`.
+    Stalled,
+    /// `Cleanup`.
+    Cleanup,
+    /// `DecisionSent`.
+    DecisionSent,
+    /// `Cycle`.
+    Cycle,
+    /// `RecordsCommitted`.
+    RecordsCommitted,
+    /// `RecordsCommitRefused`.
+    RecordsCommitRefused,
 }
 
 /// DispatchLogLine — `conductor.dispatch.DispatchLogLine`.
@@ -128,6 +156,20 @@ pub struct DispatchLogLine {
     pub resource: Option<String>,
     /// `amount` — `Optional<Integer>`.
     pub amount: Option<i64>,
+    /// `body_path` — `Optional<String>`.
+    pub body_path: Option<String>,
+    /// `session` — `Optional<String>`.
+    pub session: Option<String>,
+    /// `grant` — `Optional<String>`.
+    pub grant: Option<String>,
+    /// `path` — `Optional<String>`.
+    pub path: Option<String>,
+    /// `line` — `Optional<String>`.
+    pub line: Option<String>,
+    /// `tick_id` — `Optional<String>`.
+    pub tick_id: Option<String>,
+    /// `commit` — `Optional<String>`.
+    pub commit: Option<String>,
 }
 
 /// The states of `conductor.dispatch.GuardDecision`, as runtime values.
@@ -143,6 +185,35 @@ pub enum GuardDecisionState {
 /// GuardDecisionId — `conductor.dispatch.GuardDecisionId`: a distinct wrapper around `Uuid`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuardDecisionId(pub crate::primitives::Uuid);
+
+/// ListControllers — `conductor.dispatch.ListControllers`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListControllers {
+    /// `all` — `Optional<Boolean>`.
+    pub all: Option<bool>,
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+}
+
+/// MailboxSendRefusal — `conductor.dispatch.MailboxSendRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailboxSendRefusal {
+    /// `Unparsed`.
+    Unparsed,
+}
+
+/// MailboxSendRefused — `conductor.dispatch.MailboxSendRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MailboxSendRefused {
+    /// `from` — `String`.
+    pub from: String,
+    /// `to` — `String`.
+    pub to: String,
+    /// `refusal` — `conductor.dispatch.MailboxSendRefusal`.
+    pub refusal: MailboxSendRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
 
 /// The states of `conductor.dispatch.Message`, as runtime values.
 ///
@@ -179,6 +250,10 @@ pub enum MessageKind {
     Resource,
     /// `Escalation`.
     Escalation,
+    /// `Team`.
+    Team,
+    /// `Handover`.
+    Handover,
     /// `Unknown`.
     Unknown,
 }
@@ -205,6 +280,10 @@ pub enum RecordsFindingKind {
     UnknownKeySet,
     /// `DecisionInDispatchLog`.
     DecisionInDispatchLog,
+    /// `RawThreshold`.
+    RawThreshold,
+    /// `RoleFileRules`.
+    RoleFileRules,
 }
 
 /// ResourceKind — `conductor.dispatch.ResourceKind`: one of a closed set of names.
@@ -237,6 +316,17 @@ pub enum ResourceRequestState {
 /// ResourceRequestId — `conductor.dispatch.ResourceRequestId`: a distinct wrapper around `Uuid`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceRequestId(pub crate::primitives::Uuid);
+
+/// SendToMailbox — `conductor.dispatch.SendToMailbox`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SendToMailbox {
+    /// `to` — `String`.
+    pub to: String,
+    /// `from` — `String`.
+    pub from: String,
+    /// `text` — `String`.
+    pub text: String,
+}
 
 /// SpawnController — `conductor.dispatch.SpawnController`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1668,6 +1758,13 @@ pub struct ReceiveMessage {
 /// outcomes exist to prevent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReceiveMessageOutcome {
+    /// `mailbox-without-body` — when `(transport == Mailbox and not (defined(body_path)))`.
+    ///
+    /// A mailbox message is the file it was left in; without its path nothing is recorded.
+    MailboxWithoutBody {
+        /// Why it was refused: `conductor.dispatch.MailboxBodyMissing`.
+        error: MailboxBodyMissing,
+    },
     /// `unparsed` — when `(parsed == false or kind == Unknown)`.
     ///
     /// The first line did not parse (AGENTS.md rule 4), or names no kind, so the message is recorded as rejected and never acted on; the sender gets the format back.
@@ -2625,6 +2722,17 @@ pub struct InvalidPriority {
     pub priority: i64,
 }
 
+/// The declared error `conductor.dispatch.MailboxBodyMissing`.
+///
+/// A message with transport `Mailbox` is the file it was left in under `<state>/mailbox/<recipient>/` (docs/design/conductor-run.md § 3), and this one names no `body_path`; nothing was recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MailboxBodyMissing {
+    /// `sender` — `String`.
+    pub sender: String,
+    /// `recipient` — `String`.
+    pub recipient: String,
+}
+
 /// The declared error `conductor.dispatch.MessageNotFound`.
 ///
 /// No message has this id.
@@ -2688,7 +2796,7 @@ pub struct WaitsOnItself {
     pub dispatch_id: DispatchId,
 }
 
-/// Controllers — one row of the view `conductor.dispatch.Controllers`.
+/// All controllers — one row of the view `conductor.dispatch.Controllers`.
 ///
 /// Projects `conductor.dispatch.Controller` at `read_your_writes` consistency.
 /// The specification fully determines every row, so its query is generated over the storage port —

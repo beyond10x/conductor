@@ -22,12 +22,9 @@ const FILES: [&str; 3] = ["NORTHSTAR.md", "rules.md", "README.md"];
 /// The directories it makes.
 const DIRECTORIES: [&str; 3] = ["decisions", "dispatches", "charters"];
 
-/// The sections of `rules.md`, one per role.
-const SECTIONS: [&str; 3] = [
-    "## Conductor",
-    "## Repository controller",
-    "## conductor-dev",
-];
+/// The sections of `rules.md`, one per role, under the roles' names (`story:role-name-aliases`,
+/// item 5), which `rules show --section director` reads.
+const SECTIONS: [&str; 3] = ["## Director", "## Lead", "## Maintainer"];
 
 struct Case {
     dir: PathBuf,
@@ -159,6 +156,16 @@ fn init_writes_and_commits_the_records_skeleton() {
         assert!(
             rules.lines().any(|line| line == section),
             "rules.md has {section}: {rules}"
+        );
+    }
+    for old in [
+        "## Conductor",
+        "## Repository controller",
+        "## conductor-dev",
+    ] {
+        assert!(
+            !rules.lines().any(|line| line == old),
+            "rules.md heads no section by an old role name, {old}: {rules}"
         );
     }
     let first = fs::read_to_string(records.join(&handoff)).expect("read the hand-over");

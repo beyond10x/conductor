@@ -35,8 +35,8 @@ use conductor_model::observation::obligations::{
     CollectorRunsQuery, MemberFailuresQuery, SnapshotsQuery,
 };
 use conductor_model::observation::{
-    CollectorRunObservationSnapshot, CollectorRuns, FailureClass, MemberFailureObservationSnapshot,
-    MemberFailures, ObservationId, SnapshotId, SnapshotSnapshot,
+    CollectorRunObservationSnapshot, CollectorRuns, DashboardMemory, FailureClass,
+    MemberFailureObservationSnapshot, MemberFailures, ObservationId, SnapshotId, SnapshotSnapshot,
 };
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -79,6 +79,9 @@ pub struct HealthSources {
     pub disk_low: u64,
     /// `thresholds.disk_admit`, in GiB.
     pub disk_admit: u64,
+    /// The host directory whose `falls/` the disk part lists, every instance's
+    /// (`story:host-fall-per-instance`); none lists no fall.
+    pub host: Option<PathBuf>,
 }
 
 impl HealthSources {
@@ -108,6 +111,7 @@ impl HealthSources {
             free_bytes: |path| crate::disk::space(path).map(|space| space.available),
             disk_low: gib(instance.thresholds.disk_low.0),
             disk_admit: gib(instance.thresholds.disk_admit.0),
+            host: None,
         }
     }
 }
@@ -269,7 +273,13 @@ fn fix(class: FailureClass) -> (&'static str, &'static str) {
 /// `/api/health` from `sources`, with the last disk-waste measurement `waste`, the doctor cache
 /// `doctor` and the newest snapshot with its rows `newest` ([`newest`], which the server keeps
 /// until the store is written), the home directory written `~`.
-pub(super) fn answer(sources: &Sources, doctor: &Doctor, waste: Value, newest: Newest) -> Value {
+pub(super) fn answer(
+    sources: &Sources,
+    doctor: &Doctor,
+    waste: Value,
+    newest: Newest,
+    memory: &DashboardMemory,
+) -> Value {
     let health = &sources.health;
     let (snapshot, collector_runs, member_failures, mut errors) = newest;
     let data = json!({
@@ -279,10 +289,47 @@ pub(super) fn answer(sources: &Sources, doctor: &Doctor, waste: Value, newest: N
         "collector_runs": collector_runs,
         "member_failures": member_failures,
         "disk": disk(health, waste, &mut errors),
+        "memory": memory_view(memory),
         "errors": errors,
     });
     let home = sources.home.display().to_string();
     tilde_all(data, home.trim_end_matches('/'))
+}
+
+/// The `memory` part of the answer: `conductor.observation.DashboardMemory`'s fields.
+fn memory_view(memory: &DashboardMemory) -> Value {
+    json!({
+        "rss_bytes": memory.rss_bytes,
+        "swap_bytes": memory.swap_bytes,
+        "store_handles": memory.store_handles,
+        "store_replays": memory.store_replays,
+        "store_replays_peak": memory.store_replays_peak,
+        "store_bytes": memory.store_bytes,
+        "memo_entries": memory.memo_entries,
+        "memo_entries_peak_endpoint": memory.memo_entries_peak_endpoint,
+        "memo_bytes": memory.memo_bytes,
+    })
+}
+
+/// This process's resident set in bytes, `VmRSS` of `/proc/self/status`; none where the system
+/// does not report it there.
+pub(super) fn rss_bytes() -> Option<u64> {
+    status_bytes("VmRSS:")
+}
+
+/// What of this process the system swapped out, in bytes, `VmSwap` of `/proc/self/status`
+/// (`story:dashboard-memory-live`); none where the system does not report it there.
+pub(super) fn swap_bytes() -> Option<u64> {
+    status_bytes("VmSwap:")
+}
+
+/// The size `/proc/self/status` gives on its line `field` (the name with its colon), in `kB`,
+/// in bytes.
+fn status_bytes(field: &str) -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let line = status.lines().find_map(|line| line.strip_prefix(field))?;
+    let kib: u64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
+    kib.checked_mul(1024)
 }
 
 /// The newest snapshot, its collector runs, its member failures, and what could not be read.
@@ -393,14 +440,17 @@ fn newest_in(held: Held<'_>, errors: &mut Vec<String>) -> (Value, Vec<Value>, Ve
     )
 }
 
-/// One row of `snapshot collector-runs`: the collector, its start, its duration in milliseconds
-/// and how it ended (`Completed`, `Failed`, `OverBudget`).
+/// One row of `snapshot collector-runs`: the collector, its start, its duration in milliseconds,
+/// how it ended (`Completed`, `Failed`, `OverBudget`) and the bytes read and written while it ran
+/// (`null` where they were not recorded).
 fn collector_run(run: CollectorRuns) -> Value {
     json!({
         "collector": run.collector,
         "started_at": run.started_at.0,
         "duration_ms": run.duration_ms,
         "outcome": crate::snapshot::collector_run_outcome_name(run.outcome),
+        "read_bytes": run.read_bytes,
+        "written_bytes": run.written_bytes,
     })
 }
 
@@ -438,12 +488,21 @@ fn disk(health: &HealthSources, waste: Value, errors: &mut Vec<String>) -> Value
             "ok"
         }
     });
+    let falls: Vec<Value> = health
+        .host
+        .as_deref()
+        .map(crate::host::falls)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|fall| json!({"prefix": fall.key, "instance": fall.instance, "item": fall.item}))
+        .collect();
     let mut disk = json!({
         "path": health.disk.display().to_string(),
         "free_bytes": free,
         "disk_low_bytes": low,
         "disk_admit_bytes": admit,
         "state": state,
+        "falls": falls,
     });
     if let (Value::Object(disk), Value::Object(waste)) = (&mut disk, waste) {
         disk.extend(waste);

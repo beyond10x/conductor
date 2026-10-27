@@ -7,9 +7,10 @@
 //! So:
 //!
 //! - [`Stores`] keeps one handle per state directory for the server's life, and every
-//!   computation takes it under one lock: the handle reopens a tree only when another writer
-//!   committed to it since ([`crate::store`]'s `Mark`), and two computations never replay the
-//!   same files side by side. The handle is a reader ([`store::open_reader`]): it never waits on
+//!   computation reads it on one thread of its own, one after another: the handle reopens a tree
+//!   only when another writer committed to it since ([`crate::store`]'s `Mark`), two computations
+//!   never replay the same files side by side, and every replay is built on the same thread, so
+//!   the allocator reuses what the last one freed (`story:dashboard-memory-live`). The handle is a reader ([`store::open_reader`]): it never waits on
 //!   the store's writer lock, which a writer holds for as long as it commits.
 //! - [`Memo`] keeps each answer that reads the store with the [`fingerprint`] of the store it was
 //!   computed from. A request whose fingerprint is the one kept is answered from memory. One whose
@@ -34,8 +35,10 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, mpsc};
+use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::Value;
@@ -113,6 +116,9 @@ struct Probed {
     started: HashMap<String, Vec<Instant>>,
     running: HashMap<String, usize>,
     peak: HashMap<String, usize>,
+    /// The store reads, and the threads they ran on.
+    reads: usize,
+    threads: HashSet<ThreadId>,
 }
 
 impl Probe {
@@ -137,6 +143,25 @@ impl Probe {
     #[must_use]
     pub fn peak(&self, key: &str) -> usize {
         lock(&self.0).peak.get(key).copied().unwrap_or_default()
+    }
+
+    /// How many computations read the store (`story:dashboard-memory-live`).
+    #[must_use]
+    pub fn store_reads(&self) -> usize {
+        lock(&self.0).reads
+    }
+
+    /// On how many threads the computations read the store.
+    #[must_use]
+    pub fn store_threads(&self) -> usize {
+        lock(&self.0).threads.len()
+    }
+
+    /// A computation reads the store on this thread.
+    fn read(&self) {
+        let mut probed = lock(&self.0);
+        probed.reads += 1;
+        probed.threads.insert(std::thread::current().id());
     }
 
     /// A computation of `key` starts; its delay.
@@ -242,19 +267,148 @@ pub(super) fn hasher() -> DefaultHasher {
 // The store handles
 // ---------------------------------------------------------------------------------------------
 
-/// One store handle per state directory, kept for the server's life, behind the one lock every
-/// computation over a store takes; with the probe of a test.
-#[derive(Default)]
-pub(super) struct Stores(Mutex<HashMap<PathBuf, Store>>, Option<Arc<Probe>>);
+/// One store handle per state directory, kept for the server's life and read on one thread of
+/// its own, the store reader, one computation after another; with the probe of a test.
+///
+/// Every store computation runs on that one thread (`story:dashboard-memory-live`). The
+/// allocator keeps what a thread freed in that thread's arena for its later allocations: when
+/// each recompute ran on a thread of its own, each replay was built in whichever arena that
+/// thread took, and every arena a reopen ran in kept about a replay's size after the replay was
+/// dropped, so the process grew by a replay per arena. On one thread the next replay reuses what
+/// the last one freed.
+pub(super) struct Stores {
+    shared: Arc<Shared>,
+    /// Sends a computation to the store reader; none when its thread could not start, and each
+    /// computation then runs on the thread that asks for it.
+    reader: Option<Mutex<mpsc::Sender<Job>>>,
+}
+
+/// What the store reader and the server share: the handles, what they hold, and the probe.
+struct Shared {
+    handles: Mutex<HashMap<PathBuf, Store>>,
+    held: Mutex<StoresHeld>,
+    probe: Option<Arc<Probe>>,
+}
+
+/// One computation for the store reader.
+type Job = Box<dyn FnOnce() + Send>;
+
+/// What the store handles hold in memory, as the last computation left them
+/// (`story:dashboard-memory-bound`): read without the lock a computation holds.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct StoresHeld {
+    /// The handles kept: one per state directory.
+    pub(super) handles: usize,
+    /// The trees they hold replayed.
+    pub(super) replays: usize,
+    /// The most replays of one tree alive at once in any handle since the server started.
+    pub(super) peak: usize,
+    /// The bytes of the files those replays were built from.
+    pub(super) bytes: u64,
+}
 
 /// What a computation is given: the store, none where there is none to read, or why it does not
 /// open.
 pub(super) type Held<'a> = Result<Option<&'a Store>, &'a anyhow::Error>;
 
 impl Stores {
-    /// The handles, none opened yet, watched by `probe`.
+    /// The handles, none opened yet, watched by `probe`, and the store reader's thread, which ends
+    /// when these handles are dropped.
     pub(super) fn new(probe: Option<Arc<Probe>>) -> Self {
-        Self(Mutex::default(), probe)
+        let shared = Arc::new(Shared {
+            handles: Mutex::default(),
+            held: Mutex::default(),
+            probe,
+        });
+        let (send, jobs) = mpsc::channel::<Job>();
+        let reader = std::thread::Builder::new()
+            .name("dashboard-store".to_owned())
+            .spawn(move || {
+                for job in jobs {
+                    job();
+                }
+            });
+        let reader = match reader {
+            Ok(_) => Some(Mutex::new(send)),
+            Err(error) => {
+                eprintln!("conductor dashboard: start the store reader: {error}");
+                None
+            }
+        };
+        Self { shared, reader }
+    }
+
+    /// What the handles hold in memory, as the last computation left them.
+    pub(super) fn held(&self) -> StoresHeld {
+        *lock(&self.shared.held)
+    }
+
+    /// `compute`, the computation of `key`, with the store under `state` as
+    /// [`Shared::with_held`] gives it, run on the store reader while this thread waits for it: a
+    /// store handle reads on one thread, always the same. A test's probe delays it first, on
+    /// this thread. A computation that panics panics here, and the store reader goes on.
+    pub(super) fn compute<R: Send + 'static>(
+        &self,
+        key: &str,
+        state: Option<PathBuf>,
+        compute: impl FnOnce(Held<'_>) -> R + Send + 'static,
+    ) -> R {
+        let probe = self.shared.probe.as_ref();
+        let delay = probe.map(|probe| probe.start(key));
+        if let Some(delay) = delay.filter(|delay| !delay.is_zero()) {
+            std::thread::sleep(delay);
+        }
+        let shared = Arc::clone(&self.shared);
+        let (send, answer) = mpsc::channel();
+        let job: Job = Box::new(move || {
+            let computed = catch_unwind(AssertUnwindSafe(|| shared.compute(state, compute)));
+            let _ = send.send(computed);
+        });
+        let unsent = match &self.reader {
+            Some(reader) => lock(reader).send(job).err().map(|unsent| unsent.0),
+            None => Some(job),
+        };
+        if let Some(job) = unsent {
+            job();
+        }
+        let computed = answer.recv();
+        if let Some(probe) = probe {
+            probe.end(key);
+        }
+        match computed {
+            Ok(Ok(answer)) => answer,
+            Ok(Err(panic)) => resume_unwind(panic),
+            Err(_) => panic!("the store reader stopped before it answered {key}"),
+        }
+    }
+}
+
+impl Shared {
+    /// `compute` with the store under `state`, under the handles' lock, on the thread it is
+    /// called on; then takes down what the handles hold.
+    fn compute<R>(&self, state: Option<PathBuf>, compute: impl FnOnce(Held<'_>) -> R) -> R {
+        let mut stores = lock(&self.handles);
+        if let Some(probe) = &self.probe {
+            probe.read();
+        }
+        let answer = Self::with_held(&mut stores, state.as_deref(), compute);
+        self.note(&stores);
+        answer
+    }
+
+    /// Takes down what `stores` hold in memory now.
+    fn note(&self, stores: &HashMap<PathBuf, Store>) {
+        let mut held = lock(&self.held);
+        let each: Vec<store::Replays> = stores.values().map(Store::held).collect();
+        *held = StoresHeld {
+            handles: stores.len(),
+            replays: each.iter().map(|replays| replays.live).sum(),
+            peak: each
+                .iter()
+                .map(|replays| replays.peak)
+                .fold(held.peak, usize::max),
+            bytes: each.iter().map(|replays| replays.bytes).sum(),
+        };
     }
 
     /// Runs `compute` with the store under `state`, opened the first time as a reader
@@ -285,26 +439,6 @@ impl Stores {
         }
         answer
     }
-
-    /// `compute`, the computation of `key`, with the store under `state` as
-    /// [`Stores::with_held`] gives it, under the one lock: a store handle reads on one thread at
-    /// a time. A test's probe delays it first, outside the lock.
-    pub(super) fn compute<R>(
-        &self,
-        key: &str,
-        state: Option<&Path>,
-        compute: impl FnOnce(Held<'_>) -> R,
-    ) -> R {
-        let delay = self.1.as_ref().map(|probe| probe.start(key));
-        if let Some(delay) = delay.filter(|delay| !delay.is_zero()) {
-            std::thread::sleep(delay);
-        }
-        let answer = Self::with_held(&mut lock(&self.0), state, compute);
-        if let Some(probe) = &self.1 {
-            probe.end(key);
-        }
-        answer
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -313,6 +447,10 @@ impl Stores {
 
 /// How many answers one [`Memo`] keeps; past it, the one asked longest ago is dropped.
 const KEPT: usize = 256;
+
+/// How many answers one [`Memo`] keeps for one endpoint, each query string its own answer; past
+/// it, the one of that endpoint asked longest ago is dropped (`story:dashboard-memory-bound`).
+const PER_ENDPOINT: usize = 16;
 
 /// How long after it was last asked an answer is still computed again by the warmer.
 const WARM_FOR: Duration = Duration::from_secs(600);
@@ -323,6 +461,36 @@ struct Kept<T> {
     computed: Instant,
     asked: Instant,
     value: T,
+    /// Its [`Weigh::weight`], taken when it was kept.
+    weight: usize,
+}
+
+/// About how many bytes a kept answer holds.
+pub(super) trait Weigh {
+    /// The bytes, about.
+    fn weight(&self) -> usize;
+}
+
+impl Weigh for Body {
+    fn weight(&self) -> usize {
+        self.bytes.len() + self.etag.len()
+    }
+}
+
+/// What the answers of one [`Memo`] hold in memory (`story:dashboard-memory-bound`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct MemoHeld {
+    /// The answers kept.
+    pub(super) entries: usize,
+    /// The most kept for any one endpoint: a key's path, without its query string.
+    pub(super) peak_endpoint: usize,
+    /// Their [`Weigh::weight`], together.
+    pub(super) bytes: usize,
+}
+
+/// The endpoint of `key`: its path, without the query string.
+fn endpoint(key: &str) -> &str {
+    key.split_once('?').map_or(key, |(path, _)| path)
 }
 
 /// The kept answers, and the computations of them.
@@ -370,7 +538,21 @@ impl<T> Default for Memo<T> {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Claim(u64);
 
-impl<T: Clone> Memo<T> {
+impl<T: Clone + Weigh> Memo<T> {
+    /// What the kept answers hold in memory now.
+    pub(super) fn held(&self) -> MemoHeld {
+        let entries = lock(&self.0);
+        let mut per: HashMap<&str, usize> = HashMap::new();
+        for key in entries.kept.keys() {
+            *per.entry(endpoint(key)).or_default() += 1;
+        }
+        MemoHeld {
+            entries: entries.kept.len(),
+            peak_endpoint: per.values().copied().max().unwrap_or(0),
+            bytes: entries.kept.values().map(|kept| kept.weight).sum(),
+        }
+    }
+
     /// The answer kept for `key`: fresh when it was computed at `fingerprint`, else stale; cold
     /// when none is kept. `asked` says a request asks, which keeps the answer warm.
     pub(super) fn look(&self, key: &str, fingerprint: u64, asked: bool) -> Served<T> {
@@ -418,7 +600,11 @@ impl<T: Clone> Memo<T> {
         if let Some((fingerprint, value)) = computed
             && claim.0 == entries.generation
         {
-            Self::put(&mut entries.kept, key, fingerprint, value);
+            Self::put(&mut entries, key, fingerprint, value);
+        }
+        // The debounce counts only for a key with an answer kept: one without keeps none.
+        if !entries.kept.contains_key(key) {
+            entries.started.remove(key);
         }
         drop(entries);
         self.1.notify_all();
@@ -437,24 +623,44 @@ impl<T: Clone> Memo<T> {
         );
     }
 
-    fn put(kept: &mut HashMap<String, Kept<T>>, key: &str, fingerprint: u64, value: T) {
+    /// Keeps `value` for `key`. A new key past [`PER_ENDPOINT`] answers of its endpoint drops the
+    /// one of them asked longest ago, and past [`KEPT`] answers in all the one asked longest ago
+    /// of any; a dropped key's debounce goes with it.
+    fn put(entries: &mut Entries<T>, key: &str, fingerprint: u64, value: T) {
         let now = Instant::now();
+        let kept = &mut entries.kept;
         let last_asked = kept.get(key).map_or(now, |entry| entry.asked);
-        if kept.len() >= KEPT && !kept.contains_key(key) {
-            let oldest = kept
-                .iter()
-                .min_by_key(|(_, entry)| entry.asked)
-                .map(|(key, _)| key.clone());
-            if let Some(oldest) = oldest {
-                kept.remove(&oldest);
+        if !kept.contains_key(key) {
+            let path = endpoint(key);
+            let oldest_of = |kept: &HashMap<String, Kept<T>>, same: bool| {
+                kept.iter()
+                    .filter(|(other, _)| !same || endpoint(other) == path)
+                    .min_by_key(|(_, entry)| entry.asked)
+                    .map(|(other, _)| other.clone())
+            };
+            let of_endpoint = kept.keys().filter(|other| endpoint(other) == path).count();
+            let dropped = if of_endpoint >= PER_ENDPOINT {
+                oldest_of(kept, true)
+            } else if kept.len() >= KEPT {
+                oldest_of(kept, false)
+            } else {
+                None
+            };
+            if let Some(dropped) = dropped {
+                kept.remove(&dropped);
+                if !entries.running.contains(&dropped) {
+                    entries.started.remove(&dropped);
+                }
             }
         }
+        let kept = &mut entries.kept;
         kept.insert(
             key.to_owned(),
             Kept {
                 fingerprint,
                 computed: now,
                 asked: last_asked,
+                weight: value.weight(),
                 value,
             },
         );

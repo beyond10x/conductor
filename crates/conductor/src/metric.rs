@@ -291,7 +291,7 @@ pub fn metrics(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "target_owner",
         "target_set_at",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let mut rows = generated
         .metrics()
         .map_err(|unmet| anyhow!("metric metrics: {unmet}"))?;
@@ -336,7 +336,7 @@ pub fn kpis(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "target_owner",
         "target_set_at",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let mut rows = generated
         .kpis()
         .map_err(|unmet| anyhow!("metric kpis: {unmet}"))?;
@@ -377,7 +377,7 @@ pub fn kpi_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "met",
         "reading_id",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let mut rows = generated
         .kpi_readings()
         .map_err(|unmet| anyhow!("metric kpi-readings: {unmet}"))?;
@@ -422,7 +422,7 @@ pub fn metric_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
         "met",
         "recorded_at",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let mut rows = generated
         .metric_readings()
         .map_err(|unmet| anyhow!("metric metric-readings: {unmet}"))?;
@@ -1267,7 +1267,7 @@ impl Forge {
     /// The newest complete snapshot's forge observations, or none when the store holds no
     /// complete snapshot.
     fn read(state: Option<&Path>) -> Result<Option<Self>> {
-        let generated = Generated::new(crate::state::open_existing(state)?);
+        let generated = Generated::new(crate::state::open_reader(state)?);
         let mut newest: Option<(OffsetDateTime, _)> = None;
         for row in generated.snapshots().map_err(|unmet| anyhow!("{unmet}"))? {
             if row.state != SnapshotState::Complete {

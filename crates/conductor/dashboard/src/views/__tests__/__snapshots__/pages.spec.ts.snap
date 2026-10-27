@@ -27,6 +27,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
           <p data-v-7718db06="" class="options-text">A: renew it; B: drop the job</p>
           <p data-v-7718db06="" class="recommendation-text small">recommended: A</p>
         </div>
+        <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">the operator acts; say when it is done</legend>
           <div data-v-7718db06="" class="buttons"><button data-v-7718db06="" type="button" class="choice" aria-pressed="false">Done</button></div>
@@ -38,6 +39,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-release</span><span data-v-7718db06="" class="repository">alpha</span><span data-v-7718db06="" class="age muted">raised 2h ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-13 18:00Z</span></div>
         <h3 data-v-7718db06="">Release v2.0 today?</h3>
         <p data-v-7718db06="" class="reason small muted">a release cannot be undone</p>
+        <!--v-if-->
         <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">yes or no</legend>
@@ -54,6 +56,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-store</span><span data-v-7718db06="" class="repository">alpha</span><span data-v-7718db06="" class="age muted">raised 1h ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-14 09:00Z</span></div>
         <h3 data-v-7718db06="">Which store backs the cache?</h3>
         <p data-v-7718db06="" class="reason small muted">an architecture choice</p>
+        <!--v-if-->
         <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">choose one</legend><label data-v-7718db06="" class="option" for="choice-REQ-store-A"><input data-v-7718db06="" id="choice-REQ-store-A" type="radio" name="choice-REQ-store" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">keep the file store</span><span data-v-7718db06="" class="cost small muted">nothing now</span>
@@ -72,6 +75,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
         <div data-v-7718db06="" class="meta small"><span data-v-7718db06="" class="class-pill" title="the operator decides">O</span><span data-v-7718db06="" class="mono request-id">REQ-checks</span><span data-v-7718db06="" class="repository">gamma</span><span data-v-7718db06="" class="age muted">raised 30m ago</span><span data-v-7718db06="" class="deadline">deadline 2026-10-14 12:00Z</span></div>
         <h3 data-v-7718db06="">Which checks gate a merge?</h3>
         <p data-v-7718db06="" class="reason small muted">it changes what every pull request waits for</p>
+        <!--v-if-->
         <!--v-if-->
         <fieldset data-v-7718db06="" class="choices">
           <legend data-v-7718db06="" class="kind small muted">choose any, at least one</legend><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-A"><input data-v-7718db06="" id="choice-REQ-checks-A" type="checkbox" name="choice-REQ-checks" value="A"><span data-v-7718db06="" class="letter mono">A</span><span data-v-7718db06="" class="label">unit tests</span><span data-v-7718db06="" class="cost small muted">4 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span><span data-v-7718db06="" class="mark mark-default">default</span></label><label data-v-7718db06="" class="option recommended" for="choice-REQ-checks-B"><input data-v-7718db06="" id="choice-REQ-checks-B" type="checkbox" name="choice-REQ-checks" value="B"><span data-v-7718db06="" class="letter mono">B</span><span data-v-7718db06="" class="label">integration tests</span><span data-v-7718db06="" class="cost small muted">12 minutes per run</span><span data-v-7718db06="" class="mark mark-recommended">recommended</span>
@@ -104,7 +108,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
     </section>
   </div>
 </main>
-<footer class="small muted"> sessions from <code>claude agents --json</code> · records under ~/example-org/conductor · CI from ~/.cache/conductor-watch/ci.state · reads again every 20 s </footer>"
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;
 
 exports[`the health page > has no axe finding, one main, one banner and the navigation 1`] = `
@@ -204,6 +208,9 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
           </div>
           <div data-v-262fdc11="" class="free">36.0 GiB free on /</div>
           <div data-v-262fdc11="" class="floors small muted"> low at 40.0 GiB · admit-only at 20.0 GiB</div>
+          <ul data-v-262fdc11="" class="falls small" aria-label="Open falls of free disk">
+            <li data-v-262fdc11=""> fall of example-org (alpha): item <span data-v-262fdc11="" class="mono">disk-example</span></li>
+          </ul>
           <details data-v-262fdc11="">
             <summary data-v-262fdc11="">Disk waste · 6.0 GiB in 3 rows</summary>
             <p data-v-262fdc11="" class="small muted">5.0 GiB reclaimable · measured 2026-10-13T09:25:00Z (5m ago) · read-only: <code data-v-262fdc11="">conductor gc</code> removes the reclaimable rows </p>
@@ -216,6 +223,8 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
                     <th data-v-262fdc11="" scope="col">what</th>
                     <th data-v-262fdc11="" scope="col">path</th>
                     <th data-v-262fdc11="" scope="col" class="num">trees or entries</th>
+                    <th data-v-262fdc11="" scope="col">owner</th>
+                    <th data-v-262fdc11="" scope="col">age</th>
                     <th data-v-262fdc11="" scope="col">state</th>
                     <th data-v-262fdc11="" scope="col">conductor gc</th>
                   </tr>
@@ -227,6 +236,8 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
                     <td data-v-262fdc11="">build cache in idle managed trees</td>
                     <td data-v-262fdc11="" class="mono small">~/.local/state/worktree/trees/example-org/alpha</td>
                     <td data-v-262fdc11="" class="num">1</td>
+                    <td data-v-262fdc11="">—</td>
+                    <td data-v-262fdc11="">—</td>
                     <td data-v-262fdc11="">measured</td>
                     <td data-v-262fdc11="" class="mono small">worktree discard-cache</td>
                   </tr>
@@ -236,6 +247,8 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
                     <td data-v-262fdc11="">target/ of the checkout</td>
                     <td data-v-262fdc11="" class="mono small">~/example-org/alpha/target</td>
                     <td data-v-262fdc11="" class="num">—</td>
+                    <td data-v-262fdc11="">—</td>
+                    <td data-v-262fdc11="">—</td>
                     <td data-v-262fdc11="">measured</td>
                     <td data-v-262fdc11="" class="mono small">kept: not cargo's: no CACHEDIR.TAG</td>
                   </tr>
@@ -245,6 +258,8 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
                     <td data-v-262fdc11="">smaller /var/tmp entries</td>
                     <td data-v-262fdc11="" class="mono small">/var/tmp</td>
                     <td data-v-262fdc11="" class="num">2</td>
+                    <td data-v-262fdc11="">agent</td>
+                    <td data-v-262fdc11="">2d 4h</td>
                     <td data-v-262fdc11="">measured</td>
                     <td data-v-262fdc11="" class="mono small">kept: not conductor's</td>
                   </tr>
@@ -257,7 +272,7 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
     </div>
   </div>
 </main>
-<footer class="small muted"> sessions from <code>claude agents --json</code> · records under ~/example-org/conductor · CI from ~/.cache/conductor-watch/ci.state · reads again every 20 s </footer>"
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;
 
 exports[`the kpis page > has no axe finding, one main, one banner and the navigation 1`] = `
@@ -733,7 +748,7 @@ exports[`the kpis page > has no axe finding, one main, one banner and the naviga
     </div>
   </div>
 </main>
-<footer class="small muted"> sessions from <code>claude agents --json</code> · records under ~/example-org/conductor · CI from ~/.cache/conductor-watch/ci.state · reads again every 20 s </footer>"
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;
 
 exports[`the metrics page > has no axe finding, one main, one banner and the navigation 1`] = `
@@ -1642,7 +1657,7 @@ exports[`the metrics page > has no axe finding, one main, one banner and the nav
     </div>
   </div>
 </main>
-<footer class="small muted"> sessions from <code>claude agents --json</code> · records under ~/example-org/conductor · CI from ~/.cache/conductor-watch/ci.state · reads again every 20 s </footer>"
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;
 
 exports[`the overview page > has no axe finding, one main, one banner and the navigation 1`] = `
@@ -2123,6 +2138,7 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
       </div>
     </div>
     <p data-v-8e6ceb57="" class="small muted">snapshot of 2026-10-13T09:00:00Z · today since 2026-10-13T00:00:00Z</p>
+    <p data-v-8e6ceb57="" class="snapshot-age small c-amber-strong" role="status">newest snapshot 7h 0m old, older than its 2h cycle: what it shows may be out of date</p>
     <section data-v-efc2839e="" data-v-8e6ceb57="" aria-labelledby="reviews" class="col">
       <h2 data-v-efc2839e="" id="reviews">Waiting for review · 2</h2>
       <ol data-v-efc2839e="" class="reviews">
@@ -2134,12 +2150,12 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
       <div data-v-245b4ad4="" class="card tile tone-amber">
         <div data-v-245b4ad4="" class="label small muted">unanswered O/H</div>
         <div data-v-245b4ad4="" class="val">2</div>
-        <div data-v-245b4ad4="" class="sub">oldest 2h · REQ-OLD</div>
+        <div data-v-245b4ad4="" class="sub">oldest 2h · REQ-login</div>
       </div>
       <div data-v-245b4ad4="" class="card tile tone-amber">
         <div data-v-245b4ad4="" class="label small muted">needs you</div>
-        <div data-v-245b4ad4="" class="val">3</div>
-        <div data-v-245b4ad4="" class="sub">1 decision · 2 red CI</div>
+        <div data-v-245b4ad4="" class="val">2</div>
+        <div data-v-245b4ad4="" class="sub">2 items to answer or do</div>
       </div>
       <div data-v-245b4ad4="" class="card tile tone-red">
         <div data-v-245b4ad4="" class="label small muted">red CI on main</div>
@@ -2148,8 +2164,8 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
       </div>
       <div data-v-245b4ad4="" class="card tile tone-text">
         <div data-v-245b4ad4="" class="label small muted">controllers</div>
-        <div data-v-245b4ad4="" class="val">1</div>
-        <div data-v-245b4ad4="" class="sub">1 busy · 0 idle · 0 silent</div>
+        <div data-v-245b4ad4="" class="val">2</div>
+        <div data-v-245b4ad4="" class="sub">1 busy · 1 idle · 0 silent</div>
       </div>
       <div data-v-245b4ad4="" class="card tile tone-red">
         <div data-v-245b4ad4="" class="label small muted">open PRs / MRs</div>
@@ -2366,22 +2382,25 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
       </div>
     </section>
     <section data-v-3e009542="" data-v-8e6ceb57="" aria-labelledby="needs" class="col">
-      <h2 data-v-3e009542="" id="needs">Needs you · 3</h2>
+      <h2 data-v-3e009542="" id="needs">Needs you · 4</h2>
       <div data-v-3e009542="" class="needs">
         <div data-v-3e009542="" class="card stack warn">
-          <div data-v-3e009542="" class="head"><span data-v-3e009542="" class="pill pill-amber">operator · class O</span></div>
-          <div data-v-3e009542="">
-            <!--v-if-->
-            <!--v-if-->Release now?
-          </div><code data-v-3e009542="" class="cmd">[DECISION DEC-20261013-02] &lt;option&gt; &lt;reason&gt;</code>
+          <div data-v-3e009542="" class="head"><span data-v-3e009542="" class="pill pill-amber">hands · class H · REQ-login</span></div>
+          <div data-v-3e009542=""><b data-v-3e009542="">alpha</b>: Log in to the registry: run \`task registry-login\` in the alpha checkout</div><code data-v-3e009542="" class="cmd">do: task registry-login</code><a data-v-3e009542="" class="small" href="#/decisions/REQ-login">open it on the Decisions page</a>
+        </div>
+        <div data-v-3e009542="" class="card stack warn">
+          <div data-v-3e009542="" class="head"><span data-v-3e009542="" class="pill pill-amber">operator · class O · REQ-release</span></div>
+          <div data-v-3e009542=""><b data-v-3e009542="">alpha</b>: Release alpha today?</div><code data-v-3e009542="" class="cmd">answer: Y release today · N wait</code><a data-v-3e009542="" class="small" href="#/decisions/REQ-release">open it on the Decisions page</a>
         </div>
         <div data-v-3e009542="" class="card stack danger">
           <div data-v-3e009542="" class="head"><span data-v-3e009542="" class="pill pill-red">red CI · main</span></div>
           <div data-v-3e009542=""><b data-v-3e009542="">alpha</b>: CI failed on main</div><code data-v-3e009542="" class="cmd">cd ~/example-org/alpha &amp;&amp; gh run list --branch main --workflow 'CI' --limit 5</code>
+          <!--v-if-->
         </div>
         <div data-v-3e009542="" class="card stack danger">
           <div data-v-3e009542="" class="head"><span data-v-3e009542="" class="pill pill-red">red CI · main</span></div>
           <div data-v-3e009542=""><b data-v-3e009542="">delta</b>: Release failed on main</div><code data-v-3e009542="" class="cmd">cd ~/example-org/delta &amp;&amp; gh run list --branch main --workflow 'Release' --limit 5</code>
+          <!--v-if-->
         </div>
       </div>
     </section>
@@ -2417,11 +2436,11 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
             <tr data-v-810b2e70="">
               <td data-v-810b2e70="" class="name"><a data-v-810b2e70="" href="#/repo/beta">beta</a></td>
               <td data-v-810b2e70="" class="chips-cell"><span data-v-810b2e70="" class="chip">no checkout</span></td>
-              <td data-v-810b2e70="" class="controller small">none</td>
+              <td data-v-810b2e70="" class="controller small">idle</td>
               <td data-v-810b2e70="" class="prs mono small">1 open · 0 failing</td>
               <td data-v-810b2e70="" class="main small">green</td>
               <td data-v-810b2e70="" class="release mono small">v0.3.0 · +2</td>
-              <td data-v-810b2e70="" class="last small muted">—</td>
+              <td data-v-810b2e70="" class="last small muted">30m ago</td>
             </tr>
             <tr data-v-810b2e70="">
               <td data-v-810b2e70="" class="name"><a data-v-810b2e70="" href="#/repo/delta">delta</a></td>
@@ -2482,7 +2501,7 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
     <!--v-if-->
   </div>
 </main>
-<footer class="small muted"> sessions from <code>claude agents --json</code> · records under ~/example-org/conductor · CI from ~/.cache/conductor-watch/ci.state · reads again every 20 s </footer>"
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;
 
 exports[`the repository page > has no axe finding, one main, one banner and the navigation 1`] = `
@@ -2793,7 +2812,7 @@ exports[`the repository page > has no axe finding, one main, one banner and the 
     </div>
   </div>
 </main>
-<footer class="small muted"> sessions from <code>claude agents --json</code> · records under ~/example-org/conductor · CI from ~/.cache/conductor-watch/ci.state · reads again every 20 s </footer>"
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;
 
 exports[`the sessions page > has no axe finding, one main, one banner and the navigation 1`] = `
@@ -2810,15 +2829,17 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
   <h1 class="page">What every session works on</h1>
   <!--v-if-->
   <!--v-if-->
-  <p class="summary small muted"> read 2026-10-13T09:30:00Z · free on /: 33.6 GiB of 847.0 GiB · controllers running: 1 · build slot: not recorded</p>
+  <p class="summary small muted"> read 2026-10-13T09:30:00Z · sessions: 3 · controllers running: 2 · free on /: 33.6 GiB of 847.0 GiB · build slot: not recorded</p>
+  <p class="snapshot-age small c-amber-strong" role="status">newest snapshot 7h 0m old, older than its 2h cycle: what it shows may be out of date</p>
+  <p class="moved small muted"> Red CI on main is on the <a href="#/">Overview</a>; disk waste is on <a href="#/health">Health</a>. </p>
   <section class="col" aria-labelledby="sessions">
-    <h2 id="sessions"> Sessions under ~/example-org (2 live, 1 exited) </h2>
+    <h2 id="sessions"> Sessions of this instance (3 running, 0 not running) </h2>
     <div class="table-wrap">
       <table aria-labelledby="sessions">
         <thead>
           <tr>
             <th scope="col">name</th>
-            <th scope="col">kind</th>
+            <th scope="col">role</th>
             <th scope="col">state</th>
             <th scope="col">started</th>
             <th scope="col">cwd</th>
@@ -2831,8 +2852,19 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
         <tbody>
           <!--v-if-->
           <tr class="">
-            <td>alpha</td>
-            <td>background</td>
+            <td>ex-conductor</td>
+            <td>conductor</td>
+            <td>idle</td>
+            <td>3h 0m ago</td>
+            <td class="mono small">~/example-org/records</td>
+            <td class="mono small">—</td>
+            <td>—</td>
+            <td class="work">—</td>
+            <td>—</td>
+          </tr>
+          <tr class="">
+            <td>ex-alpha</td>
+            <td>controller · alpha</td>
             <td>busy (working)</td>
             <td>2h 0m ago</td>
             <td class="mono small">~/example-org/alpha</td>
@@ -2842,26 +2874,44 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
             <td>started, 5m ago</td>
           </tr>
           <tr class="">
-            <td>conductor</td>
-            <td>background</td>
-            <td>blocked</td>
-            <td>1m ago</td>
-            <td class="mono small">~/example-org/conductor</td>
-            <td class="mono small">—</td>
-            <td>—</td>
-            <td class="work">—</td>
-            <td>—</td>
+            <td>ex-beta</td>
+            <td>controller · beta</td>
+            <td>idle</td>
+            <td>1h 0m ago</td>
+            <td class="mono small">~/.local/state/worktree/trees/example-org/beta/beta-w1</td>
+            <td class="mono small">DSP-20261013-02 (closed)</td>
+            <td>G2</td>
+            <td class="work">Pin the schema</td>
+            <td>done, 30m ago</td>
           </tr>
-          <tr class="faint">
-            <td>aardvark</td>
-            <td>interactive</td>
-            <td>exited</td>
-            <td>1d 0h ago</td>
-            <td class="mono small">~/example-org/aardvark</td>
-            <td class="mono small">—</td>
-            <td>—</td>
-            <td class="work">—</td>
-            <td>—</td>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="col" aria-labelledby="awaiting">
+    <h2 id="awaiting"> Awaiting the operator <span class="c-amber-strong">(2)</span></h2>
+    <div class="table-wrap warn">
+      <table aria-labelledby="awaiting">
+        <thead>
+          <tr>
+            <th scope="col">item</th>
+            <th scope="col">class</th>
+            <th scope="col">what to do</th>
+            <th scope="col">question</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono small"><a href="#/decisions/REQ-login">REQ-login</a></td>
+            <td>H</td>
+            <td class="action">do: task registry-login</td>
+            <td class="work small">Log in to the registry: run \`task registry-login\` in the alpha checkout</td>
+          </tr>
+          <tr>
+            <td class="mono small"><a href="#/decisions/REQ-release">REQ-release</a></td>
+            <td>O</td>
+            <td class="action">answer: Y release today · N wait</td>
+            <td class="work small">Release alpha today?</td>
           </tr>
         </tbody>
       </table>
@@ -2871,57 +2921,9 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
     <h2 id="watch">Usage limit and context</h2>
     <div class="card">
       <ul class="lines">
-        <li class="c-red">usage limit: Usage limit reached · resets 15:00; 2 sessions: alpha conductor</li>
-        <li class="">usage limit seen today: Weekly limit reached</li>
-        <li class="c-red">context: conductor over 300k tokens (session s2)</li>
+        <li class="c-red">usage limit until 15:00Z: You've hit your session limit · resets 3:00pm (UTC); sessions: ex-alpha ex-beta</li>
+        <li class="c-red">context: ex-conductor over 300k tokens (session s2)</li>
       </ul>
-    </div>
-  </section>
-  <section class="col" aria-labelledby="red-ci">
-    <h2 id="red-ci">Red CI on main</h2>
-    <div class="table-wrap danger">
-      <table aria-labelledby="red-ci">
-        <thead>
-          <tr>
-            <th scope="col">repository</th>
-            <th scope="col">workflow</th>
-            <th scope="col">run</th>
-            <th scope="col">conclusion</th>
-            <th scope="col">time</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>beta</td>
-            <td>Release</td>
-            <td class="mono small">202</td>
-            <td class="c-red">failure</td>
-            <td class="mono small">2026-10-13T08:00:00Z</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-  <section class="col" aria-labelledby="awaiting">
-    <h2 id="awaiting"> Awaiting the operator <span class="c-amber-strong">(1)</span></h2>
-    <div class="table-wrap warn">
-      <table aria-labelledby="awaiting">
-        <thead>
-          <tr>
-            <th scope="col">decision</th>
-            <th scope="col">class</th>
-            <th scope="col">question</th>
-          </tr>
-        </thead>
-        <tbody>
-          <!--v-if-->
-          <tr>
-            <td class="mono small">DEC-20261013-02</td>
-            <td>O</td>
-            <td>Release now?</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   </section>
   <section class="col" aria-labelledby="decisions">
@@ -2931,6 +2933,7 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
         <thead>
           <tr>
             <th scope="col">decision</th>
+            <th scope="col">at</th>
             <th scope="col">class</th>
             <th scope="col">choice</th>
             <th scope="col">reason</th>
@@ -2940,72 +2943,17 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
           <!--v-if-->
           <tr>
             <td class="mono small">DEC-20261013-02</td>
+            <td class="mono small">2026-10-13T09:10:00Z</td>
             <td>O</td>
-            <td>—</td>
-            <td class="work">needs the operator</td>
+            <td>Y</td>
+            <td class="work">the operator: release today</td>
           </tr>
           <tr>
             <td class="mono small">DEC-20261013-01</td>
+            <td class="mono small">2026-10-13T09:00:00Z</td>
             <td>C</td>
             <td>A</td>
             <td class="work">gate green, change inside the approved design</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-  <section class="col" aria-labelledby="disk-waste">
-    <h2 id="disk-waste">Disk waste</h2>
-    <p class="meta small muted"> total 6.0 GiB over 3 rows, 5.0 GiB reclaimable · measured 2026-10-13T09:25:00Z (5m ago) · read-only: <code>conductor gc</code> removes the reclaimable rows </p>
-    <div class="table-wrap">
-      <table aria-labelledby="disk-waste">
-        <thead>
-          <tr>
-            <th scope="col" class="num">size</th>
-            <th scope="col">repository</th>
-            <th scope="col">what</th>
-            <th scope="col">path</th>
-            <th scope="col" class="num">trees or entries</th>
-            <th scope="col">owner</th>
-            <th scope="col">age</th>
-            <th scope="col">state</th>
-            <th scope="col">conductor gc</th>
-          </tr>
-        </thead>
-        <tbody>
-          <!--v-if-->
-          <tr>
-            <td class="num mono small">5.0 GiB</td>
-            <td>alpha</td>
-            <td>build cache in idle managed trees</td>
-            <td class="mono small">~/.local/state/worktree/trees/example-org/alpha</td>
-            <td class="num">1</td>
-            <td>—</td>
-            <td>—</td>
-            <td>measured</td>
-            <td class="mono small">worktree sweep --apply --repo ~/example-org/alpha</td>
-          </tr>
-          <tr>
-            <td class="num mono small">1.0 GiB</td>
-            <td>alpha</td>
-            <td>target/ of the checkout</td>
-            <td class="mono small">~/example-org/alpha/target</td>
-            <td class="num">—</td>
-            <td>—</td>
-            <td>—</td>
-            <td>measured</td>
-            <td class="mono small">kept: the checkout's own build</td>
-          </tr>
-          <tr>
-            <td class="num mono small">6.0 MiB</td>
-            <td>—</td>
-            <td>smaller /var/tmp entries</td>
-            <td class="mono small">/var/tmp</td>
-            <td class="num">2</td>
-            <td>agent</td>
-            <td>2d 4h</td>
-            <td>measured</td>
-            <td class="mono small">kept: not conductor's</td>
           </tr>
         </tbody>
       </table>
@@ -3066,5 +3014,5 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
     </div>
   </section>
 </main>
-<footer class="small muted"> sessions from <code>claude agents --json</code> · records under ~/example-org/conductor · CI from ~/.cache/conductor-watch/ci.state · reads again every 20 s </footer>"
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;

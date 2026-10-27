@@ -17,6 +17,7 @@ import {
 } from '../api/overview';
 import { errorFor } from '../api/errors';
 import PanelState from '../components/PanelState.vue';
+import SnapshotAge from '../components/SnapshotAge.vue';
 import KpiStrip from './overview/KpiStrip.vue';
 import WaitingForReview from './overview/WaitingForReview.vue';
 import SummaryTiles from './overview/SummaryTiles.vue';
@@ -117,6 +118,7 @@ onBeforeUnmount(() => {
         <template v-else>no complete snapshot yet</template>
         · today since {{ view.since }}
       </p>
+      <SnapshotAge v-if="view.data !== null" :snapshot="view.data.snapshot" />
       <PanelState v-if="waiting(['/api/reviews'])" state="loading" card>reading /api/reviews…</PanelState>
       <WaitingForReview
         v-else

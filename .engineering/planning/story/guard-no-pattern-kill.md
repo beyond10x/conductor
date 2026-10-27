@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:guard-no-pattern-kill
 kind: story
-status: draft
+status: implemented
 title: No session kills another's processes by pattern; a stopped build run never hangs on the ledger
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T04:41:36Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-17T04:41:36Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-17T04:41:37Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: guard-no-pattern-kill
 

@@ -3,14 +3,15 @@ title: Confinement
 sidebar_position: 3
 description: How a conductor or controller session is started so that the guard runs, what bounds it, and the authority boundary the decision classes draw.
 lede: A session is confined by how it is started, by the place it runs in, and by the decisions it may take; only the first two reach the guard.
-source: Taskfile.yml (conductor:start, dev:start, trust); .agents/conductor.md; crates/conductor/src/confine/mod.rs; crates/conductor/src/confine/systemd.rs; crates/conductor/src/session.rs; crates/conductor/src/spawn.rs; crates/conductor/src/config.rs; crates/conductor/src/guard/rules.rs; crates/conductor/src/controller.rs; crates/conductor/src/decide.rs; docs/design/conductor.md sections 5 and 7
+source: Taskfile.yml (maintainer:start, trust); crates/conductor/src/run.rs; crates/conductor/src/confine/mod.rs; crates/conductor/src/confine/systemd.rs; crates/conductor/src/session.rs; crates/conductor/src/spawn.rs; crates/conductor/src/config.rs; crates/conductor/src/guard/rules.rs; crates/conductor/src/controller.rs; crates/conductor/src/decide.rs; docs/design/conductor.md sections 5 and 7
 ---
 
 ## How a session is started
 
 Every session conductor starts goes through one command: `conductor session start --role
-conductor` (`task conductor:start`) or `--role conductor-dev` (`task dev:start`), and `conductor
-spawn --repository <repo>` for a controller. Each hands the session to the confinement provider
+maintainer` (`task maintainer:start`) for conductor-dev, `--role conductor` for a conductor session
+started by hand, and `conductor spawn --repository <repo>` for a controller, which `conductor run`
+calls. Each hands the session to the confinement provider
 the instance's `confinement` names, with the role's request: its limits, its writable places
 resolved to absolute paths, its network and its `forge_token_env` names. Under `strict` a session
 whose provider is not available, or whose box measures short of the request, does not start;
@@ -65,8 +66,8 @@ project settings are loaded, hooks included ([limits](/docs/security/limits)).
 `--settings` names the role's settings file. The shipped files,
 `.claude/conductor-settings.json` and `.claude/controller-settings.json`, wire the guard on every
 tool and set `disableAllHooks` to false. `conductor session start --role conductor` uses the
-`conductor` role's `settings`, or `.claude/conductor-settings.json` of the directory it runs in,
-this checkout for `task conductor:start`, when the role names none. A
+`conductor` role's `settings`, or `.claude/conductor-settings.json` of the directory it runs in
+when the role names none. A
 controller's settings come from the `controller` role's `settings`: point it at
 `.claude/controller-settings.json` or a file that wires the same hook.
 
@@ -79,8 +80,8 @@ A role's `profile` is a file appended to the system prompt with `--append-system
 Without one, a session starts with `--agent <name>`. Because user settings are not loaded, that
 agent is found only in the start directory's `.claude/agents/`, never in `~/.claude/agents/`, so
 `task agents:link`, which links into one named repository's `.claude/agents/`, serves none of
-these sessions. `task conductor:start` refuses when the
-conductor agent is not in the records' `.claude/agents/`. `conductor config validate` refuses a
+these sessions. `task maintainer:start` refuses when this checkout has no
+`.claude/agents/conductor-dev.md` and the role names no profile. `conductor config validate` refuses a
 `controller` role that names an `agent` and no `profile`: a controller starts only from its
 profile.
 
@@ -88,10 +89,11 @@ profile.
 
 `--permission-mode bypassPermissions` means no tool call asks first. The guard is the only check.
 Claude Code refuses this mode in a background session until its disclaimer has been accepted
-once; `task conductor:start` checks for that up front and says how to accept it.
+once: run `claude --dangerously-skip-permissions` once interactively, or set
+`"skipDangerousModePermissionPrompt": true` in the role's settings file.
 
-`task conductor:start` also refuses while a live session of the same name runs, when the
-profile is not a file, and when the role runs on a harness other than `claude`.
+`task maintainer:start` refuses while a live session of the same name runs, when the profile is
+not a file, and when the role runs on a harness other than `claude`.
 
 ## The working directory is the place
 

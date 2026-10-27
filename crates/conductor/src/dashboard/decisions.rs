@@ -1,8 +1,9 @@
 //! `/api/decisions`, what the Decisions page reads (`story:decisions-page`).
 //!
 //! It answers `{open, history, errors}`:
-//! - `open`: every decision request escalated as class O or H and not answered or withdrawn, the
-//!   one raised first first, then by id, as `conductor status` orders them
+//! - `open`: every decision request escalated as class O or H and not answered or withdrawn, in
+//!   the store or in the decision log ([`answered`], `story:sessions-page-coherent`), the one
+//!   raised first first, then by id, as `conductor status` orders them
 //!   ([`crate::status::unanswered`]). Each row is `{request_id, class, repository, question, kind,
 //!   options, recommended, default, deadline, raised_at, reason, options_text,
 //!   recommendation_text}`: `kind` is `yes-no`, `one-of` or `several-of`; `options` the lettered
@@ -39,12 +40,68 @@ pub const DECISIONS_PATH: &str = "/api/decisions";
 /// order, with the log's read problems `errors`.
 #[must_use]
 pub fn answer(store: Option<&Store>, log: &[Value], errors: Vec<String>) -> Value {
-    let open: Vec<Value> = store.map(open_items).unwrap_or_default();
+    let open: Vec<Value> = store
+        .map(open_items)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| {
+            row["request_id"]
+                .as_str()
+                .is_some_and(|id| !answered(log, id))
+        })
+        .collect();
     json!({"open": open, "history": history(log), "errors": errors})
 }
 
+/// Whether the decision log `log` answered the item `id` (`story:sessions-page-coherent`): a line
+/// that closed it (`event` `answered` or `withdrawn`, its `id` the item's), a line of its own id
+/// with a choice, or an operator's decision (class O or H, with a choice) whose `request` or
+/// `rests_on` names it as a whole word. An answer recorded in the log counts whether or not the
+/// store's request was ever closed; a class-C decision that merely names the item answers nothing.
+#[must_use]
+pub fn answered(log: &[Value], id: &str) -> bool {
+    let chose = |line: &Value| {
+        line["choice"]
+            .as_str()
+            .is_some_and(|choice| !choice.trim().is_empty())
+    };
+    log.iter().any(|line| {
+        let own = line["id"].as_str() == Some(id);
+        if own && (matches!(line["event"].as_str(), Some("answered" | "withdrawn")) || chose(line))
+        {
+            return true;
+        }
+        let operator = matches!(
+            line["class"]
+                .as_str()
+                .or_else(|| line["escalation_class"].as_str()),
+            Some("O" | "H")
+        );
+        if own || !operator || !chose(line) {
+            return false;
+        }
+        let mut cited = Vec::new();
+        match &line["request"] {
+            Value::String(text) => cited.push(text.as_str()),
+            Value::Array(items) => cited.extend(items.iter().filter_map(Value::as_str)),
+            _ => {}
+        }
+        cited.extend(line["rests_on"].as_str());
+        cited.into_iter().any(|text| names(text, id))
+    })
+}
+
+/// Whether `text` names `id` as a whole word: not inside a longer id.
+fn names(text: &str, id: &str) -> bool {
+    let part = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_');
+    text.match_indices(id).any(|(at, _)| {
+        !text[..at].chars().next_back().is_some_and(part)
+            && !text[at + id.len()..].chars().next().is_some_and(part)
+    })
+}
+
 /// The open class-O and class-H items of `store`, in the order of [`crate::status::unanswered`].
-fn open_items(store: &Store) -> Vec<Value> {
+pub(crate) fn open_items(store: &Store) -> Vec<Value> {
     let held: Vec<DecisionRequestData> = DecisionRequestStorage::list(store)
         .into_iter()
         .map(|held| held.data)

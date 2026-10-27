@@ -14,6 +14,8 @@ const LABEL: Record<Cause['cause'], string> = {
   'another-repository': 'another repository',
   'usage-limit': 'the usage limit',
   silent: 'silent',
+  stalled: 'stalled',
+  'build-queued': 'a queued build',
 };
 
 function label(cause: Cause): string {

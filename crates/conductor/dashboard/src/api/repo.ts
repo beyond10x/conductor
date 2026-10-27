@@ -24,7 +24,15 @@ export interface FromSnapshot<Row> {
 
 /** One cause a repository waits on. `on` names the repository an `another-repository` waits for. */
 export interface Cause {
-  cause: 'operator' | 'ci' | 'build-slot' | 'another-repository' | 'usage-limit' | 'silent';
+  cause:
+    | 'operator'
+    | 'ci'
+    | 'build-slot'
+    | 'another-repository'
+    | 'usage-limit'
+    | 'silent'
+    | 'stalled'
+    | 'build-queued';
   detail: string;
   on?: string;
 }
@@ -162,15 +170,19 @@ export function filterWaiting(names: string[], rows: WaitingRow[]): string[] {
 }
 
 /**
- * The controller session of `name` in `/data.json`: the session whose working directory is its
- * checkout, `<checkouts>/<name>`. Its dispatch is the newest to it, with its newest report.
+ * The controller session of `name` in `/data.json`: the live controller row whose record names
+ * the repository, wherever it works (story:sessions-page-coherent). Its dispatch is its open one,
+ * else its newest, with its newest report.
  */
 export function workingOn(data: DashboardData | null, name: string): Session | null {
   if (data === null) {
     return null;
   }
-  const checkout = `${data.reading.checkouts.replace(/\/+$/, '')}/${name}`;
-  return data.sessions.find((session) => session.cwd === checkout && !session.exited) ?? null;
+  return (
+    data.sessions.find(
+      (session) => session.role === 'controller' && session.repository === name && !session.exited,
+    ) ?? null
+  );
 }
 
 /** The newest of `rows` by `at`; none when there are none. */

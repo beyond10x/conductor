@@ -15,12 +15,15 @@
 //!   MemoryMax=`, `-p CPUWeight=` and `-p TasksMax=` for each limit the role sets, its output to
 //!   nothing, in the session's start directory, with `TERM`, `SHELL=/bin/bash`, this process's
 //!   `PATH`, the launch's variables and, by name only, each `forge_token_env` variable this
-//!   process has. The unit runs the spike's launcher: `/bin/sh` opens the session's FIFO
-//!   read-write on fd 3, so it never reads an end, and runs `script` on it, which gives
-//!   `claude --session-id <id> <arguments>` a PTY and keeps a typescript. The id is chosen here.
-//!   The FIFO and the typescript are `<state>/sessions/<session name>.fifo` and `.typescript`.
+//!   process has. The unit runs a tmux server of the session's own as its main process, `tmux -D
+//!   -S <state>/sessions/<session name>.tmux -f <session name>.tmux.conf` ([`TMUX_CONF`]): it
+//!   holds the PTY of the session's one pane, which runs the harness command, `<program>
+//!   --session-id <id> <arguments>`, whichever harness the role names, and copies its output to
+//!   the typescript `<session name>.typescript`. The id is chosen here. `conductor session
+//!   attach` attaches a terminal to that server (`crate::attach`).
 //! - [`Provider::prompt`] waits until the session list shows the session live, then types the
-//!   prompt into the FIFO as one bracketed paste, and Enter.
+//!   prompt into the pane as one paste through tmux ([`type_text`]: `set-buffer`, `paste-buffer -p`, bracketed
+//!   when the harness asked for it), and Enter.
 //! - [`Provider::stop`] is `systemctl --user stop <unit>`, and nothing when systemd has no unit of
 //!   that name loaded (`systemctl --user show -p LoadState -p ActiveState <unit>` reads
 //!   `LoadState=not-found`): the session ended already. [`Provider::resume`] starts a new unit
@@ -38,9 +41,9 @@
 //!   controllers are delegated all the same; it is available when `cpu`, `memory` and `pids` are
 //!   listed. `io` is not asked for.
 
-use std::fs::{self, File};
-use std::io::{ErrorKind, Write as _};
-use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+use std::fs;
+use std::io::ErrorKind;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -50,9 +53,6 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{Limits, ProviderAvailability, SessionName};
 use conductor_model::observation::EnvelopeProvider;
 use conductor_model::session::{EnvelopeMeasurement, SessionRequest, StartedSession};
-use nix::errno::Errno;
-use nix::fcntl::OFlag;
-use nix::sys::stat::Mode;
 
 use super::{BOUND, Launch, Provider, Said, exited, live_session, now};
 use crate::collect;
@@ -69,12 +69,35 @@ pub const SYSTEMCTL: &str = "systemctl";
 /// The controllers the user manager must delegate for a box.
 pub const DELEGATED: [&str; 3] = ["cpu", "memory", "pids"];
 
-/// The launcher the unit runs, through `/bin/sh -c <this> conductor-launch <fifo> <typescript>
-/// <command>`: the FIFO held read-write on fd 3, and `script` reading it as the PTY's input.
-pub const LAUNCHER: &str = r#"exec 3<>"$1" && exec script -qfec "$3" "$2" <&3"#;
+/// The program that runs a session's server and types into it, found on `PATH`.
+pub const TMUX: &str = "tmux";
 
-/// The PTY's size, set before the harness starts.
-const STTY: &str = "stty cols 160 rows 48";
+/// The configuration of a session's tmux server, `<state>/sessions/<name>.tmux.conf`, which
+/// creates the session: `tmux -D` runs the server as the unit's main process and takes no
+/// command, so the session is made here. The server ends with its one session (`exit-empty`,
+/// which `-D` turns off); panes run `/bin/sh`, not the operator's login shell; the prefix is
+/// `ctrl-]`, so `ctrl-]` then `d` detaches and `ctrl-b` stays the harness's; no status line, so
+/// the harness has the whole screen; the window is 160 by 50; the pane runs the harness command
+/// `CONDUCTOR_HARNESS` and copies its output to the typescript `CONDUCTOR_TYPESCRIPT`. The
+/// session's name is `CONDUCTOR_SESSION`, which also marks every process of the session as one
+/// (`story:session-attach-refuses-sessions`). Nothing here names a harness.
+pub const TMUX_CONF: &str = r#"set -s exit-empty on
+set -s escape-time 10
+set -g default-shell /bin/sh
+set -g status off
+set -g prefix 'C-]'
+unbind C-b
+bind 'C-]' send-prefix
+new-session -d -s "$CONDUCTOR_SESSION" -x 160 -y 50 'exec /bin/sh -c "$CONDUCTOR_HARNESS"'
+pipe-pane -o -t "=$CONDUCTOR_SESSION:" 'exec cat >> "$CONDUCTOR_TYPESCRIPT"'
+"#;
+
+/// What the pane runs before the harness: tmux, built with systemd, moves each pane it spawns
+/// into a `tmux-spawn-<uuid>.scope` of its own, out of the unit's cgroup and its limits; the pane
+/// writes itself back into the cgroup of its parent, the tmux server, the unit's main process.
+/// Ends with `; `, the harness command follows.
+pub const MOVE_BACK: &str =
+    r#"p=$(sed -n 's/^0:://p' /proc/$PPID/cgroup); echo $$ > "/sys/fs/cgroup$p/cgroup.procs"; "#;
 
 /// The record's reason for a box with no write fence.
 pub const NO_FENCE: &str = "the systemd provider sets up no write fence yet";
@@ -311,22 +334,24 @@ impl Systemd {
                 .map(|prefix| prefix.0.as_str()),
         );
         Self::set_slice(&slice, &launch.instance_limits)?;
-        let fifo = session_file(&launch.state, &request.session_name, "fifo");
-        let typescript = session_file(&launch.state, &request.session_name, "typescript");
-        let dir = fifo.parent().unwrap_or(&launch.state);
+        let name = &request.session_name;
+        let socket = session_file(&launch.state, name, "tmux");
+        let conf = session_file(&launch.state, name, "tmux.conf");
+        let typescript = session_file(&launch.state, name, "typescript");
+        let dir = socket.parent().unwrap_or(&launch.state);
         fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
-        match fs::remove_file(&fifo) {
+        // A socket a server killed without cleanup left behind is replaced by the new server.
+        match fs::remove_file(&socket) {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => {
-                return Err(error).with_context(|| format!("remove {}", fifo.display()));
+                return Err(error).with_context(|| format!("remove {}", socket.display()));
             }
         }
-        nix::unistd::mkfifo(&fifo, Mode::S_IRUSR | Mode::S_IWUSR)
-            .with_context(|| format!("make the FIFO {}", fifo.display()))?;
+        fs::write(&conf, TMUX_CONF).with_context(|| format!("write {}", conf.display()))?;
 
-        let mut command = String::from(STTY);
-        command.push_str("; exec ");
+        let mut command = String::from(MOVE_BACK);
+        command.push_str("exec ");
         let words: Vec<String> = std::iter::once(launch.program.as_str())
             .chain(harness.iter().map(String::as_str))
             .map(quoted)
@@ -356,6 +381,9 @@ impl Systemd {
         let mut set = vec![
             "TERM=xterm-256color".to_owned(),
             "SHELL=/bin/bash".to_owned(),
+            format!("CONDUCTOR_SESSION={}", name.0),
+            format!("CONDUCTOR_TYPESCRIPT={}", typescript.display()),
+            format!("CONDUCTOR_HARNESS={command}"),
         ];
         if let Some(path) = std::env::var_os("PATH") {
             set.push(format!("PATH={}", path.to_string_lossy()));
@@ -377,13 +405,12 @@ impl Systemd {
             args.extend(["-E".to_owned(), variable]);
         }
         args.extend([
-            "/bin/sh".to_owned(),
-            "-c".to_owned(),
-            LAUNCHER.to_owned(),
-            "conductor-launch".to_owned(),
-            fifo.display().to_string(),
-            typescript.display().to_string(),
-            command,
+            TMUX.to_owned(),
+            "-D".to_owned(),
+            "-S".to_owned(),
+            socket.display().to_string(),
+            "-f".to_owned(),
+            conf.display().to_string(),
         ]);
         call(SYSTEMD_RUN, &args).with_context(|| format!("start the unit {unit}"))?;
         Ok(unit)
@@ -398,44 +425,136 @@ impl Systemd {
     }
 }
 
-/// Opens `fifo` for writing once its launcher holds it, within [`BOUND`].
-fn open_fifo(fifo: &Path) -> Result<File> {
-    let started = Instant::now();
-    loop {
-        match File::options()
-            .write(true)
-            .custom_flags(OFlag::O_NONBLOCK.bits())
-            .open(fifo)
-        {
-            Ok(file) => return Ok(file),
-            Err(error)
-                if error.raw_os_error() == Some(Errno::ENXIO as i32)
-                    && started.elapsed() < BOUND =>
-            {
-                thread::sleep(Duration::from_millis(50));
-            }
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("open {} for the session's launcher", fifo.display())
-                });
-            }
-        }
-    }
+/// A user service that is no session: `conductor run` as `conductor_<instance>-run.service`
+/// (`story:run-daemon`), started through the same `systemd-run --user` path a session's unit is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Service {
+    /// The unit's name.
+    pub unit: String,
+    /// The slice it runs in, the instance's ([`slice_name`]).
+    pub slice: String,
+    /// The instance's `confinement.limits`, set on the slice first as a session's start does.
+    pub limits: Limits,
+    /// Its working directory.
+    pub cwd: PathBuf,
+    /// `-p` properties beside `StandardOutput` (systemd's journal keeps what it prints).
+    pub properties: Vec<String>,
+    /// Variables set for it, `NAME=value`, or `NAME` alone to pass this process's value.
+    pub env: Vec<String>,
+    /// The program and its arguments.
+    pub command: Vec<String>,
 }
 
-/// Writes all of `bytes` to the FIFO `file`, waiting while its buffer is full, within [`BOUND`].
-fn type_into(file: &mut File, mut bytes: &[u8]) -> Result<()> {
-    let started = Instant::now();
-    while !bytes.is_empty() {
-        match file.write(bytes) {
-            Ok(written) => bytes = &bytes[written..],
-            Err(error) if error.kind() == ErrorKind::WouldBlock && started.elapsed() < BOUND => {
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(error) => return Err(error).context("type into the session's FIFO"),
-        }
+/// Starts `service` once no unit of its name is left ([`Systemd::wait_gone`]), in its slice with
+/// the instance's limits set on it: `systemd-run --user --unit <unit> --slice <slice> --collect -p
+/// <property>… --working-directory=<cwd> -E <variable>… <command>`.
+///
+/// # Errors
+///
+/// A unit of that name still runs, the slice's limits cannot be set, or `systemd-run` fails.
+pub fn start_service(service: &Service) -> Result<()> {
+    Systemd::wait_gone(&service.unit)?;
+    Systemd::set_slice(&service.slice, &service.limits)?;
+    let mut args: Vec<String> = [
+        "--user",
+        "--unit",
+        &service.unit,
+        "--slice",
+        &service.slice,
+        "--collect",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    for property in &service.properties {
+        args.extend(["-p".to_owned(), property.clone()]);
     }
+    args.push(format!("--working-directory={}", service.cwd.display()));
+    for variable in &service.env {
+        args.extend(["-E".to_owned(), variable.clone()]);
+    }
+    args.extend(service.command.iter().cloned());
+    call(SYSTEMD_RUN, &args).with_context(|| format!("start the unit {}", service.unit))?;
     Ok(())
+}
+
+/// What systemd says of `unit`: its `LoadState` and its `ActiveState` (`systemctl --user show`).
+///
+/// # Errors
+///
+/// `systemctl` fails.
+pub fn unit_state(unit: &str) -> Result<(String, String)> {
+    Systemd::unit_state(unit)
+}
+
+/// Stops `unit` (`systemctl --user stop`).
+///
+/// # Errors
+///
+/// `systemctl` fails.
+pub fn stop_unit(unit: &str) -> Result<()> {
+    call(SYSTEMCTL, &["--user", "stop", unit].map(str::to_owned))
+        .with_context(|| format!("stop the unit {unit}"))?;
+    Ok(())
+}
+
+/// Runs `tmux -S <name>.tmux <args>` on the session `name`'s server, from the directory of its
+/// socket, so a long state path does not exceed a socket's path limit; within [`BOUND`].
+pub fn tmux_call(sessions: &Path, name: &SessionName, args: &[&str]) -> Result<String> {
+    let socket = format!("{}.tmux", name.0);
+    let shown = format!("{TMUX} -S {socket} {}", args.join(" "));
+    let output = collect::run(
+        Command::new(TMUX)
+            .current_dir(sessions)
+            .args(["-S", &socket])
+            .args(args)
+            .env_remove("TMUX"),
+        BOUND,
+    )
+    .with_context(|| format!("run `{shown}`"))?;
+    if !output.status.success() {
+        bail!("`{shown}` {}", exited(&output));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Types `text` into the session `name`'s pane, then Enter: `text` as one paste
+/// (`set-buffer`, then `paste-buffer -p`, bracketed when the harness asked for it), and, after
+/// [`PASTE_SETTLE`], a carriage return pasted the same way unbracketed. Not `send-keys`: tmux
+/// refuses it ("client is read-only") while a `--watch` client is attached.
+///
+/// # Errors
+///
+/// A tmux call fails.
+pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> {
+    let pane = target(name);
+    tmux_call(
+        sessions,
+        name,
+        &["set-buffer", "-b", "conductor", "--", text],
+    )?;
+    tmux_call(
+        sessions,
+        name,
+        &["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane],
+    )?;
+    thread::sleep(PASTE_SETTLE);
+    tmux_call(
+        sessions,
+        name,
+        &["set-buffer", "-b", "conductor", "--", "\r"],
+    )?;
+    tmux_call(
+        sessions,
+        name,
+        &["paste-buffer", "-d", "-b", "conductor", "-t", &pane],
+    )?;
+    Ok(())
+}
+
+/// The tmux target of the session `name`'s one pane: the session of exactly that name.
+#[must_use]
+pub fn target(name: &SessionName) -> String {
+    format!("={}:", name.0)
 }
 
 impl Provider for Systemd {
@@ -506,11 +625,7 @@ impl Provider for Systemd {
             }
             thread::sleep(Duration::from_millis(200));
         }
-        let fifo = session_file(&launch.state, name, "fifo");
-        let mut file = open_fifo(&fifo)?;
-        type_into(&mut file, format!("\x1b[200~{prompt}\x1b[201~").as_bytes())?;
-        thread::sleep(PASTE_SETTLE);
-        type_into(&mut file, b"\r")?;
+        type_text(&launch.state.join("sessions"), name, prompt)?;
         Ok(Said::default())
     }
 

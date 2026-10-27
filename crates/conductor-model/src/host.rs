@@ -1,22 +1,35 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
 //!
 //! The machine several conductor instances share (story:multi-instance-host), and the protocol its disk runs under (epic:disk-protocol, story:disk-protocol-spec). Each instance keeps its own records, state, cache and sessions; what they share is one disk, one CPU and memory budget, and one machine-wide namespace of harness session names. The host ledger holds every grant an instance's conductor or a `conductor build run` takes: a controller slot, a build slot, or a disk reservation for a run's expected peak, so two instances or two runs cannot each grant the same free space. A reclaim run frees what needs no decision (`conductor host reclaim`) and records each step with the bytes it freed, or what is left when it cannot reach the floor.
-//! The host directory (story:instance-isolation) is `host/` beside the config file, one for every instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the marker of the open fall of free disk `host.fall`, which names the item's instance: only that instance withdraws the item. A `--state-dir` does not move it. The ledger an instance kept in its `state` before is moved there once, at its first host command: every grant of its store, its run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that it was moved, and nothing is moved again.
+//! The host directory (story:instance-isolation) is `host/` beside the config file, one for every instance the file names (`~/.b10x/conductor/host/` beside the default file), never under an instance's `state`. It holds the host ledger's store, its lock `host.lock`, the run locks `host-runs/<grant>.lock`, the reclaim lock `host.reclaim.lock` and record `host.reclaim`, and the open falls of free disk, one file per instance, `falls/<prefix>.json` (the instance's session prefix, its name without one), which names the item and its instance: only that instance reads, withdraws or removes its file, and the dashboard lists every instance's. A `host.fall` of 0.16.x is read once as the fall of the instance it names and moved to that instance's file (story:host-fall-per-instance). A `--state-dir` does not move it. The ledger an instance kept in its `state` before is moved there once, at its first host command: every grant of its store, its run locks, the reclaim record and the fall's marker; `host.migrated` in the state then records that it was moved, and nothing is moved again.
+//! Beside its store the ledger keeps two files every write of a grant rewrites whole, a new file renamed over the old (story:build-queue-convoy): `ledger.open`, the grants still open (`Requested`, `Granted`, `Running`) with each one's snapshot and stream length and the number of grants the store holds, so a pass of the ledger reads the open grants and never the closed ones, and reads a grant from the store only where the file is behind it; and `ledger.gen`, a counter each write bumps after `ledger.open`, whose age is the time since a pass last swept the ledger. A request waiting in the queue reads `ledger.gen` without `host.lock`, and takes the lock only when the counter moved, its own answer may have (free disk, or its wait's bound), a session it is bound to stopped, or no pass has swept the ledger for `thresholds.watchdog_every`.
+//! The host registry (story:instance-names-unique) is one per host, whatever config file a command reads: `instances.json` in the host's own directory, `~/.b10x/conductor/host/`, beside the host file `host.yaml` that holds the per-host roles, the maintainer and the bridge (`HostConfig`) (story:maintainer-host-config). It lists every config file that has run on the host (`InstanceRegistry`): `conductor config validate` writes the file's entry when the file is valid, and `conductor session start` writes it whenever a config file starts a session, each under the lock `instances.lock` beside it. No two instances on the host share a session prefix, a dashboard port, a state directory or a records directory, whether they are in one config file or in several: `config validate` refuses an instance that holds one another registered file's instance holds (`InstanceCollision`), naming both instances and both files, and writes nothing then. A registered file that is no longer there is dropped from the registry when it is next written, so a removed config file holds nothing.
 //!
 //! Everything this bounded context declares that the synthesis plan marks generated.
+
+/// BuildLane — `conductor.host.BuildLane`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildLane {
+    /// `Regular`.
+    Regular,
+    /// `Short`.
+    Short,
+}
 
 /// BuildRun — `conductor.host.BuildRun`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRun {
-    /// `reserve` — `conductor.config.Gibibytes`.
-    pub reserve: crate::config::Gibibytes,
+    /// `reserve` — `Optional<String>`.
+    pub reserve: Option<String>,
     /// `repository` — `Optional<conductor.observation.RepositoryName>`.
     pub repository: Option<crate::observation::RepositoryName>,
+    /// `measure` — `List<String>`.
+    pub measure: Vec<String>,
     /// `command` — `List<String>`.
     pub command: Vec<String>,
 }
@@ -32,6 +45,28 @@ pub struct BuildRunRefused {
     pub left: Vec<LeftOver>,
 }
 
+/// BuildRunWithdrawn — `conductor.host.BuildRunWithdrawn`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildRunWithdrawn {
+    /// `grant_id` — `conductor.host.GrantId`.
+    pub grant_id: GrantId,
+    /// `session_id` — `conductor.session.SessionId`.
+    pub session_id: crate::session::SessionId,
+}
+
+/// CollisionKey — `conductor.host.CollisionKey`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollisionKey {
+    /// `SessionPrefix`.
+    SessionPrefix,
+    /// `DashboardPort`.
+    DashboardPort,
+    /// `State`.
+    State,
+    /// `Records`.
+    Records,
+}
+
 /// GrantId — `conductor.host.GrantId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantId(pub String);
@@ -45,6 +80,18 @@ pub enum GrantKind {
     BuildSlot,
     /// `Disk`.
     Disk,
+}
+
+/// HostConfig — `conductor.host.HostConfig`.
+///
+/// Every value satisfies `version == "conductor.host-config/1"` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct role in roles by role.role` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostConfig {
+    /// `version` — `String`.
+    pub version: String,
+    /// `roles` — `List<conductor.config.Role>`.
+    pub roles: Vec<crate::config::Role>,
 }
 
 /// The states of `conductor.host.HostGrant`, as runtime values.
@@ -67,6 +114,53 @@ pub enum HostGrantState {
     Withdrawn,
 }
 
+/// HostRoleName — `conductor.host.HostRoleName`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostRoleName {
+    /// `Maintainer`.
+    Maintainer,
+    /// `Bridge`.
+    Bridge,
+}
+
+/// HostRoles — `conductor.host.HostRoles`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostRoles {
+    /// `file` — `String`.
+    pub file: String,
+    /// `roles` — `List<conductor.config.Role>`.
+    pub roles: Vec<crate::config::Role>,
+}
+
+/// InstanceCollision — `conductor.host.InstanceCollision`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceCollision {
+    /// `key` — `conductor.host.CollisionKey`.
+    pub key: CollisionKey,
+    /// `value` — `String`.
+    pub value: String,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: crate::config::InstanceName,
+    /// `config` — `String`.
+    pub config: String,
+    /// `other_instance` — `conductor.config.InstanceName`.
+    pub other_instance: crate::config::InstanceName,
+    /// `other_config` — `String`.
+    pub other_config: String,
+}
+
+/// InstanceRegistry — `conductor.host.InstanceRegistry`.
+///
+/// Every value satisfies `version == "conductor.host.instances/1"` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `distinct file in files by file.config` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceRegistry {
+    /// `version` — `String`.
+    pub version: String,
+    /// `files` — `List<conductor.host.RegisteredFile>`.
+    pub files: Vec<RegisteredFile>,
+}
+
 /// LeftOver — `conductor.host.LeftOver`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeftOver {
@@ -74,6 +168,15 @@ pub struct LeftOver {
     pub path: String,
     /// `bytes` — `Integer`.
     pub bytes: i64,
+}
+
+/// ListSlices — `conductor.host.ListSlices`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListSlices {
+    /// `format` — `Optional<String>`.
+    pub format: Option<String>,
+    /// `gc` — `Optional<Boolean>`.
+    pub gc: Option<bool>,
 }
 
 /// ReclaimDisk — `conductor.host.ReclaimDisk`.
@@ -105,6 +208,10 @@ pub enum ReclaimKind {
     Cache,
     /// `Snapshot`.
     Snapshot,
+    /// `FinishedTree`.
+    FinishedTree,
+    /// `StaleTreeBuildOutput`.
+    StaleTreeBuildOutput,
 }
 
 /// ReclaimResult — `conductor.host.ReclaimResult`: one of a closed set of names.
@@ -141,6 +248,36 @@ pub struct ReclaimStep {
     pub bytes: i64,
 }
 
+/// RegisteredFile — `conductor.host.RegisteredFile`.
+///
+/// Every value satisfies `distinct instance in instances by instance.name` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredFile {
+    /// `config` — `String`.
+    pub config: String,
+    /// `registered_at` — `Timestamp`.
+    pub registered_at: crate::primitives::Timestamp,
+    /// `instances` — `List<conductor.host.RegisteredInstance>`.
+    pub instances: Vec<RegisteredInstance>,
+}
+
+/// RegisteredInstance — `conductor.host.RegisteredInstance`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredInstance {
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: crate::config::InstanceName,
+    /// `session_prefix` — `Optional<conductor.config.SessionPrefix>`.
+    pub session_prefix: Option<crate::config::SessionPrefix>,
+    /// `dashboard_port` — `Integer`.
+    pub dashboard_port: i64,
+    /// `state` — `String`.
+    pub state: String,
+    /// `records` — `String`.
+    pub records: String,
+    /// `checkouts` — `conductor.config.Checkouts`.
+    pub checkouts: crate::config::Checkouts,
+}
+
 /// ReleaseReason — `conductor.host.ReleaseReason`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReleaseReason {
@@ -150,6 +287,8 @@ pub enum ReleaseReason {
     Killed,
     /// `ProcessGroupGone`.
     ProcessGroupGone,
+    /// `SessionStopped`.
+    SessionStopped,
 }
 
 /// ShowGrants — `conductor.host.ShowGrants`.
@@ -157,6 +296,19 @@ pub enum ReleaseReason {
 pub struct ShowGrants {
     /// `format` — `Optional<String>`.
     pub format: Option<String>,
+}
+
+/// SliceRow — `conductor.host.SliceRow`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceRow {
+    /// `slice` — `String`.
+    pub slice: String,
+    /// `instance` — `Optional<String>`.
+    pub instance: Option<String>,
+    /// `units` — `Integer`.
+    pub units: i64,
+    /// `stopped` — `Boolean`.
+    pub stopped: bool,
 }
 
 /// What HostGrant — `conductor.host.HostGrant` — holds, apart from where it is in its lifecycle.
@@ -185,6 +337,8 @@ pub struct HostGrantData {
     pub process_group: Option<i64>,
     /// `session_name` — `Optional<conductor.config.SessionName>`.
     pub session_name: Option<crate::config::SessionName>,
+    /// `session_id` — `Optional<conductor.session.SessionId>`.
+    pub session_id: Option<crate::session::SessionId>,
     /// `reclaimed_bytes` — `Optional<Integer>`.
     pub reclaimed_bytes: Option<i64>,
     /// `shortfall_bytes` — `Optional<Integer>`.
@@ -197,6 +351,14 @@ pub struct HostGrantData {
     pub released_at: Option<crate::primitives::Timestamp>,
     /// `release_reason` — `Optional<conductor.host.ReleaseReason>`.
     pub release_reason: Option<ReleaseReason>,
+    /// `cache_hits` — `Optional<Integer>`.
+    pub cache_hits: Option<i64>,
+    /// `cache_misses` — `Optional<Integer>`.
+    pub cache_misses: Option<i64>,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
+    /// `lane_overrun` — `Optional<Boolean>`.
+    pub lane_overrun: Option<bool>,
 }
 
 /// The states of `conductor.host.HostGrant`, at the type level.
@@ -741,6 +903,12 @@ pub struct ReleaseGrant {
     pub reason: Option<ReleaseReason>,
     /// `released_at` — `Timestamp`.
     pub released_at: crate::primitives::Timestamp,
+    /// `cache_hits` — `Optional<Integer>`.
+    pub cache_hits: Option<i64>,
+    /// `cache_misses` — `Optional<Integer>`.
+    pub cache_misses: Option<i64>,
+    /// `lane_overrun` — `Optional<Boolean>`.
+    pub lane_overrun: Option<bool>,
 }
 
 /// Everything `conductor.host.ReleaseGrant` can result in — one variant per declared outcome.
@@ -784,12 +952,16 @@ pub struct RequestDisk {
     pub repository: Option<crate::observation::RepositoryName>,
     /// `session_name` — `Optional<conductor.config.SessionName>`.
     pub session_name: Option<crate::config::SessionName>,
+    /// `session_id` — `Optional<conductor.session.SessionId>`.
+    pub session_id: Option<crate::session::SessionId>,
     /// `bytes` — `Integer`.
     pub bytes: i64,
     /// `command` — `String`.
     pub command: String,
     /// `requested_at` — `Timestamp`.
     pub requested_at: crate::primitives::Timestamp,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
 }
 
 /// Everything `conductor.host.RequestDisk` can result in — one variant per declared outcome.
@@ -826,6 +998,8 @@ pub struct ReserveDisk {
     pub shortfall_bytes: i64,
     /// `reclaimed_bytes` — `Integer`.
     pub reclaimed_bytes: i64,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
 }
 
 /// Everything `conductor.host.ReserveDisk` can result in — one variant per declared outcome.
@@ -976,6 +1150,8 @@ pub struct WithdrawDiskRequest {
     pub grant_id: GrantId,
     /// `withdrawn_at` — `Timestamp`.
     pub withdrawn_at: crate::primitives::Timestamp,
+    /// `reason` — `Optional<conductor.host.ReleaseReason>`.
+    pub reason: Option<ReleaseReason>,
 }
 
 /// Everything `conductor.host.WithdrawDiskRequest` can result in — one variant per declared outcome.
@@ -1180,6 +1356,8 @@ pub struct Grants {
     pub process_group: Option<i64>,
     /// `session_name` — `Optional<conductor.config.SessionName>`.
     pub session_name: Option<crate::config::SessionName>,
+    /// `session_id` — `Optional<conductor.session.SessionId>`.
+    pub session_id: Option<crate::session::SessionId>,
     /// `reclaimed_bytes` — `Optional<Integer>`.
     pub reclaimed_bytes: Option<i64>,
     /// `shortfall_bytes` — `Optional<Integer>`.
@@ -1192,6 +1370,14 @@ pub struct Grants {
     pub released_at: Option<crate::primitives::Timestamp>,
     /// `release_reason` — `Optional<conductor.host.ReleaseReason>`.
     pub release_reason: Option<ReleaseReason>,
+    /// `cache_hits` — `Optional<Integer>`.
+    pub cache_hits: Option<i64>,
+    /// `cache_misses` — `Optional<Integer>`.
+    pub cache_misses: Option<i64>,
+    /// `lane` — `Optional<conductor.host.BuildLane>`.
+    pub lane: Option<BuildLane>,
+    /// `lane_overrun` — `Optional<Boolean>`.
+    pub lane_overrun: Option<bool>,
 }
 
 /// Reclaim runs — one row of the view `conductor.host.ReclaimRuns`.

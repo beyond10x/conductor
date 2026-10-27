@@ -22,7 +22,12 @@
 //! (`UnknownKeySet`); and each decision id (`DEC-…`) a line of `dispatches/` cites that no line of
 //! `decisions/` and no decision of the store holds (`UnknownDecision`). It prints one finding per
 //! line, `<file>:<line>: <finding>: <detail>`, or with `--format json` an array of
-//! `RecordsFinding` objects, and exits 1 when it found any.
+//! `RecordsFinding` objects, and exits 1 when it found any. It also reads the charters and the
+//! role rule files ([`files`], `story:rules-into-code`): `RawThreshold` for a size in a charter
+//! that a threshold key holds, `RoleFileRules` for a role file over 20 rules or with a rule of
+//! more than one line.
+
+pub mod files;
 
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
@@ -43,7 +48,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::cli::RecordsCheckArgs;
 use crate::config;
-use crate::decide::{class_name, decider_name};
+use crate::decide::{class_name, decider_name, rule_name};
 
 /// The directory of the dispatch log under the records directory.
 pub const DISPATCHES: &str = "dispatches";
@@ -53,7 +58,7 @@ pub const DECISIONS: &str = "decisions";
 
 /// The keys a line of the dispatch log may hold: the fields of `conductor.dispatch.DispatchLogLine`
 /// (`spec/domains/dispatch.yaml`), in its order.
-pub const DISPATCH_KEYS: [&str; 19] = [
+pub const DISPATCH_KEYS: [&str; 26] = [
     "at",
     "event",
     "repo",
@@ -73,6 +78,13 @@ pub const DISPATCH_KEYS: [&str; 19] = [
     "first_line",
     "resource",
     "amount",
+    "body_path",
+    "session",
+    "grant",
+    "path",
+    "line",
+    "tick_id",
+    "commit",
 ];
 
 /// The keys every line of the dispatch log holds.
@@ -80,7 +92,7 @@ const DISPATCH_REQUIRED: [&str; 3] = ["at", "event", "repo"];
 
 /// The keys a line of the decision log may hold: the fields of `conductor.decision.DecisionLogLine`
 /// (`spec/domains/decision.yaml`), in its order.
-pub const DECISION_KEYS: [&str; 17] = [
+pub const DECISION_KEYS: [&str; 20] = [
     "at",
     "event",
     "repo",
@@ -98,6 +110,9 @@ pub const DECISION_KEYS: [&str; 17] = [
     "blocker",
     "decision_id",
     "escalation_class",
+    "classification_rule",
+    "decider_name",
+    "prompt_sha256",
 ];
 
 /// The keys every line of the decision log holds.
@@ -119,7 +134,58 @@ pub const fn dispatch_event(event: DispatchLogEvent) -> &'static str {
         DispatchLogEvent::ResourceGranted => "resource-granted",
         DispatchLogEvent::ResourceRefused => "resource-refused",
         DispatchLogEvent::CharterRevised => "charter-revised",
+        DispatchLogEvent::Delivered => "delivered",
+        DispatchLogEvent::HandoverSent => "handover-sent",
+        DispatchLogEvent::Handover => "handover",
+        DispatchLogEvent::ControllerRestarted => "controller-restarted",
+        DispatchLogEvent::UsageLimit => "usage-limit",
+        DispatchLogEvent::Resumed => "resumed",
+        DispatchLogEvent::Relayed => "relayed",
+        DispatchLogEvent::RedCi => "red-ci",
+        DispatchLogEvent::Stalled => "stalled",
+        DispatchLogEvent::Cleanup => "cleanup",
+        DispatchLogEvent::DecisionSent => "decision-sent",
+        DispatchLogEvent::Cycle => "cycle",
+        DispatchLogEvent::RecordsCommitted => "records-committed",
+        DispatchLogEvent::RecordsCommitRefused => "records-commit-refused",
     }
+}
+
+/// Every event of the dispatch log, in the specification's order.
+pub const DISPATCH_EVENTS: [DispatchLogEvent; 25] = [
+    DispatchLogEvent::Sent,
+    DispatchLogEvent::Started,
+    DispatchLogEvent::Blocked,
+    DispatchLogEvent::Unblocked,
+    DispatchLogEvent::Done,
+    DispatchLogEvent::Failed,
+    DispatchLogEvent::Cancelled,
+    DispatchLogEvent::MessageReceived,
+    DispatchLogEvent::ResourceGranted,
+    DispatchLogEvent::ResourceRefused,
+    DispatchLogEvent::CharterRevised,
+    DispatchLogEvent::Delivered,
+    DispatchLogEvent::HandoverSent,
+    DispatchLogEvent::Handover,
+    DispatchLogEvent::ControllerRestarted,
+    DispatchLogEvent::UsageLimit,
+    DispatchLogEvent::Resumed,
+    DispatchLogEvent::Relayed,
+    DispatchLogEvent::RedCi,
+    DispatchLogEvent::Stalled,
+    DispatchLogEvent::Cleanup,
+    DispatchLogEvent::DecisionSent,
+    DispatchLogEvent::Cycle,
+    DispatchLogEvent::RecordsCommitted,
+    DispatchLogEvent::RecordsCommitRefused,
+];
+
+/// The dispatch log event `name` spells ([`dispatch_event`]), if any.
+#[must_use]
+pub fn dispatch_event_named(name: &str) -> Option<DispatchLogEvent> {
+    DISPATCH_EVENTS
+        .into_iter()
+        .find(|event| dispatch_event(*event) == name)
 }
 
 /// The `event` of a decision line, as the specification spells it in the log.
@@ -130,17 +196,19 @@ pub const fn decision_event(event: DecisionLogEvent) -> &'static str {
         DecisionLogEvent::Requested => "requested",
         DecisionLogEvent::Answered => "answered",
         DecisionLogEvent::Escalated => "escalated",
+        DecisionLogEvent::Amended => "amended",
         DecisionLogEvent::Withdrawn => "withdrawn",
         DecisionLogEvent::Reversed => "reversed",
     }
 }
 
 /// Every event of the decision log, for telling a decision line in the dispatch log.
-const DECISION_EVENTS: [DecisionLogEvent; 6] = [
+const DECISION_EVENTS: [DecisionLogEvent; 7] = [
     DecisionLogEvent::Decided,
     DecisionLogEvent::Requested,
     DecisionLogEvent::Answered,
     DecisionLogEvent::Escalated,
+    DecisionLogEvent::Amended,
     DecisionLogEvent::Withdrawn,
     DecisionLogEvent::Reversed,
 ];
@@ -183,6 +251,13 @@ pub fn dispatch_line(event: DispatchLogEvent, repo: &str) -> Result<DispatchLogL
         first_line: None,
         resource: None,
         amount: None,
+        body_path: None,
+        session: None,
+        grant: None,
+        path: None,
+        line: None,
+        tick_id: None,
+        commit: None,
     })
 }
 
@@ -214,6 +289,9 @@ pub fn decision_line(
         blocker: None,
         decision_id: None,
         escalation_class: None,
+        classification_rule: None,
+        decider_name: None,
+        prompt_sha256: None,
     })
 }
 
@@ -247,6 +325,13 @@ pub fn dispatch_object(line: &DispatchLogLine) -> Map<String, Value> {
     put(&mut object, "first_line", line.first_line.clone());
     put(&mut object, "resource", line.resource.clone());
     put(&mut object, "amount", line.amount);
+    put(&mut object, "body_path", line.body_path.clone());
+    put(&mut object, "session", line.session.clone());
+    put(&mut object, "grant", line.grant.clone());
+    put(&mut object, "path", line.path.clone());
+    put(&mut object, "line", line.line.clone());
+    put(&mut object, "tick_id", line.tick_id.clone());
+    put(&mut object, "commit", line.commit.clone());
     object
 }
 
@@ -278,6 +363,17 @@ pub fn decision_object(line: &DecisionLogLine) -> Map<String, Value> {
         &mut object,
         "escalation_class",
         line.escalation_class.map(class_name),
+    );
+    put(
+        &mut object,
+        "classification_rule",
+        line.classification_rule.map(rule_name),
+    );
+    put(&mut object, "decider_name", line.decider_name.clone());
+    put(
+        &mut object,
+        "prompt_sha256",
+        line.prompt_sha256.as_ref().map(|hash| hash.0.clone()),
     );
     object
 }
@@ -395,7 +491,11 @@ pub fn records_check(state: Option<&Path>, args: &RecordsCheckArgs) -> Result<Ex
         .flat_map(|line| decision_ids(&line.text))
         .collect();
     known.extend(stored_decisions(state).with_context(|| COMMAND.to_owned())?);
-    let findings = check(&dispatches, &decisions, &known);
+    let mut findings = check(&dispatches, &decisions, &known);
+    findings.extend(
+        files::findings(&records, &config::active().instance.thresholds)
+            .with_context(|| COMMAND.to_owned())?,
+    );
     let legacy_lines = legacy(&dispatches, &DISPATCH_KEYS, &DISPATCH_REQUIRED)
         + legacy(&decisions, &DECISION_KEYS, &DECISION_REQUIRED);
     if legacy_lines > 0 {
@@ -452,6 +552,8 @@ const fn finding_name(finding: RecordsFindingKind) -> &'static str {
         RecordsFindingKind::UnknownDecision => "UnknownDecision",
         RecordsFindingKind::UnknownKeySet => "UnknownKeySet",
         RecordsFindingKind::DecisionInDispatchLog => "DecisionInDispatchLog",
+        RecordsFindingKind::RawThreshold => "RawThreshold",
+        RecordsFindingKind::RoleFileRules => "RoleFileRules",
     }
 }
 
@@ -527,7 +629,7 @@ fn stored_decisions(state: Option<&Path>) -> Result<Vec<String>> {
     if !dir.join("tree").exists() {
         return Ok(Vec::new());
     }
-    let store = crate::state::open_existing(state)?;
+    let store = crate::state::open_reader(state)?;
     let held = DecisionStorage::list(&store);
     store
         .check()

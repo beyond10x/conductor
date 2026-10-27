@@ -2,11 +2,15 @@
 format: aep.planning-md/3
 id: story:build-run-repo-cache
 kind: story
-status: draft
+status: implemented
 title: Build run gives each repository its own compile cache, shared by its worktrees
 relations:
 - decomposes: epic:disk-protocol
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-17T13:54:10Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-17T13:54:10Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-17T13:54:10Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: build-run-repo-cache
 

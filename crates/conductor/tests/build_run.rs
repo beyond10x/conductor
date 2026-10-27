@@ -10,9 +10,17 @@
 //! home directory and `/var/tmp` a disk item is written against are `home/example-user/` and
 //! `var-tmp/` of the case (`Sources::home`, `Sources::var_tmp`); nothing reads the real ones.
 //! What a run writes to standard error goes to `stderr.txt` of the case (`Sources::say`).
+//!
+//! A case leaves no process behind, whether it passes or fails
+//! (`story:convoy-test-leaks-no-process`): when its [`Case`] is dropped after a panic, it kills
+//! the process group of each run the ledger holds running, then every process still working
+//! under the case's directory; after a case that passed, it asserts that none works there any
+//! more ([`leftover::assert_none_under`]). Every case that starts a waiting command ends it itself
+//! first, by its stop file.
 
 mod active;
 mod common;
+mod leftover;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,13 +43,49 @@ use time::format_description::well_known::Rfc3339;
 const GIB: u64 = 1 << 30;
 
 /// One case: its directory, the state directory under it, and the command's working directory.
+/// Dropped, it checks that the case left no process behind ([`Case::drop`]).
 struct Case {
     dir: PathBuf,
+}
+
+/// After a panic, kills the process group of every run the ledger holds `Running`, then each
+/// process still working under the case's directory, by its pid; after a case that passed,
+/// asserts that none is left (`story:convoy-test-leaks-no-process`).
+impl Drop for Case {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            for row in host::rows(&self.host()).unwrap_or_default() {
+                if row.state == HostGrantState::Running
+                    && let Some(group) = row.process_group.and_then(|g| i32::try_from(g).ok())
+                {
+                    let _ = killpg(Pid::from_raw(group), Signal::SIGKILL);
+                }
+            }
+            leftover::kill_under(&self.dir);
+        } else {
+            leftover::assert_none_under(&self.dir);
+        }
+    }
+}
+
+/// Removes the two debug-information variables from this process once, so the cases see what
+/// `build run` sets and not what the operator's shell passed down
+/// (`story:build-run-lean-debuginfo`).
+fn forget_inherited_debuginfo() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        for name in ["CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG"] {
+            // SAFETY: nothing else in this test binary reads or writes these two names, and
+            // `Command` takes std's own environment lock.
+            unsafe { std::env::remove_var(name) };
+        }
+    });
 }
 
 impl Case {
     fn new(name: &str) -> Self {
         active::isolate();
+        forget_inherited_debuginfo();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("build_run")
             .join(name);
@@ -83,10 +127,17 @@ impl Case {
             reclaim,
             clock: OffsetDateTime::now_utc,
             every: Duration::from_millis(50),
+            poll: Duration::from_millis(20),
             home: Some(self.home()),
             var_tmp: self.var_tmp(),
+            scratch: self.home().join(".cache/b10x/conductor/example/scratch"),
             say: said_to_file,
             env: |_| None,
+            // No session list: a library case names no harness session.
+            sessions: Vec::new(),
+            walk: build::walk,
+            // No compile cache: these cases run no cargo command.
+            sccache: None,
         }
     }
 
@@ -124,11 +175,13 @@ impl Case {
 
     fn request(&self, reserve: u64, script: &str) -> Request {
         Request {
-            reserve,
+            reserve: Some(reserve),
             repository: Some("example-repo".to_owned()),
             session_name: None,
             command: vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()],
+            measure: Vec::new(),
             cwd: self.work(),
+            output: None,
         }
     }
 
@@ -160,6 +213,7 @@ impl Case {
 fn settings() -> Settings {
     Settings {
         instance: "example-org".to_owned(),
+        fall_key: "example-org".to_owned(),
         floor: 10 * GIB,
         clear: 20 * GIB,
         gate_stop: 5 * GIB,
@@ -167,6 +221,13 @@ fn settings() -> Settings {
         wait: Duration::ZERO,
         cores: 20,
         cpu_reserve: 2,
+        // No bound on builds at once: these cases decide by disk alone.
+        slots: 0,
+        repo_cache: true,
+        repo_cache_size: 2 * GIB,
+        lean_debuginfo: true,
+        short_slots: 0,
+        short_max: Duration::from_secs(180),
     }
 }
 
@@ -385,6 +446,114 @@ fn a_job_count_the_environment_holds_is_kept_and_a_large_reserve_leaves_one() {
     };
     run(&tight, case.sources(reclaim_nothing));
     assert_eq!(jobs().trim(), "1 -j1", "never fewer than one job");
+}
+
+/// `story:build-jobs-per-slot`, acceptance 1: the job counts are the cores less the reserve,
+/// divided among the build slots, at least one: 20 cores less 2 over 3 slots is 6; over 0 slots,
+/// no bound, all 18; and a reserve over the cores leaves one, however many slots.
+#[test]
+fn the_job_count_is_the_spare_cores_shared_among_the_build_slots() {
+    let case = Case::new("jobs-per-slot");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    for (cores, cpu_reserve, slots, expected) in [
+        (20, 2, 3, "6 -j6"),
+        (20, 2, 0, "18 -j18"),
+        (20, 2, 1, "18 -j18"),
+        (20, 2, 4, "4 -j4"),
+        (4, 2, 3, "1 -j1"),
+        (2, 5, 3, "1 -j1"),
+    ] {
+        let settings = Settings {
+            cores,
+            cpu_reserve,
+            slots,
+            ..settings()
+        };
+        assert_eq!(
+            build::job_share(&settings).to_string(),
+            expected.split(' ').next().unwrap_or_default(),
+            "{cores} cores less {cpu_reserve} over {slots} slots"
+        );
+        let sources = Sources {
+            env: |_| None,
+            ..case.sources(reclaim_nothing)
+        };
+        let outcome = build::run(
+            &case.state(),
+            &case.host(),
+            &settings,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends");
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+        assert_eq!(
+            jobs().trim(),
+            expected,
+            "{cores} cores less {cpu_reserve} over {slots} slots"
+        );
+    }
+}
+
+/// `story:build-jobs-per-slot`, acceptance 2: a `CARGO_BUILD_JOBS` in the environment of
+/// `build run` above the build's share is lowered to it, and one line says so; one below it is
+/// kept, and nothing is said.
+#[test]
+fn a_job_count_over_the_share_is_lowered_with_one_line_and_a_lower_one_is_kept() {
+    let case = Case::new("jobs-lowered");
+    let script = "echo \"$CARGO_BUILD_JOBS $MAKEFLAGS\" > jobs.txt";
+    let jobs = || fs::read_to_string(case.work().join("jobs.txt")).unwrap_or_default();
+    let three = Settings {
+        slots: 3,
+        ..settings()
+    };
+    let run = |sources: Sources| {
+        let outcome = build::run(
+            &case.state(),
+            &case.host(),
+            &three,
+            &sources,
+            &case.request(GIB, script),
+        )
+        .expect("the run ends");
+        assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    };
+
+    run(Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "18".to_owned()),
+        ..case.sources(reclaim_nothing)
+    });
+    assert_eq!(jobs().trim(), "6 -j6", "18 is lowered to the share of 6");
+    let said = case.said();
+    let lines: Vec<&str> = said
+        .lines()
+        .filter(|line| line.contains("CARGO_BUILD_JOBS"))
+        .collect();
+    assert_eq!(lines.len(), 1, "one line says so: {said}");
+    assert!(
+        lines[0].contains("18") && lines[0].contains('6'),
+        "it names the value and the share: {}",
+        lines[0]
+    );
+
+    let before = case.said();
+    // The environment holds 2, under the share: the child inherits it as it is.
+    let inherited = std::env::var("CARGO_BUILD_JOBS").unwrap_or_default();
+    run(Sources {
+        env: |name| (name == "CARGO_BUILD_JOBS").then(|| "2".to_owned()),
+        ..case.sources(reclaim_nothing)
+    });
+    assert_eq!(
+        jobs().trim(),
+        format!("{inherited} -j6").trim(),
+        "a lower count is not replaced"
+    );
+    assert!(
+        !case.said()[before.len()..].contains("CARGO_BUILD_JOBS"),
+        "nothing is said of a lower count: {}",
+        case.said()
+    );
 }
 
 #[test]
@@ -699,6 +868,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
             &case.host(),
             &case.state(),
             "example-org",
+            "example-org",
             19 * GIB,
             20 * GIB
         )
@@ -712,6 +882,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
             &case.host(),
             &case.state(),
             "example-org",
+            "example-org",
             30 * GIB,
             20 * GIB
         )
@@ -724,6 +895,7 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
             &case.host(),
             &case.state(),
             "example-org",
+            "example-org",
             30 * GIB,
             20 * GIB
         )
@@ -731,6 +903,150 @@ fn the_falls_item_is_withdrawn_once_free_disk_is_back_at_disk_clear() {
         None,
         "withdrawn once"
     );
+}
+
+/// `story:host-fall-per-instance`: a fall is kept per instance, as `<host>/falls/<prefix>.json`, and
+/// only the instance that recorded it clears it: A's pass at free disk over `disk_clear` leaves B's
+/// fall, and its item, in place.
+#[test]
+fn an_instances_pass_leaves_another_instances_fall_in_place() {
+    let case = Case::new("fall-per-instance");
+    let of = |prefix: &str| Settings {
+        instance: format!("{prefix}-org"),
+        fall_key: prefix.to_owned(),
+        ..settings()
+    };
+    case.free(10 * GIB);
+    let mut items = Vec::new();
+    for (prefix, command) in [("a", "touch a"), ("b", "touch b")] {
+        let refused = build::run(
+            &case.state(),
+            &case.host(),
+            &of(prefix),
+            &case.sources(reclaim_nothing),
+            &case.request(4 * GIB, command),
+        )
+        .expect("the run answers");
+        let Outcome::Refused {
+            item: Some(item), ..
+        } = refused
+        else {
+            panic!("{prefix} has no fall yet, so its refusal records an item: {refused:?}");
+        };
+        assert!(
+            case.host()
+                .join("falls")
+                .join(format!("{prefix}.json"))
+                .is_file(),
+            "{prefix}'s fall is its own file"
+        );
+        items.push(item);
+    }
+    assert!(!case.host().join("host.fall").exists(), "no shared marker");
+    let [a, b] = [items[0].clone(), items[1].clone()];
+    let state_of = |id: &str| {
+        case.disk_items()
+            .into_iter()
+            .find(|request| request.data.request_id.0 == id)
+            .map(|request| request.state)
+    };
+    let listed: Vec<(String, String)> = host::falls(&case.host())
+        .into_iter()
+        .map(|fall| (fall.key, fall.instance))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("a".to_owned(), "a-org".to_owned()),
+            ("b".to_owned(), "b-org".to_owned())
+        ]
+    );
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "a",
+            "a-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("a's pass"),
+        Some(a.clone())
+    );
+    assert_eq!(state_of(&a), Some(DecisionRequestState::Withdrawn));
+    assert_eq!(state_of(&b), Some(DecisionRequestState::Escalated));
+    assert!(case.host().join("falls").join("b.json").is_file());
+    assert!(!case.host().join("falls").join("a.json").exists());
+    assert_eq!(host::falls(&case.host()).len(), 1);
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "b",
+            "b-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("b's pass"),
+        Some(b.clone())
+    );
+    assert_eq!(state_of(&b), Some(DecisionRequestState::Withdrawn));
+    assert!(host::falls(&case.host()).is_empty());
+}
+
+/// `story:host-fall-per-instance`: a `host.fall` of 0.16.x is read once as the fall of the instance
+/// it names, then moved to `falls/<prefix>.json`; another instance leaves it.
+#[test]
+fn a_shared_host_fall_is_moved_to_the_instance_it_names() {
+    let case = Case::new("fall-migrates");
+    fs::create_dir_all(case.host()).expect("the host directory");
+    fs::write(case.host().join("host.fall"), "disk-old\nexample-org\n").expect("the old marker");
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "x",
+            "other-org",
+            30 * GIB,
+            20 * GIB
+        )
+        .expect("another instance's pass"),
+        None
+    );
+    assert!(case.host().join("host.fall").is_file(), "not its fall");
+
+    assert_eq!(
+        host::clear_fall(
+            &case.host(),
+            &case.state(),
+            "a",
+            "example-org",
+            19 * GIB,
+            20 * GIB
+        )
+        .expect("its pass under disk_clear"),
+        None
+    );
+    assert!(!case.host().join("host.fall").exists(), "moved");
+    let moved = fs::read_to_string(case.host().join("falls").join("a.json")).expect("moved");
+    assert!(
+        moved.contains("disk-old") && moved.contains("example-org"),
+        "{moved}"
+    );
+
+    host::clear_fall(
+        &case.host(),
+        &case.state(),
+        "a",
+        "example-org",
+        30 * GIB,
+        20 * GIB,
+    )
+    .expect("its pass over disk_clear");
+    assert!(!case.host().join("falls").join("a.json").exists());
 }
 
 /// A reclaim that frees 1G and leaves, only a person may remove, an 8G cache under the case's
@@ -979,6 +1295,32 @@ fn a_refused_build_run_names_no_personal_path_on_standard_error() {
     );
 }
 
+/// `story:convoy-test-leaks-no-process`, acceptance 3: a case that fails while its command waits
+/// for `stop` leaves no process behind: once it has unwound, no process works under its
+/// directory.
+#[test]
+fn a_case_that_fails_while_its_command_waits_leaves_no_process_behind() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("build_run")
+        .join("fails-waiting");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let case = Case::new("fails-waiting");
+        let script = "while [ ! -e stop ]; do sleep 0.05; done";
+        let (state, host) = (case.state(), case.host());
+        let (sources, request) = (case.sources(reclaim_nothing), case.request(GIB, script));
+        let _runner =
+            thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+        // The ledger is read only once the run has created it.
+        wait_until("the command runs", || {
+            host::rows(&case.host())
+                .is_ok_and(|rows| rows.iter().any(|row| row.state == HostGrantState::Running))
+        });
+        panic!("the case fails while its command waits for stop");
+    }));
+    assert!(failed.is_err(), "the case failed");
+    leftover::assert_none_under(&dir);
+}
+
 /// Writes each of its stop files when dropped, so a failing case leaves no command running.
 struct Stops(Vec<PathBuf>);
 
@@ -997,6 +1339,17 @@ fn state_of(case: &Case, script: &str) -> Option<HostGrantState> {
         .into_iter()
         .find(|row| row.command.as_deref() == Some(command.as_str()))
         .map(|row| row.state)
+}
+
+/// [`state_of`] each of `scripts`, from one read of the ledger.
+fn states_of<const N: usize>(case: &Case, scripts: [&str; N]) -> [Option<HostGrantState>; N] {
+    let rows = case.grants();
+    scripts.map(|script| {
+        let command = format!("sh -c {script}");
+        rows.iter()
+            .find(|row| row.command.as_deref() == Some(command.as_str()))
+            .map(|row| row.state)
+    })
 }
 
 /// Starts `build run` of `script` reserving `reserve` in a thread, and waits until its request is
@@ -1070,12 +1423,12 @@ fn requests_are_granted_in_arrival_order_and_a_later_small_one_does_not_overtake
     // The first ends: 10G to reserve. The head is granted first; the 2G requests then fit beside
     // it.
     fs::write(case.work().join("stop-first"), "").expect("stop the first command");
+    // One read of the ledger a poll: each read replays the whole host store, and three a poll
+    // took the I/O and the processor the runs it watches need.
     wait_until("both 2G runs ran", || {
-        let small = [
-            state_of(&case, "touch small-a"),
-            state_of(&case, "touch small-b"),
-        ];
-        let head = state_of(&case, head_script);
+        let [small_a, small_b, head] =
+            states_of(&case, ["touch small-a", "touch small-b", head_script]);
+        let small = [small_a, small_b];
         assert!(
             small
                 .iter()
@@ -1396,6 +1749,81 @@ fn a_run_waiting_on_the_stores_tree_lock_does_not_hold_host_lock() {
         "{outcome:?}"
     );
     assert!(case.work().join("ran").exists(), "the command ran");
+}
+
+/// `story:store-readers-hold-no-writer-lock`: the ledger's readers, `host grants` and
+/// [`host::rows`], take no writer lock of the host store: each answers while another writer holds
+/// it. A reader that took it would make every run that holds `host.lock` meanwhile let it go and
+/// wait (`Ledger::lock`), so a reader polling the ledger would hold back the host queue.
+#[test]
+fn the_ledgers_readers_answer_while_a_writer_holds_its_tree_lock() {
+    let case = Case::new("ledger-readers-beside-tree-lock");
+    let ran = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(GIB, "true"),
+    )
+    .expect("the run ends");
+    assert!(matches!(ran, Outcome::Ran { code: 0, .. }), "{ran:?}");
+    let ran = case
+        .binary(&["build", "run", "--reserve", "1G", "--", "sh", "-c", "true"])
+        .output()
+        .expect("conductor runs");
+    assert!(ran.status.success(), "{ran:?}");
+    // The binary's host directory: `~/.b10x/conductor/host` of the case's home.
+    let binary_host = case
+        .dir
+        .join("home")
+        .join(".b10x")
+        .join("conductor")
+        .join("host");
+
+    let library = hold_tree(&case.host());
+    let binary = hold_tree(&binary_host);
+    let rows = {
+        let host = case.host();
+        thread::spawn(move || host::rows(&host).map(|rows| rows.len()))
+    };
+    let mut view = case
+        .binary(&["host", "grants", "--format", "json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("conductor runs");
+    let started = Instant::now();
+    let mut viewed = None;
+    while (viewed.is_none() || !rows.is_finished()) && started.elapsed() < Duration::from_secs(10) {
+        if viewed.is_none() {
+            viewed = view.try_wait().expect("the view's status reads");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    let read = rows.is_finished();
+    drop((library, binary));
+    let rows = rows.join().expect("the read ends");
+    let output = view.wait_with_output().expect("the view ends");
+    assert!(
+        read,
+        "host::rows waited over 10 s on the writer lock of the host store"
+    );
+    assert!(
+        viewed.is_some(),
+        "host grants waited over 10 s on the writer lock of the host store"
+    );
+    assert_eq!(
+        rows.expect("the ledger reads"),
+        1,
+        "the library run's grant"
+    );
+    assert!(output.status.success(), "{output:?}");
+    let listed: Value = serde_json::from_slice(&output.stdout).expect("the view writes JSON");
+    assert_eq!(
+        listed.as_array().map(Vec::len),
+        Some(1),
+        "the binary run's grant: {listed}"
+    );
 }
 
 /// `story:store-readers-hold-no-writer-lock`: free disk back at `disk_clear` ends the open fall,
@@ -1940,7 +2368,7 @@ fn two_short_runs_in_a_row_run_one_reclaim() {
 }
 
 /// A reclaim that writes `reclaim.started` in its case and waits, at most 20 seconds, until the
-/// case holds `reclaim.go`; it frees nothing.
+/// case holds `reclaim.go`, then writes `reclaim.ended`; it frees nothing.
 fn slow_reclaim(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
     count_reclaim(state);
     let case = case_of(state);
@@ -1949,6 +2377,7 @@ fn slow_reclaim(state: &Path, _need: u64) -> anyhow::Result<ReclaimReport> {
     while !case.join("reclaim.go").exists() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(10));
     }
+    fs::write(case.join("reclaim.ended"), "").expect("mark the reclaim ended");
     Ok(ReclaimReport {
         reclaimed_bytes: 0,
         steps: Vec::new(),
@@ -1968,6 +2397,12 @@ impl Drop for Go {
 
 /// A run that reclaims holds no ledger lock meanwhile: another run takes the lock while the
 /// reclaim walks, so the host queue never waits on one run's walk.
+///
+/// The lock is tried until taken, as long as the reclaim runs. A child another case of this
+/// process spawns holds a copy of each of the process's descriptors from its fork to its exec, a
+/// lock file's among them, so one try can find the lock held after the run let it go; under load
+/// that copy lives long enough to be seen. A run that kept the lock through its reclaim keeps it
+/// until `reclaim.go`, and every try fails.
 #[test]
 fn the_ledger_lock_is_free_while_a_reclaim_runs() {
     let case = Case::new("lock-free-during-reclaim");
@@ -1981,8 +2416,13 @@ fn the_ledger_lock_is_free_while_a_reclaim_runs() {
     wait_until("the reclaim runs", || {
         case.dir.join("reclaim.started").exists()
     });
-    let taken = host::Ledger::try_lock(&case.host()).expect("the ledger opens");
-    let free = taken.is_some();
+    let ended = || case.dir.join("reclaim.ended").exists();
+    let mut taken = None;
+    wait_until("the ledger lock is taken or the reclaim ends", || {
+        taken = host::Ledger::try_lock(&case.host()).expect("the ledger opens");
+        taken.is_some() || ended()
+    });
+    let free = taken.is_some() && !ended();
     drop(taken);
     drop(go);
     let outcome = runner
@@ -2004,7 +2444,10 @@ impl Case {
         let home = self.dir.join("home");
         fs::create_dir_all(&home).expect("create the case's home");
         let readings = self.dir.join("readings.txt");
-        fs::write(&readings, format!("{}\n", 1000 * GIB)).expect("write the readings");
+        // Replaced, never truncated in place: a case builds a command (`host grants`) while the
+        // `build run` it started reads this file, and a truncated file reads as no count of bytes,
+        // which ends that run before it records its request.
+        replace(&readings, &format!("{}\n", 1000 * GIB));
         let mut command = common::conductor(&home);
         command
             .arg("--state-dir")
@@ -2258,6 +2701,225 @@ fn sighup_withdraws_a_queued_request() {
     a_signal_withdraws_the_queued_request("withdraw-hup", Signal::SIGHUP);
 }
 
+/// The variable the harness sets for the commands of a session, naming it
+/// (`story:build-run-session-bound`): Claude Code's.
+const SESSION_VARIABLE: &str = "CLAUDE_CODE_SESSION_ID";
+
+impl Case {
+    /// Puts a fake `claude` first on the `PATH` of [`Case::in_session`]: `claude agents --json`
+    /// prints `list` and counts its call in `agents-calls.txt`; any other arguments exit 64. A
+    /// `list` of `None` makes the session list unreadable: the fake exits 1.
+    fn session_list(&self, list: Option<&str>) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let bin = self.dir.join("bin");
+        fs::create_dir_all(&bin).expect("create the case's bin");
+        let calls = self.dir.join("agents-calls.txt");
+        let answer = match list {
+            Some(list) => {
+                fs::write(self.dir.join("agents.json"), list).expect("write the session list");
+                format!("cat '{}'", self.dir.join("agents.json").display())
+            }
+            None => "echo 'claude: not logged in' >&2; exit 1".to_owned(),
+        };
+        let claude = bin.join("claude");
+        fs::write(
+            &claude,
+            format!(
+                "#!/bin/sh\n[ \"$*\" = 'agents --json' ] || exit 64\necho call >> '{}'\n{answer}\n",
+                calls.display()
+            ),
+        )
+        .expect("write the fake claude");
+        fs::set_permissions(&claude, fs::Permissions::from_mode(0o755))
+            .expect("make the fake claude executable");
+    }
+
+    /// How often `build run` read the session list.
+    fn session_list_reads(&self) -> usize {
+        lines(&self.dir.join("agents-calls.txt"))
+    }
+
+    /// [`Case::binary`] run as a command of the harness session `session`, with the fake
+    /// `claude` of [`Case::session_list`] first on its `PATH`.
+    fn in_session(&self, args: &[&str], session: &str) -> Command {
+        let path = std::env::var("PATH").unwrap_or_default();
+        let mut command = self.binary(args);
+        command
+            .env("PATH", format!("{}:{path}", self.dir.join("bin").display()))
+            .env(SESSION_VARIABLE, session);
+        command
+    }
+
+    /// A request recorded a minute ago by `host request-disk`, whose run lock the case holds as
+    /// its waiter would, so a `build run` started now waits behind it in the queue.
+    fn queue_head(&self) -> fs::File {
+        let before = (OffsetDateTime::now_utc() - time::Duration::minutes(1))
+            .format(&Rfc3339)
+            .expect("a time");
+        let head = self
+            .binary(&[
+                "host",
+                "request-disk",
+                "--instance",
+                "example-org",
+                "--bytes",
+                "1073741824",
+                "--command",
+                "sh -c head",
+                "--requested-at",
+                &before,
+            ])
+            .output()
+            .expect("conductor runs");
+        assert!(head.status.success(), "{head:?}");
+        let head = conductor_model::host::GrantId(
+            String::from_utf8(head.stdout)
+                .expect("a grant id")
+                .trim()
+                .to_owned(),
+        );
+        let host_dir = self
+            .dir
+            .join("home")
+            .join(".b10x")
+            .join("conductor")
+            .join("host");
+        host::hold_run(&host_dir, &head).expect("hold the head's run lock")
+    }
+}
+
+/// `story:build-run-session-bound`: `build run` records the session the harness names in its
+/// environment on its request, and `host grants` shows it, as JSON and as text.
+#[test]
+fn a_build_run_records_the_session_of_its_caller() {
+    let case = Case::new("session-recorded");
+    case.session_list(Some(
+        r#"[{"id":"example-session-live","sessionId":"example-session-live","pid":4242,"cwd":"/example","status":"busy"}]"#,
+    ));
+    let script = "touch ran";
+    let run = case
+        .in_session(
+            &["build", "run", "--reserve", "1G", "--", "sh", "-c", script],
+            "example-session-live",
+        )
+        .output()
+        .expect("conductor runs");
+    assert!(run.status.success(), "{run:?}");
+    let row = case.grant_row(script).expect("the grant is listed");
+    assert_eq!(row["session_id"], "example-session-live", "{row}");
+    assert_eq!(row["state"], "Released", "{row}");
+    let text = case
+        .binary(&["host", "grants"])
+        .output()
+        .expect("conductor runs");
+    assert!(text.status.success(), "{text:?}");
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        text.contains("session_id") && text.contains("example-session-live"),
+        "`host grants` shows each request's session:\n{text}"
+    );
+}
+
+/// `story:build-run-session-bound`: a request still waiting in the queue whose session the
+/// session list shows stopped (listed without a `pid`, as `claude agents` keeps an exited
+/// session) is withdrawn at the next ledger pass: the grant reads `Withdrawn` with
+/// `SessionStopped`, its command never ran, and `build run` exits 2 naming the session. The
+/// request ahead of it, which names no session, is left.
+#[test]
+fn a_queued_request_whose_session_stopped_is_withdrawn() {
+    use std::io::Read as _;
+    let case = Case::new("session-stopped");
+    case.session_list(Some(
+        r#"[{"id":"example-other","sessionId":"example-session-other","pid":4242,"cwd":"/example","status":"busy"},
+            {"sessionId":"example-session-stopped","cwd":"/example","status":"idle"}]"#,
+    ));
+    let _waiter = case.queue_head();
+    let script = "touch ran";
+    let child = case
+        .in_session(
+            &["build", "run", "--reserve", "1G", "--", "sh", "-c", script],
+            "example-session-stopped",
+        )
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("conductor runs");
+    let mut run = Running { child, group: None };
+    let status = run.exit();
+    let mut stderr = String::new();
+    run.child
+        .stderr
+        .take()
+        .expect("piped stderr")
+        .read_to_string(&mut stderr)
+        .expect("read build run's stderr");
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "build run exits 2: {status}\n{stderr}"
+    );
+    assert!(
+        stderr.contains("withdrawn: session example-session-stopped stopped"),
+        "{stderr}"
+    );
+    let row = case.grant_row(script).expect("the request is listed");
+    assert_eq!(row["state"], "Withdrawn", "{row}");
+    assert_eq!(row["release_reason"], "SessionStopped", "{row}");
+    assert_eq!(row["session_id"], "example-session-stopped", "{row}");
+    assert!(!case.work().join("ran").exists(), "the command never ran");
+    assert_eq!(
+        case.grant_row("head").map(|row| row["state"].clone()),
+        Some(Value::from("Requested")),
+        "the request ahead, of no session, is left"
+    );
+}
+
+/// A request whose session the list shows running, or whose session list does not read, stays
+/// in the queue after a ledger pass read the list.
+fn a_queued_request_stays(name: &str, list: Option<&str>) {
+    let case = Case::new(name);
+    case.session_list(list);
+    let _waiter = case.queue_head();
+    let script = "touch ran";
+    let child = case
+        .in_session(
+            &["build", "run", "--reserve", "1G", "--", "sh", "-c", script],
+            "example-session-live",
+        )
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("conductor runs");
+    let mut run = Running { child, group: None };
+    wait_until("a ledger pass reads the session list", || {
+        case.session_list_reads() > 0
+    });
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        run.child.try_wait().expect("wait for build run"),
+        None,
+        "build run still waits"
+    );
+    let row = case.grant_row(script).expect("the request is listed");
+    assert_eq!(row["state"], "Requested", "{row}");
+    assert_eq!(row["session_id"], "example-session-live", "{row}");
+}
+
+#[test]
+fn a_queued_request_whose_session_runs_stays_queued() {
+    a_queued_request_stays(
+        "session-live",
+        Some(
+            r#"[{"id":"example-session-live","sessionId":"example-session-live","pid":4242,"cwd":"/example","status":"waiting"}]"#,
+        ),
+    );
+}
+
+#[test]
+fn a_queued_request_stays_when_the_session_list_does_not_read() {
+    a_queued_request_stays("session-list-unread", None);
+}
+
 /// `story:build-run-backfill`: an 8G head at 5G available lacks 3G, more than the live
 /// reservations hold (none), so it can only be refused. While it walks the disk (a reclaim that
 /// waits for `reclaim.go`), a 2G request behind it, which fits beside the floor, is granted at
@@ -2384,4 +3046,666 @@ fn a_head_that_does_not_fit_after_a_recent_reclaim_freed_nothing_is_refused_at_o
         "the refusal names the run that freed nothing: {said}"
     );
     assert!(!case.work().join("head").exists());
+}
+
+/// The apparent size of the files under `paths`: a sparse file of 2G counts 2G, so a case writes
+/// gibibytes without writing a block. A path that is not there holds nothing.
+fn apparent(paths: &[PathBuf]) -> u64 {
+    fn under(path: &Path) -> u64 {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_dir() => fs::read_dir(path)
+                .map(|entries| entries.flatten().map(|entry| under(&entry.path())).sum())
+                .unwrap_or(0),
+            Ok(meta) => meta.len(),
+            Err(_) => 0,
+        }
+    }
+    paths.iter().map(|path| under(path)).sum()
+}
+
+/// A walk that takes no time.
+fn quick_walk(paths: &[PathBuf], _bound: Duration) -> Option<u64> {
+    Some(apparent(paths))
+}
+
+/// A walk of a large directory: two seconds over what exists, and none when its bound is shorter,
+/// as a real walk that runs out of time answers.
+fn slow_walk(paths: &[PathBuf], bound: Duration) -> Option<u64> {
+    const TAKES: Duration = Duration::from_secs(2);
+    if !paths.iter().any(|path| path.exists()) {
+        return Some(0);
+    }
+    if bound < TAKES {
+        thread::sleep(bound);
+        return None;
+    }
+    thread::sleep(TAKES);
+    Some(apparent(paths))
+}
+
+/// A walk that never finishes in time.
+fn no_walk(_paths: &[PathBuf], _bound: Duration) -> Option<u64> {
+    None
+}
+
+/// Runs `request` on a thread, waits until its grant records a peak of at least `least` while it
+/// runs, and answers the running rows that do; then lets the command end (`stop` in its working
+/// directory).
+fn peak_while_running(
+    case: &Case,
+    sources: Sources,
+    request: Request,
+    least: u64,
+) -> Vec<conductor_model::host::Grants> {
+    let (state, host) = (case.state(), case.host());
+    let runner = thread::spawn(move || build::run(&state, &host, &settings(), &sources, &request));
+    let recorded = || {
+        host::rows(&case.host())
+            .map(|rows| {
+                rows.into_iter()
+                    .filter(|row| row.state == HostGrantState::Running)
+                    .filter(|row| {
+                        row.peak_bytes
+                            .is_some_and(|peak| u64::try_from(peak).unwrap_or(0) >= least)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while recorded().is_empty() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    let seen = recorded();
+    fs::write(case.work().join("stop"), "").expect("stop the command");
+    runner
+        .join()
+        .expect("the run does not panic")
+        .expect("the run ends");
+    seen
+}
+
+const WRITES_TWO_GIB: &str = "mkdir -p target && truncate -s 2G target/blob; \
+    while [ ! -e stop ]; do sleep 0.05; done";
+
+/// A walk of a big `target/` takes longer than the watchdog's interval, and the growth is still
+/// recorded while the run goes on: the walk has its own thread and a bound of a minute or more
+/// (`story:reserve-from-peak`).
+#[test]
+fn a_slow_walk_still_records_growth() {
+    let case = Case::new("slow-walk");
+    let sources = Sources {
+        walk: slow_walk,
+        ..case.sources(reclaim_nothing)
+    };
+    let seen = peak_while_running(
+        &case,
+        sources,
+        case.request(4 * GIB, WRITES_TWO_GIB),
+        2 * GIB,
+    );
+    assert_eq!(
+        seen.len(),
+        1,
+        "the 2G the run wrote is recorded on its running grant: {:?}",
+        case.grants()
+    );
+}
+
+/// A directory named with `--measure` is measured with the run's own: a command that writes
+/// there, outside its working directory, shrinks its reservation.
+#[test]
+fn a_measure_directory_shrinks_the_reservation() {
+    let case = Case::new("measure-dir");
+    let out = case.dir.join("out");
+    fs::create_dir_all(&out).expect("create the measured directory");
+    let sources = Sources {
+        walk: quick_walk,
+        ..case.sources(reclaim_nothing)
+    };
+    let request = Request {
+        measure: vec![out.clone()],
+        ..case.request(
+            4 * GIB,
+            &format!(
+                "truncate -s 2G {}/blob; while [ ! -e stop ]; do sleep 0.05; done",
+                out.display()
+            ),
+        )
+    };
+    let seen = peak_while_running(&case, sources, request, 2 * GIB);
+    assert_eq!(
+        seen.len(),
+        1,
+        "the 2G in --measure is recorded: {:?}",
+        case.grants()
+    );
+}
+
+/// `CARGO_TARGET_DIR`, set in the command's environment, is measured too; a relative one is
+/// relative to the working directory, as Cargo reads it.
+#[test]
+fn the_cargo_target_dir_of_the_environment_is_measured() {
+    let case = Case::new("cargo-target-dir");
+    let sources = Sources {
+        walk: quick_walk,
+        env: |name| (name == "CARGO_TARGET_DIR").then(|| "elsewhere".to_owned()),
+        ..case.sources(reclaim_nothing)
+    };
+    let request = case.request(
+        4 * GIB,
+        "mkdir -p elsewhere && truncate -s 2G elsewhere/blob; \
+         while [ ! -e stop ]; do sleep 0.05; done",
+    );
+    let seen = peak_while_running(&case, sources, request, 2 * GIB);
+    assert_eq!(
+        seen.len(),
+        1,
+        "CARGO_TARGET_DIR is measured: {:?}",
+        case.grants()
+    );
+}
+
+/// A run none of whose measurements completed has no peak: the grant records none, `Ran` answers
+/// none, and it is not 0.
+#[test]
+fn an_unmeasured_run_has_an_unknown_peak() {
+    let case = Case::new("unmeasured");
+    let sources = Sources {
+        walk: no_walk,
+        ..case.sources(reclaim_nothing)
+    };
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &sources,
+        &case.request(
+            GIB,
+            "mkdir -p target && head -c 4096 /dev/zero > target/blob",
+        ),
+    )
+    .expect("the run ends");
+    let Outcome::Ran {
+        ref grant, peak, ..
+    } = outcome
+    else {
+        panic!("the command ran: {outcome:?}");
+    };
+    assert_eq!(peak, None, "no measurement completed: unknown, not 0");
+    let grants = case.grants();
+    let row = grants
+        .iter()
+        .find(|row| row.grant_id == *grant)
+        .expect("the grant");
+    assert_eq!(row.state, HostGrantState::Released, "{row:?}");
+    assert_eq!(row.peak_bytes, None, "{row:?}");
+}
+
+/// `host grants` writes an unmeasured run's peak as `unknown` in a table, and null in JSON.
+#[test]
+fn host_grants_shows_an_unmeasured_peak_as_unknown() {
+    let case = Case::new("grants-unknown");
+    let home = case.dir.join("home");
+    fs::create_dir_all(&home).expect("create the case's home");
+    let state = case.state();
+    let run = |args: &[&str]| {
+        common::conductor(&home)
+            .arg("--state-dir")
+            .arg(&state)
+            .args(args)
+            .current_dir(case.work())
+            .output()
+            .expect("conductor runs")
+    };
+    let requested = run(&[
+        "host",
+        "request-disk",
+        "--instance",
+        "example-org",
+        "--bytes",
+        "1024",
+        "--command",
+        "true",
+        "--requested-at",
+        "2026-10-13T12:00:00Z",
+    ]);
+    assert!(requested.status.success(), "{requested:?}");
+    let grant = String::from_utf8(requested.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
+    for args in [
+        vec![
+            "host",
+            "reserve-disk",
+            "--grant-id",
+            &grant,
+            "--shortfall-bytes",
+            "0",
+            "--reclaimed-bytes",
+            "0",
+        ],
+        vec![
+            "host",
+            "start-run",
+            "--grant-id",
+            &grant,
+            "--process-group",
+            "4242",
+            "--started-at",
+            "2026-10-13T12:00:01Z",
+        ],
+        vec![
+            "host",
+            "release-grant",
+            "--grant-id",
+            &grant,
+            "--reason",
+            "Exited",
+            "--released-at",
+            "2026-10-13T12:00:02Z",
+        ],
+    ] {
+        let output = run(&args);
+        assert!(output.status.success(), "{args:?}: {output:?}");
+    }
+    let table = run(&["host", "grants"]);
+    let table = String::from_utf8_lossy(&table.stdout).into_owned();
+    assert!(
+        table.contains("unknown"),
+        "the peak is shown as unknown:\n{table}"
+    );
+    let json = run(&["host", "grants", "--format", "json"]);
+    let rows: serde_json::Value = serde_json::from_slice(&json.stdout).expect("json rows");
+    assert!(rows[0]["peak_bytes"].is_null(), "{rows}");
+}
+
+// story:reserve-from-peak: `--reserve auto`, and no `--reserve`, reserve the largest peak the
+// ledger recorded for the repository and command in the last 14 days plus 50 %.
+
+/// Records one released run of `command` in `repository` on the case's ledger, as a past run
+/// leaves it: `age` days ago, with `peak` bytes written, or none for an unmeasured run.
+fn recorded(case: &Case, repository: &str, command: &str, peak: Option<u64>, age: i64) {
+    let at = host::now(OffsetDateTime::now_utc() - time::Duration::days(age));
+    let host = case.host();
+    let grant = {
+        let mut ledger = host::Ledger::lock(&host).expect("the ledger opens");
+        let grant = ledger
+            .request_of(
+                "example-org",
+                Some(repository),
+                None,
+                None,
+                GIB,
+                command,
+                &at,
+            )
+            .expect("the request is kept");
+        ledger
+            .reserve(&grant, 0, 0)
+            .expect("the reservation is granted");
+        grant
+    };
+    host::start_run(&host, &grant, 4242, &at).expect("the run starts");
+    if let Some(peak) = peak {
+        host::record_peak_of(&host, &grant, peak).expect("the peak is recorded");
+    }
+    host::release(&host, &grant, Some(ReleaseReason::Exited), &at).expect("the grant is released");
+}
+
+/// A request to run `script` that gives no size: `--reserve auto`.
+fn auto_request(case: &Case, script: &str) -> Request {
+    Request {
+        reserve: None,
+        ..case.request(GIB, script)
+    }
+}
+
+/// Runs `request` on the case and answers the grant's row.
+fn ran(case: &Case, request: &Request) -> conductor_model::host::Grants {
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        request,
+    )
+    .expect("the run ends");
+    let Outcome::Ran { ref grant, .. } = outcome else {
+        panic!("the command ran: {outcome:?}");
+    };
+    case.grants()
+        .into_iter()
+        .find(|row| row.grant_id == *grant)
+        .expect("the ledger holds the grant")
+}
+
+#[test]
+fn auto_reserves_the_largest_recent_peak_of_the_command_plus_half() {
+    let case = Case::new("auto-peak");
+    let command = "sh -c true";
+    recorded(&case, "example-repo", command, Some(GIB), 5);
+    recorded(&case, "example-repo", command, Some(2 * GIB), 3);
+    // None of these counts: too old, another repository, another command, no measurement.
+    recorded(&case, "example-repo", command, Some(9 * GIB), 20);
+    recorded(&case, "other-repo", command, Some(9 * GIB), 1);
+    recorded(&case, "example-repo", "bash -c true", Some(9 * GIB), 1);
+    recorded(&case, "example-repo", command, None, 1);
+    let row = ran(&case, &auto_request(&case, "true"));
+    assert_eq!(
+        row.bytes,
+        Some(i64::try_from(3 * GIB).unwrap()),
+        "2G + 50 %: {row:?}"
+    );
+    let said = case.said();
+    assert!(
+        said.contains("reserving 3G") && said.contains("peak") && said.contains("2G"),
+        "the size and its source are printed:\n{said}"
+    );
+}
+
+#[test]
+fn auto_reserves_at_least_1g() {
+    let case = Case::new("auto-least");
+    recorded(&case, "example-repo", "sh -c true", Some(100 << 20), 1);
+    let row = ran(&case, &auto_request(&case, "true"));
+    assert_eq!(row.bytes, Some(i64::try_from(GIB).unwrap()), "{row:?}");
+}
+
+#[test]
+fn auto_with_no_recorded_peak_reserves_the_default_and_says_so() {
+    let case = Case::new("auto-default");
+    // An unmeasured run is no peak.
+    recorded(&case, "example-repo", "sh -c true", None, 1);
+    let row = ran(&case, &auto_request(&case, "true"));
+    assert_eq!(
+        row.bytes,
+        Some(i64::try_from(build::DEFAULT_RESERVE).unwrap()),
+        "{row:?}"
+    );
+    let said = case.said();
+    assert!(
+        said.contains("reserving 4G") && said.contains("built-in default"),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_reserve_over_twice_the_peak_warns_naming_the_peak() {
+    let case = Case::new("reserve-warns");
+    recorded(&case, "example-repo", "sh -c true", Some(GIB), 1);
+    let row = ran(&case, &case.request(5 * GIB, "true"));
+    assert_eq!(
+        row.bytes,
+        Some(i64::try_from(5 * GIB).unwrap()),
+        "the size given is kept: {row:?}"
+    );
+    let said = case.said();
+    assert!(
+        said.contains("over twice") && said.contains("peak") && said.contains("1G"),
+        "{said}"
+    );
+    let quiet = Case::new("reserve-quiet");
+    recorded(&quiet, "example-repo", "sh -c true", Some(GIB), 1);
+    ran(&quiet, &quiet.request(2 * GIB, "true"));
+    assert!(!quiet.said().contains("over twice"), "{}", quiet.said());
+}
+
+#[test]
+fn a_refusal_names_the_measured_peak_beside_the_shortfall() {
+    let case = Case::new("refused-peak");
+    case.free(12 * GIB);
+    recorded(&case, "example-repo", "sh -c true", Some(GIB), 1);
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &case.request(8 * GIB, "true"),
+    )
+    .expect("the run ends");
+    assert!(matches!(outcome, Outcome::Refused { .. }), "{outcome:?}");
+    let said = case.said();
+    let refusal = said
+        .lines()
+        .find(|line| line.contains("refused"))
+        .expect("a refusal line");
+    assert!(
+        refusal.contains("short") && refusal.contains("peak") && refusal.contains("1G"),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_commands_key_is_its_first_two_words_and_its_package_flags() {
+    let key = build::command_key;
+    let plain = key("cargo test -p foo");
+    assert_eq!(key("cargo test --package foo"), plain);
+    assert_eq!(key("cargo test -pfoo"), plain);
+    assert_eq!(key("cargo test -p foo -- --nocapture a_name"), plain);
+    assert_eq!(key("cargo test --lib -p foo"), plain);
+    assert_eq!(
+        key("nice -n 19 ionice -c3 env CARGO_BUILD_JOBS=18 cargo test -p foo"),
+        plain,
+        "the wrappers are no part of the command"
+    );
+    assert_ne!(key("cargo test -p bar"), plain);
+    assert_ne!(key("cargo test"), plain);
+    assert_ne!(key("cargo test --workspace"), plain);
+    assert_ne!(key("cargo build -p foo"), plain);
+    assert_eq!(key("cargo test -p a -p b"), key("cargo test -p b -p a"));
+}
+
+/// `story:tool-build-commit-report`: the broker's build verbs run through this same path, with
+/// `output` naming a log; the command's standard output and error both go there, and nothing else
+/// of the run changes.
+#[test]
+fn a_request_with_an_output_writes_the_commands_output_and_error_there() {
+    let case = Case::new("output");
+    let log = case.dir.join("command.log");
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        &settings(),
+        &case.sources(reclaim_nothing),
+        &Request {
+            output: Some(log.clone()),
+            ..case.request(GIB, "echo to-output; echo to-error >&2; exit 3")
+        },
+    )
+    .expect("the run ends");
+
+    assert_eq!(outcome.exit_code(), 3, "{outcome:?}");
+    let written = fs::read_to_string(&log).expect("the log is written");
+    assert!(written.contains("to-output\n"), "{written}");
+    assert!(written.contains("to-error\n"), "{written}");
+}
+
+#[test]
+fn reserve_reads_a_size_or_auto() {
+    assert_eq!(build::reserve_word("auto"), Ok("auto".to_owned()));
+    assert_eq!(build::reserve_word("8G"), Ok("8G".to_owned()));
+    assert!(build::reserve_word("autoo").is_err());
+    assert!(build::reserve_word("4.2").is_err());
+}
+
+#[test]
+fn the_binary_refuses_a_reserve_that_is_no_size_and_names_auto() {
+    let case = Case::new("reserve-no-size");
+    let home = case.dir.join("home");
+    fs::create_dir_all(&home).expect("create the case's home");
+    let output = common::conductor(&home)
+        .arg("--state-dir")
+        .arg(case.state())
+        .args(["build", "run", "--reserve", "4.2", "--", "true"])
+        .current_dir(case.work())
+        .output()
+        .expect("conductor runs");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains("--reserve") && said.contains("auto"),
+        "{said}"
+    );
+}
+
+/// `story:guard-no-pattern-kill`: a `build run` whose command was stopped while another holder
+/// has `host.lock` does not wait for it for good: a second stopping signal makes it exit with
+/// 128 plus the signal within the bound, and it leaves its grant Running, which the next request
+/// that reads the ledger releases once the group is gone (`ProcessGroupGone`).
+#[test]
+fn a_second_signal_ends_a_stopped_run_that_waits_for_the_ledger() {
+    let case = Case::new("kill-ledger-held");
+    let mut run = case.build_run(PAYLOAD);
+    let mut group = None;
+    wait_until("the command runs in its process group", || {
+        group = case
+            .grant_row(PAYLOAD)
+            .filter(|row| row["state"] == "Running")
+            .and_then(|row| row["process_group"].as_i64());
+        group.is_some()
+    });
+    let group = group.expect("a process group");
+    run.group = Some(i32::try_from(group).expect("a process group id"));
+    wait_until("the background member runs", || {
+        case.work().join("started").exists()
+    });
+    // Another holder takes the ledger, as a reclaim of another run does.
+    // The binary's host directory is the one under the case's home.
+    let host = lock_file(&case.dir.join("home/.b10x/conductor/host/host.lock"));
+    host.lock().expect("hold host.lock");
+    run.signal(Signal::SIGTERM);
+    wait_until("the command's group is gone", || !host::alive(group));
+    // The run now waits for the ledger.
+    thread::sleep(Duration::from_millis(300));
+    assert!(
+        run.child.try_wait().expect("wait for build run").is_none(),
+        "the run waits for the ledger while it is held"
+    );
+    let second = Instant::now();
+    run.signal(Signal::SIGTERM);
+    let status = run.exit();
+    assert!(
+        second.elapsed() < Duration::from_secs(10),
+        "the run exited {:?} after the second signal",
+        second.elapsed()
+    );
+    assert_eq!(
+        status.code(),
+        Some(128 + Signal::SIGTERM as i32),
+        "build run exits with 128 + the signal: {status}"
+    );
+    drop(host);
+    let row = case.grant_row(PAYLOAD).expect("the grant is listed");
+    assert_eq!(
+        row["state"], "Running",
+        "the grant is left to the sweep: {row}"
+    );
+    // The next request that reads the ledger sweeps it.
+    let mut next = case.build_run("true");
+    assert_eq!(next.exit().code(), Some(0), "the next run ends");
+    wait_until("the grant is released by the sweep", || {
+        case.grant_row(PAYLOAD)
+            .is_some_and(|row| row["state"] == "Released")
+    });
+    let row = case.grant_row(PAYLOAD).expect("the grant is listed");
+    assert_eq!(row["release_reason"], "ProcessGroupGone", "{row}");
+}
+
+/// `story:build-run-lean-debuginfo`: what a run's command sees of the two debug variables, as
+/// `dev,test` (an unset one empty). `cargo` in the script makes the command cargo-based.
+fn debug_seen(case: &Case, settings: &Settings, sources: &Sources, script: &str) -> String {
+    let script = format!(
+        ": {script}; echo \"$CARGO_PROFILE_DEV_DEBUG,$CARGO_PROFILE_TEST_DEBUG\" > debug.txt"
+    );
+    let outcome = build::run(
+        &case.state(),
+        &case.host(),
+        settings,
+        sources,
+        &case.request(GIB, &script),
+    )
+    .expect("the run ends");
+    assert_eq!(outcome.exit_code(), 0, "{outcome:?}");
+    fs::read_to_string(case.work().join("debug.txt"))
+        .expect("the command wrote debug.txt")
+        .trim()
+        .to_owned()
+}
+
+const LEAN: &str = "line-tables-only";
+
+/// Acceptance 1: a cargo-based command gets both variables when nothing sets them; a command that
+/// is not cargo-based gets neither.
+#[test]
+fn a_cargo_command_gets_line_tables_only_for_dev_and_test() {
+    let case = Case::new("lean-set");
+    let sources = case.sources(reclaim_nothing);
+    let seen = debug_seen(&case, &settings(), &sources, "cargo test");
+    assert_eq!(seen, format!("{LEAN},{LEAN}"));
+    let other = debug_seen(&case, &settings(), &sources, "make");
+    assert_eq!(
+        other, ",",
+        "a command that is not cargo-based is left alone"
+    );
+}
+
+/// A variable the environment sets is kept (the child inherits it, so `build run` must not set
+/// it); the other is still set.
+#[test]
+fn a_debug_variable_the_environment_sets_is_kept() {
+    let case = Case::new("lean-env");
+    let sources = Sources {
+        env: |name| (name == "CARGO_PROFILE_DEV_DEBUG").then(|| "full".to_owned()),
+        ..case.sources(reclaim_nothing)
+    };
+    let seen = debug_seen(&case, &settings(), &sources, "cargo build");
+    assert_eq!(
+        seen,
+        format!(",{LEAN}"),
+        "dev is the environment's to set, test is set"
+    );
+}
+
+/// Acceptance 2: a workspace manifest that sets a profile's `debug` keeps it. `profile.test`
+/// inherits `profile.dev`, so a `dev` setting also keeps the test variable off; a `test` setting
+/// leaves dev's.
+#[test]
+fn a_manifest_that_sets_profile_debug_keeps_its_setting() {
+    let case = Case::new("lean-manifest");
+    let manifest = |text: &str| {
+        fs::write(case.work().join("Cargo.toml"), text).expect("write the case's Cargo.toml");
+    };
+    let seen = || {
+        let sources = case.sources(reclaim_nothing);
+        debug_seen(&case, &settings(), &sources, "cargo test")
+    };
+    manifest("[package]\nname = \"x\"\n\n[profile.dev]\nopt-level = 1\ndebug = \"full\"\n");
+    assert_eq!(seen(), ",", "profile.dev.debug");
+    manifest("[package]\nname = \"x\"\n\n[profile.test]\n debug=1 # keep\n");
+    assert_eq!(seen(), format!("{LEAN},"), "profile.test.debug");
+    manifest(
+        "[package]\nname = \"x\"\n\n[profile.dev.package.\"*\"]\ndebug = false\n\
+         [profile.release]\ndebug = true\n",
+    );
+    assert_eq!(
+        seen(),
+        format!("{LEAN},{LEAN}"),
+        "other tables are not the profile's own"
+    );
+    manifest("[package]\nname = \"x\"\n[profile]\ndev.debug = 0\n");
+    assert_eq!(seen(), ",", "a dotted key");
+}
+
+/// `thresholds.lean_debuginfo` false turns it off.
+#[test]
+fn the_threshold_off_sets_neither_variable() {
+    let case = Case::new("lean-off");
+    let off = Settings {
+        lean_debuginfo: false,
+        ..settings()
+    };
+    let sources = case.sources(reclaim_nothing);
+    assert_eq!(debug_seen(&case, &off, &sources, "cargo test"), ",");
 }

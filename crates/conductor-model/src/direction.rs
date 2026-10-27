@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bf57456db9fbaeca8d35213873b73caaa39cfc72299535564e56e2c80b7a57f9
-// contract digest 5ddd1e43a023a5c732e97e56e2a62b144f3d77a635c46e50244abb2fdbce2082
+// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
+// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -74,6 +74,13 @@ pub enum MarkedBy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkedRepository(pub String);
 
+/// NewNeed — `conductor.direction.NewNeed`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewNeed {
+    /// `day` — `Optional<String>`.
+    pub day: Option<String>,
+}
+
 /// RepositoryActivity — `conductor.direction.RepositoryActivity`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryActivity {
@@ -119,6 +126,10 @@ pub struct Rules {
     pub format: Option<String>,
     /// `brief` — `Optional<Boolean>`.
     pub brief: Option<bool>,
+    /// `changed_since` — `Optional<String>`.
+    pub changed_since: Option<String>,
+    /// `role` — `Optional<String>`.
+    pub role: Option<String>,
 }
 
 /// RulesRefusal — `conductor.direction.RulesRefusal`: one of a closed set of names.
@@ -128,6 +139,10 @@ pub enum RulesRefusal {
     RuleItemNotFound,
     /// `RuleSectionNotFound`.
     RuleSectionNotFound,
+    /// `RevisionNotFound`.
+    RevisionNotFound,
+    /// `RuleRoleNotFound`.
+    RuleRoleNotFound,
 }
 
 /// RulesRefused — `conductor.direction.RulesRefused`.

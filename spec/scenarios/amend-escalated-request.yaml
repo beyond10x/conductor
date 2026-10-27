@@ -1,0 +1,90 @@
+# story:request-amend-escalated: an escalated request is completed in place. Amended while open
+# or withdrawn it is refused and unchanged; amended while escalated, the view reads the fields
+# given.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: amend-escalated-request
+summary: An escalated request takes a default and a deadline in place; an open or withdrawn one is refused.
+
+timeline:
+  - at: 2026-10-16T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-amend-1
+      repository: cortex
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      recommendation: B
+      raised_at: 2026-10-16T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-16T09:00:01Z
+    command: conductor.decision.AmendEscalatedRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-amend-1
+      reason: complete the item
+      default_letters: A
+    outcome: not-escalated
+    error:
+      name: conductor.decision.RequestStateConflict
+
+  - at: 2026-10-16T09:00:02Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-amend-1
+      escalation_class: O
+      reason: an architecture choice
+      kind: one-of
+      lettered_options:
+        - {letter: A, label: keep the file store, cost: nothing now}
+        - {letter: B, label: move to the tree store, cost: half a day of one controller}
+      recommended_letters: B
+      default_letters: B
+      deadline: 2026-10-17T09:00:00Z
+    outcome: escalated
+
+  - at: 2026-10-16T09:00:03Z
+    command: conductor.decision.AmendEscalatedRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-amend-1
+      reason: the profile asks for the file store as the default
+      kind: one-of
+      lettered_options:
+        - {letter: A, label: keep the file store, cost: nothing now}
+        - {letter: B, label: move to the tree store, cost: half a day of one controller}
+      recommended_letters: B
+      default_letters: A
+      deadline: 2026-10-18T09:00:00Z
+    outcome: amended
+
+  - at: 2026-10-16T09:00:04Z
+    command: conductor.decision.WithdrawRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-amend-1
+      reason: no longer needed
+    outcome: withdrawn
+
+  - at: 2026-10-16T09:00:05Z
+    command: conductor.decision.AmendEscalatedRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-amend-1
+      reason: too late
+      default_letters: B
+    outcome: not-escalated
+    error:
+      name: conductor.decision.RequestStateConflict
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-amend-1
+      state: Withdrawn
+      kind: one-of
+      recommended_letters: B
+      default_letters: A

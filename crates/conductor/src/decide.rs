@@ -29,7 +29,7 @@
 //! charter's "Do not touch" and standing-rule lines on standard error before it records
 //! ([`print_charter`], `story:decision-reads-charter`); a class O or H refusal prints none.
 //!
-//! A view opens only an existing store ([`crate::state::open_existing`]) and creates nothing. It
+//! A view opens only an existing store ([`crate::state::open_reader`]) and creates nothing. It
 //! lists every row it can read, in the order the rows were first stored, and answers through
 //! [`crate::store::show`]: a record it cannot read is named on standard error and exits 1, after
 //! the other rows. `decision show` renders one row of the `decisions` view the same way.
@@ -40,6 +40,14 @@
 //! `decided` and `answered` by `answer-escalated-as-operator` (`story:decisions-batch-answer`),
 //! `escalated`, `withdrawn`, and `reversed` (both reverse commands), each with the id of the
 //! record it moved and its repository as `repo`. A refusal appends nothing.
+//!
+//! **Handling** (`story:decide-model-adapter`). [`handle_request`] takes a `[DECISION-REQUEST]`
+//! whole: [`classify`] chooses its class and rule in code, an action on an object, and names the
+//! words it matched (`story:classify-tightened`), the request is raised with the rule
+//! (`--classification-rule`), class C is answered through a [`model::Decider`] and recorded with
+//! the adapter's name and the prompt's SHA-256 (`--decider-name`, `--prompt-sha256`, both or
+//! neither), and class O and H are escalated with the request's options and a reason that names
+//! the matched words. See `decide/handle.rs`.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -48,16 +56,18 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage, Generated};
 use conductor_model::decision::obligations::{
-    AnswerEscalatedRequestBehavior, AnswerRequestBehavior, DecisionsQuery, EscalateRequestBehavior,
-    HandsTodoQuery, RaiseDecisionRequestBehavior, RecordConductorDecisionBehavior,
-    RecordOperatorDecisionBehavior, RecordOperatorDecisionForRequestBehavior, RequestsQuery,
-    ReverseConductorDecisionBehavior, ReverseOperatorDecisionBehavior, WithdrawRequestBehavior,
+    AmendEscalatedRequestBehavior, AnswerEscalatedRequestBehavior, AnswerRequestBehavior,
+    DecisionsQuery, EscalateRequestBehavior, HandsTodoQuery, RaiseDecisionRequestBehavior,
+    RecordConductorDecisionBehavior, RecordOperatorDecisionBehavior,
+    RecordOperatorDecisionForRequestBehavior, RequestsQuery, ReverseConductorDecisionBehavior,
+    ReverseOperatorDecisionBehavior, WithdrawRequestBehavior,
 };
 use conductor_model::decision::{
-    AnswerEscalatedRequest, AnswerEscalatedRequestOutcome, AnswerRequest, AnswerRequestOutcome,
+    AmendEscalatedRequest, AmendEscalatedRequestOutcome, AnswerEscalatedRequest,
+    AnswerEscalatedRequestOutcome, AnswerRequest, AnswerRequestOutcome, ClassificationRule,
     Decider, DecisionClass, DecisionId, DecisionLogEvent, DecisionLogLine, DecisionRequestSnapshot,
     DecisionRequestState, DecisionSnapshot, DecisionState, EscalateRequest, EscalateRequestOutcome,
-    RaiseDecisionRequest, RaiseDecisionRequestOutcome, RecordConductorDecision,
+    PromptHash, RaiseDecisionRequest, RaiseDecisionRequestOutcome, RecordConductorDecision,
     RecordConductorDecisionOutcome, RecordOperatorDecision, RecordOperatorDecisionForRequest,
     RecordOperatorDecisionForRequestOutcome, RecordOperatorDecisionOutcome, RequestId, RequestKind,
     RequestOption, ReverseConductorDecision, ReverseConductorDecisionOutcome,
@@ -72,14 +82,23 @@ use time::format_description::well_known::Rfc3339;
 use time::{Date, Month, OffsetDateTime, UtcOffset};
 
 use crate::cli::{
-    AnswerEscalatedRequestArgs, AnswerRequestArgs, EscalateRequestArgs, Format, JsonInput,
-    RaiseDecisionRequestArgs, RecordConductorDecisionArgs, RecordOperatorDecisionArgs,
-    RecordOperatorDecisionForRequestArgs, ReverseConductorDecisionArgs,
+    AmendEscalatedRequestArgs, AnswerEscalatedRequestArgs, AnswerRequestArgs, EscalateRequestArgs,
+    Format, JsonInput, RaiseDecisionRequestArgs, RecordConductorDecisionArgs,
+    RecordOperatorDecisionArgs, RecordOperatorDecisionForRequestArgs, ReverseConductorDecisionArgs,
     ReverseOperatorDecisionArgs, ShowDecisionArgs, ViewArgs, WithdrawRequestArgs,
 };
 use crate::not_implemented;
 use crate::records;
 use crate::store::{Store, StoreError};
+
+mod handle;
+pub mod model;
+
+pub use handle::{
+    Classification, DEADLINE_HOURS, DECISION_DAYS, Handled, OPERATOR_DECIDES, PROMPT_CAP,
+    ParsedRequest, PromptInputs, build_prompt, class_of, classify, handle, handle_request,
+    parse_request, prompt_inputs, prompt_sha256,
+};
 
 /// How many ids a record or a send allocates at most, one per attempt. An attempt is lost only to
 /// another writer's record, and each loss is retried while the date's highest number moves.
@@ -87,7 +106,7 @@ pub const ATTEMPTS: usize = 64;
 
 /// The fields of the `Requests` view, in the specification's order
 /// (`spec/domains/decision.yaml`).
-const REQUEST_COLUMNS: [&str; 16] = [
+const REQUEST_COLUMNS: [&str; 17] = [
     "escalation_class",
     "escalation_reason",
     "request_id",
@@ -99,6 +118,7 @@ const REQUEST_COLUMNS: [&str; 16] = [
     "recommendation",
     "raised_at",
     "blocker",
+    "classification_rule",
     "kind",
     "lettered_options",
     "recommended_letters",
@@ -147,7 +167,7 @@ const HANDS_TODO_FIELDS: [&str; 13] = [
 ];
 
 /// The fields of the `Decisions` view, in the specification's order.
-const DECISION_COLUMNS: [&str; 13] = [
+const DECISION_COLUMNS: [&str; 15] = [
     "decision_id",
     "state",
     "decision_class",
@@ -161,6 +181,8 @@ const DECISION_COLUMNS: [&str; 13] = [
     "recorded_by",
     "operator_words",
     "repository",
+    "decider_name",
+    "prompt_sha256",
 ];
 
 /// `conductor decision raise-decision-request`: the command
@@ -187,6 +209,14 @@ pub fn raise_decision_request(
         recommendation: flag(COMMAND, "--recommendation", args.recommendation)?,
         raised_at: Timestamp(flag(COMMAND, "--raised-at", args.raised_at)?),
         blocker: args.blocker,
+        classification_rule: args
+            .classification_rule
+            .map(|name| {
+                rule_named(&name).ok_or_else(|| {
+                    anyhow!("{COMMAND}: --classification-rule {name:?} is no ClassificationRule")
+                })
+            })
+            .transpose()?,
     };
     let request = input.request_id.clone();
     let mut line = records::decision_line(
@@ -198,6 +228,7 @@ pub fn raise_decision_request(
     line.options = Some(input.options.clone());
     line.recommendation = Some(input.recommendation.clone());
     line.blocker.clone_from(&input.blocker);
+    line.classification_rule = input.classification_rule;
     let mut generated = record(COMMAND, state)?;
     // The behaviour reads the id before it writes, so the write expects no stream, and a request
     // another process raises in between is refused by the store rather than replaced.
@@ -257,6 +288,75 @@ pub fn record_conductor_decision(
             repository: args.repository,
         },
     )?;
+    let adapter = Adapter::read(COMMAND, args.decider_name, args.prompt_sha256)?;
+    match conductor_decided(COMMAND, state, &fields, adapter.as_ref())? {
+        Allocated::Recorded(_, decision_id) => print_line(COMMAND, &decision_id.0),
+        Allocated::Refused(Refusal { error, detail }) => refused(COMMAND, error, &detail),
+        Allocated::Held(decision_id) => already_held(COMMAND, &decision_id),
+    }
+}
+
+/// The evidence a class-C decision the `Decider` adapter answered carries
+/// (`story:decide-model-adapter`): the adapter's name and the SHA-256 of its prompt.
+struct Adapter {
+    name: String,
+    prompt_sha256: PromptHash,
+}
+
+impl Adapter {
+    /// `--decider-name` and `--prompt-sha256`, both or neither; a hash that is not 64 lower-case
+    /// hexadecimal characters, a blank name, or one flag without the other is named before any
+    /// store is opened.
+    fn read(
+        command: &str,
+        name: Option<String>,
+        prompt_sha256: Option<String>,
+    ) -> Result<Option<Self>> {
+        match (name, prompt_sha256) {
+            (None, None) => Ok(None),
+            (Some(name), Some(hash)) => {
+                if name.trim().is_empty() {
+                    bail!("{command}: --decider-name is blank; name the adapter that answered");
+                }
+                if !is_prompt_hash(&hash) {
+                    bail!(
+                        "{command}: --prompt-sha256 {hash:?} is no PromptHash: 64 lower-case \
+                         hexadecimal characters"
+                    );
+                }
+                Ok(Some(Self {
+                    name,
+                    prompt_sha256: PromptHash(hash),
+                }))
+            }
+            (Some(_), None) => {
+                bail!("{command}: --decider-name is given without --prompt-sha256; give both")
+            }
+            (None, Some(_)) => {
+                bail!("{command}: --prompt-sha256 is given without --decider-name; give both")
+            }
+        }
+    }
+}
+
+/// Whether `text` is a `PromptHash`: a SHA-256 as 64 lower-case hexadecimal characters.
+fn is_prompt_hash(text: &str) -> bool {
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Records `fields` as conductor's decision, with `adapter`'s evidence when the `Decider` adapter
+/// answered it, and appends its `decided` line; prints nothing. A class O or H decision is
+/// refused before an id is allocated (`ReservedForOperator`), and a repository's charter lines are
+/// printed on standard error first ([`print_charter`]).
+fn conductor_decided(
+    command: &str,
+    state: Option<&Path>,
+    fields: &Fields,
+    adapter: Option<&Adapter>,
+) -> Result<Allocated> {
     let input = |decision_id| RecordConductorDecision {
         decision_id,
         decision_class: fields.decision_class,
@@ -267,6 +367,8 @@ pub fn record_conductor_decision(
         evidence: fields.evidence.clone(),
         decided_at: fields.decided_at.clone(),
         repository: fields.repository.clone(),
+        decider_name: adapter.map(|adapter| adapter.name.clone()),
+        prompt_sha256: adapter.map(|adapter| adapter.prompt_sha256.clone()),
     };
     // The specification refuses class O and H on the input alone (`reserved`, before it reads a
     // record), so it is asked over a store that holds and keeps nothing before an id is allocated:
@@ -274,46 +376,49 @@ pub fn record_conductor_decision(
     if fields.decision_id.is_none()
         && let RecordConductorDecisionOutcome::Reserved { .. } = Generated::new(Unstored)
             .record_conductor_decision(input(DecisionId(String::new())))
-            .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?
+            .map_err(|unmet| anyhow!("{command}: {unmet}"))?
     {
-        return refused(
-            COMMAND,
-            "ReservedForOperator",
-            &format!(
+        return Ok(Allocated::Refused(Refusal {
+            error: "ReservedForOperator",
+            detail: format!(
                 "a class {} decision is one only the operator decides (design § 5); no id was \
                  allocated and nothing was recorded",
                 class_name(fields.decision_class)
             ),
-        );
+        }));
     }
     if let Some(repository) = &fields.repository {
-        print_charter(COMMAND, &repository.0)?;
+        print_charter(command, &repository.0)?;
     }
-    record_decision(
-        COMMAND,
-        state,
-        &fields,
-        Decider::Conductor,
-        None,
-        |generated, decision_id| {
-            let outcome = generated
-                .record_conductor_decision(input(decision_id))
-                .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
-            Ok(match outcome {
-                RecordConductorDecisionOutcome::Recorded { .. } => Answer::Recorded,
-                RecordConductorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
-                RecordConductorDecisionOutcome::Reserved { error } => Answer::Refused(Refusal {
-                    error: "ReservedForOperator",
-                    detail: format!(
-                        "decision {:?} is class {}, which only the operator decides \
-                         (design § 5); nothing was recorded",
-                        error.decision_id.0,
-                        class_name(fields.decision_class)
-                    ),
-                }),
-            })
-        },
-    )
+    let allocated = allocate(command, state, None, fields, |generated, decision_id| {
+        let outcome = generated
+            .record_conductor_decision(input(decision_id))
+            .map_err(|unmet| anyhow!("{command}: {unmet}"))?;
+        Ok(match outcome {
+            RecordConductorDecisionOutcome::Recorded { .. } => Answer::Recorded,
+            RecordConductorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
+            RecordConductorDecisionOutcome::Reserved { error } => Answer::Refused(Refusal {
+                error: "ReservedForOperator",
+                detail: format!(
+                    "decision {:?} is class {}, which only the operator decides (design § 5); \
+                     nothing was recorded",
+                    error.decision_id.0,
+                    class_name(fields.decision_class)
+                ),
+            }),
+        })
+    })?;
+    if let Allocated::Recorded(_, decision_id) = &allocated {
+        let mut line = decided_line(fields, decision_id, None)?;
+        line.decided_by = Some(Decider::Conductor);
+        if let Some(adapter) = adapter {
+            line.decider_name = Some(adapter.name.clone());
+            line.prompt_sha256 = Some(adapter.prompt_sha256.clone());
+        }
+        records::append_decision(&line)
+            .with_context(|| format!("{command}: decision {}", decision_id.0))?;
+    }
+    Ok(allocated)
 }
 
 /// `conductor decision record-operator-decision`: the command
@@ -1056,6 +1161,107 @@ fn escalate(
     }
 }
 
+/// `conductor decision amend-escalated-request`: the command
+/// `conductor.decision.AmendEscalatedRequest` (`story:request-amend-escalated`).
+///
+/// A field given replaces the held one and a field left out stays; the result is checked as an
+/// escalation is, before anything is written.
+///
+/// # Errors
+///
+/// `--reason` is missing, the store does not open or keep the change, the options do not fit
+/// (`OptionsInvalid`), or the specification refuses it: `RequestNotFound`,
+/// `RequestStateConflict` (the request is not escalated).
+pub fn amend_escalated_request(
+    state: Option<&Path>,
+    args: AmendEscalatedRequestArgs,
+) -> Result<ExitCode> {
+    const COMMAND: &str = "decision amend-escalated-request";
+    flags_only(
+        args.input_json,
+        "decision amend-escalated-request --input-json",
+    )?;
+    let request_id = RequestId(flag(COMMAND, "--request-id", args.request_id)?);
+    let reason = flag(COMMAND, "--reason", args.reason)?;
+    let invalid = |problem: String| {
+        anyhow!(
+            "{COMMAND}: OptionsInvalid: {problem}; request {:?} is unchanged",
+            request_id.0
+        )
+    };
+    let kind = args
+        .kind
+        .as_deref()
+        .map(|name| kind_named(name).ok_or_else(|| invalid(format!("{name:?} is no RequestKind"))))
+        .transpose()?;
+    let options = args
+        .lettered_options
+        .as_deref()
+        .map(lettered_options)
+        .transpose()
+        .map_err(invalid)?;
+    let mut input = AmendEscalatedRequest {
+        request_id: request_id.clone(),
+        reason: reason.clone(),
+        kind,
+        lettered_options: options,
+        recommended_letters: args.recommended_letters,
+        default_letters: args.default_letters,
+        deadline: args.deadline.map(Timestamp),
+        dry_run: args.dry_run,
+    };
+    let mut generated = record(COMMAND, state)?;
+    let held = DecisionRequestStorage::get(&generated.ports, &request_id);
+    kept(COMMAND, &generated.ports.store)?;
+    // The specification sets every field from the input, so a field left out is filled from the
+    // held request; a request that is not escalated is left to the specification's refusal.
+    if let Some(held) = held.filter(|held| held.state == DecisionRequestState::Escalated) {
+        let held = held.data;
+        input.kind = input.kind.or(held.kind);
+        input.lettered_options = input.lettered_options.or(held.lettered_options);
+        input.recommended_letters = input.recommended_letters.or(held.recommended_letters);
+        input.default_letters = input.default_letters.or(held.default_letters);
+        input.deadline = input.deadline.or(held.deadline);
+        input.dry_run = input.dry_run.or(held.dry_run);
+        let checked = Choices::check(
+            held.escalation_class.unwrap_or(DecisionClass::O),
+            input.kind,
+            input.lettered_options.clone(),
+            input.recommended_letters.as_deref(),
+            input.default_letters.as_deref(),
+            ["--recommended-letters", "--default-letters"],
+        )
+        .map_err(invalid)?;
+        input.recommended_letters = checked.recommended;
+        input.default_letters = checked.default;
+    }
+    let outcome = generated
+        .amend_escalated_request(input)
+        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+    kept(COMMAND, &generated.ports.store)?;
+    match outcome {
+        AmendEscalatedRequestOutcome::Amended { request_amended } => request_logged(
+            COMMAND,
+            &generated.ports,
+            &request_amended.request_id,
+            DecisionLogEvent::Amended,
+            |line| line.reason = Some(reason),
+        ),
+        AmendEscalatedRequestOutcome::NoSuchRequest { error } => {
+            refused(COMMAND, "RequestNotFound", &no_request(&error.request_id))
+        }
+        AmendEscalatedRequestOutcome::NotEscalated { error } => refused(
+            COMMAND,
+            "RequestStateConflict",
+            &format!(
+                "request {:?} is not escalated, and only an escalated request is amended; it is \
+                 unchanged",
+                error.request_id.0
+            ),
+        ),
+    }
+}
+
 /// What the dry run in `file` printed (`story:hand-item-dry-run`), its trailing whitespace dropped;
 /// a file that cannot be read is named, before any store is opened.
 fn dry_run_of(command: &str, file: &str) -> Result<String> {
@@ -1091,6 +1297,26 @@ impl Choices {
             .map(|name| kind_named(name).ok_or_else(|| format!("{name:?} is no RequestKind")))
             .transpose()?;
         let options = options.map(lettered_options).transpose()?;
+        Self::check(
+            class,
+            kind,
+            options,
+            recommended,
+            default,
+            ["--recommended-letters", "--default-letters"],
+        )
+    }
+
+    /// [`Self::read`] on options already parsed; `flags` name the recommended and the default
+    /// letters in what it says.
+    fn check(
+        class: DecisionClass,
+        kind: Option<RequestKind>,
+        options: Option<Vec<RequestOption>>,
+        recommended: Option<&str>,
+        default: Option<&str>,
+        flags: [&str; 2],
+    ) -> std::result::Result<Self, String> {
         if let Some(options) = &options {
             let mut seen = std::collections::BTreeSet::new();
             for option in options {
@@ -1130,9 +1356,7 @@ impl Choices {
                 if class == DecisionClass::O {
                     return Ok(Some(letters.join(",")));
                 }
-                return Err(format!(
-                    "{flag} names letters, and no --lettered-options are given"
-                ));
+                return Err(format!("{flag} names letters, and no options are given"));
             };
             if let Some(stray) = letters
                 .iter()
@@ -1144,8 +1368,8 @@ impl Choices {
             }
             Ok(Some(letters.join(",")))
         };
-        let recommended = letters("--recommended-letters", recommended)?;
-        let default = letters("--default-letters", default)?;
+        let recommended = letters(flags[0], recommended)?;
+        let default = letters(flags[1], default)?;
         Ok(Self {
             kind,
             options,
@@ -1206,6 +1430,39 @@ pub fn kind_named(name: &str) -> Option<RequestKind> {
     ]
     .into_iter()
     .find(|kind| kind_name(*kind) == name)
+}
+
+/// Every classification rule, in the specification's order.
+pub const RULES: [ClassificationRule; 7] = [
+    ClassificationRule::DataLoss,
+    ClassificationRule::HistoryRewrite,
+    ClassificationRule::RepositoryLifecycle,
+    ClassificationRule::Architecture,
+    ClassificationRule::Credential,
+    ClassificationRule::Hands,
+    ClassificationRule::None,
+];
+
+/// The rule's name as the specification spells it (`story:decide-model-adapter`). Exhaustive, so
+/// a rule the specification adds fails to compile here rather than being written under a guessed
+/// name.
+#[must_use]
+pub const fn rule_name(rule: ClassificationRule) -> &'static str {
+    match rule {
+        ClassificationRule::DataLoss => "data-loss",
+        ClassificationRule::HistoryRewrite => "history-rewrite",
+        ClassificationRule::RepositoryLifecycle => "repository-lifecycle",
+        ClassificationRule::Architecture => "architecture",
+        ClassificationRule::Credential => "credential",
+        ClassificationRule::Hands => "hands",
+        ClassificationRule::None => "none",
+    }
+}
+
+/// The rule `name` spells, as [`rule_name`] writes it.
+#[must_use]
+pub fn rule_named(name: &str) -> Option<ClassificationRule> {
+    RULES.into_iter().find(|rule| rule_name(*rule) == name)
 }
 
 /// An option as the views, the store and the dashboard write it: `{letter, label, cost}`.
@@ -1396,6 +1653,7 @@ pub fn requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.recommendation),
                 Value::from(row.raised_at.0),
                 Value::from(row.blocker),
+                Value::from(row.classification_rule.map(rule_name)),
                 Value::from(row.kind.map(kind_name)),
                 row.lettered_options.map_or(Value::Null, |options| {
                     Value::Array(options.iter().map(option_value).collect())
@@ -1506,6 +1764,8 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
                 Value::from(row.recorded_by),
                 Value::from(row.operator_words),
                 Value::from(row.repository.map(|repository| repository.0)),
+                Value::from(row.decider_name),
+                Value::from(row.prompt_sha256.map(|hash| hash.0)),
             ]
         })
         .collect();
@@ -1517,7 +1777,7 @@ pub fn decisions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 }
 
 /// The fields `decision show` renders, in its order: a row of the `Decisions` view.
-const SHOWN: [&str; 13] = [
+const SHOWN: [&str; 15] = [
     "decision_id",
     "state",
     "decision_class",
@@ -1531,6 +1791,8 @@ const SHOWN: [&str; 13] = [
     "recorded_by",
     "operator_words",
     "repository",
+    "decider_name",
+    "prompt_sha256",
 ];
 
 /// `conductor decision show`: the binding's `decision-show` callable over
@@ -1584,6 +1846,8 @@ pub fn show(state: Option<&Path>, args: ShowDecisionArgs) -> Result<ExitCode> {
         Value::from(row.recorded_by),
         Value::from(row.operator_words),
         Value::from(row.repository.map(|repository| repository.0)),
+        Value::from(row.decider_name),
+        Value::from(row.prompt_sha256.map(|hash| hash.0)),
     ];
     let rendered = if json {
         ViewArgs {
@@ -1672,7 +1936,7 @@ fn decision_logged(
 /// Opens the existing store a view reads, creating nothing.
 fn existing(view: &str, state: Option<&Path>) -> Result<Generated<Ports>> {
     Ok(Generated::new(Ports {
-        store: crate::state::open_existing(state).with_context(|| view.to_owned())?,
+        store: crate::state::open_reader(state).with_context(|| view.to_owned())?,
     }))
 }
 
@@ -1760,6 +2024,8 @@ impl RecordOperatorDecisionForRequestBehavior for Ports {
             recorded_by: Some(input.recorded_by),
             operator_words: Some(input.operator_words),
             repository: input.repository,
+            decider_name: None,
+            prompt_sha256: None,
         };
         DecisionStorage::put(self, AnyDecision::InForce(Decision::new(data)).snapshot());
         Ok(RecordOperatorDecisionForRequestOutcome::Recorded {

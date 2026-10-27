@@ -28,19 +28,25 @@
       "collector": "repositories",
       "started_at": "2026-10-13T09:20:00Z",
       "duration_ms": 41000,
-      "outcome": "Completed"
+      "outcome": "Completed",
+      "read_bytes": 52428800,
+      "written_bytes": 1048576
     },
     {
       "collector": "ci",
       "started_at": "2026-10-13T09:20:41Z",
       "duration_ms": 18250,
-      "outcome": "Completed"
+      "outcome": "Completed",
+      "read_bytes": 2097152,
+      "written_bytes": 524288
     },
     {
       "collector": "blockers",
       "started_at": "2026-10-13T09:20:59Z",
       "duration_ms": 123000,
-      "outcome": "OverBudget"
+      "outcome": "OverBudget",
+      "read_bytes": null,
+      "written_bytes": null
     }
   ],
   "member_failures": [
@@ -65,6 +71,9 @@
     "disk_low_bytes": 42949672960,
     "disk_admit_bytes": 21474836480,
     "state": "low",
+    "falls": [
+      { "prefix": "alpha", "instance": "example-org", "item": "disk-example" }
+    ],
     "measured_at": "2026-10-13T09:25:00Z",
     "measured_ago": "5m",
     "measuring": false,
@@ -108,6 +117,17 @@
         "gc": "kept: not conductor's"
       }
     ]
+  },
+  "memory": {
+    "rss_bytes": 75587584,
+    "swap_bytes": 0,
+    "store_handles": 1,
+    "store_replays": 2,
+    "store_replays_peak": 1,
+    "store_bytes": 1607468,
+    "memo_entries": 29,
+    "memo_entries_peak_endpoint": 16,
+    "memo_bytes": 22023
   },
   "errors": []
 }

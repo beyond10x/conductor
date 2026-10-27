@@ -2,9 +2,13 @@
 format: aep.planning-md/3
 id: story:request-amend-escalated
 kind: story
-status: draft
+status: implemented
 title: An escalated decision request can be completed in place
-revision: 3
+revision: 6
+transitions:
+- {from: "draft", to: "proposed", at: "2026-10-16T15:45:13Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-10-16T15:45:13Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-10-16T15:45:13Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 # Story: request-amend-escalated
 

@@ -22,6 +22,20 @@
 //! (`RecordMemberFailure`, `snapshot member-failures`, `story:snapshot-member-failures`) and goes
 //! on.
 //!
+//! A snapshot never stays `Collecting` after its run is gone (`story:snapshot-store-cost`). The
+//! driver's process holds a lock on `snapshots/<snapshot id>.lock` in the state directory from
+//! the start until the run ends, and the next start fails, with the reason `process gone`
+//! ([`PROCESS_GONE`]), every snapshot collecting whose lock no process holds: a run that was
+//! killed, or one a build before this left. Starts take turns on `snapshots/.start.lock`, so a
+//! start never finds another's snapshot before its lock is held. `fail-snapshot` still ends one by
+//! hand.
+//!
+//! The observations a collector records are committed together when it ends
+//! ([`Store::hold_observations`]): a commit lists the whole observation store, so one per record
+//! made a snapshot's cost grow with every snapshot kept. Each collector's run records the bytes
+//! the process read and wrote while it ran, that commit included (`read_bytes`,
+//! `written_bytes`, `story:snapshot-store-cost`).
+//!
 //! Once a snapshot is kept `Complete`, by the driver or by `complete-snapshot`, the store drops the
 //! observations of the snapshots the instance's `retention.snapshots` does not keep
 //! ([`Store::retain`], `story:observation-retention`); the `Snapshot` records stay. Before that,
@@ -44,6 +58,7 @@
 
 use std::any::Any;
 use std::fmt::Display;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -184,7 +199,13 @@ fn drive(
     collectors: &[Collector],
 ) -> Result<Taken> {
     let budget = budget_of(start.budget)?;
+    let running_dir = state
+        .map_or_else(|| store.state_dir().to_owned(), Path::to_owned)
+        .join(RUNNING_DIR);
     let mut generated = Generated::new(Ports { store });
+    // One start at a time: a start that finds a snapshot collecting finds its process's lock.
+    let starting = Running::hold(&running_dir, STARTING, true)?;
+    fail_gone(&mut generated, &running_dir)?;
     let snapshot_id = match generated
         .start_snapshot(start)
         .map_err(|unmet| anyhow!("snapshot start-snapshot: {unmet}"))?
@@ -202,10 +223,15 @@ fn drive(
         .store
         .check()
         .context("keep the started snapshot")?;
+    let _running = Running::hold(&running_dir, &lock_name(&snapshot_id.0.0), false)?;
+    drop(starting);
 
+    // Each collector's observations are committed together when it ends (`Store::hold_observations`).
+    generated.ports.store.hold_observations();
     let mut reason = None;
     for collector in collectors {
         let started_at = Timestamp(now()?);
+        let io = process_io();
         let clock = Instant::now();
         let answered = collect::within(budget.map(|budget| clock + budget), || {
             panic::catch_unwind(AssertUnwindSafe(|| {
@@ -218,6 +244,9 @@ fn drive(
             .unwrap_or_else(|payload| Err(anyhow!("panicked: {}", panic_message(payload.as_ref()))))
         });
         let took = clock.elapsed();
+        // A failed commit is kept on the store, and the check below names it.
+        let _ = generated.ports.store.commit_observations();
+        let (read_bytes, written_bytes) = io_since(io, process_io());
         generated.ports.store.check().with_context(|| {
             format!(
                 "keep what collector {} recorded; snapshot {} is left collecting",
@@ -242,6 +271,8 @@ fn drive(
                 started_at,
                 duration_ms: i64::try_from(took.as_millis()).unwrap_or(i64::MAX),
                 outcome,
+                read_bytes,
+                written_bytes,
             },
         )?;
         if let (CollectorRunOutcome::Failed, Err(error)) = (outcome, answered) {
@@ -249,6 +280,16 @@ fn drive(
             break;
         }
     }
+    generated
+        .ports
+        .store
+        .release_observations()
+        .with_context(|| {
+            format!(
+                "keep what the collectors recorded; snapshot {} is left collecting",
+                snapshot_id.0.0
+            )
+        })?;
 
     let state = match &reason {
         None => {
@@ -354,6 +395,160 @@ fn retain(store: &Store, completed: &SnapshotId) -> Result<()> {
     Ok(())
 }
 
+/// The directory under the state directory where the process of each snapshot collecting holds
+/// a lock on `<snapshot id>.lock` until the run ends (`story:snapshot-store-cost`).
+const RUNNING_DIR: &str = "snapshots";
+
+/// The lock in [`RUNNING_DIR`] a start holds from its look at the snapshots collecting until its
+/// own snapshot's lock is held, so that no start finds another's snapshot collecting before its
+/// lock is there. Never removed: a start waiting on it holds the same file.
+const STARTING: &str = ".start.lock";
+
+/// The reason a start fails a snapshot with when the process collecting it is gone.
+pub const PROCESS_GONE: &str = "process gone";
+
+/// A lock file in [`RUNNING_DIR`], held until this is dropped; a snapshot's own is removed then.
+struct Running {
+    path: PathBuf,
+    removed: bool,
+    _file: File,
+}
+
+impl Running {
+    /// Holds `dir/name`, creating both: the start lock ([`STARTING`]) waiting for another start
+    /// to let it go and kept, a snapshot's own lock at once and removed when dropped.
+    ///
+    /// # Errors
+    ///
+    /// The directory or the file cannot be created or locked, or a snapshot's lock is held.
+    fn hold(dir: &Path, name: &str, starting: bool) -> Result<Self> {
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+        let path = dir.join(name);
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .with_context(|| format!("open {}", path.display()))?;
+        if starting {
+            file.lock()
+        } else {
+            file.try_lock().map_err(io::Error::from)
+        }
+        .with_context(|| format!("hold {}", path.display()))?;
+        Ok(Self {
+            path,
+            removed: !starting,
+            _file: file,
+        })
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        if self.removed {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// The name of the lock a snapshot's process holds in [`RUNNING_DIR`]: its id, with every byte
+/// outside `[A-Za-z0-9_-]` written `%XX`, and `.lock`.
+fn lock_name(snapshot: &str) -> String {
+    let mut name = String::with_capacity(snapshot.len() + 5);
+    for byte in snapshot.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
+            name.push(char::from(byte));
+        } else {
+            name.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    name.push_str(".lock");
+    name
+}
+
+/// Whether a process holds the lock of the snapshot `snapshot` in `dir`. A lock that is not there
+/// is held by none; one that cannot be asked for is taken as held, so a snapshot is never failed
+/// on a doubt.
+fn collected(dir: &Path, snapshot: &str) -> bool {
+    let path = dir.join(lock_name(snapshot));
+    let file = match OpenOptions::new().write(true).open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
+    match file.try_lock() {
+        Ok(()) => false,
+        Err(fs::TryLockError::WouldBlock) => true,
+        Err(fs::TryLockError::Error(_)) => true,
+    }
+}
+
+/// Fails, with the reason [`PROCESS_GONE`], every snapshot the store holds `Collecting` whose
+/// process holds no lock in `dir`: one whose run was killed, or one a build before this kept
+/// without a lock. Its lock file, if one was left, is removed. A snapshot another command ended
+/// meanwhile is left as it is.
+///
+/// # Errors
+///
+/// A behaviour declares no outcome, or the store did not keep the failure.
+fn fail_gone(generated: &mut Generated<Ports>, dir: &Path) -> Result<()> {
+    let gone: Vec<SnapshotId> = SnapshotStorage::list(&generated.ports.store)
+        .into_iter()
+        .filter(|snapshot| snapshot.state == SnapshotState::Collecting)
+        .map(|snapshot| snapshot.data.snapshot_id)
+        .filter(|snapshot| !collected(dir, &snapshot.0.0))
+        .collect();
+    for snapshot in gone {
+        match generated
+            .fail_snapshot(FailSnapshot {
+                snapshot_id: snapshot.clone(),
+                reason: PROCESS_GONE.to_owned(),
+            })
+            .map_err(|unmet| anyhow!("{unmet}"))?
+        {
+            FailSnapshotOutcome::Failed { .. }
+            | FailSnapshotOutcome::NoSuchSnapshot { .. }
+            | FailSnapshotOutcome::WrongState { .. } => {}
+        }
+        generated.ports.store.check().with_context(|| {
+            format!(
+                "fail snapshot {}, whose process is gone; no snapshot started",
+                snapshot.0.0
+            )
+        })?;
+        let _ = fs::remove_file(dir.join(lock_name(&snapshot.0.0)));
+    }
+    Ok(())
+}
+
+/// The bytes this process has read and written so far, every thread's together (`rchar` and
+/// `wchar` of `/proc/self/io`: from the page cache or the disk); `None` where the system does not
+/// report them.
+fn process_io() -> Option<(u64, u64)> {
+    let io = fs::read_to_string("/proc/self/io").ok()?;
+    let field = |name: &str| {
+        io.lines().find_map(|line| {
+            line.strip_prefix(name)?
+                .strip_prefix(": ")?
+                .trim()
+                .parse()
+                .ok()
+        })
+    };
+    Some((field("rchar")?, field("wchar")?))
+}
+
+/// The bytes read and written between `before` and `after` ([`process_io`]), as a collector's run
+/// records them; `None` each where either is unknown.
+fn io_since(before: Option<(u64, u64)>, after: Option<(u64, u64)>) -> (Option<i64>, Option<i64>) {
+    let (Some((read, written)), Some((read_after, written_after))) = (before, after) else {
+        return (None, None);
+    };
+    let bytes = |from: u64, to: u64| i64::try_from(to.saturating_sub(from)).ok();
+    (bytes(read, read_after), bytes(written, written_after))
+}
+
 /// What a panic said, when it said it as text.
 fn panic_message(payload: &(dyn Any + Send)) -> &str {
     payload
@@ -435,6 +630,15 @@ impl Recorder<'_> {
                  with `snapshot::take_in`"
             )
         })
+    }
+
+    /// The store the snapshot records into, for a collector that reads what an earlier snapshot
+    /// kept: a read over a handle of its own would read the whole store once more
+    /// (`story:snapshot-store-cost`). A read that may meet records this build cannot read goes
+    /// through [`Store::apart`], which keeps them off this handle.
+    #[must_use]
+    pub fn store(&self) -> &Store {
+        &self.generated.ports.store
     }
 
     /// `RecordRepository`: one repository's state.
@@ -940,7 +1144,7 @@ pub fn releases(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "published_at",
         "url",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .releases()
         .map_err(|unmet| anyhow!("snapshot releases: {unmet}"))?;
@@ -976,7 +1180,7 @@ pub fn merged_pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<Exit
         "merged_at",
         "url",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .merged_pull_requests()
         .map_err(|unmet| anyhow!("snapshot merged-pull-requests: {unmet}"))?;
@@ -1180,6 +1384,8 @@ pub fn record_collector_run(
             started_at: Timestamp(given(args.started_at, "started-at")?),
             duration_ms: given(args.duration_ms, "duration-ms")?,
             outcome: given_named(args.outcome, "outcome", collector_run_outcome_named)?,
+            read_bytes: args.read_bytes,
+            written_bytes: args.written_bytes,
         };
         let dir = absolute(&crate::state::dir(state)?)?;
         let mut generated = Generated::new(Ports {
@@ -1310,7 +1516,7 @@ pub fn snapshots(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "disk_free_bytes",
         "failure_reason",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .snapshots()
         .map_err(|unmet| anyhow!("snapshot snapshots: {unmet}"))?;
@@ -1363,7 +1569,7 @@ pub fn repositories(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "wave_ready",
         "wave_reason",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .repositories()
         .map_err(|unmet| anyhow!("snapshot repositories: {unmet}"))?;
@@ -1423,7 +1629,7 @@ pub fn pull_requests(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "updated_at",
         "url",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .pull_requests()
         .map_err(|unmet| anyhow!("snapshot pull-requests: {unmet}"))?;
@@ -1464,7 +1670,7 @@ pub fn workflow_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "conclusion",
         "run_at",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .workflow_runs()
         .map_err(|unmet| anyhow!("snapshot workflow-runs: {unmet}"))?;
@@ -1509,7 +1715,7 @@ pub fn sessions(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "envelope_writable",
         "envelope_unboxed",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .sessions()
         .map_err(|unmet| anyhow!("snapshot sessions: {unmet}"))?;
@@ -1554,7 +1760,7 @@ pub fn blockers(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "blocker_kind",
         "title",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .blockers()
         .map_err(|unmet| anyhow!("snapshot blockers: {unmet}"))?;
@@ -1595,7 +1801,7 @@ pub fn specifications(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "synthesis_refusals",
         "conformance_status",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .specifications()
         .map_err(|unmet| anyhow!("snapshot specifications: {unmet}"))?;
@@ -1637,7 +1843,7 @@ pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
         "collector",
         "error_line",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .member_failures()
         .map_err(|unmet| anyhow!("snapshot member-failures: {unmet}"))?;
@@ -1657,23 +1863,25 @@ pub fn member_failures(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode>
 }
 
 /// `conductor snapshot collector-runs`: the view `conductor.observation.CollectorRuns`, each
-/// collector's run of every kept snapshot, with its start, its duration in milliseconds and how it
-/// ended; a row's `snapshot_id` names its snapshot.
+/// collector's run of every kept snapshot, with its start, its duration in milliseconds, how it
+/// ended and the bytes read and written while it ran; a row's `snapshot_id` names its snapshot.
 ///
 /// # Errors
 ///
 /// There is no store, a read of it fails for a reason other than a record this build cannot read,
 /// or the rows cannot be written to standard output.
 pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
-    const COLUMNS: [&str; 6] = [
+    const COLUMNS: [&str; 8] = [
         "observation_id",
         "snapshot_id",
         "collector",
         "started_at",
         "duration_ms",
         "outcome",
+        "read_bytes",
+        "written_bytes",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .collector_runs()
         .map_err(|unmet| anyhow!("snapshot collector-runs: {unmet}"))?;
@@ -1687,6 +1895,8 @@ pub fn collector_runs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
                 Value::from(row.started_at.0),
                 Value::from(row.duration_ms),
                 Value::from(collector_run_outcome_name(row.outcome)),
+                Value::from(row.read_bytes),
+                Value::from(row.written_bytes),
             ]
         })
         .collect();
@@ -1713,7 +1923,7 @@ pub fn secret_syncs(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "secrets_updated_at",
         "error_line",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .secret_syncs()
         .map_err(|unmet| anyhow!("snapshot secret-syncs: {unmet}"))?;
@@ -1756,7 +1966,7 @@ pub fn usage_readings(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> 
         "used_percent",
         "resets_at",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .usage_readings()
         .map_err(|unmet| anyhow!("snapshot usage-readings: {unmet}"))?;
@@ -1836,6 +2046,14 @@ delegate! {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_tool_tool_call_id(
+        &mut self,
+    ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.tool.ToolCallId",
+        ))
+    }
+
     fn try_generate_conductor_direction_serving_id(
         &mut self,
     ) -> Result<ServingId, UnmetObligation> {
@@ -1885,6 +2103,30 @@ impl TryContext for Ports {
     ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
         Err(unmet_context("conductor.host.ReclaimRunId"))
     }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
+    }
 }
 
 /// Each enum's names as the specification spells them: `$name` answers a value's name and
@@ -1915,7 +2157,7 @@ names! {
         [Busy, Idle, Waiting, Background, Unknown];
     EnvelopeProvider: envelope_provider_name, envelope_provider_named = [Systemd];
     SpecificationPresence: specification_presence_name, specification_presence_named =
-        [Present, OptedOut, Missing];
+        [Present, OptedOut, Missing, NotInWorkspace];
     ValidationResult: validation_result_name, validation_result_named = [Valid, Refused, NotRun];
     CollectorRunOutcome: collector_run_outcome_name, collector_run_outcome_named =
         [Completed, Failed, OverBudget];

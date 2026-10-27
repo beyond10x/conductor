@@ -82,14 +82,26 @@ types:
   # nothing and opens no store. `item` is a comma-separated list of item numbers, printed in the
   # order given wherever they sit in the file; `section` is a heading, matched without regard to
   # case, and prints every item under each heading of that text, its subsections' included, in
-  # file order; without either it prints every item, and both together are refused. `format` is
+  # file order. A role's name and its old name (`conductor.config.RoleName`) match each other's
+  # heading for one release, `director` a heading `conductor`, `maintainer` one `conductor-dev`
+  # and `lead` one `controller` or `repository controller`, and a heading matched by the other
+  # name is noted on standard error (story:role-name-aliases); without either it prints every item, and both together are refused. `format` is
   # text (the items verbatim, one blank line between two) or json (a list of `RulesRow`). A number
   # no item holds, or a heading the file does not hold, is refused (`RulesRefused`) and nothing is
   # printed. `brief` prints, instead of each item verbatim, one line per item: its number, `. ` and
-  # its first sentence as the file writes it, on one line (up to the first `.`, `?` or `!` followed,
-  # after any closing `*`, `_`, `` ` ``, `)` or quote, by white space or the item's end; else its
-  # first line), so a session reads a section's titles and asks for an item whole with `item`;
-  # with `format` json it is refused, a row already carrying its `title`.
+  # its `title` (`RulesRow`), so a session reads a section's titles and asks for an item whole with
+  # `item` (story:conductor-context-budget); with `format` json it is refused, a row already
+  # carrying its `title`. `changed_since` is a git revision of the records directory: of the items
+  # selected, only those whose text differs from the item of that number in that revision's
+  # `rules.md`, or that it does not hold, are printed, and the numbers it held that the file no
+  # longer holds are named on one line of standard error; a revision that does not resolve is
+  # refused (`RevisionNotFound`) and nothing is printed. `role` (story:rules-into-code) is a role's
+  # name, `all`, `conductor`, `controller`, `worker` or `maintainer`: it reads that role's rule
+  # file, `rules/<role>.md` in the records directory, instead of `rules.md`, and prints its rules
+  # (the lines that open with `- ` or a number and `. `) one per line; with `changed_since` only
+  # the rules that revision's file of the role does not hold. It is refused with `item`,
+  # `section`, `brief` or `format` json, and for a name that is no role; a role whose file the
+  # records do not hold is refused (`RuleRoleNotFound`).
   - name: conductor.direction.Rules
     kind: struct
     fields:
@@ -97,13 +109,16 @@ types:
       - {name: section, type: Optional<String>}
       - {name: format, type: Optional<String>}
       - {name: brief, type: Optional<Boolean>}
+      - {name: changed_since, type: Optional<String>}
+      - {name: role, type: Optional<String>}
 
   # Why `conductor rules show` printed nothing and exited 1: `RuleItemNotFound`, no item of
   # rules.md has a number it was given; `RuleSectionNotFound`, no heading has the text it was
-  # given.
+  # given; `RevisionNotFound`, the records directory's git does not resolve the revision
+  # `changed_since` names.
   - name: conductor.direction.RulesRefusal
     kind: enum
-    variants: [RuleItemNotFound, RuleSectionNotFound]
+    variants: [RuleItemNotFound, RuleSectionNotFound, RevisionNotFound, RuleRoleNotFound]
 
   # The refusal of `conductor rules show`: its kind, and what it names (the item number or the
   # heading the file does not hold).
@@ -112,6 +127,17 @@ types:
     fields:
       - {name: refusal, type: conductor.direction.RulesRefusal}
       - {name: detail, type: String}
+
+  # The input of `conductor need new` (story:need-id-unique). It prints the next id no earlier NEED
+  # used, `N-<yyyymmdd>-<nn>` (at least two digits, counted from 01 for the day), and keeps it in
+  # the state directory, so two calls never print the same id, a restart included. An id the
+  # records' hand-overs, decisions or dispatches already cite for that day is skipped too. `day`
+  # is the UTC date, `yyyy-mm-dd`, the id is minted for; without it, today. A `day` that is no
+  # date is refused on one line of standard error naming it, and nothing is kept.
+  - name: conductor.direction.NewNeed
+    kind: struct
+    fields:
+      - {name: day, type: Optional<String>}
 
 entities:
   # An override of whether conductor processes a repository's GitHub issues and pull requests

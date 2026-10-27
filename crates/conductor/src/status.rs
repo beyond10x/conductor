@@ -42,7 +42,7 @@
 //! the count of the rows the board writes, so it is refused when given; `--input-json` is not read
 //! yet and answers [`NotImplemented`](crate::NotImplemented).
 //!
-//! The view opens only an existing store ([`crate::state::open_existing`]) and creates nothing.
+//! The view opens only an existing store ([`crate::state::open_reader`]) and creates nothing.
 //!
 //! `conductor status` ([`status`], `story:status-command`) is the view `conductor.observation.Status`:
 //! the answer to "what is the status" in one call, read from the store alone, without starting a
@@ -52,7 +52,9 @@
 //! (decision requests `Open` or `Escalated`, resource requests `Requested`); and the usage line
 //! the watch prints, `usage: pool runs out ~<hour>, next reset <minute>`, of the newest usage
 //! readings of the complete snapshots ([`crate::collect::usage::Forecast`],
-//! `story:usage-probe`), or `None: no usage reading.`. Its header also counts the unanswered
+//! `story:usage-probe`), or `None: no usage reading.`. Those seven parts, each under its heading,
+//! are its text with `--full`; without it, the text is only what asks for attention, one line each
+//! and no heading ([`attention_text`], `story:conductor-context-budget`). Its header also counts the unanswered
 //! operator items, the decision requests escalated as class O or H and not answered or withdrawn
 //! ([`unanswered`]), and names the one raised first with its age (`story:decisions-notify`):
 //! `Unanswered O/H items: <n>; the oldest, <id>, was raised <age> ago.`. With no complete
@@ -217,7 +219,7 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
         "deviation_rows",
         "path",
     ];
-    let generated = Generated::new(crate::state::open_existing(state)?);
+    let generated = Generated::new(crate::state::open_reader(state)?);
     let rows = generated
         .boards()
         .map_err(|unmet| anyhow!("snapshot boards: {unmet}"))?;
@@ -241,8 +243,8 @@ pub fn boards(state: Option<&Path>, view: ViewArgs) -> Result<ExitCode> {
 // ---------------------------------------------------------------------------------------------
 
 /// `conductor status`: the view `conductor.observation.Status`. Prints the [`StatusReport`] of
-/// the store, as text (six Markdown parts) or, with `--format json`, as one JSON object; starts
-/// no snapshot and creates nothing.
+/// the store, as the attention lines ([`attention_text`]), with `--full` as text (its Markdown
+/// parts), or, with `--format json`, as one JSON object; starts no snapshot and creates nothing.
 ///
 /// # Errors
 ///
@@ -255,12 +257,14 @@ pub fn status(state: Option<&Path>, args: &StatusArgs) -> Result<ExitCode> {
         Some("json") => true,
         Some(other) => bail!("{WHAT}: --format {other:?} is not one of text, json"),
     };
-    let store = crate::state::open_existing(state).context(WHAT)?;
+    let store = crate::state::open_reader(state).context(WHAT)?;
     let report = status_report(&store, OffsetDateTime::now_utc());
     let rendered = if json {
         format!("{}\n", status_json(&report))
-    } else {
+    } else if args.full == Some(true) {
         status_text(&report)
+    } else {
+        attention_text(&report)
     };
     crate::store::show(&store, WHAT, &rendered)
 }
@@ -433,6 +437,106 @@ fn status_report(store: &Store, now: OffsetDateTime) -> StatusReport {
         order(&left.since, &right.since).then_with(|| left.request_id.cmp(&right.request_id))
     });
     report
+}
+
+/// The most characters of free text (a request's question) an attention line carries.
+const ATTENTION_TEXT: usize = 160;
+
+/// `text` on one line, cut to [`ATTENTION_TEXT`] characters with `…` when it is longer.
+fn one_line(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() > ATTENTION_TEXT {
+        let cut: String = flat.chars().take(ATTENTION_TEXT).collect();
+        format!("{cut}…")
+    } else {
+        flat
+    }
+}
+
+/// `report` as the text `conductor status` prints without `--full`: what asks for attention,
+/// one line each and no heading (`story:conductor-context-budget`). In order: the snapshot (`snapshot
+/// <id>, started <time>, <age> ago`, or that none is complete); the unanswered operator items,
+/// when there are any; one `deviation <repo>: <deviations>` per repository with one, its failing
+/// checks after `; failing checks: `; one `blocked <dispatch> <repo> since <sent>` per blocked
+/// dispatch; one `wait <line>` per wait; one `request <kind> <id> <repo> <state> since <time>:
+/// <what>` per pending request; the usage line, when there is one; and last a line counting the
+/// open dispatches and sessions it leaves out, naming `--full`.
+fn attention_text(report: &StatusReport) -> String {
+    let mut out = String::new();
+    match (&report.snapshot_id, &report.snapshot_started_at) {
+        (Some(id), Some(started)) => {
+            let age = report
+                .snapshot_age_seconds
+                .map_or_else(|| "an unknown time".to_owned(), span);
+            out.push_str(&format!("snapshot {id}, started {started}, {age} ago\n"));
+        }
+        _ => out.push_str(
+            "snapshot: none is complete; take one with `conductor snapshot start-snapshot`\n",
+        ),
+    }
+    if report.unanswered_operator_items > 0 {
+        out.push_str(&format!(
+            "unanswered O/H items: {}",
+            report.unanswered_operator_items
+        ));
+        if let Some(id) = &report.oldest_unanswered_request_id {
+            let age = report
+                .oldest_unanswered_age_seconds
+                .map_or_else(|| "an unknown time".to_owned(), span);
+            out.push_str(&format!("; the oldest, {id}, was raised {age} ago"));
+        }
+        out.push('\n');
+    }
+    for row in &report.deviations {
+        out.push_str(&format!(
+            "deviation {}: {}",
+            row.repository,
+            row.deviations.join(", ")
+        ));
+        if !row.failing_checks.is_empty() {
+            out.push_str(&format!(
+                "; failing checks: {}",
+                row.failing_checks.join("; ")
+            ));
+        }
+        out.push('\n');
+    }
+    for row in report
+        .dispatches
+        .iter()
+        .filter(|row| row.state == "Blocked")
+    {
+        out.push_str(&format!(
+            "blocked {} {} since {}\n",
+            row.dispatch_id, row.repository, row.sent_at
+        ));
+    }
+    for wait in &report.waits {
+        out.push_str(&format!("wait {}\n", one_line(wait)));
+    }
+    for row in &report.requests {
+        out.push_str(&format!(
+            "request {} {} {} {} since {}: {}\n",
+            row.kind,
+            row.request_id,
+            row.repository,
+            row.state,
+            row.since,
+            one_line(&row.summary)
+        ));
+    }
+    if let Some(line) = &report.usage {
+        out.push_str(&format!("{}\n", one_line(line)));
+    }
+    let open = report.dispatches.len();
+    out.push_str(&format!(
+        "{open} open dispatch{} and {} session{} not listed in full: `conductor status --full` \
+         prints them\n",
+        if open == 1 { "" } else { "es" },
+        report.sessions.len(),
+        if report.sessions.len() == 1 { "" } else { "s" },
+    ));
+    out
 }
 
 /// `report` as the text `conductor status` prints: its seven parts, each under its heading.
@@ -837,6 +941,19 @@ pub(crate) fn stale_gates_hooks(store: &Store, held: &SnapshotSnapshot) -> usize
         .values()
         .filter(|figures| figures.deviations.contains(&STALE_GATES_HOOKS))
         .count()
+}
+
+/// The repositories, in name order, the snapshot `held` in `store` records as `NotInWorkspace`
+/// (`story:snapshot-unlisted-repository`).
+pub(crate) fn unlisted_repositories(store: &Store, held: &SnapshotSnapshot) -> Vec<String> {
+    let mut names: Vec<String> = observed(store, held)
+        .specifications
+        .iter()
+        .filter(|row| row.presence == SpecificationPresence::NotInWorkspace)
+        .map(|row| row.repository.0.clone())
+        .collect();
+    names.sort();
+    names
 }
 
 /// The figures of each repository of `observed` that is not archived, by name: the board's
@@ -1455,6 +1572,14 @@ impl SnapshotStorage for Ports {
 }
 
 impl TryContext for Ports {
+    fn try_generate_conductor_tool_tool_call_id(
+        &mut self,
+    ) -> Result<conductor_model::tool::ToolCallId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.tool.ToolCallId",
+        ))
+    }
+
     fn try_generate_conductor_direction_serving_id(
         &mut self,
     ) -> Result<ServingId, UnmetObligation> {
@@ -1503,5 +1628,29 @@ impl TryContext for Ports {
         &mut self,
     ) -> Result<conductor_model::host::ReclaimRunId, UnmetObligation> {
         Err(unmet_context("conductor.host.ReclaimRunId"))
+    }
+
+    fn try_generate_conductor_session_delivery_id(
+        &mut self,
+    ) -> Result<conductor_model::session::DeliveryId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.DeliveryId",
+        ))
+    }
+
+    fn try_generate_conductor_session_tick_id(
+        &mut self,
+    ) -> Result<conductor_model::session::TickId, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(
+            "conductor.session.TickId",
+        ))
+    }
+
+    fn try_external(
+        &mut self,
+        command: conductor_model::behaviour::ExternalCommand<'_>,
+        _outcome: &'static str,
+    ) -> Result<bool, UnmetObligation> {
+        Err(conductor_model::behaviour::unmet_context(command.name()))
     }
 }

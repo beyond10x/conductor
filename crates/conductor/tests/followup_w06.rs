@@ -184,8 +184,9 @@ fn describe(output: &Output) -> String {
 
 /// `decision show --decision-id <id>` renders that decision's row of the `decisions` view: one
 /// `field: value` line each, in the order id, state, class, decided by, decided at, question,
-/// options, choice, reason, evidence, recorded by, operator's words, with a line break inside a
-/// value written as a space; and
+/// options, choice, reason, evidence, recorded by, operator's words, repository, and the
+/// `Decider` adapter's name and prompt hash (`story:decide-model-adapter`), with a line break
+/// inside a value written as a space; and
 /// `--format json` gives one object with the view's values.
 #[test]
 fn decision_show_renders_one_decision_as_field_lines_or_one_json_object() {
@@ -217,6 +218,8 @@ evidence: the pilot holds 200 records
 recorded_by: null
 operator_words: null
 repository: null
+decider_name: null
+prompt_sha256: null
 ";
     assert_eq!(
         case.ok(&["decision", "show", "--decision-id", "DEC-20261007-01"]),
@@ -269,9 +272,11 @@ repository: null
         "recorded_by",
         "operator_words",
         "repository",
+        "decider_name",
+        "prompt_sha256",
     ];
     sorted.sort_unstable();
-    assert_eq!(keys, sorted, "the object holds exactly the thirteen fields");
+    assert_eq!(keys, sorted, "the object holds exactly the fifteen fields");
     let row = case
         .rows("decision", "decisions")
         .into_iter()
@@ -306,7 +311,9 @@ repository: null
             "evidence",
             "recorded_by",
             "operator_words",
-            "repository"
+            "repository",
+            "decider_name",
+            "prompt_sha256"
         ],
         "the object's keys are in the text's order: {printed}"
     );

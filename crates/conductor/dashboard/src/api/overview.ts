@@ -352,18 +352,11 @@ export function redMain(view: OverviewData): string[] {
 export type ControllerState = 'busy' | 'idle' | 'silent';
 
 /**
- * The live controller sessions of `data`: each live session working directly under the checkouts
- * root, conductor's own (in the records root) aside.
+ * The live controller sessions of `data`: each controller row of the instance's records that a
+ * live session holds (story:sessions-page-coherent), wherever it works.
  */
 export function controllers(data: DashboardData): Session[] {
-  const root = data.reading.checkouts.replace(/\/+$/, '');
-  return data.sessions.filter((session) => {
-    if (session.exited || session.cwd === null || session.cwd === data.reading.root) {
-      return false;
-    }
-    const parent = session.cwd.replace(/\/+$/, '').replace(/\/[^/]+$/, '');
-    return parent === root;
-  });
+  return data.sessions.filter((session) => session.role === 'controller' && !session.exited);
 }
 
 /**
@@ -378,15 +371,12 @@ export function controllerState(session: Session, generatedAt: string): Controll
   return session.status === 'busy' ? 'busy' : 'idle';
 }
 
-/** The controller session of the repository `name`: the one in its checkout. */
+/** The live controller session of the repository `name`, by its record's repository. */
 export function controllerOf(data: DashboardData | null, name: string): Session | null {
   if (data === null) {
     return null;
   }
-  return (
-    controllers(data).find((session) => session.cwd?.replace(/\/+$/, '').endsWith(`/${name}`)) ??
-    null
-  );
+  return controllers(data).find((session) => session.repository === name) ?? null;
 }
 
 /** One tile of the summary strip. */
@@ -456,10 +446,12 @@ export function summary(view: OverviewData): Tile[] {
       tone: unanswered === null ? 'text' : unanswered.count > 0 ? 'amber' : 'green',
     },
     {
+      // The open items that ask something of the operator, by the rule `unanswered O/H` counts
+      // them (story:sessions-page-coherent); red CI has its own tile.
       label: 'needs you',
-      value: String(awaiting + red.length),
-      sub: `${counted(awaiting, 'decision')} · ${red.length} red CI`,
-      tone: 'amber',
+      value: data === null ? '—' : String(awaiting),
+      sub: data === null ? '' : `${counted(awaiting, 'item')} to answer or do`,
+      tone: awaiting > 0 ? 'amber' : 'green',
     },
     {
       label: 'red CI on main',
@@ -514,8 +506,10 @@ export interface NeedCard {
   /** The repository it is about, if any. */
   repository: string | null;
   text: string;
-  /** The command to copy. */
+  /** What to do: an open item's action (`answer: …`, `do: …`), a red `main`'s command. */
   command: string;
+  /** The open item's place on the Decisions page; null for a red `main`. */
+  link: string | null;
 }
 
 /** The workflows of `name` whose latest `main` run failed, by name. */
@@ -527,7 +521,8 @@ function failingWorkflows(view: OverviewData, name: string): string[] {
 
 /**
  * "Needs you": one card per `awaiting_operator` row (class O for the operator's decision, H for
- * their hands), answered with the decision line to send conductor; then one per repository whose
+ * their hands), with the one action it asks and its link on the Decisions page
+ * (story:sessions-page-coherent); then one per repository whose
  * `main` is red, with the command that lists its runs in its checkout.
  */
 export function needsYou(view: OverviewData): NeedCard[] {
@@ -536,10 +531,11 @@ export function needsYou(view: OverviewData): NeedCard[] {
     const hands = row.class === 'H';
     cards.push({
       kind: hands ? 'hands' : 'operator',
-      pill: `${hands ? 'hands' : 'operator'} · class ${row.class ?? '?'}`,
-      repository: null,
-      text: row.question ?? '',
-      command: `[DECISION ${row.id ?? '?'}] <option> <reason>`,
+      pill: `${hands ? 'hands' : 'operator'} · class ${row.class} · ${row.id}`,
+      repository: row.repository,
+      text: row.question,
+      command: row.action,
+      link: row.link,
     });
   }
   const checkouts = (view.data?.reading.checkouts ?? '~').replace(/\/+$/, '');
@@ -558,6 +554,7 @@ export function needsYou(view: OverviewData): NeedCard[] {
         `cd ${checkouts}/${name} && gh run list --branch main` +
         (workflow === undefined ? '' : ` --workflow '${workflow.replace(/'/g, "'\\''")}'`) +
         ' --limit 5',
+      link: null,
     });
   }
   return cards;

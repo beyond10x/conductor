@@ -1246,7 +1246,7 @@ fn an_opt_out_is_each_phrasing_the_list_keeps_and_no_wording_near_one() {
 }
 
 #[test]
-fn a_repository_not_in_the_workspace_fails_the_snapshot_naming_it() {
+fn a_repository_not_in_the_workspace_completes_the_snapshot_with_a_row_naming_it() {
     let case = Case::new("specifications_unknown_repository");
     case.workspace(&["alpha"]);
     case.repository("alpha", &[], &fixture("alpha"));
@@ -1261,10 +1261,13 @@ fn a_repository_not_in_the_workspace_fails_the_snapshot_naming_it() {
         specifications::collect_from(&sources, record)
     });
 
-    assert_eq!(taken.state, SnapshotState::Failed);
-    let reason = taken.reason.expect("a failed snapshot has a reason");
-    assert!(reason.starts_with("specifications: "), "{reason}");
-    assert!(reason.contains("omega"), "names the repository: {reason}");
+    assert_eq!(taken.state, SnapshotState::Complete, "{:?}", taken.reason);
+    let rows = case.specifications();
+    let omega = rows
+        .iter()
+        .find(|row| row.repository.0 == "omega")
+        .expect("a row names the repository");
+    assert_eq!(omega.presence, SpecificationPresence::NotInWorkspace);
 }
 
 /// An `ess` that fails twice over one repository is a member failure, not a failed snapshot
@@ -1428,7 +1431,7 @@ fn absent_member_snapshot() {
 }
 
 /// A checkout whose directory is not its repository's name on the forge (the records checkout
-/// `records` is `conductor-archive` there) is matched to the owner's listing through the
+/// `records` is `records-archive` there) is matched to the owner's listing through the
 /// repository its `origin` remote names, and the snapshot completes (conductor's NEED
 /// N-20261012-03).
 #[test]

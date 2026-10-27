@@ -54,12 +54,14 @@
 //! writes:
 //! - the session list a command prints (`claude agents --json`), read on a thread of its own every
 //!   [`cache::SESSIONS_EVERY`], each request taking the last one with when it was read
-//!   (`reading.sessions_read_at`): one row per session whose working directory is under the
-//!   instance's checkouts root, with its current dispatch; a session without a `pid` has exited
-//!   and is listed, as `exited`, below the live ones;
+//!   (`reading.sessions_read_at`), joined with the instance's sessions from its records
+//!   ([`sessions`], `story:sessions-page-coherent`): its conductor, its maintainer, and each
+//!   controller the store runs, with its dispatch; a session without a `pid` has exited and reads
+//!   `exited`, a record no session holds `not running`; the controllers and the open operator
+//!   items are read from the store once per write to it;
 //! - `dispatches/*.jsonl` and `decisions/*.jsonl` under the records root;
-//! - the CI watch's state file, one `repo|workflow|run id|conclusion|time` per line;
-//! - the watch's usage-limit and context files (`limit.new`, `limit.seen`, `context-reported`);
+//! - the watch's usage-limit and context files (`limit.new`, `limit.seen`, `limit.reported`,
+//!   `context-reported`);
 //! - free space on `/`, through `statvfs` ([`crate::disk::space`]).
 //!
 //! When a config file names the instance this process runs ([`crate::config::active`]), the
@@ -82,6 +84,7 @@ mod health;
 pub mod overview;
 pub mod repo;
 pub mod series;
+mod sessions;
 mod usage;
 pub(crate) mod waste;
 
@@ -89,7 +92,6 @@ pub use answers::ANSWERS_PATH;
 pub use cache::{Probe, Tuning};
 pub use health::{HealthSources, failure_class};
 
-use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs;
 use std::hash::{Hash as _, Hasher as _};
@@ -102,7 +104,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use conductor_model::config::Instance;
-use conductor_model::observation::FailureClass;
+use conductor_model::observation::{DashboardMemory, FailureClass};
 use include_dir::{Dir, File, include_dir};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -123,9 +125,6 @@ pub const CONTENT_SECURITY_POLICY: &str =
 
 /// Characters of a brief, a reason or a question `/data.json` carries.
 const EXCERPT: usize = 120;
-
-/// Decision lines `/data.json` carries.
-const RECENT_DECISIONS: usize = 10;
 
 /// The longest request head read; a longer one is answered 400.
 const MAX_HEAD: usize = 16 * 1024;
@@ -200,8 +199,15 @@ pub struct Sources {
     pub sweep: Vec<OsString>,
     /// The program and arguments that print `worktree gc --dry-run --json`.
     pub gc: Vec<OsString>,
+    /// The program and arguments that print `worktree inspect --json --workspace`: the registered
+    /// managed trees, each with its live leases (`story:gc-finished-trees`).
+    pub inspect: Vec<OsString>,
     /// The directory whose entries the disk measurement lists as `/var/tmp`.
     pub var_tmp: PathBuf,
+    /// The instance's own scratch, `<cache>/scratch`: a controller's scratch is
+    /// `<cache>/scratch/<repo>`, and reclaim deletes stale entries here and in no other
+    /// instance's.
+    pub scratch: PathBuf,
     /// How long one disk measurement is shown before a request starts the next.
     pub measure_every: Duration,
     /// How long one command of the disk measurement may run before it is stopped.
@@ -229,7 +235,9 @@ impl Sources {
         ];
         let targets = waste::built_in_targets(&home);
         let context_handover = tokens(built_in.thresholds.context_handover.0);
-        Self::with(home, root, watch, checkouts, targets, context_handover)
+        let mut sources = Self::with(home, root, watch, checkouts, targets, context_handover);
+        sources.scratch = Path::new(&built_in.cache).join(SCRATCH);
+        sources
     }
 
     /// The sources of `instance`, which a config file names: `root` when `--root` names one, else
@@ -246,6 +254,7 @@ impl Sources {
         let targets = Path::new(&instance.cache).join("target");
         let context_handover = tokens(instance.thresholds.context_handover.0);
         let mut sources = Self::with(home, root, watch, checkouts, targets, context_handover);
+        sources.scratch = Path::new(&instance.cache).join(SCRATCH);
         sources.health = HealthSources::of(sources.home.clone(), instance);
         sources
     }
@@ -267,6 +276,7 @@ impl Sources {
         if active.from_file {
             let mut sources = Self::of(home, root, &active.instance);
             sources.health.config = config::explicit().map(Path::to_path_buf);
+            sources.health.host = config::host_dir().ok();
             return Ok(sources);
         }
         let root = match root {
@@ -304,7 +314,23 @@ impl Sources {
             disk: PathBuf::from("/"),
             sweep: worktree("sweep"),
             gc: worktree("gc"),
+            inspect: {
+                let mut command: Vec<OsString> = [
+                    "worktree",
+                    "inspect",
+                    "--json",
+                    "--workspace",
+                    "--max-entries",
+                    "1",
+                    "--repo",
+                ]
+                .map(OsString::from)
+                .to_vec();
+                command.push(repo.clone().into_os_string());
+                command
+            },
             var_tmp: PathBuf::from("/var/tmp"),
+            scratch: PathBuf::new(),
             measure_every: Duration::from_secs(600),
             measure_timeout: Duration::from_secs(180),
             // The built-in instance's; [`Sources::of`] gives an instance's own.
@@ -324,6 +350,9 @@ impl Sources {
 fn tokens(count: i64) -> u64 {
     u64::try_from(count).unwrap_or(0)
 }
+
+/// The directory under an instance's cache that holds its scratch.
+pub const SCRATCH: &str = "scratch";
 
 /// The watch's directory under a state directory, as `conductor watch run` keeps it.
 const WATCH: &str = "watch";
@@ -395,6 +424,9 @@ struct Server {
     unanswered: cache::Memo<Result<Vec<crate::status::OperatorItem>, String>>,
     /// The health view's newest snapshot with its rows.
     snapshot_health: cache::Memo<health::Newest>,
+    /// What `/data.json` reads from the store: the controllers and the open operator items
+    /// (`story:sessions-page-coherent`).
+    roster: cache::Memo<Roster>,
     /// The last session list.
     sessions: cache::SessionList,
     /// The token the page is served with and a batch of answers is taken with
@@ -464,6 +496,21 @@ const UNANSWERED: Kind<Unanswered> = Kind {
     },
 };
 
+/// What `/data.json` reads from a store, or why it does not open.
+type Roster = Result<sessions::Roster, String>;
+
+/// The controllers and the open operator items of the store, which `/data.json` joins with the
+/// session list and the records at each request (`story:sessions-page-coherent`); why when the
+/// store does not open.
+const ROSTER: Kind<Roster> = Kind {
+    memo: |server| &server.roster,
+    state: Server::store_path,
+    compute: |_, _, held| match held {
+        Ok(store) => Ok(store.map(sessions::roster).unwrap_or_default()),
+        Err(error) => Err(format!("the store does not open: {error:#}")),
+    },
+};
+
 /// The health view's newest snapshot with its rows, of the store under its own state directory.
 const HEALTH: Kind<health::Newest> = Kind {
     memo: |server| &server.snapshot_health,
@@ -471,14 +518,33 @@ const HEALTH: Kind<health::Newest> = Kind {
     compute: |_, _, held| health::newest(held),
 };
 
+/// The size of a kept answer that is not sent as it is kept: that of its debug text, about what
+/// its strings and rows hold.
+macro_rules! weighed_by_debug {
+    ($($kept:ty),*) => {
+        $(impl cache::Weigh for $kept {
+            fn weight(&self) -> usize {
+                format!("{self:?}").len()
+            }
+        })*
+    };
+}
+
+weighed_by_debug!(
+    Result<repo::Facts, String>,
+    Unanswered,
+    health::Newest,
+    Roster
+);
+
 /// Ends a background computation that did not finish (it panicked): its key computes again.
-struct Unfinished<'a, T: Clone> {
+struct Unfinished<'a, T: Clone + cache::Weigh> {
     memo: &'a cache::Memo<T>,
     key: &'a str,
     claim: Option<cache::Claim>,
 }
 
-impl<T: Clone> Drop for Unfinished<'_, T> {
+impl<T: Clone + cache::Weigh> Drop for Unfinished<'_, T> {
     fn drop(&mut self) {
         if let Some(claim) = self.claim.take() {
             self.memo.finish(self.key, claim, None);
@@ -530,11 +596,44 @@ impl Server {
             facts: cache::Memo::default(),
             unanswered: cache::Memo::default(),
             snapshot_health: cache::Memo::default(),
+            roster: cache::Memo::default(),
             sessions: cache::SessionList::default(),
             token: answers::Token::mint()?,
             writes: Mutex::new(()),
             tuning,
         })
+    }
+
+    /// What this process holds in memory (`story:dashboard-memory-bound`): its resident set, its
+    /// store handles and the answers it keeps.
+    fn memory(&self) -> DashboardMemory {
+        let stores = self.stores.held();
+        let memos = [
+            self.answers.held(),
+            self.facts.held(),
+            self.unanswered.held(),
+            self.snapshot_health.held(),
+            self.roster.held(),
+        ];
+        let int = |count: u64| i64::try_from(count).unwrap_or(i64::MAX);
+        let size = |count: usize| int(count as u64);
+        DashboardMemory {
+            rss_bytes: health::rss_bytes().map(int),
+            swap_bytes: health::swap_bytes().map(int),
+            store_handles: size(stores.handles),
+            store_replays: size(stores.replays),
+            store_replays_peak: size(stores.peak),
+            store_bytes: int(stores.bytes),
+            memo_entries: size(memos.iter().map(|memo| memo.entries).sum()),
+            memo_entries_peak_endpoint: size(
+                memos
+                    .iter()
+                    .map(|memo| memo.peak_endpoint)
+                    .max()
+                    .unwrap_or(0),
+            ),
+            memo_bytes: size(memos.iter().map(|memo| memo.bytes).sum()),
+        }
     }
 
     /// The fingerprints of the store and the records now.
@@ -569,7 +668,7 @@ impl Server {
     /// [`cache::Tuning::debounce`]; or never computed, when a computation of it starts and a
     /// request (`wait`) waits for it up to [`cache::Tuning::cold_wait`]. `asked` says a request
     /// asks, not the warmer.
-    fn serve<T: Clone + Send + 'static>(
+    fn serve<T: Clone + cache::Weigh + Send + 'static>(
         self: &Arc<Self>,
         kind: Kind<T>,
         key: &str,
@@ -595,7 +694,7 @@ impl Server {
 
     /// Computes the answer of `kind` for `key` on a thread of its own, keeping it at
     /// `fingerprint` under `claim`.
-    fn recompute<T: Clone + Send + 'static>(
+    fn recompute<T: Clone + cache::Weigh + Send + 'static>(
         self: &Arc<Self>,
         kind: Kind<T>,
         key: &str,
@@ -615,8 +714,9 @@ impl Server {
                     claim: Some(claim),
                 };
                 let state = (kind.state)(&server);
-                let value = server.stores.compute(key, state.as_deref(), |held| {
-                    (kind.compute)(&server, key, held)
+                let (reader, target) = (Arc::clone(&server), key.to_owned());
+                let value = server.stores.compute(key, state, move |held| {
+                    (kind.compute)(&reader, &target, held)
                 });
                 unfinished.claim = None;
                 memo.finish(key, claim, Some((fingerprint, value)));
@@ -727,6 +827,18 @@ impl Server {
         served(self.serve(UNANSWERED, "unanswered", fingerprints.store, asked, wait))
     }
 
+    /// The controllers and open operator items of the store, at `fingerprints`, which
+    /// `/data.json` reads (`story:sessions-page-coherent`); why when the store does not open;
+    /// with when they were computed when they are stale; none before they were first computed.
+    fn roster(
+        self: &Arc<Self>,
+        fingerprints: &Fingerprints,
+        asked: bool,
+        wait: bool,
+    ) -> Option<(Roster, Option<Instant>)> {
+        served(self.serve(ROSTER, "roster", fingerprints.store, asked, wait))
+    }
+
     /// The health view's newest snapshot with its rows, computed once per write to the store
     /// under its state directory; with when it was computed when it is stale; none before it was
     /// first computed.
@@ -762,6 +874,9 @@ impl Server {
         }
         if start || !self.unanswered.keys().is_empty() {
             self.unanswered(&fingerprints, false, false);
+        }
+        if start || !self.roster.keys().is_empty() {
+            self.roster(&fingerprints, false, false);
         }
         if start || !self.snapshot_health.keys().is_empty() {
             self.snapshot_health(false, false);
@@ -1113,14 +1228,22 @@ fn answer(
         Resource::Data => {
             server.waste.refresh(&server.sources);
             server.usage.refresh(&server.sources);
+            let (roster, stale) = match server.roster(&server.fingerprints(), true, true) {
+                Some((roster, stale)) => (roster, stale),
+                None => (
+                    Err("the store's controllers and open items are being read".to_owned()),
+                    None,
+                ),
+            };
             let data = collect(
                 &server.sources,
                 &server.sessions.last(),
+                roster,
                 server.waste.view(now),
                 server.usage.view(now),
                 now,
             );
-            send(&cache::Body::json(200, &data), None)
+            send(&cache::Body::json(200, &data), stale)
         }
         Resource::Health => {
             server.waste.refresh(&server.sources);
@@ -1129,7 +1252,13 @@ fn answer(
             let Some((newest, stale)) = server.snapshot_health(true, true) else {
                 return unavailable();
             };
-            let answer = health::answer(&server.sources, &server.doctor, waste, newest);
+            let answer = health::answer(
+                &server.sources,
+                &server.doctor,
+                waste,
+                newest,
+                &server.memory(),
+            );
             send(&cache::Body::json(200, &answer), stale)
         }
         Resource::Events if overview::since(target).is_err() => {
@@ -1143,10 +1272,19 @@ fn answer(
             )
         }
         Resource::Unanswered => match server.unanswered(&server.fingerprints(), true, true) {
-            Some((Ok(items), stale)) => send(
-                &cache::Body::json(200, &overview::unanswered(&items, now)),
-                stale,
-            ),
+            Some((Ok(mut items), stale)) => {
+                // An item the decision log answered is not unanswered, as on the Decisions page
+                // (story:sessions-page-coherent).
+                let log = jsonl(
+                    &server.sources.root.join(crate::records::DECISIONS),
+                    &mut Vec::new(),
+                );
+                items.retain(|item| !decisions::answered(&log, &item.request_id));
+                send(
+                    &cache::Body::json(200, &overview::unanswered(&items, now)),
+                    stale,
+                )
+            }
             Some((Err(error), stale)) => send(&cache::Body::text(500, error), stale),
             None => unavailable(),
         },
@@ -1174,6 +1312,8 @@ fn answer(
                 facts.sessions = listed.rows;
                 facts.limits = read("limit.new");
                 facts.silent = read("silent.reported");
+                facts.stalled = read("stalled.reported");
+                facts.queued = read("build-queued.reported");
                 let mut answer = repo::waiting_on(&facts);
                 answer["errors"] = json!(listed.errors);
                 (answer, stale)
@@ -1227,6 +1367,7 @@ fn post_answers<'a>(
         server.answers.clear();
         server.facts.clear();
         server.unanswered.clear();
+        server.roster.clear();
         recorded
     };
     match recorded {
@@ -1285,75 +1426,30 @@ fn response_with(
 }
 
 /// Everything the page shows, read from `sources` at `now` with the last session list `listed`,
-/// the disk measurement `waste` and the token measurement `usage`, with the home directory
-/// written `~`.
+/// what the store holds for the page `roster` ([`sessions`]), the disk measurement `waste` and
+/// the token measurement `usage`, with the home directory written `~`.
+///
+/// `sessions` are the instance's sessions from its records and `controllers` the count of its
+/// controller rows a live session holds (`story:sessions-page-coherent`); `awaiting_operator`
+/// the Decisions page's open items, less those the decision log answered, each with its action;
+/// `decisions` the log's newest decisions; `watch` the usage limits in force and the context
+/// lines of the instance's sessions.
 fn collect(
     sources: &Sources,
     listed: &cache::Listed,
+    roster: Roster,
     waste: Value,
     usage: Value,
     now: OffsetDateTime,
 ) -> Value {
     let mut errors = listed.errors.clone();
-    let rows = &listed.rows;
     let dispatches = jsonl(&sources.root.join("dispatches"), &mut errors);
     let decisions = jsonl(&sources.root.join("decisions"), &mut errors);
-    let checkouts = sources.checkouts.as_path();
-    let active = config::active();
-    let instances = active.all();
-    // Another instance's session is not this page's, wherever it works: its name and directory
-    // say whose it is (story:instance-session-names).
-    let theirs = |row: &Value| {
-        let (Some(name), Some(cwd)) = (row["name"].as_str(), row["cwd"].as_str()) else {
-            return false;
-        };
-        crate::collect::session_instance(&instances, name, Some(Path::new(cwd)))
-            .is_some_and(|owner| owner.name != active.instance.name)
-    };
-    let shown: Vec<&Value> = rows
-        .iter()
-        .filter(|row| {
-            row["cwd"]
-                .as_str()
-                .is_some_and(|cwd| Path::new(cwd).starts_with(checkouts))
-                && !theirs(row)
-        })
-        .collect();
-    // A controller is named after its repository and runs in its checkout (design § 2);
-    // conductor, in its own checkout, is not one, and one that exited does not run.
-    let controllers = shown
-        .iter()
-        .filter(|row| {
-            let (Some(name), Some(cwd)) = (row["name"].as_str(), row["cwd"].as_str()) else {
-                return false;
-            };
-            let cwd = Path::new(cwd);
-            // A controller's session is named `<session_prefix>-<repository>`, or the repository
-            // without a prefix (story:instance-session-names).
-            let instance = &active.instance;
-            name != crate::config::session_name(instance, "conductor").0
-                && !exited(row)
-                && cwd.parent() == Some(checkouts)
-                && cwd.file_name().is_some_and(|dir| {
-                    dir.to_str()
-                        .is_some_and(|dir| crate::config::session_name(instance, dir).0 == name)
-                })
-        })
-        .count();
-    let mut sessions: Vec<Value> = shown
-        .iter()
-        .map(|row| session(row, &dispatches, now))
-        .collect();
-    sessions.sort_by(|a, b| {
-        let key = |row: &Value| {
-            (
-                row["exited"] == true,
-                row["name"].is_null(),
-                row["name"].as_str().map(str::to_owned),
-            )
-        };
-        key(a).cmp(&key(b))
+    let roster = roster.unwrap_or_else(|error| {
+        errors.push(error);
+        sessions::Roster::default()
     });
+    let shown = sessions::shown(&listed.rows, &roster, &sources.home, &dispatches, now);
     let mut disk = disk(&sources.disk, &mut errors);
     if let (Value::Object(disk), Value::Object(waste)) = (&mut disk, waste) {
         disk.extend(waste);
@@ -1361,21 +1457,21 @@ fn collect(
     let data = json!({
         "generated_at": rfc3339(now),
         "disk": disk,
-        "controllers": controllers,
+        "controllers": shown.controllers,
+        "snapshot": sessions::snapshot(&roster, now),
         "build_slot": "not recorded",
-        "sessions": sessions,
-        "watch": watch(&sources.watch, rows, now, &mut errors),
+        "watch": sessions::watch(&sources.watch, &shown.listed, now, &mut errors),
+        "sessions": shown.rows,
         "context_handover": sources.context_handover,
-        "red_ci": red_ci(&sources.ci_state, &mut errors),
-        "decisions": recent(&decisions),
-        "awaiting_operator": awaiting(&decisions),
+        "decisions": sessions::recent(&decisions),
+        "awaiting_operator": sessions::awaiting(&roster.open, &decisions),
         "usage": usage,
         "reading": {
             "sessions": command_line(&sources.agents),
             "sessions_read_at": listed.at.map(rfc3339),
             "root": sources.root.display().to_string(),
             "ci_state": sources.ci_state.display().to_string(),
-            "checkouts": checkouts.display().to_string(),
+            "checkouts": sources.checkouts.display().to_string(),
         },
         "errors": errors,
     });
@@ -1387,117 +1483,6 @@ fn collect(
 /// `pid` and in the state it last had.
 fn exited(row: &Value) -> bool {
     row["pid"].is_null()
-}
-
-/// One shown session: its name, kind, status and state (`exited` for one that exited), working
-/// directory, start, and current dispatch.
-fn session(row: &Value, dispatches: &[Value], now: OffsetDateTime) -> Value {
-    let name = row["name"].as_str();
-    let started = row["startedAt"].as_i64().and_then(|millis| {
-        OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()
-    });
-    let exited = exited(row);
-    json!({
-        "name": name,
-        "kind": row["kind"].clone(),
-        "exited": exited,
-        "status": if exited { Value::Null } else { row["status"].clone() },
-        "state": if exited { json!("exited") } else { row["state"].clone() },
-        "cwd": row["cwd"].clone(),
-        "started_at": started.map(rfc3339),
-        "started_ago": started.map(|at| ago(now - at)),
-        "dispatch": name.and_then(|name| dispatch(name, dispatches, now)),
-    })
-}
-
-/// The newest dispatch line to `name` (a line whose `to` is `name` and that carries a brief),
-/// with the session's last event: of the event lines of every dispatch sent to `name`, the one
-/// whose `at` is latest, so a report of minutes ago wins over a state written after it with an
-/// older `at` (`story:dashboard-overview`). Without an event line whose `at` reads, the last
-/// event line of the newest dispatch, as before.
-fn dispatch(name: &str, dispatches: &[Value], now: OffsetDateTime) -> Option<Value> {
-    let sent_to = |line: &Value| line["to"].as_str() == Some(name) && line["brief"].is_string();
-    let line = dispatches.iter().rev().find(|line| sent_to(line))?;
-    let id = line["id"].as_str()?;
-    let sent: HashSet<&str> = dispatches
-        .iter()
-        .filter(|line| sent_to(line))
-        .filter_map(|line| line["id"].as_str())
-        .collect();
-    let newest_report = dispatches
-        .iter()
-        .enumerate()
-        .filter(|(_, event)| {
-            event["event"].is_string()
-                && event["id"]
-                    .as_str()
-                    .is_some_and(|dispatch| sent.contains(dispatch))
-        })
-        .filter_map(|(read, event)| {
-            let at = OffsetDateTime::parse(event["at"].as_str()?, &Rfc3339).ok()?;
-            Some(((at, read), event))
-        })
-        .max_by_key(|(key, _)| *key)
-        .map(|(_, event)| event);
-    let event = newest_report.or_else(|| {
-        dispatches
-            .iter()
-            .rev()
-            .find(|event| event["id"].as_str() == Some(id) && event["event"].is_string())
-    });
-    let at = event
-        .and_then(|event| event["at"].as_str())
-        .and_then(|at| OffsetDateTime::parse(at, &Rfc3339).ok());
-    Some(json!({
-        "id": id,
-        "goal": line["goal"].clone(),
-        "brief": excerpt(line["brief"].as_str().unwrap_or_default()),
-        "event": event.map(|event| event["event"].clone()),
-        "event_at": at.map(rfc3339),
-        "event_ago": at.map(|at| ago(now - at)),
-    }))
-}
-
-/// The newest [`RECENT_DECISIONS`] decision lines, newest first.
-fn recent(decisions: &[Value]) -> Vec<Value> {
-    decisions
-        .iter()
-        .rev()
-        .take(RECENT_DECISIONS)
-        .map(|line| {
-            json!({
-                "id": line["id"].clone(),
-                "class": line["class"].clone(),
-                "choice": line["choice"].clone(),
-                "reason": line["reason"].as_str().map(excerpt),
-            })
-        })
-        .collect()
-}
-
-/// The decisions whose newest line is of class O or H and carries no choice yet, newest first.
-fn awaiting(decisions: &[Value]) -> Vec<Value> {
-    let mut seen = HashSet::new();
-    decisions
-        .iter()
-        .rev()
-        .filter(|line| seen.insert(line["id"].to_string()))
-        .filter(|line| {
-            let open = match &line["choice"] {
-                Value::Null => true,
-                Value::String(choice) => choice.trim().is_empty(),
-                _ => false,
-            };
-            open && matches!(line["class"].as_str(), Some("O" | "H"))
-        })
-        .map(|line| {
-            json!({
-                "id": line["id"].clone(),
-                "class": line["class"].clone(),
-                "question": line["question"].as_str().map(excerpt),
-            })
-        })
-        .collect()
 }
 
 /// The rows the session-list command prints, or none, with the reason in `errors`.
@@ -1574,41 +1559,6 @@ fn jsonl(dir: &Path, errors: &mut Vec<String>) -> Vec<Value> {
     lines
 }
 
-/// The red rows of the CI watch's state file (a conclusion of [`crate::watch::RED`]), or null
-/// when the watch has written none.
-fn red_ci(path: &Path, errors: &mut Vec<String>) -> Value {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Value::Null,
-        Err(error) => {
-            errors.push(format!("{}: {error}", path.display()));
-            return Value::Null;
-        }
-    };
-    let mut rows = Vec::new();
-    let mut unreadable = 0;
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let fields: Vec<&str> = line.split('|').collect();
-        let [repo, workflow, run_id, conclusion, time] = fields.as_slice() else {
-            unreadable += 1;
-            continue;
-        };
-        if crate::watch::RED.contains(conclusion) {
-            rows.push(json!({
-                "repo": repo, "workflow": workflow, "run_id": run_id,
-                "conclusion": conclusion, "time": time,
-            }));
-        }
-    }
-    if unreadable > 0 {
-        errors.push(format!(
-            "{}: {unreadable} line(s) are not repo|workflow|run id|conclusion|time",
-            path.display()
-        ));
-    }
-    Value::Array(rows)
-}
-
 /// The text of the file at `path`, or none when it does not exist; any other failure is named in
 /// `errors`.
 fn optional(path: &Path, errors: &mut Vec<String>) -> Option<String> {
@@ -1620,72 +1570,6 @@ fn optional(path: &Path, errors: &mut Vec<String>) -> Option<String> {
             None
         }
     }
-}
-
-/// The watch's usage-limit and context lines, from its directory `dir`: the limits it finds now
-/// (`limit.new`, one `text<TAB>session` per line) with their sessions, those it reported today
-/// (`limit.seen`, one `YYYY-MM-DD text` per line, UTC), and the sessions in `rows` whose context it
-/// reported above the context hand-over threshold (`context-reported`, one session id per line).
-/// Each is null while the watch has not written its file.
-fn watch(dir: &Path, rows: &[Value], now: OffsetDateTime, errors: &mut Vec<String>) -> Value {
-    let limits = optional(&dir.join("limit.new"), errors).map(|text| {
-        let mut limits: Vec<(&str, Vec<&str>)> = Vec::new();
-        for line in text.lines().filter(|line| !line.trim().is_empty()) {
-            let (limit, session) = line.split_once('\t').unwrap_or((line, ""));
-            let at = limits
-                .iter()
-                .position(|(known, _)| *known == limit)
-                .unwrap_or_else(|| {
-                    limits.push((limit, Vec::new()));
-                    limits.len() - 1
-                });
-            if !session.trim().is_empty() {
-                limits[at].1.push(session.trim());
-            }
-        }
-        limits
-            .into_iter()
-            .map(|(text, mut sessions)| {
-                sessions.sort_unstable();
-                sessions.dedup();
-                json!({"text": text, "sessions": sessions})
-            })
-            .collect::<Vec<_>>()
-    });
-    let today = now.date().to_string();
-    let seen = optional(&dir.join("limit.seen"), errors).map(|text| {
-        let mut seen: Vec<String> = Vec::new();
-        for line in text.lines() {
-            if let Some((date, limit)) = line.split_once(' ')
-                && date == today
-                && !seen.iter().any(|known| known == limit)
-            {
-                seen.push(limit.to_owned());
-            }
-        }
-        seen
-    });
-    let context = optional(&dir.join("context-reported"), errors).map(|text| {
-        let mut ids: Vec<&str> = text
-            .lines()
-            .map(str::trim)
-            .filter(|id| !id.is_empty())
-            .collect();
-        let mut once = HashSet::new();
-        ids.retain(|id| once.insert(*id));
-        ids.into_iter()
-            .filter_map(|id| {
-                let row = rows
-                    .iter()
-                    .find(|row| row["sessionId"].as_str() == Some(id))?;
-                Some(json!({
-                    "session": id.chars().take(8).collect::<String>(),
-                    "name": row["name"].clone(),
-                }))
-            })
-            .collect::<Vec<_>>()
-    });
-    json!({"usage_limit": limits, "usage_limit_today": seen, "context": context})
 }
 
 /// Free and total bytes of the file system holding `path` ([`crate::disk::space`]); both null

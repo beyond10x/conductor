@@ -76,6 +76,7 @@ Every command takes these, before or after its name.
 | [`conductor repository refresh-hooks`](#conductor-repository-refresh-hooks) | List each checkout of the instance whose Gates hooks lag the b10x-gates on PATH or are absent; --apply runs b10x-gates install in each with the instance's gates_policy and prints the hook's version before and after |
 | [`conductor repository shipped`](#conductor-repository-shipped) | What shipped since an instant, from the newest complete snapshot's GitHub observations |
 | [`conductor decision`](#conductor-decision) | Decision requests and the decisions that answer them |
+| [`conductor decision amend-escalated-request`](#conductor-decision-amend-escalated-request) | Amend an escalated decision request |
 | [`conductor decision answer-escalated-request`](#conductor-decision-answer-escalated-request) | Answer an escalated decision request |
 | [`conductor decision answer-request`](#conductor-decision-answer-request) | Answer a decision request |
 | [`conductor decision escalate-request`](#conductor-decision-escalate-request) | Escalate a decision request |
@@ -89,6 +90,7 @@ Every command takes these, before or after its name.
 | [`conductor decision decisions`](#conductor-decision-decisions) | Decisions |
 | [`conductor decision hands-todo`](#conductor-decision-hands-todo) | Class-H to-do |
 | [`conductor decision requests`](#conductor-decision-requests) | Decision requests |
+| [`conductor decision handle`](#conductor-decision-handle) | Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line |
 | [`conductor decision show`](#conductor-decision-show) | Show one decision |
 | [`conductor controller`](#conductor-controller) | One controller session per repository |
 | [`conductor controller pause-controller`](#conductor-controller-pause-controller) | Pause a controller |
@@ -96,7 +98,8 @@ Every command takes these, before or after its name.
 | [`conductor controller revise-charter`](#conductor-controller-revise-charter) | Revise a charter |
 | [`conductor controller start-controller`](#conductor-controller-start-controller) | Start a controller |
 | [`conductor controller stop-controller`](#conductor-controller-stop-controller) | Stop a controller |
-| [`conductor controller controllers`](#conductor-controller-controllers) | Controllers |
+| [`conductor controller all-controllers`](#conductor-controller-all-controllers) | All controllers |
+| [`conductor controller controllers`](#conductor-controller-controllers) | Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing |
 | [`conductor dispatch`](#conductor-dispatch) | Briefs to controllers and their reports |
 | [`conductor dispatch cancel-dispatch`](#conductor-dispatch-cancel-dispatch) | Cancel a dispatch |
 | [`conductor dispatch report-blocked`](#conductor-dispatch-report-blocked) | Report a dispatch blocked |
@@ -112,6 +115,7 @@ Every command takes these, before or after its name.
 | [`conductor message reject-message`](#conductor-message-reject-message) | Reject a message |
 | [`conductor message route-need`](#conductor-message-route-need) | Route a need to a dispatch |
 | [`conductor message messages`](#conductor-message-messages) | Messages |
+| [`conductor message send`](#conductor-message-send) | Send a message through the mailbox: read --text, a file or - for standard input, and its first line; leave the whole text as &lt;state>/mailbox/&lt;to>/&lt;ulid>.md and record it received with transport Mailbox and that body path, then print its id; print the format, exit 1 and write nothing when the first line does not parse |
 | [`conductor resource`](#conductor-resource) | Build slots, disk and usage asked for before they are spent |
 | [`conductor resource grant-resource`](#conductor-resource-grant-resource) | Grant a resource |
 | [`conductor resource refuse-resource`](#conductor-resource-refuse-resource) | Refuse a resource |
@@ -122,11 +126,18 @@ Every command takes these, before or after its name.
 | [`conductor guard`](#conductor-guard) | The controller hook and the record of its verdicts |
 | [`conductor guard record-guard-decision`](#conductor-guard-record-guard-decision) | Record a guard decision |
 | [`conductor guard guard-decisions`](#conductor-guard-guard-decisions) | Guard decisions |
-| [`conductor session`](#conductor-session) | The instance's one conductor session and the lease it holds |
+| [`conductor session`](#conductor-session) | The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks |
 | [`conductor session claim`](#conductor-session-claim) | Claim the conductor lease |
+| [`conductor session deliver-message`](#conductor-session-deliver-message) | Deliver a message to a session |
+| [`conductor session record-run-tick`](#conductor-session-record-run-tick) | Record a tick of the run daemon |
+| [`conductor session deliveries`](#conductor-session-deliveries) | Deliveries to sessions |
 | [`conductor session leases`](#conductor-session-leases) | Conductor leases |
-| [`conductor session start`](#conductor-session-start) | Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
-| [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session |
+| [`conductor session run-ticks`](#conductor-session-run-ticks) | Ticks of the run daemon |
+| [`conductor session attach`](#conductor-session-attach) | Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher |
+| [`conductor session deliver`](#conductor-session-deliver) | Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as &lt;state>/mailbox/delivered/&lt;ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again |
+| [`conductor session list`](#conductor-session-list) | Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher) |
+| [`conductor session start`](#conductor-session-start) | Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request |
+| [`conductor session stop`](#conductor-session-stop) | Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session |
 | [`conductor host`](#conductor-host) | The host ledger of slots and disk reservations every instance shares, and the reclaim runs that free disk |
 | [`conductor host record-reclaim`](#conductor-host-record-reclaim) | Record a reclaim run |
 | [`conductor host record-peak`](#conductor-host-record-peak) | Record a run's peak |
@@ -139,6 +150,7 @@ Every command takes these, before or after its name.
 | [`conductor host grants`](#conductor-host-grants) | Host grants |
 | [`conductor host reclaim-runs`](#conductor-host-reclaim-runs) | Reclaim runs |
 | [`conductor host reclaim`](#conductor-host-reclaim) | Free what needs no decision until free disk is back over the floor, printing each step with the bytes it freed; exit 1 listing what is left by path and size when the floor is not reached |
+| [`conductor host slices`](#conductor-host-slices) | List each systemd user slice of conductor, conductor.slice or conductor_&lt;prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit |
 | [`conductor metric`](#conductor-metric) | The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs |
 | [`conductor metric define-metric`](#conductor-metric-define-metric) | Define a metric |
 | [`conductor metric record-metric-reading`](#conductor-metric-record-metric-reading) | Record a metric's reading |
@@ -154,24 +166,30 @@ Every command takes these, before or after its name.
 | [`conductor finding raise-finding`](#conductor-finding-raise-finding) | Raise a friction finding |
 | [`conductor finding verify-finding`](#conductor-finding-verify-finding) | Verify a filed finding |
 | [`conductor finding findings`](#conductor-finding-findings) | Friction findings |
+| [`conductor broker`](#conductor-broker) |  |
+| [`conductor broker serve`](#conductor-broker-serve) | Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it |
 | [`conductor build`](#conductor-build) |  |
 | [`conductor build run`](#conductor-build-run) | Reserve disk for a command's expected peak in the host ledger, reclaiming first when it does not fit; run it in its own process group under the disk watchdog, record its peak, release the reservation when it exits or is killed, and exit with its status; exit 2 naming the shortfall when reclaim cannot reach the size |
 | [`conductor config`](#conductor-config) |  |
-| [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file |
-| [`conductor config validate`](#conductor-config-validate) | Check the config file; exit 1 naming each problem by its YAML path |
+| [`conductor config migrate`](#conductor-config-migrate) | Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing |
+| [`conductor config show`](#conductor-config-show) | Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml) |
+| [`conductor config validate`](#conductor-config-validate) | Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path |
 | [`conductor config workspace`](#conductor-config-workspace) | Write the instance's workspace file from its config; --check names each difference |
 | [`conductor dashboard`](#conductor-dashboard) |  |
 | [`conductor dashboard serve`](#conductor-dashboard-serve) | Serve a live, read-only page of what every session works on |
 | [`conductor doctor`](#conductor-doctor) | Report the machine, each program conductor starts as present, with its version, or missing, each one older than its pin in the nearest b10x.toml, or else in the pins conductor was built with, and the account each forge CLI is logged in as on each host of the config file's sources |
 | [`conductor gc`](#conductor-gc) | Remove what the dashboard's disk panel marks reclaimable, and no tree a live session works in; print the bytes freed |
 | [`conductor init`](#conductor-init) | Write and commit the instance's records directory skeleton; refuse to overwrite any file |
+| [`conductor need`](#conductor-need) |  |
+| [`conductor need new`](#conductor-need-new) | Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite |
 | [`conductor records`](#conductor-records) |  |
 | [`conductor records check`](#conductor-records-check) | Check the records' dispatch and decision logs; exit 1 naming each decision id a dispatch line cites that no decision line or store decision holds, each line whose keys its log does not declare, and each decision line in the dispatch log |
 | [`conductor rules`](#conductor-rules) |  |
 | [`conductor rules show`](#conductor-rules-show) | Print items of the instance's rules.md verbatim, by number in the order given or every item under a heading, without opening the store; exit 1 naming a number or heading the file does not hold |
+| [`conductor run`](#conductor-run) | Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit |
 | [`conductor setup`](#conductor-setup) | Check a repository's prerequisites, doctor's and its planning store, instance, records and trust; --apply writes the instance config, runs init and trust, and prints what only a person may run |
 | [`conductor spawn`](#conductor-spawn) | Start a repository's controller session in its checkout, with the controller role's profile, model and settings and its charter, and record it running; refuse while a session of that name runs |
-| [`conductor status`](#conductor-status) | Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing |
+| [`conductor status`](#conductor-status) | Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing |
 | [`conductor store`](#conductor-store) |  |
 | [`conductor store migrate`](#conductor-store-migrate) | Copy the eventlog-file store under the state directory into a tree store, keep the old one beside it, and print the counts moved |
 | [`conductor trust`](#conductor-trust) | Mark every git checkout under the instance's checkouts root, and its records directory, as trusted Claude Code workspaces in ~/.claude.json |
@@ -262,6 +280,8 @@ Usage: conductor snapshot record-collector-run [OPTIONS]
 | `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
 | `--duration-ms <DURATION_MS>` | no | none | integer |
 | `--outcome <OUTCOME>` | no | none | CollectorRunOutcome One of `Completed`, `Failed`, `OverBudget`. |
+| `--read-bytes <READ_BYTES>` | no | none | integer |
+| `--written-bytes <WRITTEN_BYTES>` | no | none | integer |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor snapshot record-member-failure`
@@ -433,7 +453,7 @@ Usage: conductor snapshot record-specification [OPTIONS]
 |---|---|---|---|
 | `--snapshot-id <SNAPSHOT_ID>` | no | none | SnapshotId |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
-| `--presence <PRESENCE>` | no | none | SpecificationPresence One of `Present`, `OptedOut`, `Missing`. |
+| `--presence <PRESENCE>` | no | none | SpecificationPresence One of `Present`, `OptedOut`, `Missing`, `NotInWorkspace`. |
 | `--path <PATH>` | no | none | string, optional |
 | `--format <FORMAT>` | no | none | string, optional |
 | `--required-ess <REQUIRED_ESS>` | no | none | string, optional |
@@ -895,6 +915,26 @@ Decision requests and the decisions that answer them
 Usage: conductor decision [OPTIONS] <COMMAND>
 ```
 
+## `conductor decision amend-escalated-request`
+
+Amend an escalated decision request
+
+```text
+Usage: conductor decision amend-escalated-request [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--request-id <REQUEST_ID>` | no | none | RequestId of the escalated request |
+| `--reason <REASON>` | no | none | Why the request is completed |
+| `--kind <KIND>` | no | none | RequestKind: how the operator answers One of `yes-no`, `one-of`, `several-of`. |
+| `--lettered-options <LETTERED_OPTIONS>` | no | none | list of RequestOption, a JSON array of `{letter, label, cost}`; replaces the held options |
+| `--recommended-letters <LETTERS>` | no | none | The letter conductor recommends, or several joined by `,` for `several-of` |
+| `--default-letters <LETTERS>` | no | none | The letter that stands when the operator has not answered by the deadline, or several joined by `,` for `several-of` |
+| `--deadline <DEADLINE>` | no | none | timestamp, RFC 3339: when the default stands |
+| `--dry-run <TEXT>` | no | none | The dry run of a class-H item, as text (not a file, unlike `escalate-request`) |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
 ## `conductor decision answer-escalated-request`
 
 Answer an escalated decision request
@@ -962,6 +1002,7 @@ Usage: conductor decision raise-decision-request [OPTIONS]
 | `--recommendation <RECOMMENDATION>` | no | none | string |
 | `--raised-at <RAISED_AT>` | no | none | timestamp, RFC 3339 |
 | `--blocker <BLOCKER>` | no | none | string, optional |
+| `--classification-rule <CLASSIFICATION_RULE>` | no | none | ClassificationRule, optional: the rule that classified the request in code One of `data-loss`, `history-rewrite`, `repository-lifecycle`, `architecture`, `credential`, `hands`, `none`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision record-conductor-decision`
@@ -983,6 +1024,8 @@ Usage: conductor decision record-conductor-decision [OPTIONS]
 | `--evidence <EVIDENCE>` | no | none | string |
 | `--decided-at <DECIDED_AT>` | no | none | timestamp, RFC 3339 |
 | `--repository <REPOSITORY>` | no | none | RepositoryName |
+| `--decider-name <DECIDER_NAME>` | no | none | string, optional: the `Decider` adapter that answered |
+| `--prompt-sha256 <PROMPT_SHA256>` | no | none | PromptHash, optional: the SHA-256 of the adapter's prompt, 64 lower-case hexadecimal characters |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor decision record-operator-decision`
@@ -1110,6 +1153,19 @@ Usage: conductor decision requests [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
+## `conductor decision handle`
+
+Classify a decision request in code and raise it; answer class C through the Decider adapter (claude, or fake, which answers the recommendation) and record it, printing the [DECISION] line; escalate class O and H with the request's options, its recommendation as default and a 48 h deadline, printing the [ESCALATION] line
+
+```text
+Usage: conductor decision handle [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--request <FILE>` | no | none | The file holding one `[DECISION-REQUEST]` message, or `-` for standard input |
+| `--decider <DECIDER>` | no | none | The Decider adapter that answers class C: claude (the default) or fake |
+
 ## `conductor decision show`
 
 Show one decision
@@ -1199,9 +1255,21 @@ Usage: conductor controller stop-controller [OPTIONS]
 | `--reason <REASON>` | no | none | string |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
+## `conductor controller all-controllers`
+
+All controllers
+
+```text
+Usage: conductor controller all-controllers [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
 ## `conductor controller controllers`
 
-Controllers
+Print one line per Running or Paused controller, its repository, state, session name and id; --all prints the table of every controller, --format renders every one as text, json, jsonl or markdown; create nothing
 
 ```text
 Usage: conductor controller controllers [OPTIONS]
@@ -1209,7 +1277,8 @@ Usage: conductor controller controllers [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+| `--all <BOOL>` | no | none | Print the table of every controller instead of one line per Running or Paused one. `--all` alone is `--all true` One of `true`, `false`. |
+| `--format <FORMAT>` | no | none | Render every controller as text, json, jsonl or markdown, as `all-controllers` does |
 
 ## `conductor dispatch`
 
@@ -1365,7 +1434,7 @@ Usage: conductor message receive-message [OPTIONS]
 |---|---|---|---|
 | `--sender <SENDER>` | no | none | string |
 | `--recipient <RECIPIENT>` | no | none | string |
-| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Unknown`. |
+| `--kind <KIND>` | no | none | MessageKind One of `Dispatch`, `Report`, `DecisionRequest`, `Decision`, `Need`, `Resource`, `Escalation`, `Team`, `Handover`, `Unknown`. |
 | `--first-line <FIRST_LINE>` | no | none | string |
 | `--transport <TRANSPORT>` | no | none | Transport One of `SendMessage`, `Mailbox`. |
 | `--received-at <RECEIVED_AT>` | no | none | timestamp, RFC 3339 |
@@ -1412,6 +1481,20 @@ Usage: conductor message messages [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor message send`
+
+Send a message through the mailbox: read --text, a file or - for standard input, and its first line; leave the whole text as &lt;state>/mailbox/&lt;to>/&lt;ulid>.md and record it received with transport Mailbox and that body path, then print its id; print the format, exit 1 and write nothing when the first line does not parse
+
+```text
+Usage: conductor message send [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--to <TO>` | no | none | The recipient, whose mailbox directory under the state directory receives the file: conductor |
+| `--from <FROM>` | no | none | The sending session's full name |
+| `--text <FILE>` | no | none | The file holding the message, or - for standard input; its first line is one of the message forms |
 
 ## `conductor resource`
 
@@ -1546,7 +1629,7 @@ Usage: conductor guard guard-decisions [OPTIONS]
 
 ## `conductor session`
 
-The instance's one conductor session and the lease it holds
+The instance's conductor lease, what the run daemon delivers to its sessions, and the daemon's ticks
 
 ```text
 Usage: conductor session [OPTIONS] <COMMAND>
@@ -1569,6 +1652,50 @@ Usage: conductor session claim [OPTIONS]
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 | `--from-session-start` | no | `false` | Read the session id from a Claude Code SessionStart payload on standard input |
 
+## `conductor session deliver-message`
+
+Deliver a message to a session
+
+```text
+Usage: conductor session deliver-message [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--session-name <SESSION_NAME>` | no | none | SessionName |
+| `--first-line <FIRST_LINE>` | no | none | string |
+| `--body-path <BODY_PATH>` | no | none | string, optional |
+| `--delivered-at <DELIVERED_AT>` | no | none | timestamp, RFC 3339 |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor session record-run-tick`
+
+Record a tick of the run daemon
+
+```text
+Usage: conductor session record-run-tick [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--kind <KIND>` | no | none | TickKind One of `watch`, `cycle`, `daily`. |
+| `--started-at <STARTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--lines-handled <LINES_HANDLED>` | no | none | integer |
+| `--actions <ACTIONS>` | no | none | list of DispatchLogEvent, a JSON array of the events as the dispatch log writes them (`relayed`, `handover-sent`, …) |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor session deliveries`
+
+Deliveries to sessions
+
+```text
+Usage: conductor session deliveries [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
 ## `conductor session leases`
 
 Conductor leases
@@ -1581,9 +1708,62 @@ Usage: conductor session leases [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
+## `conductor session run-ticks`
+
+Ticks of the run daemon
+
+```text
+Usage: conductor session run-ticks [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
+
+## `conductor session attach`
+
+Attach this terminal to a live session's tmux, by --name or --role, or through a picker of every instance's sessions without either; detach with ctrl-] then d, the session runs on; --watch attaches read-only, and follows the typescript of a session started before the tmux launcher; refuse inside a session, an unknown session, and a read-write attach to a session started before the tmux launcher
+
+```text
+Usage: conductor session attach [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--name <NAME>` | no | none | The session's full name, `<session_prefix>-<role>` or a controller's |
+| `--role <ROLE>` | no | none | The role whose session attaches, as for `session start` |
+| `--instance <NAME>` | no | none | Look only in this instance of the config file. Default: every instance |
+| `--watch <BOOL>` | no | none | Attach read-only: nothing typed reaches the session. `--watch` alone is `--watch true` One of `true`, `false`. |
+
+## `conductor session deliver`
+
+Type a text into a running session's tmux, then Enter, and record the delivery and its dispatch line; --text is a file, or - for standard input, which is kept as &lt;state>/mailbox/delivered/&lt;ulid>.md; refuse a session whose launcher socket is absent or whose tmux does not take the text, naming it, without trying again
+
+```text
+Usage: conductor session deliver [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--name <NAME>` | no | none | The session's full name, as its launcher socket &lt;state>/sessions/&lt;name>.tmux names it |
+| `--text <FILE>` | no | none | The file holding the text, or - for standard input |
+
+## `conductor session list`
+
+Print one line per live session of every instance (or --instance) whose state holds a launcher's files for it: its instance, its name, and attach (read-write or --watch) or watch (--watch only, started before the tmux launcher)
+
+```text
+Usage: conductor session list [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--instance <NAME>` | no | none | List only this instance of the config file. Default: every instance |
+| `--format <FORMAT>` | no | none | How the rows are printed: text, one `<name> <attach\|watch>` line each, or json. Default: text |
+
 ## `conductor session start`
 
-Start the session of the role conductor or conductor-dev in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
+Start the session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) in the box the instance's confinement asks for, measure the box at its boundary and write the measurement under the state directory; refuse an unknown role, a session of that name already running, and under strict a provider not available or a box short of the request
 
 ```text
 Usage: conductor session start [OPTIONS]
@@ -1591,11 +1771,11 @@ Usage: conductor session start [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
+| `--role <ROLE>` | no | none | The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release |
 
 ## `conductor session stop`
 
-Stop the live session of the role conductor or conductor-dev through the provider that started it; refuse an unknown role and a role with no live session
+Stop the live session of the role director or maintainer (conductor or conductor-dev, their old names, for this release) through the provider that started it; refuse an unknown role and a role with no live session
 
 ```text
 Usage: conductor session stop [OPTIONS]
@@ -1603,7 +1783,7 @@ Usage: conductor session stop [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--role <ROLE>` | no | none | The role whose session starts or stops: conductor or conductor-dev |
+| `--role <ROLE>` | no | none | The role whose session starts or stops: director or maintainer, or conductor or conductor-dev, their old names, for this release |
 
 ## `conductor host`
 
@@ -1657,8 +1837,11 @@ Usage: conductor host release-grant [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
-| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`. |
+| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
 | `--released-at <RELEASED_AT>` | no | none | timestamp, RFC 3339 |
+| `--cache-hits <CACHE_HITS>` | no | none | integer |
+| `--cache-misses <CACHE_MISSES>` | no | none | integer |
+| `--lane-overrun <LANE_OVERRUN>` | no | none | boolean One of `true`, `false`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host request-disk`
@@ -1674,9 +1857,11 @@ Usage: conductor host request-disk [OPTIONS]
 | `--instance <INSTANCE>` | no | none | InstanceName |
 | `--repository <REPOSITORY>` | no | none | RepositoryName, optional |
 | `--session-name <SESSION_NAME>` | no | none | SessionName, optional |
+| `--session-id <SESSION_ID>` | no | none | SessionId, optional |
 | `--bytes <BYTES>` | no | none | integer |
 | `--command <COMMAND>` | no | none | string |
 | `--requested-at <REQUESTED_AT>` | no | none | timestamp, RFC 3339 |
+| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host reserve-disk`
@@ -1692,6 +1877,7 @@ Usage: conductor host reserve-disk [OPTIONS]
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--shortfall-bytes <SHORTFALL_BYTES>` | no | none | integer |
 | `--reclaimed-bytes <RECLAIMED_BYTES>` | no | none | integer |
+| `--lane <LANE>` | no | none | BuildLane, optional One of `Regular`, `Short`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host start-run`
@@ -1739,6 +1925,7 @@ Usage: conductor host withdraw-disk-request [OPTIONS]
 |---|---|---|---|
 | `--grant-id <GRANT_ID>` | no | none | GrantId |
 | `--withdrawn-at <WITHDRAWN_AT>` | no | none | timestamp, RFC 3339 |
+| `--reason <REASON>` | no | none | ReleaseReason, optional One of `Exited`, `Killed`, `ProcessGroupGone`, `SessionStopped`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor host grants`
@@ -1776,6 +1963,19 @@ Usage: conductor host reclaim [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the steps are printed: text or json. Default: text |
+
+## `conductor host slices`
+
+List each systemd user slice of conductor, conductor.slice or conductor_&lt;prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit
+
+```text
+Usage: conductor host slices [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--format <FORMAT>` | no | none | How the slices are printed: text or json. Default: text |
+| `--gc <BOOL>` | no | none | Stop each slice that holds no unit and that no instance of the config file names. `--gc` alone is `--gc true` One of `true`, `false`. |
 
 ## `conductor metric`
 
@@ -1982,6 +2182,20 @@ Usage: conductor finding findings [OPTIONS]
 |---|---|---|---|
 | `--format <FORMAT>` | no | `text` | How the rows are rendered One of `text`, `json`, `jsonl`, `markdown`. |
 
+## `conductor broker`
+
+```text
+Usage: conductor broker [OPTIONS] <COMMAND>
+```
+
+## `conductor broker serve`
+
+Serve the instance's broker until stopped, on one socket per registered session under the state directory's broker/; check each call against the session's grant, run it and record it
+
+```text
+Usage: conductor broker serve [OPTIONS]
+```
+
 ## `conductor build`
 
 ```text
@@ -1998,8 +2212,9 @@ Usage: conductor build run [OPTIONS] [-- <COMMAND>...]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--reserve <SIZE>` | no | none | The command's expected peak, in GiB: `8G`, or `8` |
+| `--reserve <SIZE>` | no | none | The command's expected peak, in GiB: `8G`, or `8`; or `auto`, which is also what no `--reserve` means: the largest peak the ledger recorded for the same repository and command in the last 14 days plus 50 %, at least 1G, and 4G when none is recorded |
 | `--repository <REPOSITORY>` | no | none | The repository the command builds, recorded with the reservation |
+| `--measure <DIR>` | no | none | A directory to measure besides the run's own (`target/`, the working directory, and `CARGO_TARGET_DIR` when the command's environment sets it); repeatable |
 | `<COMMAND>` | no | none | The command and its arguments, after `--` |
 
 ## `conductor config`
@@ -2008,9 +2223,21 @@ Usage: conductor build run [OPTIONS] [-- <COMMAND>...]
 Usage: conductor config [OPTIONS] <COMMAND>
 ```
 
+## `conductor config migrate`
+
+Write a session_prefix into each instance of the config file that names none; --check prints them and writes nothing
+
+```text
+Usage: conductor config migrate [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--check <BOOL>` | no | none | Write nothing; print the session_prefix each instance without one would get. `--check` alone is `--check true` One of `true`, `false`. |
+
 ## `conductor config show`
 
-Print one instance's effective config, after defaults, as a config file
+Print one instance's effective config, after defaults, as a config file, and the host's roles from host.yaml under `host` (not in yaml)
 
 ```text
 Usage: conductor config show [OPTIONS]
@@ -2018,12 +2245,12 @@ Usage: conductor config show [OPTIONS]
 
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
-| `--format <FORMAT>` | no | none | How the config is rendered: text, one `path: value` line each; json; or yaml, a config file. Default: text |
+| `--format <FORMAT>` | no | none | How the config is rendered: text, one `path: value` line each; json; each with the host's roles under `host`; or yaml, a config file, without them. Default: text |
 | `--instance <NAME>` | no | none | The instance shown. Default: $CONDUCTOR_INSTANCE, else the config's only instance |
 
 ## `conductor config validate`
 
-Check the config file; exit 1 naming each problem by its YAML path
+Check the config file and the host file host.yaml; exit 1 naming each problem by its YAML path
 
 ```text
 Usage: conductor config validate [OPTIONS]
@@ -2098,6 +2325,24 @@ Usage: conductor init [OPTIONS]
 |---|---|---|---|
 | `--instance <NAME>` | no | none | The instance whose records directory is written. Default: $CONDUCTOR_INSTANCE, else the file's default, else its only instance |
 
+## `conductor need`
+
+```text
+Usage: conductor need [OPTIONS] <COMMAND>
+```
+
+## `conductor need new`
+
+Print the next NEED id no earlier NEED used, N-&lt;yyyymmdd>-&lt;nn>, and keep it in the state directory; skip an id the records' hand-overs, decisions and dispatches already cite
+
+```text
+Usage: conductor need new [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--day <DAY>` | no | none | The UTC date the id is minted for, yyyy-mm-dd. Default: today |
+
 ## `conductor records`
 
 ```text
@@ -2136,6 +2381,23 @@ Usage: conductor rules show [OPTIONS]
 | `--section <SECTION>` | no | none | A heading of rules.md, any case: print every item under each heading of that text |
 | `--format <FORMAT>` | no | none | How the items are printed: text (verbatim) or json. Default: text |
 | `--brief <BOOL>` | no | none | One line per item instead: its number and its first sentence. `--brief` alone is `--brief true` One of `true`, `false`. |
+| `--changed-since <CHANGED_SINCE>` | no | none | A git revision of the records directory: print only the items whose text differs from that revision's rules.md, or that it does not hold, and name the ones it held that are gone |
+| `--role <ROLE>` | no | none | A role (all, conductor, controller, worker, maintainer): print the rules of its file, rules/&lt;role>.md of the records, one per line; with --changed-since, the changed ones |
+
+## `conductor run`
+
+Run the instance's loop with no model call, recording each tick - every cadence.watch the watch pass, its handlers and the mailbox; every cadence.cycle the snapshot, the board, records check and dispatch v1; at cadence.daily metric compute, REPORT.md and a commit of the records through the bot route. --once runs one watch tick and one cycle tick and exits; --once --commit-records commits the records alone; --install starts it as the user unit conductor_&lt;instance>-run.service through systemd-run (under the none provider prints the command instead); --uninstall stops that unit
+
+```text
+Usage: conductor run [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--once <BOOL>` | no | none | Run one watch tick and one cycle tick, then exit 0. `--once` alone is `--once true` One of `true`, `false`. |
+| `--install <BOOL>` | no | none | Start the loop as the user unit conductor_&lt;instance>-run.service through systemd-run; under the none provider print the command to run instead. `--install` alone is `--install true` One of `true`, `false`. |
+| `--uninstall <BOOL>` | no | none | Stop the user unit conductor_&lt;instance>-run.service. `--uninstall` alone is `--uninstall true` One of `true`, `false`. |
+| `--commit-records <BOOL>` | no | none | With --once: commit the records directory through the bot route and push it when it has an origin, and run no tick. `--commit-records` alone is `--commit-records true` One of `true`, `false`. |
 
 ## `conductor setup`
 
@@ -2164,7 +2426,7 @@ Usage: conductor spawn [OPTIONS]
 
 ## `conductor status`
 
-Print the newest complete snapshot's id and age, its deviations and sessions, the open dispatches, the registered waits and the pending requests, from the store alone; start no snapshot and create nothing
+Print what asks for attention, one line each, from the store alone (the newest complete snapshot's id and age, its deviations, blocked dispatches, waits, pending requests and usage); --full prints its sessions and every open dispatch besides; start no snapshot and create nothing
 
 ```text
 Usage: conductor status [OPTIONS]
@@ -2173,6 +2435,7 @@ Usage: conductor status [OPTIONS]
 | Argument | Required | Default | Meaning |
 |---|---|---|---|
 | `--format <FORMAT>` | no | none | How the status is printed: text or json. Default: text |
+| `--full <BOOL>` | no | none | Print every part under its heading, sessions and every open dispatch included, instead of the attention lines. `--full` alone is `--full true` One of `true`, `false`. |
 
 ## `conductor store`
 

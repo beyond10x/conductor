@@ -10,6 +10,8 @@
 
 use std::fmt;
 
+pub mod attach;
+pub mod broker;
 pub mod build;
 pub mod cli;
 pub mod collect;
@@ -29,14 +31,18 @@ pub mod host;
 pub mod init;
 pub mod message;
 pub mod metric;
+pub mod need;
 pub mod records;
+pub mod registry;
 pub mod repository;
 pub mod resource;
 pub mod rollup;
 pub mod rules;
+pub mod run;
 pub mod session;
 pub mod setup;
 pub mod shipped;
+pub mod slices;
 pub mod snapshot;
 pub mod spawn;
 pub mod state;

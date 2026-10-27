@@ -7,8 +7,8 @@ description: Install the conductor CLI, check the programs it starts, write a on
 New to conductor? Read [why conductor](./concepts/why-conductor.md) first: the problem, one day with it, and what to adopt first.
 
 This page installs the `conductor` CLI, checks the programs it starts, writes the smallest config,
-checks it, and takes one snapshot of two tiny local repositories. It starts no session;
-[Start conductor](./guides/start-conductor.md) does that.
+checks it, and takes one snapshot of two tiny local repositories. It starts no loop and no session;
+[Start conductor](./guides/start-conductor.md) does that with `conductor run --install`.
 
 The CLI prints absolute paths; the output here writes the home directory as `~`. Version lines,
 ids, times and sizes differ on your machine.
@@ -29,7 +29,7 @@ repositories with a specification; the [README](https://github.com/beyond10x/con
 Install from the repository:
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.16.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.19.0 --locked conductor-cli
 ```
 
 or, from a checkout, `task install`, which runs `cargo install --path crates/conductor --locked`.
@@ -40,7 +40,7 @@ from `v0.6.0` on carries `conductor-<version>-<target>.tar.gz` for `x86_64-unkno
 `SHA256SUMS`. Verify the archive against it before you unpack it:
 
 ```console
-version=0.16.0 target=x86_64-unknown-linux-gnu
+version=0.19.0 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -61,7 +61,7 @@ Each way installs one binary, `conductor`; `conductor --version` prints its vers
 
 ```console
 $ conductor --version
-conductor 0.16.0
+conductor 0.19.0
 ```
 
 ## Check the programs
@@ -75,7 +75,7 @@ $ conductor doctor
 host: workstation
 system: Linux 6.18.0
 architecture: x86_64
-conductor 0.16.0
+conductor 0.19.0
 git: present, git version 2.55.0
 gh: not needed
 glab: not needed
@@ -148,6 +148,7 @@ The repository's `conductor.example.yaml` has two complete instances to copy fro
 version: conductor.config/1
 instances:
   - name: demo
+    session_prefix: demo
     sources:
       - local: ~/work
     checkouts:
@@ -170,7 +171,7 @@ $ conductor config show | head -10
 version: conductor.config/1
 default: demo
 instances[0].name: demo
-instances[0].session_prefix: null
+instances[0].session_prefix: demo
 instances[0].sources[0].local: ~/work
 instances[0].checkouts.root: ~/work
 instances[0].checkouts.trees: ~/.local/state/worktree/trees/work
@@ -233,5 +234,6 @@ is kept with its reason and is never read as the current state
 - [Configure an instance](./guides/configure-an-instance.md) for a real organization.
 - [Initialise the records](./guides/initialise-the-records.md) with `conductor init`.
 - Read the [security overview](/docs/security/overview), then
-  [start conductor](./guides/start-conductor.md) and its controllers.
+  [start conductor](./guides/start-conductor.md), its loop `conductor run --install` and its
+  controllers.
 - [The CLI reference](/docs/reference/cli) for every command.

@@ -71,6 +71,12 @@ instances:
         profile: ~/example-org/repo-controller.md
         read_only_tools: [mcp__example__read]
         forge_token_env: [EXAMPLE_FORGE_TOKEN]
+        grant:
+          tools: [show, search]
+          repositories: [alpha]
+          paths: [src]
+          max_output_bytes: 32768
+          ttl: 8h
         limits:
           memory_max: 8G
           cpu_weight: 50
@@ -108,6 +114,15 @@ instances:
       watchdog_every: 5s
       silent_session: 45m
       cpu_reserve: 3
+      build_slots: 2
+      repo_cache: off
+      repo_cache_size: 4G
+      lean_debuginfo: false
+      short_lane_slots: 2
+      short_lane_max: 5m
+      stalled_session: 1h
+      build_queued: 20m
+      tree_stale: 3d
     retention:
       snapshots: 3
     reports:
@@ -170,9 +185,20 @@ fn comment_above(text: &str, name: &str) -> String {
         .join("\n\n")
 }
 
-/// `text` without the plan references it carries, such as ` (story:config-file)`.
+/// `text` without the plan references it carries, such as ` (story:config-file)`, and without
+/// its open questions: each `UNMAPPED:` note, to the end of its paragraph, is for whoever settles
+/// the specification, not for a reader of the reference.
 fn without_plan_references(text: &str) -> Result<String> {
-    let mut out = text.to_owned();
+    let mut out = text
+        .split("\n\n")
+        .map(|paragraph| {
+            paragraph
+                .find("UNMAPPED:")
+                .map_or(paragraph, |at| paragraph[..at].trim_end())
+        })
+        .filter(|paragraph| !paragraph.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
     while let Some(at) = out.find("(story:") {
         let end = out[at..]
             .find(')')
@@ -188,6 +214,19 @@ fn without_plan_references(text: &str) -> Result<String> {
             .context("an unclosed story reference")?;
         let start = if out[..at].ends_with(' ') { at - 1 } else { at };
         out.replace_range(start..end, "");
+    }
+    // A story named after another reference in one parenthesis: `(`a`, story:b)`.
+    while let Some(at) = out.find(", story:") {
+        let id = &out[at + ", story:".len()..];
+        let length = id
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .unwrap_or(id.len());
+        let end = at + ", story:".len() + length;
+        ensure!(
+            out[end..].starts_with(')'),
+            "a story reference the generator cannot take out: {out}"
+        );
+        out.replace_range(at..end, "");
     }
     ensure!(
         !out.contains("story:"),
@@ -830,6 +869,36 @@ mod tests {
             "the command runs"
         );
         assert!(without_plan_references("see story:x").is_err());
+    }
+
+    /// A story named after another reference in one parenthesis is taken out with its comma.
+    #[test]
+    fn a_plan_reference_after_another_in_one_parenthesis_is_taken_out() {
+        assert_eq!(
+            without_plan_references(
+                "`delivered` (`session deliver`, story:mail-and-deliver): `to`"
+            )
+            .unwrap(),
+            "`delivered` (`session deliver`): `to`"
+        );
+    }
+
+    /// An `UNMAPPED:` note is an open question for whoever settles the specification, not text
+    /// for a reader of the reference: it is left out to the end of its paragraph, story
+    /// references and all, and the paragraphs around it stay.
+    #[test]
+    fn open_questions_are_left_out() {
+        assert_eq!(
+            without_plan_references(
+                "What a line says. UNMAPPED: story:x says one thing (`a`); ask.\n\nThe next."
+            )
+            .unwrap(),
+            "What a line says.\n\nThe next."
+        );
+        assert_eq!(
+            without_plan_references("UNMAPPED: see story:x.\n\nKept.").unwrap(),
+            "Kept."
+        );
     }
 
     #[test]

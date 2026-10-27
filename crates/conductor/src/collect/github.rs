@@ -36,9 +36,10 @@
 //! repository, the workflow, the latest instant answered and the instant stored, and the snapshot
 //! completes: a run GitHub no longer answers (a deleted run, a recreated workflow) never fails a
 //! snapshot. A workflow no answer holds is not compared. The newest complete snapshot is read through the
-//! store's ports, as [`repository::activity`](crate::repository::activity) reads it, over a handle
-//! on the store under the recorder's state directory ([`Recorder::state`]), and only when an answer
-//! holds a run: without a complete snapshot nothing is compared.
+//! store's ports, as [`repository::activity`](crate::repository::activity) reads it, over the
+//! handle the snapshot records through ([`Recorder::store`]; a second handle would read the whole
+//! store once more, `story:snapshot-store-cost`), and only when an answer holds a run: without a
+//! complete snapshot nothing is compared.
 //!
 //! A list that comes back full with none of it older than the window may be cut, so it is asked
 //! for once more with a larger limit ([`Shipments::release_limits`], 100 releases, and
@@ -72,6 +73,7 @@ use super::repositories::{WIDTH, checked, each, filled, json, one_of_each, utc, 
 use crate::collect::{self, Origins};
 use crate::config;
 use crate::snapshot::Recorder;
+use crate::store::{Store, StoreError};
 
 /// The rollup conclusions that make a check failing.
 const FAILING: [&str; 3] = ["FAILURE", "TIMED_OUT", "ACTION_REQUIRED"];
@@ -738,25 +740,32 @@ struct Stored {
 }
 
 /// What the newest complete snapshot holds of `main`'s runs, or `None` when the store holds no
-/// complete snapshot. Read through the store's ports over a handle of its own on the store under
-/// the recorder's state directory, as [`crate::repository::activity`] reads its snapshot; the
-/// snapshot being collected is not complete, so it is never the one read. A record that does not
-/// read is left out, as every port leaves it out; a run whose instant does not read is too.
+/// complete snapshot. Read through the store's ports over the handle the snapshot records through
+/// ([`Recorder::store`]), with what the read meets kept apart from it ([`Store::apart`]), as
+/// [`crate::repository::activity`] reads its snapshot; the snapshot being collected is not
+/// complete, so it is never the one read. A record that does not read is left out, as every port
+/// leaves it out; a run whose instant does not read is too.
 ///
 /// # Errors
 ///
-/// The snapshot is taken over a store opened without its state directory, the store does not
-/// open, or a read of it failed for a reason other than a record this build cannot read.
+/// A read of the store failed for a reason other than a record this build cannot read.
 fn stored(record: &Recorder<'_>) -> Result<Option<Stored>> {
     const WHAT: &str = "read the newest complete snapshot's runs";
-    let store = crate::store::open_existing(record.state().context(WHAT)?).context(WHAT)?;
-    let newest = newest_complete(SnapshotStorage::list(&store));
-    store.unreadable().context(WHAT)?;
-    let Some(snapshot) = newest else {
-        return Ok(None);
-    };
+    let (stored, met) = record.store().apart(read_stored);
+    if let Some(failure) = met
+        .into_iter()
+        .find(|failure| !matches!(failure, StoreError::Undecodable { .. }))
+    {
+        return Err(failure).context(WHAT);
+    }
+    Ok(stored)
+}
+
+/// [`stored`] over `store`, every failure left on it.
+fn read_stored(store: &Store) -> Option<Stored> {
+    let snapshot = newest_complete(SnapshotStorage::list(store))?;
     let mut runs: BTreeMap<String, BTreeMap<String, OffsetDateTime>> = BTreeMap::new();
-    for run in WorkflowRunObservationStorage::list(&store) {
+    for run in WorkflowRunObservationStorage::list(store) {
         let data = run.data;
         if data.snapshot_id != snapshot {
             continue;
@@ -771,8 +780,7 @@ fn stored(record: &Recorder<'_>) -> Result<Option<Stored>> {
             .or_insert(at);
         *held = (*held).max(at);
     }
-    store.unreadable().context(WHAT)?;
-    Ok(Some(Stored { snapshot, runs }))
+    Some(Stored { snapshot, runs })
 }
 
 /// The `Complete` snapshot of `snapshots` that started latest; of equal starts, the later one in
