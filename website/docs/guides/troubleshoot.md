@@ -14,7 +14,7 @@ conductor config validate
 conductor doctor
 ```
 
-`conductor --version` names the installed release, `conductor 0.19.0`; quote it when you report a
+`conductor --version` names the installed release, `conductor 0.19.1`; quote it when you report a
 problem.
 
 Every command resolves the instance first and stops on a config problem, named by its YAML path.
@@ -75,7 +75,7 @@ a check fails. Each message names its fix:
 | `conductor config show names no maintainer under host.roles …` | the host file names no maintainer, or the config does not load | `conductor config validate`; add the role `maintainer` to `~/.b10x/conductor/host/host.yaml` |
 | `the maintainer runs on codex …; this task starts claude only` | the role's `harness` is not `claude` | set `harness: claude` for this role |
 | `the profile … of the maintainer is not a file` | the `profile` path is wrong | run `task install` in a checkout of the conductor repository, which writes `~/.b10x/conductor/profiles/conductor-dev.md`, and point it there |
-| `this checkout has no .claude/agents/conductor-dev.md …` | the role names no `profile`, and sessions load no user-level agent | name a `profile` for the role ([start conductor](./start-conductor.md#2-name-each-roles-profile-and-settings)) |
+| `this checkout has no .claude/agents/conductor-dev.md …` | the role names no `profile`, and a session started with `--setting-sources project,local` loads no user-level agent | name a `profile` for the role ([start conductor](./start-conductor.md#2-name-each-roles-profile-and-settings)) |
 | `a session named … is already running; see task sessions` | a live session of that name exists | attach to it, or stop it before you start another |
 
 `conductor config validate` refuses a controller role that names an `agent` and no `profile`,

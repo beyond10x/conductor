@@ -64,7 +64,7 @@ the model.
   hostile prompt. Limit what the session's user and forge token can reach
   ([hardening](/docs/security/hardening)).
 - **A compromised repository hook.** Sessions load project settings
-  (`--setting-sources project,local`), and `task trust` marks every checkout as a trusted
+  (`--setting-sources project,local`, and `user` too under the `none` provider), and `task trust` marks every checkout as a trusted
   workspace. A repository's own `.claude/` settings and hooks therefore run in its controller's
   session, with the rights of the session's user. A hook is not a tool call, so the guard never
   sees what it does.
@@ -143,7 +143,7 @@ way, so an answer the operator did not give can be found and reversed
 
 | enforced in code | asked of the model (profiles only) |
 |---|---|
-| the guard decides every tool call of a session started with its settings file | starting each controller with the settings file and `--setting-sources project,local` (`conductor controller start-controller` records a controller; it does not start a session yet) |
+| the guard decides every tool call of a session started with its settings file | starting each controller with the settings file and its provider's `--setting-sources` (`conductor controller start-controller` records a controller; it does not start a session yet) |
 | unknown tools and MCP tools are denied unless a role's `read_only_tools` names them | keeping a role's `read_only_tools` to tools that only read |
 | file tools confined to the session's place; settings, profiles, config and records protected | Bash writes outside the session's own repository |
 | `cd`, `pushd`, `git -C` into another repository or the records denied (a heuristic) | `git push` only through the repository's own route |

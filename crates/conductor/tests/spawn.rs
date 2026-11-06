@@ -357,7 +357,8 @@ fn describe(output: &Output) -> String {
 }
 
 /// The controller start form the `none` provider launches (`story:session-envelope-seam`), with
-/// the case's values.
+/// the case's values. Its `claude --bg` reads user settings too, where Claude Code keeps the
+/// bypass-permissions acceptance a background session needs (`story:bg-launch-reads-user-settings`).
 fn start_form(case: &Case) -> Vec<String> {
     [
         "--bg",
@@ -370,7 +371,7 @@ fn start_form(case: &Case) -> Vec<String> {
         "--permission-mode",
         "bypassPermissions",
         "--setting-sources",
-        "project,local",
+        "user,project,local",
         "--settings",
         &case.settings().display().to_string(),
         CHARTER,
@@ -952,13 +953,20 @@ fn spawn_starts_through_the_provider_with_one_start_and_one_prompt() {
         &json!([case.dir.join("trees/alpha").display().to_string()]),
         "{request:#}"
     );
+    // The launch a provider is given keeps `project,local`; only the `none` provider's `--bg`
+    // adds `user` (`story:bg-launch-reads-user-settings`).
     let mut form = start_form(&case);
     form.remove(0);
     form.pop();
+    for word in &mut form {
+        if word == "user,project,local" {
+            "project,local".clone_into(word);
+        }
+    }
     assert_eq!(
         logged[0]["args"],
         json!(form),
-        "the start form but --bg and the charter"
+        "the start form but --bg, the charter and the user setting source"
     );
     assert_eq!(
         logged[1]["prompt"], CHARTER,
@@ -1060,6 +1068,38 @@ fn the_none_provider_keeps_the_start_form() {
     .expect("the measurement is JSON");
     assert!(record["unboxed"].is_string(), "{record:#}");
     assert_eq!(record["session"]["session_id"], SESSION_ID, "{record:#}");
+}
+
+/// `story:bg-launch-reads-user-settings`: the `none` provider resumes a paused controller with
+/// `claude --bg --resume <id>` and the start form, user settings included.
+#[test]
+fn the_none_provider_resumes_with_the_start_form() {
+    let case = Case::new("provider-none-resume");
+    case.confine("{provider: none}");
+    let output = case.spawn();
+    assert!(output.status.success(), "spawn: {}", describe(&output));
+    let controller = case.controllers()[0]["controller_id"]
+        .as_str()
+        .expect("a controller id")
+        .to_owned();
+    case.sessions(&json!([]));
+    for command in ["pause-controller", "resume-controller"] {
+        let output = case.run(&["controller", command, "--controller-id", &controller]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{command}: {}",
+            describe(&output)
+        );
+    }
+    let form = start_form(&case);
+    let resumed: Vec<String> = ["--bg", "--resume", SESSION_ID]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(form[1..form.len() - 1].iter().cloned())
+        .collect();
+    assert_eq!(case.argv(), resumed, "the resume form");
+    assert_eq!(case.controllers()[0]["state"], "Running");
 }
 
 /// Under `strict`, a provider that is not available refuses the spawn before anything is

@@ -185,8 +185,9 @@ types:
   # A tool with a rule of its own (Edit, Write, NotebookEdit, SendMessage, Bash, Monitor) is
   # decided by that rule whatever this list says. Absent, it is empty.
   # A `lead` (`controller`) role the file writes that names an `agent` names a `profile` as well
-  # (story:agent-needs-user-setting-source): every session of the instance starts with
-  # `--setting-sources project,local`, which loads no user-level agent, so a controller starts
+  # (story:agent-needs-user-setting-source): a session the `systemd` provider starts passes
+  # `--setting-sources project,local`, which loads no user-level agent (the `none` provider adds
+  # `user` for `claude --bg`, story:bg-launch-reads-user-settings), so a controller starts
   # only from its profile, never from its agent; a controller role with an agent and no profile
   # is refused by its `profile` path. One with neither is valid, as the built-in role is.
   # `limits`, `writable` and `network` are the envelope each session of the role asks for

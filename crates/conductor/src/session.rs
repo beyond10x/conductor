@@ -901,7 +901,8 @@ fn request(instance: &Instance, role: &Role, cwd: &Path, home: &Path) -> Session
 /// The arguments the harness of `role` starts with before its first prompt: its name, its profile
 /// (`--append-system-prompt-file`) or else its agent (`--agent`, by default the role's old name,
 /// `conductor` or `conductor-dev`, the adapters' file names for this release),
-/// its model, bypass permissions, no user settings, and its settings file; conductor's defaults to
+/// its model, bypass permissions, no user settings (the `none` provider adds them for `claude --bg`,
+/// [`crate::confine::background_args`]), and its settings file; conductor's defaults to
 /// [`CONDUCTOR_SETTINGS`] under `cwd`.
 fn harness_args(role: &Role, name: &SessionName, settings: Option<String>) -> Vec<String> {
     let mut args = vec!["-n".to_owned(), name.0.clone()];

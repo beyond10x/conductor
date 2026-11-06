@@ -204,7 +204,7 @@
     },
     {
       "area": "Config and instances",
-      "detail": "A controller role that names an agent and no profile is refused, because sessions load no user-level agent.",
+      "detail": "A controller role that names an agent and no profile is refused, because a session started with project and local setting sources loads no user-level agent.",
       "href": "/docs/reference/config",
       "label": "Controllers start from their profile",
       "status": "shipped"

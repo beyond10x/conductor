@@ -78,13 +78,17 @@ types:
   # `repository`. With its working directory the checkout `<checkouts.root>/<repository>`, it runs,
   # as one program with its arguments and never through a shell, `claude --bg -n <session name>
   # --append-system-prompt-file <profile> --model <model> --permission-mode bypassPermissions
-  # --setting-sources project,local --settings <settings> <charter>`: the session name is the
+  # --setting-sources user,project,local --settings <settings> <charter>`: the session name is the
   # instance's for the repository, as `StartController` takes it; profile, model and settings are
   # the `controller` role's in `conductor config show`; the charter is the text of
   # `<records>/charters/<repository>.md`, one argument. It records `StartController` before it
   # launches, and `StopController` when the launch fails. It prints what `claude --bg` printed: the
   # background session's id. A launch that succeeds appends one `sent` line to the records'
   # dispatch log (`DispatchLogLine`), with the controller's id and that session id.
+  # The `user` setting source is there because Claude Code takes the bypass-permissions
+  # acceptance a `--bg` session needs only from user or managed settings, never from `--settings`
+  # or local settings (story:bg-launch-reads-user-settings); a provider that starts the session in
+  # the foreground, such as `systemd`, passes `--setting-sources project,local`.
   - name: conductor.dispatch.SpawnController
     kind: struct
     fields:

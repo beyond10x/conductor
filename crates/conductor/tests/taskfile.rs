@@ -645,9 +645,11 @@ fn agents_link_links_each_adapter_into_the_repository_once_and_refuses_a_differe
 // Sessions without the user's global config (wave 02, U1)
 // ---------------------------------------------------------------------------------------------
 
-/// The flag every session start passes so that the user's own settings (`~/.claude/settings.json`)
-/// are not loaded: only the project's and the local ones, beside the `--settings` file.
-const SETTING_SOURCES: &str = "--setting-sources project,local";
+/// The setting sources of a session the `none` provider starts, which runs `claude --bg`: the
+/// project's and the local ones beside the `--settings` file, and the user's, because Claude Code
+/// takes the bypass-permissions acceptance a background session needs only from user settings
+/// (`story:bg-launch-reads-user-settings`). A provider that runs no `--bg` passes `project,local`.
+const SETTING_SOURCES: &str = "--setting-sources user,project,local";
 
 /// Writes a config file of one instance `alpha` whose records are the case's `records/`, whose
 /// role conductor carries `conductor` and whose role conductor-dev carries `dev` (each such as
@@ -687,10 +689,11 @@ fn w02_profile(case: &Case, name: &str) -> PathBuf {
 }
 
 /// Without a settings file or profile on the role conductor-dev, conductor-dev starts in this
-/// checkout as the agent conductor-dev, without the user's settings, and with settings that only
-/// pin its instance (`story:instance-isolation`).
+/// checkout as the agent conductor-dev, with the setting sources of a `--bg` launch
+/// ([`SETTING_SOURCES`]), and with settings that only pin its instance
+/// (`story:instance-isolation`).
 #[test]
-fn dev_start_drops_user_settings() {
+fn dev_start_runs_the_agent_conductor_dev_with_settings_pinned_to_its_instance() {
     let Some(case) = Case::new("w02-dev-start") else {
         return;
     };

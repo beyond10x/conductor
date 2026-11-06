@@ -307,7 +307,7 @@ pub const CAPABILITIES: &[Capability] = &[
     shipped(
         CONFIG,
         "Controllers start from their profile",
-        "A controller role that names an agent and no profile is refused, because sessions load no user-level agent.",
+        "A controller role that names an agent and no profile is refused, because a session started with project and local setting sources loads no user-level agent.",
         "crates/conductor/tests/config.rs::a_controller_role_with_an_agent_and_no_profile_is_refused",
         Some("/docs/reference/config"),
     ),

@@ -18,9 +18,12 @@
 //!
 //! ```text
 //! claude --bg -n <session name> --append-system-prompt-file <profile> --model <model>
-//!   --permission-mode bypassPermissions --setting-sources project,local --settings <settings>
+//!   --permission-mode bypassPermissions --setting-sources user,project,local --settings <settings>
 //!   <charter>
 //! ```
+//!
+//! The launch itself passes `--setting-sources project,local`; the `none` provider adds `user` to
+//! its `claude --bg` ([`crate::confine::background_args`], `story:bg-launch-reads-user-settings`).
 //!
 //! The session name is the instance's for the repository ([`config::session_name`]); profile,
 //! model and settings are the instance's `controller` role's; the charter is the text of

@@ -44,7 +44,7 @@ claude --bg -n <session name> \
   --append-system-prompt-file <profile> \
   --model <model> \
   --permission-mode bypassPermissions \
-  --setting-sources project,local \
+  --setting-sources user,project,local \
   --settings <role settings file> \
   "<first prompt>"
 ```
@@ -56,10 +56,23 @@ repository's charter as the first prompt.
 
 ### Setting sources
 
-`--setting-sources project,local` loads the project and local settings of the start directory and
-not the user's own settings. The operator's personal permissions, hooks and agents do not leak
-into an unattended session, and nothing in them can switch the guard off. The repository's own
-project settings are loaded, hooks included ([limits](/docs/security/limits)).
+A session the `systemd` provider starts passes `--setting-sources project,local`: the project and
+local settings of the start directory, not the user's own settings. The operator's personal
+permissions, hooks and agents do not reach an unattended session there.
+
+A session the `none` provider starts passes `--setting-sources user,project,local`. Claude Code
+starts a `claude --bg` session in `bypassPermissions` only when the disclaimer acceptance,
+`"skipDangerousModePermissionPrompt": true`, is in user or managed settings. In the role's
+`--settings` file or in local settings it does not count: `claude --bg` exits with "Acceptance is
+kept in your user settings, which this launch does not read", or starts the session in manual
+mode. So these sessions also load the user's `~/.claude/settings.json` (its env, plugins and
+hooks) and the agents in `~/.claude/agents/`. The role's `--settings` file wins on every key it
+sets, and the guard's hook runs beside any hook of the user's. For a session without the user's
+configuration, run the `systemd` provider, or give the session's OS user a user settings file that
+holds only the acceptance.
+
+Nothing in either source can switch the guard off. The repository's own project settings are
+loaded, hooks included ([limits](/docs/security/limits)).
 
 ### The settings file
 
@@ -77,8 +90,9 @@ and holds a write form ([the guard](/docs/security/the-guard#file-tools-edit-wri
 ### Profile or agent
 
 A role's `profile` is a file appended to the system prompt with `--append-system-prompt-file`.
-Without one, a session starts with `--agent <name>`. Because user settings are not loaded, that
-agent is found only in the start directory's `.claude/agents/`, never in `~/.claude/agents/`, so
+Without one, a session starts with `--agent <name>`. Where user settings are not loaded (the
+`systemd` provider), that agent is found only in the start directory's `.claude/agents/`, never in
+`~/.claude/agents/`, so
 `task agents:link`, which links into one named repository's `.claude/agents/`, serves none of
 these sessions. `task maintainer:start` refuses when this checkout has no
 `.claude/agents/conductor-dev.md` and the role names no profile. `conductor config validate` refuses a
@@ -89,8 +103,9 @@ profile.
 
 `--permission-mode bypassPermissions` means no tool call asks first. The guard is the only check.
 Claude Code refuses this mode in a background session until its disclaimer has been accepted
-once: run `claude --dangerously-skip-permissions` once interactively, or set
-`"skipDangerousModePermissionPrompt": true` in the role's settings file.
+once by the session's OS user: run `claude --dangerously-skip-permissions` once interactively and
+accept it, or set `"skipDangerousModePermissionPrompt": true` in that user's
+`~/.claude/settings.json`. Both write the same key to user settings.
 
 `task maintainer:start` refuses while a live session of the same name runs, when the profile is
 not a file, and when the role runs on a harness other than `claude`.

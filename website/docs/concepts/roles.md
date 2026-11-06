@@ -70,8 +70,8 @@ such as `thresholds.disk_low`, and read from `conductor config show --format jso
 one organization goes in its `rules.md`, which the repository does not ship.
 
 **Profile, not agent.** A role's `profile` in the config names its `.agents/` file, and the
-session starts with it through `--append-system-prompt-file`. Every session starts with
-`--setting-sources project,local`, so Claude Code loads no user-level agent from
+session starts with it through `--append-system-prompt-file`. A session the `systemd` provider
+starts passes `--setting-sources project,local`, so Claude Code loads no user-level agent from
 `~/.claude/agents/`; a role started with `--agent` finds its agent only in the start directory's
 `.claude/agents/`. That is why `conductor config validate` refuses a controller role that names an
 `agent` and no `profile`: a repository's checkout does not carry conductor's adapter.

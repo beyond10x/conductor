@@ -1,0 +1,12 @@
+{
+  "at": "2026-11-06T16:14:09Z",
+  "actor": "human:timo",
+  "artifact": "story:bg-launch-reads-user-settings",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check (ess 0.60.0, Gates policy set), exit 0, 1492 tests passed, 0 failed, at the fix/83-bypass-disclaimer tree"
+  }
+}

@@ -93,7 +93,7 @@ custom_edit_url: null
 
 | Capability | Status | What it means |
 |---|---|---|
-| [Controllers start from their profile](./reference/config.md) | ● shipped | A controller role that names an agent and no profile is refused, because sessions load no user-level agent. |
+| [Controllers start from their profile](./reference/config.md) | ● shipped | A controller role that names an agent and no profile is refused, because a session started with project and local setting sources loads no user-level agent. |
 | [Problems named by YAML path](./reference/config.md) | ● shipped | config validate refuses an unknown key, naming its YAML path. |
 | [Effective config](./reference/cli.md#conductor-config-show) | ● shipped | config show prints the effective instance after defaults, with every path absolute. |
 | [Built-in instance](./reference/cli.md#conductor-config-validate) | ● shipped | Without a config file, config validate says the built-in defaults apply. |

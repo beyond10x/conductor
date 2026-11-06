@@ -633,6 +633,12 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
         )),
         "{command}"
     );
+    // The foreground session keeps the launch's setting sources; only the `none` provider's
+    // `--bg` adds `user` (`story:bg-launch-reads-user-settings`).
+    assert!(
+        command.contains("'--setting-sources' 'project,local'"),
+        "{command}"
+    );
     // The pane moves back into the unit's cgroup, out of the scope tmux puts it in, and the
     // charter was typed through tmux.
     assert!(

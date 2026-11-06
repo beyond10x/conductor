@@ -50,8 +50,9 @@ instances:
 | `records` | the directory conductor runs in and keeps its records in; the guard gives conductor its rules only there. Default `~/.b10x/conductor/<name>/records` |
 | `roles` | the harness and model of each session; a role's `profile` is the file its session starts with through `--append-system-prompt-file`, and its `settings` the settings file that wires the guard. A list given replaces the whole default |
 
-Why a controller role that names an `agent` must name a `profile` too: every session starts with
-`--setting-sources project,local`, which loads no user-level agent from `~/.claude/agents/`, and a
+Why a controller role that names an `agent` must name a `profile` too: a session the `systemd`
+provider starts passes `--setting-sources project,local`, which loads no user-level agent from
+`~/.claude/agents/`, and a
 repository's own checkout does not carry conductor's adapter. So a controller always starts from
 its profile, never from `--agent`, and `conductor config validate` refuses a controller role with
 an `agent` and no `profile`. With the `profile` line above removed:

@@ -14,9 +14,13 @@
 //! the launch, its `prompt` runs `claude --bg <arguments> <prompt>` in the start directory (one
 //! argv, the prompt one argument, never through a shell), `stop` is `claude stop <id>`, a wait for
 //! the session list to show it gone, and `claude rm <id>`, `resume` is `claude --bg --resume <id>
-//! <arguments>`, and `measure` measures nothing: its record says the session runs unboxed. The
-//! `systemd` provider ([`systemd::Systemd`], `story:session-limits-systemd`) runs each session in
-//! a `systemd-run --user` unit inside its instance's slice, with its role's limits.
+//! <arguments>`, and `measure` measures nothing: its record says the session runs unboxed. Its
+//! `--bg` arguments ([`background_args`]) read user settings beside the project's and the local
+//! ones when they ask for `bypassPermissions`: Claude Code takes the bypass-permissions acceptance
+//! a background session needs only from user or managed settings
+//! (`story:bg-launch-reads-user-settings`). The `systemd` provider ([`systemd::Systemd`],
+//! `story:session-limits-systemd`) runs each session in the foreground of a `systemd-run --user`
+//! unit inside its instance's slice, with its role's limits and the launch's setting sources.
 //!
 //! [`choose`] reads `confinement`: under `strict`, a provider that is not available starts
 //! nothing (`ProviderUnavailable`); under `report`, the session starts unboxed through `none`
@@ -63,6 +67,52 @@ pub const BOUND: Duration = Duration::from_secs(120);
 
 /// How long a stopped session may stay in the session list with a pid.
 const STOP_WAIT: Duration = Duration::from_secs(30);
+
+/// The setting source Claude Code keeps the bypass-permissions acceptance in.
+const USER_SOURCE: &str = "user";
+
+/// `prefix`, then `args` as a `claude --bg` launch passes them: when `args` ask for
+/// `bypassPermissions` (`--permission-mode bypassPermissions` or
+/// `--dangerously-skip-permissions`), each `--setting-sources` list that lacks `user` gains it
+/// first (`story:bg-launch-reads-user-settings`). Claude Code refuses `--bg` in that mode, or
+/// starts the session in manual mode, unless the acceptance is in user or managed settings; the
+/// role's `--settings` file and local settings do not count. Every other argument is kept as it is.
+#[must_use]
+pub fn background_args(prefix: &[&str], args: &[String]) -> Vec<String> {
+    let bypass = args.iter().enumerate().any(|(index, arg)| {
+        arg == "--dangerously-skip-permissions"
+            || arg == "--permission-mode=bypassPermissions"
+            || (arg == "--permission-mode"
+                && args
+                    .get(index + 1)
+                    .is_some_and(|mode| mode == "bypassPermissions"))
+    });
+    let with_user = |sources: &str| {
+        if sources
+            .split(',')
+            .any(|source| source.trim() == USER_SOURCE)
+        {
+            sources.to_owned()
+        } else if sources.is_empty() {
+            USER_SOURCE.to_owned()
+        } else {
+            format!("{USER_SOURCE},{sources}")
+        }
+    };
+    let mut out: Vec<String> = prefix.iter().map(|word| (*word).to_owned()).collect();
+    let mut sources_next = false;
+    for arg in args {
+        if bypass && sources_next {
+            out.push(with_user(arg));
+        } else if let Some(sources) = arg.strip_prefix("--setting-sources=").filter(|_| bypass) {
+            out.push(format!("--setting-sources={}", with_user(sources)));
+        } else {
+            out.push(arg.clone());
+        }
+        sources_next = arg == "--setting-sources";
+    }
+    out
+}
 
 /// A session to start: the box it asks for, and the harness command it runs in that box.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,8 +311,7 @@ impl Provider for Unboxed {
             .launch
             .as_ref()
             .ok_or_else(|| anyhow!("no session was started to prompt"))?;
-        let mut args = vec!["--bg".to_owned()];
-        args.extend(launch.args.iter().cloned());
+        let mut args = background_args(&["--bg"], &launch.args);
         args.push(prompt.to_owned());
         let output = run_launch(&mut Self::command(launch, &args))?;
         if !output.status.success() {
@@ -301,8 +350,7 @@ impl Provider for Unboxed {
             .session_id
             .as_deref()
             .ok_or_else(|| anyhow!("the session {} has no id", session.session_name.0))?;
-        let mut args = vec!["--bg".to_owned(), "--resume".to_owned(), id.to_owned()];
-        args.extend(launch.args.iter().cloned());
+        let args = background_args(&["--bg", "--resume", id], &launch.args);
         let output = run_launch(&mut Self::command(launch, &args))?;
         if !output.status.success() {
             bail!("{}", exited(&output));

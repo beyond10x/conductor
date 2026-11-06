@@ -286,10 +286,15 @@ class H with the output of `dry_run`.
 
 ## Roles, agents, profiles and settings
 
-Every session start passes `--setting-sources project,local`, so the user's own settings
-(`~/.claude/settings.json`) are not loaded, and the role's `settings` file with `--settings`.
+Every session start passes the role's `settings` file with `--settings`. A session the `systemd`
+provider starts passes `--setting-sources project,local`, so the user's own settings
+(`~/.claude/settings.json`) are not loaded. A session the `none` provider starts with `claude --bg`
+passes `--setting-sources user,project,local`: Claude Code starts a background session in
+`bypassPermissions` only when the disclaimer acceptance is in user or managed settings, and the
+`--settings` file and local settings do not count (`story:bg-launch-reads-user-settings`). The
+`--settings` file wins over user settings on every key it sets.
 When a role names a `profile`, its session starts with `--append-system-prompt-file <profile>` and
-no `--agent`. With these setting sources Claude Code loads no user-level agent, so `--agent
+no `--agent`. With `project,local` Claude Code loads no user-level agent, so `--agent
 <agent>` finds an agent only in the start directory's `.claude/agents/`, never in
 `~/.claude/agents/`; a controller, which starts in another repository's checkout, therefore always
 starts from its `profile`.
@@ -360,7 +365,7 @@ pinned to the instance the command runs for.
 
 ## Sessions without the user's config
 
-With `--setting-sources project,local` a session reads no user settings, and the shipped
+With `--setting-sources project,local` (the `systemd` provider) a session reads no user settings, and the shipped
 `.claude/conductor-settings.json` and `.claude/controller-settings.json` carry only the guard
 wiring, and conductor's also the SessionStart hook that claims the instance's conductor lease
 (`conductor session claim`). An instance that needs more gives each role its own `settings` file,
@@ -372,7 +377,7 @@ used to take from the user's settings:
 | `env` | the environment the sessions need, such as `TMPDIR` and `TMPPREFIX`; each path absolute, since a settings file expands no `~` |
 | `attribution` | what the harness adds to commits and pull requests |
 | `enabledPlugins`, `extraKnownMarketplaces` | the plugins the sessions use and the marketplaces they come from |
-| `skipDangerousModePermissionPrompt` | `true`: the sessions run in `bypassPermissions` and start in the background, where no prompt is answered |
+| `skipDangerousModePermissionPrompt` | `true`: the sessions run in `bypassPermissions`, where no prompt is answered. A `claude --bg` session (the `none` provider) takes it only from user or managed settings, so for those it goes in the session user's `~/.claude/settings.json` |
 | `claudeMdExcludes` | the absolute path of the user's `~/.claude/CLAUDE.md`, which is otherwise loaded into every session |
 | `hooks` | the guard, as in the shipped settings files |
 

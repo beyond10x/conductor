@@ -84,7 +84,7 @@ A `gitlab` source names the host its group is on, such as `host: gitlab.example.
 ## Install
 
 ```console
-cargo install --git https://github.com/beyond10x/conductor --tag v0.19.0 --locked conductor-cli
+cargo install --git https://github.com/beyond10x/conductor --tag v0.19.1 --locked conductor-cli
 conductor doctor
 ```
 
@@ -94,7 +94,7 @@ from the release instead: each GitHub Release from `v0.6.0` on carries
 `x86_64-apple-darwin` and `aarch64-apple-darwin`, and one `SHA256SUMS`:
 
 ```console
-version=0.19.0 target=x86_64-unknown-linux-gnu
+version=0.19.1 target=x86_64-unknown-linux-gnu
 archive="conductor-$version-$target.tar.gz"
 gh release download "v$version" -R beyond10x/conductor -p "$archive" -p SHA256SUMS
 grep " $archive\$" SHA256SUMS | sha256sum --check --strict
@@ -112,7 +112,7 @@ target the binary was built for and `SHA256SUMS`, checks the sum, runs the new b
 `conductor upgrade --release 0.6.0` installs a named release, older ones too. It needs `curl`,
 `tar` and `sha256sum` (or `shasum` on macOS).
 
-`conductor --version` prints the installed version, `conductor 0.19.0`. `conductor doctor` lists
+`conductor --version` prints the installed version, `conductor 0.19.1`. `conductor doctor` lists
 each program conductor starts with its version, `not needed` for the forge CLI the instance has no
 source on, and ends with `ready`, or `not ready:` and each program missing or older than its pin;
 it exits 1 when not ready.
@@ -169,17 +169,21 @@ catalog; [`docs/config.md`](docs/config.md) lists every field.
 
 3. `task trust` marks every checkout under `checkouts.root` and the records directory as trusted
    Claude Code workspaces.
-4. Accept Claude Code's bypass-permissions disclaimer once: run
-   `claude --dangerously-skip-permissions` interactively in a checkout, or set
-   `"skipDangerousModePermissionPrompt": true` in the role's settings file.
+4. Accept Claude Code's bypass-permissions disclaimer once, as the OS user the sessions run as:
+   run `claude --dangerously-skip-permissions` interactively in a checkout, or set
+   `"skipDangerousModePermissionPrompt": true` in that user's `~/.claude/settings.json`. A
+   background session takes it only from user or managed settings, not from the role's settings
+   file.
 5. `conductor run --install` starts the instance's loop, `conductor run`, as the user unit
    `conductor_<instance>-run.service`: the watch, the cycle, the mailbox and dispatch from the
    charters in `<records>/charters/`, with no conductor session (`conductor run --once` runs one
    watch and one cycle tick). `task sessions` lists the sessions and `task dashboard` serves the
    dashboard on http://127.0.0.1:7313/.
 
-Sessions start with `--setting-sources project,local`, so your user-level settings and agents are
-not loaded; the role's settings file carries what the session needs.
+Sessions the `systemd` provider starts pass `--setting-sources project,local`, so your user-level
+settings and agents are not loaded; the role's settings file carries what the session needs. The
+`none` provider's `claude --bg` sessions pass `user,project,local`, because Claude Code keeps the
+disclaimer acceptance in user settings; the role's settings file still wins on every key it sets.
 
 For an interactive session of your own in one repository, `task agents:link REPO=<path>` links
 this checkout's agents (`repo-controller`, `conductor-dev`) into

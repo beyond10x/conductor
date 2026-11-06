@@ -28,6 +28,7 @@ use std::time::{Duration, SystemTime};
 use conductor_cli::collect::Collector;
 use conductor_cli::collect::sessions::{self, Sources};
 use conductor_cli::config;
+use conductor_cli::confine::background_args;
 use conductor_cli::confine::places::{self, Placement};
 use conductor_cli::session::{DEV_PROMPT, DIRECTOR_PROMPT};
 use conductor_cli::snapshot;
@@ -1172,4 +1173,59 @@ fn two_instances_with_one_repository_name_have_two_scratch_directories() {
         ["/t", "/h/.cache/b10x/conductor/second/scratch/alpha"]
     );
     assert_ne!(first[1], second[1]);
+}
+
+fn argv(text: &str) -> Vec<String> {
+    text.split(' ').map(str::to_owned).collect()
+}
+
+/// `story:bg-launch-reads-user-settings`: the `none` provider's `claude --bg` reads user settings
+/// when its launch asks for `bypassPermissions`, because Claude Code takes the acceptance of the
+/// bypass-permissions disclaimer for a background session only from user or managed settings.
+/// Every other argument stays as it is; the `systemd` provider keeps the launch's own arguments
+/// (`tests/confine_systemd.rs`).
+#[test]
+fn a_bg_launch_in_bypass_permissions_reads_user_settings() {
+    let launch = argv(
+        "-n ex-alpha --model opus --permission-mode bypassPermissions --setting-sources \
+         project,local --settings /s.json",
+    );
+    assert_eq!(
+        background_args(&["--bg"], &launch),
+        argv(
+            "--bg -n ex-alpha --model opus --permission-mode bypassPermissions --setting-sources \
+             user,project,local --settings /s.json"
+        )
+    );
+    assert_eq!(
+        background_args(&["--bg", "--resume", "s-1"], &launch),
+        argv(
+            "--bg --resume s-1 -n ex-alpha --model opus --permission-mode bypassPermissions \
+             --setting-sources user,project,local --settings /s.json"
+        )
+    );
+
+    for (given, sources) in [
+        (
+            "--dangerously-skip-permissions --setting-sources project",
+            "user,project",
+        ),
+        (
+            "--permission-mode=bypassPermissions --setting-sources user,local",
+            "user,local",
+        ),
+    ] {
+        let args = background_args(&[], &argv(given));
+        assert_eq!(args.last().map(String::as_str), Some(sources), "{given}");
+    }
+    assert_eq!(
+        background_args(
+            &[],
+            &argv("--permission-mode bypassPermissions --setting-sources=project,local")
+        ),
+        argv("--permission-mode bypassPermissions --setting-sources=user,project,local")
+    );
+
+    let other = argv("--permission-mode default --setting-sources project,local");
+    assert_eq!(background_args(&[], &other), other, "no bypass, no user");
 }

@@ -31,8 +31,10 @@ and exits 1 when one is missing.
 
 ## 2. Name each role's profile and settings
 
-Sessions start with `--setting-sources project,local`, so Claude Code loads neither your user-level
-settings nor the agents in `~/.claude/agents/`. Each role that starts a session therefore names its
+Sessions the `systemd` provider starts pass `--setting-sources project,local`, so Claude Code loads
+neither your user-level settings nor the agents in `~/.claude/agents/`; the `none` provider's
+`claude --bg` sessions read user settings too, where the bypass-permissions acceptance is kept
+(step 4). Each role that starts a session therefore names its
 profile, the file the session starts with through `--append-system-prompt-file`, and its settings
 file, which wires the guard. With this checkout at `~/example-org/conductor`:
 
@@ -87,9 +89,12 @@ settings and hooks run without a prompt.
 
 ## 4. Accept the bypass-permissions disclaimer once
 
-`claude --bg` refuses `bypassPermissions` until Claude Code's disclaimer was accepted. Either run
-`claude --dangerously-skip-permissions` once interactively in a checkout and accept it, or set
-`"skipDangerousModePermissionPrompt": true` in the role's settings file.
+`claude --bg` refuses `bypassPermissions` until Claude Code's disclaimer was accepted by the OS
+user the sessions run as. Either run `claude --dangerously-skip-permissions` once interactively in
+a checkout and accept it, or set `"skipDangerousModePermissionPrompt": true` in that user's
+`~/.claude/settings.json`. Claude Code reads the acceptance for a background session only from user
+or managed settings, not from the role's settings file, so the `none` provider's sessions read user
+settings ([setting sources](/docs/security/confinement#setting-sources)).
 
 ## 5. Start the loop
 
@@ -128,7 +133,7 @@ the instance's `confinement` names (see
 
 ```text
 cd <checkouts root>/<repo> && claude --bg -n <session name> --append-system-prompt-file <controller profile>
-  --model <controller model> --permission-mode bypassPermissions --setting-sources project,local
+  --model <controller model> --permission-mode bypassPermissions --setting-sources user,project,local
   --settings <controller settings> "$(cat <records>/charters/<repo>.md)"
 ```
 

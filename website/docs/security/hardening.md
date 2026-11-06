@@ -82,4 +82,5 @@ directories.
   under that root.
 - [ ] **Accept the bypass-permissions disclaimer deliberately.** `claude --bg` refuses `bypassPermissions`
   until it has been accepted once. Accept it as the session user, knowing that the guard is the
-  only check from then on.
+  only check from then on. The acceptance lives in that user's `~/.claude/settings.json`, which the
+  `none` provider's sessions load; keep that file to what an unattended session may run with.
