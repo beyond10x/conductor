@@ -107,6 +107,8 @@ after a `rules.md` change, run it again for each running worker's items.
 - Scratch goes under `mktemp -d` or `<cache>/scratch/<repo>/<purpose>/`, nowhere else outside the
   repository. Waits over 60 s run in the background, no polling. Delete with `worktree finish`
   (`--archive` for an abandoned tree, never `git add -A`) or one `rm -rf -- <paths>`, never a loop.
+  Every `rm` on a variable path is written `"${VAR:?}/${NAME:?}"`; a bare `$VAR` path stops the
+  session on a Claude Code permission prompt that nobody answers.
 - The shell may be zsh: quote a word that starts with `=`, and guard a glob that may match nothing
   (`(N)` or an `ls` test). Times come from `date -u`, never typed.
 - On GitLab, a pull request is a merge request, `gh` is `glab` and a workflow run is a pipeline. A
