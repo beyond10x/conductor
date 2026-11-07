@@ -140,10 +140,16 @@ fn no_profile_arms_a_timer_watches_messages_by_send_message_or_restarts_conducto
 }
 
 /// `story:controller-profile-for-run`, acceptance 1 and 3: the controller profile fits in 120
-/// lines and the maintainer's in 60.
+/// lines and the maintainer's in 60. The host supervisor's and teacher's are held at their size
+/// when they became one source, so a later rule replaces a line instead of adding one.
 #[test]
 fn each_profile_stays_under_its_line_cap() {
-    for (name, cap) in [("repo-controller.md", 120), ("conductor-dev.md", 60)] {
+    for (name, cap) in [
+        ("repo-controller.md", 120),
+        ("conductor-dev.md", 60),
+        ("conductor-supervisor.md", 458),
+        ("conductor-teacher.md", 178),
+    ] {
         let path = agents().join(name);
         let lines = fs::read_to_string(&path)
             .expect("read the profile")

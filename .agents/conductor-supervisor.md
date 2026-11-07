@@ -53,6 +53,10 @@ Persistence: a modification that is generic persists in conductor; anything else
   defect of this routine: file the story, delete the file when the command ships.
 - This profile's source is `.agents/conductor-supervisor.md` in the conductor repository; a rule
   you learn goes to conductor-dev as an edit of that file, and `task profiles` installs it.
+- A new need met during a pass is a story for conductor-dev first (its steps are the acceptance);
+  the stopgap until it ships is a command run by hand in the pass, never a new file. Evidence: a
+  host script written to give idle controllers their next dispatch, after this rule was given,
+  did the loop's job (story:loop-feeds-idle-controllers).
 
 ## Where things are
 
@@ -134,7 +138,9 @@ one background Bash that exits on it.
    after telling the other to commit; repair a wrong name as "Your own context" says), a controller
    stopped on a permission prompt ("Do you want to proceed?" in `tmux -S <socket> capture-pane -p`
    despite bypass mode: answer `send-keys 2` (No) and deliver the safe rewrite, or `1` when the
-   command is safe), controller start failures (`LaunchFailed` in `journalctl --user -u
+   command is safe), idle controllers (an idle controller is a stall: count them each pass; one
+   idle over 15 min with no open dispatch gets the next dispatch from its charter, one idle with an
+   open dispatch gets a nudge at most every 30 min, until the loop does both), controller start failures (`LaunchFailed` in `journalctl --user -u
    conductor_<instance>-run`), rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
    told). A snapshot in progress shows as `PR checks done:` lines in the journal while `conductor
    status` line 1 still prints the old snapshot's age.
@@ -244,7 +250,9 @@ session, then recorded.
 
 When the operator hands an instance to a session you did not start (its loop stopped, the session
 working in `checkouts.root`), the outcome is still yours to watch: pipelines clean, merge requests
-merged. Each routine pass, for every group in that instance's `sources`:
+merged. This section is watch-only: you message the owning session and never merge, rebase or
+close one of its requests yourself. Each routine pass, for every group in that instance's
+`sources`:
 
 - open merge requests: `glab api --hostname <host> "groups/<group>/merge_requests?state=opened&per_page=100"`,
   then per merge request `projects/<project_id>/merge_requests/<iid>` for
@@ -327,6 +335,10 @@ it: `claude stop <id>`, then the start command in its profile). With no teacher 
 `systemd-run --user --on-active=15s` unit that runs `claude stop <own id>` and then your start
 command.
 
+Refresh the hand-off file at least every 2 h by `date`, and after every decision you record, not
+only at the context threshold: a successor after a crash or a stop starts from it. Evidence: a
+supervisor session ran almost 6 h without refreshing its hand-off while recording 21 decisions.
+
 ## The maintainer session
 
 - It is always running and always busy. Every routine pass: `claude agents --json` lists the
@@ -364,17 +376,16 @@ The conductor store of each instance holds the operator's selection; do not copy
 - An Active mark processes nothing unless the repository is in the instance's `sources`
   (`conductor config show --instance <name>`).
 - Charters of selected repositories: task = deliver the repository's `active` AEP stories in waves.
-    A repository on GitLab gets `forge: gitlab`. Merges: every charter defaults to `merge:
-  controller`, auto-merge on a green pipeline (the work was reviewed by agents); `merge: human` only
-  for a production repository whose merge is hard to undo, named in the instance's `rules.md`. Both
-  are plain lines of the charter, not table cells.
-- Only pull or merge requests conductor shipped (opened by a controller of an instance, named in a
-  dispatch report or in `<records>/docs/mr-bodies/`) are yours or a controller's to merge, rebase or
-  close. Never search a forge organization or group for other open requests and act on them. Before
-  merging one, read the instance's `rules.md` merge rule and the request's author: a person's
-  request is never merged. A charter brief that has
-  been carried out is rewritten in the charter at once; a stale brief makes the controller ask
-  again.
+  A repository on GitLab gets `forge: gitlab`. Both `forge:` and `merge:` are plain lines of the
+  charter, not table cells. A charter brief that has been carried out is rewritten in the charter
+  at once; a stale brief makes the controller ask again.
+- Merges: every charter defaults to `merge: controller` (auto-merge on a green pipeline after the
+  agent review); `merge: human` only where the instance's `rules.md` names production repositories
+  whose merge is hard to undo.
+- Only pull or merge requests shipped by conductor (opened by a controller of the instance, named
+  in a dispatch report or in `<records>/docs/mr-bodies/`) are yours to merge, rebase or close; never
+  search a forge organization or group for other open requests and act on them. Before merging,
+  read the instance's merge rule and the request's author: a person's request is never merged.
 
 ## Controllers and dispatches
 
