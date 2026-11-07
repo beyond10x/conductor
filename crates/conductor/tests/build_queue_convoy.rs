@@ -129,6 +129,7 @@ impl Case {
             walk: build::walk,
             // No compile cache: these cases run no cargo command.
             sccache: None,
+            targets: None,
         }
     }
 
