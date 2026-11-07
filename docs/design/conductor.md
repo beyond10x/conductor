@@ -209,7 +209,10 @@ first line does not parse (`message reject-message`) by answering with the forma
 Each REPORT verb but one moves the dispatch through its `dispatch report-*` command: `started`,
 `blocked`, `unblocked`, `done`, `failed`. A `progress` report is a message only. A `done` closes a
 dispatch that is sent, started or blocked: a controller that never reported `started`, or finished
-while blocked, needs no `started` or `unblocked` recorded first.
+while blocked, needs no `started` or `unblocked` recorded first. In conductor's mailbox a
+`blocked`, `done` or `failed` report on a dispatch still sent is recorded `started` first, so the
+dispatch log holds both lines; a report the mailbox refuses is answered to its sender with the
+reason and the form.
 
 A decision request also lands in the controller's own planning store as a `decision-blocker`, where
 the repository has one. The controller clears the blocker stating what was decided, with no

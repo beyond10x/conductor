@@ -3,11 +3,14 @@
 //! a controller left with `conductor message send` (`story:mailbox-send-and-deliver`), its first
 //! line one of the design § 6 forms. `<state>/run/mailbox.handled` names each file handled, so
 //! none is acted on twice; a file that could not be acted on is named on standard error and
-//! handled all the same, never retried in a loop.
+//! handled all the same, never retried in a loop. Its sender is told: the controller of the
+//! repository its first line names gets one message, `[REPORT <repo> -] refused: <reason>`, with
+//! the message refused and the form its kind expects (`relayed`), else it is kept for its next
+//! start (`story:report-on-sent-dispatch`).
 //!
 //! | first line | what the tick does |
 //! |---|---|
-//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch; `blocked handover <path>` is a report like any |
+//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
 //! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start |
 //! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
@@ -23,7 +26,9 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{DispatchStorage, MessageStorage};
-use conductor_model::dispatch::{DispatchLogEvent, DispatchState, MessageKind, MessageState};
+use conductor_model::dispatch::{
+    DispatchId, DispatchLogEvent, DispatchState, MessageKind, MessageState,
+};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -78,7 +83,12 @@ fn read_all(tick: &mut Tick<'_, '_>) -> Result<()> {
         match act(tick, &file) {
             Ok(true) => tick.lines_handled += 1,
             Ok(false) => {}
-            Err(error) => tick.note(&format!("mailbox {name}"), &error),
+            Err(error) => {
+                tick.note(&format!("mailbox {name}"), &error);
+                if let Err(error) = answer_refused(tick, &file, &error) {
+                    tick.note(&format!("mailbox {name}: answer the sender"), &error);
+                }
+            }
         }
         now_handled.push(name.clone());
         let text: String = now_handled.iter().map(|name| format!("{name}\n")).collect();
@@ -114,8 +124,61 @@ fn act(tick: &mut Tick<'_, '_>, file: &Path) -> Result<bool> {
     Ok(acted)
 }
 
+/// The form of each first line a controller sends, by its kind, which a refusal names.
+const FORMS: [(&str, &str); 5] = [
+    (
+        "REPORT",
+        "[REPORT <repo> <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>",
+    ),
+    ("HANDOVER", "[HANDOVER <repo>] <path of the hand-over>"),
+    ("NEED", "[NEED <repo> <request-id>] <other-repo> <what>"),
+    (
+        "DECISION-REQUEST",
+        "[DECISION-REQUEST <repo> <request-id>] <question>, then lettered options `A) <label>: \
+         <cost>` and a `Recommendation:` line",
+    ),
+    (
+        "RESOURCE",
+        "[RESOURCE <repo>] <build-slot|disk|usage> <amount>",
+    ),
+];
+
+/// Answers the controller of the repository the message `file` names that the loop refused it,
+/// with `error` and the form its kind expects, as one message (`relayed`), or keeps the answer
+/// for its next start. A first line that names no repository is answered by no one.
+fn answer_refused(tick: &mut Tick<'_, '_>, file: &Path, error: &anyhow::Error) -> Result<()> {
+    let text = fs::read_to_string(file).with_context(|| format!("read {}", file.display()))?;
+    let first = text.lines().next().unwrap_or_default().trim();
+    let Some(inside) = first
+        .strip_prefix('[')
+        .and_then(|opened| opened.split_once(']'))
+        .map(|(inside, _)| inside)
+    else {
+        return Ok(());
+    };
+    let fields: Vec<&str> = inside.split_whitespace().collect();
+    let (Some(kind), Some(repo)) = (fields.first(), fields.get(1)) else {
+        return Ok(());
+    };
+    let Some((_, form)) = FORMS.iter().find(|(named, _)| named == kind) else {
+        return Ok(());
+    };
+    let reason = one_line(&format!("{error:#}"));
+    let form = form.replace("<repo>", repo);
+    let answer = format!(
+        "[REPORT {repo} -] refused: {reason}\n\
+         Your message: {first}\n\
+         The form: {form}\n"
+    );
+    deliver_or_keep(
+        tick,
+        json!({"repo": repo, "text": answer, "event": "relayed", "line": first}),
+    )
+}
+
 /// `[REPORT <repo> <dispatch>] <verb> <rest>`: the dispatch moved as `dispatch report-<verb>`
-/// does; `progress` and `ready` move nothing.
+/// does; `progress` and `ready` move nothing. A `blocked`, `done` or `failed` on a dispatch still
+/// `Sent` reports it `started` first (`story:report-on-sent-dispatch`).
 fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Result<bool> {
     let dispatch = if dispatch == "-" {
         open_dispatch(tick, repo)?
@@ -127,6 +190,16 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
     let said = Some(said.trim().to_owned()).filter(|said| !said.is_empty());
     let state = tick.state;
     let id = Some(dispatch.clone());
+    if matches!(verb, "blocked" | "done" | "failed") && sent(tick, &dispatch)? {
+        crate::dispatch::report_started(
+            state,
+            ReportStartedArgs {
+                dispatch_id: id.clone(),
+                input_json: None,
+            },
+        )?;
+        tick.wrote(DispatchLogEvent::Started);
+    }
     let event = match verb {
         "started" => {
             crate::dispatch::report_started(
@@ -186,6 +259,14 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
     };
     tick.wrote(event);
     Ok(true)
+}
+
+/// Whether the store holds the dispatch `id` in `Sent`.
+fn sent(tick: &Tick<'_, '_>, id: &str) -> Result<bool> {
+    let store = crate::state::open(tick.state)?;
+    let held = DispatchStorage::get(&store, &DispatchId(id.to_owned()));
+    store.check().context("read the dispatch")?;
+    Ok(held.is_some_and(|held| held.state == DispatchState::Sent))
 }
 
 /// The one open dispatch of `repo` a report names with `-`: the one sent, started or blocked, or

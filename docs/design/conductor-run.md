@@ -74,9 +74,12 @@ Mailbox: a controller reports with `conductor message send --to conductor --from
 --text <file|->`, which parses the first line with the existing grammar (unparsed: exit 1 and
 `FORMAT`), records the message (`receive-message`, transport `Mailbox`, `body_path`) and leaves the
 body under `<state>/mailbox/conductor/<ulid>.md`. The daemon reads new files each tick:
-`[REPORT]` moves the dispatch (`report-to-state`); `[NEED]` is routed; `[DECISION-REQUEST]` goes to
+`[REPORT]` moves the dispatch (`report-to-state`), and a `blocked`, `done` or `failed` on a dispatch
+still `Sent` reports it `started` first, both lines in the log; `[NEED]` is routed; `[DECISION-REQUEST]` goes to
 decide; `[RESOURCE]` is answered "use conductor build run"; `[HANDOVER]` from a controller
-(`blocked handover <path>`) is a report. Delivery to a session is `conductor session deliver --name
+(`blocked handover <path>`) is a report. A message the daemon refuses is answered to the
+controller of the repository it names, as one message: `[REPORT <repo> -] refused: <reason>`, the
+message and the form its kind expects (`relayed`). Delivery to a session is `conductor session deliver --name
 <session> --text <file|->`, which types the text into the session through the tmux launcher
 (`type_text`) and records `delivered`; a session the launcher cannot reach is reported, never
 retried in a loop. `SendMessage` is no longer used between roles; the guard allows `message send`

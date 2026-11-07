@@ -1487,6 +1487,63 @@ fn a_mailbox_resource_request_is_answered_use_conductor_build_run() {
     assert_eq!(case.deliveries().len(), 1, "each file is handled once");
 }
 
+/// The events the dispatch log holds for the dispatch `id`, in order.
+fn events_of(case: &Case, id: &str) -> Vec<String> {
+    events(
+        &case
+            .log()
+            .into_iter()
+            .filter(|line| line["id"] == id)
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// `story:report-on-sent-dispatch`, acceptance 1: a `blocked` or `done` report on a dispatch
+/// still `Sent` moves it through `Started` first, with both lines in the dispatch log.
+#[test]
+fn a_blocked_or_done_report_on_a_sent_dispatch_starts_it_first() {
+    let case = Case::new("mail-on-sent");
+    let blocked = case.dispatch("alpha");
+    let done = case.dispatch("alpha");
+    case.mail(
+        "0001",
+        &format!("[REPORT alpha {blocked}] blocked on beta's API\n"),
+    );
+    case.mail(
+        "0002",
+        &format!("[REPORT alpha {done}] done PR 12 merged\n"),
+    );
+    let tick = case.tick(&[]);
+    assert_eq!(case.dispatch_state(&blocked), "Blocked", "{tick}");
+    assert_eq!(case.dispatch_state(&done), "Done", "{tick}");
+    assert_eq!(events_of(&case, &blocked), ["sent", "started", "blocked"]);
+    assert_eq!(events_of(&case, &done), ["sent", "started", "done"]);
+    assert_eq!(actions(&tick), ["started", "blocked", "started", "done"]);
+    assert!(case.deliveries().is_empty(), "nothing was refused");
+}
+
+/// `story:report-on-sent-dispatch`, acceptance 2: a report the loop still refuses reaches its
+/// sender with the reason and the expected form.
+#[test]
+fn a_report_the_loop_refuses_reaches_its_sender_with_the_reason_and_the_form() {
+    let case = Case::new("mail-refused");
+    case.spawn("alpha", FIRST);
+    let open = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {open}] unblocked\n"));
+    case.tick(&[]);
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 1, "{deliveries:?}");
+    let (to, text) = &deliveries[0];
+    assert_eq!(to, "ex-alpha");
+    for said in [
+        "DispatchStateConflict",
+        &format!("[REPORT alpha {open}] unblocked"),
+        "[REPORT alpha <dispatch-id|->] <started|progress|blocked|unblocked|done|failed> <one line>",
+    ] {
+        assert!(text.contains(said), "names {said}: {text}");
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Cycle and daily
 // ---------------------------------------------------------------------------------------------
