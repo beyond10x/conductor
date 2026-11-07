@@ -24,10 +24,6 @@ pub struct UnmetObligation {
 
 impl core::fmt::Display for UnmetObligation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "unmet obligation: {} `{}` — see PLAN.md",
-            self.capability, self.source
-        )
+        write!(f, "unmet obligation: {} `{}` — see PLAN.md", self.capability, self.source)
     }
 }

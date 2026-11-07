@@ -159,7 +159,9 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.improvement.RaiseFinding",
             "conductor.improvement.VerifyFinding",
         ],
-        Actor::ImprovementOperator => &["conductor.improvement.SetMetricTarget"],
+        Actor::ImprovementOperator => &[
+            "conductor.improvement.SetMetricTarget",
+        ],
         Actor::ObservationCollector => &[
             "conductor.observation.CompleteSnapshot",
             "conductor.observation.FailSnapshot",

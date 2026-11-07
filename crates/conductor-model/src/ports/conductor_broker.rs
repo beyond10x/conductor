@@ -59,26 +59,18 @@ where
     ///
     /// `Err` is the typed refusal of an unmet obligation — never a domain outcome, which always
     /// arrives as a variant of the outcome type, refusals included.
-    pub fn record_tool_call(
-        &mut self,
-        input: crate::tool::RecordToolCall,
-    ) -> Result<crate::tool::RecordToolCallOutcome, crate::obligation::UnmetObligation> {
+    pub fn record_tool_call(&mut self, input: crate::tool::RecordToolCall) -> Result<crate::tool::RecordToolCallOutcome, crate::obligation::UnmetObligation> {
         let outcome = self.behaviors.record_tool_call(input)?;
         match &outcome {
-            crate::tool::RecordToolCallOutcome::Recorded {
-                tool_call_recorded, ..
-            } => {
-                self.outbox
-                    .push(PublishedEvent::ToolCallRecorded(tool_call_recorded.clone()));
+            crate::tool::RecordToolCallOutcome::Recorded { tool_call_recorded, .. } => {
+                self.outbox.push(PublishedEvent::ToolCallRecorded(tool_call_recorded.clone()));
             }
         }
         Ok(outcome)
     }
 
     /// Serves `conductor.tool.ToolCalls` at `read_your_writes` consistency, from the owed projection.
-    pub fn tool_calls(
-        &self,
-    ) -> Result<Vec<crate::tool::ToolCalls>, crate::obligation::UnmetObligation> {
+    pub fn tool_calls(&self) -> Result<Vec<crate::tool::ToolCalls>, crate::obligation::UnmetObligation> {
         self.behaviors.tool_calls()
     }
 }

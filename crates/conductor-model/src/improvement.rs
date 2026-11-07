@@ -1332,10 +1332,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.DefineMetric`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn define_metric(
-            &mut self,
-            input: super::DefineMetric,
-        ) -> Result<super::DefineMetricOutcome, crate::obligation::UnmetObligation>;
+        fn define_metric(&mut self, input: super::DefineMetric) -> Result<super::DefineMetricOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.FileFinding` — generated.
@@ -1346,10 +1343,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.FileFinding`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn file_finding(
-            &mut self,
-            input: super::FileFinding,
-        ) -> Result<super::FileFindingOutcome, crate::obligation::UnmetObligation>;
+        fn file_finding(&mut self, input: super::FileFinding) -> Result<super::FileFindingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.JudgeMetricReading` — generated.
@@ -1360,10 +1354,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.JudgeMetricReading`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn judge_metric_reading(
-            &mut self,
-            input: super::JudgeMetricReading,
-        ) -> Result<super::JudgeMetricReadingOutcome, crate::obligation::UnmetObligation>;
+        fn judge_metric_reading(&mut self, input: super::JudgeMetricReading) -> Result<super::JudgeMetricReadingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.RaiseFinding` — generated.
@@ -1374,10 +1365,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.RaiseFinding`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn raise_finding(
-            &mut self,
-            input: super::RaiseFinding,
-        ) -> Result<super::RaiseFindingOutcome, crate::obligation::UnmetObligation>;
+        fn raise_finding(&mut self, input: super::RaiseFinding) -> Result<super::RaiseFindingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.RecordMetricReading` — generated.
@@ -1388,10 +1376,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.RecordMetricReading`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_metric_reading(
-            &mut self,
-            input: super::RecordMetricReading,
-        ) -> Result<super::RecordMetricReadingOutcome, crate::obligation::UnmetObligation>;
+        fn record_metric_reading(&mut self, input: super::RecordMetricReading) -> Result<super::RecordMetricReadingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.SetMetricTarget` — an implementation obligation.
@@ -1404,10 +1389,7 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
-        fn set_metric_target(
-            &mut self,
-            input: super::SetMetricTarget,
-        ) -> Result<super::SetMetricTargetOutcome, crate::obligation::UnmetObligation>;
+        fn set_metric_target(&mut self, input: super::SetMetricTarget) -> Result<super::SetMetricTargetOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.SupersedeMetricReading` — generated.
@@ -1418,10 +1400,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.SupersedeMetricReading`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn supersede_metric_reading(
-            &mut self,
-            input: super::SupersedeMetricReading,
-        ) -> Result<super::SupersedeMetricReadingOutcome, crate::obligation::UnmetObligation>;
+        fn supersede_metric_reading(&mut self, input: super::SupersedeMetricReading) -> Result<super::SupersedeMetricReadingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.VerifyFinding` — generated.
@@ -1432,10 +1411,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.improvement.VerifyFinding`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn verify_finding(
-            &mut self,
-            input: super::VerifyFinding,
-        ) -> Result<super::VerifyFindingOutcome, crate::obligation::UnmetObligation>;
+        fn verify_finding(&mut self, input: super::VerifyFinding) -> Result<super::VerifyFindingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.improvement.Findings` — generated.
@@ -1457,9 +1433,7 @@ pub mod obligations {
         /// Serves `conductor.improvement.KpiReadings` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn kpi_readings(
-            &self,
-        ) -> Result<Vec<super::KpiReadings>, crate::obligation::UnmetObligation>;
+        fn kpi_readings(&self) -> Result<Vec<super::KpiReadings>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.improvement.Kpis` — generated.
@@ -1481,9 +1455,7 @@ pub mod obligations {
         /// Serves `conductor.improvement.MetricReadings` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn metric_readings(
-            &self,
-        ) -> Result<Vec<super::MetricReadings>, crate::obligation::UnmetObligation>;
+        fn metric_readings(&self) -> Result<Vec<super::MetricReadings>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.improvement.Metrics` — generated.
@@ -1504,14 +1476,8 @@ pub mod obligations {
     pub struct Unimplemented;
 
     impl SetMetricTargetBehavior for Unimplemented {
-        fn set_metric_target(
-            &mut self,
-            _input: super::SetMetricTarget,
-        ) -> Result<super::SetMetricTargetOutcome, crate::obligation::UnmetObligation> {
-            Err(crate::obligation::UnmetObligation {
-                capability: "command behaviour",
-                source: "conductor.improvement.SetMetricTarget",
-            })
+        fn set_metric_target(&mut self, _input: super::SetMetricTarget) -> Result<super::SetMetricTargetOutcome, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.improvement.SetMetricTarget" })
         }
     }
 }

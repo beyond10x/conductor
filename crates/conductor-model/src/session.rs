@@ -455,13 +455,7 @@ impl LeaseData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(
-            Some(iv::Fact::integer(self.pid)),
-            iv::Op::Gt,
-            iv::Fact::number("0"),
-            false,
-            true,
-        )) {
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.pid)), iv::Op::Gt, iv::Fact::number("0"), false, true)) {
             return Some("pid > 0");
         }
         None
@@ -613,13 +607,7 @@ impl RunTickData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(
-            Some(iv::Fact::integer(self.lines_handled)),
-            iv::Op::Ge,
-            iv::Fact::number("0"),
-            false,
-            true,
-        )) {
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.lines_handled)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
             return Some("lines_handled >= 0");
         }
         None
@@ -1036,10 +1024,7 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
-        fn claim_lease(
-            &mut self,
-            input: super::ClaimLease,
-        ) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation>;
+        fn claim_lease(&mut self, input: super::ClaimLease) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.session.DeliverMessage` — generated.
@@ -1050,10 +1035,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.session.DeliverMessage`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn deliver_message(
-            &mut self,
-            input: super::DeliverMessage,
-        ) -> Result<super::DeliverMessageOutcome, crate::obligation::UnmetObligation>;
+        fn deliver_message(&mut self, input: super::DeliverMessage) -> Result<super::DeliverMessageOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.session.RecordRunTick` — generated.
@@ -1064,10 +1046,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.session.RecordRunTick`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_run_tick(
-            &mut self,
-            input: super::RecordRunTick,
-        ) -> Result<super::RecordRunTickOutcome, crate::obligation::UnmetObligation>;
+        fn record_run_tick(&mut self, input: super::RecordRunTick) -> Result<super::RecordRunTickOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.session.Deliveries` — generated.
@@ -1110,14 +1089,8 @@ pub mod obligations {
     pub struct Unimplemented;
 
     impl ClaimLeaseBehavior for Unimplemented {
-        fn claim_lease(
-            &mut self,
-            _input: super::ClaimLease,
-        ) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation> {
-            Err(crate::obligation::UnmetObligation {
-                capability: "command behaviour",
-                source: "conductor.session.ClaimLease",
-            })
+        fn claim_lease(&mut self, _input: super::ClaimLease) -> Result<super::ClaimLeaseOutcome, crate::obligation::UnmetObligation> {
+            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.session.ClaimLease" })
         }
     }
 }

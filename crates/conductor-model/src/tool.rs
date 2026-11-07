@@ -421,13 +421,7 @@ impl GrantData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(
-            Some(iv::Fact::integer(self.max_output_bytes)),
-            iv::Op::Ge,
-            iv::Fact::number("1"),
-            false,
-            true,
-        )) {
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.max_output_bytes)), iv::Op::Ge, iv::Fact::number("1"), false, true)) {
             return Some("max_output_bytes >= 1");
         }
         None
@@ -728,22 +722,10 @@ impl ToolCallData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(
-            Some(iv::Fact::integer(self.duration_ms)),
-            iv::Op::Ge,
-            iv::Fact::number("0"),
-            false,
-            true,
-        )) {
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.duration_ms)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
             return Some("duration_ms >= 0");
         }
-        if iv::broken(iv::compare(
-            Some(iv::Fact::integer(self.output_bytes)),
-            iv::Op::Ge,
-            iv::Fact::number("0"),
-            false,
-            true,
-        )) {
+        if iv::broken(iv::compare(Some(iv::Fact::integer(self.output_bytes)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
             return Some("output_bytes >= 0");
         }
         None
@@ -1180,10 +1162,7 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.tool.RecordToolCall`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_tool_call(
-            &mut self,
-            input: super::RecordToolCall,
-        ) -> Result<super::RecordToolCallOutcome, crate::obligation::UnmetObligation>;
+        fn record_tool_call(&mut self, input: super::RecordToolCall) -> Result<super::RecordToolCallOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.tool.ToolCalls` — generated.
@@ -1196,4 +1175,5 @@ pub mod obligations {
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn tool_calls(&self) -> Result<Vec<super::ToolCalls>, crate::obligation::UnmetObligation>;
     }
+
 }
