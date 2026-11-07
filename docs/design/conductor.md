@@ -200,7 +200,7 @@ a file in the sender's own repository, and the message carries its path.
 | `[NEED <repo> <request-id>] <other-repo> <what is needed>` | controller → conductor | a cross-repository request |
 | `[RESOURCE <repo>] <build-slot\|disk\|usage> <amount>` | controller → conductor | asked before a large build |
 | `[ESCALATION <request-id>] <O\|H> <question>` | conductor → operator | class O or H |
-| `[HANDOVER <repo>] context <n>k` | conductor → controller | write a hand-over and stop, above `thresholds.context_handover`; design only, not in the specification |
+| `[HANDOVER <repo>] context <n>k` | conductor → controller | write a hand-over and stop, above `thresholds.context_handover` |
 | `[RESTART conductor] <reason>` | conductor-dev → conductor | § 12; design only, not in the specification |
 
 conductor records every message it receives (`message receive-message`), and rejects one whose

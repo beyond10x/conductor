@@ -42,3 +42,5 @@ scenarios:
   - scenarios/precedence-mailbox-without-body-unparsed.yaml
   - scenarios/answer-escalated-open-request.yaml
   - scenarios/answer-escalated-as-operator-twice.yaml
+  - scenarios/amend-escalated-request.yaml
+  - scenarios/report-done-from-sent-or-blocked.yaml
