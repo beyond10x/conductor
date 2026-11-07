@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:session-respawn
 kind: story
-status: draft
+status: active
 title: session respawn hands a session over and restarts it under its own name
 summary: seven hand-overs by hand in a day; two left a duplicate session
 relations:
 - depends_on: story:one-session-per-role
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T13:53:36Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T13:53:36Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
