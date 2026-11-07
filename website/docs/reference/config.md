@@ -76,7 +76,8 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `controllers.max_open_reviews` | integer | `3` | `max_open_reviews >= 0` |
 | `repositories` | list of [RepositoryRule](#repositoryrule) | `[]` |  |
 | `repositories[].match` | string | required |  |
-| `repositories[].activity` | `active` \| `inactive` | required |  |
+| `repositories[].activity` | `active` \| `inactive` | none |  |
+| `repositories[].no_releases` | string | none |  |
 | `cadence.cycle` | duration | `2h` |  |
 | `cadence.daily` | [TimeOfDay](#timeofday) | `08:07` |  |
 | `cadence.watch` | duration | `180s` |  |
@@ -286,9 +287,9 @@ Keys: `max_working`, `max_subagents`, `max_open_reviews`. Specified as `conducto
 
 ### RepositoryRule
 
-The activity of the repositories whose name `match` names. The file writes an activity in lower case: `active` or `inactive`.
+What the instance holds true of the repository whose name `match` names: its activity, and whether it ships without releases. The file writes an activity in lower case: `active` or `inactive`. `no_releases` is the reason the repository ships without releases (docs published on merge, a specification consumed at `main`); a repository it marks is left out of every K5 reading of `metric compute`, which names it as skipped once. A rule writes at least one of the two.
 
-Keys: `match`, `activity`. Specified as `conductor.config.RepositoryRule`.
+Keys: `match`, `activity`, `no_releases`. Specified as `conductor.config.RepositoryRule`.
 
 ### Cadence
 

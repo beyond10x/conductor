@@ -1,0 +1,6 @@
+[
+  {"name": "v1.2.0", "created_at": null, "release": {"tag_name": "v1.2.0", "description": ""},
+   "commit": {"id": "abc123", "committed_date": "2026-10-01T09:00:00.000+00:00"}},
+  {"name": "v1.1.0", "created_at": null, "release": {"tag_name": "v1.1.0", "description": ""},
+   "commit": {"id": "abc123", "committed_date": "2026-09-01T09:00:00.000+00:00"}}
+]

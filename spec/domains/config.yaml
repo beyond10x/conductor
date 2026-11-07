@@ -338,13 +338,18 @@ types:
       - max_subagents >= 1
       - max_open_reviews >= 0
 
-  # The activity of the repositories whose name `match` names. The file writes an activity in
-  # lower case: `active` or `inactive`.
+  # What the instance holds true of the repository whose name `match` names: its activity, and
+  # whether it ships without releases. The file writes an activity in lower case: `active` or
+  # `inactive`. `no_releases` is the reason the repository ships without releases (docs published
+  # on merge, a specification consumed at `main`); a repository it marks is left out of every K5
+  # reading of `metric compute`, which names it as skipped once
+  # (story:k5-tags-and-no-release-repositories). A rule writes at least one of the two.
   - name: conductor.config.RepositoryRule
     kind: struct
     fields:
       - {name: match, type: String}
-      - {name: activity, type: conductor.direction.Activity}
+      - {name: activity, type: Optional<conductor.direction.Activity>}
+      - {name: no_releases, type: Optional<String>}
 
   # How often conductor runs a cycle, when its daily cycle starts, and how often the watch reads
   # the sessions and main's CI. The file writes a duration as a whole number with `s`, `m`, `h` or

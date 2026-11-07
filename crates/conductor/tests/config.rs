@@ -1542,7 +1542,7 @@ fn the_default_file_is_read_from_the_home_directory() {
     );
     assert_eq!(
         instance(&shown)["repositories"],
-        serde_json::json!([{"match": "ess", "activity": "active"}]),
+        serde_json::json!([{"match": "ess", "activity": "active", "no_releases": null}]),
         "{shown:#}"
     );
 }
@@ -1856,6 +1856,59 @@ fn every_problem_of_a_file_is_named() {
         "instances[0].thresholds.context_handover: ",
         "instances[0].repositories[0].activity: ",
         "instances[0].authority.class_c: ",
+    ] {
+        assert!(
+            problems.contains(path),
+            "no problem names `{path}`: {problems}"
+        );
+    }
+}
+
+/// `story:k5-tags-and-no-release-repositories`: a repository rule may mark a repository as
+/// shipping without releases, with its reason, in place of or beside an activity; `config show`
+/// prints the keys a rule writes. A rule that sets nothing, and an empty reason, are refused by
+/// their paths.
+#[test]
+fn a_repository_rule_marks_a_repository_as_shipping_without_releases() {
+    let case = Case::new("no-releases");
+    let file = case.write(
+        "no-releases.yaml",
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: example-org\n\
+         \x20   session_prefix: ex\n\
+         \x20   sources: [{github: example-org}]\n\
+         \x20   checkouts: {root: ~/example-org, trees: ~/trees}\n\
+         \x20   repositories:\n\
+         \x20     - {match: docs, no_releases: published on merge}\n\
+         \x20     - {match: ess, activity: active, no_releases: consumed at main}\n",
+    );
+    let output = case.with_file(&file, &["config", "show", "--format", "json"]);
+    assert_eq!(output.status.code(), Some(0), "{}", describe(&output));
+    assert_eq!(
+        instance(&json(&output))["repositories"],
+        serde_json::json!([
+            {"match": "docs", "activity": null, "no_releases": "published on merge"},
+            {"match": "ess", "activity": "active", "no_releases": "consumed at main"},
+        ])
+    );
+
+    let file = case.write(
+        "no-releases-refused.yaml",
+        "version: conductor.config/1\n\
+         instances:\n\
+         \x20 - name: example-org\n\
+         \x20   session_prefix: ex\n\
+         \x20   sources: [{github: example-org}]\n\
+         \x20   checkouts: {root: ~/example-org, trees: ~/trees}\n\
+         \x20   repositories:\n\
+         \x20     - {match: docs}\n\
+         \x20     - {match: ess, no_releases: \"\"}\n",
+    );
+    let problems = refused(&case, &file);
+    for path in [
+        "instances[0].repositories[0]: ",
+        "instances[0].repositories[1].no_releases: ",
     ] {
         assert!(
             problems.contains(path),

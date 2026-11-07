@@ -130,6 +130,12 @@ struct Case {
 impl Case {
     /// A fresh case holding nothing but its config file and empty directories.
     fn empty(name: &str) -> Self {
+        Self::configured(name, "")
+    }
+
+    /// A fresh case as [`Case::empty`], whose instance also writes `extra`: whole lines of the
+    /// instance's mapping, indented as its keys are.
+    fn configured(name: &str, extra: &str) -> Self {
         active::isolate();
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("metric")
@@ -153,7 +159,8 @@ impl Case {
                  \x20   sources: [{{github: example-org}}]\n\
                  \x20   checkouts: {{root: {root}, trees: {trees}}}\n\
                  \x20   records: {records}\n\
-                 \x20   state: {state}\n",
+                 \x20   state: {state}\n\
+                 {extra}",
                 root = case.dir.join("home/example-org").display(),
                 trees = case.dir.join("trees").display(),
                 records = case.records().display(),
@@ -598,6 +605,64 @@ fn k5_unreleased_counts_the_pull_requests_merged_and_not_released_by_the_end_of_
         case.value("K5.unreleased", "beta"),
         0.0,
         "K5.unreleased of beta",
+    );
+}
+
+/// `story:k5-tags-and-no-release-repositories`: the fixture's newest snapshot also holds `omega`,
+/// a repository that releases by semver tag only (the collectors record its tag `v0.3.0`, pushed
+/// 10-14 09:00, as its release, with no Release object behind it), and `docs`, which the config
+/// marks as shipping without releases. omega#7 merged 08:00 and was released by the tag after
+/// 1 h; docs#8 (10-14 07:00) and docs#9 (10-13 07:00) were never released.
+///
+/// K5.unreleased counts neither's pull requests: alpha#4 only, 1. K5.median over 1 (alpha#3),
+/// 1 (omega#7), 6, 10, 24 is 6 h, and omega's own 1 h. `docs` has no K5 reading at all, and
+/// compute names it as skipped on one line.
+#[test]
+fn k5_counts_a_semver_tag_as_a_release_and_skips_a_repository_marked_as_shipping_without_releases()
+{
+    let case = Case::configured(
+        "k5-tags-and-no-releases",
+        "    repositories:\n\
+         \x20     - {match: docs, no_releases: \"published on merge\"}\n",
+    );
+    let mut releases = RELEASES.to_vec();
+    releases.push(("omega", "v0.3.0", "2026-10-14T09:00:00Z"));
+    let mut merged = MERGED.to_vec();
+    merged.extend([
+        ("omega", 7, "2026-10-14T08:00:00Z"),
+        ("docs", 8, "2026-10-14T07:00:00Z"),
+        ("docs", 9, "2026-10-13T07:00:00Z"),
+    ]);
+    case.snapshot("2026-10-15T00:30:00Z", &releases, &merged);
+    let printed = case.compute();
+
+    close(
+        case.value("K5.unreleased", "instance"),
+        1.0,
+        "K5.unreleased",
+    );
+    close(
+        case.value("K5.unreleased", "omega"),
+        0.0,
+        "K5.unreleased of omega",
+    );
+    close(case.value("K5.median", "instance"), 6.0, "K5.median");
+    close(case.value("K5.median", "omega"), 1.0, "K5.median of omega");
+    for metric in ["K5.median", "K5.p90", "K5.unreleased"] {
+        assert!(
+            case.reading(metric, "docs").is_none(),
+            "{metric} has a reading for docs: {:#?}",
+            case.all()
+        );
+    }
+    let skipped: Vec<&str> = printed
+        .lines()
+        .filter(|line| line.starts_with("K5") && line.contains("|docs|"))
+        .collect();
+    assert_eq!(skipped.len(), 1, "{printed}");
+    assert!(
+        skipped[0].contains("skipped") && skipped[0].contains("published on merge"),
+        "{printed}"
     );
 }
 

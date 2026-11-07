@@ -421,7 +421,7 @@ pub const DEFAULT_MAX_OUTPUT_BYTES: i64 = 65_536;
 const CONFINEMENT_KEYS: [&str; 3] = ["mode", "provider", "limits"];
 const LIMIT_KEYS: [&str; 3] = ["memory_max", "cpu_weight", "tasks_max"];
 const CONTROLLER_KEYS: [&str; 3] = ["max_working", "max_subagents", "max_open_reviews"];
-const REPOSITORY_KEYS: [&str; 2] = ["match", "activity"];
+const REPOSITORY_KEYS: [&str; 3] = ["match", "activity", "no_releases"];
 const CADENCE_KEYS: [&str; 4] = ["cycle", "daily", "watch", "ci"];
 const THRESHOLD_KEYS: [&str; 21] = [
     "context_handover",
@@ -3422,7 +3422,7 @@ impl Reader<'_> {
         let pattern = self
             .required(map, path, "match")
             .and_then(|value| self.text(value, &join(path, "match")));
-        let activity = self.required(map, path, "activity").and_then(|value| {
+        let activity = Self::get(map, "activity").map(|value| {
             self.word(
                 value,
                 &join(path, "activity"),
@@ -3432,9 +3432,20 @@ impl Reader<'_> {
                 ],
             )
         });
+        let no_releases =
+            Self::get(map, "no_releases").map(|value| self.text(value, &join(path, "no_releases")));
+        if activity.is_none() && no_releases.is_none() {
+            self.problem(
+                path,
+                "sets nothing: write `activity`, `no_releases` (the reason the repository ships \
+                 without releases), or both",
+            );
+            return None;
+        }
         Some(RepositoryRule {
             r#match: pattern?,
-            activity: activity?,
+            activity: activity.map_or(Some(None), |activity| activity.map(Some))?,
+            no_releases: no_releases.map_or(Some(None), |reason| reason.map(Some))?,
         })
     }
 
@@ -3945,11 +3956,14 @@ pub fn document(instance: &Instance) -> Yaml {
                 ("match", text(&rule.r#match)),
                 (
                     "activity",
-                    text(match rule.activity {
-                        Activity::Active => "active",
-                        Activity::Inactive => "inactive",
+                    rule.activity.map_or(Yaml::Null, |activity| {
+                        text(match activity {
+                            Activity::Active => "active",
+                            Activity::Inactive => "inactive",
+                        })
                     }),
                 ),
+                ("no_releases", optional(rule.no_releases.as_ref())),
             ])
         })
         .collect();

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 183e8dfade6aa6c94c2b7764f41a9fedfcb620cbaca96ec2f01b608e8343b4ec
-// contract digest e374851959a23d3c6b7c431ea934755cbb343f413e425c5a09b83640d736fffc
+// model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
+// contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! conductor-broker — the `conductor-broker` component of `conductor` v1.

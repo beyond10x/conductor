@@ -1535,6 +1535,7 @@ fn open_and_merged_pull_requests_carry_the_url_gh_answers() {
     let mut shipments = github::Shipments::live(now());
     shipments.releases = through(&shipments.releases, &gh);
     shipments.merged_pull_requests = through(&shipments.merged_pull_requests, &gh);
+    shipments.tags = through(&shipments.tags, &gh);
     let collector = Collector::new("github", move |record| {
         github::collect_all_from(&sources, &shipments, record)
     });

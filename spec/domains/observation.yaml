@@ -505,8 +505,10 @@ entities:
       states: [Recorded]
       terminal: [Recorded]
 
-  # One published GitHub Release of a repository, in the 14 days before the snapshot started
-  # (story:release-digest).
+  # One published release of a repository, in the 14 days before the snapshot started
+  # (story:release-digest): a forge Release, or a semver tag (`v<major>.<minor>.<patch>`) no
+  # Release names, dated by the tag and linked to its tag page
+  # (story:k5-tags-and-no-release-repositories).
   - name: conductor.observation.ReleaseObservation
     identity:
       name: observation_id

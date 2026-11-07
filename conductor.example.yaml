@@ -76,6 +76,7 @@ instances:
         profile: ~/.b10x/conductor/profiles/repo-controller.md
     repositories:
       - {match: legacy-service, activity: inactive}
+      - {match: docs-site, no_releases: "published on merge, no release"}
     retention:
       snapshots: 24
     forge:

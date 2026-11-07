@@ -23,7 +23,11 @@
 //!   values leave to this collector.
 //! - One `RecordRelease` per release ([`Shipments::releases`], the latest 20, drafts aside)
 //!   published at or after the window's start, prereleases aside, with its link
-//!   `https://github.com/<owner>/<repository>/releases/tag/<tag>`.
+//!   `https://github.com/<owner>/<repository>/releases/tag/<tag>`; and one per semver tag
+//!   (`v<major>.<minor>.<patch>`, [`semver_tag`]) dated at or after the window's start that no
+//!   listed release names ([`Shipments::tags`], the latest 20 by commit date, 100 when 20 are cut),
+//!   dated by its tagger's date when it is annotated, else by its commit's committer date, with the
+//!   same link, which GitHub answers for a tag (`story:k5-tags-and-no-release-repositories`).
 //! - One `RecordMergedPullRequest` per pull request merged at or after the window's start
 //!   ([`Shipments::merged_pull_requests`], up to 200, which searches from the window's first day),
 //!   with GitHub's link.
@@ -85,6 +89,29 @@ pub const ANSWERS: usize = 2;
 /// How many more times a run list is asked while a workflow's latest run in its answers is older
 /// than the newest complete snapshot's.
 pub const MORE_ANSWERS: usize = 2;
+
+/// The GraphQL query of [`Shipments::live`]'s tags, `-f query=` and its text: a repository's
+/// latest `$limit` tags by their commit's date, each with its tagger's date when it is annotated
+/// and its commit's committer date.
+const TAGS_QUERY: &str = "query=query($owner: String!, $name: String!, $limit: Int!) { \
+     repository(owner: $owner, name: $name) { refs(refPrefix: \"refs/tags/\", first: $limit, \
+     orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) { nodes { name target { \
+     ... on Commit { committedDate } ... on Tag { tagger { date } target { \
+     ... on Commit { committedDate } } } } } } } }";
+
+/// Whether `tag` is a semver release tag, `v<major>.<minor>.<patch>`, each part decimal digits:
+/// the tag a repository without Release objects releases by
+/// (`story:k5-tags-and-no-release-repositories`).
+#[must_use]
+pub(crate) fn semver_tag(tag: &str) -> bool {
+    tag.strip_prefix('v').is_some_and(|version| {
+        let parts: Vec<&str> = version.split('.').collect();
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    })
+}
 
 /// How far back what shipped is recorded: the 14 days before the collector's clock, which is the
 /// snapshot's start when the collector runs live.
@@ -187,6 +214,12 @@ pub struct Shipments {
     pub merged_pull_requests: Vec<String>,
     /// How many merged pull requests are asked for.
     pub merged_limits: Limits,
+    /// Prints one repository's latest `{limit}` tags, newest commit first, as one JSON array of
+    /// objects with `name` and `date`: an annotated tag's tagger date, else its commit's
+    /// committer date.
+    pub tags: Vec<String>,
+    /// How many tags are asked for.
+    pub tag_limits: Limits,
     /// The collector's clock: the window is the [`WINDOW`] before it.
     pub now: OffsetDateTime,
 }
@@ -242,6 +275,26 @@ impl Shipments {
             merged_limits: Limits {
                 first: 200,
                 larger: 1000,
+            },
+            tags: words(&[
+                "gh",
+                "api",
+                "graphql",
+                "-F",
+                "owner={organization}",
+                "-F",
+                "name={repository}",
+                "-F",
+                "limit={limit}",
+                "-f",
+                TAGS_QUERY,
+                "--jq",
+                "[.data.repository.refs.nodes[] | {name, date: (.target.tagger.date // \
+                 .target.committedDate // .target.target.committedDate)}]",
+            ]),
+            tag_limits: Limits {
+                first: 20,
+                larger: 100,
             },
             now,
         }
@@ -438,6 +491,14 @@ struct Release {
     is_prerelease: bool,
 }
 
+/// One tag, as [`Shipments::tags`] prints it.
+#[derive(Deserialize)]
+struct Tag {
+    name: String,
+    #[serde(default)]
+    date: Option<String>,
+}
+
 /// One merged pull request, as `gh pr list --json` prints it.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -477,6 +538,11 @@ fn shipped(
         shipments.release_limits,
         |release: &Release| release.published_at.as_deref(),
     )?;
+    // Every tag a Release names, prereleases' included: such a tag is no release of its own.
+    let named: std::collections::BTreeSet<String> = listed
+        .iter()
+        .map(|release| release.tag_name.clone())
+        .collect();
     let mut releases = Vec::new();
     for release in listed {
         if release.is_prerelease {
@@ -503,6 +569,44 @@ fn shipped(
                 ),
                 tag: release.tag_name,
                 published_at: Timestamp(utc(&what, published)?),
+            },
+        ));
+    }
+
+    let listed: Vec<Tag> = asked.list(
+        "tags",
+        &shipments.tags,
+        shipments.tag_limits,
+        |tag: &Tag| tag.date.as_deref(),
+    )?;
+    for tag in listed {
+        // A tag with no date points at no commit: it released nothing to date.
+        let Some(dated) = tag.date.as_deref() else {
+            continue;
+        };
+        if !semver_tag(&tag.name) || named.contains(&tag.name) {
+            continue;
+        }
+        let at = OffsetDateTime::parse(dated.trim(), &Rfc3339).map_err(|_| {
+            anyhow!(
+                "{what}: tag {:?} has no RFC 3339 date ({dated:?})",
+                tag.name
+            )
+        })?;
+        if at < window.start {
+            continue;
+        }
+        releases.push((
+            at,
+            RecordRelease {
+                snapshot_id: snapshot.clone(),
+                repository: RepositoryName(name.to_owned()),
+                url: format!(
+                    "https://github.com/{owner}/{name}/releases/tag/{}",
+                    tag.name
+                ),
+                tag: tag.name,
+                published_at: Timestamp(utc(&what, dated)?),
             },
         ));
     }

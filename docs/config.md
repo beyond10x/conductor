@@ -120,9 +120,10 @@ accepted, defaulted and shown by `config show`.
 | `controllers.max_working` | integer ≥ 1 | `5` | conductor profile | most controllers working at once; an idle one does not count |
 | `controllers.max_subagents` | integer ≥ 1 | `4` | controller profile | most sub-agents one controller runs at once |
 | `controllers.max_open_reviews` | integer ≥ 0 | `3` | conductor profile, board, watch, dashboard | pull requests of one repository waiting for a person's review before conductor sends it no new dispatch; `0` is no limit |
-| `repositories` | list of rule | `[]` | nothing yet | activity overrides by repository name |
+| `repositories` | list of rule | `[]` | `metric compute` (`no_releases`) | what holds for a repository, by its name: an activity override, and whether it ships without releases. A rule writes `activity`, `no_releases` or both |
 | `repositories[].match` | string | required | | the repository name the rule applies to |
-| `repositories[].activity` | `active` \| `inactive` | required | | the activity the rule sets |
+| `repositories[].activity` | `active` \| `inactive` | none | nothing yet | the activity the rule sets |
+| `repositories[].no_releases` | string | none | `metric compute` | the reason the repository ships without releases (docs published on merge, a specification consumed at `main`). The repository is left out of every K5 reading, `instance` included, and `metric compute` prints it once: `K5\|<repository>\|<day>: skipped: ships without releases: <reason>`. A repository that releases by semver tag (`v<major>.<minor>.<patch>`) without Release objects needs no rule: the `github` and `gitlab` collectors record such a tag as its release |
 | `cadence.cycle` | duration | `2h` | conductor profile | time between two cycles |
 | `cadence.daily` | time of day | `08:07` | conductor profile | start of the daily cycle, UTC |
 | `cadence.watch` | duration | `180s` | watch | time between two watch passes; `--every` overrides it |

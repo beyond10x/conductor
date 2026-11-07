@@ -699,6 +699,7 @@ fn the_github_collector_asks_each_owner_about_its_own_repositories() {
     let mut shipments = github::Shipments::live(now());
     shipments.releases = logged(&shipments.releases, &log, "{repository}.releases.json");
     shipments.merged_pull_requests = logged(&shipments.merged_pull_requests, &log, "empty.json");
+    shipments.tags = logged(&shipments.tags, &log, "empty.json");
     let taken = case.take("github", move |record| {
         github::collect_over(&sources, &shipments, &origins, record)
     });
@@ -731,7 +732,14 @@ fn the_github_collector_asks_each_owner_about_its_own_repositories() {
     let mut asked = lines[2..].to_vec();
     asked.sort();
     let mut expected = Vec::new();
+    let tags = github::Shipments::live(now()).tags[1..].join(" ");
     for repository in ["acme/alpha", "other/beta"] {
+        let (owner, name) = repository.split_once('/').expect("owner/name");
+        expected.push(
+            tags.replace("{organization}", owner)
+                .replace("{repository}", name)
+                .replace("{limit}", "20"),
+        );
         expected.extend([
             format!(
                 "pr list -R {repository} --state open --limit 1000 --json \
@@ -873,6 +881,7 @@ fn a_repository_two_owners_list_fails_each_collector_naming_both() {
     let mut shipments = github::Shipments::live(now());
     shipments.releases = logged(&shipments.releases, &log, "empty.json");
     shipments.merged_pull_requests = logged(&shipments.merged_pull_requests, &log, "empty.json");
+    shipments.tags = logged(&shipments.tags, &log, "empty.json");
     clash(&case.take("github", move |record| {
         github::collect_over(&sources, &shipments, &origins, record)
     }));

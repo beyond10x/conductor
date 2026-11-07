@@ -49,6 +49,14 @@
 //! - **K5.unreleased**: the pull requests the newest complete snapshot holds merged before the
 //!   day's end with no release of their repository published after them before then. Scope
 //!   `instance` and each repository with a pull request merged by then.
+//!
+//!   A release is what the snapshot records as one: a forge Release, or a semver tag
+//!   (`v<major>.<minor>.<patch>`) no Release names, which the `github` and `gitlab` collectors
+//!   record as a release dated by the tag. A repository the config marks as shipping without
+//!   releases (`repositories[].no_releases`, its reason) is left out of every K5 reading, the
+//!   `instance` scope's included, and compute names it once on standard output:
+//!   `K5|<repository>|<day>: skipped: ships without releases: <reason>`
+//!   (`story:k5-tags-and-no-release-repositories`).
 //! - **K6.ci_failed**, rework: the CI runs that failed on the day over the pull requests merged
 //!   on the day, as the store's daily rollups count them (`ci_failed`, `prs_merged`), which keep
 //!   what every completed snapshot saw: a snapshot holds only each workflow's newest run. Scope
@@ -751,7 +759,15 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
         .as_deref()
         .ok_or_else(|| anyhow!("{COMMAND}: --day is missing"))?;
     let day = Day::parse(given).with_context(|| COMMAND.to_owned())?;
-    let records = PathBuf::from(&crate::config::active().instance.records);
+    let instance = &crate::config::active().instance;
+    let records = PathBuf::from(&instance.records);
+    // The repositories the config marks as shipping without releases, each with its reason.
+    let mut no_releases: BTreeMap<&str, &str> = BTreeMap::new();
+    for rule in &instance.repositories {
+        if let Some(reason) = &rule.no_releases {
+            no_releases.entry(rule.r#match.as_str()).or_insert(reason);
+        }
+    }
     let (decisions, unread_decisions) =
         crate::records::log_objects(&records, crate::records::DECISIONS)
             .with_context(|| COMMAND.to_owned())?;
@@ -773,7 +789,7 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
     measured.push(k1(&day, &decisions, forge.as_ref()));
     measured.extend(k2(&day, &decisions));
     measured.extend(k4(&day, &dispatches));
-    measured.extend(k5(&day, forge.as_ref()));
+    measured.extend(k5(&day, forge.as_ref(), &no_releases));
     let rollups = Rollups::read(&generated.ports.store, &day);
     kept(COMMAND, &generated.ports.store)?;
     measured.extend(k6(&day, &rollups, forge.as_ref()));
@@ -799,6 +815,13 @@ pub fn compute(state: Option<&Path>, args: &MetricComputeArgs) -> Result<ExitCod
 
     let recorded_at = crate::records::now()?;
     let mut out = String::new();
+    for (repository, reason) in &no_releases {
+        let _ = writeln!(
+            out,
+            "K5|{repository}|{}: skipped: ships without releases: {reason}",
+            day.text
+        );
+    }
     let mut touched: BTreeSet<(&'static str, String)> = BTreeSet::new();
     for reading in measured {
         let id = format!("{}|{}|{}", reading.metric, reading.scope, day.text);
@@ -1074,8 +1097,9 @@ fn k4(day: &Day, dispatches: &[Map<String, Value>]) -> Vec<Measured> {
     )
 }
 
-/// K5.median, K5.p90 and K5.unreleased, for the instance and each repository.
-fn k5(day: &Day, forge: Option<&Forge>) -> Vec<Measured> {
+/// K5.median, K5.p90 and K5.unreleased, for the instance and each repository, the repositories of
+/// `no_releases` (which ship without releases) left out of every scope.
+fn k5(day: &Day, forge: Option<&Forge>, no_releases: &BTreeMap<&str, &str>) -> Vec<Measured> {
     let Some(forge) = forge else {
         return ["K5.median", "K5.p90", "K5.unreleased"]
             .into_iter()
@@ -1086,7 +1110,7 @@ fn k5(day: &Day, forge: Option<&Forge>) -> Vec<Measured> {
     let mut unreleased: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     unreleased.insert(INSTANCE, Vec::new());
     for pull in &forge.pulls {
-        if pull.merged_at >= day.end {
+        if pull.merged_at >= day.end || no_releases.contains_key(pull.repository.as_str()) {
             continue;
         }
         let release = forge

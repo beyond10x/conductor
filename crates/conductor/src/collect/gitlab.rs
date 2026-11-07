@@ -37,7 +37,11 @@
 //!   (`merge_requests?state=merged&updated_after=<start>`), with its page as its link.
 //! - One `RecordRelease` per release published at or after the window's start, upcoming ones aside
 //!   (`releases`, newest first, read until a page reaches past the window), with the link
-//!   `<project page>/-/releases/<tag>`.
+//!   `<project page>/-/releases/<tag>`; and one per semver tag (`v<major>.<minor>.<patch>`) dated
+//!   at or after the window's start that no release names (`repository/tags`, by commit date,
+//!   newest first, read until a page reaches past the window), dated by the tag's `created_at`
+//!   (an annotated tag), else its commit's `committed_date`, with the link
+//!   `<project page>/-/tags/<tag>` (`story:k5-tags-and-no-release-repositories`).
 //! - One `RecordWorkflowRun` [`PIPELINE`] for the newest pipeline of the default branch
 //!   (`pipelines?ref=<default branch>&per_page=1`), its status mapped by [`conclusion`], which the
 //!   watch reads `main` CI by too. A project without one records none.
@@ -306,6 +310,8 @@ fn observe(
     merged.sort_by_key(|request| request.number);
 
     let mut releases = Vec::new();
+    // Every tag a release read names, upcoming ones' included: such a tag is no release of its own.
+    let mut named = std::collections::BTreeSet::new();
     for page in 1..=PAGES {
         let listed: Vec<ApiRelease> = forge.get(
             what,
@@ -314,6 +320,7 @@ fn observe(
         let full = listed.len() >= PER_PAGE;
         let mut past = false;
         for release in listed {
+            named.insert(release.tag_name.clone());
             let Some(published) = release.released_at.filter(|at| !at.trim().is_empty()) else {
                 continue;
             };
@@ -337,6 +344,66 @@ fn observe(
                     ),
                     tag: release.tag_name,
                     published_at: Timestamp(utc(what, &published)?),
+                },
+            ));
+        }
+        if !full || past {
+            break;
+        }
+    }
+    // A semver tag no release names is a release of its own, dated by GitLab's tag date (an
+    // annotated tag's `created_at`), else by its commit's (story:k5-tags-and-no-release-repositories).
+    for page in 1..=PAGES {
+        let listed: Vec<ApiTag> = forge.get(
+            what,
+            &format!(
+                "projects/{id}/repository/tags?order_by=updated&sort=desc&per_page={PER_PAGE}&page={page}"
+            ),
+        )?;
+        let full = listed.len() >= PER_PAGE;
+        let mut past = false;
+        for tag in listed {
+            let committed = tag
+                .commit
+                .and_then(|commit| commit.committed_date)
+                .filter(|at| !at.trim().is_empty());
+            if committed
+                .as_deref()
+                .map(instant)
+                .transpose()?
+                .is_some_and(|at| at < window.start)
+            {
+                past = true;
+            }
+            let Some(dated) = tag
+                .created_at
+                .filter(|at| !at.trim().is_empty())
+                .or(committed)
+            else {
+                continue;
+            };
+            if !super::github::semver_tag(&tag.name)
+                || tag.release.is_some()
+                || named.contains(&tag.name)
+            {
+                continue;
+            }
+            let at = instant(&dated)?;
+            if at < window.start {
+                continue;
+            }
+            releases.push((
+                at,
+                RecordRelease {
+                    snapshot_id: snapshot.clone(),
+                    repository: repository(),
+                    url: format!(
+                        "{}/-/tags/{}",
+                        project.web_url.trim_end_matches('/'),
+                        tag.name
+                    ),
+                    tag: tag.name,
+                    published_at: Timestamp(utc(what, &dated)?),
                 },
             ));
         }
@@ -641,6 +708,27 @@ struct ApiRelease {
     released_at: Option<String>,
     #[serde(default)]
     upcoming_release: bool,
+}
+
+/// One tag, as `repository/tags` answers it, in the parts this collector reads.
+#[derive(Deserialize)]
+struct ApiTag {
+    name: String,
+    /// An annotated tag's date; `null` for a lightweight one.
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    commit: Option<ApiTagCommit>,
+    /// The release that names the tag, if one does.
+    #[serde(default)]
+    release: Option<serde_json::Value>,
+}
+
+/// The commit a tag points at, in the part this collector reads.
+#[derive(Deserialize)]
+struct ApiTagCommit {
+    #[serde(default)]
+    committed_date: Option<String>,
 }
 
 /// What `repository/compare` answers, in the part this collector reads.

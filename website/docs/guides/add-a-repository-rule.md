@@ -38,10 +38,16 @@ $ conductor config show --format json | jq '.instances[0].repositories'
 [
   {
     "match": "beta",
-    "activity": "active"
+    "activity": "active",
+    "no_releases": null
   }
 ]
 ```
+
+A rule can also mark a repository that ships without releases, with the reason:
+`{match: docs-site, no_releases: "published on merge"}`. `metric compute` leaves such a repository
+out of every K5 reading and names it as skipped once. A repository that releases by semver tag
+(`v1.2.3`) needs no rule: the collectors record such a tag as its release.
 
 :::caution[Planned]
 

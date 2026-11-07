@@ -95,7 +95,7 @@ instances:
       max_subagents: 2
       max_open_reviews: 2
     repositories:
-      - {match: alpha, activity: inactive}
+      - {match: alpha, activity: inactive, no_releases: published on merge}
     cadence:
       cycle: 1h
       daily: '09:00'

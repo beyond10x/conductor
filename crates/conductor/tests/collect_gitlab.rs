@@ -55,6 +55,7 @@ case "$last" in
   projects/*/repository/commits/*) file=$id.commit.json ;;
   projects/*/repository/compare\?*) file=$id.compare.json ;;
   projects/*/releases\?*) file=$id.releases.json ;;
+  projects/*/repository/tags\?*) file=$id.tags.json ;;
   projects/*/issues\?*) file=$id.issues.json ;;
   projects/*/merge_requests\?state=opened*) file=$id.opened.json ;;
   projects/*/merge_requests\?state=merged*) file=$id.merged.json ;;
@@ -600,6 +601,68 @@ fn a_release_published_within_the_window_is_a_release_row() {
             "published_at": "2026-10-01T10:00:00Z",
             "url": "https://gitlab.example.com/example-org/alpha/-/releases/v1.2.0",
         })]
+    );
+}
+
+/// `story:k5-tags-and-no-release-repositories`: a semver tag (`v<major>.<minor>.<patch>`) dated
+/// within the window that has no release is a release row too, dated by GitLab's tag date when
+/// it has one (an annotated tag's `created_at`), else by its commit's committed date, and linked
+/// to its tag page. `alpha`'s `v1.4.0` (created 2026-10-04 08:00) and `v1.3.0` (a lightweight tag
+/// on a commit of 2026-09-30 08:00) are; `v1.2.0` has its release, which is its row; `docs-2026` is
+/// no semver tag; `v1.0.9` predates the window.
+#[test]
+fn a_semver_tag_without_a_release_within_the_window_is_a_release_row() {
+    let case = Case::new("tags");
+    case.alpha();
+    fs::write(
+        case.answers().join("101.tags.json"),
+        json!([
+            {"name": "v1.4.0", "created_at": "2026-10-04T10:00:00.000+02:00", "release": null,
+             "commit": {"id": "abc123", "committed_date": "2026-10-03T09:00:00.000+00:00"}},
+            {"name": "docs-2026", "created_at": null, "release": null,
+             "commit": {"id": "abc123", "committed_date": "2026-10-02T09:00:00.000+00:00"}},
+            {"name": "v1.2.0", "created_at": null, "release": {"tag_name": "v1.2.0"},
+             "commit": {"id": "abc123", "committed_date": "2026-10-01T09:00:00.000+00:00"}},
+            {"name": "v1.3.0", "created_at": null, "release": null,
+             "commit": {"id": "abc123", "committed_date": "2026-09-30T08:00:00.000+00:00"}},
+            {"name": "v1.0.9", "created_at": null, "release": null,
+             "commit": {"id": "abc123", "committed_date": "2026-09-01T09:00:00.000+00:00"}},
+        ])
+        .to_string(),
+    )
+    .expect("answer alpha's tags");
+    let config = case.config();
+    case.snapshot(&config);
+
+    assert_eq!(
+        case.rows(&config, "releases"),
+        [
+            json!({
+                "repository": "alpha",
+                "tag": "v1.3.0",
+                "published_at": "2026-09-30T08:00:00Z",
+                "url": "https://gitlab.example.com/example-org/alpha/-/tags/v1.3.0",
+            }),
+            json!({
+                "repository": "alpha",
+                "tag": "v1.2.0",
+                "published_at": "2026-10-01T10:00:00Z",
+                "url": "https://gitlab.example.com/example-org/alpha/-/releases/v1.2.0",
+            }),
+            json!({
+                "repository": "alpha",
+                "tag": "v1.4.0",
+                "published_at": "2026-10-04T08:00:00Z",
+                "url": "https://gitlab.example.com/example-org/alpha/-/tags/v1.4.0",
+            }),
+        ]
+    );
+    let asked = case.lines("glab");
+    assert!(
+        asked.iter().any(|line| line.ends_with(
+            "projects/101/repository/tags?order_by=updated&sort=desc&per_page=100&page=1"
+        )),
+        "{asked:#?}"
     );
 }
 

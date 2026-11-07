@@ -100,12 +100,13 @@ fn sources() -> github::Sources {
 }
 
 /// Each repository's releases in `<repository>.releases.json`, and its pull requests merged since
-/// the window's first day in `<repository>.merged.<day>.json`, at the clock [`NOW`], with the live
-/// limits. No fixture list fills its first limit.
+/// the window's first day in `<repository>.merged.<day>.json`, and no tag, at the clock [`NOW`],
+/// with the live limits. No fixture list fills its first limit.
 fn shipments() -> github::Shipments {
     github::Shipments {
         releases: cat("{repository}.releases.json"),
         merged_pull_requests: cat("{repository}.merged.{since}.json"),
+        tags: cat("empty.json"),
         ..github::Shipments::live(now())
     }
 }
@@ -330,6 +331,51 @@ fn the_collector_records_the_windows_releases_and_merged_pull_requests() {
     generated.ports.check().expect("the store read every row");
 }
 
+/// `story:k5-tags-and-no-release-repositories`: a semver tag (`v<major>.<minor>.<patch>`) dated
+/// in the window that no Release names is recorded as a release of its repository, dated by the
+/// tag (in UTC) and linked to its tag page. `beta` has no Release object: its `v1.4.0` of
+/// 2026-10-03 is its release; `nightly` is no semver tag and `v1.3.0` predates the window.
+/// `alpha`'s `v0.2.0` has a Release, which is recorded once, as the Release; `v0.3.0-rc.1` is no
+/// semver tag of the form.
+#[test]
+fn a_semver_tag_no_release_names_is_recorded_as_a_release() {
+    let root = case_dir("tags");
+    let shipments = github::Shipments {
+        tags: cat("{repository}.tags.json"),
+        ..shipments()
+    };
+    let taken = take_at(&root, NOW, &[github(sources(), shipments)]);
+    assert_eq!(taken.state, SnapshotState::Complete, "{taken:?}");
+
+    let generated = Generated::new(store::open_existing(&root.join("state")).expect("open"));
+    let mut releases: Vec<(String, String, String, String)> = generated
+        .releases()
+        .expect("the releases view answers")
+        .into_iter()
+        .filter(|row| row.snapshot_id == taken.snapshot_id)
+        .map(|row| (row.repository.0, row.tag, row.published_at.0, row.url))
+        .collect();
+    releases.sort();
+    assert_eq!(
+        releases,
+        [
+            (
+                "alpha".to_owned(),
+                "v0.2.0".to_owned(),
+                "2026-10-05T10:00:00Z".to_owned(),
+                "https://github.com/example-org/alpha/releases/tag/v0.2.0".to_owned(),
+            ),
+            (
+                "beta".to_owned(),
+                "v1.4.0".to_owned(),
+                "2026-10-03T09:00:00Z".to_owned(),
+                "https://github.com/example-org/beta/releases/tag/v1.4.0".to_owned(),
+            ),
+        ]
+    );
+    generated.ports.check().expect("the store read every row");
+}
+
 /// What the live collector runs, as the story's decision states it.
 #[test]
 fn the_live_shipments_are_the_gh_commands_the_story_names() {
@@ -383,6 +429,22 @@ fn the_live_shipments_are_the_gh_commands_the_story_names() {
         },
         "200 merged pull requests, and 1000 when 200 fill the window"
     );
+    assert_eq!(live.tags[..3], ["gh", "api", "graphql"], "{:?}", live.tags);
+    for word in ["owner={organization}", "name={repository}", "limit={limit}"] {
+        assert!(
+            live.tags.iter().any(|asked| asked == word),
+            "{:?}",
+            live.tags
+        );
+    }
+    assert_eq!(
+        live.tag_limits,
+        github::Limits {
+            first: 20,
+            larger: 100
+        },
+        "20 tags, and 100 when 20 fill the window"
+    );
     assert_eq!(live.now, now());
 }
 
@@ -411,12 +473,14 @@ fn alpha_only(root: &Path) -> github::Sources {
 /// The live shipments, at the clock [`NOW`], each `gh` command line replaced by `cat` of
 /// `lists/<repository>.releases.<limit>.json` and `lists/<repository>.merged.<limit>.json` in the
 /// case's directory: a list the collector asks for at a limit with no file fails the snapshot.
+/// No tag is listed.
 fn limited(root: &Path) -> github::Shipments {
     let dir = lists(root);
     let file = |name: &str| vec!["cat".to_owned(), path(&dir.join(name)).to_owned()];
     github::Shipments {
         releases: file("{repository}.releases.{limit}.json"),
         merged_pull_requests: file("{repository}.merged.{limit}.json"),
+        tags: cat("empty.json"),
         ..github::Shipments::live(now())
     }
 }
