@@ -220,7 +220,7 @@ Written as string. Specified as `conductor.config.SessionPrefix`.
 
 ### SessionName
 
-A harness session name on this machine: `<session_prefix>-<role or repository>`, or without a prefix the role or the repository itself.
+A harness session name on this machine: `<session_prefix>-<role or repository>`, or without a prefix the role or the repository itself. A repository nested as `<group>/<repo>` is written `<group>-<repo>` in it, as in the workspace, since a session name is one path word.
 
 Written as string. Specified as `conductor.config.SessionName`.
 
