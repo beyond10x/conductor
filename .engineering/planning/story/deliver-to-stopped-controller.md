@@ -5,19 +5,20 @@ kind: story
 status: draft
 title: A delivery to a stopped controller is kept for its next start, not retried
 summary: SessionNotReachable deliveries to controllers stopped hours earlier
-revision: 2
+revision: 3
 ---
 ## Why
 
 Observed 2026-11-07 on a running instance: the run unit's journal held `deliver to
 <prefix>-<repo>: conductor session deliver ... refused: SessionNotReachable` at 09:08:29Z and
-again at 09:13:33Z, for controllers recorded stopped at 04:16Z (where that was recorded is reported, not verified).
+again at 09:13:33Z, for controllers recorded stopped at 04:16Z.
 
 Verified in the code: the loop delivers to the controller whose store state is `Running`
 (`Tick::running`, `crates/conductor/src/run.rs:581`); a delivery that fails is noted and the item
 kept in the pending file, marked refused by that controller (`deliver_or_keep`,
-`crates/conductor/src/run/handlers.rs:504`, `:535`). So the store most likely still held these
-controllers `Running` five hours after they stopped (inferred, not verified). Whether the two lines are one item retried or
+`crates/conductor/src/run/handlers.rs:504`, `:535`). Verified the same day: `conductor controller controllers` on that instance listed 6 controllers
+`Running` whose sessions had stopped at 04:16Z and had no tmux session left, so the loop kept
+trying them. Whether the two lines are one item retried or
 two items is reported, not verified.
 
 ## Acceptance

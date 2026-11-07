@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:k5-tags-and-no-release-repositories
 kind: story
-status: draft
+status: active
 title: K5 counts a semver tag as a release and skips repositories that ship without releases
 summary: K5.unreleased counts what no release object or decision can lower
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T09:39:02Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T09:39:02Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 
