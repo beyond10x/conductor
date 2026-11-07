@@ -6399,3 +6399,81 @@ fn under_the_gates_route_and_by_default_every_gh_and_glab_write_is_denied() {
         }
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// story:guard-and-worktree-agree-on-tree-path
+
+/// A linked worktree of `checkout` at `tree`, as `git worktree add` and `worktree create` write
+/// one: `tree/.git` names `<checkout>/.git/worktrees/<id>`, whose `commondir` names `../..`.
+fn linked_tree(checkout: &Path, tree: &Path) {
+    let id = tree.file_name().expect("the tree's folder");
+    let gitdir = checkout.join(".git/worktrees").join(id);
+    fs::create_dir_all(&gitdir).expect("create the tree's git directory");
+    fs::write(gitdir.join("commondir"), "../..\n").expect("write commondir");
+    fs::create_dir_all(tree.join("src")).expect("create the tree");
+    fs::write(tree.join(".git"), format!("gitdir: {}\n", gitdir.display()))
+        .expect("write the tree's .git file");
+}
+
+/// A tree `worktree create` makes for a checkout one, two or three folders deep lies at
+/// `<trees>/<folder name>/<id>`, or under another root than `checkouts.trees`: the guard reads the
+/// tree's repository from its `.git` file, allows Edit, `cd` and `git` in it, and never takes it
+/// for the repository whose path is the folder's name.
+#[test]
+fn a_tree_belongs_to_the_checkout_its_git_file_names_wherever_it_lies() {
+    let home = home("tree-path-agrees");
+    let layout = file_layout(&home);
+    let case = home.parent().expect("the case's directory");
+    // `repo` at depth 1 is another repository whose path is the grouped one's folder name.
+    let other = layout.root.join("repo");
+    fs::create_dir_all(other.join(".git")).expect("create the other checkout");
+    let elsewhere = case.join("other-instance-trees");
+    for (path, id) in [("repo", "w1"), ("group/repo", "w2"), ("a/b/deep", "w3")] {
+        let checkout = layout.root.join(path);
+        fs::create_dir_all(checkout.join(".git")).expect("create the checkout");
+        let folder = path.rsplit('/').next().expect("the folder name");
+        let placed = [
+            layout.trees.join(folder).join(id),
+            layout.trees.join(path).join(format!("{id}-own")),
+            elsewhere.join(folder).join(format!("{id}-elsewhere")),
+        ];
+        for tree in &placed {
+            linked_tree(&checkout, tree);
+            let file = tree.join("src/lib.rs").display().to_string();
+            let decision = layout.decide("edit", tree, "file_path", &file, &unlisted());
+            assert_eq!(decision.verdict, Verdict::Allow, "{path}: {decision:#?}");
+            if tree.starts_with(&layout.trees) {
+                assert_eq!(decision.repository, path, "{path}: {decision:#?}");
+            }
+            for command in [
+                format!("cd {} && git add src", tree.display()),
+                format!("git -C {} commit -m wip", tree.display()),
+            ] {
+                let decision = layout.decide("bash", &checkout, "command", &command, &unlisted());
+                assert_eq!(
+                    decision.verdict,
+                    Verdict::Allow,
+                    "{path}: {command}: {decision:#?}"
+                );
+            }
+        }
+        if path != "repo" {
+            let decision = layout.decide(
+                "edit",
+                &checkout,
+                "file_path",
+                &other.join("src/lib.rs").display().to_string(),
+                &unlisted(),
+            );
+            assert_eq!(decision.verdict, Verdict::Deny, "{path}: {decision:#?}");
+        }
+    }
+    // A tree of `group/repo` lets no session of `repo` write in it.
+    let grouped = layout
+        .trees
+        .join("repo/w2/src/lib.rs")
+        .display()
+        .to_string();
+    let decision = layout.decide("edit", &other, "file_path", &grouped, &unlisted());
+    assert_eq!(decision.verdict, Verdict::Deny, "{decision:#?}");
+}

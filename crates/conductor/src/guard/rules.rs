@@ -439,8 +439,13 @@ impl Places {
             if cwd.starts_with(real(records)) {
                 return Some((CONDUCTOR.to_owned(), Rules::Conductor));
             }
+            // A linked worktree of a checkout, outside both roots, is that repository's
+            // (`story:guard-and-worktree-agree-on-tree-path`).
+            let outside =
+                !cwd.starts_with(real(&self.checkouts)) && !cwd.starts_with(real(&self.trees));
             return self
                 .repository_of(cwd)
+                .or_else(|| outside.then(|| self.linked_repository(cwd)).flatten())
                 .filter(|repository| {
                     let steps: Vec<&str> = repository.split('/').collect();
                     !collect::is_excluded(&steps, &self.exclude)
@@ -457,24 +462,66 @@ impl Places {
     }
 
     /// The repository the landing `path` ([`real`]) belongs to, by its steps under the checkouts
-    /// root or under the managed-worktree root, the deeper of the two when both hold it: the
-    /// directory holding `.git` at depth 1 or 2, named by its path under the root
-    /// ([`collect::repository_of`]). `None` under neither, at either root itself, or in a group
-    /// directory itself.
+    /// root or under the managed-worktree root, the deeper of the two when both hold it
+    /// (`story:guard-and-worktree-agree-on-tree-path`): under the checkouts root, the topmost
+    /// directory holding `.git`, at any depth, named by its path under the root; under the trees
+    /// root, the checkout that the topmost linked worktree holding `path` belongs to, read from
+    /// its `.git` file, wherever `worktree create` placed it and whatever it named its folder.
+    /// When neither is found, the directory holding `.git` at depth 1 or 2, or the steps a group
+    /// gives ([`collect::repository_of`]). `None` under neither root, at either root itself, or
+    /// in a group directory itself.
     pub(super) fn repository_of(&self, path: &Path) -> Option<String> {
         let checkouts = real(&self.checkouts);
         let trees = real(&self.trees);
-        let (under, rest) = [(Under::Checkouts, &checkouts), (Under::Trees, &trees)]
+        let (under, root, rest) = [(Under::Checkouts, &checkouts), (Under::Trees, &trees)]
             .into_iter()
             .filter_map(|(under, root)| Some((root, under, path.strip_prefix(root).ok()?)))
             .max_by_key(|(root, _, _)| root.components().count())
-            .map(|(_, under, rest)| (under, rest))?;
+            .map(|(root, under, rest)| (under, root, rest))?;
+        if let Some(top) = topmost_git(root, path) {
+            let found = match under {
+                Under::Checkouts => Some(top),
+                Under::Trees => linked_checkout(&top),
+            };
+            if let Some(name) = found.as_deref().and_then(|dir| name_under(&checkouts, dir)) {
+                return Some(name);
+            }
+        }
         let steps: Vec<String> = rest
             .components()
             .map(|step| step.as_os_str().to_string_lossy().into_owned())
             .collect();
         let steps: Vec<&str> = steps.iter().map(String::as_str).collect();
         collect::repository_of(&checkouts, &trees, under, &steps)
+    }
+
+    /// The repository whose checkout the linked worktree holding the landing `path` belongs to,
+    /// for a `path` under neither root: the nearest directory holding `.git` is a linked worktree
+    /// of a checkout under the checkouts root. `worktree create` places a tree under its own
+    /// profile's root, which need not be `checkouts.trees`.
+    fn linked_repository(&self, path: &Path) -> Option<String> {
+        let dir = path
+            .ancestors()
+            .take_while(|dir| *dir != self.home && dir.parent().is_some())
+            .find(|dir| dir.join(".git").exists())?;
+        name_under(&real(&self.checkouts), &linked_checkout(dir)?)
+    }
+
+    /// Whether the landing `path` is in a managed tree of `repository`: under the trees root, a
+    /// path [`Places::repository_of`] gives to it, a linked worktree of its checkout first and
+    /// `<checkouts.trees>/<repository>/` else; under neither root, in a linked worktree of its
+    /// checkout (`story:guard-and-worktree-agree-on-tree-path`).
+    fn in_trees_of(&self, path: &Path, repository: &str) -> bool {
+        let trees = real(&self.trees);
+        let checkouts = real(&self.checkouts);
+        let owner = if path.starts_with(&trees) {
+            self.repository_of(path)
+        } else if path.starts_with(&checkouts) {
+            None
+        } else {
+            self.linked_repository(path)
+        };
+        owner.as_deref() == Some(repository)
     }
 
     /// Where a session's cwd must be for a rule set to apply, for a denial to name.
@@ -989,10 +1036,6 @@ impl Session<'_> {
         real(&self.places.checkouts.join(&self.repository))
     }
 
-    fn worktrees(&self) -> PathBuf {
-        real(&self.places.trees.join(&self.repository))
-    }
-
     /// `path` as a file tool takes it, unresolved: `~` is the home directory, a relative path is
     /// taken from the cwd.
     fn file_target(&self, path: &str) -> PathBuf {
@@ -1067,8 +1110,8 @@ impl Session<'_> {
             Rules::Controller => {
                 let places = self.places;
                 let checkout = places.shown(&places.checkouts.join(&self.repository));
-                let inside =
-                    landing.starts_with(self.checkout()) || landing.starts_with(self.worktrees());
+                let inside = landing.starts_with(self.checkout())
+                    || self.places.in_trees_of(&landing, &self.repository);
                 // Conductor's config first, wherever it is: a config file can be named inside a
                 // checkout, and `<config-dir>` can be a link into one.
                 if places.is_config(&lexical(&written)) || places.is_config(&landing) {
@@ -1969,7 +2012,7 @@ impl Session<'_> {
         }
         let outside = targets.into_iter().find(|target| {
             !(target.starts_with(self.checkout())
-                || target.starts_with(self.worktrees())
+                || self.places.in_trees_of(target, &self.repository)
                 || self.is_scratch(target))
         })?;
         let places = self.places;
@@ -3165,6 +3208,52 @@ fn api_reads(arguments: &[String], forge: Forge) -> bool {
         return !mutation;
     }
     method.is_none_or(|method| method.eq_ignore_ascii_case("GET")) && !fields
+}
+
+/// The topmost directory from below `root` down to `path` that holds `.git`, a directory or the
+/// file a linked worktree has; `None` when none does or `path` is `root`.
+fn topmost_git(root: &Path, path: &Path) -> Option<PathBuf> {
+    let rest = path.strip_prefix(root).ok()?;
+    let mut dir = root.to_path_buf();
+    for step in rest.components() {
+        dir.push(step);
+        if dir.join(".git").exists() {
+            return Some(dir);
+        }
+    }
+    None
+}
+
+/// The checkout a linked worktree at `dir` belongs to ([`real`]): `dir/.git` is a file naming
+/// `gitdir: <checkout>/.git/worktrees/<name>`, as `git worktree add` and `worktree create` write
+/// it, and that directory's `commondir` names `<checkout>/.git`. `None` for a checkout's own
+/// `.git` directory or a file that names no such directory.
+fn linked_checkout(dir: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(dir.join(".git")).ok()?;
+    let gitdir = dir.join(
+        text.lines()
+            .find_map(|line| line.strip_prefix("gitdir:"))?
+            .trim(),
+    );
+    let common = match fs::read_to_string(gitdir.join("commondir")) {
+        Ok(common) => gitdir.join(common.trim()),
+        Err(_) => gitdir.parent()?.parent()?.to_path_buf(),
+    };
+    let common = real(&common);
+    if common.file_name()? != ".git" {
+        return None;
+    }
+    common.parent().map(Path::to_path_buf)
+}
+
+/// `dir` named by its path under `root`, steps joined with `/`; `None` outside it or at it.
+fn name_under(root: &Path, dir: &Path) -> Option<String> {
+    let rest = dir.strip_prefix(root).ok()?;
+    let steps: Vec<String> = rest
+        .components()
+        .map(|step| step.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    (!steps.is_empty()).then(|| steps.join("/"))
 }
 
 /// One step of a path still to resolve.
