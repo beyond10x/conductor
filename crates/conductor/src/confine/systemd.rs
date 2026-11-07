@@ -22,8 +22,8 @@
 //!   the typescript `<session name>.typescript`. The id is chosen here. `conductor session
 //!   attach` attaches a terminal to that server (`crate::attach`).
 //! - [`Provider::prompt`] waits until the session list shows the session live, then types the
-//!   prompt into the pane as one paste through tmux ([`type_text`]: `set-buffer`, `paste-buffer -p`, bracketed
-//!   when the harness asked for it), and Enter.
+//!   prompt into the pane as one paste through tmux ([`type_text`]: `load-buffer` from a file,
+//!   `paste-buffer -p`, bracketed when the harness asked for it), and Enter.
 //! - [`Provider::stop`] is `systemctl --user stop <unit>`, and nothing when systemd has no unit of
 //!   that name loaded (`systemctl --user show -p LoadState -p ActiveState <unit>` reads
 //!   `LoadState=not-found`): the session ended already. [`Provider::resume`] starts a new unit
@@ -74,7 +74,10 @@ pub const TMUX: &str = "tmux";
 
 /// The configuration of a session's tmux server, `<state>/sessions/<name>.tmux.conf`, which
 /// creates the session: `tmux -D` runs the server as the unit's main process and takes no
-/// command, so the session is made here. The server ends with its one session (`exit-empty`,
+/// command, so the session is made here, when the first client connects (`-D` runs the
+/// configuration then), and its pane starts in `CONDUCTOR_CWD`, the request's working
+/// directory, so the first client's own directory (the liveness check runs from
+/// `<state>/sessions/`) is never the pane's. The server ends with its one session (`exit-empty`,
 /// which `-D` turns off); panes run `/bin/sh`, not the operator's login shell; the prefix is
 /// `ctrl-]`, so `ctrl-]` then `d` detaches and `ctrl-b` stays the harness's; no status line, so
 /// the harness has the whole screen; the window is 160 by 50; the pane runs the harness command
@@ -88,7 +91,7 @@ set -g status off
 set -g prefix 'C-]'
 unbind C-b
 bind 'C-]' send-prefix
-new-session -d -s "$CONDUCTOR_SESSION" -x 160 -y 50 'exec /bin/sh -c "$CONDUCTOR_HARNESS"'
+new-session -d -s "$CONDUCTOR_SESSION" -c "$CONDUCTOR_CWD" -x 160 -y 50 'exec /bin/sh -c "$CONDUCTOR_HARNESS"'
 pipe-pane -o -t "=$CONDUCTOR_SESSION:" 'exec cat >> "$CONDUCTOR_TYPESCRIPT"'
 "#;
 
@@ -191,6 +194,39 @@ fn call(program: &str, args: &[String]) -> Result<String> {
 /// A file of the session `name` under `state`: `<state>/sessions/<name>.<what>`.
 fn session_file(state: &Path, name: &SessionName, what: &str) -> PathBuf {
     state.join("sessions").join(format!("{}.{what}", name.0))
+}
+
+/// How long [`create_session`] waits for the unit's tmux server to make its socket.
+const SOCKET_BOUND: Duration = Duration::from_secs(10);
+
+/// Makes the unit's tmux server create the session `name`. `tmux -D` runs its configuration,
+/// whose `new-session` creates the session, only when a first client connects (tmux 3.7c, probed
+/// 2026-11-07); until then the server runs no pane and the harness never starts
+/// (story:systemd-session-starts-unattended). So, once
+/// the server's `socket` is there (within [`SOCKET_BOUND`]), one client runs `has-session`, which,
+/// unlike `start-server`, never starts a server of its own outside the unit.
+///
+/// # Errors
+///
+/// The socket does not appear in time, or `has-session` fails: the configuration made no session.
+fn create_session(socket: &Path, sessions: &Path, name: &SessionName) -> Result<()> {
+    let started = Instant::now();
+    while !socket.exists() {
+        if started.elapsed() >= SOCKET_BOUND {
+            bail!(
+                "the tmux server made no socket {} within {} s",
+                socket.display(),
+                SOCKET_BOUND.as_secs()
+            );
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    tmux_call(
+        sessions,
+        name,
+        &["has-session", "-t", &format!("={}", name.0)],
+    )?;
+    Ok(())
 }
 
 /// One limit file of a cgroup: its number, or `None` where it reads `max` or is not there.
@@ -382,6 +418,7 @@ impl Systemd {
             "TERM=xterm-256color".to_owned(),
             "SHELL=/bin/bash".to_owned(),
             format!("CONDUCTOR_SESSION={}", name.0),
+            format!("CONDUCTOR_CWD={}", request.cwd),
             format!("CONDUCTOR_TYPESCRIPT={}", typescript.display()),
             format!("CONDUCTOR_HARNESS={command}"),
         ];
@@ -413,6 +450,8 @@ impl Systemd {
             conf.display().to_string(),
         ]);
         call(SYSTEMD_RUN, &args).with_context(|| format!("start the unit {unit}"))?;
+        create_session(&socket, dir, name)
+            .with_context(|| format!("create the session in the unit {unit}"))?;
         Ok(unit)
     }
 
@@ -518,20 +557,32 @@ pub fn tmux_call(sessions: &Path, name: &SessionName, args: &[&str]) -> Result<S
 }
 
 /// Types `text` into the session `name`'s pane, then Enter: `text` as one paste
-/// (`set-buffer`, then `paste-buffer -p`, bracketed when the harness asked for it), and, after
-/// [`PASTE_SETTLE`], a carriage return pasted the same way unbracketed. Not `send-keys`: tmux
-/// refuses it ("client is read-only") while a `--watch` client is attached.
+/// (`load-buffer` from `<sessions>/<name>.paste`, written for the call and removed after it,
+/// then `paste-buffer -p`, bracketed when the harness asked for it), and, after
+/// [`PASTE_SETTLE`], a carriage return pasted the same way unbracketed. Not `set-buffer` with
+/// the text as an argument: tmux refuses a command over its 16 KB limit ("command too long"),
+/// and a charter is longer. Not `send-keys`: tmux refuses it ("client is read-only") while a
+/// `--watch` client is attached.
 ///
 /// # Errors
 ///
-/// A tmux call fails.
+/// The paste file cannot be written, or a tmux call fails.
 pub fn type_text(sessions: &Path, name: &SessionName, text: &str) -> Result<()> {
     let pane = target(name);
-    tmux_call(
+    let paste = sessions.join(format!("{}.paste", name.0));
+    fs::write(&paste, text).with_context(|| format!("write {}", paste.display()))?;
+    let loaded = tmux_call(
         sessions,
         name,
-        &["set-buffer", "-b", "conductor", "--", text],
-    )?;
+        &[
+            "load-buffer",
+            "-b",
+            "conductor",
+            &paste.display().to_string(),
+        ],
+    );
+    let _ = fs::remove_file(&paste);
+    loaded?;
     tmux_call(
         sessions,
         name,
@@ -617,10 +668,16 @@ impl Provider for Systemd {
         let started = Instant::now();
         while live_session(&name.0)?.is_none() {
             if started.elapsed() >= BOUND {
+                let unit = Self::unit_of(session);
+                let stopped = match stop_unit(&unit) {
+                    Ok(()) => format!("its unit {unit} is stopped"),
+                    Err(error) => format!("its unit {unit} could not be stopped: {error:#}"),
+                };
                 bail!(
-                    "the session {} was not listed live within {} s of its unit's start",
+                    "the session {} was not listed live within {} s of its unit's start; {}",
                     name.0,
-                    BOUND.as_secs()
+                    BOUND.as_secs(),
+                    stopped
                 );
             }
             thread::sleep(Duration::from_millis(200));

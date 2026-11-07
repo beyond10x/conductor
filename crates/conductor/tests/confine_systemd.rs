@@ -26,7 +26,7 @@
 //!   the first line of the case's `unit-states` (`LoadState=… ActiveState=…`, one line per call,
 //!   the last one kept), or a unit that is not there when there is none;
 //! - `tmux`: logs its arguments to `tmux.log` the same way, and appends to `typed` the text each
-//!   `set-buffer` sets: the prompt, then the carriage return of Enter.
+//!   `load-buffer` loads and `set-buffer` sets: the prompt, then the carriage return of Enter.
 //!
 //! No real `systemd-run`, `systemctl`, `tmux` or `claude` runs.
 
@@ -220,6 +220,7 @@ impl Case {
                 "#!/bin/sh\n\
                  printf '%s\\n' \"$@\" '----' >> '{d}/systemd-run.log'\n\
                  [ -e '{d}/agents-live.json' ] && cp '{d}/agents-live.json' '{d}/agents.json'\n\
+                 prev=; for arg; do [ \"$prev\" = -S ] && : > \"$arg\"; prev=$arg; done\n\
                  while [ $# -gt 0 ] && [ \"$1\" != /bin/sh ]; do shift; done\n\
                  if [ $# -gt 0 ]; then setsid \"$@\" </dev/null >/dev/null 2>&1 & fi\n\
                  exit 0\n"
@@ -250,6 +251,7 @@ impl Case {
                 "#!/bin/sh\n\
                  printf '%s\\n' \"$@\" '----' >> '{d}/tmux.log'\n\
                  case \" $* \" in\n\
+                 *' load-buffer '*) for last; do :; done; cat \"$last\" >> '{d}/typed' ;;\n\
                  *' set-buffer '*) for last; do :; done; printf '%s' \"$last\" >> '{d}/typed' ;;\n\
                  esac\n\
                  exit 0\n"
@@ -395,8 +397,8 @@ impl Case {
     }
 }
 
-/// What the provider types for `prompt`, as the fake `tmux` logs it: the prompt, set as a tmux
-/// buffer and pasted (bracketed by tmux, `paste-buffer -p`), then Enter.
+/// What the provider types for `prompt`, as the fake `tmux` logs it: the prompt, loaded from
+/// its paste file into a tmux buffer and pasted (bracketed by tmux, `paste-buffer -p`), then Enter.
 fn typed(prompt: &str) -> String {
     format!("{prompt}\r")
 }
@@ -427,6 +429,11 @@ fn launcher_tail(call: &[String]) -> (String, String, String) {
     assert_eq!(
         fs::read_to_string(&call[at + 5]).expect("the tmux configuration is written"),
         systemd::TMUX_CONF
+    );
+    assert!(
+        systemd::TMUX_CONF
+            .contains("new-session -d -s \"$CONDUCTOR_SESSION\" -c \"$CONDUCTOR_CWD\""),
+        "the session starts in CONDUCTOR_CWD, not in the first client's directory"
     );
     let set = |name: &str| {
         call.windows(2)
@@ -605,6 +612,7 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
         format!("PATH={}", case.path()),
         "CONDUCTOR_INSTANCE=example-org".to_owned(),
         format!("CONDUCTOR_CONFIG={}", case.config().display()),
+        format!("CONDUCTOR_CWD={}", checkout.display()),
     ] {
         assert!(
             run.windows(2).any(|pair| pair[0] == "-E" && pair[1] == set),
@@ -647,6 +655,14 @@ fn a_controller_starts_in_its_unit_inside_the_prefixed_slice_with_its_role_limit
     );
     assert!(typescript.ends_with("ex-alpha.typescript"), "{typescript}");
     assert_eq!(case.typed(CHARTER), typed(CHARTER));
+    // `tmux -D` runs its configuration, which creates the session, only when a first client
+    // connects: the start connects one before it waits for the session to be live
+    // (story:systemd-session-starts-unattended).
+    assert_eq!(
+        case.calls("tmux").first().map(Vec::as_slice),
+        Some(&["-S", "ex-alpha.tmux", "has-session", "-t", "=ex-alpha"].map(str::to_owned)[..]),
+        "the first tmux call creates the session"
+    );
 
     assert_eq!(
         systemctl.get(2).map(Vec::as_slice),

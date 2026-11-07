@@ -73,6 +73,7 @@ impl Case {
             &fake,
             format!(
                 "#!/bin/sh\n\
+                 if [ \"$3\" = load-buffer ]; then set -- \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" \"$(cat \"$6\")\"; fi\n\
                  {{ printf '%s\\037' \"$(pwd)\"; for a in \"$@\"; do printf '%s\\037' \"$a\"; \
                  done; printf '\\036'; }} >> '{calls}'\n\
                  [ {status} -eq 0 ] || echo 'no server running on {SESSION}.tmux' >&2\n\
@@ -201,7 +202,8 @@ fn describe(output: &Output) -> String {
 }
 
 /// The four calls `type_text` makes on the session's socket from `<state>/sessions`: the text
-/// as one bracketed paste, then a carriage return pasted unbracketed.
+/// loaded from its paste file (the fake logs the file's content in its place) as one bracketed
+/// paste, then a carriage return pasted unbracketed.
 fn typed(case: &Case, text: &str) -> Vec<Vec<String>> {
     let sessions = case.state().join("sessions").display().to_string();
     let socket = format!("{SESSION}.tmux");
@@ -214,7 +216,7 @@ fn typed(case: &Case, text: &str) -> Vec<Vec<String>> {
             .collect()
     };
     vec![
-        call(&["set-buffer", "-b", "conductor", "--", text]),
+        call(&["load-buffer", "-b", "conductor", text]),
         call(&["paste-buffer", "-d", "-p", "-b", "conductor", "-t", &pane]),
         call(&["set-buffer", "-b", "conductor", "--", "\r"]),
         call(&["paste-buffer", "-d", "-b", "conductor", "-t", &pane]),

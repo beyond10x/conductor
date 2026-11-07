@@ -1064,10 +1064,12 @@ pub fn pinned(mut settings: Value, instance: &str) -> Value {
     }
     env[INSTANCE_VARIABLE] = Value::String(instance.to_owned());
     let prefix = format!("{INSTANCE_VARIABLE}=");
-    if let Some(events) = settings["hooks"].as_object_mut() {
+    // `get_mut`, not `settings["hooks"]`: serde_json's `IndexMut` inserts `null` for a missing
+    // key, and Claude Code stops on `"hooks": null` (#85).
+    if let Some(events) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
         for matchers in events.values_mut().filter_map(Value::as_array_mut) {
             for matcher in matchers.iter_mut() {
-                let Some(hooks) = matcher["hooks"].as_array_mut() else {
+                let Some(hooks) = matcher.get_mut("hooks").and_then(Value::as_array_mut) else {
                     continue;
                 };
                 for hook in hooks {
@@ -5065,6 +5067,31 @@ pub fn workspace(config: Option<&Path>, args: &WriteWorkspaceArgs) -> Result<Exi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `story:pinned-settings-keep-missing-hooks` (#85): Claude Code 2.1.319 stops on a settings
+    /// dialog when `hooks` is `null`, so pinning adds no key its input did not hold.
+    #[test]
+    fn pinning_adds_no_hooks_key_the_settings_did_not_hold() {
+        let pinned_empty = pinned(serde_json::json!({"outputStyle": "x"}), "alpha");
+        assert_eq!(
+            pinned_empty,
+            serde_json::json!({"outputStyle": "x", "env": {"CONDUCTOR_INSTANCE": "alpha"}})
+        );
+
+        let pinned_hooks = pinned(
+            serde_json::json!({"hooks": {"PreToolUse": [
+                {"matcher": "Bash"},
+                {"matcher": "*", "hooks": [{"type": "command", "command": "conductor guard"}]}
+            ]}}),
+            "alpha",
+        );
+        let matchers = &pinned_hooks["hooks"]["PreToolUse"];
+        assert_eq!(matchers[0], serde_json::json!({"matcher": "Bash"}));
+        assert_eq!(
+            matchers[1]["hooks"][0]["command"],
+            "CONDUCTOR_INSTANCE=alpha conductor guard"
+        );
+    }
 
     #[test]
     fn durations_take_s_m_h_or_d_and_read_back() {

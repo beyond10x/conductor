@@ -63,6 +63,8 @@ types:
   # the prefix) is not refused: the session starts with its content pinned to the role's instance
   # (`env.CONDUCTOR_INSTANCE` the instance's name, and each hook command that runs `conductor`
   # prefixed `CONDUCTOR_INSTANCE=<name>`), written as `<state>/sessions/<session name>.settings.json`.
+  # Pinning adds no other key: a file without `hooks` is written without `hooks`, never with
+  # `"hooks": null`, which Claude Code stops on (story:pinned-settings-keep-missing-hooks, #85).
   # A role that names no settings file starts with its default (`.claude/conductor-settings.json`
   # of the working directory for `conductor`, an empty one for `conductor-dev`) written pinned the
   # same way.
@@ -110,7 +112,9 @@ types:
   # `j` and `k` move, Enter attaches, `w` attaches read-only, `q` quits, and after a detach the
   # picker shows again. A session the systemd provider started runs its harness, whichever it
   # is, in a tmux server of its own, the unit's main process, on the socket
-  # `<state>/sessions/<name>.tmux` of its instance's state; attach runs `tmux attach` on it in
+  # `<state>/sessions/<name>.tmux` of its instance's state; the start itself creates the session
+  # in that server, its pane in the request's working directory, so the harness runs before anyone
+  # attaches (story:systemd-session-starts-unattended); attach runs `tmux attach` on it in
   # the operator's terminal, and the operator detaches with `ctrl-]` then `d`, the session
   # running on. `watch` (story:session-attach-watch) attaches read-only, so nothing typed reaches
   # the harness and the window keeps its size; on a session started before the tmux launcher,
