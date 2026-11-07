@@ -132,6 +132,14 @@ each problem by its YAML path; a valid result keeps the old file beside it as
 and records one class-C decision by the operator (`recorded_by` `dashboard`) with the diff as its
 evidence. The file is written from its YAML values: its comments are kept only in the backup.
 
+The Plan page's write, `POST /api/plan`, takes the same path on the same terms. It runs one
+`aep plan artifact` verb in the named checkout's planning store (`move`, `set --tag` or `--untag`,
+or `body --section Comments`), only for a checkout under the instance's checkouts root that holds
+`.engineering/planning` and only for an id of the form `story:<name>`. A move the store's
+lifecycle refuses is answered with the store's own reason and changes and records nothing; a
+verb that succeeds records one class-C decision by the operator (`recorded_by` `dashboard`) with
+the verb and the store's answer as its evidence.
+
 The guard denies a Bash call of conductor or a controller that names `/api/answers` or posts to
 the dashboard's port ([the guard](/docs/security/the-guard#bash-and-monitor)).
 

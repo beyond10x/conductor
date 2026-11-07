@@ -10,7 +10,7 @@ exports[`the config page > has no axe finding, one main, one banner and the navi
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config" aria-current="page">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config" aria-current="page">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -191,7 +191,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions" aria-current="page">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions" aria-current="page">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -305,7 +305,7 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health" aria-current="page">Health</a><a href="#/config">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health" aria-current="page">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -472,7 +472,7 @@ exports[`the kpis page > has no axe finding, one main, one banner and the naviga
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis" aria-current="page">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis" aria-current="page">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -951,7 +951,7 @@ exports[`the metrics page > has no axe finding, one main, one banner and the nav
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics" aria-current="page">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics" aria-current="page">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -1863,7 +1863,7 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/" aria-current="page">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/" aria-current="page">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -2700,6 +2700,75 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
 <footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
 `;
 
+exports[`the plan page > has no axe finding, one main, one banner and the navigation 1`] = `
+"<header class="top">
+  <div class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="brand-mark" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <path d="M4 18c3-8 13-8 16 0"></path>
+      <path d="M8 18c2-4 6-4 8 0"></path>
+      <circle cx="12" cy="18" r="1.5"></circle>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan" aria-current="page">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
+  <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
+</header>
+<main id="main" tabindex="-1">
+  <div data-v-70a698c6="" class="plan-page">
+    <h1 data-v-70a698c6="" class="page">Plan</h1>
+    <div data-v-70a698c6="" class="bar"><label data-v-70a698c6="" class="small"> Repository <select data-v-70a698c6="" aria-label="Repository" value="alpha">
+          <option data-v-70a698c6="" value="alpha">alpha</option>
+        </select></label><input data-v-70a698c6="" type="search" aria-label="Search title or id" placeholder="Search title or id">
+      <div data-v-70a698c6="" class="segmented" role="group" aria-label="Lanes"><button data-v-70a698c6="" type="button" class="chip-button" aria-pressed="true"> Group by wave </button><button data-v-70a698c6="" type="button" class="chip-button" aria-pressed="false"> No groups </button></div><span data-v-70a698c6="" class="small muted hint">Drag a card to move it; the store checks every move (<code data-v-70a698c6="">aep plan artifact move</code>).</span>
+    </div>
+    <!--v-if-->
+    <!--v-if-->
+    <div data-v-70a698c6="" class="board">
+      <section data-v-70a698c6="" class="col" data-col="Draft" aria-label="Draft">
+        <div data-v-70a698c6="" class="ch">
+          <h2 data-v-70a698c6="">Draft</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">ideas, not yet asked for</span>
+        </div>
+        <!--v-if--><button data-v-70a698c6="" type="button" class="story-card" draggable="true" data-id="story:idea"><span data-v-70a698c6="" class="t">An idea</span><span data-v-70a698c6="" class="id">story:idea</span><span data-v-70a698c6="" class="meta"><!--v-if--><!--v-if--><!--v-if--></span></button>
+        <!--v-if-->
+      </section>
+      <section data-v-70a698c6="" class="col" data-col="Proposed" aria-label="Proposed">
+        <div data-v-70a698c6="" class="ch">
+          <h2 data-v-70a698c6="">Proposed</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">waiting for your yes</span>
+        </div>
+        <h3 data-v-70a698c6="" class="lane">unplanned <span data-v-70a698c6="">1</span></h3><button data-v-70a698c6="" type="button" class="story-card" draggable="true" data-id="story:ask"><span data-v-70a698c6="" class="t">An ask</span><span data-v-70a698c6="" class="id">story:ask</span><span data-v-70a698c6="" class="meta"><!--v-if--><!--v-if--><!--v-if--></span></button>
+        <!--v-if-->
+      </section>
+      <section data-v-70a698c6="" class="col" data-col="Accepted" aria-label="Accepted · next">
+        <div data-v-70a698c6="" class="ch">
+          <h2 data-v-70a698c6="">Accepted · next</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">approved, not started</span>
+        </div>
+        <h3 data-v-70a698c6="" class="lane">next <span data-v-70a698c6="">1</span></h3><button data-v-70a698c6="" type="button" class="story-card p1" draggable="true" data-id="story:next"><span data-v-70a698c6="" class="t">Next up</span><span data-v-70a698c6="" class="id">story:next</span><span data-v-70a698c6="" class="meta"><span data-v-70a698c6="" class="pill r">P1</span>
+          <!--v-if-->
+          <!--v-if--></span>
+        </button>
+        <!--v-if-->
+      </section>
+      <section data-v-70a698c6="" class="col" data-col="InProgress" aria-label="In progress">
+        <div data-v-70a698c6="" class="ch">
+          <h2 data-v-70a698c6="">In progress</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">being worked on</span>
+        </div>
+        <h3 data-v-70a698c6="" class="lane">next <span data-v-70a698c6="">1</span></h3><button data-v-70a698c6="" type="button" class="story-card" draggable="true" data-id="story:doing"><span data-v-70a698c6="" class="t">Being built</span><span data-v-70a698c6="" class="id">story:doing</span><span data-v-70a698c6="" class="meta"><!--v-if--><!--v-if--><span data-v-70a698c6="" class="pill v">started</span></span></button>
+        <!--v-if-->
+      </section>
+      <section data-v-70a698c6="" class="col" data-col="Done" aria-label="Done">
+        <div data-v-70a698c6="" class="ch">
+          <h2 data-v-70a698c6="">Done</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">implemented</span>
+        </div>
+        <!--v-if--><button data-v-70a698c6="" type="button" class="story-card" draggable="true" data-id="story:done"><span data-v-70a698c6="" class="t">Shipped</span><span data-v-70a698c6="" class="id">story:done</span><span data-v-70a698c6="" class="meta"><!--v-if--><!--v-if--><!--v-if--></span></button>
+        <!--v-if-->
+      </section>
+    </div>
+    <!--v-if-->
+  </div>
+</main>
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
+`;
+
 exports[`the repository page > has no axe finding, one main, one banner and the navigation 1`] = `
 "<header class="top">
   <div class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="brand-mark" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -2710,7 +2779,7 @@ exports[`the repository page > has no axe finding, one main, one banner and the 
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -3024,7 +3093,7 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions" aria-current="page">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/plan">Plan</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions" aria-current="page">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">

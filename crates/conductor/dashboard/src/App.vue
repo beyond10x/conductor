@@ -18,11 +18,13 @@ import Metrics from './views/Metrics.vue';
 import Kpis from './views/Kpis.vue';
 import Decisions from './views/Decisions.vue';
 import Config from './views/Config.vue';
+import Plan from './views/Plan.vue';
 
 /**
  * The view a hash names: `#/` the overview, `#/decisions` (story:decisions-page) and
  * `#/decisions/<id>`, the page at that open item (story:sessions-page-coherent), `#/repo/<name>`,
- * `#/metrics`, `#/kpis`, `#/health`, `#/sessions`, `#/config` (story:dashboard-config-page).
+ * `#/metrics`, `#/kpis`, `#/health`, `#/sessions`, `#/config` (story:dashboard-config-page),
+ * `#/plan` (story:dashboard-plan-board).
  */
 type Route =
   | { view: 'overview' }
@@ -32,7 +34,8 @@ type Route =
   | { view: 'kpis' }
   | { view: 'health' }
   | { view: 'sessions' }
-  | { view: 'config' };
+  | { view: 'config' }
+  | { view: 'plan' };
 
 function routeOf(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/';
@@ -57,6 +60,8 @@ function routeOf(hash: string): Route {
       return { view: 'sessions' };
     case '/config':
       return { view: 'config' };
+    case '/plan':
+      return { view: 'plan' };
     default:
       return { view: 'overview' };
   }
@@ -162,6 +167,7 @@ onBeforeUnmount(() => {
     <nav class="views" aria-label="Views">
       <a href="#/" :aria-current="route.view === 'overview' ? 'page' : undefined">Overview</a>
       <a href="#/decisions" :aria-current="route.view === 'decisions' ? 'page' : undefined">Decisions</a>
+      <a href="#/plan" :aria-current="route.view === 'plan' ? 'page' : undefined">Plan</a>
       <a href="#/metrics" :aria-current="route.view === 'metrics' ? 'page' : undefined">Metrics</a>
       <a href="#/kpis" :aria-current="route.view === 'kpis' ? 'page' : undefined">KPIs</a>
       <a href="#/sessions" :aria-current="route.view === 'sessions' ? 'page' : undefined">Sessions</a>
@@ -197,6 +203,7 @@ onBeforeUnmount(() => {
     <Kpis v-else-if="route.view === 'kpis'" />
     <Health v-else-if="route.view === 'health'" />
     <Config v-else-if="route.view === 'config'" />
+    <Plan v-else-if="route.view === 'plan'" />
     <template v-else>
       <h1 class="page">What every session works on</h1>
       <PanelState v-if="failure !== null" state="error" card>{{ failure }}</PanelState>

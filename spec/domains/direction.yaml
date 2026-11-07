@@ -139,6 +139,134 @@ types:
     fields:
       - {name: day, type: Optional<String>}
 
+  # The columns of the dashboard's Plan page (story:dashboard-plan-board), each over the statuses
+  # of the planning store's story lifecycle: `Draft`, `draft`; `Proposed`, `proposed`;
+  # `Accepted`, `active` and not started; `InProgress`, `active` and started (tagged `started`,
+  # or with evidence recorded about it); `Done`, `implemented`. A story at any other status
+  # (`rejected`, `archived`) is on no column.
+  - name: conductor.direction.PlanColumn
+    kind: enum
+    variants: [Draft, Proposed, Accepted, InProgress, Done]
+
+  # One story of the Plan page: its id and title, its status in the store, its column, its lane
+  # (the wave `aep plan artifact waves` derives for it among the stories of its status, `next`
+  # for the first, `unplanned` for one with no scope), whether the operator made it important
+  # (tagged `p1`: it is shown first, in the lane `next`) and whether it is started.
+  - name: conductor.direction.PlanCard
+    kind: struct
+    fields:
+      - {name: id, type: String}
+      - {name: title, type: String}
+      - {name: status, type: String}
+      - {name: column, type: conductor.direction.PlanColumn}
+      - {name: lane, type: String}
+      - {name: important, type: Boolean}
+      - {name: started, type: Boolean}
+
+  # The view the Plan page reads, `GET /api/plan?repository=<name>` (story:dashboard-plan-board):
+  # the checkouts under the instance's checkouts root that hold a planning store
+  # (`.engineering/planning`), the one shown (the one asked for, else the first), its stories as
+  # cards, and the problems reading them. A view: it runs only `aep plan artifact` verbs that
+  # read, and writes and creates nothing.
+  - name: conductor.direction.PlanBoard
+    kind: struct
+    fields:
+      - {name: repositories, type: List<String>}
+      - {name: repository, type: String}
+      - {name: cards, type: List<conductor.direction.PlanCard>}
+      - {name: errors, type: List<String>}
+
+  # One line of a story's Acceptance section, and whether evidence recorded about the story
+  # names it: an evidence record's source holds one of the line's code spans.
+  - name: conductor.direction.PlanAcceptanceLine
+    kind: struct
+    fields:
+      - {name: text, type: String}
+      - {name: evidence, type: Boolean}
+
+  # One entry of a story's history (`aep plan artifact history`): when, by whom, and what.
+  - name: conductor.direction.PlanEvent
+    kind: struct
+    fields:
+      - {name: at, type: String}
+      - {name: actor, type: String}
+      - {name: what, type: String}
+
+  # One story as the Plan page's drawer reads it, `GET /api/plan/story?repository=&id=`: its Why
+  # and Acceptance sections, its scope (the store's scope entries, else its Scope section), its
+  # history, the statuses its lifecycle lets it move to from where it is, and its comments.
+  - name: conductor.direction.PlanStory
+    kind: struct
+    fields:
+      - {name: id, type: String}
+      - {name: title, type: String}
+      - {name: status, type: String}
+      - {name: column, type: Optional<conductor.direction.PlanColumn>}
+      - {name: why, type: String}
+      - {name: acceptance, type: List<conductor.direction.PlanAcceptanceLine>}
+      - {name: scope, type: List<String>}
+      - {name: history, type: List<conductor.direction.PlanEvent>}
+      - {name: moves, type: List<String>}
+      - {name: comments, type: String}
+      - {name: important, type: Boolean}
+      - {name: started, type: Boolean}
+
+  # What the operator does to a story from the Plan page: `Move` it to the status `to`
+  # (`aep plan artifact move`: Approve is `active`, Reject `rejected`); `Start` an accepted one
+  # (tagged `started`: the story lifecycle has no in-progress status to move it to);
+  # `Important` and `Unimportant` (tagged `p1`, or the tag taken off); `Comment`, the operator's
+  # `text` appended to the story's `Comments` section.
+  - name: conductor.direction.PlanAction
+    kind: enum
+    variants: [Move, Start, Important, Unimportant, Comment]
+
+  # The Plan page's write, `POST /api/plan` (story:dashboard-plan-board), taken as every write of
+  # the dashboard is, through the one path the Configuration page's write takes: from the page's
+  # own origin on 127.0.0.1, with the token it was served with, as JSON of a bounded length, one
+  # write at a time. It runs the one `aep plan artifact` verb the action needs in the
+  # repository's checkout; a verb the store refuses changes nothing and records nothing. One
+  # that succeeds records one decision (`conductor.decision.RecordOperatorDecision`): class C,
+  # decided by the operator, recorded by `dashboard`, the verb and the store's answer as its
+  # evidence.
+  - name: conductor.direction.WritePlan
+    kind: struct
+    fields:
+      - {name: repository, type: String}
+      - {name: id, type: String}
+      - {name: action, type: conductor.direction.PlanAction}
+      - {name: to, type: Optional<String>}
+      - {name: text, type: Optional<String>}
+
+  # What the write answers: the story, its status after it, the decision recorded, and the
+  # store's answer.
+  - name: conductor.direction.PlanWritten
+    kind: struct
+    fields:
+      - {name: id, type: String}
+      - {name: status, type: String}
+      - {name: decision_id, type: conductor.decision.DecisionId}
+      - {name: detail, type: String}
+
+  # Why the Plan page's write was refused; a refusal changes nothing. `NotThisPage`, not from
+  # this server's page on 127.0.0.1: 403; `TokenMissing`, no token or not the page's: 403;
+  # `UnknownRepository`, no checkout of that name holds a planning store: 404; `UnknownStory`,
+  # the store holds no story of that id: 404; `MoveRefused`, the store's lifecycle refuses the
+  # move, with the store's own reason: 409; `ActionInvalid`, a `Move` without `to`, a `Comment`
+  # without text, or a `Start` of a story that is not accepted: 422; `StoreFailed`, `aep` did
+  # not run or failed otherwise: 500.
+  - name: conductor.direction.PlanWriteRefusal
+    kind: enum
+    variants:
+      [NotThisPage, TokenMissing, UnknownRepository, UnknownStory, MoveRefused, ActionInvalid,
+       StoreFailed]
+
+  # A refusal of the Plan page's write: why, and the store's or the server's words.
+  - name: conductor.direction.PlanWriteRefused
+    kind: struct
+    fields:
+      - {name: refusal, type: conductor.direction.PlanWriteRefusal}
+      - {name: detail, type: String}
+
 entities:
   # An override of whether conductor processes a repository's GitHub issues and pull requests
   # (design § 10). Without a mark, activity is computed from the newest

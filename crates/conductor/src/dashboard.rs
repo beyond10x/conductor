@@ -25,6 +25,13 @@
 //! page can read the token: a local process that does is recorded as the operator
 //! (`website/docs/security/overview.md`).
 //!
+//! The pages' writes take the same terms through one path (`post_write`), each recording one
+//! decision by the operator: `POST /api/config` writes the Configuration page's staged changes
+//! (`story:dashboard-config-page`, [`configure`]), and `POST /api/plan` the Plan page's move,
+//! start, priority or comment of a story, through the `aep` CLI of the checkout's planning store
+//! (`story:dashboard-plan-board`, [`plan`]). `/api/plan` and `/api/plan/story` answer the board
+//! and one story.
+//!
 //! The overview's endpoints (`story:dashboard-overview`, [`overview`]): `/api/board`,
 //! `/api/repositories`, `/api/pull-requests`, `/api/workflow-runs`, `/api/releases` and
 //! `/api/reviews` (what waits for review, `story:review-limit`) answer
@@ -88,6 +95,7 @@ pub mod decisions;
 mod health;
 pub mod instances;
 pub mod overview;
+pub mod plan;
 pub mod repo;
 pub mod series;
 mod sessions;
@@ -1209,13 +1217,73 @@ fn answer(
                     false,
                 )
             }
-            "POST" => post_config(&header, port, server, body),
+            "POST" => post_write(&header, port, server, body, configure::write),
             _ => response(
                 405,
                 "Method Not Allowed",
                 PLAIN,
                 b"only GET or POST\n",
                 "Allow: GET, POST\r\n",
+            ),
+        };
+    }
+    // The Plan page (story:dashboard-plan-board): its board and its one write, which takes the
+    // Configuration page's path; and one story as its drawer reads it.
+    if path == plan::PLAN_PATH {
+        return match *method {
+            "GET" => {
+                let home = server.sources.home.display().to_string();
+                let asked = repo::query(target, "repository");
+                let answer = plan::board(&server.sources, asked.as_deref());
+                cache::send(
+                    &cache::Body::json(200, &tilde_all(answer, home.trim_end_matches('/'))),
+                    condition,
+                    None,
+                    false,
+                )
+            }
+            "POST" => post_write(&header, port, server, body, plan::write),
+            _ => response(
+                405,
+                "Method Not Allowed",
+                PLAIN,
+                b"only GET or POST\n",
+                "Allow: GET, POST\r\n",
+            ),
+        };
+    }
+    if path == plan::STORY_PATH {
+        if *method != "GET" {
+            return response(
+                405,
+                "Method Not Allowed",
+                PLAIN,
+                b"only GET\n",
+                "Allow: GET\r\n",
+            );
+        }
+        let repository = repo::query(target, "repository").unwrap_or_default();
+        let id = repo::query(target, "id").unwrap_or_default();
+        return match plan::story(&server.sources, &repository, &id) {
+            Ok(story) => {
+                let home = server.sources.home.display().to_string();
+                cache::send(
+                    &cache::Body::json(200, &tilde_all(story, home.trim_end_matches('/'))),
+                    condition,
+                    None,
+                    false,
+                )
+            }
+            Err((status, why)) => response(
+                status,
+                if status == 404 {
+                    "Not Found"
+                } else {
+                    "Bad Request"
+                },
+                PLAIN,
+                format!("{why}\n").as_bytes(),
+                "",
             ),
         };
     }
@@ -1427,14 +1495,22 @@ fn post_answers<'a>(
     }
 }
 
-/// `POST /api/config` (`story:dashboard-config-page`, [`configure`]): admitted as a batch of
-/// answers is, then checked or written one write at a time; after a write the answers kept in
-/// memory are dropped, as after a batch.
-fn post_config<'a>(
+/// One page's write: its sources, the state directory and the request's body; the answer, or
+/// the refusal.
+type PageWrite = fn(&Sources, Option<&Path>, &[u8]) -> Result<serde_json::Value, answers::Refused>;
+
+/// The dashboard's one write path for its pages' writes: `POST /api/config`
+/// (`story:dashboard-config-page`, [`configure`]) and `POST /api/plan`
+/// (`story:dashboard-plan-board`, [`plan`]). Admitted as a batch of answers is (the server's
+/// own host and origin on 127.0.0.1, the page's token, JSON of a bounded length), then done by
+/// `write` one write at a time, each recording its own decision; after a write the answers kept
+/// in memory are dropped, as after a batch.
+fn post_write<'a>(
     header: &impl Fn(&str) -> Option<&'a str>,
     port: u16,
     server: &Server,
     body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
+    write: PageWrite,
 ) -> Vec<u8> {
     const PLAIN: &str = "text/plain; charset=utf-8";
     let refused = |refused: answers::Refused| {
@@ -1466,7 +1542,7 @@ fn post_config<'a>(
     };
     let written = {
         let _one = server.writes.lock().unwrap_or_else(PoisonError::into_inner);
-        let written = configure::write(&server.sources, server.state.as_deref(), &bytes);
+        let written = write(&server.sources, server.state.as_deref(), &bytes);
         server.answers.clear();
         server.facts.clear();
         server.unanswered.clear();

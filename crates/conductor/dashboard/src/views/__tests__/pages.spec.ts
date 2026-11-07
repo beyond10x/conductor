@@ -60,6 +60,18 @@ function everything(): Record<string, unknown> {
       errors: [],
       writable: true,
     },
+    '/api/plan': {
+      repositories: ['alpha'],
+      repository: 'alpha',
+      cards: [
+        { id: 'story:idea', title: 'An idea', status: 'draft', column: 'Draft', lane: '', important: false, started: false },
+        { id: 'story:ask', title: 'An ask', status: 'proposed', column: 'Proposed', lane: 'unplanned', important: false, started: false },
+        { id: 'story:next', title: 'Next up', status: 'active', column: 'Accepted', lane: 'next', important: true, started: false },
+        { id: 'story:doing', title: 'Being built', status: 'active', column: 'InProgress', lane: 'next', important: false, started: true },
+        { id: 'story:done', title: 'Shipped', status: 'implemented', column: 'Done', lane: '', important: false, started: false },
+      ],
+      errors: [],
+    },
   };
 }
 
@@ -85,6 +97,7 @@ const PAGES: [string, string][] = [
   ['sessions', '#/sessions'],
   ['health', '#/health'],
   ['config', '#/config'],
+  ['plan', '#/plan'],
 ];
 
 beforeEach(() => {
