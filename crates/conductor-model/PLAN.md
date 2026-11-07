@@ -1,19 +1,20 @@
 <!--
   generated from conductor v1
-  model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
-  contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
+  model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
+  contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-690 capabilities: **673 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+712 capabilities: **695 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
 | capability | source |
 | --- | --- |
+| domain type | `conductor.config.ActivityChange` |
 | domain type | `conductor.config.Authority` |
 | domain type | `conductor.config.Cadence` |
 | domain type | `conductor.config.Catalog` |
@@ -22,6 +23,15 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.CommandWord` |
 | domain type | `conductor.config.ConductorSession` |
 | domain type | `conductor.config.Config` |
+| domain type | `conductor.config.ConfigChange` |
+| domain type | `conductor.config.ConfigEffect` |
+| domain type | `conductor.config.ConfigField` |
+| domain type | `conductor.config.ConfigInstance` |
+| domain type | `conductor.config.ConfigPage` |
+| domain type | `conductor.config.ConfigProblem` |
+| domain type | `conductor.config.ConfigWriteRefusal` |
+| domain type | `conductor.config.ConfigWriteRefused` |
+| domain type | `conductor.config.ConfigWritten` |
 | domain type | `conductor.config.Confinement` |
 | domain type | `conductor.config.ConfinementMode` |
 | domain type | `conductor.config.ConfinementProvider` |
@@ -78,6 +88,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.ValidateConfig` |
 | domain type | `conductor.config.WorkspaceMember` |
 | domain type | `conductor.config.Writable` |
+| domain type | `conductor.config.WriteConfig` |
 | domain type | `conductor.config.WriteWorkspace` |
 | domain type | `conductor.decision.ClassificationRule` |
 | domain type | `conductor.decision.Decider` |
@@ -101,6 +112,16 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.direction.MarkedBy` |
 | domain type | `conductor.direction.MarkedRepository` |
 | domain type | `conductor.direction.NewNeed` |
+| domain type | `conductor.direction.PlanAcceptanceLine` |
+| domain type | `conductor.direction.PlanAction` |
+| domain type | `conductor.direction.PlanBoard` |
+| domain type | `conductor.direction.PlanCard` |
+| domain type | `conductor.direction.PlanColumn` |
+| domain type | `conductor.direction.PlanEvent` |
+| domain type | `conductor.direction.PlanStory` |
+| domain type | `conductor.direction.PlanWriteRefusal` |
+| domain type | `conductor.direction.PlanWriteRefused` |
+| domain type | `conductor.direction.PlanWritten` |
 | domain type | `conductor.direction.RepositoryActivity` |
 | domain type | `conductor.direction.RepositoryActivityRow` |
 | domain type | `conductor.direction.RepositoryMark.State` |
@@ -109,6 +130,7 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.direction.RulesRefused` |
 | domain type | `conductor.direction.RulesRow` |
 | domain type | `conductor.direction.ServingId` |
+| domain type | `conductor.direction.WritePlan` |
 | domain type | `conductor.dispatch.CheckRecords` |
 | domain type | `conductor.dispatch.Controller.State` |
 | domain type | `conductor.dispatch.ControllerId` |

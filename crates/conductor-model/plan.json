@@ -2,14 +2,21 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31",
-    "contract_digest": "9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177"
+    "source_digest": "406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c",
+    "contract_digest": "be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef"
   },
   "scope": {
     "profile": "component-skeletons",
     "layout": "crate"
   },
   "capabilities": [
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ActivityChange",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
     {
       "kind": "domain_type",
       "source": "conductor.config.Authority",
@@ -62,6 +69,69 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.Config",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigChange",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigEffect",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigField",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigInstance",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigPage",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigProblem",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigWriteRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigWriteRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ConfigWritten",
       "disposition": {
         "disposition": "generated"
       }
@@ -460,6 +530,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.WriteConfig",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.WriteWorkspace",
       "disposition": {
         "disposition": "generated"
@@ -621,6 +698,76 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.direction.PlanAcceptanceLine",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanAction",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanBoard",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanCard",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanColumn",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanEvent",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanStory",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanWriteRefusal",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanWriteRefused",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.PlanWritten",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.direction.RepositoryActivity",
       "disposition": {
         "disposition": "generated"
@@ -671,6 +818,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.direction.ServingId",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.direction.WritePlan",
       "disposition": {
         "disposition": "generated"
       }

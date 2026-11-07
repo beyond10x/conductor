@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
-// contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
+// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
+// contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Tool — `conductor.tool`.
@@ -421,7 +421,13 @@ impl GrantData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.max_output_bytes)), iv::Op::Ge, iv::Fact::number("1"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.max_output_bytes)),
+            iv::Op::Ge,
+            iv::Fact::number("1"),
+            false,
+            true,
+        )) {
             return Some("max_output_bytes >= 1");
         }
         None
@@ -722,10 +728,22 @@ impl ToolCallData {
     /// type does not hold — decides nothing, as the conformance interpreter reads it.
     pub fn broken_invariant(&self) -> Option<&'static str> {
         use crate::primitives::invariant as iv;
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.duration_ms)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.duration_ms)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("duration_ms >= 0");
         }
-        if iv::broken(iv::compare(Some(iv::Fact::integer(self.output_bytes)), iv::Op::Ge, iv::Fact::number("0"), false, true)) {
+        if iv::broken(iv::compare(
+            Some(iv::Fact::integer(self.output_bytes)),
+            iv::Op::Ge,
+            iv::Fact::number("0"),
+            false,
+            true,
+        )) {
             return Some("output_bytes >= 0");
         }
         None
@@ -1162,7 +1180,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.tool.RecordToolCall`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_tool_call(&mut self, input: super::RecordToolCall) -> Result<super::RecordToolCallOutcome, crate::obligation::UnmetObligation>;
+        fn record_tool_call(
+            &mut self,
+            input: super::RecordToolCall,
+        ) -> Result<super::RecordToolCallOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.tool.ToolCalls` — generated.
@@ -1175,5 +1196,4 @@ pub mod obligations {
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
         fn tool_calls(&self) -> Result<Vec<super::ToolCalls>, crate::obligation::UnmetObligation>;
     }
-
 }

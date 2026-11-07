@@ -90,6 +90,8 @@ const LOCK: &str = "lock";
 const CI_LAST: &str = "ci.last";
 const CYCLE_LAST: &str = "cycle.last";
 const DAILY_LAST: &str = "daily.last";
+/// The start of the cycle tick now running (RFC 3339), in [`RUN_DIR`]; removed once it ended.
+const CYCLE_RUNNING: &str = "cycle.running";
 
 /// The cycle's cadence when the instance's `cadence.cycle` does not read: the built-in two hours.
 const CYCLE_EVERY: u64 = 2 * 3600;
@@ -260,6 +262,11 @@ pub fn run(
         return unit::install(config_flag, state);
     }
     if args.uninstall == Some(true) {
+        if let Some(started) = cycle_in_progress(&run_dir(state)?) {
+            eprintln!(
+                "conductor run: a cycle started {started} is in progress; the loop runs it again at its next start"
+            );
+        }
         return unit::uninstall();
     }
     let deliverer = ShellDeliverer::current(config_flag, state)?;
@@ -316,10 +323,11 @@ pub fn run_with(
         }
         let now = OffsetDateTime::now_utc();
         if due(&dir.join(CYCLE_LAST), now, cycle_every) {
-            stamp(&dir.join(CYCLE_LAST), now)?;
-            if let Err(error) = cycle_tick(config_flag, state, seams) {
-                eprintln!("conductor run: cycle tick: {error:#}");
-            }
+            cycle_step(&dir, now, || {
+                if let Err(error) = cycle_tick(config_flag, state, seams) {
+                    eprintln!("conductor run: cycle tick: {error:#}");
+                }
+            })?;
         }
         if let Some(day) = daily_due(&dir, now, &instance.cadence.daily.0) {
             // Written once the tick ended, failed or not, so a loop stopped during it runs it
@@ -1200,6 +1208,26 @@ fn due(file: &Path, now: OffsetDateTime, every: Duration) -> bool {
         })
 }
 
+/// One cycle: [`CYCLE_RUNNING`] holds its start while `tick` runs, and [`CYCLE_LAST`] is
+/// written once it ended, failed or not, so a loop stopped during a cycle runs it again at its
+/// next start (`story:cycle-stamped-after-it-runs`).
+fn cycle_step(dir: &Path, now: OffsetDateTime, tick: impl FnOnce()) -> Result<()> {
+    stamp(&dir.join(CYCLE_RUNNING), now)?;
+    tick();
+    stamp(&dir.join(CYCLE_LAST), now)?;
+    let _ = fs::remove_file(dir.join(CYCLE_RUNNING));
+    Ok(())
+}
+
+/// The start of the cycle `dir` says is running, when one is.
+#[must_use]
+pub fn cycle_in_progress(dir: &Path) -> Option<String> {
+    fs::read_to_string(dir.join(CYCLE_RUNNING))
+        .ok()
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty())
+}
+
 /// Writes `now` to `file`.
 fn stamp(file: &Path, now: OffsetDateTime) -> Result<()> {
     write_file(
@@ -1282,6 +1310,34 @@ mod tests {
 
     fn at(text: &str) -> OffsetDateTime {
         OffsetDateTime::parse(text, &Rfc3339).expect("an RFC 3339 instant")
+    }
+
+    #[test]
+    fn a_cycle_stopped_while_it_runs_is_due_again() {
+        let dir = Dir::new("cycle-stopped");
+        let start = at("2026-11-07T15:30:22Z");
+        let stopped = std::panic::catch_unwind(|| {
+            cycle_step(&dir.0, start, || {
+                panic!("the loop is stopped inside the cycle")
+            })
+        });
+        assert!(stopped.is_err());
+        assert_eq!(
+            cycle_in_progress(&dir.0).as_deref(),
+            Some("2026-11-07T15:30:22Z")
+        );
+        let every = Duration::from_secs(7200);
+        let restart = at("2026-11-07T15:33:00Z");
+        assert!(due(&dir.0.join(CYCLE_LAST), restart, every));
+        let mut ran = false;
+        cycle_step(&dir.0, restart, || ran = true).expect("a cycle at the next start");
+        assert!(ran);
+        assert_eq!(cycle_in_progress(&dir.0), None);
+        assert!(!due(
+            &dir.0.join(CYCLE_LAST),
+            at("2026-11-07T15:34:00Z"),
+            every
+        ));
     }
 
     #[test]

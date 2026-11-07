@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
-// contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
+// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
+// contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The typed refusal of an unmet obligation, and the conversion seams owed between contexts.
@@ -24,6 +24,10 @@ pub struct UnmetObligation {
 
 impl core::fmt::Display for UnmetObligation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "unmet obligation: {} `{}` — see PLAN.md", self.capability, self.source)
+        write!(
+            f,
+            "unmet obligation: {} `{}` — see PLAN.md",
+            self.capability, self.source
+        )
     }
 }

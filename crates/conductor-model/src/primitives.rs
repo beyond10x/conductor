@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
-// contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
+// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
+// contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! How the specification's primitives are spelled in this workspace.
@@ -72,7 +72,11 @@ pub mod invariant {
             let leading = all.trim_start_matches('0');
             let significant = leading.trim_end_matches('0');
             if significant.is_empty() {
-                return Some(Self { negative: false, digits: String::new(), exponent: 0 });
+                return Some(Self {
+                    negative: false,
+                    digits: String::new(),
+                    exponent: 0,
+                });
             }
             let dropped = i128::try_from(leading.len() - significant.len()).ok()?;
             let scale = i128::try_from(fraction.len()).ok()?;
@@ -99,7 +103,9 @@ pub mod invariant {
 
         /// Where the most significant digit sits.
         fn order(&self) -> i128 {
-            i128::try_from(self.digits.len()).unwrap_or(i128::MAX).saturating_add(self.exponent)
+            i128::try_from(self.digits.len())
+                .unwrap_or(i128::MAX)
+                .saturating_add(self.exponent)
         }
     }
 
@@ -170,7 +176,11 @@ pub mod invariant {
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
             let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
             for chunk in bytes.chunks(3) {
-                let group = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+                let group = [
+                    chunk[0],
+                    *chunk.get(1).unwrap_or(&0),
+                    *chunk.get(2).unwrap_or(&0),
+                ];
                 let indices = [
                     group[0] >> 2,
                     ((group[0] & 0b11) << 4) | (group[1] >> 4),
@@ -324,7 +334,9 @@ pub mod invariant {
     /// The observed text equals one of `literals` under ASCII case folding.
     pub fn fold_match(fact: Option<Fact<'_>>, literals: &[&str]) -> Option<bool> {
         Some(match fact? {
-            Fact::Text(text) => literals.iter().any(|literal| text.eq_ignore_ascii_case(literal)),
+            Fact::Text(text) => literals
+                .iter()
+                .any(|literal| text.eq_ignore_ascii_case(literal)),
             _ => false,
         })
     }
@@ -362,11 +374,12 @@ pub mod invariant {
             if slice.is_empty() || !slice.iter().all(u8::is_ascii_digit) {
                 return None;
             }
-            slice
-                .iter()
-                .try_fold(0u32, |total, digit| Some(total * 10 + u32::from(digit - b'0')))
+            slice.iter().try_fold(0u32, |total, digit| {
+                Some(total * 10 + u32::from(digit - b'0'))
+            })
         };
-        let at = |index: usize, expected: &[u8]| bytes.get(index).is_some_and(|b| expected.contains(b));
+        let at =
+            |index: usize, expected: &[u8]| bytes.get(index).is_some_and(|b| expected.contains(b));
         if !(at(4, b"-") && at(7, b"-") && at(10, b"Tt") && at(13, b":") && at(16, b":")) {
             return None;
         }
@@ -404,7 +417,10 @@ pub mod invariant {
         let offset = match bytes.get(position..)? {
             b"Z" | b"z" => 0i64,
             [sign @ (b'+' | b'-'), _, _, b':', _, _] => {
-                let (hours, minutes) = (digits(position + 1, position + 3)?, digits(position + 4, position + 6)?);
+                let (hours, minutes) = (
+                    digits(position + 1, position + 3)?,
+                    digits(position + 4, position + 6)?,
+                );
                 if hours > 23 || minutes > 59 {
                     return None;
                 }
@@ -421,7 +437,8 @@ pub mod invariant {
         let era = if shifted >= 0 { shifted } else { shifted - 399 } / 400;
         let year_of_era = shifted - era * 400;
         let month = i64::from(month);
-        let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + i64::from(day) - 1;
+        let day_of_year =
+            (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + i64::from(day) - 1;
         let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
         let days = era * 146_097 + day_of_era - 719_468;
         Some((

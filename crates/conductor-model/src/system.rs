@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
-// contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
+// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
+// contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! The `conductor` system, v1: its components assembled, its bindings wired, and its one transport.
@@ -263,7 +263,9 @@ impl SystemEvent {
 impl From<crate::ports::conductor_broker::PublishedEvent> for SystemEvent {
     fn from(event: crate::ports::conductor_broker::PublishedEvent) -> Self {
         match event {
-            crate::ports::conductor_broker::PublishedEvent::ToolCallRecorded(event) => Self::ToolCallRecorded(event),
+            crate::ports::conductor_broker::PublishedEvent::ToolCallRecorded(event) => {
+                Self::ToolCallRecorded(event)
+            }
         }
     }
 }
@@ -271,82 +273,232 @@ impl From<crate::ports::conductor_broker::PublishedEvent> for SystemEvent {
 impl From<crate::ports::conductor_cli::PublishedEvent> for SystemEvent {
     fn from(event: crate::ports::conductor_cli::PublishedEvent) -> Self {
         match event {
-            crate::ports::conductor_cli::PublishedEvent::DecisionRecorded(event) => Self::DecisionRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::DecisionRequested(event) => Self::DecisionRequested(event),
-            crate::ports::conductor_cli::PublishedEvent::DecisionReversedEvent(event) => Self::DecisionReversedEvent(event),
-            crate::ports::conductor_cli::PublishedEvent::RequestAmended(event) => Self::RequestAmended(event),
-            crate::ports::conductor_cli::PublishedEvent::RequestAnswered(event) => Self::RequestAnswered(event),
-            crate::ports::conductor_cli::PublishedEvent::RequestEscalated(event) => Self::RequestEscalated(event),
-            crate::ports::conductor_cli::PublishedEvent::RequestWithdrawn(event) => Self::RequestWithdrawn(event),
-            crate::ports::conductor_cli::PublishedEvent::GoalConfirmed(event) => Self::GoalConfirmed(event),
-            crate::ports::conductor_cli::PublishedEvent::GoalDropped(event) => Self::GoalDropped(event),
+            crate::ports::conductor_cli::PublishedEvent::DecisionRecorded(event) => {
+                Self::DecisionRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DecisionRequested(event) => {
+                Self::DecisionRequested(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DecisionReversedEvent(event) => {
+                Self::DecisionReversedEvent(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RequestAmended(event) => {
+                Self::RequestAmended(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RequestAnswered(event) => {
+                Self::RequestAnswered(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RequestEscalated(event) => {
+                Self::RequestEscalated(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RequestWithdrawn(event) => {
+                Self::RequestWithdrawn(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::GoalConfirmed(event) => {
+                Self::GoalConfirmed(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::GoalDropped(event) => {
+                Self::GoalDropped(event)
+            }
             crate::ports::conductor_cli::PublishedEvent::GoalMet(event) => Self::GoalMet(event),
-            crate::ports::conductor_cli::PublishedEvent::GoalProposed(event) => Self::GoalProposed(event),
-            crate::ports::conductor_cli::PublishedEvent::RepositoryActivated(event) => Self::RepositoryActivated(event),
-            crate::ports::conductor_cli::PublishedEvent::RepositoryDeactivated(event) => Self::RepositoryDeactivated(event),
-            crate::ports::conductor_cli::PublishedEvent::RepositoryMarked(event) => Self::RepositoryMarked(event),
-            crate::ports::conductor_cli::PublishedEvent::ServingAdded(event) => Self::ServingAdded(event),
-            crate::ports::conductor_cli::PublishedEvent::ServingRemoved(event) => Self::ServingRemoved(event),
-            crate::ports::conductor_cli::PublishedEvent::CharterRevised(event) => Self::CharterRevised(event),
-            crate::ports::conductor_cli::PublishedEvent::ControllerPaused(event) => Self::ControllerPaused(event),
-            crate::ports::conductor_cli::PublishedEvent::ControllerResumed(event) => Self::ControllerResumed(event),
-            crate::ports::conductor_cli::PublishedEvent::ControllerStarted(event) => Self::ControllerStarted(event),
-            crate::ports::conductor_cli::PublishedEvent::ControllerStopped(event) => Self::ControllerStopped(event),
-            crate::ports::conductor_cli::PublishedEvent::DispatchBlocked(event) => Self::DispatchBlocked(event),
-            crate::ports::conductor_cli::PublishedEvent::DispatchCancelled(event) => Self::DispatchCancelled(event),
-            crate::ports::conductor_cli::PublishedEvent::DispatchDone(event) => Self::DispatchDone(event),
-            crate::ports::conductor_cli::PublishedEvent::DispatchFailed(event) => Self::DispatchFailed(event),
-            crate::ports::conductor_cli::PublishedEvent::DispatchSent(event) => Self::DispatchSent(event),
-            crate::ports::conductor_cli::PublishedEvent::DispatchStarted(event) => Self::DispatchStarted(event),
-            crate::ports::conductor_cli::PublishedEvent::DispatchUnblocked(event) => Self::DispatchUnblocked(event),
-            crate::ports::conductor_cli::PublishedEvent::GuardDecisionRecorded(event) => Self::GuardDecisionRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::MessageHandled(event) => Self::MessageHandled(event),
-            crate::ports::conductor_cli::PublishedEvent::MessageReceived(event) => Self::MessageReceived(event),
-            crate::ports::conductor_cli::PublishedEvent::MessageRejected(event) => Self::MessageRejected(event),
-            crate::ports::conductor_cli::PublishedEvent::NeedRouted(event) => Self::NeedRouted(event),
-            crate::ports::conductor_cli::PublishedEvent::ResourceGranted(event) => Self::ResourceGranted(event),
-            crate::ports::conductor_cli::PublishedEvent::ResourceRefused(event) => Self::ResourceRefused(event),
-            crate::ports::conductor_cli::PublishedEvent::ResourceReleased(event) => Self::ResourceReleased(event),
-            crate::ports::conductor_cli::PublishedEvent::ResourceRequested(event) => Self::ResourceRequested(event),
-            crate::ports::conductor_cli::PublishedEvent::DiskReclaimed(event) => Self::DiskReclaimed(event),
-            crate::ports::conductor_cli::PublishedEvent::DiskRequestWithdrawn(event) => Self::DiskRequestWithdrawn(event),
-            crate::ports::conductor_cli::PublishedEvent::DiskRequested(event) => Self::DiskRequested(event),
-            crate::ports::conductor_cli::PublishedEvent::DiskReservationRefused(event) => Self::DiskReservationRefused(event),
-            crate::ports::conductor_cli::PublishedEvent::DiskReserved(event) => Self::DiskReserved(event),
-            crate::ports::conductor_cli::PublishedEvent::HostGrantReleased(event) => Self::HostGrantReleased(event),
-            crate::ports::conductor_cli::PublishedEvent::HostGrantTaken(event) => Self::HostGrantTaken(event),
-            crate::ports::conductor_cli::PublishedEvent::PeakRecorded(event) => Self::PeakRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::ReclaimFloorNotReached(event) => Self::ReclaimFloorNotReached(event),
-            crate::ports::conductor_cli::PublishedEvent::RunStarted(event) => Self::RunStarted(event),
-            crate::ports::conductor_cli::PublishedEvent::FindingClosed(event) => Self::FindingClosed(event),
-            crate::ports::conductor_cli::PublishedEvent::FindingFiled(event) => Self::FindingFiled(event),
-            crate::ports::conductor_cli::PublishedEvent::FindingRaised(event) => Self::FindingRaised(event),
-            crate::ports::conductor_cli::PublishedEvent::FindingVerified(event) => Self::FindingVerified(event),
-            crate::ports::conductor_cli::PublishedEvent::MetricDefined(event) => Self::MetricDefined(event),
-            crate::ports::conductor_cli::PublishedEvent::MetricReadingJudged(event) => Self::MetricReadingJudged(event),
-            crate::ports::conductor_cli::PublishedEvent::MetricReadingRecorded(event) => Self::MetricReadingRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::MetricReadingSuperseded(event) => Self::MetricReadingSuperseded(event),
-            crate::ports::conductor_cli::PublishedEvent::MetricTargetSet(event) => Self::MetricTargetSet(event),
-            crate::ports::conductor_cli::PublishedEvent::BlockerRecorded(event) => Self::BlockerRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::BoardPublished(event) => Self::BoardPublished(event),
-            crate::ports::conductor_cli::PublishedEvent::CollectorRunRecorded(event) => Self::CollectorRunRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::MemberFailureRecorded(event) => Self::MemberFailureRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::MergedPullRequestRecorded(event) => Self::MergedPullRequestRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::PullRequestRecorded(event) => Self::PullRequestRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::ReleaseRecorded(event) => Self::ReleaseRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::RepositoryRecorded(event) => Self::RepositoryRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::SecretSyncRecorded(event) => Self::SecretSyncRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::SessionRecorded(event) => Self::SessionRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::SnapshotCompleted(event) => Self::SnapshotCompleted(event),
-            crate::ports::conductor_cli::PublishedEvent::SnapshotFailed(event) => Self::SnapshotFailed(event),
-            crate::ports::conductor_cli::PublishedEvent::SnapshotStarted(event) => Self::SnapshotStarted(event),
-            crate::ports::conductor_cli::PublishedEvent::SpecificationRecorded(event) => Self::SpecificationRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::UsageRecorded(event) => Self::UsageRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::WorkflowRunRecorded(event) => Self::WorkflowRunRecorded(event),
-            crate::ports::conductor_cli::PublishedEvent::LeaseTaken(event) => Self::LeaseTaken(event),
-            crate::ports::conductor_cli::PublishedEvent::LeaseTakenOver(event) => Self::LeaseTakenOver(event),
-            crate::ports::conductor_cli::PublishedEvent::MessageDelivered(event) => Self::MessageDelivered(event),
-            crate::ports::conductor_cli::PublishedEvent::RunTickRecorded(event) => Self::RunTickRecorded(event),
+            crate::ports::conductor_cli::PublishedEvent::GoalProposed(event) => {
+                Self::GoalProposed(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RepositoryActivated(event) => {
+                Self::RepositoryActivated(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RepositoryDeactivated(event) => {
+                Self::RepositoryDeactivated(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RepositoryMarked(event) => {
+                Self::RepositoryMarked(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ServingAdded(event) => {
+                Self::ServingAdded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ServingRemoved(event) => {
+                Self::ServingRemoved(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::CharterRevised(event) => {
+                Self::CharterRevised(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ControllerPaused(event) => {
+                Self::ControllerPaused(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ControllerResumed(event) => {
+                Self::ControllerResumed(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ControllerStarted(event) => {
+                Self::ControllerStarted(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ControllerStopped(event) => {
+                Self::ControllerStopped(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DispatchBlocked(event) => {
+                Self::DispatchBlocked(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DispatchCancelled(event) => {
+                Self::DispatchCancelled(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DispatchDone(event) => {
+                Self::DispatchDone(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DispatchFailed(event) => {
+                Self::DispatchFailed(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DispatchSent(event) => {
+                Self::DispatchSent(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DispatchStarted(event) => {
+                Self::DispatchStarted(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DispatchUnblocked(event) => {
+                Self::DispatchUnblocked(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::GuardDecisionRecorded(event) => {
+                Self::GuardDecisionRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MessageHandled(event) => {
+                Self::MessageHandled(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MessageReceived(event) => {
+                Self::MessageReceived(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MessageRejected(event) => {
+                Self::MessageRejected(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::NeedRouted(event) => {
+                Self::NeedRouted(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ResourceGranted(event) => {
+                Self::ResourceGranted(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ResourceRefused(event) => {
+                Self::ResourceRefused(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ResourceReleased(event) => {
+                Self::ResourceReleased(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ResourceRequested(event) => {
+                Self::ResourceRequested(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DiskReclaimed(event) => {
+                Self::DiskReclaimed(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DiskRequestWithdrawn(event) => {
+                Self::DiskRequestWithdrawn(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DiskRequested(event) => {
+                Self::DiskRequested(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DiskReservationRefused(event) => {
+                Self::DiskReservationRefused(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::DiskReserved(event) => {
+                Self::DiskReserved(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::HostGrantReleased(event) => {
+                Self::HostGrantReleased(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::HostGrantTaken(event) => {
+                Self::HostGrantTaken(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::PeakRecorded(event) => {
+                Self::PeakRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ReclaimFloorNotReached(event) => {
+                Self::ReclaimFloorNotReached(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RunStarted(event) => {
+                Self::RunStarted(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::FindingClosed(event) => {
+                Self::FindingClosed(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::FindingFiled(event) => {
+                Self::FindingFiled(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::FindingRaised(event) => {
+                Self::FindingRaised(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::FindingVerified(event) => {
+                Self::FindingVerified(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MetricDefined(event) => {
+                Self::MetricDefined(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MetricReadingJudged(event) => {
+                Self::MetricReadingJudged(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MetricReadingRecorded(event) => {
+                Self::MetricReadingRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MetricReadingSuperseded(event) => {
+                Self::MetricReadingSuperseded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MetricTargetSet(event) => {
+                Self::MetricTargetSet(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::BlockerRecorded(event) => {
+                Self::BlockerRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::BoardPublished(event) => {
+                Self::BoardPublished(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::CollectorRunRecorded(event) => {
+                Self::CollectorRunRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MemberFailureRecorded(event) => {
+                Self::MemberFailureRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MergedPullRequestRecorded(event) => {
+                Self::MergedPullRequestRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::PullRequestRecorded(event) => {
+                Self::PullRequestRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::ReleaseRecorded(event) => {
+                Self::ReleaseRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RepositoryRecorded(event) => {
+                Self::RepositoryRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::SecretSyncRecorded(event) => {
+                Self::SecretSyncRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::SessionRecorded(event) => {
+                Self::SessionRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::SnapshotCompleted(event) => {
+                Self::SnapshotCompleted(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::SnapshotFailed(event) => {
+                Self::SnapshotFailed(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::SnapshotStarted(event) => {
+                Self::SnapshotStarted(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::SpecificationRecorded(event) => {
+                Self::SpecificationRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::UsageRecorded(event) => {
+                Self::UsageRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::WorkflowRunRecorded(event) => {
+                Self::WorkflowRunRecorded(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::LeaseTaken(event) => {
+                Self::LeaseTaken(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::LeaseTakenOver(event) => {
+                Self::LeaseTakenOver(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::MessageDelivered(event) => {
+                Self::MessageDelivered(event)
+            }
+            crate::ports::conductor_cli::PublishedEvent::RunTickRecorded(event) => {
+                Self::RunTickRecorded(event)
+            }
         }
     }
 }
@@ -365,9 +517,14 @@ pub struct System<ConductorBrokerBehaviors, ConductorCliBehaviors> {
     cursor: usize,
 }
 
-impl<ConductorBrokerBehaviors, ConductorCliBehaviors> System<ConductorBrokerBehaviors, ConductorCliBehaviors> {
+impl<ConductorBrokerBehaviors, ConductorCliBehaviors>
+    System<ConductorBrokerBehaviors, ConductorCliBehaviors>
+{
     /// Assembles the system from its components.
-    pub fn new(conductor_broker: crate::ports::conductor_broker::ConductorBroker<ConductorBrokerBehaviors>, conductor_cli: crate::ports::conductor_cli::ConductorCli<ConductorCliBehaviors>) -> Self {
+    pub fn new(
+        conductor_broker: crate::ports::conductor_broker::ConductorBroker<ConductorBrokerBehaviors>,
+        conductor_cli: crate::ports::conductor_cli::ConductorCli<ConductorCliBehaviors>,
+    ) -> Self {
         Self {
             conductor_broker,
             conductor_cli,
@@ -395,10 +552,122 @@ impl<ConductorBrokerBehaviors, ConductorCliBehaviors> System<ConductorBrokerBeha
     }
 }
 
-impl<ConductorBrokerBehaviors, ConductorCliBehaviors> System<ConductorBrokerBehaviors, ConductorCliBehaviors>
+impl<ConductorBrokerBehaviors, ConductorCliBehaviors>
+    System<ConductorBrokerBehaviors, ConductorCliBehaviors>
 where
-    ConductorBrokerBehaviors: crate::tool::obligations::RecordToolCallBehavior + crate::tool::obligations::ToolCallsQuery,
-    ConductorCliBehaviors: crate::decision::obligations::AmendEscalatedRequestBehavior + crate::decision::obligations::AnswerEscalatedRequestBehavior + crate::decision::obligations::AnswerRequestBehavior + crate::decision::obligations::EscalateRequestBehavior + crate::decision::obligations::RaiseDecisionRequestBehavior + crate::decision::obligations::RecordConductorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionBehavior + crate::decision::obligations::RecordOperatorDecisionForRequestBehavior + crate::decision::obligations::ReverseConductorDecisionBehavior + crate::decision::obligations::ReverseOperatorDecisionBehavior + crate::decision::obligations::WithdrawRequestBehavior + crate::direction::obligations::ActivateRepositoryBehavior + crate::direction::obligations::AddServingBehavior + crate::direction::obligations::ConfirmGoalBehavior + crate::direction::obligations::DeactivateRepositoryBehavior + crate::direction::obligations::DropGoalBehavior + crate::direction::obligations::MarkGoalMetBehavior + crate::direction::obligations::MarkRepositoryBehavior + crate::direction::obligations::ProposeGoalBehavior + crate::direction::obligations::RemoveServingBehavior + crate::dispatch::obligations::CancelDispatchBehavior + crate::dispatch::obligations::GrantResourceBehavior + crate::dispatch::obligations::HandleMessageBehavior + crate::dispatch::obligations::PauseControllerBehavior + crate::dispatch::obligations::ReceiveMessageBehavior + crate::dispatch::obligations::RecordGuardDecisionBehavior + crate::dispatch::obligations::RefuseResourceBehavior + crate::dispatch::obligations::RejectMessageBehavior + crate::dispatch::obligations::ReleaseResourceBehavior + crate::dispatch::obligations::ReportBlockedBehavior + crate::dispatch::obligations::ReportDoneBehavior + crate::dispatch::obligations::ReportFailedBehavior + crate::dispatch::obligations::ReportStartedBehavior + crate::dispatch::obligations::ReportUnblockedBehavior + crate::dispatch::obligations::RequestResourceBehavior + crate::dispatch::obligations::ResumeControllerBehavior + crate::dispatch::obligations::ReviseCharterBehavior + crate::dispatch::obligations::RouteNeedBehavior + crate::dispatch::obligations::SendDispatchBehavior + crate::dispatch::obligations::StartControllerBehavior + crate::dispatch::obligations::StopControllerBehavior + crate::host::obligations::ReclaimBehavior + crate::host::obligations::RecordPeakBehavior + crate::host::obligations::ReleaseGrantBehavior + crate::host::obligations::RequestDiskBehavior + crate::host::obligations::ReserveDiskBehavior + crate::host::obligations::StartRunBehavior + crate::host::obligations::TakeHostGrantBehavior + crate::host::obligations::WithdrawDiskRequestBehavior + crate::improvement::obligations::DefineMetricBehavior + crate::improvement::obligations::FileFindingBehavior + crate::improvement::obligations::JudgeMetricReadingBehavior + crate::improvement::obligations::RaiseFindingBehavior + crate::improvement::obligations::RecordMetricReadingBehavior + crate::improvement::obligations::SetMetricTargetBehavior + crate::improvement::obligations::SupersedeMetricReadingBehavior + crate::improvement::obligations::VerifyFindingBehavior + crate::observation::obligations::CompleteSnapshotBehavior + crate::observation::obligations::FailSnapshotBehavior + crate::observation::obligations::PublishBoardBehavior + crate::observation::obligations::RecordBlockerBehavior + crate::observation::obligations::RecordCollectorRunBehavior + crate::observation::obligations::RecordMemberFailureBehavior + crate::observation::obligations::RecordMergedPullRequestBehavior + crate::observation::obligations::RecordPullRequestBehavior + crate::observation::obligations::RecordReleaseBehavior + crate::observation::obligations::RecordRepositoryBehavior + crate::observation::obligations::RecordSecretSyncBehavior + crate::observation::obligations::RecordSessionBehavior + crate::observation::obligations::RecordSpecificationBehavior + crate::observation::obligations::RecordUsageBehavior + crate::observation::obligations::RecordWorkflowRunBehavior + crate::observation::obligations::StartSnapshotBehavior + crate::session::obligations::ClaimLeaseBehavior + crate::session::obligations::DeliverMessageBehavior + crate::session::obligations::RecordRunTickBehavior + crate::decision::obligations::DecisionsQuery + crate::decision::obligations::HandsTodoQuery + crate::decision::obligations::RequestsQuery + crate::direction::obligations::GoalServingsQuery + crate::direction::obligations::GoalsQuery + crate::direction::obligations::RepositoryMarksQuery + crate::dispatch::obligations::ControllersQuery + crate::dispatch::obligations::DispatchesQuery + crate::dispatch::obligations::GuardDecisionsQuery + crate::dispatch::obligations::MessagesQuery + crate::dispatch::obligations::ResourceRequestsQuery + crate::host::obligations::GrantsQuery + crate::host::obligations::ReclaimRunsQuery + crate::improvement::obligations::FindingsQuery + crate::improvement::obligations::KpiReadingsQuery + crate::improvement::obligations::KpisQuery + crate::improvement::obligations::MetricReadingsQuery + crate::improvement::obligations::MetricsQuery + crate::observation::obligations::BlockersQuery + crate::observation::obligations::BoardsQuery + crate::observation::obligations::CollectorRunsQuery + crate::observation::obligations::MemberFailuresQuery + crate::observation::obligations::MergedPullRequestsQuery + crate::observation::obligations::PullRequestsQuery + crate::observation::obligations::ReleasesQuery + crate::observation::obligations::RepositoriesQuery + crate::observation::obligations::SecretSyncsQuery + crate::observation::obligations::SessionsQuery + crate::observation::obligations::SnapshotsQuery + crate::observation::obligations::SpecificationsQuery + crate::observation::obligations::UsageReadingsQuery + crate::observation::obligations::WorkflowRunsQuery + crate::session::obligations::DeliveriesQuery + crate::session::obligations::LeasesQuery + crate::session::obligations::RunTicksQuery,
+    ConductorBrokerBehaviors:
+        crate::tool::obligations::RecordToolCallBehavior + crate::tool::obligations::ToolCallsQuery,
+    ConductorCliBehaviors: crate::decision::obligations::AmendEscalatedRequestBehavior
+        + crate::decision::obligations::AnswerEscalatedRequestBehavior
+        + crate::decision::obligations::AnswerRequestBehavior
+        + crate::decision::obligations::EscalateRequestBehavior
+        + crate::decision::obligations::RaiseDecisionRequestBehavior
+        + crate::decision::obligations::RecordConductorDecisionBehavior
+        + crate::decision::obligations::RecordOperatorDecisionBehavior
+        + crate::decision::obligations::RecordOperatorDecisionForRequestBehavior
+        + crate::decision::obligations::ReverseConductorDecisionBehavior
+        + crate::decision::obligations::ReverseOperatorDecisionBehavior
+        + crate::decision::obligations::WithdrawRequestBehavior
+        + crate::direction::obligations::ActivateRepositoryBehavior
+        + crate::direction::obligations::AddServingBehavior
+        + crate::direction::obligations::ConfirmGoalBehavior
+        + crate::direction::obligations::DeactivateRepositoryBehavior
+        + crate::direction::obligations::DropGoalBehavior
+        + crate::direction::obligations::MarkGoalMetBehavior
+        + crate::direction::obligations::MarkRepositoryBehavior
+        + crate::direction::obligations::ProposeGoalBehavior
+        + crate::direction::obligations::RemoveServingBehavior
+        + crate::dispatch::obligations::CancelDispatchBehavior
+        + crate::dispatch::obligations::GrantResourceBehavior
+        + crate::dispatch::obligations::HandleMessageBehavior
+        + crate::dispatch::obligations::PauseControllerBehavior
+        + crate::dispatch::obligations::ReceiveMessageBehavior
+        + crate::dispatch::obligations::RecordGuardDecisionBehavior
+        + crate::dispatch::obligations::RefuseResourceBehavior
+        + crate::dispatch::obligations::RejectMessageBehavior
+        + crate::dispatch::obligations::ReleaseResourceBehavior
+        + crate::dispatch::obligations::ReportBlockedBehavior
+        + crate::dispatch::obligations::ReportDoneBehavior
+        + crate::dispatch::obligations::ReportFailedBehavior
+        + crate::dispatch::obligations::ReportStartedBehavior
+        + crate::dispatch::obligations::ReportUnblockedBehavior
+        + crate::dispatch::obligations::RequestResourceBehavior
+        + crate::dispatch::obligations::ResumeControllerBehavior
+        + crate::dispatch::obligations::ReviseCharterBehavior
+        + crate::dispatch::obligations::RouteNeedBehavior
+        + crate::dispatch::obligations::SendDispatchBehavior
+        + crate::dispatch::obligations::StartControllerBehavior
+        + crate::dispatch::obligations::StopControllerBehavior
+        + crate::host::obligations::ReclaimBehavior
+        + crate::host::obligations::RecordPeakBehavior
+        + crate::host::obligations::ReleaseGrantBehavior
+        + crate::host::obligations::RequestDiskBehavior
+        + crate::host::obligations::ReserveDiskBehavior
+        + crate::host::obligations::StartRunBehavior
+        + crate::host::obligations::TakeHostGrantBehavior
+        + crate::host::obligations::WithdrawDiskRequestBehavior
+        + crate::improvement::obligations::DefineMetricBehavior
+        + crate::improvement::obligations::FileFindingBehavior
+        + crate::improvement::obligations::JudgeMetricReadingBehavior
+        + crate::improvement::obligations::RaiseFindingBehavior
+        + crate::improvement::obligations::RecordMetricReadingBehavior
+        + crate::improvement::obligations::SetMetricTargetBehavior
+        + crate::improvement::obligations::SupersedeMetricReadingBehavior
+        + crate::improvement::obligations::VerifyFindingBehavior
+        + crate::observation::obligations::CompleteSnapshotBehavior
+        + crate::observation::obligations::FailSnapshotBehavior
+        + crate::observation::obligations::PublishBoardBehavior
+        + crate::observation::obligations::RecordBlockerBehavior
+        + crate::observation::obligations::RecordCollectorRunBehavior
+        + crate::observation::obligations::RecordMemberFailureBehavior
+        + crate::observation::obligations::RecordMergedPullRequestBehavior
+        + crate::observation::obligations::RecordPullRequestBehavior
+        + crate::observation::obligations::RecordReleaseBehavior
+        + crate::observation::obligations::RecordRepositoryBehavior
+        + crate::observation::obligations::RecordSecretSyncBehavior
+        + crate::observation::obligations::RecordSessionBehavior
+        + crate::observation::obligations::RecordSpecificationBehavior
+        + crate::observation::obligations::RecordUsageBehavior
+        + crate::observation::obligations::RecordWorkflowRunBehavior
+        + crate::observation::obligations::StartSnapshotBehavior
+        + crate::session::obligations::ClaimLeaseBehavior
+        + crate::session::obligations::DeliverMessageBehavior
+        + crate::session::obligations::RecordRunTickBehavior
+        + crate::decision::obligations::DecisionsQuery
+        + crate::decision::obligations::HandsTodoQuery
+        + crate::decision::obligations::RequestsQuery
+        + crate::direction::obligations::GoalServingsQuery
+        + crate::direction::obligations::GoalsQuery
+        + crate::direction::obligations::RepositoryMarksQuery
+        + crate::dispatch::obligations::ControllersQuery
+        + crate::dispatch::obligations::DispatchesQuery
+        + crate::dispatch::obligations::GuardDecisionsQuery
+        + crate::dispatch::obligations::MessagesQuery
+        + crate::dispatch::obligations::ResourceRequestsQuery
+        + crate::host::obligations::GrantsQuery
+        + crate::host::obligations::ReclaimRunsQuery
+        + crate::improvement::obligations::FindingsQuery
+        + crate::improvement::obligations::KpiReadingsQuery
+        + crate::improvement::obligations::KpisQuery
+        + crate::improvement::obligations::MetricReadingsQuery
+        + crate::improvement::obligations::MetricsQuery
+        + crate::observation::obligations::BlockersQuery
+        + crate::observation::obligations::BoardsQuery
+        + crate::observation::obligations::CollectorRunsQuery
+        + crate::observation::obligations::MemberFailuresQuery
+        + crate::observation::obligations::MergedPullRequestsQuery
+        + crate::observation::obligations::PullRequestsQuery
+        + crate::observation::obligations::ReleasesQuery
+        + crate::observation::obligations::RepositoriesQuery
+        + crate::observation::obligations::SecretSyncsQuery
+        + crate::observation::obligations::SessionsQuery
+        + crate::observation::obligations::SnapshotsQuery
+        + crate::observation::obligations::SpecificationsQuery
+        + crate::observation::obligations::UsageReadingsQuery
+        + crate::observation::obligations::WorkflowRunsQuery
+        + crate::session::obligations::DeliveriesQuery
+        + crate::session::obligations::LeasesQuery
+        + crate::session::obligations::RunTicksQuery,
 {
     /// Delivers until quiescent: collects every component's outbox onto the log. No binding
     /// reacts to anything this specification publishes, so collecting is the whole delivery.

@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
-// contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
+// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
+// contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Direction — `conductor.direction`.
@@ -79,6 +79,158 @@ pub struct MarkedRepository(pub String);
 pub struct NewNeed {
     /// `day` — `Optional<String>`.
     pub day: Option<String>,
+}
+
+/// PlanAcceptanceLine — `conductor.direction.PlanAcceptanceLine`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanAcceptanceLine {
+    /// `text` — `String`.
+    pub text: String,
+    /// `evidence` — `Boolean`.
+    pub evidence: bool,
+}
+
+/// PlanAction — `conductor.direction.PlanAction`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanAction {
+    /// `Move`.
+    Move,
+    /// `Start`.
+    Start,
+    /// `Important`.
+    Important,
+    /// `Unimportant`.
+    Unimportant,
+    /// `Comment`.
+    Comment,
+}
+
+/// PlanBoard — `conductor.direction.PlanBoard`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanBoard {
+    /// `repositories` — `List<String>`.
+    pub repositories: Vec<String>,
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `cards` — `List<conductor.direction.PlanCard>`.
+    pub cards: Vec<PlanCard>,
+    /// `errors` — `List<String>`.
+    pub errors: Vec<String>,
+}
+
+/// PlanCard — `conductor.direction.PlanCard`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanCard {
+    /// `id` — `String`.
+    pub id: String,
+    /// `title` — `String`.
+    pub title: String,
+    /// `status` — `String`.
+    pub status: String,
+    /// `column` — `conductor.direction.PlanColumn`.
+    pub column: PlanColumn,
+    /// `lane` — `String`.
+    pub lane: String,
+    /// `important` — `Boolean`.
+    pub important: bool,
+    /// `started` — `Boolean`.
+    pub started: bool,
+}
+
+/// PlanColumn — `conductor.direction.PlanColumn`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanColumn {
+    /// `Draft`.
+    Draft,
+    /// `Proposed`.
+    Proposed,
+    /// `Accepted`.
+    Accepted,
+    /// `InProgress`.
+    InProgress,
+    /// `Done`.
+    Done,
+}
+
+/// PlanEvent — `conductor.direction.PlanEvent`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanEvent {
+    /// `at` — `String`.
+    pub at: String,
+    /// `actor` — `String`.
+    pub actor: String,
+    /// `what` — `String`.
+    pub what: String,
+}
+
+/// PlanStory — `conductor.direction.PlanStory`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanStory {
+    /// `id` — `String`.
+    pub id: String,
+    /// `title` — `String`.
+    pub title: String,
+    /// `status` — `String`.
+    pub status: String,
+    /// `column` — `Optional<conductor.direction.PlanColumn>`.
+    pub column: Option<PlanColumn>,
+    /// `why` — `String`.
+    pub why: String,
+    /// `acceptance` — `List<conductor.direction.PlanAcceptanceLine>`.
+    pub acceptance: Vec<PlanAcceptanceLine>,
+    /// `scope` — `List<String>`.
+    pub scope: Vec<String>,
+    /// `history` — `List<conductor.direction.PlanEvent>`.
+    pub history: Vec<PlanEvent>,
+    /// `moves` — `List<String>`.
+    pub moves: Vec<String>,
+    /// `comments` — `String`.
+    pub comments: String,
+    /// `important` — `Boolean`.
+    pub important: bool,
+    /// `started` — `Boolean`.
+    pub started: bool,
+}
+
+/// PlanWriteRefusal — `conductor.direction.PlanWriteRefusal`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanWriteRefusal {
+    /// `NotThisPage`.
+    NotThisPage,
+    /// `TokenMissing`.
+    TokenMissing,
+    /// `UnknownRepository`.
+    UnknownRepository,
+    /// `UnknownStory`.
+    UnknownStory,
+    /// `MoveRefused`.
+    MoveRefused,
+    /// `ActionInvalid`.
+    ActionInvalid,
+    /// `StoreFailed`.
+    StoreFailed,
+}
+
+/// PlanWriteRefused — `conductor.direction.PlanWriteRefused`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanWriteRefused {
+    /// `refusal` — `conductor.direction.PlanWriteRefusal`.
+    pub refusal: PlanWriteRefusal,
+    /// `detail` — `String`.
+    pub detail: String,
+}
+
+/// PlanWritten — `conductor.direction.PlanWritten`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanWritten {
+    /// `id` — `String`.
+    pub id: String,
+    /// `status` — `String`.
+    pub status: String,
+    /// `decision_id` — `conductor.decision.DecisionId`.
+    pub decision_id: crate::decision::DecisionId,
+    /// `detail` — `String`.
+    pub detail: String,
 }
 
 /// RepositoryActivity — `conductor.direction.RepositoryActivity`.
@@ -172,6 +324,21 @@ pub struct RulesRow {
 /// ServingId — `conductor.direction.ServingId`: a distinct wrapper around `Uuid`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServingId(pub crate::primitives::Uuid);
+
+/// WritePlan — `conductor.direction.WritePlan`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WritePlan {
+    /// `repository` — `String`.
+    pub repository: String,
+    /// `id` — `String`.
+    pub id: String,
+    /// `action` — `conductor.direction.PlanAction`.
+    pub action: PlanAction,
+    /// `to` — `Optional<String>`.
+    pub to: Option<String>,
+    /// `text` — `Optional<String>`.
+    pub text: Option<String>,
+}
 
 /// What Goal — `conductor.direction.Goal` — holds, apart from where it is in its lifecycle.
 ///
@@ -1371,7 +1538,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.ActivateRepository`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn activate_repository(&mut self, input: super::ActivateRepository) -> Result<super::ActivateRepositoryOutcome, crate::obligation::UnmetObligation>;
+        fn activate_repository(
+            &mut self,
+            input: super::ActivateRepository,
+        ) -> Result<super::ActivateRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.AddServing` — generated.
@@ -1382,7 +1552,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.AddServing`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn add_serving(&mut self, input: super::AddServing) -> Result<super::AddServingOutcome, crate::obligation::UnmetObligation>;
+        fn add_serving(
+            &mut self,
+            input: super::AddServing,
+        ) -> Result<super::AddServingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.ConfirmGoal` — generated.
@@ -1393,7 +1566,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.ConfirmGoal`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn confirm_goal(&mut self, input: super::ConfirmGoal) -> Result<super::ConfirmGoalOutcome, crate::obligation::UnmetObligation>;
+        fn confirm_goal(
+            &mut self,
+            input: super::ConfirmGoal,
+        ) -> Result<super::ConfirmGoalOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.DeactivateRepository` — generated.
@@ -1404,7 +1580,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.DeactivateRepository`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn deactivate_repository(&mut self, input: super::DeactivateRepository) -> Result<super::DeactivateRepositoryOutcome, crate::obligation::UnmetObligation>;
+        fn deactivate_repository(
+            &mut self,
+            input: super::DeactivateRepository,
+        ) -> Result<super::DeactivateRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.DropGoal` — generated.
@@ -1415,7 +1594,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.DropGoal`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn drop_goal(&mut self, input: super::DropGoal) -> Result<super::DropGoalOutcome, crate::obligation::UnmetObligation>;
+        fn drop_goal(
+            &mut self,
+            input: super::DropGoal,
+        ) -> Result<super::DropGoalOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.MarkGoalMet` — generated.
@@ -1426,7 +1608,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.MarkGoalMet`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn mark_goal_met(&mut self, input: super::MarkGoalMet) -> Result<super::MarkGoalMetOutcome, crate::obligation::UnmetObligation>;
+        fn mark_goal_met(
+            &mut self,
+            input: super::MarkGoalMet,
+        ) -> Result<super::MarkGoalMetOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.MarkRepository` — generated.
@@ -1437,7 +1622,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.MarkRepository`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn mark_repository(&mut self, input: super::MarkRepository) -> Result<super::MarkRepositoryOutcome, crate::obligation::UnmetObligation>;
+        fn mark_repository(
+            &mut self,
+            input: super::MarkRepository,
+        ) -> Result<super::MarkRepositoryOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.ProposeGoal` — generated.
@@ -1448,7 +1636,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.ProposeGoal`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn propose_goal(&mut self, input: super::ProposeGoal) -> Result<super::ProposeGoalOutcome, crate::obligation::UnmetObligation>;
+        fn propose_goal(
+            &mut self,
+            input: super::ProposeGoal,
+        ) -> Result<super::ProposeGoalOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.direction.RemoveServing` — generated.
@@ -1459,7 +1650,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.direction.RemoveServing`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn remove_serving(&mut self, input: super::RemoveServing) -> Result<super::RemoveServingOutcome, crate::obligation::UnmetObligation>;
+        fn remove_serving(
+            &mut self,
+            input: super::RemoveServing,
+        ) -> Result<super::RemoveServingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.direction.GoalServings` — generated.
@@ -1470,7 +1664,9 @@ pub mod obligations {
         /// Serves `conductor.direction.GoalServings` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn goal_servings(&self) -> Result<Vec<super::GoalServings>, crate::obligation::UnmetObligation>;
+        fn goal_servings(
+            &self,
+        ) -> Result<Vec<super::GoalServings>, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.direction.Goals` — generated.
@@ -1492,7 +1688,8 @@ pub mod obligations {
         /// Serves `conductor.direction.RepositoryMarks` rows at the view's declared consistency.
         ///
         /// `Err` is the typed refusal of a row whose declared type cannot hold its value.
-        fn repository_marks(&self) -> Result<Vec<super::RepositoryMarks>, crate::obligation::UnmetObligation>;
+        fn repository_marks(
+            &self,
+        ) -> Result<Vec<super::RepositoryMarks>, crate::obligation::UnmetObligation>;
     }
-
 }

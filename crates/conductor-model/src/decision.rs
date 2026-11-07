@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest b1a425bc07a738070cef3b1c73abc1dfd163c5eb04edfffdc79c5daee7dc6e31
-// contract digest 9cd340210e2d7be67e02e72ae3da8c37ab3995a1afd831e99ae0ae0cfe2ac177
+// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
+// contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Decision — `conductor.decision`.
@@ -1540,7 +1540,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.AmendEscalatedRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn amend_escalated_request(&mut self, input: super::AmendEscalatedRequest) -> Result<super::AmendEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
+        fn amend_escalated_request(
+            &mut self,
+            input: super::AmendEscalatedRequest,
+        ) -> Result<super::AmendEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.AnswerEscalatedRequest` — generated.
@@ -1551,7 +1554,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.AnswerEscalatedRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn answer_escalated_request(&mut self, input: super::AnswerEscalatedRequest) -> Result<super::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
+        fn answer_escalated_request(
+            &mut self,
+            input: super::AnswerEscalatedRequest,
+        ) -> Result<super::AnswerEscalatedRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.AnswerRequest` — generated.
@@ -1562,7 +1568,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.AnswerRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn answer_request(&mut self, input: super::AnswerRequest) -> Result<super::AnswerRequestOutcome, crate::obligation::UnmetObligation>;
+        fn answer_request(
+            &mut self,
+            input: super::AnswerRequest,
+        ) -> Result<super::AnswerRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.EscalateRequest` — generated.
@@ -1573,7 +1582,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.EscalateRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn escalate_request(&mut self, input: super::EscalateRequest) -> Result<super::EscalateRequestOutcome, crate::obligation::UnmetObligation>;
+        fn escalate_request(
+            &mut self,
+            input: super::EscalateRequest,
+        ) -> Result<super::EscalateRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.RaiseDecisionRequest` — generated.
@@ -1584,7 +1596,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.RaiseDecisionRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn raise_decision_request(&mut self, input: super::RaiseDecisionRequest) -> Result<super::RaiseDecisionRequestOutcome, crate::obligation::UnmetObligation>;
+        fn raise_decision_request(
+            &mut self,
+            input: super::RaiseDecisionRequest,
+        ) -> Result<super::RaiseDecisionRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.RecordConductorDecision` — generated.
@@ -1595,7 +1610,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.RecordConductorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_conductor_decision(&mut self, input: super::RecordConductorDecision) -> Result<super::RecordConductorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn record_conductor_decision(
+            &mut self,
+            input: super::RecordConductorDecision,
+        ) -> Result<super::RecordConductorDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.RecordOperatorDecision` — generated.
@@ -1606,7 +1624,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.RecordOperatorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn record_operator_decision(&mut self, input: super::RecordOperatorDecision) -> Result<super::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn record_operator_decision(
+            &mut self,
+            input: super::RecordOperatorDecision,
+        ) -> Result<super::RecordOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.RecordOperatorDecisionForRequest` — an implementation obligation.
@@ -1619,7 +1640,13 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of an obligation nothing has satisfied; a satisfying
         /// implementation never returns it.
-        fn record_operator_decision_for_request(&mut self, input: super::RecordOperatorDecisionForRequest) -> Result<super::RecordOperatorDecisionForRequestOutcome, crate::obligation::UnmetObligation>;
+        fn record_operator_decision_for_request(
+            &mut self,
+            input: super::RecordOperatorDecisionForRequest,
+        ) -> Result<
+            super::RecordOperatorDecisionForRequestOutcome,
+            crate::obligation::UnmetObligation,
+        >;
     }
 
     /// The behaviour `conductor.decision.ReverseConductorDecision` — generated.
@@ -1630,7 +1657,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.ReverseConductorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn reverse_conductor_decision(&mut self, input: super::ReverseConductorDecision) -> Result<super::ReverseConductorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn reverse_conductor_decision(
+            &mut self,
+            input: super::ReverseConductorDecision,
+        ) -> Result<super::ReverseConductorDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.ReverseOperatorDecision` — generated.
@@ -1641,7 +1671,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.ReverseOperatorDecision`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn reverse_operator_decision(&mut self, input: super::ReverseOperatorDecision) -> Result<super::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
+        fn reverse_operator_decision(
+            &mut self,
+            input: super::ReverseOperatorDecision,
+        ) -> Result<super::ReverseOperatorDecisionOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.decision.WithdrawRequest` — generated.
@@ -1652,7 +1685,10 @@ pub mod obligations {
         /// Decides and enacts exactly one declared outcome of `conductor.decision.WithdrawRequest`.
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
-        fn withdraw_request(&mut self, input: super::WithdrawRequest) -> Result<super::WithdrawRequestOutcome, crate::obligation::UnmetObligation>;
+        fn withdraw_request(
+            &mut self,
+            input: super::WithdrawRequest,
+        ) -> Result<super::WithdrawRequestOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The query `conductor.decision.Decisions` — generated.
@@ -1695,8 +1731,17 @@ pub mod obligations {
     pub struct Unimplemented;
 
     impl RecordOperatorDecisionForRequestBehavior for Unimplemented {
-        fn record_operator_decision_for_request(&mut self, _input: super::RecordOperatorDecisionForRequest) -> Result<super::RecordOperatorDecisionForRequestOutcome, crate::obligation::UnmetObligation> {
-            Err(crate::obligation::UnmetObligation { capability: "command behaviour", source: "conductor.decision.RecordOperatorDecisionForRequest" })
+        fn record_operator_decision_for_request(
+            &mut self,
+            _input: super::RecordOperatorDecisionForRequest,
+        ) -> Result<
+            super::RecordOperatorDecisionForRequestOutcome,
+            crate::obligation::UnmetObligation,
+        > {
+            Err(crate::obligation::UnmetObligation {
+                capability: "command behaviour",
+                source: "conductor.decision.RecordOperatorDecisionForRequest",
+            })
         }
     }
 }
