@@ -5,7 +5,7 @@ kind: story
 status: active
 title: The guard and worktree create agree on one tree path per checkout
 summary: trees made by worktree create are denied by the guard on grouped checkouts
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T10:29:01Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T10:29:01Z", actor: "human:timo", revision: 4}
@@ -36,3 +36,13 @@ Reported, not verified here: where `worktree create` takes its root and folder n
   in it; the same holds for a checkout one, two and three folders deep.
 - A tree of one repository never resolves to another repository whose path ends in the same name.
 - Two instances with different `checkouts.trees` each get their trees under their own directory.
+
+## Further evidence (2026-11-07, host supervisor)
+
+Under `forge.route: direct`, a controller of a checkout three folders deep (`<group>/<sub>/<repo>`)
+was denied its own `glab mr create`: the guard named the session's repository by its first two
+folders (`specs/frontends`), said that checkout's origin names no repository, and gave the session
+the scratch root `scratch/specs-frontends/`. The wave-44 change names a checkout by the topmost
+directory holding `.git` at any depth, which gives that session `<group>/<sub>/<repo>`; the
+fresh session checks the direct-route write and the scratch root against a three-folder fixture
+before the release.
