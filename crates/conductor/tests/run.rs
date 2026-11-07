@@ -15,7 +15,9 @@
 //! keeps its last argument, the charter, in `fake/charter.<n>`; every call is logged one line to
 //! `fake/claude.calls`, its first four words, and to `fake/claude.args`, whole),
 //! `systemd-run` and `systemctl` (logged; `systemctl` answers a unit loaded and active while
-//! `fake/unit.loaded` exists), `gh` (`[]`), `aep` (`[]`), `notify-send` (logged to
+//! `fake/unit.loaded` exists), `gh` (`[]`), `aep` (`plan artifact list` prints
+//! `fake/aep.active` when it is there, run from the directory `fake/aep.cwd` names, else `[]`;
+//! every call is logged to `fake/aep.calls` with its directory), `notify-send` (logged to
 //! `fake/notify.calls`) and `ais` (prints `fake/ais.json`).
 //!
 //! The handlers, the mailbox, the cycle's dispatch v1 and the daily tick are run through the
@@ -447,6 +449,12 @@ impl Case {
 
     /// Writes the config file with `extra` lines under the instance.
     fn write_config(&self, extra: &str) {
+        self.write_config_roles("", extra);
+    }
+
+    /// Writes the config file with the roles `roles` after the controller's and `extra` lines
+    /// under the instance.
+    fn write_config_roles(&self, roles: &str, extra: &str) {
         write(
             &self.config(),
             &format!(
@@ -462,6 +470,7 @@ impl Case {
                  \x20   roles:\n\
                  \x20     - {{role: controller, harness: claude, model: sonnet, profile: {profile}, \
                  settings: {settings}}}\n\
+                 {roles}\
                  \x20   thresholds: {{context_handover: 200000}}\n\
                  {extra}",
                 root = self.root().display(),
@@ -567,7 +576,17 @@ impl Case {
             &self.bin().join("notify-send"),
             &format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{fake}/notify.calls'\nexit 0\n"),
         );
-        executable(&self.bin().join("aep"), "#!/bin/sh\necho '[]'\n");
+        executable(
+            &self.bin().join("aep"),
+            &format!(
+                "#!/bin/sh\n\
+                 D='{fake}'\n\
+                 printf '%s %s\\n' \"$PWD\" \"$*\" >> \"$D/aep.calls\"\n\
+                 if [ \"$1 $2 $3\" = 'plan artifact list' ] && [ -e \"$D/aep.active\" ] \
+                 && [ \"$PWD\" = \"$(cat \"$D/aep.cwd\")\" ]; then cat \"$D/aep.active\"; exit 0; fi\n\
+                 echo '[]'\n"
+            ),
+        );
         executable(
             &self.bin().join("ais"),
             &format!("#!/bin/sh\ncat '{fake}/ais.json'\n"),
@@ -1431,6 +1450,93 @@ fn a_gone_session_with_an_open_dispatch_is_respawned() {
         ["ex-alpha", "ex-alpha"],
         "no open dispatch"
     );
+}
+
+/// The maintainer role the conductor-dev cases add, under its old name, so its session is
+/// `ex-conductor-dev`.
+const MAINTAINER: &str = "\x20     - {role: conductor-dev, harness: claude, model: opus}\n";
+
+/// The conductor-dev session's id, and the eight characters the watch names it by.
+const DEV: &str = "d0000001-0000";
+
+/// A case whose instance names a maintainer, with conductor-dev live in the product checkout
+/// `example-org/conductor`, a watch pass that saw it, then its session gone; `active` the plan's
+/// active stories `aep` lists there. Answers the tick that read it gone, its journal lines, and
+/// the product checkout.
+fn dev_gone(case: &Case, active: &[&str]) -> (Value, Vec<String>, PathBuf) {
+    case.write_config_roles(
+        MAINTAINER,
+        "\x20   confinement: {provider: none}\n\x20   controllers: {max_working: 4}\n",
+    );
+    let product = case.checkout("conductor");
+    write(&product.join(".git/HEAD"), "ref: refs/heads/main\n");
+    write(&product.join(".engineering/planning/project.yaml"), "");
+    write(&case.fake().join("aep.cwd"), &product.display().to_string());
+    let stories: Vec<Value> = active
+        .iter()
+        .map(|id| json!({"id": id, "kind": "story", "status": "active", "title": id}))
+        .collect();
+    write(
+        &case.fake().join("aep.active"),
+        &Value::from(stories).to_string(),
+    );
+    let listed = case.fake().join(format!("agents/{DEV}.json"));
+    write(
+        &listed,
+        &json!({
+            "id": DEV, "sessionId": DEV, "name": "ex-conductor-dev", "pid": 4343,
+            "cwd": product, "status": "busy", "state": "working",
+        })
+        .to_string(),
+    );
+    let (seen, _) = case.watch();
+    assert_eq!(actions(&seen), Vec::<String>::new(), "{seen}");
+    assert!(case.launched().is_empty());
+    fs::remove_file(&listed).expect("the session left");
+    let (gone, said) = case.watch();
+    (gone, said, product)
+}
+
+/// `story:loop-restarts-gone-conductor-dev`: the watch reads the instance's conductor-dev gone
+/// while the product repository's plan holds an active story; the loop starts it again as
+/// `session start --role maintainer` does, in the checkout it worked in, on the role's model, and
+/// writes one line naming the restart.
+#[test]
+fn a_gone_conductor_dev_is_started_again_while_the_plan_has_an_active_story() {
+    let case = Case::new("dev-gone-active");
+    let (gone, said, product) = dev_gone(&case, &["story:one"]);
+
+    assert_eq!(case.launched(), ["ex-conductor-dev"], "{gone} {said:?}");
+    let start = case
+        .claude_args()
+        .into_iter()
+        .find(|call| call.starts_with("--bg -n ex-conductor-dev "))
+        .expect("conductor-dev's start");
+    assert!(start.contains("--model opus"), "{start}");
+    let asked = fs::read_to_string(case.fake().join("aep.calls")).unwrap_or_default();
+    assert!(
+        asked.lines().any(|call| call
+            .starts_with(&format!("{} plan artifact list", product.display()))
+            && call.contains("--status active")),
+        "{asked}"
+    );
+    let written = case.lines_of(&gone);
+    assert_eq!(events(&written), ["controller-restarted"], "{written:?}");
+    assert_eq!(written[0]["session"], "ex-conductor-dev");
+    assert_eq!(written[0]["repo"], "conductor");
+    assert_eq!(written[0]["reason"], "conductor-dev gone; 1 active stories");
+}
+
+/// `story:loop-restarts-gone-conductor-dev`: with no active story the gone conductor-dev is not
+/// started, and nothing new is written.
+#[test]
+fn a_gone_conductor_dev_is_left_while_the_plan_has_no_active_story() {
+    let case = Case::new("dev-gone-idle");
+    let (gone, said, _) = dev_gone(&case, &[]);
+    assert!(case.launched().is_empty(), "{gone}");
+    assert!(case.lines_of(&gone).is_empty());
+    assert_eq!(actions(&gone), Vec::<String>::new());
+    assert!(said.is_empty(), "{said:?}");
 }
 
 /// `disk low` runs `gc` and writes `cleanup` with the line.

@@ -8,7 +8,7 @@
 //! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
 //! | `PR checks done: <repo>#…`, `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
-//! | `session gone: <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session | `controller-restarted` |
+//! | `session gone: <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session; the instance's conductor-dev started again in the checkout it worked in, when that checkout's plan holds an `active` story ([`conductor_dev`]) | `controller-restarted` |
 //! | `disk low: …` | `gc`, beside the tick ([`cleaned`]) | `cleanup` |
 //! | `escalated …`, `unanswered …` | a desktop notification (`notify-send`, as the watch's usage limit) | none |
 //! | `answered <id> <choice>` | deliver `[DECISION <id>] <choice> <reason> (<decision id>)` to the controller of the repository that raised the request, else keep it for that controller's next start | `decision-sent` |
@@ -33,14 +33,14 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 use std::sync::{Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage};
-use conductor_model::config::SessionName;
+use conductor_model::config::{RoleName, SessionName};
 use conductor_model::decision::RequestId;
 use conductor_model::dispatch::obligations::StopControllerBehavior;
 use conductor_model::dispatch::{
@@ -528,9 +528,13 @@ fn stalled(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// A gone controller session: restarted when its repository has an open dispatch and no usage
-/// limit marked it.
+/// A gone session: the instance's conductor-dev started again while its plan holds an active
+/// story ([`conductor_dev`]); a controller restarted when its repository has an open dispatch
+/// and no usage limit marked it.
 fn gone(tick: &mut Tick<'_, '_>, name: &str) -> Result<bool> {
+    if let Some(acted) = conductor_dev(tick, name)? {
+        return Ok(acted);
+    }
     if read_json(&tick.dir, LIMITED, json!({})).get(name).is_some() {
         return Ok(false);
     }
@@ -542,6 +546,134 @@ fn gone(tick: &mut Tick<'_, '_>, name: &str) -> Result<bool> {
     }
     tick.restart(&repo, name, "gone", None)?;
     Ok(true)
+}
+
+// ---------------------------------------------------------------------------------------------
+// conductor-dev
+// ---------------------------------------------------------------------------------------------
+
+/// How long `conductor session start --role maintainer` may take.
+const START_BOUND: Duration = Duration::from_secs(120);
+
+/// The gone session `name` when it is the instance's conductor-dev, the maintainer role's
+/// (`story:loop-restarts-gone-conductor-dev`): `None` when it is not. Started again, as `conductor
+/// session start --role maintainer` starts it, in the directory the watch read it gone from
+/// ([`Watch::gone_directory`]), the product checkout, when that checkout's plan holds an `active`
+/// story; its first prompt sends it to its newest hand-over. One `controller-restarted` line
+/// names the session, the checkout as `repo` and the count of active stories. With none, nothing.
+fn conductor_dev(tick: &mut Tick<'_, '_>, name: &str) -> Result<Option<bool>> {
+    if !maintainer_names(tick).iter().any(|own| own == name) {
+        return Ok(None);
+    }
+    let Some(cwd) = Watch::of_instance(tick.state)?.gone_directory(name)? else {
+        return Err(anyhow!(
+            "the watch kept no directory {name} worked in; it is not started again"
+        ));
+    };
+    let active = active_stories(&cwd)?;
+    if active == 0 {
+        return Ok(Some(false));
+    }
+    start_maintainer(tick, &cwd)?;
+    let root = Path::new(&tick.instance().checkouts.root);
+    let repo = cwd
+        .strip_prefix(root)
+        .ok()
+        .and_then(|below| below.components().next())
+        .or_else(|| cwd.components().next_back())
+        .map_or_else(
+            || "-".to_owned(),
+            |part| part.as_os_str().to_string_lossy().into_owned(),
+        );
+    let mut written = tick.line(DispatchLogEvent::ControllerRestarted, &repo)?;
+    written.session = Some(name.to_owned());
+    written.reason = Some(format!("conductor-dev gone; {active} active stories"));
+    tick.write(&written)?;
+    Ok(Some(true))
+}
+
+/// The session names the instance's maintainer may carry: its role's, from the host file or the
+/// instance ([`crate::config::host_maintainer`]), and its old-name alias.
+fn maintainer_names(tick: &Tick<'_, '_>) -> Vec<String> {
+    let instance = tick.instance();
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Vec::new();
+    };
+    crate::config::host_maintainer(&home, instance)
+        .ok()
+        .flatten()
+        .map(|role| {
+            let name = role
+                .session_name
+                .unwrap_or_else(|| crate::config::session_name(instance, &role.role));
+            crate::config::session_names_of(RoleName::Maintainer, &name.0)
+        })
+        .unwrap_or_default()
+}
+
+/// How many stories the planning store of the checkout `checkout` holds `active`: `aep plan
+/// artifact list --kind story --status active --format json` there; none without a store.
+///
+/// # Errors
+///
+/// `aep` does not run, fails, or prints no JSON list.
+fn active_stories(checkout: &Path) -> Result<usize> {
+    if !checkout.join(".engineering").join("planning").is_dir() {
+        return Ok(0);
+    }
+    let shown = "aep plan artifact list --kind story --status active --format json";
+    let output = crate::collect::run(
+        Command::new("aep")
+            .args([
+                "plan", "artifact", "list", "--kind", "story", "--status", "active", "--format",
+                "json",
+            ])
+            .current_dir(checkout)
+            .stdin(Stdio::null()),
+        crate::collect::BOUND,
+    )
+    .with_context(|| format!("run `{shown}` in {}", checkout.display()))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "`{shown}` in {} {}",
+            checkout.display(),
+            crate::confine::exited(&output)
+        ));
+    }
+    let stories: Vec<Value> = serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("`{shown}` printed no JSON list"))?;
+    Ok(stories.len())
+}
+
+/// Runs `conductor session start --role maintainer` (this binary, the tick's `--config` and
+/// `--state-dir`) in `cwd`.
+fn start_maintainer(tick: &Tick<'_, '_>, cwd: &Path) -> Result<()> {
+    let mut command = Command::new(&tick.seams.program);
+    if let Some(config) = tick.config {
+        command
+            .arg("--config")
+            .arg(std::path::absolute(config).unwrap_or_else(|_| config.to_owned()));
+    }
+    if let Some(state) = tick.state {
+        command
+            .arg("--state-dir")
+            .arg(std::path::absolute(state).unwrap_or_else(|_| state.to_owned()));
+    }
+    command
+        .args(["session", "start", "--role", "maintainer"])
+        .current_dir(cwd)
+        .stdin(Stdio::null());
+    let shown = "conductor session start --role maintainer";
+    let output = crate::collect::run(&mut command, START_BOUND)
+        .with_context(|| format!("run `{shown}` in {}", cwd.display()))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "`{shown}` in {} {}",
+            cwd.display(),
+            crate::confine::exited(&output)
+        ));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------

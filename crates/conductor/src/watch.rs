@@ -44,8 +44,9 @@
 //!   dispatch, since another process may have had it. The log is read from the month before
 //!   that instant's, which holds the `sent` line of any dispatch shorter than a month. Conductor
 //!   itself stopped such a session; and each session id once (`exited.seen`)
-//!   until the list shows it with a `pid` again, so its next exit is reported once more. A start
-//!   is no change.
+//!   until the list shows it with a `pid` again, so its next exit is reported once more. The
+//!   directory a session read gone worked in is kept by its name (`gone.directories`,
+//!   [`Watch::gone_directory`]). A start is no change.
 //! - **conductors** when two or more live sessions (with a `pid`) carry the session name of the
 //!   instance's conductor role ([`Settings::conductor`]), by their ids in order: a session
 //!   resumed by hand without the instance's settings runs no hook and no guard
@@ -196,6 +197,8 @@ fn red(conclusion: &str) -> bool {
 /// The state files under `<state>/watch/`.
 const SESSIONS: &str = "sessions.json";
 const EXITED_SEEN: &str = "exited.seen";
+/// The directory each session read gone last worked in, by its name, as one JSON object.
+const GONE_DIRECTORIES: &str = "gone.directories";
 const LIMIT_NEW: &str = "limit.new";
 const LIMIT_SEEN: &str = "limit.seen";
 const LIMIT_REPORTED: &str = "limit.reported";
@@ -593,6 +596,19 @@ impl Watch {
                 )
         }))
     }
+
+    /// The directory the session `name` worked in when a pass last read it gone, as the session
+    /// list showed it (`story:loop-restarts-gone-conductor-dev`); none when no pass did.
+    ///
+    /// # Errors
+    ///
+    /// The state file is there and cannot be read.
+    pub fn gone_directory(&self, name: &str) -> Result<Option<PathBuf>> {
+        let kept: Value = read_optional(&self.state(GONE_DIRECTORIES))?
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or(Value::Null);
+        Ok(kept[name].as_str().map(PathBuf::from))
+    }
 }
 
 /// The watch over its [`Sources`], keeping its state in one directory.
@@ -820,8 +836,10 @@ impl Watch {
         match self.sessions() {
             Ok(sessions) => {
                 self.answered("sessions");
+                // An empty list is a change too: the last session left it
+                // (`story:loop-restarts-gone-conductor-dev`).
+                self.session_changes(now, &sessions, &mut lines)?;
                 if !sessions.is_empty() {
-                    self.session_changes(now, &sessions, &mut lines)?;
                     self.conductors(&sessions, &mut lines)?;
                     self.limits(now, &sessions, &mut lines, notes)?;
                     self.context(&sessions, &mut lines)?;
@@ -964,14 +982,17 @@ impl Watch {
             }
             let listed: BTreeSet<&str> =
                 current.iter().map(|session| session.id.as_str()).collect();
+            let mut gone = Vec::new();
             for before in &previous {
                 if listed.contains(before.id.as_str()) || before.exited() {
                     continue;
                 }
                 if !explained(&recent, &before.id, before.pid) && !self.reported(&before.id)? {
                     lines.push(format!("session gone: {} {}", before.name, before.id));
+                    gone.push(before);
                 }
             }
+            self.keep_gone_directories(&gone)?;
         }
         let returned: BTreeSet<&str> = current
             .iter()
@@ -1027,6 +1048,22 @@ impl Watch {
             }
         }
         log
+    }
+
+    /// Keeps the directory each session of `gone` worked in, by its name, in
+    /// [`GONE_DIRECTORIES`] ([`Watch::gone_directory`]).
+    fn keep_gone_directories(&self, gone: &[&Session]) -> Result<()> {
+        if gone.is_empty() {
+            return Ok(());
+        }
+        let file = self.state(GONE_DIRECTORIES);
+        let mut kept: serde_json::Map<String, Value> = read_optional(&file)?
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        for session in gone {
+            kept.insert(session.name.clone(), Value::from(session.cwd.clone()));
+        }
+        replace(&file, &format!("{}\n", Value::Object(kept)))
     }
 
     /// Whether the session `id` was reported already; marks it reported when it was not.
