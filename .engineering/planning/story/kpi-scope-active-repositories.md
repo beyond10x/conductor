@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:kpi-scope-active-repositories
 kind: story
-status: draft
+status: active
 title: Repository-scoped KPIs count only Active repositories
 summary: K5 counted 28 repositories where 4 are Active
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T15:37:36Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T15:37:36Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
