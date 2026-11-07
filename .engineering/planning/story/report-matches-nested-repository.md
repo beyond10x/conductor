@@ -5,7 +5,7 @@ kind: story
 status: draft
 title: A report naming a nested repository matches its dispatch
 summary: reports naming the session suffix match no dispatch
-revision: 2
+revision: 3
 ---
 ## Why
 
@@ -14,8 +14,9 @@ lines named `<group>-<repo>`, the controller's session suffix, while dispatches 
 repository `<group>/<repo>`. The mailbox matches a `[REPORT <repo> -]` to a dispatch by comparing
 the `<repo>` the message names with the dispatch's repository exactly (`open_dispatch`,
 `crates/conductor/src/run/mailbox.rs:196`). So a controller that names its repository by its
-session suffix never matches. Not verified: what the controllers wrote, and whether their charter
-or profile tells them the repository's name.
+session suffix never matches. Verified the same day: a report headed `[REPORT <group>/<repo> <dispatch>]` matched and moved its
+dispatch to `Started`; one headed `<group>-<repo>` was refused with `no open dispatch of
+<group>-<repo>`. Not verified: whether the charter or profile tells controllers which form to use.
 
 ## Acceptance
 
