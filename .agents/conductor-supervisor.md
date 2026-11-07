@@ -352,10 +352,12 @@ supervisor session ran almost 6 h without refreshing its hand-off while recordin
   (`<state>/sessions/<name>.tmux`); talk to it with `conductor session deliver --name <session
   name>`, read it with `tmux -S <socket> capture-pane -p`; never `--resume` it over the threshold.
 - Its context is yours to watch until the loop's `context:` handler covers it: each pass, its
-  transcript tokens ("Your own context", its `sessionId`) against its profile's threshold; over it
-  with no newer file in `<state>/conductor-dev/handoff/`, deliver once "context <n>k, over your
-  hand-over threshold: finish the current unit, write your hand-over under the hand-over contract,
-  say so"; when it lands with `pushed: yes` and the session is `idle`, stop it and start it fresh.
+  transcript tokens ("Your own context", its `sessionId`) against `thresholds.context_handover`;
+  over it with no newer file in `<state>/conductor-dev/handoff/`, deliver once "context <n>k, over
+  your hand-over threshold: finish the current unit, write your hand-over under the hand-over
+  contract, say so"; when it lands with every branch pushed (`pushed: yes`, or yes in a branches
+  table's pushed column) and its pane shows the prompt with no turn running (`tmux -S
+  <state>/sessions/<name>.tmux capture-pane -p`), stop it and start it fresh.
 - Hand-over contract: every branch it or its sub-agents committed to is pushed, finished units are
   on the wave branch with an open pull request, and the hand-over names each branch, its last
   commit and `pushed: yes`; else the successor's first action is the push and the pull request.
