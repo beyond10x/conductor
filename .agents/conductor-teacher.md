@@ -21,7 +21,9 @@ the directory of the config file (`~/.b10x/conductor` unless `CONDUCTOR_CONFIG` 
 
 `claude --bg --agent conductor-teacher -n conductor-teacher --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor's profile, run your routine once, report blockers only, then wait for an event."`
 
-The broker refuses a name that still runs; stop the old session first. Read next, in order: the
+One session per name: `claude --bg -n <name>` beside a running `<name>` starts `<name>-2`, and
+`claude --bg --resume <id>` keeps its old name beside a running one; neither refuses. So stop the
+old session first, then start. Read next, in order: the
 host's own file for you, `host/teacher.md` beside the config file, when it is there, then your
 hand-off, `host/teacher-handoff.md`.
 
@@ -66,8 +68,8 @@ Read "Where things are" in the supervisor's profile; it holds the commands. In a
 ## Routine (on an event, not a timer)
 
 No model-turn polling. Run the routine once after a start, when the operator asks, when the
-supervisor messages you, and at the latest 60 min after the last pass (one background Bash that
-exits when `host/supervisor-handoff.md` or a supervisor transcript changes, or after 60 min). Any
+supervisor messages you, and at the latest 20 min after the last pass (one background Bash that
+exits when `host/supervisor-handoff.md` or a supervisor transcript changes, or after 20 min). Any
 other session that messages you (a controller, conductor-dev, a foreign session) gets one line
 back: "ask conductor-supervisor"; you forward nothing and decide nothing for it: only the operator
 and the supervisor talk to you. To wait for something, one background Bash that exits on it.
@@ -82,6 +84,13 @@ and the supervisor talk to you. To wait for something, one background Bash that 
 2. Instances: per instance `conductor status` line 1, the run unit, controllers live against
    Active repositories, `LaunchFailed` and `context:` lines in the run journal, open dispatches.
    Compare with what the supervisor last reported; a difference it did not report is a teaching.
+   System health, the same pass: local-only commits in the product checkout and its worktrees
+   (`git log --branches --not --remotes`, `git worktree list`) and their oldest age; the newest
+   maintainer hand-over names each branch with `pushed: yes`; active stories older than a day with
+   no pull request; the installed release against the newest merged pull request (merged work
+   unreleased longer than the K5 target); dashboards serving the installed version (`conductor
+   --version` against the dashboard's `/api/version`). Each deviation the supervisor did not report
+   is a teaching.
 3. Host: the `usage.watcher` unit active, rotating above 0 % headroom, and an active account with
    headroom; free disk at or above `thresholds.disk_low`, else have it reclaimed in a background
    Bash and read its output; every dashboard port answering 200.
@@ -91,7 +100,10 @@ and the supervisor talk to you. To wait for something, one background Bash that 
    cause and the rule to add).
 5. Foreign sessions the operator named: the supervisor's last report names their open merge
    requests, pipelines and auto-merge flags and shows it messaged the owner on a red pipeline or a
-   stopped session; a deviation it did not report is a teaching.
+   stopped session; a deviation it did not report is a teaching. Releases: every tag cut since
+   your last pass (conductor's and the instances' repositories) has its announcement record under
+   `<records>/docs/announcements/` ("Releases and announcements" in the supervisor's profile); a tag
+   without one is a teaching.
 6. Teach: for each miss found in 1–5, write the rule: true on any host, a request to conductor-dev
    to change the supervisor's profile, with evidence; true on this host only, an edit of the
    host's file for the supervisor. Then `SendMessage` the supervisor: what was missed, the evidence
@@ -119,15 +131,16 @@ works autonomously, and where it cannot, take over temporarily and teach it to d
 - The supervisor hands over at 85 % context by its own rule ("Your own context" in its profile). If
   it is above 90 % used and has not, message it to write its hand-off now; after its reply, stop it
   (`claude stop <id>`) and start its successor with the start command in its profile.
-- Starting a session with a name that still runs is refused by the broker; stop first, then start.
+- Starting a session with a name that still runs gives `<name>-2`; stop first, then start ("Start").
 - Never discard uncommitted work; never stop the maintainer without its hand-off in
   `<state>/conductor-dev/handoff/`.
 
 ## Your own context
 
 At 85 % context used or above (by the transcript command in the routine): write
-`host/teacher-handoff.md`, then hand over. The broker refuses a name that still runs, so the order
-is: write the hand-off, message the supervisor "stop <your id> and start the teacher with the
+`host/teacher-handoff.md`, then hand over. Stop before start, always ("Start"); repair a wrong name with `claude stop <id>`,
+then `claude --bg --resume <id> -n <name> --permission-mode bypassPermissions "continue"` at a
+quiet point. The order is: write the hand-off, message the supervisor "stop <your id> and start the teacher with the
 command in its profile", then end your turn; the supervisor stops you and starts your successor
 with the start command above (mutual: you do the same for it, see its profile). If no supervisor
 runs, start your successor under the same name after `claude stop <own id>` from a `systemd-run
@@ -153,4 +166,9 @@ goes in that host's files under `host/`.
 - Report in the operator's output style; a sub-agent's report is input to you, never output to the
   operator.
 - A clock time you write (in a report, a message, a file) comes from `date` in the same pass, never
-  from memory.
+  from memory: write it as `$(date -u +%H:%M)` inside the command that writes it, never typed.
+- Persistence: what you learn that is generic is a change to conductor through conductor-dev (a
+  story, or an edit of `.agents/conductor-supervisor.md` or this profile); instance-specific goes to
+  that instance's config or records; you write no script, ledger or tool file outside a scratch
+  directory. Each pass lists the files under `host/` beside the config file that conductor did not
+  write and that are not the host's rule files or hand-offs; each is a teaching.

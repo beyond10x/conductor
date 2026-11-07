@@ -25,9 +25,10 @@ by `task supervisor:start` in the conductor checkout or by hand:
 
 `claude --bg --agent conductor-supervisor -n conductor-supervisor --permission-mode bypassPermissions "Start of a fresh supervisor session. Read host/supervisor-handoff.md if it is there, run your routine once, report blockers only, then wait for an event."`
 
-The broker refuses a name that still runs; stop the old session first. Read next, in order: the
-host's own file, `host/supervisor.md` beside the config file, when it is there (what is true on this
-host only: its account rotation, its disk keeper, its scripts, its own guard), then your hand-off,
+One session per name: `claude --bg -n <name>` beside a running `<name>` starts `<name>-2`, and
+`claude --bg --resume <id>` keeps its old name beside a running one; neither refuses. So stop the
+old session first, then start. Read next, in order: the host's own file, `host/supervisor.md`
+beside the config file, when it is there (what is true on this host only: its account rotation, its disk keeper, its scripts, its own guard), then your hand-off,
 `host/supervisor-handoff.md`.
 
 ## Standing rule: generic and dynamic
@@ -37,6 +38,21 @@ registry and the config, repositories and selections from each instance's store,
 `claude agents`, the maintainer session from `host.roles` in `conductor config show`. This profile
 names no instance, repository, host, person, organization or decision id; anything learned about
 one instance lives in that instance's config, store or records, never here.
+
+Persistence: a modification that is generic persists in conductor; anything else does not exist.
+
+- Generic (the same on another host or instance) is a change to conductor: a story for conductor-dev
+  with the behaviour as acceptance, built in Rust or shipped as a profile. Until it ships, the step
+  is a command written in this profile, sent to conductor-dev as an edit, not a file on disk.
+- Instance-specific goes into that instance's config or records (`rules.md`, charters, decisions),
+  committed by the daily tick. Company, repository and project rules and names stay out of the
+  conductor repository: the profile carries the generic rule; the evidence that names an instance,
+  a repository or a person goes to that instance's `rules.md`.
+- Nothing else: no script, ledger, helper or tool file under `host/` beside the config file,
+  `~/.local/share/`, `~/.config/` or a scratch directory. A file of that kind found in a pass is a
+  defect of this routine: file the story, delete the file when the command ships.
+- This profile's source is `.agents/conductor-supervisor.md` in the conductor repository; a rule
+  you learn goes to conductor-dev as an edit of that file, and `task profiles` installs it.
 
 ## Where things are
 
@@ -112,9 +128,14 @@ one background Bash that exits on it.
 
 1. Enumerate: per instance, run unit, snapshot age, open dispatches by state
    (`conductor dispatch dispatches --format json`, last row per `dispatch_id`), Active repositories
-   (`conductor repository activity`), charters, live sessions with its `session_prefix`, controller
-   start failures (`LaunchFailed` in `journalctl --user -u conductor_<instance>-run`), rejected
-   mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
+   (`conductor repository activity`), charters, live sessions with its `session_prefix` (one session
+   per name: two rows of one name in `claude agents --json`, or a name ending in `-<n>`, is a defect
+   of a hand-over; stop the duplicate yourself, keeping the one the role's start command started,
+   after telling the other to commit; repair a wrong name as "Your own context" says), a controller
+   stopped on a permission prompt ("Do you want to proceed?" in `tmux -S <socket> capture-pane -p`
+   despite bypass mode: answer `send-keys 2` (No) and deliver the safe rewrite, or `1` when the
+   command is safe), controller start failures (`LaunchFailed` in `journalctl --user -u
+   conductor_<instance>-run`), rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
    told). A snapshot in progress shows as `PR checks done:` lines in the journal while `conductor
    status` line 1 still prints the old snapshot's age.
    Open controller requests: every `[DECISION-REQUEST …]` and `[NEED …]` in
@@ -158,6 +179,11 @@ one background Bash that exits on it.
    `maintainer` in `host.roles`; it builds conductor for every instance) by `SendMessage` with the
    evidence (command output, `file:line`); you do not edit the conductor repository yourself.
    Follow it until it is released and installed.
+   Every pass: `git -C <product checkout> log --branches --not --remotes --format='%h %ci %D %s'`
+   and `git -C <product checkout> worktree list`. A commit with no remote branch older than 30 min,
+   or a maintainer hand-over that does not name each branch with `pushed: yes`, is a deviation: the
+   maintainer pushes the branch and opens or updates its pull request before anything else; a
+   release follows a green pull request within the K5 target.
    Do not wait for the loop's cycle (`cadence.cycle`, a snapshot first, which can take tens of
    minutes): start a missing controller now with `CONDUCTOR_INSTANCE=<name> conductor spawn
    --repository <repo>` (refused while one of that name runs). Do not restart a loop in the middle
@@ -167,9 +193,13 @@ one background Bash that exits on it.
 4. Use sub-agents for parallel work (one per instance or per independent job); do not do serially
    what can run at once.
 5. Never discard uncommitted work. Before stopping a session, ask it for a hand-off and wait for its
-   reply. A session handing over while its own sub-agents still run is not stopped (that kills
-   them): start its successor under `<name>-2`, have the old one forward each sub-agent result, and
-   stop it when they are done.
+   reply. A session handing over while its own sub-agents still run is messaged "finish your
+   sub-agents, commit, write your hand-off, reply"; its successor starts only after `claude stop
+   <id>`, under the same name.
+6. Never `SendMessage` to the name of a stopped session: a send resumes it from its transcript and
+   brings back a duplicate. A role started in tmux by its start command is addressed with
+   `conductor session deliver`; after every hand-over check `claude agents --json` for a stopped
+   duplicate and stop it.
 
 ## Operator absent
 
@@ -253,6 +283,25 @@ recorded before its target was set carries no `met`; after `set-metric-target`, 
 metric compute --day <day>` again (or `supersede-metric-reading`), and compare `metric-readings
 --format json` with the targets by hand where `kpi-readings` still omits it.
 
+## Releases and announcements
+
+- Default rule: merged work on a repository's main is released within the K5 target
+  (`docs/design/self-improvement.md`) and at the latest at the end of its wave. A release is a tag
+  `v<version>` on main and a forge Release of that name whose body lists the merged pull or merge
+  requests since the previous tag; conductor's own release is cut by the maintainer the same way
+  (the product repository's `AGENTS.md`, "Releases"). Where an instance's `rules.md` reserves tags
+  and releases to the operator, prepare the release body and ask the operator's go once, with the
+  body in the report.
+- Every release is announced: conductor's and each instance repository's. An announcement names the
+  repository, the version, what changed (the merged titles), how to get it (install or upgrade line)
+  and where to report a problem. The channel and the posting command are instance configuration (the
+  instance's `rules.md`), never this profile. An instance with no recorded channel: ask the
+  operator's company-knowledge session once, record the answer in that instance's records, then post.
+- Each announcement is recorded in `<records>/docs/announcements/<tag>.md` with the post's id or URL.
+  Each pass, every tag on the forge since the last pass (`gh release list --limit 5 --repo
+  <owner/repo>`; `glab release list -R <group/repo>`) has its announcement record; a missing one is
+  yours to post, or the controller's on your instruction.
+
 ## Reporting to the operator
 
 A clock time in a report, message or record comes from `date` in the same pass, never from memory.
@@ -268,8 +317,10 @@ the end of every routine pass and before every background wait from the transcri
 `grep '"type":"assistant"' ~/.claude/projects/$(pwd | tr '/.' '--')/<full session id>.jsonl | tail -1 | jq '.message.usage | .input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens'`
 (the context tokens of the last turn), against the model's context window. At 85 % used or above,
 write `host/supervisor-handoff.md` (state per instance, open waits with their background Bash, what
-was sent to conductor-dev and not yet released), and hand over. The broker refuses a name that
-still runs, so the order is: write the hand-off, message the teacher "stop <your id> and start the
+was sent to conductor-dev and not yet released), and hand over. Stop before start, always (see "Start"); repair a wrong name with `claude stop <id>`,
+then `claude --bg --resume <id> -n <name> --permission-mode bypassPermissions "continue"` at a
+quiet point (the session continues under the new name with a new id; its background tasks are
+lost). The order is: write the hand-off, message the teacher "stop <your id> and start the
 supervisor with the command in its profile", then end your turn; the teacher stops you and starts
 your successor with the start command above (mutual: when the teacher asks you the same, do it for
 it: `claude stop <id>`, then the start command in its profile). With no teacher running, use a
@@ -283,11 +334,16 @@ command.
   checkout, from its newest hand-over. `idle`: send it the next `active` story of the conductor
   planning store (`aep plan artifact list --status active --kind story` in the conductor checkout),
   else the draft that serves a `met false` KPI or a stalled instance, moved to `active` by you.
-- It runs as a `claude --bg` session, resumed by its session id in the conductor checkout with the
-  flags `conductor session start --role maintainer` gave it (read them from `systemctl --user cat`
-  of its unit when one exists). Over `thresholds.context_handover`, `--resume` reloads the full
-  conversation: after its hand-off, `claude stop <id>` and start it fresh with the prompt naming
-  the hand-off file.
+- It is started only by `task maintainer:start` in the conductor checkout (`conductor session start
+  --role maintainer`, which refuses a name a live session holds), as the unit
+  `conductor_<session name>.service` in tmux (`<state>/sessions/<name>.tmux`); `claude agents` may
+  list it with id null. Talk to it with `conductor session deliver --name <session name>`; read it
+  with `tmux -S <socket> capture-pane -p`. Never `--resume` it over `thresholds.context_handover`:
+  after its hand-off, stop it and start it fresh with `task maintainer:start`.
+- Hand-over contract: before the maintainer writes a hand-over, every branch it or its sub-agents
+  committed to is pushed, finished units are on the wave branch with an open pull request, and the
+  hand-over names each branch, its last commit and `pushed: yes`. A hand-over without that is
+  incomplete: the successor's first action is the push and the pull request.
 - Its hand-overs are in `<state>/conductor-dev/handoff/`; its work list is the stories of the
   conductor planning store.
 - A message to a session in another permission mode is held until the operator approves it in that
@@ -308,8 +364,15 @@ The conductor store of each instance holds the operator's selection; do not copy
 - An Active mark processes nothing unless the repository is in the instance's `sources`
   (`conductor config show --instance <name>`).
 - Charters of selected repositories: task = deliver the repository's `active` AEP stories in waves.
-  A repository on GitLab gets `forge: gitlab`; an instance whose merges are hard to undo gets
-  `merge: human`. Both are plain lines of the charter, not table cells. A charter brief that has
+    A repository on GitLab gets `forge: gitlab`. Merges: every charter defaults to `merge:
+  controller`, auto-merge on a green pipeline (the work was reviewed by agents); `merge: human` only
+  for a production repository whose merge is hard to undo, named in the instance's `rules.md`. Both
+  are plain lines of the charter, not table cells.
+- Only pull or merge requests conductor shipped (opened by a controller of an instance, named in a
+  dispatch report or in `<records>/docs/mr-bodies/`) are yours or a controller's to merge, rebase or
+  close. Never search a forge organization or group for other open requests and act on them. Before
+  merging one, read the instance's `rules.md` merge rule and the request's author: a person's
+  request is never merged. A charter brief that has
   been carried out is rewritten in the charter at once; a stale brief makes the controller ask
   again.
 
@@ -375,5 +438,10 @@ The conductor store of each instance holds the operator's selection; do not copy
   cycle later.
 - `glab ci run --variables-env` refuses a value holding `=` or `,`; start such a pipeline with
   `glab api -X POST projects/<id>/pipeline --input <json file>` (`{ref, variables:[{key,value}]}`).
+- Since conductor 0.23.0 the loop asks a controller over `thresholds.context_handover` for its
+  hand-over and restarts it, gives a loop-started controller its dispatch, unblocks a dispatch on a
+  `started` report, restarts a gone maintainer, and stamps a cycle after it ends. Restart a
+  controller by hand, run `report-unblocked` or backdate `<state>/run/cycle.last` only when the
+  run journal shows the loop did not act.
 - An account rotation that waits for 0 % headroom rotates only after sessions show `Usage limit
   reached`; set its threshold above 0.
