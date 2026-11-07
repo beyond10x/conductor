@@ -134,7 +134,9 @@ one background Bash that exits on it.
    after telling the other to commit; repair a wrong name as "Your own context" says), a controller
    stopped on a permission prompt ("Do you want to proceed?" in `tmux -S <socket> capture-pane -p`
    despite bypass mode: answer `send-keys 2` (No) and deliver the safe rewrite, or `1` when the
-   command is safe), controller start failures (`LaunchFailed` in `journalctl --user -u
+   command is safe), idle controllers (an idle controller is a stall: count them each pass; one
+   idle over 15 min with no open dispatch gets the next dispatch from its charter, one idle with an
+   open dispatch gets a nudge at most every 30 min, until the loop does both), controller start failures (`LaunchFailed` in `journalctl --user -u
    conductor_<instance>-run`), rejected mailbox requests (`mailbox … request` lines in the same journal; tell the sender, it is not
    told). A snapshot in progress shows as `PR checks done:` lines in the journal while `conductor
    status` line 1 still prints the old snapshot's age.
