@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:daily-tick-runs
 kind: story
-status: active
+status: implemented
 title: The daily tick runs at cadence.daily, also after a restart
 summary: run-ticks shows no daily tick and no REPORT.md is written
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T09:28:04Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T09:28:04Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T11:11:23Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
