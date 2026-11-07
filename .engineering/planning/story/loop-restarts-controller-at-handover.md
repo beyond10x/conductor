@@ -5,7 +5,7 @@ kind: story
 status: active
 title: The loop asks a controller for its hand-over at the context threshold and restarts it fresh
 summary: 11 controllers ran past the context threshold in one day
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 3}
@@ -30,3 +30,10 @@ not, each later turn re-reads the whole oversized context.
   for the same session.
 - Tests over the watch with a fake transcript: one over the threshold gets one request, then one
   restart once its hand-over exists; one under it gets neither.
+
+## Merged
+
+`story:context-threshold-handover-by-loop` (the host teacher's brief, 2026-11-07, wave A) is this
+story. Its acceptance, as written: a `context: <session> <n>k tokens` over
+`thresholds.context_handover` leads the loop to ask that session for its hand-off and resume it
+fresh, or to message the supervisor; on 2026-11-07, 11 such lines were each handled by hand.

@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:watch-unanswered-and-admits
 kind: story
-status: draft
+status: active
 title: The watch names an unanswered report and disk coming back
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T13:13:52Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T13:13:52Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 
@@ -25,3 +28,15 @@ free while `/` rose to 34G, released only by a message.
 ## Scope
 
 `crates/conductor/src/watch.rs`, `crates/conductor/tests/watch.rs`.
+
+## Delivery (added 2026-11-07)
+
+From the host teacher's brief, 2026-11-07, wave A, as written: a `[DECISION-REQUEST]` or `[NEED]`
+older than one watch tick with no answer is named in the journal AND delivered to the supervisor
+session by the broker (`claude agents` name `conductor-supervisor`). On 2026-11-07, 6 requests
+waited about 1 h.
+
+- The delivery target is a config key (the host supervisor's session name), not a name in the
+  code (AGENTS.md rule 4); with no key set, the journal line alone is written.
+- A test over the watch with one unanswered request older than `cadence.watch` reads one journal
+  line and one delivery to the configured session; an answered one reads neither.
