@@ -70,6 +70,11 @@ it ended, so a loop stopped during it runs it again at its next start; one start
 | `escalated`, `unanswered` | a desktop notification; the Decisions page already lists it | none |
 | `answered <id> <choice>` | deliver `[DECISION <id>] <choice> …` to the controller that raised it | `decision-sent` |
 
+A delivery to a controller that `conductor session deliver` refuses `SessionNotReachable` records
+that controller stopped (`StopController`), with one journal line, so no later tick delivers to it
+again; a kept delivery waits for the repository's next controller start
+(`story:deliver-to-stopped-controller`).
+
 Mailbox: a controller reports with `conductor message send --to conductor --from <session>
 --text <file|->`, which parses the first line with the existing grammar (unparsed: exit 1 and
 `FORMAT`), records the message (`receive-message`, transport `Mailbox`, `body_path`) and leaves the

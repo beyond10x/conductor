@@ -72,17 +72,24 @@ const CHECK_IN: &str = "[REPORT alpha -] check-in: report your state or blocked"
 // The child run
 // ---------------------------------------------------------------------------------------------
 
-/// The deliverer of a child run: appends `{"name", "text"}` to `fake/deliveries.jsonl`, and
-/// refuses a session `fake/unreachable/<name>` names, as `session deliver` refuses one with no
-/// socket.
+/// The deliverer of a child run: appends `{"name", "text"}` of each attempt to
+/// `fake/attempts.jsonl`, and of each delivery to `fake/deliveries.jsonl`; refuses a session
+/// `fake/unreachable/<name>` names, as `session deliver` refuses one with no socket.
 struct Recorder {
     dir: PathBuf,
 }
 
 impl Deliverer for Recorder {
     fn deliver(&self, name: &str, text: &str) -> Result<Delivery> {
+        let mut attempts = fs::read_to_string(self.dir.join("attempts.jsonl")).unwrap_or_default();
+        attempts.push_str(&format!("{}\n", json!({"name": name, "text": text})));
+        fs::write(self.dir.join("attempts.jsonl"), attempts).expect("record an attempt");
         if self.dir.join("unreachable").join(name).exists() {
-            bail!("SessionNotReachable: {name}");
+            bail!(
+                "session deliver: refused: SessionNotReachable: session {name}: its launcher \
+                 socket is absent, so nothing was typed; nothing was recorded, and it is not \
+                 tried again"
+            );
         }
         let mut lines = fs::read_to_string(self.dir.join("deliveries.jsonl")).unwrap_or_default();
         lines.push_str(&format!("{}\n", json!({"name": name, "text": text})));
@@ -602,7 +609,12 @@ impl Case {
 
     /// A child run of this test binary ([`child`]) with `spec` and the case's fake directory and
     /// built binary; its summary.
-    fn child(&self, mut spec: Value) -> Value {
+    fn child(&self, spec: Value) -> Value {
+        self.child_said(spec).0
+    }
+
+    /// [`Case::child`]: its summary, and what it said on standard error, the loop's journal.
+    fn child_said(&self, mut spec: Value) -> (Value, String) {
         spec["fake"] = json!(self.fake());
         if spec["program"].is_null() {
             spec["program"] = json!(self.program());
@@ -634,7 +646,10 @@ impl Case {
             .rev()
             .find_map(|line| serde_json::from_str::<Value>(line).ok());
         match (output.status.success(), summary) {
-            (true, Some(summary)) => summary,
+            (true, Some(summary)) => (
+                summary,
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            ),
             _ => panic!("the child run failed: {}", describe(&output)),
         }
     }
@@ -644,6 +659,37 @@ impl Case {
         self.child(json!({"do": "lines", "lines": lines}))
     }
 
+    /// A watch tick over `lines`: its summary and its journal lines (`conductor run: …`).
+    fn tick_said(&self, lines: &[&str]) -> (Value, Vec<String>) {
+        let (summary, said) = self.child_said(json!({"do": "lines", "lines": lines}));
+        (summary, journal(&said))
+    }
+
+    /// Every delivery the recorder was asked for, made or refused, `(session, text)`, in order.
+    fn attempts(&self) -> Vec<(String, String)> {
+        fs::read_to_string(self.fake().join("attempts.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let value: Value = serde_json::from_str(line).expect("a recorded attempt");
+                (
+                    value["name"].as_str().unwrap_or_default().to_owned(),
+                    value["text"].as_str().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect()
+    }
+}
+
+/// The lines of a child's standard error the loop wrote, `conductor run: …`.
+fn journal(said: &str) -> Vec<String> {
+    said.lines()
+        .filter(|line| line.starts_with("conductor run: "))
+        .map(str::to_owned)
+        .collect()
+}
+
+impl Case {
     /// Spawns `repo`'s controller through the built binary and lists its session live.
     fn spawn(&self, repo: &str, id: &str) {
         self.ok(&["spawn", "--repository", repo]);
@@ -1234,6 +1280,130 @@ fn an_answer_is_delivered_to_the_controller_that_raised_the_request() {
     assert_eq!(written[0]["id"], "R-1");
     assert_eq!(written[0]["grant"], json!(decision));
     assert_eq!(written[0]["session"], "ex-alpha");
+}
+
+/// Raises the decision request `R-1` of `alpha` and answers it with a class C decision; answers
+/// the decision's id.
+fn answer_request(case: &Case) -> String {
+    case.ok(&[
+        "decision",
+        "raise-decision-request",
+        "--request-id",
+        "R-1",
+        "--repository",
+        "alpha",
+        "--question",
+        "Which store layout?",
+        "--options",
+        "A tree, B files",
+        "--recommendation",
+        "A",
+        "--raised-at",
+        "2026-10-17T08:00:00Z",
+    ]);
+    let decision = case
+        .ok(&[
+            "decision",
+            "record-conductor-decision",
+            "--decision-class",
+            "C",
+            "--question",
+            "Which store layout?",
+            "--options",
+            "A tree, B files",
+            "--choice",
+            "A",
+            "--reason",
+            "one migration, then one layout",
+            "--evidence",
+            "the store design",
+            "--decided-at",
+            "2026-10-17T08:05:00Z",
+            "--repository",
+            "alpha",
+        ])
+        .trim()
+        .to_owned();
+    case.ok(&[
+        "decision",
+        "answer-request",
+        "--request-id",
+        "R-1",
+        "--decision-id",
+        &decision,
+    ]);
+    decision
+}
+
+/// The state the store holds of `repo`'s controllers, in the order the view lists them.
+fn states_of(case: &Case, repo: &str) -> Vec<String> {
+    case.controllers()
+        .into_iter()
+        .filter(|(repository, _)| repository == repo)
+        .map(|(_, state)| state)
+        .collect()
+}
+
+/// `story:deliver-to-stopped-controller`: a delivery refused `SessionNotReachable` records the
+/// controller stopped, with one journal line, so the next tick tries it no more; the item waits
+/// for the repository's next controller start and is delivered to it.
+#[test]
+fn a_delivery_refused_unreachable_stops_the_controller_and_waits_for_its_next_start() {
+    let case = Case::new("unreachable");
+    case.spawn("alpha", FIRST);
+    let decision = answer_request(&case);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+
+    let (refused, said) = case.tick_said(&["answered R-1 A"]);
+    assert_eq!(case.attempts().len(), 1, "one attempt");
+    assert!(case.deliveries().is_empty());
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"], "{refused}");
+    let named: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("SessionNotReachable"))
+        .collect();
+    assert_eq!(named.len(), 1, "one journal line: {said:?}");
+    assert!(named[0].contains("ex-alpha"), "{named:?}");
+    assert!(named[0].contains("recorded stopped"), "{named:?}");
+
+    case.tick(&[]);
+    assert_eq!(case.attempts().len(), 1, "no attempt on the next tick");
+
+    // The session is gone; the repository's next controller starts.
+    fs::remove_file(case.fake().join("unreachable/ex-alpha")).expect("reachable again");
+    fs::remove_file(case.fake().join(format!("agents/{FIRST}.json"))).expect("the session left");
+    case.spawn("alpha", "s0000002-0000");
+    let delivered = case.tick(&[]);
+    assert_eq!(actions(&delivered), ["decision-sent"], "{delivered}");
+    assert_eq!(
+        case.deliveries(),
+        [(
+            "ex-alpha".to_owned(),
+            format!("[DECISION R-1] A one migration, then one layout ({decision})")
+        )]
+    );
+    assert_eq!(case.attempts().len(), 2);
+}
+
+/// Every delivery the loop makes to a controller records it stopped once it is refused
+/// `SessionNotReachable`: a relayed watch line as well as a kept item.
+#[test]
+fn a_relay_refused_unreachable_stops_the_controller() {
+    let case = Case::new("unreachable-relay");
+    case.spawn("alpha", FIRST);
+    write(&case.fake().join("unreachable/ex-alpha"), "");
+    let line = "PR checks done: alpha#7 green (head 0a1b2c3)";
+    let (_, said) = case.tick_said(&[line]);
+    assert_eq!(states_of(&case, "alpha"), ["Stopped"]);
+    assert_eq!(
+        said.iter()
+            .filter(|said| said.contains("SessionNotReachable"))
+            .count(),
+        1,
+        "{said:?}"
+    );
+    case.tick(&[line]);
+    assert_eq!(case.attempts().len(), 1, "no attempt on the next tick");
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -16,8 +16,10 @@
 //! A delivery that cannot be made for a controller that is not running (a `[DECISION]`, a mailbox
 //! `[NEED]` or `[RESOURCE]` answer) is kept in `<state>/run/pending.json` and made once that
 //! repository has a running controller; one refused by a running controller is kept for the next
-//! controller, never tried again for the same one. The other files: `handover.json` (each session
-//! a hand-over was asked of, its repository and when, in nanoseconds), `limited.json` (each
+//! controller, never tried again for the same one. Any delivery to a controller refused
+//! `SessionNotReachable` records that controller stopped, with one journal line ([`send`],
+//! `story:deliver-to-stopped-controller`). The other files: `handover.json` (each session a
+//! hand-over was asked of, its repository and when, in nanoseconds), `limited.json` (each
 //! session a usage limit marked) and `stalled.json` (each session a check-in was sent).
 //!
 //! The `gc` a `disk low` line starts runs on a thread of its own, so the loop's ticks go on while
@@ -38,7 +40,11 @@ use anyhow::{Context as _, Result, anyhow};
 use conductor_model::behaviour::{DecisionRequestStorage, DecisionStorage};
 use conductor_model::config::SessionName;
 use conductor_model::decision::RequestId;
-use conductor_model::dispatch::DispatchLogEvent;
+use conductor_model::dispatch::obligations::StopControllerBehavior;
+use conductor_model::dispatch::{
+    ControllerId, DispatchLogEvent, StopController, StopControllerOutcome,
+};
+use conductor_model::primitives::Uuid;
 use serde_json::{Value, json};
 
 use super::{Cleaner, Tick, nanos, one_line, read_json, write_json};
@@ -153,7 +159,7 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
         .and_then(|word| word.strip_suffix('k'))
         .and_then(|number| number.parse().ok())
         .ok_or_else(|| anyhow!("the line names no context in thousands of tokens"))?;
-    let Some((_, session)) = tick.running(repo)? else {
+    let Some((controller, session)) = tick.running(repo)? else {
         return Ok(false);
     };
     let threshold = u64::try_from(tick.instance().thresholds.context_handover.0).unwrap_or(0);
@@ -169,7 +175,12 @@ fn context(tick: &mut Tick<'_, '_>, line: &str, rest: &str) -> Result<bool> {
     if asked.get(&session).is_some() {
         return Ok(false);
     }
-    tick.deliver(&session, &format!("[HANDOVER {repo}] context {thousands}k"))?;
+    send(
+        tick,
+        &controller,
+        &session,
+        &format!("[HANDOVER {repo}] context {thousands}k"),
+    )?;
     asked[session.as_str()] = json!({
         "repo": repo,
         "delivered": nanos(SystemTime::now()).to_string(),
@@ -349,8 +360,13 @@ fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<()> {
 /// A pull request's checks or `main`'s CI: relayed to the running controller of `repo`; a red
 /// `main` with none dispatched ([`red_ci`]).
 fn relay(tick: &mut Tick<'_, '_>, line: &str, repo: &str) -> Result<bool> {
-    if let Some((_, session)) = tick.running(repo)? {
-        tick.deliver(&session, &format!("[REPORT {repo} -] watch: {line}"))?;
+    if let Some((controller, session)) = tick.running(repo)? {
+        send(
+            tick,
+            &controller,
+            &session,
+            &format!("[REPORT {repo} -] watch: {line}"),
+        )?;
         let mut written = tick.line(DispatchLogEvent::Relayed, repo)?;
         written.session = Some(session);
         written.line = Some(line.to_owned());
@@ -392,18 +408,17 @@ fn stalled(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
     let Some(repo) = tick.repo_of(name)? else {
         return Ok(false);
     };
-    if tick
-        .running(&repo)?
-        .is_none_or(|(_, session)| session != name)
-    {
+    let Some((controller, _)) = tick.running(&repo)?.filter(|(_, session)| session == name) else {
         return Ok(false);
-    }
+    };
     let mut asked = read_json(&tick.dir, STALLED, json!({}));
     if asked.get(name).is_some() {
         tick.restart(&repo, name, "stalled again", None)?;
         return Ok(true);
     }
-    tick.deliver(
+    send(
+        tick,
+        &controller,
         name,
         &format!("[REPORT {repo} -] check-in: report your state or blocked"),
     )?;
@@ -550,6 +565,58 @@ pub(crate) fn answered(tick: &mut Tick<'_, '_>, id: &str) -> Result<bool> {
 // Deliveries kept for a controller's next start
 // ---------------------------------------------------------------------------------------------
 
+/// Delivers `text` to `session`, the running controller `controller`
+/// (`story:deliver-to-stopped-controller`). A delivery refused `SessionNotReachable` records that
+/// controller stopped, so no later tick delivers to it again and a delivery kept for its
+/// repository waits for the next controller start; the error answered then names both, so the
+/// journal says it in one line.
+///
+/// # Errors
+///
+/// The deliverer refused the text.
+fn send(tick: &Tick<'_, '_>, controller: &str, session: &str, text: &str) -> Result<()> {
+    let Err(error) = tick.deliver(session, text) else {
+        return Ok(());
+    };
+    let said = one_line(&format!("{error:#}"));
+    if !said.contains("SessionNotReachable") {
+        return Err(error);
+    }
+    match record_stopped(tick, controller, &said) {
+        Ok(()) => Err(anyhow!(
+            "{said}; its controller {controller} is recorded stopped, and \
+             what waits for it is delivered at the repository's next controller start"
+        )),
+        Err(stop) => Err(anyhow!(
+            "{said}; its controller {controller} could not be recorded \
+             stopped: {}",
+            one_line(&format!("{stop:#}"))
+        )),
+    }
+}
+
+/// Records the running controller `controller` stopped, as the delivery that found its session
+/// unreachable said in `said`.
+fn record_stopped(tick: &Tick<'_, '_>, controller: &str, said: &str) -> Result<()> {
+    let mut generated = crate::controller::record(tick.state)?;
+    let outcome = generated
+        .stop_controller(StopController {
+            controller_id: ControllerId(Uuid(controller.to_owned())),
+            reason: format!("conductor run: a delivery was refused: {said}"),
+        })
+        .map_err(|unmet| anyhow!("{unmet}"))?;
+    generated.ports.store.check().context("keep the stop")?;
+    match outcome {
+        StopControllerOutcome::Stopped { .. } => Ok(()),
+        StopControllerOutcome::NoSuchController { .. } => {
+            Err(anyhow!("the store holds no controller {controller}"))
+        }
+        StopControllerOutcome::WrongState { .. } => {
+            Err(anyhow!("the controller {controller} is stopped already"))
+        }
+    }
+}
+
 /// What became of a delivery to a repository's controller.
 enum Made {
     /// It was delivered, and its line written.
@@ -597,7 +664,7 @@ fn made(tick: &mut Tick<'_, '_>, item: &Value) -> Result<Made> {
         return Ok(Made::Waits);
     }
     let text = item["text"].as_str().unwrap_or_default();
-    if let Err(error) = tick.deliver(&session, text) {
+    if let Err(error) = send(tick, &controller, &session, text) {
         tick.note(&format!("deliver to {session}"), &error);
         return Ok(Made::Refused(controller));
     }
