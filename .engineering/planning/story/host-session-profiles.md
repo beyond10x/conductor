@@ -5,7 +5,7 @@ kind: story
 status: active
 title: Conductor ships the host supervisor and teacher profiles, and init installs them
 summary: the supervisor and teacher agent files live on one host only
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 3}
@@ -45,3 +45,7 @@ conductor and not of some outside rules"): the shipped supervisor profile is the
 supervisor agent file, and the teacher profile the current teacher file, as they stand when this
 story is built, so the rules learned on 2026-11-07 ship with conductor. Organization-, person-
 and host-specific lines are still taken out (AGENTS.md rules 4 and 9).
+
+## Start tasks (added 2026-11-07)
+
+- Taskfile tasks `supervisor:start` and `teacher:start` beside `maintainer:start`, each running the start command its profile writes; refuse while a session of that name runs. Source: the host supervisor, 2026-11-07, relaying the operator: "both of them should now probably update the agent profiles and then respawn ... make sure nothing is lost for both of them".
