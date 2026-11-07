@@ -1,5 +1,4 @@
 // generated from conductor v1
-// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
 // contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
@@ -63,8 +62,24 @@ pub enum DecisionClass {
 /// DecisionId — `conductor.decision.DecisionId`: a distinct wrapper around `String`.
 ///
 /// Every value starts with `DEC-`.
+///
+/// Checked by [`DecisionId::broken_constraint`]; the generated decoder refuses a value that breaks one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionId(pub String);
+
+impl DecisionId {
+    /// The first constraint `conductor.decision.DecisionId` declares that this value breaks — its alphabet, its prefix,
+    /// then each invariant — as what a decoder expected instead, or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value, as the conformance
+    /// interpreter reads it. A wrapped newtype's own constraints are its own to check.
+    pub fn broken_constraint(&self) -> Option<&'static str> {
+        if !self.0.starts_with("DEC-") {
+            return Some("a value starting with `DEC-`");
+        }
+        None
+    }
+}
 
 /// DecisionLogEvent — `conductor.decision.DecisionLogEvent`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,8 +173,24 @@ pub struct HandleRequest {
 /// PromptHash — `conductor.decision.PromptHash`: a distinct wrapper around `String`.
 ///
 /// Every character is one of `0123456789abcdef`.
+///
+/// Checked by [`PromptHash::broken_constraint`]; the generated decoder refuses a value that breaks one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptHash(pub String);
+
+impl PromptHash {
+    /// The first constraint `conductor.decision.PromptHash` declares that this value breaks — its alphabet, its prefix,
+    /// then each invariant — as what a decoder expected instead, or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value, as the conformance
+    /// interpreter reads it. A wrapped newtype's own constraints are its own to check.
+    pub fn broken_constraint(&self) -> Option<&'static str> {
+        if !self.0.chars().all(|c| "0123456789abcdef".contains(c)) {
+            return Some("a value whose every character is one of `0123456789abcdef`");
+        }
+        None
+    }
+}
 
 /// RequestId — `conductor.decision.RequestId`: a distinct wrapper around `String`.
 #[derive(Debug, Clone, PartialEq, Eq)]

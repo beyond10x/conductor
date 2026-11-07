@@ -1,5 +1,4 @@
 // generated from conductor v1
-// model digest 406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c
 // contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
 // do not edit: regenerate with `ess synthesize --layout crate`
 
@@ -74,8 +73,24 @@ pub struct Checkouts {
 /// CommandWord — `conductor.config.CommandWord`: a distinct wrapper around `String`.
 ///
 /// Every character is one of `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-`.
+///
+/// Checked by [`CommandWord::broken_constraint`]; the generated decoder refuses a value that breaks one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandWord(pub String);
+
+impl CommandWord {
+    /// The first constraint `conductor.config.CommandWord` declares that this value breaks — its alphabet, its prefix,
+    /// then each invariant — as what a decoder expected instead, or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value, as the conformance
+    /// interpreter reads it. A wrapped newtype's own constraints are its own to check.
+    pub fn broken_constraint(&self) -> Option<&'static str> {
+        if !self.0.chars().all(|c| "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-".contains(c)) {
+            return Some("a value whose every character is one of `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-`");
+        }
+        None
+    }
+}
 
 /// ConductorSession — `conductor.config.ConductorSession`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -676,8 +691,24 @@ pub struct SessionName(pub String);
 /// SessionPrefix — `conductor.config.SessionPrefix`: a distinct wrapper around `String`.
 ///
 /// Every character is one of `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-`.
+///
+/// Checked by [`SessionPrefix::broken_constraint`]; the generated decoder refuses a value that breaks one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionPrefix(pub String);
+
+impl SessionPrefix {
+    /// The first constraint `conductor.config.SessionPrefix` declares that this value breaks — its alphabet, its prefix,
+    /// then each invariant — as what a decoder expected instead, or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value, as the conformance
+    /// interpreter reads it. A wrapped newtype's own constraints are its own to check.
+    pub fn broken_constraint(&self) -> Option<&'static str> {
+        if !self.0.chars().all(|c| "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-".contains(c)) {
+            return Some("a value whose every character is one of `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-`");
+        }
+        None
+    }
+}
 
 /// SetupReport — `conductor.config.SetupReport`.
 #[derive(Debug, Clone, PartialEq, Eq)]
