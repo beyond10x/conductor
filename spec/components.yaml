@@ -96,6 +96,7 @@ components:
         - conductor.improvement.SetMetricTarget
         - conductor.improvement.RecordMetricReading
         - conductor.improvement.SupersedeMetricReading
+        - conductor.improvement.JudgeMetricReading
         - conductor.improvement.RaiseFinding
         - conductor.improvement.FileFinding
         - conductor.improvement.VerifyFinding
@@ -172,6 +173,7 @@ components:
         - conductor.improvement.MetricTargetSet
         - conductor.improvement.MetricReadingRecorded
         - conductor.improvement.MetricReadingSuperseded
+        - conductor.improvement.MetricReadingJudged
         - conductor.improvement.FindingRaised
         - conductor.improvement.FindingFiled
         - conductor.improvement.FindingVerified
@@ -331,6 +333,7 @@ components:
             - conductor.improvement.SetMetricTarget
             - conductor.improvement.RecordMetricReading
             - conductor.improvement.SupersedeMetricReading
+            - conductor.improvement.JudgeMetricReading
           views:
             - conductor.improvement.Metrics
             - conductor.improvement.Kpis

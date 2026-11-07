@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 48d3a992c4b8a481be0ced1e1732e7794dfdf877aa6127144513c7c8ea9625ac
-// contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
+// model digest 183e8dfade6aa6c94c2b7764f41a9fedfcb620cbaca96ec2f01b608e8343b4ec
+// contract digest e374851959a23d3c6b7c431ea934755cbb343f413e425c5a09b83640d736fffc
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Every actor the specification declares, and the commands each may invoke — as data.
@@ -148,6 +148,7 @@ pub fn may(actor: Actor) -> &'static [&'static str] {
             "conductor.dispatch.RequestResource",
         ],
         Actor::ImprovementCollector => &[
+            "conductor.improvement.JudgeMetricReading",
             "conductor.improvement.RaiseFinding",
             "conductor.improvement.RecordMetricReading",
             "conductor.improvement.SupersedeMetricReading",

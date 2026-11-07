@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 48d3a992c4b8a481be0ced1e1732e7794dfdf877aa6127144513c7c8ea9625ac
-// contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
+// model digest 183e8dfade6aa6c94c2b7764f41a9fedfcb620cbaca96ec2f01b608e8343b4ec
+// contract digest e374851959a23d3c6b7c431ea934755cbb343f413e425c5a09b83640d736fffc
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! What the specification fully determines, generated: the behaviour of every command the plan
@@ -2437,6 +2437,36 @@ where
         let answer = crate::improvement::FileFindingOutcome::Filed { finding_filed: crate::improvement::FindingFiled { finding_id: input.finding_id.clone(), story: input.story.clone() } };
         FrictionFindingStorage::put(&mut self.ports, next);
         return Ok(answer);
+    }
+}
+
+/// `conductor.improvement.JudgeMetricReading`, generated: every outcome is one the specification fully determines.
+impl<P> crate::improvement::obligations::JudgeMetricReadingBehavior for Generated<P>
+where
+    P: MetricReadingStorage,
+{
+    fn judge_metric_reading(&mut self, input: crate::improvement::JudgeMetricReading) -> Result<crate::improvement::JudgeMetricReadingOutcome, UnmetObligation> {
+        let _ = &input;
+        // The addressed row, read before the branches that select by it.
+        let Some(held) = MetricReadingStorage::get(&self.ports, &input.reading_id) else {
+            return Ok(crate::improvement::JudgeMetricReadingOutcome::NoSuchReading { error: crate::improvement::MetricReadingNotFound { reading_id: input.reading_id.clone() } });
+        };
+        let _ = &held;
+        // `judged`: selected by the addressed row.
+        if decided(Some(matches!(held.state, crate::improvement::MetricReadingState::Recorded)), "conductor.improvement.JudgeMetricReading")? {
+            let Some(held) = MetricReadingStorage::get(&self.ports, &input.reading_id) else {
+                return Ok(crate::improvement::JudgeMetricReadingOutcome::NoSuchReading { error: crate::improvement::MetricReadingNotFound { reading_id: input.reading_id.clone() } });
+            };
+            let _ = &held;
+            let mut next = held;
+            next.data.target = Some(input.target.clone());
+            next.data.met = Some(input.met.clone());
+            let answer = crate::improvement::JudgeMetricReadingOutcome::Judged { metric_reading_judged: crate::improvement::MetricReadingJudged { reading_id: input.reading_id.clone(), target: input.target.clone(), met: input.met.clone() } };
+            MetricReadingStorage::put(&mut self.ports, next);
+            return Ok(answer);
+        }
+        // `wrong-state`: the default.
+        return Ok(crate::improvement::JudgeMetricReadingOutcome::WrongState { error: crate::improvement::MetricReadingStateConflict { reading_id: input.reading_id.clone() } });
     }
 }
 

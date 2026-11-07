@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 48d3a992c4b8a481be0ced1e1732e7794dfdf877aa6127144513c7c8ea9625ac
-// contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
+// model digest 183e8dfade6aa6c94c2b7764f41a9fedfcb620cbaca96ec2f01b608e8343b4ec
+// contract digest e374851959a23d3c6b7c431ea934755cbb343f413e425c5a09b83640d736fffc
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Improvement — `conductor.improvement`.
@@ -733,6 +733,47 @@ pub enum FileFindingOutcome {
     },
 }
 
+/// Judge a metric's reading against its target — the input of `conductor.improvement.JudgeMetricReading`.
+///
+/// Everything it can result in is [`JudgeMetricReadingOutcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JudgeMetricReading {
+    /// `reading_id` — `conductor.improvement.MetricReadingId`.
+    pub reading_id: MetricReadingId,
+    /// `target` — `Decimal`.
+    pub target: crate::primitives::Decimal,
+    /// `met` — `Boolean`.
+    pub met: bool,
+}
+
+/// Everything `conductor.improvement.JudgeMetricReading` can result in — one variant per declared outcome.
+///
+/// An infrastructure failure is deliberately not in here: a refusal is a fact about the domain,
+/// a transport fault is a fact about the run, and conflating the two is what the declared
+/// outcomes exist to prevent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JudgeMetricReadingOutcome {
+    /// `judged` — when the existing subject is in Recorded.
+    ///
+    /// The reading carries the target and whether its value meets it.
+    Judged {
+        /// The `conductor.improvement.MetricReadingJudged` this outcome publishes.
+        metric_reading_judged: MetricReadingJudged,
+    },
+    /// `no-such-reading` — for an identity no record carries.
+    NoSuchReading {
+        /// Why it was refused: `conductor.improvement.MetricReadingNotFound`.
+        error: MetricReadingNotFound,
+    },
+    /// `wrong-state` — otherwise.
+    ///
+    /// The reading is superseded, and keeps the verdict it had.
+    WrongState {
+        /// Why it was refused: `conductor.improvement.MetricReadingStateConflict`.
+        error: MetricReadingStateConflict,
+    },
+}
+
 /// Raise a friction finding — the input of `conductor.improvement.RaiseFinding`.
 ///
 /// Everything it can result in is [`RaiseFindingOutcome`].
@@ -1018,6 +1059,17 @@ pub struct MetricDefined {
     pub unit: String,
 }
 
+/// MetricReadingJudged — the event `conductor.improvement.MetricReadingJudged`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricReadingJudged {
+    /// `reading_id` — `conductor.improvement.MetricReadingId`.
+    pub reading_id: MetricReadingId,
+    /// `target` — `Decimal`.
+    pub target: crate::primitives::Decimal,
+    /// `met` — `Boolean`.
+    pub met: bool,
+}
+
 /// MetricReadingRecorded — the event `conductor.improvement.MetricReadingRecorded`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetricReadingRecorded {
@@ -1292,6 +1344,17 @@ pub mod obligations {
         ///
         /// `Err` is the typed refusal of a request the model declares no outcome for.
         fn file_finding(&mut self, input: super::FileFinding) -> Result<super::FileFindingOutcome, crate::obligation::UnmetObligation>;
+    }
+
+    /// The behaviour `conductor.improvement.JudgeMetricReading` — generated.
+    ///
+    /// The specification fully determines it: [`crate::behaviour::Generated`] implements it
+    /// over the storage and context ports. Implement it yourself to replace that behaviour.
+    pub trait JudgeMetricReadingBehavior {
+        /// Decides and enacts exactly one declared outcome of `conductor.improvement.JudgeMetricReading`.
+        ///
+        /// `Err` is the typed refusal of a request the model declares no outcome for.
+        fn judge_metric_reading(&mut self, input: super::JudgeMetricReading) -> Result<super::JudgeMetricReadingOutcome, crate::obligation::UnmetObligation>;
     }
 
     /// The behaviour `conductor.improvement.RaiseFinding` — generated.

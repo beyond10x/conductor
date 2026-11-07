@@ -20,7 +20,10 @@
 //! reading per metric and scope through `RecordMetricReading`, with the reading id
 //! `<metric>|<scope>|<day>`. It first defines each metric of [`METRICS`] that is absent, without a
 //! target. A metric that has a target judges each reading against it when it is recorded: the
-//! reading carries that `target` and whether it was `met`; one without leaves both absent. A
+//! reading carries that `target` and whether it was `met`; one without leaves both absent.
+//! `metric set-metric-target` judges the metric's `Recorded` readings, its newest for each scope,
+//! against the new target through `JudgeMetricReading`
+//! (story:metric-target-rejudges-readings), so a KPI is listed with its verdict at once. A
 //! reading the store already holds is kept as it is, so a second run for a day records nothing
 //! new. After recording, each metric and scope it touched keeps one `Recorded` reading, the
 //! newest (the latest day, then the latest recorded); compute supersedes every other one through
@@ -75,14 +78,16 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::behaviour::{Generated, MetricReadingStorage, MetricStorage};
 use conductor_model::improvement::obligations::{
-    DefineMetricBehavior, KpiReadingsQuery, KpisQuery, MetricReadingsQuery, MetricsQuery,
-    RecordMetricReadingBehavior, SetMetricTargetBehavior, SupersedeMetricReadingBehavior,
+    DefineMetricBehavior, JudgeMetricReadingBehavior, KpiReadingsQuery, KpisQuery,
+    MetricReadingsQuery, MetricsQuery, RecordMetricReadingBehavior, SetMetricTargetBehavior,
+    SupersedeMetricReadingBehavior,
 };
 use conductor_model::improvement::{
-    AnyMetric, DefineMetric, DefineMetricOutcome, MetricId, MetricNotFound, MetricReadingId,
-    MetricReadingSnapshot, MetricReadingState, MetricSnapshot, MetricState, MetricTargetSet,
-    RecordMetricReading, RecordMetricReadingOutcome, SetMetricTarget, SetMetricTargetOutcome,
-    SupersedeMetricReading, SupersedeMetricReadingOutcome, TargetDirection,
+    AnyMetric, DefineMetric, DefineMetricOutcome, JudgeMetricReading, JudgeMetricReadingOutcome,
+    MetricId, MetricNotFound, MetricReadingId, MetricReadingSnapshot, MetricReadingState,
+    MetricSnapshot, MetricState, MetricTargetSet, RecordMetricReading, RecordMetricReadingOutcome,
+    SetMetricTarget, SetMetricTargetOutcome, SupersedeMetricReading, SupersedeMetricReadingOutcome,
+    TargetDirection,
 };
 use conductor_model::obligation::UnmetObligation;
 use conductor_model::observation::SnapshotState;
@@ -95,8 +100,8 @@ use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 use crate::cli::{
-    DefineMetricArgs, JsonInput, MetricComputeArgs, RecordMetricReadingArgs, SetMetricTargetArgs,
-    SupersedeMetricReadingArgs, ViewArgs,
+    DefineMetricArgs, JsonInput, JudgeMetricReadingArgs, MetricComputeArgs,
+    RecordMetricReadingArgs, SetMetricTargetArgs, SupersedeMetricReadingArgs, ViewArgs,
 };
 use crate::not_implemented;
 use crate::store::Store;
@@ -161,6 +166,7 @@ pub fn set_metric_target(state: Option<&Path>, args: SetMetricTargetArgs) -> Res
         target_owner: flag(COMMAND, "--target-owner", args.target_owner)?,
         target_set_at: Timestamp(flag(COMMAND, "--target-set-at", args.target_set_at)?),
     };
+    let metric_id = input.metric_id.clone();
     let mut generated = Generated::new(Ports::open(state)?);
     let outcome = generated
         .set_metric_target(input)
@@ -168,6 +174,7 @@ pub fn set_metric_target(state: Option<&Path>, args: SetMetricTargetArgs) -> Res
     kept(COMMAND, &generated.ports.store)?;
     match outcome {
         SetMetricTargetOutcome::Targeted { .. } | SetMetricTargetOutcome::Retargeted { .. } => {
+            judge_newest(COMMAND, &mut generated, &metric_id)?;
             Ok(ExitCode::SUCCESS)
         }
         SetMetricTargetOutcome::NoSuchMetric { error } => {
@@ -264,6 +271,91 @@ fn superseded(command: &str, outcome: SupersedeMetricReadingOutcome) -> Result<(
             error.reading_id.0
         ),
     }
+}
+
+/// `conductor metric judge-metric-reading`: the command
+/// `conductor.improvement.JudgeMetricReading`.
+///
+/// # Errors
+///
+/// A flag is missing, `--input-json` is given, the store does not open or keep the verdict, or
+/// the specification refuses it: `MetricReadingNotFound`, `MetricReadingStateConflict`.
+pub fn judge_metric_reading(
+    state: Option<&Path>,
+    args: JudgeMetricReadingArgs,
+) -> Result<ExitCode> {
+    const COMMAND: &str = "metric judge-metric-reading";
+    flags_only(args.input_json, "metric judge-metric-reading --input-json")?;
+    let input = JudgeMetricReading {
+        reading_id: MetricReadingId(flag(COMMAND, "--reading-id", args.reading_id)?),
+        target: Decimal(flag(COMMAND, "--target", args.target)?),
+        met: flag(COMMAND, "--met", args.met)?,
+    };
+    let mut generated = Generated::new(Ports::open(state)?);
+    let outcome = generated
+        .judge_metric_reading(input)
+        .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+    kept(COMMAND, &generated.ports.store)?;
+    judged(COMMAND, outcome).map(|()| ExitCode::SUCCESS)
+}
+
+/// `Ok` when the reading was judged, else the refusal the specification declares.
+fn judged(command: &str, outcome: JudgeMetricReadingOutcome) -> Result<()> {
+    match outcome {
+        JudgeMetricReadingOutcome::Judged { .. } => Ok(()),
+        JudgeMetricReadingOutcome::NoSuchReading { error } => bail!(
+            "{command}: MetricReadingNotFound: no reading has the id {:?}",
+            error.reading_id.0
+        ),
+        JudgeMetricReadingOutcome::WrongState { error } => bail!(
+            "{command}: MetricReadingStateConflict: the reading {:?} is superseded, and keeps \
+             the verdict it had",
+            error.reading_id.0
+        ),
+    }
+}
+
+/// Judges each `Recorded` reading of `metric_id`, its newest for each scope, against the target
+/// the metric now holds (story:metric-target-rejudges-readings). A reading whose value does not
+/// parse as a number is left as it is.
+fn judge_newest(
+    command: &str,
+    generated: &mut Generated<Ports>,
+    metric_id: &MetricId,
+) -> Result<()> {
+    let Some(metric) = MetricStorage::get(&generated.ports.store, metric_id) else {
+        return Ok(());
+    };
+    let Some(target) = metric.data.target.clone() else {
+        return Ok(());
+    };
+    let readings = MetricReadingStorage::list(&generated.ports.store);
+    kept(command, &generated.ports.store)?;
+    for reading in readings {
+        if reading.state != MetricReadingState::Recorded || &reading.data.metric_id != metric_id {
+            continue;
+        }
+        let Some(met) = reading
+            .data
+            .value
+            .0
+            .parse()
+            .ok()
+            .and_then(|value| meets(&metric, value))
+        else {
+            continue;
+        };
+        let outcome = generated
+            .judge_metric_reading(JudgeMetricReading {
+                reading_id: reading.data.reading_id,
+                target: target.clone(),
+                met,
+            })
+            .map_err(|unmet| anyhow!("{command}: {unmet}"))?;
+        kept(command, &generated.ports.store)?;
+        judged(command, outcome)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------

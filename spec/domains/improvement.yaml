@@ -112,7 +112,9 @@ entities:
   # merged PR (`alpha#12`, the per-task metrics T1-T4); `value` in the metric's unit; `sources`
   # the evidence ids it was computed from (decision ids, PR and run ids, session ids), counts and
   # ids only, never message text. `target` is the target the metric held when the reading was
-  # recorded and `met` whether the value meets it; both are absent when it held none.
+  # recorded, or the one set later while the reading was its metric's newest for its scope
+  # (`JudgeMetricReading`), and `met` whether the value meets it; both are absent when it held
+  # none.
   # `recorded_at` is when the instrument recorded it. A reading has no meaning without its metric,
   # which owns it.
   #
@@ -218,6 +220,7 @@ actors:
     may:
       - conductor.improvement.RecordMetricReading
       - conductor.improvement.SupersedeMetricReading
+      - conductor.improvement.JudgeMetricReading
       - conductor.improvement.RaiseFinding
     naming:
       display: Collector
@@ -336,8 +339,10 @@ commands:
         summary: A metric already has this id; the held metric is unchanged.
 
   # The operator's target on a metric (design § 2, Target column), which makes it a KPI. A
-  # target set on a KPI replaces the one it held; the readings already recorded keep whether
-  # they met the target held when they were recorded.
+  # target set on a KPI replaces the one it held. The metric's `Recorded` readings, its newest
+  # for each scope, are then judged against the new target (`JudgeMetricReading`,
+  # story:metric-target-rejudges-readings), so the KPI is listed with whether it meets it at
+  # once; a superseded reading keeps the verdict it had.
   - name: conductor.improvement.SetMetricTarget
     naming:
       wire: set-metric-target
@@ -509,6 +514,52 @@ commands:
           conductor.improvement.MetricReadingStateConflict:
             reading_id: input.reading_id
         summary: The reading is superseded already, and nothing moved.
+
+  # A reading judged against a target set after it was recorded (story:
+  # metric-target-rejudges-readings): run for each of the metric's `Recorded` readings when its
+  # target is set, with the new target and whether the reading's value meets it. A superseded
+  # reading is not judged again.
+  - name: conductor.improvement.JudgeMetricReading
+    naming:
+      wire: judge-metric-reading
+      display: Judge a metric's reading against its target
+    input:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+        example: "K1|instance|2026-10-14"
+      - name: target
+        type: Decimal
+        example: 0.1
+      - name: met
+        type: Boolean
+    outcomes:
+      - name: judged
+        when_subject_state: Recorded
+        updates: conductor.improvement.MetricReading
+        instance: reading_id
+        sets:
+          target: input.target
+          met: input.met
+        emits:
+          - conductor.improvement.MetricReadingJudged
+        payload:
+          conductor.improvement.MetricReadingJudged:
+            reading_id: input.reading_id
+            target: input.target
+            met: input.met
+        summary: The reading carries the target and whether its value meets it.
+      - name: no-such-reading
+        unknown_instance: true
+        error: conductor.improvement.MetricReadingNotFound
+        payload:
+          conductor.improvement.MetricReadingNotFound:
+            reading_id: input.reading_id
+      - name: wrong-state
+        error: conductor.improvement.MetricReadingStateConflict
+        payload:
+          conductor.improvement.MetricReadingStateConflict:
+            reading_id: input.reading_id
+        summary: The reading is superseded, and keeps the verdict it had.
 
   # A detected friction (design § 5, step 2), with the evidence ids it rests on and the metric it
   # should move. Raising does not deduplicate: a signature already open or filed is matched when
@@ -701,6 +752,15 @@ events:
       - name: by
         type: conductor.improvement.MetricReadingId
 
+  - name: conductor.improvement.MetricReadingJudged
+    fields:
+      - name: reading_id
+        type: conductor.improvement.MetricReadingId
+      - name: target
+        type: Decimal
+      - name: met
+        type: Boolean
+
   - name: conductor.improvement.FindingRaised
     fields:
       - name: finding_id
@@ -769,7 +829,8 @@ views:
 
   # The KPIs: the metrics the operator set a target for (story:metrics-naming), each with its
   # target. Whether a KPI meets it is a reading's fact (`met` in `MetricReadings`), judged
-  # against the target held when the reading was recorded; the newest reading's `met` is whether
+  # against the target held when the reading was recorded, or when a target was set while it was
+  # the newest; the newest reading's `met` is whether
   # the KPI meets its target now, which `KpiReadings` lists.
   - name: conductor.improvement.Kpis
     source: conductor.improvement.Metric
@@ -832,8 +893,8 @@ views:
 
   # Each KPI's newest instance-wide reading (story:kpi-records, story:metrics-naming): the
   # `Recorded` reading of scope `instance` that was judged against a target, with that target and
-  # whether it met it. A KPI whose newest reading was recorded before its target was set has no
-  # row until its next reading.
+  # whether it met it. Setting a target judges the metric's newest readings, so a KPI is listed
+  # as soon as its target is set and it has an instance-wide reading.
   - name: conductor.improvement.KpiReadings
     source: conductor.improvement.MetricReading
     consistency: read_your_writes

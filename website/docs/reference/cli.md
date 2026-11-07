@@ -153,6 +153,7 @@ Every command takes these, before or after its name.
 | [`conductor host slices`](#conductor-host-slices) | List each systemd user slice of conductor, conductor.slice or conductor_&lt;prefix>.slice, with its unit count and the instance of the config file it belongs to; --gc stops each empty slice no instance names, and never one that still holds a unit |
 | [`conductor metric`](#conductor-metric) | The measured quantities of the self-improvement loop, their daily readings and the targets that make some of them KPIs |
 | [`conductor metric define-metric`](#conductor-metric-define-metric) | Define a metric |
+| [`conductor metric judge-metric-reading`](#conductor-metric-judge-metric-reading) | Judge a metric's reading against its target |
 | [`conductor metric record-metric-reading`](#conductor-metric-record-metric-reading) | Record a metric's reading |
 | [`conductor metric set-metric-target`](#conductor-metric-set-metric-target) | Set a metric's target |
 | [`conductor metric supersede-metric-reading`](#conductor-metric-supersede-metric-reading) | Supersede a metric's reading |
@@ -2002,6 +2003,21 @@ Usage: conductor metric define-metric [OPTIONS]
 | `--definition <DEFINITION>` | no | none | string |
 | `--baseline <BASELINE>` | no | none | decimal, optional |
 | `--baseline-period <BASELINE_PERIOD>` | no | none | string, optional |
+| `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
+
+## `conductor metric judge-metric-reading`
+
+Judge a metric's reading against its target
+
+```text
+Usage: conductor metric judge-metric-reading [OPTIONS]
+```
+
+| Argument | Required | Default | Meaning |
+|---|---|---|---|
+| `--reading-id <READING_ID>` | no | none | MetricReadingId |
+| `--target <TARGET>` | no | none | decimal |
+| `--met <MET>` | no | none | boolean One of `true`, `false`. |
 | `--input-json <INPUT_JSON>` | no | none | Read the input fields from standard input, as one JSON object One of `-`. |
 
 ## `conductor metric record-metric-reading`

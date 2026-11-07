@@ -914,7 +914,8 @@ fn a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_t
     );
     assert_eq!(k4["met"], true, "{k4}");
 
-    // The reading recorded before the target keeps no verdict and is superseded by the day's:
+    // The reading recorded before the target was the newest when the target was set, so it was
+    // judged then (story:metric-target-rejudges-readings), and is superseded by the day's:
     // K1 on 2026-10-13 is REQ-3 and REQ-5 escalated over alpha#1 and beta#6 merged, 2 / 2 = 1.
     let earlier = case
         .all()
@@ -922,8 +923,12 @@ fn a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_t
         .find(|row| row["reading_id"] == "K1|instance|2026-10-13")
         .expect("the earlier K1 reading");
     close(value(&earlier["value"]), 1.0, "K1 on 2026-10-13");
-    assert!(earlier["met"].is_null(), "{earlier}");
-    assert!(earlier["target"].is_null(), "{earlier}");
+    assert_eq!(earlier["met"], false, "{earlier}");
+    close(
+        value(&earlier["target"]),
+        0.1,
+        "the target set while it was the newest",
+    );
     assert_eq!(earlier["state"], "Superseded", "{earlier}");
     let newest = case
         .all()
@@ -958,6 +963,67 @@ fn a_targeted_metric_is_a_kpi_listed_with_whether_its_newest_reading_meets_the_t
         .expect("K1");
     close(value(&k1["target"]), 0.8, "K1's new target");
     assert_eq!(k1["target_set_at"], "2026-10-15T09:00:00Z", "{k1}");
+}
+
+/// story:metric-target-rejudges-readings: a target set after the day's compute judges the
+/// metric's newest reading at once, so `metric kpi-readings` lists the KPI with that target and
+/// whether it met it, without another compute. K1 on the day is 0.75, which misses ≤ 0.10; a
+/// second target of ≤ 0.80 judges the same reading again, which now meets it. Computing the day
+/// again keeps the verdict.
+#[test]
+fn a_target_set_after_the_day_s_compute_judges_the_newest_reading() {
+    let case = computed("rejudged");
+    assert!(case.rows("metric", "kpi-readings").is_empty());
+    let target = |value: &str, at: &str| {
+        case.ok(&[
+            "metric",
+            "set-metric-target",
+            "--metric-id",
+            "K1",
+            "--target",
+            value,
+            "--direction",
+            "AtMost",
+            "--target-owner",
+            "operator",
+            "--target-set-at",
+            at,
+        ]);
+    };
+    target("0.10", "2026-10-15T09:00:00Z");
+
+    let readings = case.rows("metric", "kpi-readings");
+    assert_eq!(readings.len(), 1, "one row, K1's: {readings:#?}");
+    let k1 = &readings[0];
+    assert_eq!(k1["metric_id"], "K1", "{k1}");
+    assert_eq!(k1["scope"], "instance", "{k1}");
+    assert_eq!(k1["day"], DAY, "{k1}");
+    assert_eq!(k1["reading_id"], format!("K1|instance|{DAY}"), "{k1}");
+    close(value(&k1["value"]), 0.75, "K1's newest value");
+    close(
+        value(&k1["target"]),
+        0.1,
+        "the target K1 was judged against",
+    );
+    assert_eq!(k1["met"], false, "{k1}");
+
+    // Every scope's newest reading of the metric is judged; another metric's is not.
+    for row in case.all() {
+        if row["metric_id"] == "K1" {
+            assert_eq!(row["met"], false, "{row}");
+        } else {
+            assert!(row["met"].is_null(), "{row}");
+        }
+    }
+
+    case.compute();
+    assert_eq!(case.rows("metric", "kpi-readings"), readings);
+
+    target("0.80", "2026-10-15T10:00:00Z");
+    let readings = case.rows("metric", "kpi-readings");
+    assert_eq!(readings.len(), 1, "{readings:#?}");
+    close(value(&readings[0]["target"]), 0.8, "K1's new target");
+    assert_eq!(readings[0]["met"], true, "{}", readings[0]);
 }
 
 // ---------------------------------------------------------------------------------------------

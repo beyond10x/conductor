@@ -416,6 +416,9 @@ impl Cli {
                 MetricCommand::SupersedeMetricReading(args) => {
                     metric::supersede_metric_reading(state, args)
                 }
+                MetricCommand::JudgeMetricReading(args) => {
+                    metric::judge_metric_reading(state, args)
+                }
                 MetricCommand::KpiReadings(view) => metric::kpi_readings(state, view),
                 MetricCommand::Kpis(view) => metric::kpis(state, view),
                 MetricCommand::MetricReadings(view) => metric::metric_readings(state, view),
@@ -799,6 +802,7 @@ pub const LEAVES: &[(&[&str], Access)] = &[
     // (story:slice-remove).
     (&["host", "slices"], Access::Writes),
     (&["metric", "define-metric"], Access::Writes),
+    (&["metric", "judge-metric-reading"], Access::Writes),
     (&["metric", "record-metric-reading"], Access::Writes),
     (&["metric", "set-metric-target"], Access::Writes),
     (&["metric", "supersede-metric-reading"], Access::Writes),
@@ -1413,6 +1417,10 @@ pub enum MetricCommand {
     /// Define a metric
     #[command(name = "define-metric")]
     DefineMetric(DefineMetricArgs),
+
+    /// Judge a metric's reading against its target
+    #[command(name = "judge-metric-reading")]
+    JudgeMetricReading(JudgeMetricReadingArgs),
 
     /// Record a metric's reading
     #[command(name = "record-metric-reading")]
@@ -2400,6 +2408,23 @@ pub struct SupersedeMetricReadingArgs {
     /// MetricReadingId
     #[arg(long)]
     pub by: Option<String>,
+    /// Read the input fields from standard input, as one JSON object
+    #[arg(long, value_enum)]
+    pub input_json: Option<JsonInput>,
+}
+
+/// The input of `conductor.improvement.JudgeMetricReading`.
+#[derive(Debug, Clone, Args)]
+pub struct JudgeMetricReadingArgs {
+    /// MetricReadingId
+    #[arg(long)]
+    pub reading_id: Option<String>,
+    /// decimal
+    #[arg(long, allow_negative_numbers = true, value_parser = decimal)]
+    pub target: Option<String>,
+    /// boolean
+    #[arg(long)]
+    pub met: Option<bool>,
     /// Read the input fields from standard input, as one JSON object
     #[arg(long, value_enum)]
     pub input_json: Option<JsonInput>,
