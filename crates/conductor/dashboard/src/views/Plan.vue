@@ -33,6 +33,24 @@ const failure = ref<string | null>(null);
 const repository = ref<string | null>(null);
 const query = ref('');
 const grouped = ref(true);
+/** The "Hide done" toggle (story:board-hide-done): pressed unless this browser released it. */
+const HIDE_DONE_KEY = 'conductor.plan.hideDone';
+function readHideDone(): boolean {
+  try {
+    return window.localStorage.getItem(HIDE_DONE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+const hideDone = ref(readHideDone());
+function toggleHideDone(): void {
+  hideDone.value = !hideDone.value;
+  try {
+    window.localStorage.setItem(HIDE_DONE_KEY, String(hideDone.value));
+  } catch {
+    // No storage: the choice lasts for this page only.
+  }
+}
 const selected = ref<string | null>(null);
 const story = ref<PlanStory | null>(null);
 const storyError = ref<string | null>(null);
@@ -43,7 +61,7 @@ const writing = ref(false);
 const dropTarget = ref<Column | null>(null);
 
 const columns = computed(() =>
-  COLUMNS.map((column) => ({
+  COLUMNS.filter((column) => !(hideDone.value && column.column === 'Done')).map((column) => ({
     ...column,
     lanes: board.value === null ? [] : lanesOf(board.value, column.column, query.value, grouped.value),
     count:
@@ -194,6 +212,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
             No groups
           </button>
         </div>
+        <button type="button" class="chip-button" :aria-pressed="hideDone" @click="toggleHideDone">
+          Hide done
+        </button>
         <span class="small muted hint"
           >Drag a card to move it; the store checks every move (<code>aep plan artifact move</code>).</span
         >
@@ -202,7 +223,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
       <p v-if="outcome !== null" class="banner ok small" role="status">{{ outcome }}</p>
       <p v-if="refusal !== null && selected === null" class="banner bad small" role="alert">{{ refusal }}</p>
 
-      <div class="board">
+      <div class="board" :style="{ '--board-columns': columns.length }">
         <section
           v-for="column in columns"
           :key="column.column"
@@ -358,7 +379,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 }
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--board-columns, 5), minmax(220px, 1fr));
   gap: var(--space-3);
   align-items: start;
   overflow-x: auto;
