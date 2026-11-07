@@ -2719,11 +2719,11 @@ exports[`the plan page > has no axe finding, one main, one banner and the naviga
     <div data-v-70a698c6="" class="bar"><label data-v-70a698c6="" class="small"> Repository <select data-v-70a698c6="" aria-label="Repository" value="alpha">
           <option data-v-70a698c6="" value="alpha">alpha</option>
         </select></label><input data-v-70a698c6="" type="search" aria-label="Search title or id" placeholder="Search title or id">
-      <div data-v-70a698c6="" class="segmented" role="group" aria-label="Lanes"><button data-v-70a698c6="" type="button" class="chip-button" aria-pressed="true"> Group by wave </button><button data-v-70a698c6="" type="button" class="chip-button" aria-pressed="false"> No groups </button></div><span data-v-70a698c6="" class="small muted hint">Drag a card to move it; the store checks every move (<code data-v-70a698c6="">aep plan artifact move</code>).</span>
+      <div data-v-70a698c6="" class="segmented" role="group" aria-label="Lanes"><button data-v-70a698c6="" type="button" class="chip-button" aria-pressed="true"> Group by wave </button><button data-v-70a698c6="" type="button" class="chip-button" aria-pressed="false"> No groups </button></div><button data-v-70a698c6="" type="button" class="chip-button" aria-pressed="true"> Hide done </button><span data-v-70a698c6="" class="small muted hint">Drag a card to move it; the store checks every move (<code data-v-70a698c6="">aep plan artifact move</code>).</span>
     </div>
     <!--v-if-->
     <!--v-if-->
-    <div data-v-70a698c6="" class="board">
+    <div data-v-70a698c6="" class="board" style="--board-columns: 4;">
       <section data-v-70a698c6="" class="col" data-col="Draft" aria-label="Draft">
         <div data-v-70a698c6="" class="ch">
           <h2 data-v-70a698c6="">Draft</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">ideas, not yet asked for</span>
@@ -2753,13 +2753,6 @@ exports[`the plan page > has no axe finding, one main, one banner and the naviga
           <h2 data-v-70a698c6="">In progress</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">being worked on</span>
         </div>
         <h3 data-v-70a698c6="" class="lane">next <span data-v-70a698c6="">1</span></h3><button data-v-70a698c6="" type="button" class="story-card" draggable="true" data-id="story:doing"><span data-v-70a698c6="" class="t">Being built</span><span data-v-70a698c6="" class="id">story:doing</span><span data-v-70a698c6="" class="meta"><!--v-if--><!--v-if--><span data-v-70a698c6="" class="pill v">started</span></span></button>
-        <!--v-if-->
-      </section>
-      <section data-v-70a698c6="" class="col" data-col="Done" aria-label="Done">
-        <div data-v-70a698c6="" class="ch">
-          <h2 data-v-70a698c6="">Done</h2><span data-v-70a698c6="" class="n">1</span><span data-v-70a698c6="" class="hint small">implemented</span>
-        </div>
-        <!--v-if--><button data-v-70a698c6="" type="button" class="story-card" draggable="true" data-id="story:done"><span data-v-70a698c6="" class="t">Shipped</span><span data-v-70a698c6="" class="id">story:done</span><span data-v-70a698c6="" class="meta"><!--v-if--><!--v-if--><!--v-if--></span></button>
         <!--v-if-->
       </section>
     </div>
