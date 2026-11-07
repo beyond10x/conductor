@@ -5,7 +5,7 @@ kind: story
 status: active
 title: The dashboard shows the plan as a board and lets the operator approve, reject, start and prioritise stories
 summary: the operator asked for a Kanban plan board with approve and priority
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:39:22Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:39:22Z", actor: "human:timo", revision: 3}
@@ -25,3 +25,7 @@ The operator, 2026-11-07: "one section being just a Kanban-like planning board .
 ## Notes
 
 - Blocked on the operator's approval of the mock-up (columns, drawer, buttons as above).
+
+## Approval (added 2026-11-07)
+
+The operator approved the mock-up, `docs/design/dashboard-plan-board-mockup.html`: "Yeah, it looks perfect. Do it. Implement it." Its writes use the same dashboard write path as `story:dashboard-config-page` (local origin, per-process token, one decision per write); no second path.

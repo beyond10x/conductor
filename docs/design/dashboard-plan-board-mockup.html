@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>conductor · Plan board (mock-up)</title>
+<style>
+:root{--r:10px;--rs:6px;--font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,Menlo,Consolas,monospace}
+:root[data-theme=dark]{color-scheme:dark;--bg:#0f1216;--hd:#12161b;--sf:#151a20;--chip:#1d2630;--chipb:#3b4a5c;--bd:#232a33;--row:#1e252e;--in:#2b3440;--tx:#e6e9ee;--dim:#aab3bf;--mu:#8a94a3;--blue:#7cc4ff;--bluebg:#14283a;--green:#4cc38a;--greenbg:#123325;--amber:#f0b45a;--amberbg:#3a2a10;--red:#ff7b8a;--redbg:#3a1418;--violet:#b79cff;--violetbg:#261d3d}
+:root[data-theme=light]{color-scheme:light;--bg:#f6f7f9;--hd:#fff;--sf:#fff;--chip:#e6edf5;--chipb:#9fb3c8;--bd:#dde1e6;--row:#e8ebef;--in:#c9cfd6;--tx:#1a1f26;--dim:#4a5562;--mu:#5b6573;--blue:#1a64ad;--bluebg:#dcecfa;--green:#1a7a4c;--greenbg:#ddf3e8;--amber:#965609;--amberbg:#fbeccf;--red:#c42b40;--redbg:#fbe1e5;--violet:#6b46c1;--violetbg:#ece5fb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 var(--font)}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer;border-radius:var(--rs);border:1px solid var(--in);background:var(--sf);padding:5px 11px}
+button.primary{background:var(--blue);border-color:var(--blue);color:var(--bg);font-weight:600}
+button.ghost{background:transparent;border-color:transparent;color:var(--dim)}
+input,select{background:var(--bg);border:1px solid var(--in);border-radius:var(--rs);padding:5px 8px}
+.top{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--hd);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
+.brand{font-weight:650;display:flex;gap:8px;align-items:center}.bm{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--blue),var(--green))}
+.views{display:flex;gap:4px;margin-left:16px}.views a{padding:6px 12px;border-radius:99px;color:var(--dim);text-decoration:none;font-size:13px;border:1px solid transparent}
+.views a.on{background:var(--chip);border-color:var(--chipb);color:var(--tx)}
+.hr{margin-left:auto;display:flex;gap:10px;align-items:center;font-size:12px;color:var(--mu)}
+.bar{display:flex;gap:10px;align-items:center;padding:14px 24px;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--in);border-radius:var(--rs);overflow:hidden}.seg button{border:0;border-radius:0;background:transparent;color:var(--dim);font-size:12px}.seg button.on{background:var(--chip);color:var(--tx)}
+.board{display:grid;grid-template-columns:repeat(5,minmax(240px,1fr));gap:14px;padding:0 24px 24px;align-items:start}
+.col{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:10px;min-height:300px}
+.col.drop{outline:2px dashed var(--blue)}
+.ch{display:flex;align-items:baseline;gap:8px;margin:2px 4px 10px}.ch h2{font-size:13px;margin:0;text-transform:uppercase;letter-spacing:.06em}.ch .n{color:var(--mu);font-size:12px}.ch .hint{margin-left:auto;font-size:11px;color:var(--mu)}
+.lane{font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.05em;margin:12px 4px 6px;display:flex;gap:6px;align-items:center}
+.card{background:var(--bg);border:1px solid var(--bd);border-left:3px solid var(--bd);border-radius:var(--rs);padding:8px 10px;margin-bottom:8px;cursor:grab}
+.card:hover{border-color:var(--chipb)}.card.sel{outline:2px solid var(--blue)}
+.card.op{border-left-color:var(--amber)}.card.p1{border-left-color:var(--red)}
+.card .t{font-size:13px;font-weight:550;line-height:1.35}
+.card .id{font-family:var(--mono);font-size:11px;color:var(--mu);margin-top:3px}
+.card .meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.pill{display:inline-block;padding:0 7px;border-radius:99px;font-size:10.5px;font-weight:600;white-space:nowrap}
+.g{background:var(--greenbg);color:var(--green)}.a{background:var(--amberbg);color:var(--amber)}.b{background:var(--bluebg);color:var(--blue)}.r{background:var(--redbg);color:var(--red)}.v{background:var(--violetbg);color:var(--violet)}.m{background:var(--chip);color:var(--mu)}
+.prog{height:3px;background:var(--row);border-radius:2px;margin-top:7px;overflow:hidden}.prog i{display:block;height:100%;background:var(--green)}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:560px;max-width:96vw;background:var(--sf);border-left:1px solid var(--bd);box-shadow:-10px 0 30px rgba(0,0,0,.35);transform:translateX(100%);transition:transform .15s;z-index:10;display:flex;flex-direction:column}
+.drawer.on{transform:none}
+.dh{padding:16px 20px;border-bottom:1px solid var(--bd)}.dh h2{margin:4px 0 6px;font-size:17px}
+.db{padding:16px 20px;overflow:auto;flex:1}.db h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);margin:16px 0 6px}
+.db p,.db li{font-size:13.5px;color:var(--tx)}.db code{font-family:var(--mono);font-size:12px;background:var(--bg);padding:1px 4px;border-radius:4px}
+.df{padding:12px 20px;border-top:1px solid var(--bd);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tl{font-size:12px;color:var(--mu);border-left:2px solid var(--bd);padding-left:10px}.tl div{margin:3px 0}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:4px 12px;font-size:12.5px}.kv dt{color:var(--mu)}.kv dd{margin:0}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--greenbg);color:var(--green);border:1px solid var(--green);padding:8px 14px;border-radius:var(--rs);font-size:13px;display:none;z-index:20}.toast.on{display:block}
+.mock{position:fixed;bottom:12px;left:12px;background:var(--amberbg);color:var(--amber);padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700}
+textarea{width:100%;min-height:70px;background:var(--bg);border:1px solid var(--in);border-radius:var(--rs);padding:8px;color:var(--tx);font:13px var(--font)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="bm"></span>conductor</div>
+  <nav class="views"><a href="#">Overview</a><a href="#" class="on">Plan</a><a href="#">Repositories</a><a href="#">Decisions</a><a href="#">KPIs</a><a href="#">Health</a><a href="#">Configuration</a></nav>
+  <div class="hr"><select aria-label="Instance"><option>alpha</option><option>beta</option></select>
+  <button class="ghost" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">Theme</button></div>
+</header>
+
+<div class="bar">
+  <select aria-label="Repository"><option>conductor</option><option>All Active repositories</option><option>ess</option><option>atlas</option></select>
+  <div class="seg"><button class="on">Stories</button><button>Epics</button></div>
+  <input type="search" id="q" placeholder="Search title or id" style="width:220px">
+  <div class="seg" id="lanes"><button class="on" data-l="wave">Group by wave</button><button data-l="none">No groups</button></div>
+  <label style="font-size:12px;color:var(--mu)"><input type="checkbox" id="mine"> only your asks</label>
+  <span style="margin-left:auto;font-size:12px;color:var(--mu)">Drag a card to move it; the store checks every move (<code style="font-family:var(--mono)">aep plan artifact move</code>).</span>
+</div>
+
+<div class="board" id="board"></div>
+
+<aside class="drawer" id="drawer" aria-label="Story"></aside>
+<div class="toast" id="toast"></div>
+<div class="mock">MOCK-UP · nothing here is live</div>
+
+<script>
+const COLS=[['draft','Draft','ideas, not yet asked for'],['proposed','Proposed','waiting for your yes'],['active','Accepted · next','approved, in a wave'],['doing','In progress','a tree is open'],['implemented','Done','released']];
+const S=[
+ {id:'dashboard-config-page',t:'The dashboard shows each instance\'s configuration and edits it',st:'doing',wave:'operator asks',op:1,prio:'P1',prog:40,by:'you, 2026-11-07',tree:'agent tree, 3 commits'},
+ {id:'dashboard-ui-loop',t:'The dashboard runs the UI iteration loop: baseline, gates, rounds',st:'doing',wave:'operator asks',op:1,prio:'P1',prog:55,by:'you, 2026-11-07',tree:'agent tree'},
+ {id:'guard-and-worktree-agree-on-tree-path',t:'The guard and worktree create agree on one tree path per checkout',st:'doing',wave:'wave 44',prog:80,by:'controllers, 2 instances',tree:'wave/44'},
+ {id:'metric-target-rejudges-readings',t:'A metric target set after a day\'s compute judges that day\'s readings',st:'doing',wave:'wave 44',prog:90,tree:'wave/44'},
+ {id:'k5-tags-and-no-release-repositories',t:'K5 counts a semver tag as a release and skips repositories without releases',st:'doing',wave:'wave 44',prog:90,tree:'wave/44'},
+ {id:'host-session-profiles',t:'Conductor ships the host supervisor and teacher profiles',st:'active',wave:'next',op:1,by:'you, 2026-11-07'},
+ {id:'loop-restarts-controller-at-handover',t:'The loop asks a controller for its hand-over at the context threshold',st:'active',wave:'wave A',by:'teacher brief'},
+ {id:'auto-resume',t:'The watch resumes limit-stopped controllers itself',st:'active',wave:'wave A'},
+ {id:'watch-unanswered-and-admits',t:'Unanswered requests are named and delivered to the supervisor',st:'active',wave:'wave A'},
+ {id:'loop-restarts-gone-conductor-dev',t:'The loop restarts a gone conductor-dev while stories are active',st:'active',wave:'wave A'},
+ {id:'guard-denial-names-its-config',t:'A denied forge write names the route, its policy and the fix',st:'active',wave:'wave B',op:1},
+ {id:'doctor-checks-guard-forge-writes',t:'conductor doctor checks the guard allows each role\'s forge writes',st:'active',wave:'wave B'},
+ {id:'forge-route-per-instance-with-gitlab',t:'The gates forge route works for a GitLab instance',st:'proposed',wave:'wave B'},
+ {id:'host-bootstrap',t:'A fresh or rebooted host gets the loop, dashboards and host files back',st:'proposed'},
+ {id:'context-line-names-nested-repository',t:'The context line names a nested repository, not its group folder',st:'proposed',wave:'wave B'},
+ {id:'dev-restart-and-idle',t:'conductor-dev restarts itself from its hand-over',st:'draft'},
+ {id:'compact-vs-handover',t:'Controllers compact instead of handing over only if it costs fewer tokens',st:'draft'},
+ {id:'tui-frontend',t:'The operator runs conductor from a terminal client',st:'draft',kind:'epic'},
+ {id:'dashboard-build-queue',t:'The dashboard shows the build queue and build times',st:'draft'},
+ {id:'daily-tick-runs',t:'The daily tick runs at cadence.daily, also after a restart',st:'implemented',rel:'v0.21.0'},
+ {id:'records-check-legacy-months',t:'records check skips months before the first written one',st:'implemented',rel:'v0.21.0'},
+ {id:'dashboard-instance-switch',t:'A header selector opens another instance\'s dashboard',st:'implemented',rel:'v0.21.0'}
+];
+const NEXT={draft:['proposed'],proposed:['active','draft','rejected'],active:['doing','implemented','archived'],doing:['implemented','active'],implemented:['archived']};
+let lanes='wave',sel=null;const $=i=>document.getElementById(i);
+function card(s){return `<div class="card ${s.prio==='P1'?'p1':s.op?'op':''} ${sel===s.id?'sel':''}" draggable="true" data-id="${s.id}" tabindex="0">
+ <div class="t">${s.t}</div><div class="id">story:${s.id}</div>
+ <div class="meta">${s.prio?`<span class="pill r">${s.prio}</span>`:''}${s.op?'<span class="pill a">your ask</span>':''}${s.wave&&lanes==='none'?`<span class="pill b">${s.wave}</span>`:''}${s.tree?`<span class="pill v">${s.tree}</span>`:''}${s.rel?`<span class="pill g">${s.rel}</span>`:''}</div>
+ ${s.prog?`<div class="prog"><i style="width:${s.prog}%"></i></div>`:''}</div>`}
+function render(){const q=$('q').value.toLowerCase(),mine=$('mine').checked;
+ $('board').innerHTML=COLS.map(([k,name,hint])=>{const items=S.filter(s=>s.st===k&&(!q||(s.t+s.id).toLowerCase().includes(q))&&(!mine||s.op));
+  items.sort((a,b)=>(b.prio?2:0)+(b.op?1:0)-((a.prio?2:0)+(a.op?1:0)));
+  let body;if(lanes==='wave'&&(k==='active'||k==='doing'||k==='proposed')){const g={};items.forEach(s=>(g[s.wave||'unplanned']=g[s.wave||'unplanned']||[]).push(s));body=Object.entries(g).map(([w,xs])=>`<div class="lane">${w} <span>${xs.length}</span></div>${xs.map(card).join('')}`).join('')}else body=items.map(card).join('');
+  return `<section class="col" data-col="${k}"><div class="ch"><h2>${name}</h2><span class="n">${items.length}</span><span class="hint">${hint}</span></div>${body||'<div style="color:var(--mu);font-size:12px;padding:6px">empty</div>'}</section>`}).join('');
+ document.querySelectorAll('.card').forEach(c=>{c.onclick=()=>open(c.dataset.id);c.onkeydown=e=>{if(e.key==='Enter')open(c.dataset.id)};c.ondragstart=e=>e.dataTransfer.setData('id',c.dataset.id)});
+ document.querySelectorAll('.col').forEach(col=>{col.ondragover=e=>{e.preventDefault();col.classList.add('drop')};col.ondragleave=()=>col.classList.remove('drop');col.ondrop=e=>{e.preventDefault();col.classList.remove('drop');move(e.dataTransfer.getData('id'),col.dataset.col)}})}
+function move(id,to){const s=S.find(x=>x.id===id);if(!s||s.st===to)return;
+ if(!(NEXT[s.st]||[]).includes(to)){toast(`Refused: ${s.st} → ${to} is not a move the story lifecycle allows`,true);return}
+ const from=s.st;s.st=to;if(to==='active'&&!s.wave)s.wave='next';render();if(sel===id)open(id);toast(`story:${id} ${from} → ${to} · recorded as your decision (mock)`)}
+function prio(id,p){const s=S.find(x=>x.id===id);s.prio=p||undefined;render();open(id);toast(p?`story:${id} marked ${p}: it goes first in the next wave (mock)`:'priority cleared (mock)')}
+function open(id){sel=id;const s=S.find(x=>x.id===id);render();
+ const acts=(NEXT[s.st]||[]).map(t=>`<button class="${t==='active'?'primary':''}" onclick="move('${id}','${t}')">${t==='active'?'Approve → Accepted':t==='proposed'?'Propose':t==='rejected'?'Reject':t==='draft'?'Back to draft':t==='doing'?'Start now':t==='implemented'?'Mark done':'Archive'}</button>`).join('');
+ $('drawer').innerHTML=`<div class="dh"><div style="display:flex;gap:6px;align-items:center"><span class="pill m">${s.kind||'story'}</span><span class="pill b">${s.st}</span>${s.prio?`<span class="pill r">${s.prio}</span>`:''}${s.op?'<span class="pill a">your ask</span>':''}<button class="ghost" style="margin-left:auto" onclick="closeD()">✕</button></div>
+  <h2>${s.t}</h2><div style="font-family:var(--mono);font-size:12px;color:var(--mu)">story:${s.id}</div></div>
+ <div class="db"><dl class="kv"><dt>wave</dt><dd>${s.wave||'—'}</dd><dt>asked by</dt><dd>${s.by||'—'}</dd><dt>work</dt><dd>${s.tree||'—'}</dd><dt>released</dt><dd>${s.rel||'—'}</dd></dl>
+  <h3>Why</h3><p>Observed 2026-11-07 on two instances: … (the story's <b>Why</b> section, rendered from its markdown).</p>
+  <h3>Acceptance</h3><ul><li>Each acceptance line, rendered; the ones with recorded evidence are ticked.</li><li>✓ <code>guard_rules</code> 143 passed (test_result evidence)</li><li>○ the live reading after install</li></ul>
+  <h3>Scope</h3><p><code>crates/conductor/src/guard/rules.rs</code>, <code>crates/conductor/tests/guard_rules.rs</code></p>
+  <h3>History</h3><div class="tl"><div>2026-11-07 11:40 draft → proposed · supervisor</div><div>2026-11-07 11:40 proposed → active · supervisor</div><div>2026-11-07 12:58 evidence: test_result</div></div>
+  <h3>Comment to conductor-dev</h3><textarea placeholder="Change the acceptance, narrow the scope, or say why it matters… (sent as your words, recorded on the story)"></textarea>
+ </div>
+ <div class="df">${acts}<span style="margin-left:auto;display:flex;gap:6px"><button onclick="prio('${id}','P1')">Make it important (P1)</button>${s.prio?`<button class="ghost" onclick="prio('${id}')">clear</button>`:''}</span></div>`;
+ $('drawer').classList.add('on')}
+function closeD(){$('drawer').classList.remove('on');sel=null;render()}
+function toast(t,bad){const el=$('toast');el.textContent=t;el.style.color=bad?'var(--red)':'';el.style.borderColor=bad?'var(--red)':'';el.style.background=bad?'var(--redbg)':'';el.classList.add('on');setTimeout(()=>el.classList.remove('on'),3200)}
+$('q').oninput=render;$('mine').onchange=render;
+$('lanes').querySelectorAll('button').forEach(b=>b.onclick=()=>{lanes=b.dataset.l;$('lanes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));render()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeD()});
+render();
+</script>
+</body>
+</html>
