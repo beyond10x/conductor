@@ -1,0 +1,10 @@
+{
+  "about": "",
+  "scenarios": {},
+  "tolerances": {},
+  "known": {
+    "axe:overview/loaded@*/*:link-in-text-block": "UXF-001",
+    "axe:sessions/*@*/*:link-in-text-block": "UXF-001",
+    "axe:repository/loaded@*/*:scrollable-region-focusable": "UXF-002"
+  }
+}

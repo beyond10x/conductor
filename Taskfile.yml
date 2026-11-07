@@ -306,6 +306,23 @@ tasks:
       - npm ci
       - npm run build
 
+  ui:gates:
+    desc: The dashboard's UI loop gates on every merge (story:dashboard-ui-loop), on the committed dist/ in headless Chromium with the fixtures and no network; the layout contract and axe-core at the gating viewports in both themes over every scenario state, the screen-only user's tasks, then the ratchet over ux/baseline.json; installs Chromium for Playwright first when it is missing
+    dir: crates/conductor/dashboard
+    cmds:
+      - npx playwright install chromium
+      - npm run ux:gates
+      - npm run ux:ratchet
+
+  ui:round:
+    desc: "Write a UI loop round report (ux/rounds/<ROUND>/, ux/trend.md) from a run that adds the measured-only viewports and the shots: task ui:round ROUND=R-02"
+    dir: crates/conductor/dashboard
+    requires:
+      vars: [ROUND]
+    cmds:
+      - npx playwright install chromium
+      - npm run ux:round -- {{shellQuote .ROUND}}
+
   ui:dev:
     desc: Serve the dashboard app from source with hot reload on http://127.0.0.1:5173/ (Vite dev mode); its data and answers come from the running dashboard, CONDUCTOR_DASHBOARD (default http://127.0.0.1:7313), so start that first with task dashboard
     dir: crates/conductor/dashboard
@@ -328,6 +345,7 @@ tasks:
       - task: ui
       - git diff --exit-code -- crates/conductor/dashboard/dist
       - test -z "$(git status --porcelain --untracked-files=all -- crates/conductor/dashboard/dist)" || { git status --short --untracked-files=all -- crates/conductor/dashboard/dist; echo "crates/conductor/dashboard/dist differs from a fresh build; run task ui and commit dist/" >&2; exit 1; }
+      - task: ui:gates
       - cargo fmt --check
       - cargo clippy --all-targets -- -D warnings
       - cargo test --no-fail-fast

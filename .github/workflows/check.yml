@@ -77,6 +77,14 @@ jobs:
           task --version
           ess --version
           aep --version
+      # The dashboard's UI loop gates (task ui:gates, part of task check) run Playwright in
+      # headless Chromium; the browser and the system libraries it needs come from Playwright's
+      # pinned build, at the version the app's package-lock.json holds.
+      - name: Install Chromium for the dashboard's UI gates
+        working-directory: crates/conductor/dashboard
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: task check
         run: task check
       # A failed gate whose cause is a generated page that was edited by hand shows what the
