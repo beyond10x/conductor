@@ -90,6 +90,21 @@
 //!    stopped; its grant is marked (`lane_overrun`) as it is released. The queued line and the
 //!    grant name the lane. Queue order, backfill and the disk rules of the regular slots are as
 //!    above.
+//! 10. **Shared target directory** (`story:build-shared-target-dir`). A cargo-based command gets
+//!     `CARGO_TARGET_DIR` set to its repository's one target directory, `<cache>/target/<key>`
+//!     under the instance's cache ([`targets_root`]), the key from the repository's origin
+//!     ([`repository_key`]), so every tree of a repository builds the dependencies once. Granted,
+//!     and before the command starts, the run takes the repository's lock
+//!     (`<cache>/target/.locks/<key>.lock`) and holds it until the command ended: cargo's own lock
+//!     covers only its build step, and a tree's tests would otherwise run the binary another tree
+//!     uplifted meanwhile (`target/debug/<bin>`, which `CARGO_BIN_EXE_<bin>` names). A run that
+//!     finds the lock held waits, says its position in the queue once, and leaves the queue on a
+//!     stopping signal like a waiting request. Cargo hashes the repository's own crates by their
+//!     path inside the workspace, the same in each tree, and finds them fresh by modification
+//!     time, so a run from another tree than the target's last marks its tree's files modified
+//!     first (`SharedTarget::claim`). A `CARGO_TARGET_DIR` the environment sets is kept, named
+//!     in one line, and the run takes no lock. The measured directories include the shared one.
+//!     `conductor gc` removes a shared target whose lock no run holds.
 
 use std::collections::HashSet;
 use std::ffi::OsString;

@@ -156,7 +156,8 @@ types:
 
   # The input of `conductor gc` (story:conductor-gc), which removes what the dashboard's disk panel
   # marks reclaimable, the finished managed trees and the `target/` of the stale ones
-  # (story:gc-finished-trees), and nothing else. `dry_run` lists those rows and removes nothing;
+  # (story:gc-finished-trees), each repository's shared target of `conductor build run` whose lock
+  # no build holds (story:build-shared-target-dir), and nothing else. `dry_run` lists those rows and removes nothing;
   # `format` is text or json, read by the handler.
   - name: conductor.observation.CollectGarbage
     kind: struct

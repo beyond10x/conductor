@@ -140,8 +140,15 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 
 - Work in a managed worktree, not in the primary checkout: `worktree create --purpose <what>`,
   and end with `worktree finish --discard-cache --archive <tree>`.
-- Build into the tree's own `target/`. Never set `CARGO_TARGET_DIR`: a shared target can run
-  another tree's test binaries and report them green.
+- `conductor build run` owns the target directory. It sets `CARGO_TARGET_DIR` for a cargo-based
+  command to the repository's one target under the instance's cache, shared by all its trees, so
+  the dependencies are built once; the tree's own `target/` stays empty. Never set
+  `CARGO_TARGET_DIR` yourself: `build run` keeps a value you set and takes no lock for it. A
+  shared target is safe only under `build run`'s lock: it holds the repository's lock for the
+  whole command, not only cargo's build step, so no test runs a binary another tree uplifted
+  meanwhile, and a run from another tree than the target's last marks its own files modified, so
+  cargo rebuilds the repository's crates rather than reuse the other tree's. Runs of one
+  repository queue behind each other; `conductor gc` removes a shared target no run holds.
 - Run at most one local `task check` per repository at a time; prefer `cargo test -p conductor-cli`
   on what you touched.
 
@@ -157,7 +164,8 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 - Record a story's gate on the story: `aep plan artifact evidence <id> --kind test_result`.
 - Fast-forward the product checkout before a session starts from it: the roles read their profile
   from it.
-- `cargo clean` a tree's `target/` once its gate has run.
+- `cargo clean` a tree's own `target/` once its gate has run, when a build outside `build run`
+  wrote one.
 
 ## Releases
 

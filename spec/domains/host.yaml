@@ -151,7 +151,13 @@ types:
   # over twice that peak is run as written, with a warning naming the peak
   # (story:reserve-from-peak). Each `--measure` directory is measured with the run's own (`target/` or the working
   # directory, and `CARGO_TARGET_DIR` when the command's environment sets it), for a run that
-  # writes elsewhere (story:reserve-from-peak).
+  # writes elsewhere (story:reserve-from-peak). A cargo-based command builds into its repository's
+  # one target directory, `target/<key>` under the instance's cache, the key from the
+  # repository's origin, shared by all its trees (story:build-shared-target-dir): `build run` sets
+  # `CARGO_TARGET_DIR` to it and holds the repository's lock (`target/.locks/<key>.lock`) for the
+  # whole command, so a test never runs a binary another tree built; a run that waits for the lock
+  # names its queue position once. A `CARGO_TARGET_DIR` the environment sets is kept and named on
+  # standard error. The shared target is measured with the run's own.
   - name: conductor.host.BuildRun
     kind: struct
     fields:
