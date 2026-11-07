@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-07T14:17:55Z",
+  "actor": "human:timo",
+  "artifact": "story:sweep-legacy-waiters",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test build_run",
+    "reference": "aa55760e7: a_young_request_with_no_run_lock_file_is_left_to_its_waiter, a_request_or_grant_whose_run_is_gone_is_closed_by_the_next_run: 2 passed, 0 failed; shipped in 6ebbff893 (v0.10.7)"
+  }
+}
