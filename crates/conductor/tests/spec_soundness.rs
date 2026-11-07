@@ -145,7 +145,10 @@ fn every_refusal_a_handler_prints_names_a_declared_error() {
             for name in refusal_names(line) {
                 if !declared.contains(&name) {
                     let shown = file.strip_prefix(&source).unwrap_or(&file).display();
-                    undeclared.push(format!("crates/conductor/src/{shown}:{}: {name}", number + 1));
+                    undeclared.push(format!(
+                        "crates/conductor/src/{shown}:{}: {name}",
+                        number + 1
+                    ));
                 }
             }
         }
