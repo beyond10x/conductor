@@ -5,7 +5,7 @@ kind: story
 status: active
 title: A controller spawned with no dispatch reports without a made-up id
 summary: made-up dispatch ids are dropped by the loop and the sender is not told
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 4}
@@ -39,3 +39,7 @@ silent drop for a request refused by format.
 A second instance, its dispatch log line 102: the loop itself started a controller from its charter with no dispatch row in `conductor dispatch dispatches`; the controller named its reports `DSP-<controller id prefix>` and the loop dropped each one (run journal 14:29:51Z: `dispatch report-blocked: DispatchNotFound`). So the loop's own spawn path has the same gap as `conductor spawn`, and every loop-started controller is invisible to K4.
 
 - A controller the loop starts has a dispatch row created in the same tick, and its charter or first message names that id.
+
+## Decided at implementation (2026-11-07)
+
+A controller the loop starts gets a dispatch row when its repository serves an open goal (a dispatch needs a goal). With no open goal served, it starts with none and reports with `-`, which the loop accepts and does not refuse. Making `Dispatch.goal_id` optional is left to a later story if a goal-less dispatch is needed.
