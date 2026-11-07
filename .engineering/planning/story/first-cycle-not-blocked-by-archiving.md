@@ -5,7 +5,7 @@ kind: story
 status: draft
 title: The first cycle starts controllers without waiting for worktree archiving
 summary: archiving runs off the cycle critical path with an n-of-N progress line
-revision: 1
+revision: 2
 ---
 ## Why
 
@@ -17,6 +17,11 @@ line about every 12 s from 04:58 to 05:05Z (inferred: up to about 45 min for all
 6.1 GB. Controllers start only in the cycle, after the snapshot (`cadence.cycle`,
 `docs/design/conductor-run.md` lines 51-53), so none started; they were started by hand with
 `conductor spawn`.
+
+Observed again 2026-11-07 on a second instance: its loop, started 04:05Z, logged `archive …
+nothing-to-strip` lines until 06:49:45Z, then waited on a child `worktree gc --repo <checkout> --id
+<tree> --apply`; `conductor session run-ticks` holds no tick after 06:16:17Z, so that day's daily
+tick did not run.
 
 ## Proposal
 
