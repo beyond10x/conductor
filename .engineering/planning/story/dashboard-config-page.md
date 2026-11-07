@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:dashboard-config-page
 kind: story
-status: active
+status: implemented
 title: The dashboard shows each instance's configuration and edits it through staged, validated, recorded writes
 summary: the operator asked to see and change instance configuration from the dashboard
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:19:31Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:19:32Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T17:24:12Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

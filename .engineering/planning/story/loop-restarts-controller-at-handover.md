@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:loop-restarts-controller-at-handover
 kind: story
-status: active
+status: implemented
 title: The loop asks a controller for its hand-over at the context threshold and restarts it fresh
 summary: 11 controllers ran past the context threshold in one day
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T17:24:12Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

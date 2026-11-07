@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:dashboard-plan-board
 kind: story
-status: active
+status: implemented
 title: The dashboard shows the plan as a board and lets the operator approve, reject, start and prioritise stories
 summary: the operator asked for a Kanban plan board with approve and priority
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:39:22Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T13:39:22Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T17:24:11Z", actor: "human:timo", revision: 5, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

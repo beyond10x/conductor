@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:cycle-stamped-after-it-runs
 kind: story
-status: active
+status: implemented
 title: A cycle is stamped when it ends, so a restart during it reruns it
 summary: a restart during a cycle lost one snapshot and 2 h of cycles
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T15:58:44Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T15:58:44Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T17:24:13Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

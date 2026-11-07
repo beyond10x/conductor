@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:report-on-sent-dispatch
 kind: story
-status: active
+status: implemented
 title: A blocked or done report on a sent dispatch is not dropped
 summary: a blocked report on a Sent dispatch is refused and the sender never learns it
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 4}
+- {from: "active", to: "implemented", at: "2026-11-07T17:24:12Z", actor: "human:timo", revision: 6, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

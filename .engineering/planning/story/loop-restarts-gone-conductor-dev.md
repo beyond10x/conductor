@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:loop-restarts-gone-conductor-dev
 kind: story
-status: active
+status: implemented
 title: The loop restarts a gone conductor-dev while the plan has active stories
 summary: a gone conductor-dev stayed gone 1.5 h with four stories active
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T12:41:39Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T12:41:39Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T17:24:13Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
