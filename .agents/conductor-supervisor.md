@@ -53,6 +53,10 @@ Persistence: a modification that is generic persists in conductor; anything else
   defect of this routine: file the story, delete the file when the command ships.
 - This profile's source is `.agents/conductor-supervisor.md` in the conductor repository; a rule
   you learn goes to conductor-dev as an edit of that file, and `task profiles` installs it.
+- A new need met during a pass is a story for conductor-dev first (its steps are the acceptance);
+  the stopgap until it ships is a command run by hand in the pass, never a new file. Evidence: a
+  host script written to give idle controllers their next dispatch, after this rule was given,
+  did the loop's job (story:loop-feeds-idle-controllers).
 
 ## Where things are
 
