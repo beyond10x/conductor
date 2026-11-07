@@ -226,3 +226,81 @@ fn init_twice_refuses_the_second_time() {
     assert_eq!(second.status.code(), Some(1), "{}", shown(&second));
     assert_eq!(case.records_git(&["rev-parse", "HEAD"]), before);
 }
+
+/// The host adapters `conductor init` installs under `~/.claude/agents/`
+/// (`story:host-session-profiles`).
+const ADAPTERS: [&str; 2] = ["conductor-supervisor.md", "conductor-teacher.md"];
+
+/// The adapter `name` as this checkout ships it, `.claude/agents/<name>`.
+fn shipped_adapter(name: &str) -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.claude/agents")
+        .join(name);
+    fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// `story:host-session-profiles`: `conductor init` installs both host adapters under
+/// `~/.claude/agents/` when they are missing, and prints `installed: <path>` for each.
+#[test]
+fn init_installs_the_host_adapters_that_are_missing() {
+    let case = Case::new("adapters-missing");
+    let config = case.config();
+    let output = case.init(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let agents = case.dir.join("home/.claude/agents");
+    for name in ADAPTERS {
+        let path = agents.join(name);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap_or_default(),
+            shipped_adapter(name),
+            "{name} is installed as shipped: {}",
+            shown(&output)
+        );
+        let line = format!("installed: {}", path.display());
+        assert!(
+            stdout.lines().any(|printed| printed == line),
+            "init prints {line:?}: {}",
+            shown(&output)
+        );
+    }
+}
+
+/// `story:host-session-profiles`: an adapter that is there is never overwritten: one equal to the
+/// shipped file is `kept`, one that differs is left as it is and named `differs`.
+#[test]
+fn init_keeps_an_adapter_that_is_there_and_names_one_that_differs() {
+    let case = Case::new("adapters-there");
+    let config = case.config();
+    let agents = case.dir.join("home/.claude/agents");
+    fs::create_dir_all(&agents).expect("create ~/.claude/agents");
+    let (same, other) = (ADAPTERS[0], ADAPTERS[1]);
+    fs::write(agents.join(same), shipped_adapter(same)).expect("write the shipped adapter");
+    fs::write(agents.join(other), "# our own teacher\n").expect("write a differing adapter");
+
+    let output = case.init(&config);
+    assert_eq!(output.status.code(), Some(0), "{}", shown(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let kept = format!("kept: {}", agents.join(same).display());
+    assert!(
+        stdout.lines().any(|line| line == kept),
+        "init prints {kept:?}: {}",
+        shown(&output)
+    );
+    let differs = format!("differs: {}", agents.join(other).display());
+    assert!(
+        stdout.lines().any(|line| line.starts_with(&differs)),
+        "init prints a line starting {differs:?}: {}",
+        shown(&output)
+    );
+    assert_eq!(
+        fs::read_to_string(agents.join(other)).expect("read the differing adapter"),
+        "# our own teacher\n",
+        "a differing adapter is never overwritten"
+    );
+    assert!(
+        !stdout.contains("installed:"),
+        "nothing is installed over a file that is there: {}",
+        shown(&output)
+    );
+}

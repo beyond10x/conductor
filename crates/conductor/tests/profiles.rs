@@ -39,6 +39,54 @@ fn shipped(dir: &str) -> Vec<(PathBuf, String)> {
     files
 }
 
+/// The host's profiles, beside the instance roles' (`story:host-session-profiles`).
+const HOST_PROFILES: [&str; 2] = ["conductor-supervisor.md", "conductor-teacher.md"];
+
+/// The start command a host profile writes: the one line of it that starts with
+/// `claude --bg --agent <name>`, its backticks taken off.
+fn start_command(name: &str) -> String {
+    let path = agents().join(format!("{name}.md"));
+    let text = fs::read_to_string(&path).expect("read the profile");
+    let head = format!("`claude --bg --agent {name} ");
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with(&head))
+        .collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "{name}.md writes its start command on one line of its own: {lines:?}"
+    );
+    lines[0].trim_matches('`').to_owned()
+}
+
+/// `story:host-session-profiles`: the supervisor's and the teacher's profiles ship in `.agents/`,
+/// each stating its start command, `claude --bg --agent <name> -n <name>`, and each adapter keeps
+/// its agent frontmatter and points at the installed profile.
+#[test]
+fn the_host_profiles_state_their_start_command_and_their_adapters_point_at_them() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for file in HOST_PROFILES {
+        let name = file.trim_end_matches(".md");
+        let command = start_command(name);
+        assert!(
+            command.starts_with(&format!("claude --bg --agent {name} -n {name} ")),
+            "{file}: the start command names its agent and session: {command}"
+        );
+        let adapter = fs::read_to_string(root.join(".claude/agents").join(file))
+            .unwrap_or_else(|error| panic!(".claude/agents/{file}: {error}"));
+        assert!(
+            adapter.starts_with(&format!("---\nname: {name}\ndescription: ")),
+            ".claude/agents/{file} keeps its agent frontmatter: {adapter}"
+        );
+        assert!(
+            adapter.contains(&format!("`profiles/{file}`"))
+                && adapter.contains(&format!("`.agents/{file}`")),
+            ".claude/agents/{file} points at the installed profile and its source: {adapter}"
+        );
+    }
+}
+
 /// `story:run-daemon`, acceptance 6, and `story:controller-profile-for-run`, acceptance 4:
 /// `conductor run` is the loop, so the conductor profile and its Claude Code adapter are retired,
 /// and no profile or adapter shipped asks a session to arm a timer, run the watch under `Monitor`,
@@ -52,16 +100,24 @@ fn no_profile_arms_a_timer_watches_messages_by_send_message_or_restarts_conducto
     let profiles = shipped(".agents");
     assert_eq!(
         profiles.len(),
-        2,
-        "the profiles shipped: conductor-dev.md and repo-controller.md"
+        4,
+        "the profiles shipped: conductor-dev.md, repo-controller.md and the host's \
+         conductor-supervisor.md and conductor-teacher.md"
     );
     let adapters = shipped(".claude/agents");
     assert_eq!(
         adapters.len(),
-        2,
-        "the adapters shipped: conductor-dev.md and repo-controller.md"
+        4,
+        "the adapters shipped: conductor-dev.md, repo-controller.md and the host's \
+         conductor-supervisor.md and conductor-teacher.md"
     );
     for (path, text) in profiles.iter().chain(&adapters) {
+        // The host's supervisor and teacher run outside every instance, where no mailbox of
+        // conductor run's reaches them: they message each other and the maintainer by
+        // `SendMessage` (`story:host-session-profiles`). The instance roles never do.
+        let host = HOST_PROFILES
+            .iter()
+            .any(|name| path.file_name().is_some_and(|file| file == *name));
         for gone in [
             "CronCreate",
             "Monitor",
@@ -71,6 +127,9 @@ fn no_profile_arms_a_timer_watches_messages_by_send_message_or_restarts_conducto
             "conductor:restart",
             "conductor:start",
         ] {
+            if host && gone == "SendMessage" {
+                continue;
+            }
             assert!(
                 !text.contains(gone),
                 "{}: names {gone:?}, which conductor run replaced",

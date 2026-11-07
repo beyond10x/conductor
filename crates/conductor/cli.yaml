@@ -354,7 +354,7 @@ commands:
         source: {kind: option, long: instance}
   - path: [init]
     callable: init
-    about: Write and commit the instance's records directory skeleton; refuse to overwrite any file
+    about: Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file
     arguments:
       - field: instance
         source: {kind: option, long: instance}

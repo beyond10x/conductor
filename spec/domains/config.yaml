@@ -682,7 +682,11 @@ types:
   # (`conductor.config.RoleName`: `Director`, `Lead`, `Maintainer`), a `README.md`, the workspace file
   # `.engineering/workspace.yaml` as `config workspace` writes it, and `decisions/`,
   # `dispatches/` and `charters/` — and commits it, refusing to overwrite any file. `instance` is
-  # selected as for `config show`; a config file must name it.
+  # selected as for `config show`; a config file must name it. Before the records, it installs
+  # the host's agent adapters, `conductor-supervisor.md` and `conductor-teacher.md`, as the
+  # binary ships them, under `~/.claude/agents/` (story:host-session-profiles), and prints one
+  # line per file: `installed: <path>` when it was missing, `kept: <path>` when it equals the
+  # shipped one, `differs: <path>` when it does not, which is never overwritten.
   - name: conductor.config.InitRecords
     kind: struct
     fields:

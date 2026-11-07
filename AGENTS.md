@@ -50,7 +50,7 @@ A value a profile writes as `section.key`, such as `thresholds.build_slot`, is t
 | `crates/conductor-docs/` | the documentation generator: reference pages, status page, site provenance |
 | `website/` | the documentation site (Docusaurus on the shared Docs System); `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json` are generated |
 | `docs/waves/` | one page per wave: selection, units, outcome |
-| `.agents/` | the generic profiles: `conductor-dev.md`, `repo-controller.md` |
+| `.agents/` | the generic profiles: `conductor-dev.md`, `repo-controller.md`, and the host's `conductor-supervisor.md` and `conductor-teacher.md` |
 | `.claude/agents/` | Claude Code adapters, one per profile; each keeps the agent frontmatter and points at its `.agents/` file |
 | `.claude/conductor-settings.json`, `.claude/controller-settings.json` | the settings conductor and each controller start with; both wire the guard as a PreToolUse hook |
 | `conductor.example.yaml` | an example config file |
@@ -71,13 +71,13 @@ Each session commits only the files it writes, with a pathspec.
 | command | does |
 |---|---|
 | `task check` | the gate: a Gates scan of every tracked file when `B10X_GATES_POLICY` names a policy (`b10x-gates scan-text`), `ess specify validate --path spec`, the conformance run, `crates/conductor-model` compared byte for byte with a fresh generation, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `task docs-check`, and for the dashboard app (`crates/conductor/dashboard`, Node as `.nvmrc` pins) `npm ci`, Vitest and a check that the committed `dist/` equals a fresh `task ui` build |
-| `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton; trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
+| `conductor doctor`, `conductor init`, `conductor trust` | the programs conductor starts and their pins (`b10x.toml`); a new instance's records skeleton, and the host's supervisor and teacher adapters in `~/.claude/agents/` (installed when missing, never overwritten); trust for the checkouts and the records in `~/.claude.json` (`task trust` calls it) |
 | `task measure` | the wall-clock measurements, ignored by the gate (append cost against store size, guard latency, the dashboard's warm answers); run alone on a quiet host |
 | `task regen` | regenerates `crates/conductor-model` from `spec/` |
 | `task docs-generate`, `task docs-check` | `conductor-docs generate` writes `website/docs/reference/**`, `website/docs/status.md` and `website/data/status.json`; `--check` fails on any difference. Never edit those files by hand |
 | `npm --prefix website ci && npm --prefix website run build` | builds the documentation site; `.github/workflows/pages.yml` runs it on every push |
 | `task install` | `cargo install --path crates/conductor --locked`, then `task profiles` |
-| `task profiles` | the two `.agents/` profiles into `~/.b10x/conductor/profiles/`, which the instance's roles start from; after a release archive is installed, run it from that release's checkout |
+| `task profiles` | the four `.agents/` profiles into `~/.b10x/conductor/profiles/`, which the instance's roles start from; after a release archive is installed, run it from that release's checkout |
 
 A pull request merges when its `task check` job (`.github/workflows/check.yml`) and its Gates job
 (`common / Security and privacy`, which scans with the organization's policy; the `task check` job
@@ -101,8 +101,8 @@ runs without one) are green on its head commit. Run `task check` locally only wh
 4. **No organization in the product.** The code, the tests, the specification and the tasks name no
    organization: an organization is a config file and its `rules.md`.
    `crates/conductor/tests/no_organization.rs` scans `crates/conductor/src`,
-   `crates/conductor/tests`, `crates/conductor-model/src`, `spec/`, `Taskfile.yml` and
-   `crates/conductor/Cargo.toml`, and allows only the default paths `~/.b10x/conductor` and
+   `crates/conductor/tests`, `crates/conductor-model/src`, `spec/`, `.agents/`, `.claude/agents/`,
+   `Taskfile.yml` and `crates/conductor/Cargo.toml`, and allows only the default paths `~/.b10x/conductor` and
    `~/.cache/b10x/conductor`, the Gates scanner's names and the store crates' source. Use
    `example-org` in code, tests and fixtures. No absolute path into a user's home directory:
    write `~/`.
@@ -217,6 +217,7 @@ its sessions by their full names, its dashboard by its port and unit.
 |---|---|
 | `conductor run --install`, `--uninstall` | start or stop the active instance's loop as the user unit `conductor_<instance>-run.service`; `--uninstall`, then `--install` restarts it, with no hand-over (`docs/design/conductor-run.md`) |
 | `task maintainer:start` | start conductor-dev with `conductor session start --role maintainer`, in this checkout, under the maintainer's session name and on its model in `conductor config show` (`host.roles`), with `--permission-mode bypassPermissions --setting-sources project,local`; refuse unless its harness is `claude`, and while a session of that name runs. A `profile` is appended with `--append-system-prompt-file <profile>`; without one it starts with `--agent conductor-dev`, which is found only in this checkout's `.claude/agents/` |
+| `task supervisor:start`, `task teacher:start` | start the host's `conductor-supervisor` or `conductor-teacher` with the start command its `.agents/` profile writes, in the directory of the config file; refuse while a session of that name runs |
 | `task agents:link REPO=<path>` | links `.claude/agents/{repo-controller,conductor-dev}.md` into `<path>/.claude/agents/`, hidden through that repository's `.git/info/exclude`, for a session you start by hand there; never writes `~/.claude/agents/`, and removes its own old links there. It serves none of the sessions above |
 | `task conductor:attach`, `task maintainer:attach` | open the active instance's session of that role, by its full name, in this terminal; refuse when no live background session or more than one holds that name |
 | `task sessions` | list the active instance's two sessions by their full names; exit 1 naming each name more than one live background session holds |

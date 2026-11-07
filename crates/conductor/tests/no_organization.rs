@@ -4,8 +4,9 @@
 //! The words `beyond10x` and `b10x` are looked for, case-insensitively, in every file under
 //! `crates/conductor/src`, `crates/conductor/tests`, `crates/conductor-model/src`, `spec`, and the
 //! broker's and `tool`'s crates, `crates/conductor-broker` and `crates/tool`
-//! (`story:tool-broker-read`), and in `Taskfile.yml` and `crates/conductor/Cargo.toml`. These uses
-//! are allowed, each by its exact text:
+//! (`story:tool-broker-read`), the profiles and their adapters, `.agents` and `.claude/agents`
+//! (`story:host-session-profiles`), and in `Taskfile.yml` and `crates/conductor/Cargo.toml`. These
+//! uses are allowed, each by its exact text:
 //! - `.b10x/conductor`, `~/.b10x` and `".b10x"`, the directory of the config file and the default
 //!   instance directories, and `.cache/b10x/conductor`, the default cache of an instance;
 //! - `b10x-gates`, the name of the Gates scanner the guard and `task check` call, and
@@ -22,7 +23,8 @@
 //!
 //! The public text names no instance either (`story:public-text-check`). Every tracked file under
 //! `docs/`, `website/docs/` (the generated `reference/` and `status.md` left out), `README.md`,
-//! `AGENTS.md` and `.agents/` is read, and the check fails, naming file, line and rule, on:
+//! `AGENTS.md`, `.agents/` and `.claude/agents/` is read, and the check fails, naming file, line
+//! and rule, on:
 //! - an id of an instance's record: `DEC-`, `DSP-`, `N-` or `H-` and an eight-digit date, as a word
 //!   of its own; a documented example is allowed inside a fenced code block of `website/docs/`;
 //! - an absolute path into a home directory: a path token, at the start of a line or after
@@ -99,8 +101,23 @@ fn no_file_of_the_product_names_an_organization() {
         "spec",
         "crates/conductor-broker",
         "crates/tool",
+        // The profiles and their adapters, the host's supervisor and teacher among them
+        // (`story:host-session-profiles`); `conductor init` installs the adapters on any host.
+        ".agents",
+        ".claude/agents",
     ] {
         files(&root.join(dir), &mut paths);
+    }
+    for profile in [
+        ".agents/conductor-supervisor.md",
+        ".agents/conductor-teacher.md",
+        ".claude/agents/conductor-supervisor.md",
+        ".claude/agents/conductor-teacher.md",
+    ] {
+        assert!(
+            paths.contains(&root.join(profile)),
+            "the check reads {profile}"
+        );
     }
     paths.retain(|path| {
         let shown = path.to_string_lossy();
@@ -140,13 +157,14 @@ fn the_check_finds_a_name_and_passes_the_allowed_uses() {
 
 /// The public text: the tracked files under these pathspecs. `SETUP.md` is the step list an
 /// agent follows to set conductor up (`story:setup-guide-for-agents`).
-const PUBLIC: [&str; 6] = [
+const PUBLIC: [&str; 7] = [
     "docs",
     "website/docs",
     "README.md",
     "SETUP.md",
     "AGENTS.md",
     ".agents",
+    ".claude/agents",
 ];
 
 /// The pages `conductor-docs generate` writes, left out of the public text.

@@ -567,7 +567,7 @@ pub enum Group {
     #[command(name = "gc")]
     Gc(GcArgs),
 
-    /// Write and commit the instance's records directory skeleton; refuse to overwrite any file
+    /// Install the host's supervisor and teacher agents in ~/.claude/agents/ where missing, printing installed, kept or differs per file, then write and commit the instance's records directory skeleton; refuse to overwrite any file
     #[command(name = "init")]
     Init(InitArgs),
 

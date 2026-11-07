@@ -78,6 +78,32 @@ tasks:
     cmds:
       - conductor session start --role maintainer
 
+  supervisor:start:
+    desc: Start the host's supervisor, the background session conductor-supervisor, with the start command .agents/conductor-supervisor.md writes, in the directory of the config file (~/.b10x/conductor unless CONDUCTOR_CONFIG names another); its agent is the adapter conductor init installs in ~/.claude/agents/ and its profile the one task profiles installs; refuses while a live session named conductor-supervisor exists
+    vars:
+      DIR:
+        sh: dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}"
+    preconditions:
+      - sh: test -d {{shellQuote .DIR}}
+        msg: the directory of the config file, {{.DIR}}, is not a directory
+      - sh: claude agents --json | jq -e --arg n conductor-supervisor 'all(.[]; .name != $n or .pid == null)' >/dev/null
+        msg: a session named conductor-supervisor is already running; stop it with claude stop <id> after its hand-off, then run the task again
+    cmds:
+      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-supervisor -n conductor-supervisor --permission-mode bypassPermissions "Start of a fresh supervisor session. Read host/supervisor-handoff.md if it is there, run your routine once, report blockers only, then wait for an event."'
+
+  teacher:start:
+    desc: Start the host's teacher, the background session conductor-teacher, with the start command .agents/conductor-teacher.md writes, in the directory of the config file (~/.b10x/conductor unless CONDUCTOR_CONFIG names another); its agent is the adapter conductor init installs in ~/.claude/agents/ and its profile the one task profiles installs; refuses while a live session named conductor-teacher exists
+    vars:
+      DIR:
+        sh: dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}"
+    preconditions:
+      - sh: test -d {{shellQuote .DIR}}
+        msg: the directory of the config file, {{.DIR}}, is not a directory
+      - sh: claude agents --json | jq -e --arg n conductor-teacher 'all(.[]; .name != $n or .pid == null)' >/dev/null
+        msg: a session named conductor-teacher is already running; stop it with claude stop <id> after its hand-off, then run the task again
+    cmds:
+      - 'cd {{shellQuote .DIR}} && claude --bg --agent conductor-teacher -n conductor-teacher --permission-mode bypassPermissions "Start of a fresh teacher session. Read host/teacher-handoff.md if it is there and the supervisor''s profile, run your routine once, report blockers only, then wait for an event."'
+
   maintainer:attach:
     desc: Open the background maintainer (conductor-dev) session, the live session named as the host's maintainer in conductor config show (host.roles), in this terminal; refuses when no live background session or more than one holds that name. dev:attach is its old name, for this release
     aliases: [dev:attach]
@@ -288,9 +314,9 @@ tasks:
       - task: profiles
 
   profiles:
-    desc: Install the profiles the sessions start from (.agents/conductor-dev.md and repo-controller.md; conductor run replaced the conductor profile) into profiles/ beside the config file (~/.b10x/conductor/profiles unless CONDUCTOR_CONFIG names another), so a role's profile matches the installed binary and a restart reads no checkout; run it from the checkout of the release installed, as after a release archive is installed
+    desc: Install the profiles the sessions start from (.agents/conductor-dev.md and repo-controller.md, and the host's conductor-supervisor.md and conductor-teacher.md; conductor run replaced the conductor profile) into profiles/ beside the config file (~/.b10x/conductor/profiles unless CONDUCTOR_CONFIG names another), so a role's profile matches the installed binary and a restart reads no checkout; run it from the checkout of the release installed, as after a release archive is installed
     cmds:
-      - dir="$(dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}")/profiles" && mkdir -p "$dir" && install -m 0644 .agents/conductor-dev.md .agents/repo-controller.md "$dir/" && echo "profiles installed in $dir"
+      - dir="$(dirname "${CONDUCTOR_CONFIG:-$HOME/.b10x/conductor/conductor.yaml}")/profiles" && mkdir -p "$dir" && install -m 0644 .agents/conductor-dev.md .agents/repo-controller.md .agents/conductor-supervisor.md .agents/conductor-teacher.md "$dir/" && echo "profiles installed in $dir"
 
   measure:
     desc: Run the wall-clock measurements alone, outside the gate (the append-cost ratio, the guard latency and the dashboard's warm answers); run it on a quiet host
