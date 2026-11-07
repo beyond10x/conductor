@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-07T12:40:02Z",
+  "actor": "human:timo",
+  "artifact": "story:dashboard-memory-live",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "metric_observation",
+    "source": "/api/health and /proc VmRSS, VmSwap of the live dashboard",
+    "reference": "started 2026-11-07T11:12:06Z, read 2026-11-07T12:39:43Z: RSS 0.86 GB + swap 0.20 GB = 1.06 GB after 1 h 27 min (rss_bytes 882450432, swap_bytes 208429056); 24 h reading due after 2026-11-08T11:12Z"
+  }
+}
