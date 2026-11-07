@@ -116,6 +116,8 @@ migration at the end orders them so that every step is reversible.
 
 ```text
 operator ── chat session ── supervisor (host, one)
+                      │
+                   teacher (host, one; outside the system, reviews it)
                                │
             ┌──────────────────┼──────────────────┐
          instance A         instance B         instance C
@@ -131,6 +133,7 @@ operator ── chat session ── supervisor (host, one)
 | level | one per | role | what it does |
 |---|---|---|---|
 | host | machine | **supervisor** | keeps every instance's loop, controller and workers running; carries findings across instances; decides within its grant; reports to the operator |
+| host | machine | **teacher** | outside the system, above the supervisor: reviews what the supervisor decided and what the instances delivered, the way an adversarial reviewer reads a finished change; changes the supervisor's profile and files findings; never runs the supervisor's routine itself (operator, 2026-11-07) |
 | instance | organization | **controller** | the instance's judgement: picks work across the instance's repositories, starts and steers workers, answers requests, merges what passes, escalates |
 | instance | organization | **loop** | `conductor run`: snapshots, timers, spawns, hand-overs, KPIs; no model |
 | repository or unit | work | **worker** | one job in one tree: plan, implement, review, release; built-in roles |
@@ -259,10 +262,15 @@ sees a proposal inside it except in the brief.
 | 7 | TUI settings editor, `d`, `r`, `k` | read-only TUI |
 | 8 | `tuner` with an empty grant; the operator fills `globals.tuning` | an empty grant |
 
+### Decided
+
+| question | answer |
+|---|---|
+| teacher: own role or part of the supervisor? | its own role, above the supervisor, outside the system like an adversarial review (operator, 2026-11-07: "the teacher should clearly be its own role, and it should just be above the supervisor. It's just like the concept of adversarial review. So we're stepping out of the system and then reviewing it from there") |
+
 ### Open questions for the operator
 
 | question | default without an answer |
 |---|---|
-| Does the teacher stay a role of its own or become part of the supervisor's profile once the supervisor runs as a configured role? | a role of its own, started only when the operator asks |
 | Does one controller per instance keep a tree per repository, or does it work in the workers' trees only? | workers' trees only; the controller has no repository tools |
 | Which keys go into the first tuning grant? | none; the tuner proposes and the brief shows the proposals |
