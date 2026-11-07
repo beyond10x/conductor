@@ -167,7 +167,7 @@ Why one server per session:
   sessions and a crashed server takes no other session down.
 - The tmux config is per session too (`<session>.tmux.conf`: `exit-empty on`, prefix `C-]`, status
   off, `-x 160 -y 50`), so a session's terminal size and keys cannot be changed from another one.
-- Everything typed and printed is kept: `<session>.typescript` is the record a watcher reads, and a
+- Everything typed and printed is kept: `<session>.typescript` is the terminal log (the recording the `script` command writes; the name is `script`'s, not the language) a watcher reads, and a
   session started before the tmux launcher can still be followed through it (`--watch`).
 - A session's settings file (`<session>.settings.json`) is written at start from the role's
   `settings` and its `read_only_tools`, so the harness reads a file conductor owns, not a shared one.
@@ -198,7 +198,7 @@ reconciles the two every pass.
 
 The supervisor and the teacher are not units: they are the harness's own background sessions, read
 their 10-line adapter from `~/.claude/agents/<name>.md` and their whole definition from
-`profiles/<name>.md`. They have no tmux server, no envelope, no typescript, and `conductor session
+`profiles/<name>.md`. They have no tmux server, no envelope, no terminal log, and `conductor session
 list` does not show them.
 
 ### The operator's chat session
@@ -418,7 +418,7 @@ conductord ──systemd units, as today─────────────�
 
 A placement that cannot give the box the profile asks for refuses with a name; `strict` starts
 nothing and records why, `report` falls back to `host` and records that. Inside every box the
-sessions keep tmux, so attach, deliver and the typescript work unchanged.
+sessions keep tmux, so attach, deliver and the terminal log work unchanged.
 
 ### State: four kinds, four homes
 
@@ -429,7 +429,7 @@ config change.
 |---|---|---|---|---|
 | config | `conductor.yaml`: instances, placements, roles, settings, secret names | with the daemon, in a git repository | the file | yes |
 | records (the store) | decisions, dispatches, readings, findings, charters, hand-offs, config changes, reconciliations | with the instance that wrote them, through the `Store` trait | the instance's store; the daemon keeps a read-only mirror | the mirror does |
-| runtime state | sessions, sockets, envelopes, leases, typescripts | inside the box | the box | no; rebuilt from records |
+| runtime state | sessions, sockets, envelopes, leases, terminal logs | inside the box | the box | no; rebuilt from records |
 | cache | exports of `origin/main`, build caches | inside the box | none | no |
 
 ```mermaid
@@ -530,7 +530,7 @@ harness ──► reports, requests, hand-over at the threshold
 </details>
 
 Rules carried over unchanged: one session per name, a successor only after its predecessor stopped;
-hand-over at the context threshold with pushed branches; the typescript as the record.
+hand-over at the context threshold with pushed branches; the terminal log as the record.
 
 ### The TUI
 
@@ -584,7 +584,7 @@ terminal ── conductor tui (one tmux client)
 | `d` | deliver a text to it (recorded like `conductor session deliver`) |
 | `s` | edit the selected instance's or role's settings; the TUI validates and writes the config file, and shows the effective value with the level it comes from |
 | `r` | restart the session (hand-over first, then stop, then start) |
-| `l` | its typescript, following |
+| `l` | follow its terminal log (`<session>.typescript`, the recording `script` writes; nothing to do with the TypeScript language) |
 | `k` | the instance's KPI readings of the last 7 days |
 
 The TUI reads what the dashboard reads (the store and `<state>/sessions/`) and writes only through

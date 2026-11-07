@@ -172,7 +172,7 @@ Rules:
 - Sessions inside the box are substrate exec or PTY sessions (`get_pipe_session`), one per role
   session, started by the instance runtime through the same SDK; attach is the PTY stream carried by
   the instance API. tmux stays the terminal multiplexer inside the box so that today's attach, deliver
-  and typescript keep working unchanged.
+  and the terminal log keep working unchanged.
 - The daemon keeps `substrate-daemon` running on the control host (`epic:process-supervision` C5),
   and treats a remote substrate like any unreachable instance: a row, not an error.
 - Mantle is a coarse placement: mantle owns the agent process and PTY, and lists sessions only from
@@ -189,7 +189,7 @@ not kept in the store; the store keeps what *happened*, including every config c
 |---|---|---|---|---|
 | config | `conductor.yaml`: instances, placements, roles, settings, secret names | with the daemon, in a git repository | the file | yes |
 | records (the store) | decisions, dispatches, readings, findings, charters, hand-offs, snapshots, config changes, reconciliations | with the instance that wrote them, through the `Store` trait | the instance's store; the daemon holds a read-only mirror | the mirror does; the instance's copy does when its backend is outside the box |
-| runtime state | sessions, sockets, envelopes, leases, typescripts, the watch's files | inside the box, under `<runtime>/` | the box | no; rebuilt from records at the next start |
+| runtime state | sessions, sockets, envelopes, leases, terminal logs, the watch's files | inside the box, under `<runtime>/` | the box | no; rebuilt from records at the next start |
 | cache | exports of `origin/main`, build caches, repository caches | inside the box | none | no |
 
 ### 6.1 The `Store` trait and its backends
