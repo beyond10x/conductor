@@ -1,5 +1,5 @@
 // generated from conductor v1
-// contract digest be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef
+// contract digest 057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -940,4 +940,17 @@ pub struct WriteWorkspace {
     pub instance: Option<String>,
     /// `check` — `Optional<Boolean>`.
     pub check: Option<bool>,
+}
+
+/// The declared error `conductor.config.StateDirNotInstance`.
+///
+/// `--state-dir` names a directory that is not the state of the instance the config file names, and the command writes that instance's records; nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateDirNotInstance {
+    /// `state_dir` — `String`.
+    pub state_dir: String,
+    /// `instance` — `conductor.config.InstanceName`.
+    pub instance: InstanceName,
+    /// `state` — `String`.
+    pub state: String,
 }

@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "406e31a50317fe5d61bdec3024fef2361affe2cfb35871265147101a24fa191c",
-    "contract_digest": "be653a3903946b927ee839b4c78cc6950bf72479fe4848eea875f7ebbd5be8ef"
+    "source_digest": "3cc49b9e99b47dd4ca05111dc94412dea6854fba865a5e5d08c97ce253758534",
+    "contract_digest": "057692c7a57029c79cc9e78eb455da83a4c0aa80b4525dc295987296007b3391"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -3890,6 +3890,13 @@
     {
       "kind": "event_type",
       "source": "conductor.tool.ToolCallRecorded",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "error_type",
+      "source": "conductor.config.StateDirNotInstance",
       "disposition": {
         "disposition": "generated"
       }
