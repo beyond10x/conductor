@@ -1208,3 +1208,76 @@ fn an_unchanged_archive_is_answered_from_the_cache_and_a_changed_one_walked_agai
     assert_eq!(walked(&case), ["alpha/a2"], "{}", shown(&output));
     assert_eq!(archive_rows(&output).len(), 3, "{}", shown(&output));
 }
+
+/// What gc calls a repository's shared target of `build run` (`story:build-shared-target-dir`).
+const SHARED_TARGET: &str = "shared build target";
+
+/// `story:build-shared-target-dir`: under the instance's cache (the built-in instance's
+/// `~/.cache/conductor-watch`), `target/<key>` is a repository's shared target and
+/// `target/.locks/<key>.lock` the lock `build run` holds for a whole command. `conductor gc
+/// --dry-run` lists the target no run holds and removes nothing; `conductor gc` removes it, and
+/// keeps the one whose lock a run holds, naming why.
+#[test]
+fn gc_reclaims_a_shared_target_no_build_holds() {
+    let case = Case::new("shared-target");
+    let root = case.home().join(".cache/conductor-watch/target");
+    let (idle, busy) = ("example-00000000000000a1", "example-00000000000000b2");
+    for key in [idle, busy] {
+        fill(&root.join(key).join("debug/out.bin"), 64 * KIB);
+        write(&root.join(".locks").join(format!("{key}.lock")), "");
+    }
+    let held = fs::OpenOptions::new()
+        .write(true)
+        .open(root.join(".locks").join(format!("{busy}.lock")))
+        .expect("open the busy target's lock");
+    held.lock().expect("a run holds the busy target's lock");
+    let text = |path: PathBuf| path.display().to_string();
+    let shared_rows = |report: &Value| -> Vec<Value> {
+        report["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .filter(|row| row["what"] == SHARED_TARGET)
+            .cloned()
+            .collect()
+    };
+    let holder = |report: &Value, path: &str| -> Option<Value> {
+        report["holders"]
+            .as_array()
+            .expect("holders")
+            .iter()
+            .find(|row| row["path"] == path)
+            .cloned()
+    };
+
+    let output = case.gc(&["--dry-run", "--format", "json"]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let rows = shared_rows(&report);
+    assert_eq!(rows.len(), 1, "{}", shown(&output));
+    assert_eq!(rows[0]["paths"], json!([text(root.join(idle))]));
+    assert_eq!(rows[0]["outcome"], "reclaimable");
+    assert!(rows[0]["bytes"].as_u64().unwrap_or(0) >= 64 * KIB);
+    let kept = holder(&report, &text(root.join(busy))).expect("the busy target is a holder");
+    assert!(
+        kept["kept"].as_str().unwrap_or_default().contains("holds"),
+        "{kept}"
+    );
+    assert!(root.join(idle).join("debug/out.bin").exists());
+
+    let output = case.gc(&["--format", "json"]);
+    assert!(output.status.success(), "{}", shown(&output));
+    let report: Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let rows = shared_rows(&report);
+    assert_eq!(rows.len(), 1, "{}", shown(&output));
+    assert_eq!(rows[0]["outcome"], "removed", "{}", shown(&output));
+    assert!(rows[0]["freed"].as_u64().unwrap_or(0) >= 64 * KIB);
+    assert!(!root.join(idle).exists(), "the idle target is gone");
+    assert!(
+        root.join(busy).join("debug/out.bin").exists(),
+        "the held target stays"
+    );
+    assert!(holder(&report, &text(root.join(busy))).is_some());
+    assert!(holder(&report, &text(root.join(".locks"))).is_none());
+    drop(held);
+}
