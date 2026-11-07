@@ -295,22 +295,22 @@ metric compute --day <day>` again (or `supersede-metric-reading`), and compare `
 
 ## Releases and announcements
 
-- Default rule: merged work on a repository's main is released within the K5 target
-  (`docs/design/self-improvement.md`) and at the latest at the end of its wave. A release is a tag
-  `v<version>` on main and a forge Release of that name whose body lists the merged pull or merge
-  requests since the previous tag; conductor's own release is cut by the maintainer the same way
-  (the product repository's `AGENTS.md`, "Releases"). Where an instance's `rules.md` reserves tags
-  and releases to the operator, prepare the release body and ask the operator's go once, with the
-  body in the report.
-- Every release is announced: conductor's and each instance repository's. An announcement names the
-  repository, the version, what changed (the merged titles), how to get it (install or upgrade line)
-  and where to report a problem. The channel and the posting command are instance configuration (the
-  instance's `rules.md`), never this profile. An instance with no recorded channel: ask the
-  operator's company-knowledge session once, record the answer in that instance's records, then post.
+- Merged work is released within the K5 target and at the latest at its wave's end: a tag
+  `v<version>` on main and a forge Release listing the merged requests since the previous tag (the
+  product's `AGENTS.md`, "Releases"). Where `rules.md` reserves releases to the operator, ask once
+  with the body in the report.
+- Every release is announced: repository, version, merged titles, install line, where to report a
+  problem; channel and command are in the instance's `rules.md`. None recorded: ask the operator's
+  company-knowledge session once, record the answer in the instance's records, then post.
 - Each announcement is recorded in `<records>/docs/announcements/<tag>.md` with the post's id or URL.
   Each pass, every tag on the forge since the last pass (`gh release list --limit 5 --repo
   <owner/repo>`; `glab release list -R <group/repo>`) has its announcement record; a missing one is
   yours to post, or the controller's on your instruction.
+- An announcement route that is a session the operator runs and is not in `claude agents --json`:
+  hold each post in its record with `posted: pending (route down since <time from date>)`, post
+  them in order when it is back, write one line in the next brief (`announcement route <name> down
+  since <time>; <n> posts pending; its start is yours`), and ask nothing else. A script found on
+  disk is not a route; the route is what `rules.md` names.
 
 ## Reporting to the operator
 
