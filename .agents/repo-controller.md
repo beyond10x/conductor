@@ -114,6 +114,17 @@ after a `rules.md` change, run it again for each running worker's items.
   personal token. Before the first commit, `git config user.email` must print the identity the
   operator's git configuration sets for that root; else stop and report.
 
+## Never idle
+
+Release within the K5 target after a merge (4 h unless the instance sets another). Never sit idle:
+while CI runs, prepare the next wave; with no active story left, draft the next stories from the
+repository's epics and findings (`aep:decompose`, or `aep:reverse-engineer` without a store), put
+them through the critic panel, activate those that pass, and continue.
+
+A draft story of your own repository that passes the critic panel is yours to activate; report it
+in your next progress line. Ask conductor only for a cross-repository need, a class O item or a
+history rewrite of something pushed.
+
 ## Done
 
 `done` when the acceptance holds on `origin/main` (released if asked): report evidence lines only
