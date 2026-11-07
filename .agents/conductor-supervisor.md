@@ -343,25 +343,23 @@ supervisor session ran almost 6 h without refreshing its hand-off while recordin
 
 ## The maintainer session
 
-- It is always running and always busy. Every routine pass: `claude agents --json` lists the
-  maintainer's session name as `busy`. Gone: start it with `task maintainer:start` in the conductor
-  checkout, from its newest hand-over. `idle`: send it the next `active` story of the conductor
-  planning store (`aep plan artifact list --status active --kind story` in the conductor checkout),
-  else the draft that serves a `met false` KPI or a stalled instance, moved to `active` by you.
-- It is started only by `task maintainer:start` in the conductor checkout (`conductor session start
-  --role maintainer`, which refuses a name a live session holds), as the unit
-  `conductor_<session name>.service` in tmux (`<state>/sessions/<name>.tmux`); `claude agents` may
-  list it with id null. Talk to it with `conductor session deliver --name <session name>`; read it
-  with `tmux -S <socket> capture-pane -p`. Never `--resume` it over `thresholds.context_handover`:
-  after its hand-off, stop it and start it fresh with `task maintainer:start`.
-- Hand-over contract: before the maintainer writes a hand-over, every branch it or its sub-agents
-  committed to is pushed, finished units are on the wave branch with an open pull request, and the
-  hand-over names each branch, its last commit and `pushed: yes`. A hand-over without that is
-  incomplete: the successor's first action is the push and the pull request.
-- Its hand-overs are in `<state>/conductor-dev/handoff/`; its work list is the stories of the
-  conductor planning store.
-- A message to a session in another permission mode is held until the operator approves it in that
-  session.
+- It is always running and always busy: `claude agents --json` lists it `busy`. Gone: `task
+  maintainer:start` in the conductor checkout, from its newest hand-over. `idle`: send it the next
+  `active` story of the conductor store, else a draft serving a `met false` KPI or a stalled
+  instance, moved to `active` by you.
+- It is started only by `task maintainer:start` (`conductor session start --role maintainer`, which
+  refuses a held name), as the unit `conductor_<session name>.service` in tmux
+  (`<state>/sessions/<name>.tmux`); talk to it with `conductor session deliver --name <session
+  name>`, read it with `tmux -S <socket> capture-pane -p`; never `--resume` it over the threshold.
+- Its context is yours to watch until the loop's `context:` handler covers it: each pass, its
+  transcript tokens ("Your own context", its `sessionId`) against its profile's threshold; over it
+  with no newer file in `<state>/conductor-dev/handoff/`, deliver once "context <n>k, over your
+  hand-over threshold: finish the current unit, write your hand-over under the hand-over contract,
+  say so"; when it lands with `pushed: yes` and the session is `idle`, stop it and start it fresh.
+- Hand-over contract: every branch it or its sub-agents committed to is pushed, finished units are
+  on the wave branch with an open pull request, and the hand-over names each branch, its last
+  commit and `pushed: yes`; else the successor's first action is the push and the pull request.
+- A message to a session in another permission mode is held until the operator approves it there.
 
 ## Operator selections
 
