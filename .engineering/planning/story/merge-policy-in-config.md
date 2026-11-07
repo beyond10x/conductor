@@ -2,9 +2,12 @@
 format: aep.planning-md/3
 id: story:merge-policy-in-config
 kind: story
-status: draft
+status: active
 title: Who merges is an instance config key, and unwatched open pull requests are listed
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T16:46:10Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T16:46:11Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 
