@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-07T15:33:41Z",
+  "actor": "human:timo",
+  "artifact": "story:guard-and-worktree-agree-on-tree-path",
+  "kind": "story",
+  "revision": 5,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test guard_rules",
+    "reference": "144 passed 0 failed incl. the three-folder direct-route case; PR #96 check run green on 9721e4fb0 (v0.22.0); local: cargo test --no-fail-fast 1461 passed 0 failed"
+  }
+}

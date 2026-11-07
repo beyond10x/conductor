@@ -2,14 +2,15 @@
 format: aep.planning-md/3
 id: story:sweep-legacy-waiters
 kind: story
-status: active
+status: implemented
 title: The sweep leaves a waiter of an older binary alone
 relations:
 - decomposes: epic:disk-protocol
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-10-13T23:04:25Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-10-13T23:04:25Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T15:33:36Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 

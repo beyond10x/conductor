@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-07T15:33:42Z",
+  "actor": "human:timo",
+  "artifact": "story:k5-tags-and-no-release-repositories",
+  "kind": "story",
+  "revision": 4,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test -p conductor-cli --test shipped --test collect_github --test collect_gitlab --test config",
+    "reference": "shipped 14, collect_github 16, collect_gitlab 8, config 65 passed; PR #96 check run green on 9721e4fb0 (v0.22.0); local: cargo test --no-fail-fast 1461 passed 0 failed"
+  }
+}
