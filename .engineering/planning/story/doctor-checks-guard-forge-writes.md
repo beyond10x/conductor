@@ -5,7 +5,7 @@ kind: story
 status: active
 title: conductor doctor checks the guard allows each role's forge writes
 summary: doctor said ready while the guard denied every forge write
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 4}
@@ -27,3 +27,13 @@ verdict.
 - A role whose sample forge write the guard denies makes the verdict `not ready`, naming the role.
 - A test in `crates/conductor/tests/doctor.rs` runs it against a config whose guard denies the
   controller's forge writes and reads `not ready` on the last line.
+
+## Route and policy (added 2026-11-07)
+
+The operator, 2026-11-07, relayed by the host supervisor ("make sure the issues are fixed and
+that they are persistent ... part of conductor"). `conductor doctor` said ready on two GitLab
+instances whose controllers could not write to the forge.
+
+- `conductor doctor` is red when `forge.route: gates` has no `gates_policy`, or when the bot route
+  has no route for a source's host, and its line names the fix (`forge.route: direct`, a
+  `gates_policy`, or the bot's route for that host). A test reads each case.

@@ -5,7 +5,7 @@ kind: story
 status: active
 title: Conductor ships the host supervisor and teacher profiles, and init installs them
 summary: the supervisor and teacher agent files live on one host only
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 3}
@@ -37,3 +37,11 @@ repository; a change to them has no review and a fresh host has neither.
 - Split from `story:host-bootstrap`, whose remainder (config template, persistent units, the usage
   watcher's drop-in, the disk keeper) stays draft.
 - Once this ships, changes to these profiles arrive as pull requests to this repository.
+
+## Source of the content (added 2026-11-07)
+
+The host supervisor, 2026-11-07, relaying the operator ("persistent in the sense that it's part of
+conductor and not of some outside rules"): the shipped supervisor profile is the host's current
+supervisor agent file, and the teacher profile the current teacher file, as they stand when this
+story is built, so the rules learned on 2026-11-07 ship with conductor. Organization-, person-
+and host-specific lines are still taken out (AGENTS.md rules 4 and 9).
