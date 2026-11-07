@@ -5,7 +5,7 @@ kind: story
 status: active
 title: Conductor ships the host supervisor and teacher profiles, and init installs them
 summary: the supervisor and teacher agent files live on one host only
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T12:43:07Z", actor: "human:timo", revision: 3}
@@ -49,3 +49,8 @@ and host-specific lines are still taken out (AGENTS.md rules 4 and 9).
 ## Start tasks (added 2026-11-07)
 
 - Taskfile tasks `supervisor:start` and `teacher:start` beside `maintainer:start`, each running the start command its profile writes; refuse while a session of that name runs. Source: the host supervisor, 2026-11-07, relaying the operator: "both of them should now probably update the agent profiles and then respawn ... make sure nothing is lost for both of them".
+
+## Hand-off directories and profile sync (added 2026-11-07)
+
+- The supervisor's and the teacher's hand-offs live in `<state>/supervisor/handoff/` and `<state>/teacher/handoff/`, as conductor-dev's live in `<state>/conductor-dev/handoff/`; each profile names its directory and reads its newest file at start. Source: the host supervisor, 2026-11-07, relaying the operator: "all company/repo/project related rules must remain outside of the conductor repo itself".
+- `.agents/conductor-supervisor.md` and `.agents/conductor-teacher.md` are synced from the host's current agent files in the pull request after 0.23.0, holding no organization, instance or repository name; a test greps them for the instance's names from a fixture config.
