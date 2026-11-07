@@ -62,6 +62,11 @@
 //! A launch that succeeds appends one `sent` line to the records' dispatch log
 //! ([`crate::records`]): the repository as `repo`, the controller's id, the session name as `to`,
 //! that session id and the charter revision 1.
+//!
+//! `conductor spawn` names no dispatch: its controller reports with `-` until it holds one, as
+//! its profile says, and the loop takes `-` with no dispatch open as a report that moves nothing.
+//! The loop's own start, [`spawn_for`], names the dispatch it gave the controller after the
+//! charter's text (`story:spawn-without-dispatch-reports`).
 
 use std::fs;
 use std::io::{self, Write as _};
@@ -104,6 +109,23 @@ pub fn spawn(
     args: &SpawnArgs,
     providers: &dyn Providers,
 ) -> Result<ExitCode> {
+    spawn_for(config_flag, state, args, providers, None)
+}
+
+/// [`spawn`], with the charter's text followed by a `## Dispatch` section that names `dispatch`
+/// and the report form on it, when one is given: the first message of a controller `conductor
+/// run` starts names its dispatch (`story:spawn-without-dispatch-reports`).
+///
+/// # Errors
+///
+/// As [`spawn`].
+pub fn spawn_for(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    args: &SpawnArgs,
+    providers: &dyn Providers,
+    dispatch: Option<&str>,
+) -> Result<ExitCode> {
     let input = SpawnController {
         repository: args.repository.clone(),
     };
@@ -139,7 +161,14 @@ pub fn spawn(
         .join("charters")
         .join(format!("{repository}.md"));
     let charter = match charter(&charter_file) {
-        Ok(charter) => charter,
+        Ok(charter) => match dispatch {
+            Some(id) => format!(
+                "{}\n\n## Dispatch\n\nYour dispatch is {id}: report on it as `[REPORT {repository} \
+                 {id}] <started|progress|blocked|unblocked|done|failed> <one line>`.\n",
+                charter.trim_end()
+            ),
+            None => charter,
+        },
         Err(detail) => return refuse(SpawnRefusal::NoCharter, detail),
     };
     let session_name = config::session_name(instance, &repository);

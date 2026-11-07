@@ -707,7 +707,8 @@ impl<'s, 'a> Tick<'s, 'a> {
     }
 
     /// Spawns `repo`'s controller from its charter (`conductor spawn`), within
-    /// `controllers.max_working` running controllers; counts the `sent` line it writes. Answers
+    /// `controllers.max_working` running controllers, its charter followed by the dispatch it works
+    /// on (`dispatch_for`); counts the `sent` lines it writes. Answers
     /// why it did not, when it did not.
     ///
     /// # Errors
@@ -723,13 +724,21 @@ impl<'s, 'a> Tick<'s, 'a> {
         if i64::try_from(working).unwrap_or(i64::MAX) >= limit {
             return Ok(Err(format!("max_working {limit} reached")));
         }
-        match crate::spawn::spawn(
+        let dispatch = match self.dispatch_for(repo) {
+            Ok(dispatch) => dispatch,
+            Err(error) => {
+                self.note(&format!("dispatch for {repo}"), &error);
+                None
+            }
+        };
+        match crate::spawn::spawn_for(
             self.config,
             self.state,
             &SpawnArgs {
                 repository: Some(repo.to_owned()),
             },
             self.seams.providers,
+            dispatch.as_deref(),
         ) {
             Ok(_) => {
                 self.wrote(DispatchLogEvent::Sent);
@@ -737,6 +746,69 @@ impl<'s, 'a> Tick<'s, 'a> {
             }
             Err(error) => Ok(Err(one_line(&format!("{error:#}")))),
         }
+    }
+
+    /// The dispatch a controller of `repo` this tick starts works on, which its charter names
+    /// (`story:spawn-without-dispatch-reports`): the repository's open dispatch
+    /// ([`crate::dispatch::open_of`]); with none open, one sent now (`sent`) for the goal the
+    /// repository serves, a confirmed goal before a draft, the first by id; with several open, or
+    /// no open goal served, none.
+    ///
+    /// # Errors
+    ///
+    /// The store does not open, or the dispatch is refused.
+    fn dispatch_for(&mut self, repo: &str) -> Result<Option<String>> {
+        use conductor_model::behaviour::{GoalServingStorage, GoalStorage};
+        use conductor_model::direction::{GoalServingState, GoalState};
+
+        match crate::dispatch::open_of(self.state, repo)? {
+            crate::dispatch::Open::One(id) => return Ok(Some(id)),
+            crate::dispatch::Open::Several(_) => return Ok(None),
+            crate::dispatch::Open::None => {}
+        }
+        let goal = {
+            let store = crate::state::open(self.state)?;
+            let mut goals: Vec<(bool, String)> = GoalServingStorage::list(&store)
+                .into_iter()
+                .filter(|held| {
+                    held.state == GoalServingState::Serving && held.data.repository.0 == repo
+                })
+                .filter_map(|held| {
+                    let goal = GoalStorage::get(&store, &held.data.goal_id)?;
+                    match goal.state {
+                        GoalState::Confirmed => Some((false, goal.data.goal_id.0)),
+                        GoalState::Draft => Some((true, goal.data.goal_id.0)),
+                        GoalState::Met | GoalState::Dropped => None,
+                    }
+                })
+                .collect();
+            store.check().context("read the goals")?;
+            goals.sort();
+            goals.into_iter().next().map(|(_, goal)| goal)
+        };
+        let Some(goal) = goal else {
+            return Ok(None);
+        };
+        let sent_at = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .context("format the clock")?;
+        let id = crate::dispatch::send(
+            self.state,
+            crate::cli::SendDispatchArgs {
+                dispatch_id: None,
+                repository: Some(repo.to_owned()),
+                goal_id: Some(goal),
+                brief: Some(format!(
+                    "conductor run: the charter charters/{repo}.md, in the controller it starts"
+                )),
+                sent_at: Some(sent_at),
+                priority: None,
+                waits_on: None,
+                input_json: None,
+            },
+        )?;
+        self.wrote(DispatchLogEvent::Sent);
+        Ok(Some(id))
     }
 
     /// Stops `repo`'s controller, its session through its provider (`controller

@@ -212,7 +212,9 @@ dispatch that is sent, started or blocked: a controller that never reported `sta
 while blocked, needs no `started` or `unblocked` recorded first. In conductor's mailbox a
 `blocked`, `done` or `failed` report on a dispatch still sent is recorded `started` first, so the
 dispatch log holds both lines; a report the mailbox refuses is answered to its sender with the
-reason and the form.
+reason and the form. A controller that holds no dispatch id reports with `-`, which names the
+repository's open dispatch; with none open, such a report moves nothing and is not refused. A
+controller `conductor run` starts gets a dispatch in the same tick, which its charter names.
 
 A decision request also lands in the controller's own planning store as a `decision-blocker`, where
 the repository has one. The controller clears the blocker stating what was decided, with no

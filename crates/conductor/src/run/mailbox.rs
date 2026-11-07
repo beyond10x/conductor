@@ -10,7 +10,7 @@
 //!
 //! | first line | what the tick does |
 //! |---|---|
-//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines |
+//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
 //! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start |
 //! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
@@ -39,6 +39,7 @@ use crate::cli::{
     EscalateRequestArgs, HandleMessageArgs, RaiseDecisionRequestArgs, ReportBlockedArgs,
     ReportDoneArgs, ReportFailedArgs, ReportStartedArgs, ReportUnblockedArgs,
 };
+use crate::dispatch::Open;
 
 /// The files handled, one name per line, in `<state>/run/`.
 const HANDLED: &str = "mailbox.handled";
@@ -165,22 +166,57 @@ fn answer_refused(tick: &mut Tick<'_, '_>, file: &Path, error: &anyhow::Error) -
     };
     let reason = one_line(&format!("{error:#}"));
     let form = form.replace("<repo>", repo);
-    let answer = format!(
+    let mut answer = format!(
         "[REPORT {repo} -] refused: {reason}\n\
          Your message: {first}\n\
          The form: {form}\n"
     );
+    // A report names a dispatch: the answer names the one it could have named
+    // (`story:spawn-without-dispatch-reports`).
+    if matches!(*kind, "REPORT" | "HANDOVER") {
+        let open = match crate::dispatch::open_of(tick.state, repo)? {
+            Open::One(id) => format!("The open dispatch of {repo}: {id}"),
+            Open::None => {
+                format!("{repo} has no open dispatch: report with `-`, which then moves nothing")
+            }
+            Open::Several(ids) => format!(
+                "{repo} has {} open dispatches, name one: {}",
+                ids.len(),
+                ids.join(", ")
+            ),
+        };
+        answer.push_str(&open);
+        answer.push('\n');
+    }
     deliver_or_keep(
         tick,
         json!({"repo": repo, "text": answer, "event": "relayed", "line": first}),
     )
 }
 
+/// The one open dispatch of `repo` ([`crate::dispatch::open_of`]), or why there is none.
+fn open_dispatch(tick: &Tick<'_, '_>, repo: &str) -> Result<String> {
+    match crate::dispatch::open_of(tick.state, repo)? {
+        Open::One(id) => Ok(id),
+        Open::None => bail!("no open dispatch of {repo}"),
+        Open::Several(ids) => bail!(
+            "{} open dispatches of {repo} ({}), none moved",
+            ids.len(),
+            ids.join(", ")
+        ),
+    }
+}
+
 /// `[REPORT <repo> <dispatch>] <verb> <rest>`: the dispatch moved as `dispatch report-<verb>`
 /// does; `progress` and `ready` move nothing. A `blocked`, `done` or `failed` on a dispatch still
-/// `Sent` reports it `started` first (`story:report-on-sent-dispatch`).
+/// `Sent` reports it `started` first (`story:report-on-sent-dispatch`). With `-` for the dispatch
+/// and no dispatch of the repository open, the report moves nothing and is not refused: a
+/// controller started with no dispatch reports so (`story:spawn-without-dispatch-reports`).
 fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Result<bool> {
     let dispatch = if dispatch == "-" {
+        if crate::dispatch::open_of(tick.state, repo)? == Open::None {
+            return Ok(true);
+        }
         open_dispatch(tick, repo)?
     } else {
         dispatch.to_owned()
@@ -267,34 +303,6 @@ fn sent(tick: &Tick<'_, '_>, id: &str) -> Result<bool> {
     let held = DispatchStorage::get(&store, &DispatchId(id.to_owned()));
     store.check().context("read the dispatch")?;
     Ok(held.is_some_and(|held| held.state == DispatchState::Sent))
-}
-
-/// The one open dispatch of `repo` a report names with `-`: the one sent, started or blocked, or
-/// among several the one started or blocked.
-fn open_dispatch(tick: &Tick<'_, '_>, repo: &str) -> Result<String> {
-    let store = crate::state::open(tick.state)?;
-    let open: Vec<(String, DispatchState)> = DispatchStorage::list(&store)
-        .into_iter()
-        .filter(|held| held.data.repository.0 == repo)
-        .filter(|held| {
-            matches!(
-                held.state,
-                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
-            )
-        })
-        .map(|held| (held.data.dispatch_id.0, held.state))
-        .collect();
-    let working: Vec<&String> = open
-        .iter()
-        .filter(|(_, state)| *state != DispatchState::Sent)
-        .map(|(id, _)| id)
-        .collect();
-    match (open.as_slice(), working.as_slice()) {
-        ([(one, _)], _) => Ok(one.clone()),
-        (_, [one]) => Ok((*one).clone()),
-        ([], _) => bail!("no open dispatch of {repo}"),
-        _ => bail!("{} open dispatches of {repo}, none moved", open.len()),
-    }
 }
 
 /// `[NEED <repo> <request>] <other-repo> <what>`: the whole message to `<other-repo>`'s running

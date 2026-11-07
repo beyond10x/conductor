@@ -87,7 +87,11 @@ and denies `session deliver` to a controller.
 
 Dispatch v1: each cycle, for each Active repository with a charter and no Running controller,
 spawn one, until `controllers.max_working` run; a repository marked `merge: human` with
-`controllers.max_open_reviews` open pull requests waits. The charter stays hand-written until
+`controllers.max_open_reviews` open pull requests waits. Every controller the daemon starts (dispatch
+v1, a red `main`, a restart) works on a dispatch: the repository's open one, else one sent in the
+same tick for the goal the repository serves (a confirmed goal before a draft); the charter it is
+started with ends in a `## Dispatch` section naming the id. A repository that serves no open goal
+gets none, and its controller reports with `-`. The charter stays hand-written until
 `story:charter-generated`.
 
 Decide: a request is classified in code: data loss, a history rewrite, a new, renamed or retired

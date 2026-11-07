@@ -6,7 +6,8 @@
 //! `--state-dir`, each to its end however it ends; then dispatch v1: for each repository Active
 //! in `repository activity` that has a charter `<records>/charters/<repo>.md` and no running or
 //! paused controller, in name order, `conductor spawn`, while fewer than `controllers.max_working`
-//! controllers run. A repository whose charter has the line `merge: human` and that has at least
+//! controllers run; each controller started gets its repository's open dispatch, or one sent in
+//! the same tick for the goal the repository serves, and its charter names it ([`Tick::spawn`]). A repository whose charter has the line `merge: human` and that has at least
 //! `controllers.max_open_reviews` pull requests waiting for review in the newest complete snapshot
 //! (as the board counts them, [`crate::status::waiting_in`]) waits. One `cycle` line names what
 //! each step did: `snapshot ok`, `board ok`, `records check ok` or how each ended, then `spawned

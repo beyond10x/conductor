@@ -1522,6 +1522,44 @@ fn a_blocked_or_done_report_on_a_sent_dispatch_starts_it_first() {
     assert!(case.deliveries().is_empty(), "nothing was refused");
 }
 
+/// `story:spawn-without-dispatch-reports`, acceptance 2: a report the loop refuses with
+/// `DispatchNotFound` reaches its sender within the tick as one message naming the id and the
+/// open dispatch of its repository, or that there is none.
+#[test]
+fn a_report_on_an_unknown_dispatch_reaches_its_sender_with_the_open_dispatch() {
+    let case = Case::new("mail-not-found");
+    case.spawn("alpha", FIRST);
+    let open = case.dispatch("alpha");
+    case.mail("0001", "[REPORT alpha DSP-01a1b431] blocked on beta\n");
+    let tick = case.tick(&[]);
+    assert_eq!(actions(&tick), ["relayed"], "{tick}");
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 1, "one message: {deliveries:?}");
+    let (to, text) = &deliveries[0];
+    assert_eq!(to, "ex-alpha");
+    for said in ["DispatchNotFound", "DSP-01a1b431", &open] {
+        assert!(text.contains(said), "names {said}: {text}");
+    }
+    assert_eq!(case.dispatch_state(&open), "Sent", "nothing moved");
+
+    case.ok(&[
+        "dispatch",
+        "cancel-dispatch",
+        "--dispatch-id",
+        &open,
+        "--reason",
+        "superseded",
+    ]);
+    case.mail("0002", "[REPORT alpha DSP-1] started\n");
+    case.tick(&[]);
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 2, "{deliveries:?}");
+    let text = &deliveries[1].1;
+    for said in ["DSP-1", "alpha has no open dispatch"] {
+        assert!(text.contains(said), "names {said}: {text}");
+    }
+}
+
 /// `story:report-on-sent-dispatch`, acceptance 2: a report the loop still refuses reaches its
 /// sender with the reason and the expected form.
 #[test]
@@ -1542,6 +1580,20 @@ fn a_report_the_loop_refuses_reaches_its_sender_with_the_reason_and_the_form() {
     ] {
         assert!(text.contains(said), "names {said}: {text}");
     }
+}
+
+/// `story:spawn-without-dispatch-reports`, acceptance 1: a controller spawned with no dispatch
+/// reports with `-`; with no open dispatch that report moves nothing and is not refused.
+#[test]
+fn a_dash_report_with_no_open_dispatch_moves_nothing_and_is_not_refused() {
+    let case = Case::new("mail-dash-none");
+    case.spawn("alpha", FIRST);
+    case.mail("0001", "[REPORT alpha -] started on the charter\n");
+    case.mail("0002", "[REPORT alpha -] blocked on beta\n");
+    let tick = case.tick(&[]);
+    assert_eq!(tick["lines_handled"], 2, "{tick}");
+    assert_eq!(actions(&tick), Vec::<String>::new());
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1667,6 +1719,78 @@ fn a_merge_human_repository_at_its_review_limit_is_not_spawned() {
         "{summary}"
     );
     assert!(summary.contains("spawned beta"), "{summary}");
+}
+
+/// `story:spawn-without-dispatch-reports`, second observation: a controller the loop starts has a
+/// dispatch row created in the same tick, for the goal its repository serves, and its first
+/// message, the charter, names that id; a second start of it names the same open dispatch.
+#[test]
+fn a_controller_the_loop_starts_has_a_dispatch_its_charter_names() {
+    let case = Case::new("loop-spawn-dispatch");
+    case.ok(&[
+        "goal",
+        "propose-goal",
+        "--goal-id",
+        "G1",
+        "--title",
+        "Keep main green",
+        "--exit-evidence",
+        "main is green",
+    ]);
+    case.ok(&[
+        "goal",
+        "add-serving",
+        "--goal-id",
+        "G1",
+        "--repository",
+        "alpha",
+    ]);
+    let tick = case.child(json!({
+        "do": "cycle",
+        "reviews": {"alpha": 0},
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(case.launched(), ["ex-alpha"], "{tick}");
+    let rows = case.view(&["dispatch", "dispatches"]);
+    assert_eq!(rows.len(), 1, "one dispatch: {rows:?}");
+    assert_eq!(rows[0]["repository"], "alpha");
+    assert_eq!(rows[0]["goal_id"], "G1");
+    assert_eq!(rows[0]["state"], "Sent");
+    let id = rows[0]["dispatch_id"].as_str().expect("the dispatch's id");
+    let charter = fs::read_to_string(case.fake().join("charter.1")).expect("the charter sent");
+    assert!(charter.starts_with("# Charter: alpha\n"), "{charter}");
+    assert!(
+        charter.contains(&format!("[REPORT alpha {id}]")),
+        "the charter names the dispatch: {charter}"
+    );
+    assert_eq!(actions(&tick), ["sent", "sent", "cycle"], "{tick}");
+
+    case.ok(&[
+        "controller",
+        "stop-controller",
+        "--controller-id",
+        case.view(&["controller", "all-controllers"])[0]["controller_id"]
+            .as_str()
+            .expect("the controller's id"),
+        "--reason",
+        "test",
+    ]);
+    case.child(json!({
+        "do": "cycle",
+        "reviews": {"alpha": 0},
+        "program": case.bin().join("conductor-steps"),
+    }));
+    assert_eq!(case.launched(), ["ex-alpha", "ex-alpha"]);
+    assert_eq!(
+        case.view(&["dispatch", "dispatches"]).len(),
+        1,
+        "the open dispatch is named again, none sent"
+    );
+    let charter = fs::read_to_string(case.fake().join("charter.2")).expect("the charter sent");
+    assert!(
+        charter.contains(&format!("[REPORT alpha {id}]")),
+        "{charter}"
+    );
 }
 
 /// The daily tick computes the previous day's metrics and writes `REPORT.md` with deviations

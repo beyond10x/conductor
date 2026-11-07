@@ -74,6 +74,61 @@ const DISPATCH: &str = "conductor.dispatch.Dispatch";
 /// writer took every allocated id, or the specification refuses it: `InvalidPriority`,
 /// `WaitsOnItself`, `GoalNotFound`, `GoalClosed`.
 pub fn send_dispatch(state: Option<&Path>, args: SendDispatchArgs) -> Result<ExitCode> {
+    let id = send(state, args)?;
+    print_line("dispatch send-dispatch", &id)
+}
+
+/// The open dispatches of one repository: those `Sent`, `Started` or `Blocked`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Open {
+    /// None is open.
+    None,
+    /// The one open, or among several the one started or blocked.
+    One(String),
+    /// Several, and not one alone started or blocked: their ids.
+    Several(Vec<String>),
+}
+
+/// The open dispatch of `repository`: the one sent, started or blocked, or among several the one
+/// started or blocked. A report names it with `-`.
+///
+/// # Errors
+///
+/// The store does not open or a dispatch does not read.
+pub fn open_of(state: Option<&Path>, repository: &str) -> Result<Open> {
+    let store = crate::state::open(state)?;
+    let open: Vec<(String, DispatchState)> = DispatchStorage::list(&store)
+        .into_iter()
+        .filter(|held| held.data.repository.0 == repository)
+        .filter(|held| {
+            matches!(
+                held.state,
+                DispatchState::Sent | DispatchState::Started | DispatchState::Blocked
+            )
+        })
+        .map(|held| (held.data.dispatch_id.0, held.state))
+        .collect();
+    kept("the open dispatches", &store)?;
+    let working: Vec<&String> = open
+        .iter()
+        .filter(|(_, state)| *state != DispatchState::Sent)
+        .map(|(id, _)| id)
+        .collect();
+    Ok(match (open.as_slice(), working.as_slice()) {
+        ([], _) => Open::None,
+        ([(one, _)], _) => Open::One(one.clone()),
+        (_, [one]) => Open::One((*one).clone()),
+        _ => Open::Several(open.into_iter().map(|(id, _)| id).collect()),
+    })
+}
+
+/// `dispatch send-dispatch` without its line on standard output: the dispatch's id, for a caller
+/// that sends one itself, as `conductor run` does for a controller it starts.
+///
+/// # Errors
+///
+/// As [`send_dispatch`].
+pub fn send(state: Option<&Path>, args: SendDispatchArgs) -> Result<String> {
     const COMMAND: &str = "dispatch send-dispatch";
     flags_only(args.input_json, "dispatch send-dispatch --input-json")?;
     let repository = RepositoryName(flag(COMMAND, "--repository", args.repository)?);
@@ -155,7 +210,7 @@ pub fn send_dispatch(state: Option<&Path>, args: SendDispatchArgs) -> Result<Exi
                 records::append_dispatch(&line).with_context(|| {
                     format!("{COMMAND}: dispatch {}", dispatch_sent.dispatch_id.0)
                 })?;
-                print_line(COMMAND, &dispatch_sent.dispatch_id.0)
+                Ok(dispatch_sent.dispatch_id.0)
             }
             SendDispatchOutcome::AlreadySent { error } => exists(COMMAND, &error.dispatch_id),
             SendDispatchOutcome::NegativePriority { error } => refused(
@@ -479,7 +534,7 @@ fn stored_highest(command: &str, store: &Store, prefix: &str) -> Result<u128> {
 }
 
 /// The refusal `DispatchExists`: an id given by hand that a dispatch already has.
-fn exists(command: &str, dispatch: &DispatchId) -> Result<ExitCode> {
+fn exists<T>(command: &str, dispatch: &DispatchId) -> Result<T> {
     bail!(
         "{command}: --dispatch-id {}: a dispatch already has this id; nothing was sent",
         dispatch.0
@@ -571,7 +626,7 @@ fn kept(command: &str, store: &Store) -> Result<()> {
 }
 
 /// The refusal `error` of `command`, as the one line the binary writes on standard error.
-fn refused(command: &str, error: &str, detail: &str) -> Result<ExitCode> {
+fn refused<T>(command: &str, error: &str, detail: &str) -> Result<T> {
     bail!("{command}: {error}: {detail}")
 }
 

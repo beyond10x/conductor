@@ -684,3 +684,16 @@ fn profiles_read_the_role_file_and_ask_nothing_the_binary_enforces() {
         }
     }
 }
+
+/// `story:spawn-without-dispatch-reports`, acceptance 1: a controller that holds no dispatch id
+/// reports with `-`, never with an id it made up.
+#[test]
+fn a_controller_with_no_dispatch_reports_with_a_dash() {
+    let text = profile("repo-controller.md");
+    for phrase in ["`[REPORT <repo> -]`", "never make one up"] {
+        assert!(
+            text.contains(phrase),
+            "repo-controller.md: the report form without a dispatch holds {phrase:?}"
+        );
+    }
+}
