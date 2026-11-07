@@ -2,10 +2,12 @@
 format: aep.planning-md/3
 id: story:build-run-exit-on-failed-tests
 kind: story
-status: draft
+status: archived
 title: build run never reports a failed test run as exit 0
 summary: a gate reading only the wrapper's exit took red for green
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "archived", at: "2026-11-07T16:19:02Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 
@@ -16,3 +18,7 @@ Observed 2026-11-07 on a second instance: a controller reported that `conductor 
 - A test runs `conductor build run -- cargo test` over a crate with one failing test and asserts exit non-zero (101).
 - When the run is a pipeline (`build run -- sh -c "cargo test | tail"`), `build run` prints one line on standard error naming that the exit code is the pipeline's last command, or the controller profile tells controllers to run `set -o pipefail`; the chosen fix is named on the story.
 - A run whose output contains `test result: FAILED` and whose exit is 0 is recorded on the grant as `exit 0 with a failed test result`.
+
+## Withdrawn (2026-11-07)
+
+Not a conductor defect. The controller ran `conductor build run --reserve auto -- cargo test ... 2>&1 | tail -30`, and the 0 was the exit of `tail` (host supervisor, from the implementor transcript). `build run` passes the child's code through (`crates/conductor/src/build.rs:1322`).
