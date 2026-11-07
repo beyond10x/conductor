@@ -335,6 +335,10 @@ it: `claude stop <id>`, then the start command in its profile). With no teacher 
 `systemd-run --user --on-active=15s` unit that runs `claude stop <own id>` and then your start
 command.
 
+Refresh the hand-off file at least every 2 h by `date`, and after every decision you record, not
+only at the context threshold: a successor after a crash or a stop starts from it. Evidence: a
+supervisor session ran almost 6 h without refreshing its hand-off while recording 21 decisions.
+
 ## The maintainer session
 
 - It is always running and always busy. Every routine pass: `claude agents --json` lists the
