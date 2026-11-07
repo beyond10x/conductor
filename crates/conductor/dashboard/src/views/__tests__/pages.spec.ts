@@ -38,6 +38,28 @@ function everything(): Record<string, unknown> {
       ],
       errors: [],
     },
+    '/api/config': {
+      file: '~/.b10x/conductor/conductor.yaml',
+      instance: 'alpha',
+      index: 0,
+      fields: [
+        { path: 'name', value: 'alpha', default: null, takes_effect: 'Fixed' },
+        { path: 'records', value: '~/alpha/records', default: null, takes_effect: 'Fixed' },
+        { path: 'sources[0].github', value: 'example-org', default: null, takes_effect: 'Cycle' },
+        { path: 'controllers.max_working', value: '5', default: null, takes_effect: 'Cycle' },
+        { path: 'cadence.watch', value: '3m', default: '180s', takes_effect: 'LoopRestart' },
+        { path: 'thresholds.disk_low', value: '100G', default: null, takes_effect: 'WatchTick' },
+        { path: 'authority.class_c', value: 'conductor', default: null, takes_effect: 'Cycle' },
+      ],
+      instances: [
+        { name: 'alpha', dashboard_port: 7313, session_prefix: 'al', forge: 'github', current: true },
+      ],
+      repositories: [
+        { repository: 'alpha', activity: 'Active', decided_by: 'Snapshot', marked_by: null, reason: null },
+      ],
+      errors: [],
+      writable: true,
+    },
   };
 }
 
@@ -62,6 +84,7 @@ const PAGES: [string, string][] = [
   ['kpis', '#/kpis'],
   ['sessions', '#/sessions'],
   ['health', '#/health'],
+  ['config', '#/config'],
 ];
 
 beforeEach(() => {

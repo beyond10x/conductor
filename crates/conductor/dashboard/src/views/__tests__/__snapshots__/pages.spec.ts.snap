@@ -1,5 +1,186 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`the config page > has no axe finding, one main, one banner and the navigation 1`] = `
+"<header class="top">
+  <div class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="brand-mark" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <path d="M4 18c3-8 13-8 16 0"></path>
+      <path d="M8 18c2-4 6-4 8 0"></path>
+      <circle cx="12" cy="18" r="1.5"></circle>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config" aria-current="page">Configuration</a></nav>
+  <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
+</header>
+<main id="main" tabindex="-1">
+  <div data-v-4352c5af="" class="config-page">
+    <h1 data-v-4352c5af="" class="page">Configuration</h1>
+    <div data-v-4352c5af="" class="layout">
+      <aside data-v-4352c5af="" class="side" aria-label="Instances and sections">
+        <h2 data-v-4352c5af="" class="side-h">Instances on this host</h2>
+        <ul data-v-4352c5af="" class="insts">
+          <li data-v-4352c5af=""><a data-v-4352c5af="" href="http://127.0.0.1:7313/#/config" aria-current="page" class="inst">alpha <small data-v-4352c5af="" class="muted">:7313 · al · github</small></a></li>
+          <!--v-if-->
+        </ul>
+        <h2 data-v-4352c5af="" class="side-h">Sections</h2>
+        <nav data-v-4352c5af="" class="secnav" aria-label="Sections"><button data-v-4352c5af="" type="button" class="link">Instance</button><button data-v-4352c5af="" type="button" class="link">Repositories</button><button data-v-4352c5af="" type="button" class="link">Controllers</button><button data-v-4352c5af="" type="button" class="link">Cadence</button><button data-v-4352c5af="" type="button" class="link">Thresholds</button><button data-v-4352c5af="" type="button" class="link">Authority</button></nav>
+        <h2 data-v-4352c5af="" class="side-h">Takes effect</h2>
+        <ul data-v-4352c5af="" class="legend-list small">
+          <li data-v-4352c5af=""><span data-v-4352c5af="" class="eff eff-t">tick</span> next watch tick</li>
+          <li data-v-4352c5af=""><span data-v-4352c5af="" class="eff eff-c">cycle</span> next cycle</li>
+          <li data-v-4352c5af=""><span data-v-4352c5af="" class="eff eff-x">restart</span> loop restart</li>
+          <li data-v-4352c5af=""><span data-v-4352c5af="" class="eff eff-f">fixed</span> config migrate moves it</li>
+        </ul>
+      </aside>
+      <div data-v-4352c5af="" class="main-col">
+        <p data-v-4352c5af="" class="banner small" role="status">Editing <b data-v-4352c5af="">alpha</b>. Changes are staged on the right and written only after <code data-v-4352c5af="">conductor config validate</code> passes.</p>
+        <!--v-if--><label data-v-4352c5af="" class="find small"> Find a setting <input data-v-4352c5af="" type="search" placeholder="cadence, disk_low…"></label>
+        <section data-v-4352c5af="" id="s-instance" class="card">
+          <div data-v-4352c5af="" class="card-h">
+            <h2 data-v-4352c5af="">Instance</h2><code data-v-4352c5af="" class="right small">instances[0]</code>
+          </div>
+          <p data-v-4352c5af="" class="small muted"> Name, prefix and paths are fixed here; <code data-v-4352c5af="">conductor config migrate</code> moves them. File: <code data-v-4352c5af="">~/.b10x/conductor/conductor.yaml</code></p>
+          <dl data-v-4352c5af="" class="kv">
+            <dt data-v-4352c5af=""><code data-v-4352c5af="">name</code></dt>
+            <dd data-v-4352c5af="">alpha</dd>
+            <dt data-v-4352c5af=""><code data-v-4352c5af="">records</code></dt>
+            <dd data-v-4352c5af="">~/alpha/records</dd>
+          </dl>
+        </section>
+        <section data-v-4352c5af="" id="s-repos" class="card">
+          <div data-v-4352c5af="" class="card-h">
+            <h2 data-v-4352c5af="">Sources &amp; repositories</h2><code data-v-4352c5af="" class="right small">sources[*], repository marks</code>
+          </div>
+          <p data-v-4352c5af="" class="small muted"> The sources find repositories; each is Active (a controller works it) or Inactive. A switch is written as the repository's mark by the operator, with its reason. Sources: <code data-v-4352c5af="">[0].github: example-org</code>. </p>
+          <div data-v-4352c5af="" class="toolbar">
+            <div data-v-4352c5af="" class="segmented" role="group" aria-label="Show repositories"><button data-v-4352c5af="" type="button" class="chip-button" aria-pressed="true">All</button><button data-v-4352c5af="" type="button" class="chip-button" aria-pressed="false">Active</button><button data-v-4352c5af="" type="button" class="chip-button" aria-pressed="false">Inactive</button><button data-v-4352c5af="" type="button" class="chip-button" aria-pressed="false">Changed</button></div><input data-v-4352c5af="" type="search" aria-label="Filter repositories" placeholder="Filter repositories"><span data-v-4352c5af="" class="right small muted">1 Active · 0 Inactive · 1 listed</span>
+          </div>
+          <div data-v-4352c5af="" class="table-wrap">
+            <table data-v-4352c5af="">
+              <thead data-v-4352c5af="">
+                <tr data-v-4352c5af="">
+                  <th data-v-4352c5af="">repository</th>
+                  <th data-v-4352c5af="">active</th>
+                  <th data-v-4352c5af="">releases</th>
+                  <th data-v-4352c5af="">decided by</th>
+                  <th data-v-4352c5af="">reason</th>
+                  <th data-v-4352c5af=""><span data-v-4352c5af="" class="sr-only">undo</span></th>
+                </tr>
+              </thead>
+              <tbody data-v-4352c5af="">
+                <tr data-v-4352c5af="" class="">
+                  <td data-v-4352c5af="">alpha
+                    <!--v-if-->
+                  </td>
+                  <td data-v-4352c5af=""><button data-v-4352c5af="" type="button" role="switch" class="switch" aria-checked="true" aria-label="alpha active"></button></td>
+                  <td data-v-4352c5af="" class="muted" title="read-only until the release-mode config key exists">—</td>
+                  <td data-v-4352c5af="">Snapshot</td>
+                  <td data-v-4352c5af=""><span data-v-4352c5af="" class="small"></span></td>
+                  <td data-v-4352c5af="">
+                    <!--v-if-->
+                  </td>
+                </tr>
+                <!--v-if-->
+              </tbody>
+            </table>
+          </div>
+          <p data-v-4352c5af="" class="small muted"> Releases: how a repository releases is shown read-only; its config key is not there yet. </p>
+          <form data-v-4352c5af="" class="add"><label data-v-4352c5af="">forge <select data-v-4352c5af="">
+                <option data-v-4352c5af="" value="github">GitHub</option>
+                <option data-v-4352c5af="" value="gitlab">GitLab</option>
+              </select></label><label data-v-4352c5af="">owner/name or URL <input data-v-4352c5af="" type="text" placeholder="example-org/new-service"></label><label data-v-4352c5af="">reason <input data-v-4352c5af="" type="text" placeholder="why it is Active"></label><button data-v-4352c5af="" type="submit" disabled="">Add</button>
+            <!--v-if-->
+          </form>
+        </section>
+        <section data-v-4352c5af="" id="s-controllers" class="card">
+          <div data-v-4352c5af="" class="card-h">
+            <h2 data-v-4352c5af="">Controllers</h2><code data-v-4352c5af="" class="right small">controllers.*</code>
+          </div>
+          <p data-v-4352c5af="" class="small muted">How much work runs at once.</p>
+          <!--v-if-->
+          <div data-v-4352c5af="" class="fields">
+            <div data-v-4352c5af="" class="field"><label data-v-4352c5af="" for="f-controllers.max_working">max_working <span data-v-4352c5af="" class="eff eff-c">cycle</span></label>
+              <div data-v-4352c5af="" class="row"><input data-v-4352c5af="" id="f-controllers.max_working" type="text" value="5">
+                <!--v-if-->
+                <!--v-if-->
+              </div>
+              <div data-v-4352c5af="" class="small faint"><code data-v-4352c5af="">controllers.max_working</code></div>
+            </div>
+          </div>
+        </section>
+        <section data-v-4352c5af="" id="s-cadence" class="card">
+          <div data-v-4352c5af="" class="card-h">
+            <h2 data-v-4352c5af="">Cadence</h2><code data-v-4352c5af="" class="right small">cadence.*</code>
+          </div>
+          <p data-v-4352c5af="" class="small muted">When the loop looks and acts. Times are UTC.</p>
+          <!--v-if-->
+          <div data-v-4352c5af="" class="fields">
+            <div data-v-4352c5af="" class="field"><label data-v-4352c5af="" for="f-cadence.watch">watch <span data-v-4352c5af="" class="eff eff-x">restart</span></label>
+              <div data-v-4352c5af="" class="row"><input data-v-4352c5af="" id="f-cadence.watch" type="text" value="3m"><span data-v-4352c5af="" class="small muted">default 180s</span><button data-v-4352c5af="" type="button" class="link">reset</button>
+                <!--v-if-->
+              </div>
+              <div data-v-4352c5af="" class="small faint"><code data-v-4352c5af="">cadence.watch</code></div>
+            </div>
+          </div>
+        </section>
+        <section data-v-4352c5af="" id="s-thresholds" class="card">
+          <div data-v-4352c5af="" class="card-h">
+            <h2 data-v-4352c5af="">Thresholds</h2><code data-v-4352c5af="" class="right small">thresholds.*</code>
+          </div>
+          <p data-v-4352c5af="" class="small muted">Disk, builds and sessions.</p>
+          <h3 data-v-4352c5af="" class="group">Disk</h3>
+          <div data-v-4352c5af="" class="fields">
+            <div data-v-4352c5af="" class="field"><label data-v-4352c5af="" for="f-thresholds.disk_low">disk_low <span data-v-4352c5af="" class="eff eff-t">tick</span></label>
+              <div data-v-4352c5af="" class="row"><input data-v-4352c5af="" id="f-thresholds.disk_low" type="text" value="100G">
+                <!--v-if-->
+                <!--v-if-->
+              </div>
+              <div data-v-4352c5af="" class="small faint"><code data-v-4352c5af="">thresholds.disk_low</code></div>
+            </div>
+          </div>
+        </section>
+        <section data-v-4352c5af="" id="s-authority" class="card">
+          <div data-v-4352c5af="" class="card-h">
+            <h2 data-v-4352c5af="">Authority</h2><code data-v-4352c5af="" class="right small">authority.*</code>
+          </div>
+          <p data-v-4352c5af="" class="small muted">Who takes each decision class.</p>
+          <!--v-if-->
+          <div data-v-4352c5af="" class="fields">
+            <div data-v-4352c5af="" class="field"><label data-v-4352c5af="" for="f-authority.class_c">class_c <span data-v-4352c5af="" class="eff eff-c">cycle</span></label>
+              <div data-v-4352c5af="" class="row"><select data-v-4352c5af="" id="f-authority.class_c" value="conductor">
+                  <option data-v-4352c5af="">conductor</option>
+                  <option data-v-4352c5af="">operator</option>
+                </select>
+                <!--v-if-->
+                <!--v-if-->
+              </div>
+              <div data-v-4352c5af="" class="small faint"><code data-v-4352c5af="">authority.class_c</code></div>
+            </div>
+          </div>
+        </section>
+        <section data-v-4352c5af="" class="card">
+          <h2 data-v-4352c5af="">KPI targets</h2>
+          <p data-v-4352c5af="" class="small muted"> KPI targets are records of the store, not keys of the config file: they are set with <code data-v-4352c5af="">conductor metric set-metric-target</code> and shown on the <a data-v-4352c5af="" href="#/kpis">KPIs</a> page. </p>
+        </section>
+      </div>
+      <aside data-v-4352c5af="" class="rail" aria-label="Staged changes">
+        <section data-v-4352c5af="" class="card">
+          <div data-v-4352c5af="" class="card-h">
+            <h2 data-v-4352c5af="">Staged changes</h2><span data-v-4352c5af="" class="pill">0</span><button data-v-4352c5af="" type="button" class="link right" disabled="">Discard all</button>
+          </div>
+          <p data-v-4352c5af="" class="small muted">The YAML that will be written to <code data-v-4352c5af="">~/.b10x/conductor/conductor.yaml</code>.</p><pre data-v-4352c5af="" class="diff" aria-label="Diff"><span data-v-4352c5af="" class="c">No changes.</span></pre>
+          <!--v-if--><button data-v-4352c5af="" type="button" class="primary" disabled="">Review &amp; write</button>
+          <p data-v-4352c5af="" class="small muted"> Writes only from 127.0.0.1 with the page's token. Keeps the old file as <code data-v-4352c5af="">conductor.yaml.&lt;time&gt;.bak</code> and records one decision with the diff. </p>
+        </section>
+      </aside>
+    </div>
+    <!--v-if-->
+  </div>
+</main>
+<footer class="small muted"> sessions from the instance's records and <code>claude agents --json</code> · records under ~/example-org/conductor · reads again every 20 s </footer>"
+`;
+
 exports[`the decisions page > has no axe finding, one main, one banner and the navigation 1`] = `
 "<header class="top">
   <div class="brand"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="brand-mark" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -10,7 +191,7 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions" aria-current="page">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions" aria-current="page">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -124,7 +305,7 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health" aria-current="page">Health</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health" aria-current="page">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -291,7 +472,7 @@ exports[`the kpis page > has no axe finding, one main, one banner and the naviga
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis" aria-current="page">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis" aria-current="page">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -770,7 +951,7 @@ exports[`the metrics page > has no axe finding, one main, one banner and the nav
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics" aria-current="page">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics" aria-current="page">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -1682,7 +1863,7 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/" aria-current="page">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/" aria-current="page">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -2529,7 +2710,7 @@ exports[`the repository page > has no axe finding, one main, one banner and the 
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">
@@ -2843,7 +3024,7 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
       <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
       <option value="http://127.0.0.1:7314/">beta</option>
     </select></div>
-  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions" aria-current="page">Sessions</a><a href="#/health">Health</a></nav>
+  <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions" aria-current="page">Sessions</a><a href="#/health">Health</a><a href="#/config">Configuration</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
 <main id="main" tabindex="-1">

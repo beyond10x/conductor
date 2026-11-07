@@ -268,6 +268,8 @@ fn sources(home: &Path) -> Sources {
         measure_timeout: Duration::from_secs(30),
         context_handover: 300_000,
         health: HealthSources::new(home.to_path_buf(), &home.join("records")),
+        config_file: None,
+        instance_name: None,
     }
 }
 

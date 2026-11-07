@@ -83,6 +83,7 @@
 
 mod answers;
 mod cache;
+pub mod configure;
 pub mod decisions;
 mod health;
 pub mod instances;
@@ -223,6 +224,11 @@ pub struct Sources {
     pub context_handover: u64,
     /// What the health view reads besides the disk-waste measurement (`story:dashboard-health`).
     pub health: HealthSources,
+    /// The config file the Configuration page shows and writes (`story:dashboard-config-page`);
+    /// none when the instance runs on the built-in defaults.
+    pub config_file: Option<PathBuf>,
+    /// The instance of that file the page shows; its first when none.
+    pub instance_name: Option<String>,
 }
 
 impl Sources {
@@ -262,6 +268,7 @@ impl Sources {
         let mut sources = Self::with(home, root, watch, checkouts, targets, context_handover);
         sources.scratch = Path::new(&instance.cache).join(SCRATCH);
         sources.health = HealthSources::of(sources.home.clone(), instance);
+        sources.instance_name = Some(instance.name.0.clone());
         sources
     }
 
@@ -283,6 +290,7 @@ impl Sources {
             let mut sources = Self::of(home, root, &active.instance);
             sources.health.config = config::explicit().map(Path::to_path_buf);
             sources.health.host = config::host_dir().ok();
+            sources.config_file = config::config_file().map(Path::to_path_buf);
             return Ok(sources);
         }
         let root = match root {
@@ -341,6 +349,8 @@ impl Sources {
             measure_timeout: Duration::from_secs(180),
             // The built-in instance's; [`Sources::of`] gives an instance's own.
             health: HealthSources::new(home.clone(), &root),
+            config_file: None,
+            instance_name: None,
             root,
             home,
             checkouts,
@@ -1186,6 +1196,29 @@ fn answer(
         }
         return post_answers(&header, port, server, body);
     }
+    // The Configuration page (story:dashboard-config-page): its data, and its one write.
+    if path == configure::CONFIG_PATH {
+        return match *method {
+            "GET" => {
+                let home = server.sources.home.display().to_string();
+                let answer = configure::answer(&server.sources, server.state.as_deref(), port);
+                cache::send(
+                    &cache::Body::json(200, &tilde_all(answer, home.trim_end_matches('/'))),
+                    condition,
+                    None,
+                    false,
+                )
+            }
+            "POST" => post_config(&header, port, server, body),
+            _ => response(
+                405,
+                "Method Not Allowed",
+                PLAIN,
+                b"only GET or POST\n",
+                "Allow: GET, POST\r\n",
+            ),
+        };
+    }
     let resource = match (path, snapshot) {
         ("/data.json", _) => Resource::Data,
         (HEALTH_PATH, _) => Resource::Health,
@@ -1387,6 +1420,62 @@ fn post_answers<'a>(
     match recorded {
         Ok(results) => {
             let mut text = serde_json::to_string_pretty(&results).unwrap_or_default();
+            text.push('\n');
+            response(200, "OK", "application/json", text.as_bytes(), "")
+        }
+        Err(why) => refused(why),
+    }
+}
+
+/// `POST /api/config` (`story:dashboard-config-page`, [`configure`]): admitted as a batch of
+/// answers is, then checked or written one write at a time; after a write the answers kept in
+/// memory are dropped, as after a batch.
+fn post_config<'a>(
+    header: &impl Fn(&str) -> Option<&'a str>,
+    port: u16,
+    server: &Server,
+    body: &mut dyn FnMut(usize) -> io::Result<Vec<u8>>,
+) -> Vec<u8> {
+    const PLAIN: &str = "text/plain; charset=utf-8";
+    let refused = |refused: answers::Refused| {
+        let kind = if refused.why.starts_with('{') {
+            "application/json"
+        } else {
+            PLAIN
+        };
+        response(
+            refused.status,
+            refused.reason,
+            kind,
+            refused.why.as_bytes(),
+            "",
+        )
+    };
+    let length = match answers::admitted(header, port, &server.token) {
+        Ok(length) => length,
+        Err(why) => return refused(why),
+    };
+    let Ok(bytes) = body(length) else {
+        return response(
+            400,
+            "Bad Request",
+            PLAIN,
+            b"the body ended before its Content-Length\n",
+            "",
+        );
+    };
+    let written = {
+        let _one = server.writes.lock().unwrap_or_else(PoisonError::into_inner);
+        let written = configure::write(&server.sources, server.state.as_deref(), &bytes);
+        server.answers.clear();
+        server.facts.clear();
+        server.unanswered.clear();
+        server.roster.clear();
+        written
+    };
+    match written {
+        Ok(answer) => {
+            let mut text = serde_json::to_string_pretty(&answer).unwrap_or_default();
             text.push('\n');
             response(200, "OK", "application/json", text.as_bytes(), "")
         }

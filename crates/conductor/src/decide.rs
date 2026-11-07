@@ -633,6 +633,80 @@ pub struct OperatorAnswer {
     pub repository: Option<String>,
 }
 
+/// One decision the operator took outside a request, as a page of the dashboard records it
+/// (`story:dashboard-config-page`): [`record_as_operator`] records it.
+#[derive(Debug, Clone)]
+pub struct OperatorDecision {
+    pub decision_class: DecisionClass,
+    pub question: String,
+    pub options: String,
+    pub choice: String,
+    pub reason: String,
+    pub evidence: String,
+    /// The session that records it: `dashboard` for the dashboard's pages.
+    pub recorded_by: String,
+    /// The operator's words, quoted.
+    pub operator_words: String,
+}
+
+/// Records `decision` as the operator's, through `conductor.decision.RecordOperatorDecision`,
+/// decided now, under the next id allocated as `record-operator-decision` allocates one, and
+/// appends its `decided` line to the records; the id.
+///
+/// # Errors
+///
+/// The store does not open or keep the decision, the records line cannot be written, or no id
+/// could be allocated.
+pub fn record_as_operator(state: Option<&Path>, decision: &OperatorDecision) -> Result<String> {
+    const COMMAND: &str = "record the operator's decision";
+    let fields = Fields {
+        decision_id: None,
+        decision_class: decision.decision_class,
+        question: decision.question.clone(),
+        options: decision.options.clone(),
+        choice: decision.choice.clone(),
+        reason: decision.reason.clone(),
+        evidence: decision.evidence.clone(),
+        decided_at: records::now()?,
+        repository: None,
+    };
+    let operator = (
+        decision.recorded_by.as_str(),
+        decision.operator_words.as_str(),
+    );
+    let allocated = allocate(COMMAND, state, None, &fields, |generated, decision_id| {
+        let outcome = generated
+            .record_operator_decision(RecordOperatorDecision {
+                decision_id,
+                decision_class: fields.decision_class,
+                question: fields.question.clone(),
+                options: fields.options.clone(),
+                choice: fields.choice.clone(),
+                reason: fields.reason.clone(),
+                evidence: fields.evidence.clone(),
+                decided_at: fields.decided_at.clone(),
+                recorded_by: decision.recorded_by.clone(),
+                operator_words: decision.operator_words.clone(),
+                repository: None,
+            })
+            .map_err(|unmet| anyhow!("{COMMAND}: {unmet}"))?;
+        Ok(match outcome {
+            RecordOperatorDecisionOutcome::Recorded { .. } => Answer::Recorded,
+            RecordOperatorDecisionOutcome::AlreadyRecorded { .. } => Answer::Held,
+        })
+    })?;
+    match allocated {
+        Allocated::Recorded(_, decision_id) => {
+            decided(COMMAND, &fields, &decision_id, Some(operator))?;
+            Ok(decision_id.0)
+        }
+        Allocated::Refused(Refusal { error, detail }) => bail!("{COMMAND}: {error}: {detail}"),
+        Allocated::Held(decision_id) => {
+            bail!("{COMMAND}: decision {} is held already", decision_id.0)
+        }
+    }
+}
+
 /// What [`answer_as_operator`] did with one answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperatorAnswered {
