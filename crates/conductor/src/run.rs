@@ -11,7 +11,8 @@
 //! ([`Watch::pass`], reading `main`'s CI every `cadence.ci`), then what earlier ticks left waiting
 //! ([`handlers::pending`]: sessions a usage limit stopped, hand-overs asked for, deliveries kept
 //! for a controller's next start), then a handler per line ([`handlers::handle`]), then the
-//! mailbox ([`mailbox::read`]). A cycle tick, every `cadence.cycle`, first at the start
+//! mailbox ([`mailbox::read`]); in the loop, the `gc` a `disk low` line starts runs beside the
+//! ticks and a later watch tick writes its `cleanup` line ([`handlers`]). A cycle tick, every `cadence.cycle`, first at the start
 //! ([`dispatch::cycle_tick`]): `snapshot start-snapshot`, `snapshot publish-board` and `records
 //! check`, each a run of this binary, then dispatch v1, and one `cycle` line. A daily tick, once
 //! a day at `cadence.daily` UTC ([`dispatch::daily_tick`]): `metric compute` for the previous UTC
@@ -310,7 +311,7 @@ pub fn run_with(
     let cycle_every =
         Duration::from_secs(config::seconds(&instance.cadence.cycle).unwrap_or(CYCLE_EVERY));
     loop {
-        if let Err(error) = watch_tick(config_flag, state, seams) {
+        if let Err(error) = watch(config_flag, state, seams, Gc::Beside) {
             eprintln!("conductor run: watch tick: {error:#}");
         }
         let now = OffsetDateTime::now_utc();
@@ -321,16 +322,28 @@ pub fn run_with(
             }
         }
         if let Some(day) = daily_due(&dir, now, &instance.cadence.daily.0) {
-            write_file(&dir.join(DAILY_LAST), &format!("{}\n", today(now)))?;
+            // Written once the tick ended, failed or not, so a loop stopped during it runs it
+            // again at its next start (`story:daily-tick-runs`).
             if let Err(error) = dispatch::daily_tick(config_flag, state, &day, seams) {
                 eprintln!("conductor run: daily tick: {error:#}");
             }
+            write_file(&dir.join(DAILY_LAST), &format!("{}\n", today(now)))?;
         }
         thread::sleep(every);
     }
 }
 
-/// A watch tick: the watch pass, then [`handle_lines`] over its lines.
+/// What a watch tick does about the `gc` a `disk low` line started ([`handlers`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Gc {
+    /// The tick waits for it to end and writes its `cleanup` line.
+    Waited,
+    /// It runs beside the tick; a later tick writes its line once it ended.
+    Beside,
+}
+
+/// A watch tick: the watch pass, then [`handle_lines`] over its lines; it waits for a `gc` a
+/// `disk low` line started.
 ///
 /// # Errors
 ///
@@ -339,6 +352,16 @@ pub fn watch_tick(
     config_flag: Option<&Path>,
     state: Option<&Path>,
     seams: &Seams<'_>,
+) -> Result<Summary> {
+    watch(config_flag, state, seams, Gc::Waited)
+}
+
+/// [`watch_tick`], with `gc` saying what it does about a `gc` a `disk low` line started.
+fn watch(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    seams: &Seams<'_>,
+    gc: Gc,
 ) -> Result<Summary> {
     let dir = run_dir(state)?;
     let instance = &config::active().instance;
@@ -361,12 +384,13 @@ pub fn watch_tick(
     for line in &lines {
         println!("{line}");
     }
-    handle_lines(config_flag, state, &lines, seams)
+    handle(config_flag, state, &lines, seams, gc)
 }
 
 /// A watch tick over `lines` in place of a pass's: what earlier ticks left waiting
 /// ([`handlers::pending`]), a handler per line ([`handlers::handle`]) and the mailbox
-/// ([`mailbox::read`]); recorded as a `watch` tick.
+/// ([`mailbox::read`]); recorded as a `watch` tick. It waits for a `gc` a `disk low` line started
+/// and writes its `cleanup` line.
 ///
 /// # Errors
 ///
@@ -377,10 +401,41 @@ pub fn handle_lines(
     lines: &[String],
     seams: &Seams<'_>,
 ) -> Result<Summary> {
+    handle(config_flag, state, lines, seams, Gc::Waited)
+}
+
+/// [`handle_lines`] as the loop runs it: a `gc` a `disk low` line starts runs beside the tick,
+/// and the first watch tick that finds it ended writes its `cleanup` line.
+///
+/// # Errors
+///
+/// The state directory cannot be written, or the tick cannot be recorded.
+pub fn handle_lines_beside(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    lines: &[String],
+    seams: &Seams<'_>,
+) -> Result<Summary> {
+    handle(config_flag, state, lines, seams, Gc::Beside)
+}
+
+/// [`handle_lines`], with `gc` saying what the tick does about a `gc` a `disk low` line started.
+fn handle(
+    config_flag: Option<&Path>,
+    state: Option<&Path>,
+    lines: &[String],
+    seams: &Seams<'_>,
+    gc: Gc,
+) -> Result<Summary> {
     let mut tick = Tick::start(config_flag, state, TickKind::Watch, seams)?;
     handlers::pending(&mut tick);
     handlers::handle(&mut tick, lines);
     mailbox::read(&mut tick);
+    if gc == Gc::Waited
+        && let Err(error) = handlers::cleaned(&mut tick, true)
+    {
+        tick.note("cleanup", &error);
+    }
     tick.finish()
 }
 
@@ -1074,7 +1129,9 @@ fn today(now: OffsetDateTime) -> String {
 }
 
 /// The day a daily tick is due for at `now`, when one is: the UTC day before today, once today's
-/// `daily` (`HH:MM`, UTC) has passed and no daily tick ran today.
+/// `daily` (`HH:MM`, UTC) has passed and no daily tick ended today ([`DAILY_LAST`]). A loop
+/// started after `daily` with none ended today runs it at once; one started before runs it at
+/// `daily`.
 fn daily_due(dir: &Path, now: OffsetDateTime, daily: &str) -> Option<String> {
     let now = now.to_offset(time::UtcOffset::UTC);
     let (hour, minute) = daily.split_once(':')?;
@@ -1107,4 +1164,70 @@ pub fn one_line(text: &str) -> String {
 #[must_use]
 pub fn session_of(repo: &str) -> SessionName {
     config::session_name(&config::active().instance, repo)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `run/` directory of its own under the system's temporary directory, removed after.
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("conductor-run-daily-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("create the case's directory");
+            Self(dir)
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn at(text: &str) -> OffsetDateTime {
+        OffsetDateTime::parse(text, &Rfc3339).expect("an RFC 3339 instant")
+    }
+
+    #[test]
+    fn a_loop_started_before_daily_waits_for_it() {
+        let dir = Dir::new("before");
+        assert_eq!(daily_due(&dir.0, at("2026-11-07T06:00:00Z"), "08:07"), None);
+        assert_eq!(daily_due(&dir.0, at("2026-11-07T08:06:59Z"), "08:07"), None);
+        assert_eq!(
+            daily_due(&dir.0, at("2026-11-07T08:07:00Z"), "08:07").as_deref(),
+            Some("2026-11-06")
+        );
+    }
+
+    #[test]
+    fn a_loop_started_after_daily_with_no_tick_today_runs_it_at_once() {
+        let dir = Dir::new("after");
+        write_file(&dir.0.join(DAILY_LAST), "2026-11-06\n").expect("write daily.last");
+        assert_eq!(
+            daily_due(&dir.0, at("2026-11-07T15:30:00Z"), "08:07").as_deref(),
+            Some("2026-11-06")
+        );
+    }
+
+    #[test]
+    fn a_daily_tick_that_ended_today_is_not_run_again() {
+        let dir = Dir::new("ended");
+        write_file(&dir.0.join(DAILY_LAST), "2026-11-07\n").expect("write daily.last");
+        assert_eq!(daily_due(&dir.0, at("2026-11-07T15:30:00Z"), "08:07"), None);
+        assert_eq!(
+            daily_due(&dir.0, at("2026-11-08T08:07:00Z"), "08:07").as_deref(),
+            Some("2026-11-07")
+        );
+    }
+
+    #[test]
+    fn a_daily_that_does_not_read_is_never_due() {
+        let dir = Dir::new("unread");
+        assert_eq!(daily_due(&dir.0, at("2026-11-07T15:30:00Z"), "8h07"), None);
+    }
 }

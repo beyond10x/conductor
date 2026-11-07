@@ -31,6 +31,13 @@ function everything(): Record<string, unknown> {
     '/api/specifications': specifications,
     '/api/health': health,
     '/api/decisions': decisions,
+    '/api/instances': {
+      instances: [
+        { name: 'alpha', dashboard_port: 7313, url: 'http://127.0.0.1:7313/', current: true },
+        { name: 'beta', dashboard_port: 7314, url: 'http://127.0.0.1:7314/', current: false },
+      ],
+      errors: [],
+    },
   };
 }
 

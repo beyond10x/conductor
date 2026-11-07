@@ -15,7 +15,8 @@
 //! (`story:gc-before-pause`), read archive by archive from `worktree prune-archives
 //! --strip-build-output`'s own dry run, which writes nothing below the archive root
 //! ([`archives`], `story:gc-archive-measure`). Each archive's size is printed as soon as it is
-//! known, as one `archive` line, and cached by its id and modification time under the state
+//! known, as one `archive` line on standard output and one `archive <n> of <N>` line on standard
+//! error, and cached by its id and modification time under the state
 //! directory, so an unchanged archive is not walked again; when the bound
 //! (`CONDUCTOR_GC_ARCHIVE_BOUND` seconds, 1800 by default) is reached, the row sums the archives
 //! measured and says `partial: <n> of <m> archives`. The archive strip needs a git checkout
@@ -392,7 +393,12 @@ fn archive_strip(
     let found = archives::list(&root, &sources.trees, &sources.checkouts);
     let mut out = io::stdout().lock();
     let mut unprinted = None;
+    let mut done = 0;
     let strip = archives::measure(&checkout, &found, cache, bound, &mut |archive| {
+        done += 1;
+        // The progress of the pass, one line per archive, on standard error in either format
+        // (`story:first-cycle-not-blocked-by-archiving`).
+        let _ = writeln!(io::stderr().lock(), "archive {done} of {}", found.len());
         if json || unprinted.is_some() {
             return;
         }

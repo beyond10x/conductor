@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:first-cycle-not-blocked-by-archiving
 kind: story
-status: draft
+status: active
 title: The first cycle starts controllers without waiting for worktree archiving
 summary: archiving runs off the cycle critical path with an n-of-N progress line
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T09:28:05Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T09:28:05Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 
@@ -23,16 +26,21 @@ nothing-to-strip` lines until 06:49:45Z, then waited on a child `worktree gc --r
 <tree> --apply`; `conductor session run-ticks` holds no tick after 06:16:17Z, so that day's daily
 tick did not run.
 
+
+Cause: gc started by a `disk low` watch line ran inside the watch tick (`disk_low`,
+`crates/conductor/src/run/handlers.rs`), and the loop is one thread, so no cycle and no daily tick
+ran until gc, its archiving and its `worktree gc --apply` ended.
+
 ## Proposal
 
-- Archiving runs off the cycle's critical path: the first snapshot and the first dispatch do not
-  wait for it.
-- Archiving prints one progress line per pass, `archive n of N`, and a tree with nothing to strip
-  costs no fixed wait.
-- The memory peak of a pass is bounded and recorded.
+- gc started by a `disk low` line runs on its own thread beside the loop's ticks, at most one at a
+  time; its `cleanup` line is written by the first watch tick after it ended.
+- Archiving prints `archive n of N` on standard error, one line per archive.
+- The fixed cost per archived tree and the memory peak of a pass are story:archive-pass-cost.
 
 ## Acceptance
 
-- On a fixture instance with 200 archived trees, the first cycle completes its snapshot and starts
-  its first controller before archiving has finished.
-- The journal shows `archive n of N` lines.
+- While the gc a `disk low` line started still runs, a cycle tick and a daily tick run, and a
+  second `disk low` starts no second gc; once gc ended, one `cleanup` line is written with its
+  outcome.
+- The journal shows `archive n of N` lines on standard error.

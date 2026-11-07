@@ -6,7 +6,10 @@ exports[`the decisions page > has no axe finding, one main, one banner and the n
       <path d="M4 18c3-8 13-8 16 0"></path>
       <path d="M8 18c2-4 6-4 8 0"></path>
       <circle cx="12" cy="18" r="1.5"></circle>
-    </svg><span class="brand-name">conductor</span></div>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
   <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions" aria-current="page">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
@@ -117,7 +120,10 @@ exports[`the health page > has no axe finding, one main, one banner and the navi
       <path d="M4 18c3-8 13-8 16 0"></path>
       <path d="M8 18c2-4 6-4 8 0"></path>
       <circle cx="12" cy="18" r="1.5"></circle>
-    </svg><span class="brand-name">conductor</span></div>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
   <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health" aria-current="page">Health</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
@@ -281,7 +287,10 @@ exports[`the kpis page > has no axe finding, one main, one banner and the naviga
       <path d="M4 18c3-8 13-8 16 0"></path>
       <path d="M8 18c2-4 6-4 8 0"></path>
       <circle cx="12" cy="18" r="1.5"></circle>
-    </svg><span class="brand-name">conductor</span></div>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
   <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis" aria-current="page">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
@@ -757,7 +766,10 @@ exports[`the metrics page > has no axe finding, one main, one banner and the nav
       <path d="M4 18c3-8 13-8 16 0"></path>
       <path d="M8 18c2-4 6-4 8 0"></path>
       <circle cx="12" cy="18" r="1.5"></circle>
-    </svg><span class="brand-name">conductor</span></div>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
   <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics" aria-current="page">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
@@ -1666,7 +1678,10 @@ exports[`the overview page > has no axe finding, one main, one banner and the na
       <path d="M4 18c3-8 13-8 16 0"></path>
       <path d="M8 18c2-4 6-4 8 0"></path>
       <circle cx="12" cy="18" r="1.5"></circle>
-    </svg><span class="brand-name">conductor</span></div>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
   <nav class="views" aria-label="Views"><a href="#/" aria-current="page">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
@@ -2510,7 +2525,10 @@ exports[`the repository page > has no axe finding, one main, one banner and the 
       <path d="M4 18c3-8 13-8 16 0"></path>
       <path d="M8 18c2-4 6-4 8 0"></path>
       <circle cx="12" cy="18" r="1.5"></circle>
-    </svg><span class="brand-name">conductor</span></div>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
   <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions">Sessions</a><a href="#/health">Health</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>
@@ -2821,7 +2839,10 @@ exports[`the sessions page > has no axe finding, one main, one banner and the na
       <path d="M4 18c3-8 13-8 16 0"></path>
       <path d="M8 18c2-4 6-4 8 0"></path>
       <circle cx="12" cy="18" r="1.5"></circle>
-    </svg><span class="brand-name">conductor</span></div>
+    </svg><span class="brand-name">conductor</span><select class="instance-select" aria-label="Instance" value="http://127.0.0.1:7313/">
+      <option aria-current="page" value="http://127.0.0.1:7313/">alpha (this page)</option>
+      <option value="http://127.0.0.1:7314/">beta</option>
+    </select></div>
   <nav class="views" aria-label="Views"><a href="#/">Overview</a><a href="#/decisions">Decisions</a><a href="#/metrics">Metrics</a><a href="#/kpis">KPIs</a><a href="#/sessions" aria-current="page">Sessions</a><a href="#/health">Health</a></nav>
   <div class="head-right"><span class="live"><span class="dot8" aria-hidden="true"></span>live · read 2026-10-13T09:30:00Z</span><button type="button" class="theme" aria-label="Theme: system. Switch to light"> Theme: system</button></div>
 </header>

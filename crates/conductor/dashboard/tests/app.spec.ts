@@ -48,7 +48,9 @@ describe('App', () => {
     expect(footer).toContain('~/example-org/conductor');
 
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    // /data.json twice; the header's instance selector reads /api/instances once.
+    const paths = (fetch.mock.calls as unknown as [string][]).map(([url]) => url);
+    expect(paths.filter((url) => url === '/data.json')).toHaveLength(2);
     wrapper.unmount();
   });
 

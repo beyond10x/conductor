@@ -249,6 +249,10 @@ header.top {
   font-weight: 600;
   font-size: var(--text-lg);
 }
+.instance-name {
+  font-size: var(--text-sm);
+  color: var(--dim);
+}
 nav.views {
   display: flex;
   gap: var(--space-1);

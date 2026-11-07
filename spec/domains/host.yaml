@@ -215,6 +215,23 @@ types:
       - version == "conductor.host.instances/1"
       - distinct: {in: files, as: file, by: file.config}
 
+  # One row of the dashboard's instance selector (story:dashboard-instance-switch), what
+  # `/api/instances` answers for each instance of the host registry: its name, the port its
+  # dashboard serves, that dashboard's page `http://127.0.0.1:<dashboard_port>/`, and whether it
+  # is the instance whose dashboard answers (`current`, the one whose port the server listens on).
+  # Each instance keeps its own dashboard; choosing another opens that one's page. Read from the
+  # registry at each request, never stored.
+  - name: conductor.host.DashboardInstance
+    kind: struct
+    fields:
+      - {name: name, type: conductor.config.InstanceName}
+      - {name: dashboard_port, type: Integer}
+      - {name: url, type: String}
+      - {name: current, type: Boolean}
+    invariants:
+      - dashboard_port >= 1
+      - dashboard_port <= 65535
+
   # What two instances on the host would share (story:instance-names-unique): the session prefix
   # (equal, or one followed by `-` begins the other, so one session name would carry both), the
   # dashboard port, the state directory or the records directory.

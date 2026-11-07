@@ -20,7 +20,9 @@
 //! (`DecisionInDispatchLog`, and nothing else for that line); a line of either log that is no JSON
 //! object, misses a key every line of its log holds or holds a key its log does not declare
 //! (`UnknownKeySet`); and each decision id (`DEC-…`) a line of `dispatches/` cites that no line of
-//! `decisions/` and no decision of the store holds (`UnknownDecision`). It prints one finding per
+//! `decisions/` and no decision of the store holds (`UnknownDecision`; an id in its `line`, which
+//! quotes another program's output, is no citation). The month files of a log before the first
+//! whose first line a command wrote are legacy and not judged. It prints one finding per
 //! line, `<file>:<line>: <finding>: <detail>`, or with `--format json` an array of
 //! `RecordsFinding` objects, and exits 1 when it found any. It also reads the charters and the
 //! role rule files ([`files`], `story:rules-into-code`): `RawThreshold` for a size in a charter
@@ -501,7 +503,7 @@ pub fn records_check(state: Option<&Path>, args: &RecordsCheckArgs) -> Result<Ex
     if legacy_lines > 0 {
         let _ = writeln!(
             io::stderr().lock(),
-            "{COMMAND}: {legacy_lines} line(s) written before the first a command wrote, judged only on the decisions they cite"
+            "{COMMAND}: {legacy_lines} line(s) in month files before the first a command opened, not judged"
         );
     }
 
@@ -665,24 +667,31 @@ fn decision_ids(text: &str) -> Vec<String> {
     ids
 }
 
-/// How many lines of `lines` come before the first one a command wrote, one whose key set is the
-/// log's (`keys`, `required`): the hand-written lines from before the commands wrote the log,
-/// which the key-set and misfiled-decision checks do not judge. Every line, when none is a
-/// command's yet.
+/// The field of a dispatch line that quotes another program's output, such as the findings a
+/// refused records commit carries: a decision id in it is quoted, not cited.
+const QUOTED: &str = "line";
+
+/// How many lines of `lines` lie in the month files before the first file whose first line a
+/// command wrote, one whose key set is the log's (`keys`, `required`): the files kept by hand, or
+/// by hand and commands together, before the commands wrote the log alone. No check judges them.
+/// Every line, when no file opens with a command's line yet.
 fn legacy(lines: &[Line], keys: &[&str], required: &[&str]) -> usize {
     lines
         .iter()
-        .position(|line| {
+        .enumerate()
+        .position(|(index, line)| {
+            let opens_its_file = index == 0 || lines[index - 1].file != line.file;
             let object = serde_json::from_str::<Value>(&line.text).ok();
-            object.as_ref().is_some_and(Value::is_object)
+            opens_its_file
+                && object.as_ref().is_some_and(Value::is_object)
                 && key_set(object.as_ref(), keys, required).is_none()
         })
         .unwrap_or(lines.len())
 }
 
 /// The findings over both logs, in file and line order: the dispatch log's, then the decision
-/// log's. A line before the first a command wrote in its log ([`legacy`]) is judged only on the
-/// decision ids it cites.
+/// log's. A line of a legacy month file ([`legacy`]) is not judged. A decision id in a dispatch
+/// line's [`QUOTED`] field is no citation.
 fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> Vec<RecordsFinding> {
     let old_dispatches = legacy(dispatches, &DISPATCH_KEYS, &DISPATCH_REQUIRED);
     let old_decisions = legacy(decisions, &DECISION_KEYS, &DECISION_REQUIRED);
@@ -693,11 +702,9 @@ fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> V
         finding: kind,
         detail,
     };
-    for (index, line) in dispatches.iter().enumerate() {
+    for line in &dispatches[old_dispatches..] {
         let object = serde_json::from_str::<Value>(&line.text).ok();
-        let judged = index >= old_dispatches;
-        if judged
-            && let Some(Value::Object(object)) = &object
+        if let Some(Value::Object(object)) = &object
             && let Some(detail) = decision_in_dispatch_log(object)
         {
             findings.push(finding(
@@ -707,11 +714,17 @@ fn check(dispatches: &[Line], decisions: &[Line], known: &BTreeSet<String>) -> V
             ));
             continue;
         }
-        if judged && let Some(detail) = key_set(object.as_ref(), &DISPATCH_KEYS, &DISPATCH_REQUIRED)
-        {
+        if let Some(detail) = key_set(object.as_ref(), &DISPATCH_KEYS, &DISPATCH_REQUIRED) {
             findings.push(finding(line, RecordsFindingKind::UnknownKeySet, detail));
         }
-        let mut cited = decision_ids(&line.text);
+        let mut cited = match &object {
+            Some(Value::Object(object)) => {
+                let mut cites = object.clone();
+                cites.remove(QUOTED);
+                decision_ids(&Value::Object(cites).to_string())
+            }
+            _ => decision_ids(&line.text),
+        };
         cited.sort();
         cited.dedup();
         for id in cited {

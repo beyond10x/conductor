@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:dashboard-instance-switch
 kind: story
-status: draft
+status: active
 title: One dashboard switches between the instances of the host
 summary: the dashboard lists the host registry instances and shows the selected one
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T09:34:34Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T09:34:34Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

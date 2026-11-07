@@ -28,9 +28,13 @@ mod common;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, ExitCode, Output, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
+use conductor_cli::cli::GcArgs;
 use conductor_cli::collect::Collector;
 use conductor_cli::config;
 use conductor_cli::run::{self, Headroom, Seams};
@@ -139,7 +143,11 @@ fn child() {
         handle_request: (spec["decide"] == true)
             .then_some(run::handle_request as run::HandleRequest),
         program: PathBuf::from(spec["program"].as_str().expect("the conductor binary")),
-        gc: conductor_cli::gc::gc,
+        gc: if spec["do"] == "beside" {
+            blocking_gc
+        } else {
+            conductor_cli::gc::gc
+        },
     };
     let lines: Vec<String> = spec["lines"]
         .as_array()
@@ -150,6 +158,10 @@ fn child() {
                 .collect()
         })
         .unwrap_or_default();
+    if spec["do"] == "beside" {
+        println!("{}", beside(&lines, &seams));
+        std::process::exit(0);
+    }
     let summary = match spec["do"].as_str() {
         Some("lines") => run::handle_lines(None, None, &lines, &seams),
         Some("cycle") => run::cycle_tick(None, None, &seams),
@@ -180,6 +192,75 @@ fn child() {
             std::process::exit(1);
         }
     }
+}
+
+/// How many times [`blocking_gc`] was started, and whether it is released.
+static GC_STARTED: AtomicUsize = AtomicUsize::new(0);
+static GC_RELEASED: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+
+/// The `gc` of a `beside` child run: counts its start, then blocks until [`release_gc`].
+fn blocking_gc(_: &GcArgs) -> Result<ExitCode> {
+    GC_STARTED.fetch_add(1, Ordering::SeqCst);
+    let (released, signal) = &GC_RELEASED;
+    let mut released = released.lock().expect("the gate");
+    while !*released {
+        released = signal.wait(released).expect("the gate");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Lets [`blocking_gc`] end.
+fn release_gc() {
+    let (released, signal) = &GC_RELEASED;
+    *released.lock().expect("the gate") = true;
+    signal.notify_all();
+}
+
+/// The `beside` child run: as the loop runs them, a watch tick over `lines` (which start the
+/// blocking `gc`), a cycle tick and a daily tick for 2026-10-16 while it blocks, and a second
+/// watch tick over `lines`; then `gc` is released, and watch ticks over no line run until one
+/// writes `cleanup`, for ten seconds at most. Answers each tick's summary, how many times `gc`
+/// started before the release, and the watch ticks after it.
+fn beside(lines: &[String], seams: &Seams<'_>) -> Value {
+    fn shown(summary: &run::Summary) -> Value {
+        let actions: Vec<&str> = summary
+            .actions
+            .iter()
+            .map(|event| conductor_cli::records::dispatch_event(*event))
+            .collect();
+        json!({
+            "tick_id": summary.tick_id,
+            "lines_handled": summary.lines_handled,
+            "actions": actions,
+        })
+    }
+    let first = run::handle_lines_beside(None, None, lines, seams).expect("the first watch tick");
+    let cycle = run::cycle_tick(None, None, seams).expect("the cycle tick");
+    let daily = run::daily_tick(None, None, "2026-10-16", seams).expect("the daily tick");
+    let second = run::handle_lines_beside(None, None, lines, seams).expect("the second watch tick");
+    let started = GC_STARTED.load(Ordering::SeqCst);
+    release_gc();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut after = Vec::new();
+    loop {
+        let tick = run::handle_lines_beside(None, None, &[], seams).expect("a later watch tick");
+        let cleaned = tick
+            .actions
+            .contains(&conductor_model::dispatch::DispatchLogEvent::Cleanup);
+        after.push(shown(&tick));
+        if cleaned || Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    json!({
+        "first": shown(&first),
+        "cycle": shown(&cycle),
+        "daily": shown(&daily),
+        "second": shown(&second),
+        "started": started,
+        "after": after,
+    })
 }
 
 /// Takes a complete snapshot into the store under `state` that observes each repository of
@@ -1030,6 +1111,60 @@ fn disk_low_runs_gc_and_writes_cleanup() {
             .as_str()
             .is_some_and(|evidence| evidence.starts_with("gc exited")),
         "{written:?}"
+    );
+}
+
+/// In the loop, the `gc` a `disk low` line starts runs beside the ticks
+/// (`story:first-cycle-not-blocked-by-archiving`): while it blocks, the watch tick that started
+/// it ends, a cycle tick and a daily tick run, and a second `disk low` starts no second `gc`;
+/// once it ends, the next watch tick writes `cleanup` with the first line, with its own id.
+#[test]
+fn disk_low_in_the_loop_runs_gc_beside_the_ticks() {
+    let case = Case::new("disk-low-beside");
+    let line = "disk low: 50G free on /";
+    let run = case.child(json!({"do": "beside", "lines": [line]}));
+
+    assert_eq!(run["started"], 1, "{run}");
+    assert_eq!(run["first"]["lines_handled"], 1, "{run}");
+    assert_eq!(actions(&run["first"]), Vec::<String>::new(), "{run}");
+    assert_eq!(run["second"]["lines_handled"], 0, "{run}");
+    assert_eq!(actions(&run["second"]), Vec::<String>::new(), "{run}");
+    assert!(
+        actions(&run["cycle"])
+            .last()
+            .is_some_and(|last| last == "cycle"),
+        "{run}"
+    );
+    assert!(
+        case.records().join("REPORT.md").is_file(),
+        "the daily tick wrote the brief"
+    );
+    let kinds: Vec<String> = case
+        .view(&["session", "run-ticks"])
+        .iter()
+        .filter_map(|tick| tick["kind"].as_str().map(str::to_owned))
+        .collect();
+    assert!(kinds.contains(&"cycle".to_owned()), "{kinds:?}");
+    assert!(kinds.contains(&"daily".to_owned()), "{kinds:?}");
+
+    let last = run["after"]
+        .as_array()
+        .and_then(|after| after.last())
+        .expect("a watch tick after the release");
+    assert_eq!(actions(last), ["cleanup"], "{run}");
+    let log = case.log();
+    let cleanups: Vec<&Value> = log
+        .iter()
+        .filter(|written| written["event"] == "cleanup")
+        .collect();
+    assert_eq!(cleanups.len(), 1, "{log:?}");
+    assert_eq!(cleanups[0]["tick_id"], last["tick_id"]);
+    assert_eq!(cleanups[0]["line"], line);
+    assert_eq!(cleanups[0]["evidence"], "gc exited 0");
+    let position = |event: &str| log.iter().position(|written| written["event"] == event);
+    assert!(
+        position("cycle") < position("cleanup"),
+        "the cycle ran before gc ended: {log:?}"
     );
 }
 

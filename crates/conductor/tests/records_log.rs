@@ -843,11 +843,13 @@ fn records_check_names_an_unknown_decision_an_unknown_key_set_and_a_decision_in_
     );
 }
 
-/// Lines written by hand before the first line a command wrote are legacy: `records check`
-/// counts them on standard error and does not judge their key set, so a log kept by hand before
-/// the commands wrote it does not fail every check after the upgrade.
+/// The month files of a log before the first whose first line a command wrote are legacy:
+/// `records check` counts their lines on standard error and judges none of them, though hand and
+/// command lines are mixed in them, so a log kept partly by hand before the commands wrote it alone
+/// does not fail every check after the upgrade. From that file on every line is judged; a decision
+/// id a refused commit quotes in its `line` is no citation.
 #[test]
-fn records_check_does_not_judge_the_hand_written_lines_before_the_first_command_line() {
+fn records_check_judges_no_line_of_the_month_files_before_the_first_a_command_opened() {
     let case = Case::new("check-legacy");
     let known = decision_id(1);
     let decided = json!({"at": AT, "event": "decided", "repo": "alpha", "id": known, "class": "C",
@@ -859,24 +861,36 @@ fn records_check_does_not_judge_the_hand_written_lines_before_the_first_command_
         format!("{hand}\n{decided}\n"),
     )
     .expect("write the decision log");
-    let dispatches = [
-        // Legacy: a hand-written line with another key set.
-        json!({"ts": AT, "verb": "sent", "repository": "alpha", "dispatch": "DSP-1"}),
-        // The first line a command wrote.
+    let unknown = "DEC-19990101-01";
+    let legacy = [
+        // A hand-written line with another key set, citing a decision no log holds.
+        json!({"ts": AT, "verb": "sent", "repository": "alpha", "dispatch": "DSP-1",
+               "decision": unknown}),
+        // A line a command wrote.
         json!({"at": AT, "event": "blocked", "repo": "alpha", "id": "DSP-1",
                "reason": format!("waits on {known}")}),
-        // After it, a line with an unknown key set is a finding again.
+        // Hand-written again after it, in the same month.
         json!({"at": AT, "event": "started", "repository": "alpha", "id": "DSP-2"}),
+        json!({"at": AT, "event": "answered", "repo": "alpha", "id": known}),
+    ];
+    let judged = [
+        // The first line of the month: a command's, so this file and every later one is judged.
+        json!({"at": AT, "event": "records-commit-refused", "repo": "-",
+               "line": format!("dispatches/2026-10.jsonl:1: UnknownDecision: cites {unknown}")}),
+        // A line with an unknown key set is a finding.
+        json!({"at": AT, "event": "started", "repository": "alpha", "id": "DSP-3"}),
     ];
     fs::create_dir_all(case.records().join("dispatches")).expect("create dispatches/");
-    fs::write(
-        case.records().join("dispatches/2026-10.jsonl"),
-        dispatches
-            .iter()
-            .map(|line| format!("{line}\n"))
-            .collect::<String>(),
-    )
-    .expect("write the dispatch log");
+    for (month, lines) in [("2026-10", &legacy[..]), ("2026-11", &judged[..])] {
+        fs::write(
+            case.records().join(format!("dispatches/{month}.jsonl")),
+            lines
+                .iter()
+                .map(|line| format!("{line}\n"))
+                .collect::<String>(),
+        )
+        .expect("write the dispatch log");
+    }
 
     let output = case.run(&["records", "check"]);
     assert_eq!(output.status.code(), Some(1), "{}", describe(&output));
@@ -885,16 +899,16 @@ fn records_check_does_not_judge_the_hand_written_lines_before_the_first_command_
     assert_eq!(
         findings.len(),
         1,
-        "only the line after the first command line: {stdout}"
+        "only the hand-written line of the judged month: {stdout}"
     );
     assert!(
-        findings[0].starts_with("dispatches/2026-10.jsonl:3: UnknownKeySet: "),
+        findings[0].starts_with("dispatches/2026-11.jsonl:2: UnknownKeySet: "),
         "{findings:?}"
     );
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("2 line(s) written before the first a command wrote"),
-        "{}",
+            .contains("6 line(s) in month files before the first a command opened, not judged"),
+        "4 dispatch lines and 2 decision lines: {}",
         describe(&output)
     );
 }

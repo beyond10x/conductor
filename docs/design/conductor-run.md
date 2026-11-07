@@ -55,7 +55,9 @@ brief file `REPORT.md` in the records (deviations only), and then a commit of th
 through the route `forge.route` names (the bot route `b10x-gates bot` under `gates`, plain git
 under `direct`), pushed when the records repository has an `origin`; a refusal is one
 `records-commit-refused` line, not retried (`story:records-committed-by-daemon`; `conductor run
---once --commit-records` runs the commit alone).
+--once --commit-records` runs the commit alone). The daily tick is marked done for the day once
+it ended, so a loop stopped during it runs it again at its next start; one started after
+`cadence.daily` with none ended that day runs it at once.
 
 | watch line | handler | records |
 |---|---|---|
@@ -64,7 +66,7 @@ under `direct`), pushed when the records repository has an `origin`; a refusal i
 | `PR checks done: <repo>#<n> …`, `CI red on main: <repo> …`, `CI green again …` | deliver the line as `[REPORT <repo> -] watch: <line>` to the live controller; red `main` with no controller: dispatch v1 spawns one when the repository has a charter, else a deviation line | `relayed`, `red-ci` |
 | `session stalled`, `session silent` | first: deliver `[REPORT <repo> -] check-in: report your state or blocked`; second for the same session: stop and respawn from the charter | `stalled`, `controller-restarted` |
 | `session gone`, `session exited (blocked)` with an open dispatch | respawn from the charter | `controller-restarted` |
-| `disk low` | `gc` (the reclaim the watch already runs under disk admit stays) | `cleanup` |
+| `disk low` | `gc` on a thread beside the ticks, one at a time (a `disk low` while one runs starts none); the first watch tick that finds it ended writes its line; `--once` waits for it (the reclaim the watch already runs under disk admit stays) | `cleanup` |
 | `escalated`, `unanswered` | a desktop notification; the Decisions page already lists it | none |
 | `answered <id> <choice>` | deliver `[DECISION <id>] <choice> …` to the controller that raised it | `decision-sent` |
 

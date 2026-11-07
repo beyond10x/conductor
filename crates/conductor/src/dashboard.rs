@@ -42,6 +42,10 @@
 //! each KPI against its target. Both read the daily rollups of the same store
 //! (`story:dashboard-history`), the day ending now in UTC.
 //!
+//! The header's instance selector ([`instances`], `story:dashboard-instance-switch`):
+//! `/api/instances` answers every instance of the host registry with its dashboard's page, the
+//! one this server listens for marked current; each instance keeps its own dashboard.
+//!
 //! Every endpoint answers warm in under 200 ms (`story:dashboard-fast`, [`cache`]): an answer that
 //! reads the store is computed once per write to the store, through one store handle the server
 //! keeps, and served from memory after that; every JSON answer carries an `ETag`, and a request
@@ -81,6 +85,7 @@ mod answers;
 mod cache;
 pub mod decisions;
 mod health;
+pub mod instances;
 pub mod overview;
 pub mod repo;
 pub mod series;
@@ -91,6 +96,7 @@ pub(crate) mod waste;
 pub use answers::ANSWERS_PATH;
 pub use cache::{Probe, Tuning};
 pub use health::{HealthSources, failure_class};
+pub use instances::INSTANCES_PATH;
 
 use std::ffi::OsString;
 use std::fs;
@@ -1076,6 +1082,8 @@ enum Resource {
     Series,
     /// [`series::KPIS_PATH`] (`story:dashboard-kpi-panels`).
     Kpis,
+    /// [`instances::INSTANCES_PATH`] (`story:dashboard-instance-switch`).
+    Instances,
 }
 
 /// The health view's data (`story:dashboard-health`, `dashboard/health.rs`).
@@ -1181,6 +1189,7 @@ fn answer(
     let resource = match (path, snapshot) {
         ("/data.json", _) => Resource::Data,
         (HEALTH_PATH, _) => Resource::Health,
+        (instances::INSTANCES_PATH, _) => Resource::Instances,
         (_, Some(_)) => Resource::Snapshot,
         (overview::EVENTS_PATH, _) => Resource::Events,
         (overview::UNANSWERED_PATH, _) => Resource::Unanswered,
@@ -1288,6 +1297,11 @@ fn answer(
             Some((Err(error), stale)) => send(&cache::Body::text(500, error), stale),
             None => unavailable(),
         },
+        Resource::Instances => {
+            let name = config::active().instance.name.0.clone();
+            let answer = instances::answer(&server.sources.home, port, &name);
+            send(&cache::Body::json(200, &tilde_all(answer, home)), None)
+        }
         Resource::Decisions => decisions_answer(server, condition),
         Resource::Snapshot | Resource::Events | Resource::Series | Resource::Kpis => send_served(
             server.stored(target, &server.fingerprints(), true, true),

@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:records-check-legacy-months
 kind: story
-status: draft
+status: active
 title: records check leaves legacy month files and quoted findings unjudged, so the daily records commit can pass
 summary: a hand-written month and a refusal quoting findings block every records commit
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T09:28:04Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T09:28:04Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

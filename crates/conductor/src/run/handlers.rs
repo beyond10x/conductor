@@ -8,7 +8,7 @@
 //! | `PR checks done: <repo>#…`, `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
 //! | `session gone: <name> …`, `session exited (blocked): <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session | `controller-restarted` |
-//! | `disk low: …` | `gc` | `cleanup` |
+//! | `disk low: …` | `gc`, beside the tick ([`cleaned`]) | `cleanup` |
 //! | `escalated …`, `unanswered …` | a desktop notification (`notify-send`, as the watch's usage limit) | none |
 //! | `answered <id> <choice>` | deliver `[DECISION <id>] <choice> <reason> (<decision id>)` to the controller of the repository that raised the request, else keep it for that controller's next start | `decision-sent` |
 //!
@@ -19,10 +19,19 @@
 //! controller, never tried again for the same one. The other files: `handover.json` (each session
 //! a hand-over was asked of, its repository and when, in nanoseconds), `limited.json` (each
 //! session a usage limit marked) and `stalled.json` (each session a check-in was sent).
+//!
+//! The `gc` a `disk low` line starts runs on a thread of its own, so the loop's ticks go on while
+//! it works (`story:first-cycle-not-blocked-by-archiving`); one runs at a time, and a `disk low`
+//! line read while one runs starts none. Its `cleanup` line is written, with the writing tick's
+//! id, by the first watch tick that finds it ended ([`pending`]), or by the tick that started it
+//! where that tick waits for it ([`super::handle_lines`]). A process that stops while it runs
+//! loses it; the next `disk low` line starts another.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::sync::{Mutex, PoisonError};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result, anyhow};
@@ -32,7 +41,7 @@ use conductor_model::decision::RequestId;
 use conductor_model::dispatch::DispatchLogEvent;
 use serde_json::{Value, json};
 
-use super::{Tick, nanos, one_line, read_json, write_json};
+use super::{Cleaner, Tick, nanos, one_line, read_json, write_json};
 use crate::cli::GcArgs;
 use crate::watch::Watch;
 
@@ -51,9 +60,13 @@ pub(crate) const PENDING: &str = "pending.json";
 /// How long the desktop notifier may run.
 const NOTIFY_BOUND: Duration = Duration::from_secs(10);
 
-/// What a tick finishes first of what earlier ticks began: the sessions a usage limit marked,
-/// once there is headroom; the hand-overs asked for; the deliveries kept.
+/// What a tick finishes first of what earlier ticks began: the `gc` a `disk low` line started,
+/// once it ended; the sessions a usage limit marked, once there is headroom; the hand-overs asked
+/// for; the deliveries kept.
 pub fn pending(tick: &mut Tick<'_, '_>) {
+    if let Err(error) = cleaned(tick, false) {
+        tick.note("cleanup", &error);
+    }
     if let Err(error) = limited(tick) {
         tick.note("resume after a usage limit", &error);
     }
@@ -423,21 +436,74 @@ fn gone(tick: &mut Tick<'_, '_>, name: &str, reason: &str) -> Result<bool> {
 // Disk, notifications, answers
 // ---------------------------------------------------------------------------------------------
 
-/// `disk low`: runs `gc` and writes `cleanup` with how it exited.
-fn disk_low(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
-    let evidence = match (tick.seams.gc)(&GcArgs {
+/// The `gc` a `disk low` line started, while it runs and until a tick writes its `cleanup` line.
+struct Cleaning {
+    /// The `disk low` line.
+    line: String,
+    /// The thread that runs it, which answers the line's evidence.
+    thread: JoinHandle<String>,
+}
+
+/// The one [`Cleaning`] of this process.
+static CLEANING: Mutex<Option<Cleaning>> = Mutex::new(None);
+
+/// `disk low`: starts `gc` on a thread of its own, unless one was started and its `cleanup` line
+/// is not written yet; [`cleaned`] writes that line.
+fn disk_low(tick: &Tick<'_, '_>, line: &str) -> Result<bool> {
+    let mut cleaning = CLEANING.lock().unwrap_or_else(PoisonError::into_inner);
+    if cleaning.is_some() {
+        return Ok(false);
+    }
+    let gc = tick.seams.gc;
+    let thread = thread::Builder::new()
+        .name("gc".to_owned())
+        .spawn(move || evidence(gc))
+        .context("start gc on a thread of its own")?;
+    *cleaning = Some(Cleaning {
+        line: line.to_owned(),
+        thread,
+    });
+    Ok(true)
+}
+
+/// Runs `gc` and answers how it exited, the `cleanup` line's evidence.
+fn evidence(gc: Cleaner) -> String {
+    match gc(&GcArgs {
         dry_run: None,
         format: None,
     }) {
         Ok(code) if code == ExitCode::SUCCESS => "gc exited 0".to_owned(),
         Ok(_) => "gc exited 1: a row was refused".to_owned(),
         Err(error) => format!("gc exited 1: {}", one_line(&format!("{error:#}"))),
+    }
+}
+
+/// Writes `cleanup` with the `disk low` line and how `gc` exited, for the `gc` a `disk low` line
+/// started, once it ended; with `wait`, waits for it to end first. Nothing when none was started.
+///
+/// # Errors
+///
+/// The line cannot be written.
+pub(crate) fn cleaned(tick: &mut Tick<'_, '_>, wait: bool) -> Result<()> {
+    let mut cleaning = CLEANING.lock().unwrap_or_else(PoisonError::into_inner);
+    if !cleaning
+        .as_ref()
+        .is_some_and(|running| wait || running.thread.is_finished())
+    {
+        return Ok(());
+    }
+    let Some(ended) = cleaning.take() else {
+        return Ok(());
     };
+    let evidence = ended
+        .thread
+        .join()
+        .unwrap_or_else(|_| "gc exited 1: it panicked".to_owned());
+    drop(cleaning);
     let mut written = tick.line(DispatchLogEvent::Cleanup, "-")?;
-    written.line = Some(line.to_owned());
+    written.line = Some(ended.line);
     written.evidence = Some(evidence);
-    tick.write(&written)?;
-    Ok(true)
+    tick.write(&written)
 }
 
 /// A desktop notification of `line`, titled `<instance>: decision`; one that does not run is

@@ -10,6 +10,7 @@ import TokenSpendPanel from './panels/TokenSpendPanel.vue';
 import ErrorsPanel from './panels/ErrorsPanel.vue';
 import PanelState from './components/PanelState.vue';
 import SnapshotAge from './components/SnapshotAge.vue';
+import InstanceSelect from './components/InstanceSelect.vue';
 import Overview from './views/Overview.vue';
 import Repo from './views/Repo.vue';
 import Health from './views/Health.vue';
@@ -152,6 +153,7 @@ onBeforeUnmount(() => {
         <circle cx="12" cy="18" r="1.5" />
       </svg>
       <span class="brand-name">conductor</span>
+      <InstanceSelect />
     </div>
     <nav class="views" aria-label="Views">
       <a href="#/" :aria-current="route.view === 'overview' ? 'page' : undefined">Overview</a>

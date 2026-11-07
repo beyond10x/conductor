@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest bbbbbd42168bae21d9a60277667354a6b549354364fc9440cb71bd1ac656bd92
-// contract digest c0603c7f8348557a9db997aeb6fa8d86e6ae93c70366ad88854dca2723bb8a74
+// model digest 48d3a992c4b8a481be0ced1e1732e7794dfdf877aa6127144513c7c8ea9625ac
+// contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Host — `conductor.host`.
@@ -65,6 +65,22 @@ pub enum CollisionKey {
     State,
     /// `Records`.
     Records,
+}
+
+/// DashboardInstance — `conductor.host.DashboardInstance`.
+///
+/// Every value satisfies `dashboard_port >= 1` — declared here, enforced by whatever behaviour constructs one.
+/// Every value satisfies `dashboard_port <= 65535` — declared here, enforced by whatever behaviour constructs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardInstance {
+    /// `name` — `conductor.config.InstanceName`.
+    pub name: crate::config::InstanceName,
+    /// `dashboard_port` — `Integer`.
+    pub dashboard_port: i64,
+    /// `url` — `String`.
+    pub url: String,
+    /// `current` — `Boolean`.
+    pub current: bool,
 }
 
 /// GrantId — `conductor.host.GrantId`: a distinct wrapper around `String`.
