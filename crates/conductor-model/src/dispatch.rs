@@ -1,5 +1,4 @@
 // generated from conductor v1
-// model digest 48d3a992c4b8a481be0ced1e1732e7794dfdf877aa6127144513c7c8ea9625ac
 // contract digest d71bc6a0e9b5fe9fc6bc5c5688eda0da5c83319d860e4c9bb094489c259c4326
 // do not edit: regenerate with `ess synthesize --layout crate`
 
@@ -57,8 +56,24 @@ pub enum DispatchState {
 /// DispatchId — `conductor.dispatch.DispatchId`: a distinct wrapper around `String`.
 ///
 /// Every value starts with `DSP-`.
+///
+/// Checked by [`DispatchId::broken_constraint`]; the generated decoder refuses a value that breaks one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchId(pub String);
+
+impl DispatchId {
+    /// The first constraint `conductor.dispatch.DispatchId` declares that this value breaks — its alphabet, its prefix,
+    /// then each invariant — as what a decoder expected instead, or `None` when it breaks none.
+    ///
+    /// An invariant is broken only when it is false of this value, as the conformance
+    /// interpreter reads it. A wrapped newtype's own constraints are its own to check.
+    pub fn broken_constraint(&self) -> Option<&'static str> {
+        if !self.0.starts_with("DSP-") {
+            return Some("a value starting with `DSP-`");
+        }
+        None
+    }
+}
 
 /// DispatchLogEvent — `conductor.dispatch.DispatchLogEvent`: one of a closed set of names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
