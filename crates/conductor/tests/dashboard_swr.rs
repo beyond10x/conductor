@@ -302,6 +302,12 @@ fn a_stale_answer_is_served_at_once_while_the_recompute_runs() {
     assert_eq!(stale.body, first.body, "the stale answer is the kept one");
     assert_eq!(stale.etag(), first.etag());
     assert!(stale.age().is_some(), "a stale answer names its age");
+    // The recompute is started on its own thread after the write is seen; on a loaded runner it
+    // may begin a moment after the stale answer was served, so wait a bounded time for it.
+    let deadline = std::time::Instant::now() + SLOW;
+    while probe.starts(BOARD) < 2 && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
     assert_eq!(probe.starts(BOARD), 2, "one recompute started");
 
     let fresh = until(port, BOARD, fresh_with_third);
