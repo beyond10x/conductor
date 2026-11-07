@@ -2252,7 +2252,8 @@ fn without_a_session_prefix_the_sessions_keep_today_s_names() {
 }
 
 /// The library derives every name the same way: `<prefix>-<role or repository>`, or the role or
-/// repository itself without a prefix.
+/// repository itself without a prefix; a nested `<group>/<repo>` as `<group>-<repo>`
+/// (`story:nested-repository-session-names`).
 #[test]
 fn session_names_are_derived_from_the_prefix() {
     let home = PathBuf::from("/fixture-home");
@@ -2268,7 +2269,7 @@ fn session_names_are_derived_from_the_prefix() {
         ("conductor", "a-conductor", "conductor"),
         ("conductor-dev", "a-conductor-dev", "conductor-dev"),
         ("ess", "a-ess", "ess"),
-        ("group/repo", "a-group/repo", "group/repo"),
+        ("group/repo", "a-group-repo", "group-repo"),
     ] {
         assert_eq!(config::session_name(&prefixed, word).0, with);
         assert_eq!(config::session_name(&bare, word).0, without);

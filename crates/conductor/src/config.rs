@@ -1586,8 +1586,11 @@ pub fn session_name(instance: &Instance, word: &str) -> SessionName {
     named(instance.session_prefix.as_ref(), word)
 }
 
-/// [`session_name`] under `prefix`.
+/// [`session_name`] under `prefix`. A repository nested as `<group>/<repo>` is written
+/// `<group>-<repo>`, as the workspace writes it: the broker takes a session name only as one path
+/// word (`story:nested-repository-session-names`).
 fn named(prefix: Option<&SessionPrefix>, word: &str) -> SessionName {
+    let word = word.replace('/', "-");
     SessionName(match prefix {
         Some(prefix) => format!("{}-{word}", prefix.0),
         None => word.to_owned(),
@@ -5091,6 +5094,15 @@ mod tests {
             matchers[1]["hooks"][0]["command"],
             "CONDUCTOR_INSTANCE=alpha conductor guard"
         );
+    }
+
+    /// `story:nested-repository-session-names`: the broker refused `<prefix>-<group>/<repo>`.
+    #[test]
+    fn a_nested_repository_s_session_name_is_one_path_word() {
+        let prefix = SessionPrefix("ex".to_owned());
+        assert_eq!(named(Some(&prefix), "group/repo").0, "ex-group-repo");
+        assert_eq!(named(None, "group/repo").0, "group-repo");
+        assert_eq!(named(Some(&prefix), "repo").0, "ex-repo");
     }
 
     #[test]

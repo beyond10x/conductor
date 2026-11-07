@@ -131,7 +131,9 @@ types:
     alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
 
   # A harness session name on this machine: `<session_prefix>-<role or repository>`, or without
-  # a prefix the role or the repository itself.
+  # a prefix the role or the repository itself. A repository nested as `<group>/<repo>` is
+  # written `<group>-<repo>` in it, as in the workspace, since a session name is one path word
+  # (story:nested-repository-session-names).
   - name: conductor.config.SessionName
     kind: newtype
     of: String
