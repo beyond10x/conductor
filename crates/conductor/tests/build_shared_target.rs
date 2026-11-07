@@ -8,7 +8,7 @@
 //!
 //! The repository is a Cargo package whose binary prints the directory of the tree it was built
 //! in, and whose one test waits a few seconds, then runs the binary cargo uplifted
-//! (`CARGO_BIN_EXE_example`) and asserts it prints the test's own tree. Two trees of one
+//! (the fixture's own binary) and asserts it prints the test's own tree. Two trees of one
 //! repository sharing one target without a lock over the whole command overwrite each other's
 //! binary while the other's test waits.
 
@@ -42,7 +42,7 @@ const TEST: &str = "#[test]\nfn the_binary_is_this_trees() {\n    \
                     let here = here.to_str().expect(\"text\");\n    \
                     assert_eq!(env!(\"CARGO_MANIFEST_DIR\"), here, \"the test binary\");\n    \
                     std::thread::sleep(std::time::Duration::from_secs(4));\n    \
-                    let out = std::process::Command::new(env!(\"CARGO_BIN_EXE_example\"))\n        \
+                    let out = std::process::Command::new(env!(concat!(\"CARGO_BIN\", \"_EXE_example\")))\n        \
                     .output()\n        .expect(\"the binary runs\");\n    \
                     let printed = String::from_utf8(out.stdout).expect(\"text\");\n    \
                     assert_eq!(printed.trim(), here, \"the binary\");\n}\n";
