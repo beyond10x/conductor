@@ -6,7 +6,65 @@ lede: Today's host is three mechanisms side by side; the next one is one, a sess
 source: docs/design/conductor.md sections 2, 3, 4, 9 and 12; docs/design/conductor-run.md; docs/design/roles-and-surfaces.md; docs/design/self-improvement.md; Taskfile.yml; crates/conductor/src/session; the operator's design request of 2026-11-07
 ---
 
+Colours in the diagrams: blue is a host role, green a session with a model, grey a process without
+one, amber a custom role or a decision, violet a store or a tree, pink a command. Every diagram has
+a plain-text version under it.
+
 ## Status quo
+
+### The host
+
+```mermaid
+flowchart TB
+  classDef host fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  op["operator: interactive harness session"]:::host
+  sup["supervisor: claude --bg, reads profiles/conductor-supervisor.md"]:::host
+  tea["teacher: claude --bg, reads profiles/conductor-teacher.md"]:::host
+  op --- sup
+  op -.-|names foreign sessions, answers his class| sup
+  tea -.->|observes, edits the profile| sup
+  subgraph slice["conductor_‹instance›.slice, one per instance"]
+    run["‹instance›-run.service: conductor run, no model"]:::nomodel
+    dash["‹instance›-dashboard.service: 127.0.0.1:‹dashboard_port›"]:::nomodel
+    s1["‹prefix›-‹repo A›.service: tmux server, controller"]:::model
+    s2["‹prefix›-‹repo B›.service: tmux server, controller"]:::model
+    dev["‹prefix›-conductor-dev.service: tmux server, maintainer"]:::model
+  end
+  style slice fill:#f8fafc,stroke:#64748b,color:#111827
+  sup -->|restarts, delivers, reads journals| run
+  sup -->|defects, stories| dev
+  run -->|spawn, dispatch, hand-over| s1
+  run -->|spawn, dispatch, hand-over| s2
+  s1 --> t1[("tree of repository A")]:::store
+  s2 --> t2[("tree of repository B")]:::store
+  dev --> t3[("tree of the conductor repository")]:::store
+  run --> store[("records, state, cache")]:::store
+  dash --> store
+  s1 -->|reports, requests| store
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+operator (chat session) ──── supervisor (claude --bg) ◄···· teacher (claude --bg)
+                                  │ restarts, delivers, reads journals; defects to conductor-dev
+  ┌─ conductor_<instance>.slice, one per instance ───────────────────────────────────┐
+  │ <instance>-run.service         conductor run, no model                           │
+  │ <instance>-dashboard.service   127.0.0.1:<dashboard_port>                        │
+  │ <prefix>-<repo A>.service      tmux server ── controller ── tree of repository A │
+  │ <prefix>-<repo B>.service      tmux server ── controller ── tree of repository B │
+  │ <prefix>-conductor-dev.service tmux server ── maintainer ── conductor tree       │
+  │                                                                                  │
+  │ run ──spawn, dispatch, hand-over──► controllers ──reports, requests──┐           │
+  │ run, dashboard ◄──────────────────────────────────► records, state, cache ◄──────┘           │
+  └──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+</details>
 
 ### Levels
 
@@ -20,6 +78,37 @@ source: docs/design/conductor.md sections 2, 3, 4, 9 and 12; docs/design/conduct
 The loop runs no model: it takes snapshots, picks work, sends dispatches, spawns controllers and asks
 for hand-overs at the context threshold. Every judgement runs in a session with a model.
 
+```mermaid
+flowchart TB
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  watch["watch: every cadence.watch, and on a controller report"]:::nomodel --> sense["sense: one snapshot"]:::nomodel
+  sense --> compare["compare: goals, servings, red signals"]:::nomodel
+  compare --> decide["decide: answer requests, pick next work"]:::model
+  decide --> dispatch["dispatch: start, steer or stop a controller"]:::nomodel
+  dispatch --> record["record: one record per decision, dispatch, message"]:::store
+  record --> report["report: the brief, deviations only"]:::nomodel
+  report -.->|every cadence.cycle| sense
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+sense     conductor snapshot start-snapshot   one snapshot: repositories, pull requests, main CI,
+                                              releases, planning blockers, specifications, sessions
+compare   goals and servings                  which goal each repository's work serves; idle goals;
+                                              work serving no goal; red signals
+decide    decision requests                   answer controller requests; pick next work per repository
+dispatch  conductor dispatch send-dispatch    start, steer or stop a controller; one charter each
+record    the store                           one record per decision, dispatch and message
+report    operator brief                      once a day and on escalation, deviations only
+          ◄── every cadence.cycle, and on a controller report, back to sense
+```
+
+</details>
+
 ### Processes and units
 
 Each instance is one systemd user slice, `conductor_<instance>.slice`, and every long-running
@@ -31,7 +120,44 @@ process of the instance is one user unit inside it:
 | `conductor_<instance>-dashboard.service` | the dashboard on `127.0.0.1:<dashboard_port>` | no |
 | `conductor_<session>.service` | one tmux server, `tmux -D -S <state>/sessions/<session>.tmux`, whose only window runs the harness of a controller or the maintainer | yes |
 
-#### Why one tmux server per session
+#### One session, one tmux server
+
+```mermaid
+flowchart LR
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
+  subgraph unit["conductor_‹session›.service, in the instance's slice"]
+    tmux["tmux -D -S ‹state›/sessions/‹session›.tmux -f ‹session›.tmux.conf"]:::nomodel
+    harness["the harness, started from the role's profile"]:::model
+    tmux -->|one window| harness
+  end
+  style unit fill:#f8fafc,stroke:#64748b,color:#111827
+  files["‹session›.settings.json · ‹session›.envelope.json · ‹session›.typescript"]:::store
+  tmux --- files
+  attach["conductor session attach --name ‹session›"]:::cmd -->|opens the socket| tmux
+  deliver["conductor session deliver --name ‹session›"]:::cmd -->|types a text, then Enter| tmux
+  stop["systemctl --user stop conductor_‹session›.service"]:::cmd -->|ends this session only| unit
+  watch["conductor session attach --watch"]:::cmd -->|follows| files
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+conductor session attach --name S  ──opens the socket──┐
+conductor session deliver --name S ──types a text──────┤
+                                                       ▼
+conductor_S.service:  tmux -D -S <state>/sessions/S.tmux -f S.tmux.conf
+                        └─ one window: the harness, started from the role's profile
+files beside the socket:  S.settings.json   S.envelope.json   S.typescript ◄── attach --watch
+systemctl --user stop conductor_S.service   ends this session and nothing else
+```
+
+</details>
+
+Why one server per session:
 
 - A session is one unit: `systemctl --user stop conductor_<session>.service` ends that session and
   nothing else; its cgroup, cpu weight and tasks limit are measured and written to
@@ -114,26 +240,72 @@ migration at the end orders them so that every step is reversible.
 
 ### One picture
 
+The host and its instances:
+
+```mermaid
+flowchart TB
+  classDef host fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
+  op["operator"]:::host
+  tea["teacher, host, one: outside the system, reviews it"]:::host
+  sup["supervisor, host, one"]:::host
+  op --- tea
+  op --- sup
+  tea -.->|reviews decisions and outcomes, edits the profile| sup
+  sup --> a["instance A: controller, workers, loop"]:::model
+  sup --> b["instance B: controller, workers, loop; holds the conductor repository"]:::model
+  sup --> c["instance C: controller, workers, loop"]:::model
+  b -.->|tag, Release, announcement| si["conductor self-install ‹tag›, under the supervisor's grant: every loop, one instance at a time"]:::cmd
+```
+
+Inside one instance:
+
+```mermaid
+flowchart TB
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef custom fill:#fef3c7,stroke:#b45309,color:#111827
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  la["loop and dashboard, no model"]:::nomodel
+  ca["controller, one per instance"]:::model
+  la -.->|snapshots, schedules, hand-overs| ca
+  ca --> w1["worker: implementer, repository 1"]:::model
+  ca --> w2["worker: reviewer, repository 1"]:::model
+  ca --> w3["worker: releaser, repository 2"]:::model
+  ca --> x["custom role: ui-pass, daily 06:00"]:::custom
+  w1 --> st[("records, state")]:::store
+  w2 --> st
+  w3 --> st
+  x --> st
+  st -.->|what the loop snapshots| la
+```
+
+<details>
+<summary>plain text</summary>
+
 ```text
 operator ── chat session ── supervisor (host, one)
-                      │
-                   teacher (host, one; outside the system, reviews it)
+                 │             │
+              teacher (host, one; outside the system, reviews the supervisor and the outcomes)
                                │
             ┌──────────────────┼──────────────────┐
          instance A         instance B         instance C
             │                  │                  │
          controller         controller         controller        one per instance
          ├ worker            ├ worker            ├ worker         per repository or unit
-         ├ worker            ├ worker            └ custom role
-         └ custom role       └ worker
+         ├ worker            ├ worker            └ custom role    on a schedule
+         └ custom role       └ worker (releaser) ──► conductor self-install <tag>
             │
          loop (no model), dashboard, records, state
 ```
 
+</details>
+
 | level | one per | role | what it does |
 |---|---|---|---|
-| host | machine | **supervisor** | keeps every instance's loop, controller and workers running; carries findings across instances; decides within its grant; reports to the operator |
 | host | machine | **teacher** | outside the system, above the supervisor: reviews what the supervisor decided and what the instances delivered, the way an adversarial reviewer reads a finished change; changes the supervisor's profile and files findings; never runs the supervisor's routine itself (operator, 2026-11-07) |
+| host | machine | **supervisor** | keeps every instance's loop, controller and workers running; carries findings across instances; decides within its grant; reports to the operator |
 | instance | organization | **controller** | the instance's judgement: picks work across the instance's repositories, starts and steers workers, answers requests, merges what passes, escalates |
 | instance | organization | **loop** | `conductor run`: snapshots, timers, spawns, hand-overs, KPIs; no model |
 | repository or unit | work | **worker** | one job in one tree: plan, implement, review, release; built-in roles |
@@ -165,6 +337,47 @@ settings file, starts one tmux server in the instance's slice (the host roles in
 measures the box and writes the envelope. `claude --bg`, `task supervisor:start` and the adapters
 under `~/.claude/agents/` go away; the harness view (`claude agents`) stays a diagnostic.
 
+```mermaid
+sequenceDiagram
+  participant L as caller
+  participant C as session start
+  participant S as systemd
+  participant T as tmux
+  participant H as harness
+  L->>C: --instance i --role r
+  rect rgb(252, 231, 243)
+    C->>C: write settings.json, tmux.conf
+  end
+  rect rgb(229, 231, 235)
+    C->>S: start the unit in the slice
+    S->>T: tmux -D -S ‹session›.tmux
+  end
+  rect rgb(220, 252, 231)
+    T->>H: one window, the role's profile
+  end
+  rect rgb(237, 233, 254)
+    C->>C: measure, write envelope.json
+  end
+  C-->>L: name and socket
+  H-->>L: reports, requests, hand-over
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+loop, TUI or schedule ──► conductor session start --instance i --role r
+                            1  write <session>.settings.json and <session>.tmux.conf
+                            2  systemd: start conductor_<session>.service in conductor_<i>.slice
+                            3  tmux -D -S <state>/sessions/<session>.tmux
+                            4  one window: the harness with the role's profile
+                            5  measure the box, write <session>.envelope.json
+                      ◄──── session name and socket
+harness ──► reports, requests, hand-over at the threshold
+```
+
+</details>
+
 Rules carried over unchanged: one session per name, a successor only after its predecessor stopped;
 hand-over at the context threshold with pushed branches; the typescript as the record.
 
@@ -185,6 +398,34 @@ socket, so the session keeps running untouched when the operator leaves.
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+```mermaid
+flowchart LR
+  classDef host fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
+  term["terminal"]:::host --> tui["conductor tui: one tmux client"]:::cmd
+  tui -->|Enter: switch the client to the socket| sa["session socket, instance A"]:::model
+  tui -->|Enter| sb["session socket, instance B"]:::model
+  sa -.->|detach: back to the TUI| tui
+  tui -->|s: validate, then write| cfg["conductor.yaml"]:::store
+  tui -->|d, r, k: conductor commands| store[("the store: deliveries, restarts, readings")]:::store
+  store -.->|what the dashboard reads| tui
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+terminal ── conductor tui (one tmux client)
+              ├─ Enter ──► session socket, instance A ── ctrl-] then d ──► back to the TUI
+              ├─ Enter ──► session socket, instance B
+              ├─ s     ──► validate, then write conductor.yaml
+              └─ d r k ──► conductor commands ──► the store ◄── read by the TUI and the dashboard
+```
+
+</details>
+
 | key | does |
 |---|---|
 | `Enter` | attach the selected session (`ctrl-]` then `d` returns to the TUI) |
@@ -199,6 +440,27 @@ The TUI reads what the dashboard reads (the store and `<state>/sessions/`) and w
 conductor commands, so a thing done in the TUI is a record.
 
 ### Settings: global, instance, role
+
+```mermaid
+flowchart TB
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  classDef model fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef cmd fill:#fce7f3,stroke:#be185d,color:#111827
+  g["globals: the defaults"]:::store -->|overridden by| i["instances[]: one organization"]:::store
+  i -->|overridden by| r["roles[]: one role"]:::store
+  r --> e["effective value of one session"]:::model
+  e --> show["conductor config show --effective --instance ‹i›"]:::cmd
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+globals ──overridden by──► instances[] ──overridden by──► roles[] ──► effective value of one session
+conductor config show --effective --instance <i>   every key with the level it came from
+```
+
+</details>
 
 | level | file section | holds |
 |---|---|---|
@@ -233,6 +495,41 @@ the instance's `profiles/`, outside the conductor repository, so a company-speci
 enters the product.
 
 ### Self-improvement over settings
+
+```mermaid
+flowchart TB
+  classDef nomodel fill:#e5e7eb,stroke:#4b5563,color:#111827
+  classDef host fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef store fill:#ede9fe,stroke:#6d28d9,color:#111827
+  classDef decision fill:#fef3c7,stroke:#b45309,color:#111827
+  classDef good fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef bad fill:#fee2e2,stroke:#b91c1c,color:#111827
+  tick["daily tick: conductor metric compute"]:::nomodel --> kpi["KPI readings against targets"]:::store
+  kpi --> tuner["tuner, host role"]:::host
+  tuner --> prop["settings-proposal record: key, old, new, the reading it should move, the window"]:::store
+  prop --> grant{"key inside globals.tuning, value inside its range?"}:::decision
+  grant -->|yes| apply["apply the change, open the window"]:::nomodel
+  apply --> measure["measure after the window"]:::nomodel
+  measure -->|reading improved| keep["keep it, record"]:::good
+  measure -->|same or worse| revert["revert it, record"]:::bad
+  grant -->|no| finding["finding, then a story for the conductor repository's controller"]:::decision
+  keep --> brief["the daily brief"]:::host
+  revert --> brief
+  finding --> brief
+```
+
+<details>
+<summary>plain text</summary>
+
+```text
+daily tick ─► KPI readings vs targets ─► tuner ─► settings-proposal (key, old, new, reading, window)
+   key inside globals.tuning?
+     yes ─► apply, open the window ─► measure ─┬─ improved ──► keep, record ───┐
+                                               └─ same/worse ► revert, record ─┼─► the daily brief
+     no  ─► finding ─► story for the conductor repository's controller ────────┘
+```
+
+</details>
 
 The daily tick computes the KPIs per instance. A built-in host role, `tuner`, runs after it:
 
