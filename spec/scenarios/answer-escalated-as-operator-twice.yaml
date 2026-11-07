@@ -1,0 +1,80 @@
+# The operator's answer names a decision id; one already held is refused (`already-recorded`):
+# the held decision is unchanged and the request stays escalated.
+type: ess-scenario/1
+domain: conductor.decision
+scenario: answer-escalated-as-operator-twice
+summary: An operator's answer under a decision id that is already held is refused; the held decision and the escalated request are unchanged.
+
+timeline:
+  - at: 2026-10-15T09:00:00Z
+    command: conductor.decision.RaiseDecisionRequest
+    actor: conductor.decision.RepositoryController
+    input:
+      request_id: REQ-twice-1
+      repository: cortex
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      recommendation: B
+      raised_at: 2026-10-15T09:00:00Z
+    outcome: raised
+
+  - at: 2026-10-15T09:00:01Z
+    command: conductor.decision.EscalateRequest
+    actor: conductor.decision.Conductor
+    input:
+      request_id: REQ-twice-1
+      escalation_class: O
+      reason: an architecture choice
+      kind: one-of
+      lettered_options:
+        - {letter: A, label: keep the file store, cost: nothing now}
+        - {letter: B, label: move to the tree store, cost: half a day of one controller}
+      recommended_letters: B
+      default_letters: A
+      deadline: 2026-10-16T09:00:00Z
+    outcome: escalated
+
+  - at: 2026-10-15T09:00:02Z
+    command: conductor.decision.RecordConductorDecision
+    actor: conductor.decision.Conductor
+    input:
+      decision_id: DEC-twice-1
+      decision_class: C
+      question: Retry the flaky job?
+      options: "A: retry; B: wait"
+      choice: A
+      reason: the failure is the known flake
+      evidence: none
+      decided_at: 2026-10-15T09:00:02Z
+    outcome: recorded
+
+  - at: 2026-10-15T09:00:03Z
+    command: conductor.decision.RecordOperatorDecisionForRequest
+    actor: conductor.decision.Operator
+    input:
+      request_id: REQ-twice-1
+      decision_id: DEC-twice-1
+      decision_class: O
+      question: Which store backs the cache?
+      options: "A: keep the file store; B: move to the tree store"
+      choice: B
+      reason: chosen on the Decisions page
+      evidence: request REQ-twice-1, recorded by dashboard
+      decided_at: 2026-10-15T09:00:03Z
+      recorded_by: dashboard
+      operator_words: chosen on the Decisions page
+      repository: cortex
+    outcome: already-recorded
+    error:
+      name: conductor.decision.DecisionExists
+
+assert:
+  - view: conductor.decision.Requests
+    contains:
+      request_id: REQ-twice-1
+      state: Escalated
+  - view: conductor.decision.Decisions
+    contains:
+      decision_id: DEC-twice-1
+      decided_by: Conductor
+      choice: A

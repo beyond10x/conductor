@@ -1,0 +1,28 @@
+# The guards of `mailbox-without-body` and `unparsed` both hold for a mailbox message that names
+# no body path and did not parse; the declared precedence answers `mailbox-without-body`, so the
+# message is refused and nothing is recorded, not received as rejected.
+type: ess-scenario/1
+domain: conductor.dispatch
+scenario: precedence-mailbox-without-body-unparsed
+summary: A mailbox message with no body path is refused even when its first line did not parse, and nothing is recorded.
+
+timeline:
+  - at: 2026-10-07T09:00:00Z
+    command: conductor.dispatch.ReceiveMessage
+    actor: conductor.dispatch.Conductor
+    input:
+      sender: cortex
+      recipient: conductor
+      kind: Unknown
+      first_line: no format here
+      transport: Mailbox
+      received_at: 2026-10-07T09:00:00Z
+      parsed: false
+    outcome: mailbox-without-body
+    error:
+      name: conductor.dispatch.MailboxBodyMissing
+
+assert:
+  - view: conductor.dispatch.Messages
+    excludes:
+      first_line: no format here
