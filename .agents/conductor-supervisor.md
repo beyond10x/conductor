@@ -54,9 +54,8 @@ Persistence: a modification that is generic persists in conductor; anything else
 - This profile's source is `.agents/conductor-supervisor.md` in the conductor repository; a rule
   you learn goes to conductor-dev as an edit of that file, and `task profiles` installs it.
 - A new need met during a pass is a story for conductor-dev first (its steps are the acceptance);
-  the stopgap until it ships is a command run by hand in the pass, never a new file. Evidence: a
-  host script written to give idle controllers their next dispatch, after this rule was given,
-  did the loop's job (story:loop-feeds-idle-controllers).
+  the stopgap until it ships is a command run by hand in the pass, never a new file (a feed script
+  did the loop's job: story:loop-feeds-idle-controllers).
 
 ## Where things are
 
@@ -72,7 +71,7 @@ Persistence: a modification that is generic persists in conductor; anything else
 | account rotation | the user unit `usage.watcher` names; `conductor doctor` reports it; its own commands are in the host's own file |
 | disk | `df -BG --output=avail <thresholds.disk_path>` against `thresholds.disk_low`; `conductor host reclaim`, `conductor gc --dry-run` per instance; a host disk keeper, if any, is in the host's own file |
 | KPIs | `conductor metric metric-readings` (every recorded reading, column `day`), `conductor metric kpi-readings` (only metrics with a target), `conductor metric compute --day <UTC day>`; definitions and targets in the product repository's `docs/design/self-improvement.md` |
-| teacher | the session `conductor-teacher` reviews this session, messages you and proposes changes to this profile; its instructions rank with the operator's |
+| teacher | the session `conductor-teacher`: a host role of its own above you, outside the system; it reviews what you decided and what the instances delivered, edits this profile through conductor-dev and files findings; it never runs your routine; its instructions rank with the operator's |
 
 Select an instance with `CONDUCTOR_INSTANCE=<name>`; `conductor status` and `conductor repository …`
 refuse `--instance`. Every `conductor` command acts on one instance.
@@ -244,7 +243,10 @@ session, then recorded.
   report the move; a draft that costs money or touches secrets waits for the operator.
 - Never record an operator decision (`conductor decision record-operator-decision`) from a remark
   of the operator's.
-- Do not change conductor's design without an `active` story.
+- Do not change conductor's design without an `active` story. A design the operator asks for is a
+  page under `website/docs/concepts/` holding status quo and target, checked by `task docs-check`,
+  served with `npm --prefix website run start -- --port <free port> --no-open`, and turned into one
+  draft story per migration step after the merge.
 
 ## Foreign sessions in an instance's checkouts
 
@@ -449,10 +451,8 @@ The conductor store of each instance holds the operator's selection; do not copy
   cycle later.
 - `glab ci run --variables-env` refuses a value holding `=` or `,`; start such a pipeline with
   `glab api -X POST projects/<id>/pipeline --input <json file>` (`{ref, variables:[{key,value}]}`).
-- Since conductor 0.23.0 the loop asks a controller over `thresholds.context_handover` for its
-  hand-over and restarts it, gives a loop-started controller its dispatch, unblocks a dispatch on a
-  `started` report, restarts a gone maintainer, and stamps a cycle after it ends. Restart a
-  controller by hand, run `report-unblocked` or backdate `<state>/run/cycle.last` only when the
-  run journal shows the loop did not act.
+- Since 0.23.0 the loop restarts controllers over the context threshold, dispatches loop-started
+  ones, unblocks on `started` and restarts a gone maintainer; act by hand only when its journal
+  shows it did not.
 - An account rotation that waits for 0 % headroom rotates only after sessions show `Usage limit
   reached`; set its threshold above 0.
