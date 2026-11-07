@@ -790,7 +790,8 @@ commands:
       # O: the operator decides. H: the operator acts. C is never escalated (design § 5).
       - name: escalation_class
         type: conductor.decision.DecisionClass
-      # Why the class is O or H; for an unclear class, why it was treated as O (design § 5).
+      # Why the class is O or H. An unclear class is C: conductor takes the option that can be
+      # undone and records why, and does not escalate it (design § 5, AGENTS.md rule 10).
       - name: reason
         type: String
       # A class-H item is dry-run before it is handed over (story:hand-item-dry-run): `dry_run`
