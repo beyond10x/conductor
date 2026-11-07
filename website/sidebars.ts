@@ -19,6 +19,7 @@ const sidebars: SidebarsConfig = {
         'concepts/decisions-and-messages',
         'concepts/instances-and-config',
         'concepts/disk',
+        'concepts/architecture',
       ],
     },
     {
