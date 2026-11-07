@@ -4,10 +4,11 @@
 //! | watch line | handler | lines |
 //! |---|---|---|
 //! | `context: <repo> <n>k …` over `thresholds.context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per session; over 1.25 times the threshold, at once or in a later tick, or once `<checkout>/.git/handoff/` holds a file newer than the delivery, restart the controller ([`Tick::restart`]) with that file as the charter's resume point | `handover-sent`, `handover`, `controller-restarted` |
-//! | `usage limit: …; <n> sessions: <names>` | mark each session; a later tick whose [`Headroom`](super::Headroom) is back resumes each (`spawn::resume`), or restarts one a hand-over was asked of | `usage-limit`, `resumed`, `controller-restarted` |
+//! | `usage limit: …; <n> sessions: <names>` | mark each session; a later tick whose [`Headroom`](super::Headroom) is back resumes each once (`spawn::resume`), or restarts one a hand-over was asked of; a session resumed and stopped again is said in one journal line | `usage-limit`, `resumed`, `controller-restarted` |
+//! | `session exited (blocked): <name> …` | marked as a usage limit marks it, when its repository has an open dispatch | `usage-limit`, `resumed` |
 //! | `PR checks done: <repo>#…`, `CI red on main: <repo> / …`, `CI green again on main: <repo> / …` | deliver `[REPORT <repo> -] watch: <line>` to the running controller; a red `main` with none spawns one when the repository has a charter, within `controllers.max_working` | `relayed`, `red-ci` |
 //! | `session stalled: <name> …`, `session silent: <name> …` | first a delivered check-in; the second time, a restart | `stalled`, `controller-restarted` |
-//! | `session gone: <name> …`, `session exited (blocked): <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session | `controller-restarted` |
+//! | `session gone: <name> …` | a restart, when the repository has an open dispatch and no usage limit marked the session | `controller-restarted` |
 //! | `disk low: …` | `gc`, beside the tick ([`cleaned`]) | `cleanup` |
 //! | `escalated …`, `unanswered …` | a desktop notification (`notify-send`, as the watch's usage limit) | none |
 //! | `answered <id> <choice>` | deliver `[DECISION <id>] <choice> <reason> (<decision id>)` to the controller of the repository that raised the request, else keep it for that controller's next start | `decision-sent` |
@@ -20,7 +21,8 @@
 //! `SessionNotReachable` records that controller stopped, with one journal line ([`send`],
 //! `story:deliver-to-stopped-controller`). The other files: `handover.json` (each session a
 //! hand-over was asked of, its repository and when, in nanoseconds), `limited.json` (each
-//! session a usage limit marked) and `stalled.json` (each session a check-in was sent).
+//! session a usage limit marked), `stalled.json` (each session a check-in was sent) and
+//! `resumed.json` (each session the loop resumed, and when).
 //!
 //! The `gc` a `disk low` line starts runs on a thread of its own, so the loop's ticks go on while
 //! it works (`story:first-cycle-not-blocked-by-archiving`); one runs at a time, and a `disk low`
@@ -62,6 +64,9 @@ const STALLED: &str = "stalled.json";
 
 /// The deliveries kept for a controller's next start.
 pub(crate) const PENDING: &str = "pending.json";
+
+/// The sessions the loop resumed after a usage limit, and when, in nanoseconds.
+const RESUMED: &str = "resumed.json";
 
 /// How long the desktop notifier may run.
 const NOTIFY_BOUND: Duration = Duration::from_secs(10);
@@ -123,10 +128,10 @@ fn act(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
         }
     }
     if let Some(rest) = line.strip_prefix("session gone: ") {
-        return gone(tick, first_word(rest), "gone");
+        return gone(tick, first_word(rest));
     }
     if let Some(rest) = line.strip_prefix("session exited (blocked): ") {
-        return gone(tick, first_word(rest), "exited");
+        return exited(tick, line, first_word(rest));
     }
     if line.starts_with("disk low: ") {
         return disk_low(tick, line);
@@ -271,9 +276,10 @@ fn newest_handoff(checkout: &Path, since: u128) -> Option<PathBuf> {
         .map(|(_, path)| path)
 }
 
-/// Forgets what the ticks kept of `session`: a hand-over asked, a usage limit, a check-in.
+/// Forgets what the ticks kept of `session`: a hand-over asked, a usage limit, a check-in, a
+/// resume.
 pub fn forget(tick: &Tick<'_, '_>, session: &str) {
-    for file in [HANDOVER, LIMITED, STALLED] {
+    for file in [HANDOVER, LIMITED, STALLED, RESUMED] {
         let mut kept = read_json(&tick.dir, file, json!({}));
         if let Some(map) = kept.as_object_mut()
             && map.remove(session).is_some()
@@ -294,21 +300,72 @@ fn usage_limit(tick: &mut Tick<'_, '_>, line: &str) -> Result<bool> {
         .rsplit_once("sessions: ")
         .map(|(_, names)| names.split_whitespace().map(str::to_owned).collect())
         .unwrap_or_default();
-    let mut marked = read_json(&tick.dir, LIMITED, json!({}));
     for name in &names {
         let repo = tick.repo_of(name)?.unwrap_or_else(|| "-".to_owned());
-        marked[name.as_str()] = json!({"repo": repo});
-        write_json(&tick.dir, LIMITED, &marked)?;
-        let mut written = tick.line(DispatchLogEvent::UsageLimit, &repo)?;
-        written.session = Some(name.clone());
-        written.line = Some(line.to_owned());
-        tick.write(&written)?;
+        mark(tick, name, &repo, line, None)?;
     }
     Ok(!names.is_empty())
 }
 
+/// `session exited (blocked): <name> <id>`, a session the list keeps blocked with no `pid`, as
+/// it keeps one a usage limit stopped (`story:auto-resume`): marked as a usage limit marks it,
+/// so the first tick with headroom resumes it, when its repository has an open dispatch and no
+/// usage limit marked it already.
+fn exited(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
+    if read_json(&tick.dir, LIMITED, json!({})).get(name).is_some() {
+        return Ok(false);
+    }
+    let Some(repo) = tick.repo_of(name)? else {
+        return Ok(false);
+    };
+    if !tick.open_dispatch(&repo)? {
+        return Ok(false);
+    }
+    mark(tick, name, &repo, line, Some("blocked with no pid"))?;
+    Ok(true)
+}
+
+/// Marks the session `name` of `repo` stopped by `line` and writes `usage-limit` with `cause`.
+/// A session the loop resumed within [`crate::watch::LIMIT_AGAIN`] is stopped a second time:
+/// its line says so, and so does one journal line.
+fn mark(
+    tick: &mut Tick<'_, '_>,
+    name: &str,
+    repo: &str,
+    line: &str,
+    cause: Option<&str>,
+) -> Result<()> {
+    let mut marked = read_json(&tick.dir, LIMITED, json!({}));
+    marked[name] = json!({"repo": repo});
+    write_json(&tick.dir, LIMITED, &marked)?;
+    let again = read_json(&tick.dir, RESUMED, json!({}))[name]
+        .as_str()
+        .and_then(|at| at.parse::<u128>().ok())
+        .is_some_and(|at| {
+            nanos(SystemTime::now()).saturating_sub(at) < crate::watch::LIMIT_AGAIN.as_nanos()
+        });
+    let mut written = tick.line(DispatchLogEvent::UsageLimit, repo)?;
+    written.session = Some(name.to_owned());
+    written.line = Some(line.to_owned());
+    written.reason = if again {
+        tick.note(
+            name,
+            &anyhow!(
+                "a second usage limit after the loop resumed it: {}; it is resumed again once \
+                 there is headroom",
+                one_line(line)
+            ),
+        );
+        Some("second usage limit after a resume".to_owned())
+    } else {
+        cause.map(str::to_owned)
+    };
+    tick.write(&written)
+}
+
 /// The sessions a usage limit marked, once [`super::Headroom`] answers yes: each resumed from its
-/// transcript (`spawn::resume`), or restarted when a hand-over was asked of it; each forgotten.
+/// transcript (`spawn::resume`) once per stop, or restarted when a hand-over was asked of it;
+/// each forgotten, and one resumed kept in [`RESUMED`].
 fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
     let marked = read_json(&tick.dir, LIMITED, json!({}));
     let Some(marked) = marked.as_object().filter(|marked| !marked.is_empty()) else {
@@ -321,23 +378,33 @@ fn limited(tick: &mut Tick<'_, '_>) -> Result<()> {
     for (session, entry) in marked {
         let repo = entry["repo"].as_str().unwrap_or("-").to_owned();
         let done = if repo == "-" {
-            Ok(())
+            Ok(false)
         } else if asked.get(session).is_some() {
             tick.restart(&repo, session, "limit over the context threshold", None)
+                .map(|()| false)
         } else {
             resume(tick, &repo, session)
         };
-        if let Err(error) = done {
-            tick.note(&format!("resume {session}"), &error);
-        }
         forget(tick, session);
+        match done {
+            Ok(true) => {
+                let mut resumed = read_json(&tick.dir, RESUMED, json!({}));
+                resumed[session.as_str()] = json!(nanos(SystemTime::now()).to_string());
+                if let Err(error) = write_json(&tick.dir, RESUMED, &resumed) {
+                    tick.note(RESUMED, &error);
+                }
+            }
+            Ok(false) => {}
+            Err(error) => tick.note(&format!("resume {session}"), &error),
+        }
     }
     Ok(())
 }
 
-/// Resumes `session` of `repo` from its transcript and writes `resumed`; nothing when there is
-/// nothing to resume (no measurement, or a live session).
-fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<()> {
+/// Resumes `session` of `repo` from its transcript, with the controller role's launch and so on
+/// its model, and writes `resumed`; answers whether it did. Nothing when there is nothing to
+/// resume (no measurement, or a live session).
+fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<bool> {
     let resumed = crate::spawn::resume(
         tick.config,
         tick.state,
@@ -350,7 +417,7 @@ fn resume(tick: &mut Tick<'_, '_>, repo: &str, session: &str) -> Result<()> {
         written.session = Some(session.to_owned());
         tick.write(&written)?;
     }
-    Ok(())
+    Ok(resumed.is_some())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -431,9 +498,9 @@ fn stalled(tick: &mut Tick<'_, '_>, line: &str, name: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// A gone or exited controller session: restarted when its repository has an open dispatch and
-/// no usage limit marked it.
-fn gone(tick: &mut Tick<'_, '_>, name: &str, reason: &str) -> Result<bool> {
+/// A gone controller session: restarted when its repository has an open dispatch and no usage
+/// limit marked it.
+fn gone(tick: &mut Tick<'_, '_>, name: &str) -> Result<bool> {
     if read_json(&tick.dir, LIMITED, json!({})).get(name).is_some() {
         return Ok(false);
     }
@@ -443,7 +510,7 @@ fn gone(tick: &mut Tick<'_, '_>, name: &str, reason: &str) -> Result<bool> {
     if !tick.open_dispatch(&repo)? {
         return Ok(false);
     }
-    tick.restart(&repo, name, reason, None)?;
+    tick.restart(&repo, name, "gone", None)?;
     Ok(true)
 }
 

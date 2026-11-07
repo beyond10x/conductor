@@ -13,9 +13,10 @@
 //! The stand-ins, written here and never committed: `claude` (`agents --json` prints the entries
 //! under `fake/agents/`, `stop <id>` takes one away, a launch prints the id `s000000<n>-0000` and
 //! keeps its last argument, the charter, in `fake/charter.<n>`; every call is logged one line to
-//! `fake/claude.calls`), `systemd-run` and `systemctl` (logged; `systemctl` answers a unit loaded
-//! and active while `fake/unit.loaded` exists), `gh` (`[]`), `aep` (`[]`) and `ais` (prints
-//! `fake/ais.json`).
+//! `fake/claude.calls`, its first four words, and to `fake/claude.args`, whole),
+//! `systemd-run` and `systemctl` (logged; `systemctl` answers a unit loaded and active while
+//! `fake/unit.loaded` exists), `gh` (`[]`), `aep` (`[]`), `notify-send` (logged to
+//! `fake/notify.calls`) and `ais` (prints `fake/ais.json`).
 //!
 //! The handlers, the mailbox, the cycle's dispatch v1 and the daily tick are run through the
 //! library in a child of this test binary ([`child`]), with a [`Recorder`] in place of the real
@@ -171,6 +172,7 @@ fn child() {
     }
     let summary = match spec["do"].as_str() {
         Some("lines") => run::handle_lines(None, None, &lines, &seams),
+        Some("watch") => run::watch_tick(None, None, &seams),
         Some("cycle") => run::cycle_tick(None, None, &seams),
         Some("daily") => {
             run::daily_tick(None, None, spec["day"].as_str().expect("the day"), &seams)
@@ -519,6 +521,7 @@ impl Case {
                 "#!/bin/sh\n\
                  D='{fake}'\n\
                  printf '%s\\n' \"$1 $2 $3 $4\" >> \"$D/claude.calls\"\n\
+                 printf '%s\\n' \"$*\" >> \"$D/claude.args\"\n\
                  case \"$1\" in\n\
                  agents)\n\
                  \x20 printf '['; sep=''\n\
@@ -559,6 +562,11 @@ impl Case {
             ),
         );
         executable(&self.bin().join("gh"), "#!/bin/sh\necho '[]'\n");
+        // The watch's and the loop's desktop notifier: logged, never shown.
+        executable(
+            &self.bin().join("notify-send"),
+            &format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{fake}/notify.calls'\nexit 0\n"),
+        );
         executable(&self.bin().join("aep"), "#!/bin/sh\necho '[]'\n");
         executable(
             &self.bin().join("ais"),
@@ -665,6 +673,13 @@ impl Case {
         (summary, journal(&said))
     }
 
+    /// A watch tick over the lines of a real watch pass ([`run::watch_tick`]): its summary and
+    /// its journal lines.
+    fn watch(&self) -> (Value, Vec<String>) {
+        let (summary, said) = self.child_said(json!({"do": "watch"}));
+        (summary, journal(&said))
+    }
+
     /// Every delivery the recorder was asked for, made or refused, `(session, text)`, in order.
     fn attempts(&self) -> Vec<(String, String)> {
         fs::read_to_string(self.fake().join("attempts.jsonl"))
@@ -678,6 +693,29 @@ impl Case {
                 )
             })
             .collect()
+    }
+
+    /// Every call of the `claude` stand-in, whole, in order.
+    fn claude_args(&self) -> Vec<String> {
+        fs::read_to_string(self.fake().join("claude.args"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Where Claude Code keeps the transcript of the session `id` working in `cwd`.
+    fn transcript(&self, cwd: &Path, id: &str) -> PathBuf {
+        let directory: String = cwd
+            .display()
+            .to_string()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        self.home()
+            .join(".claude/projects")
+            .join(directory)
+            .join(format!("{id}.jsonl"))
     }
 }
 
@@ -1034,6 +1072,104 @@ fn a_limited_session_over_the_threshold_is_respawned_not_resumed() {
             .claude_calls()
             .iter()
             .any(|call| call.contains("--resume"))
+    );
+}
+
+/// `story:auto-resume`: a controller the session list shows blocked with no `pid`, whose
+/// repository has an open dispatch, is resumed from its transcript once there is headroom, on
+/// the controller role's model, and once per stop; it is not spawned afresh.
+#[test]
+fn a_controller_blocked_with_no_pid_is_resumed_once_on_the_same_model() {
+    let case = Case::new("blocked-resume");
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.dispatch("alpha");
+    case.live("alpha", FIRST, false);
+    write(&case.fake().join("headroom"), "yes");
+
+    let marked = case.tick(&[&format!("session exited (blocked): ex-alpha {FIRST_SHORT}")]);
+    assert_eq!(actions(&marked), ["usage-limit"], "{marked}");
+    let written = case.lines_of(&marked);
+    assert_eq!(written[0]["session"], "ex-alpha");
+    assert_eq!(written[0]["reason"], "blocked with no pid");
+
+    let resumed = case.tick(&[]);
+    assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
+    let resumes: Vec<String> = case
+        .claude_args()
+        .into_iter()
+        .filter(|call| call.starts_with(&format!("--bg --resume {FIRST} ")))
+        .collect();
+    assert_eq!(resumes.len(), 1, "{:?}", case.claude_args());
+    assert!(resumes[0].contains("--model sonnet"), "{resumes:?}");
+    assert_eq!(case.launched(), ["ex-alpha"], "no fresh spawn");
+    assert_eq!(
+        actions(&case.tick(&[])),
+        Vec::<String>::new(),
+        "resumed once per stop"
+    );
+}
+
+/// `story:auto-resume`: the watch reads a rate-limit error in a controller's transcript tail;
+/// the loop marks the session, and resumes it in the first tick with headroom, once.
+#[test]
+fn the_watch_resumes_a_controller_its_transcript_shows_rate_limited() {
+    let case = Case::new("watch-resume");
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.live("alpha", FIRST, false);
+    let error = json!({
+        "type": "assistant",
+        "error": "rate_limit",
+        "timestamp": OffsetDateTime::now_utc().format(&Rfc3339).expect("the clock"),
+        "message": {"content": [{"type": "text", "text": "You've hit your limit"}]},
+    });
+    write(
+        &case.transcript(&case.checkout("alpha"), FIRST),
+        &format!("{error}\n"),
+    );
+    write(&case.fake().join("headroom"), "no");
+
+    let (marked, _) = case.watch();
+    assert_eq!(actions(&marked), ["usage-limit"], "{marked}");
+    let (waiting, _) = case.watch();
+    assert_eq!(actions(&waiting), Vec::<String>::new(), "no headroom");
+
+    write(&case.fake().join("headroom"), "yes");
+    let (resumed, _) = case.watch();
+    assert_eq!(actions(&resumed), ["resumed"], "{resumed}");
+    let (after, _) = case.watch();
+    assert_eq!(actions(&after), Vec::<String>::new(), "once per stop");
+    assert_eq!(
+        case.claude_calls()
+            .iter()
+            .filter(|call| call.starts_with("--bg --resume"))
+            .count(),
+        1
+    );
+}
+
+/// `story:auto-resume`: a session the loop resumed that a usage limit stops again is said in one
+/// journal line, and its `usage-limit` line says it is the second.
+#[test]
+fn a_second_usage_limit_after_a_resume_is_reported_in_one_line() {
+    let case = Case::new("usage-limit-again");
+    case.ok(&["spawn", "--repository", "alpha"]);
+    case.live("alpha", FIRST, false);
+    write(&case.fake().join("headroom"), "yes");
+    case.tick(&["usage limit: You've hit your limit; 1 sessions: ex-alpha"]);
+    assert_eq!(actions(&case.tick(&[])), ["resumed"]);
+
+    let (again, said) =
+        case.tick_said(&["usage limit: You've hit your limit again; 1 sessions: ex-alpha"]);
+    assert_eq!(actions(&again), ["usage-limit"], "{again}");
+    let lines: Vec<&String> = said
+        .iter()
+        .filter(|line| line.contains("ex-alpha"))
+        .collect();
+    assert_eq!(lines.len(), 1, "{said:?}");
+    assert!(lines[0].contains("second usage limit"), "{lines:?}");
+    assert_eq!(
+        case.lines_of(&again)[0]["reason"],
+        "second usage limit after a resume"
     );
 }
 

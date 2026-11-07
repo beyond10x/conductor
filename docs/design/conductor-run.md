@@ -62,10 +62,11 @@ it ended, so a loop stopped during it runs it again at its next start; one start
 | watch line | handler | records |
 |---|---|---|
 | `context: <repo> <n>k` over `context_handover` | deliver `[HANDOVER <repo>] context <n>k` once per session; over 1.25× the threshold, or when `<checkout>/.git/handoff/` has a file newer than the delivery, stop the unit (`spawn::end`), append the hand-over path as the resume point to the charter, spawn again | `handover-sent`, `handover`, `controller-restarted` |
-| `usage limit: …` | mark each named session `limit`; on the next tick where `ais status --json` (or the transcript's next successful call) shows headroom, resume (`spawn::resume`) each marked session, or respawn one over the threshold | `usage-limit`, `resumed` |
+| `usage limit: …` | mark each named session `limit`; on the next tick where `ais status --json` (or the transcript's next successful call) shows headroom, resume (`spawn::resume`, the controller role's launch and model) each marked session once, or respawn one over the threshold; a session the loop resumed that a limit stops again within a day is said in one journal line, its line's reason `second usage limit after a resume` (`story:auto-resume`) | `usage-limit`, `resumed` |
 | `PR checks done: <repo>#<n> …`, `CI red on main: <repo> …`, `CI green again …` | deliver the line as `[REPORT <repo> -] watch: <line>` to the live controller; red `main` with no controller: dispatch v1 spawns one when the repository has a charter, else a deviation line | `relayed`, `red-ci` |
 | `session stalled`, `session silent` | first: deliver `[REPORT <repo> -] check-in: report your state or blocked`; second for the same session: stop and respawn from the charter | `stalled`, `controller-restarted` |
-| `session gone`, `session exited (blocked)` with an open dispatch | respawn from the charter | `controller-restarted` |
+| `session gone` with an open dispatch | respawn from the charter | `controller-restarted` |
+| `session exited (blocked)` with an open dispatch | blocked with no `pid`, as the list keeps a session a usage limit stopped: marked as `usage limit` marks it, so the first tick with headroom resumes it (`story:auto-resume`) | `usage-limit` (reason `blocked with no pid`), `resumed` |
 | `disk low` | `gc` on a thread beside the ticks, one at a time (a `disk low` while one runs starts none); the first watch tick that finds it ended writes its line; `--once` waits for it (the reclaim the watch already runs under disk admit stays) | `cleanup` |
 | `escalated`, `unanswered` | a desktop notification; the Decisions page already lists it | none |
 | `answered <id> <choice>` | deliver `[DECISION <id>] <choice> …` to the controller that raised it | `decision-sent` |
