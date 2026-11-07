@@ -6343,6 +6343,48 @@ fn under_the_direct_route_a_controller_writes_its_own_merge_requests_with_glab()
 }
 
 #[test]
+fn under_the_direct_route_a_checkout_three_folders_deep_writes_its_own_merge_requests() {
+    let home = home("forge-direct-glab-nested");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    let root = widget.parent().expect("the checkouts' root");
+    let nested = root.join("example-group/frontends/widget-ui");
+    fs::create_dir_all(nested.join(".git")).expect("create the nested .git directory");
+    fs::write(
+        nested.join(".git/config"),
+        "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@gitlab.example.com:example-group/frontends/widget-ui.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+    )
+    .expect("write the nested git config");
+    for cwd in [nested.clone(), nested.join("src")] {
+        fs::create_dir_all(&cwd).expect("create the working directory");
+        for command in [
+            "glab mr create -R example-group/frontends/widget-ui --fill --yes",
+            "glab mr merge 3 --auto-merge --yes -R example-group/frontends/widget-ui",
+        ] {
+            assert_verdict(
+                &bash_by(&home, &places, &cwd, command),
+                Verdict::Allow,
+                "",
+            );
+        }
+        assert_verdict(
+            &bash_by(
+                &home,
+                &places,
+                &cwd,
+                "glab mr merge 3 --yes -R example-group/frontends",
+            ),
+            Verdict::Deny,
+            "names the repository",
+        );
+    }
+}
+
+#[test]
 fn under_the_direct_route_conductor_writes_the_pull_requests_of_its_records() {
     let home = home("forge-direct-conductor");
     let (places, _, records) = forge_layout(

@@ -58,11 +58,22 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 /// Fixes this process's config to the fixture's, whose one instance keeps 12 snapshots: what a
-/// snapshot the library takes reads `retention.snapshots` from.
+/// snapshot the library takes reads `retention.snapshots` from. The instance takes the name
+/// `CONDUCTOR_INSTANCE` gives, if any, written into a copy of the fixture, so a variable set in
+/// the environment that runs the suite selects the fixture's instance instead of failing the case.
 fn configured() {
     static SET: OnceLock<()> = OnceLock::new();
     SET.get_or_init(|| {
-        config::set_active(Some(&fixture("conductor.yaml")))
+        let mut file = fixture("conductor.yaml");
+        if let Ok(name) = std::env::var(config::INSTANCE_VARIABLE) {
+            let text = fs::read_to_string(&file).expect("read the retention fixture");
+            let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("retention-config");
+            fs::create_dir_all(&dir).expect("create the fixture copy's directory");
+            file = dir.join(format!("conductor-{}.yaml", std::process::id()));
+            fs::write(&file, text.replace("name: retention", &format!("name: {name}")))
+                .expect("write the fixture copy");
+        }
+        config::set_active(Some(&file))
             .expect("the retention fixture is a config file this build reads");
     });
 }
