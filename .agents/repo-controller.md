@@ -42,19 +42,20 @@ after a `rules.md` change, run it again for each running worker's items.
 - **Waves are wide and concurrent.** A wave takes every ready unit with disjoint scope, up to
   `controllers.max_subagents`; a narrower wave records its reason on its wave page, as a line
   `Width: <reason>`. All of a wave's implementors start in one message, as background sub-agents,
-  each in its own tree when units share specification or CLI files. The next wave is planned and
-  started while a gate or a CI run runs. Adversary and security reviews run alongside the building
-  units, not after them.
+  each in its own tree when units share specification or CLI files. Adversary and security reviews
+  run alongside the building units, not after them.
 - **A charter with `merge: human`** (the default is `merge: controller`) leaves the merge to a
   person: run the full gate as always and open one pull request; the controller never merges it and
   never enables auto-merge. Report `[REPORT <repo> <dispatch>] review <url>`; the dispatch stays
   open until a snapshot shows the pull request merged. Under `merge: controller`, merge pull
   requests one at a time, each after the last landed.
+- **Never idle.** Release within K5 of a merge; prepare the next wave while CI runs; with no active
+  story, draft more (`aep:decompose`) and activate what the critic panel passes, saying so in your
+  next report. Ask conductor only for a cross-repository need, class O or a pushed-history rewrite.
 - **Hand over** on `[HANDOVER <repo>]` and at your wave's close (one session, one wave): finish the
-  step, write `<checkout>/.git/handoff/<UTC stamp>.md` by Bash redirect (never committed): dispatch
-  id, next step, wave, integration branch, each tree (id, branch, head, uncommitted paths), running
-  process groups, open `[NEED]`s. After `test -s <path>` passes, report `[REPORT <repo> <dispatch>]
-  blocked handover <path>` and stop.
+  step, write `<checkout>/.git/handoff/<UTC stamp>.md` by Bash redirect (never committed): dispatch,
+  next step, wave, branch, each tree (id, head, uncommitted paths), process groups, open `[NEED]`s;
+  once `test -s <path>` passes report `[REPORT <repo> <dispatch>] blocked handover <path>` and stop.
 - **A repository with no planning store** (no `.engineering/project.yaml`): the dispatch's brief is
   the plan, written into the pull request's description; one branch per unit, one integration
   branch, the same full gate and one pull request. The controller does not create a store on its
@@ -97,35 +98,21 @@ after a `rules.md` change, run it again for each running worker's items.
   run as they are. A refusal names the shortfall and is reported, never retried in a loop: `[REPORT
   <repo> <dispatch-id>] blocked disk: <its line>`. `build run` sets `CARGO_BUILD_JOBS` and
   `MAKEFLAGS` to the build's share of the cores (the cores less `thresholds.cpu_reserve`, over
-  `thresholds.build_slots`) and lowers a higher `CARGO_BUILD_JOBS` to it: pass neither. For a
-  cargo-based command it also keeps debug information to line tables (`thresholds.lean_debuginfo`):
-  set no debug variable of your own.
-- A gate that runs over an hour resumes: after a failure, rerun only the failed steps and the steps
-  that depend on them, never the whole suite again. Keep one full run for the release commit. While
-  a gate expected to run over an hour runs, propose your next wave units to conductor and work on
-  them in a separate tree, within the build-slot budget, instead of waiting for it.
+  `thresholds.build_slots`) and lowers a higher `CARGO_BUILD_JOBS` to it: pass neither. Debug
+  information stays line tables (`thresholds.lean_debuginfo`): set no debug variable of your own.
+- A gate over an hour resumes: after a failure, rerun only the failed steps and those depending on
+  them; keep one full run for the release commit. While it runs, work the next units in a separate
+  tree, within the build-slot budget.
 - Scratch goes under `mktemp -d` or `<cache>/scratch/<repo>/<purpose>/`, nowhere else outside the
   repository. Waits over 60 s run in the background, no polling. Delete with `worktree finish`
   (`--archive` for an abandoned tree, never `git add -A`) or one `rm -rf -- <paths>`, never a loop.
-  Every `rm` on a variable path is written `"${VAR:?}/${NAME:?}"`; a bare `$VAR` path stops the
-  session on a Claude Code permission prompt that nobody answers.
+  A variable path in `rm` is `"${VAR:?}/${NAME:?}"`: a bare `$VAR` stops on a permission prompt.
 - The shell may be zsh: quote a word that starts with `=`, and guard a glob that may match nothing
   (`(N)` or an `ls` test). Times come from `date -u`, never typed.
 - On GitLab, a pull request is a merge request, `gh` is `glab` and a workflow run is a pipeline. A
   charter's `forge: <kind>` replaces GitHub above, read through `glab` or your integration, never a
   personal token. Before the first commit, `git config user.email` must print the identity the
   operator's git configuration sets for that root; else stop and report.
-
-## Never idle
-
-Release within the K5 target after a merge (4 h unless the instance sets another). Never sit idle:
-while CI runs, prepare the next wave; with no active story left, draft the next stories from the
-repository's epics and findings (`aep:decompose`, or `aep:reverse-engineer` without a store), put
-them through the critic panel, activate those that pass, and continue.
-
-A draft story of your own repository that passes the critic panel is yours to activate; report it
-in your next progress line. Ask conductor only for a cross-repository need, a class O item or a
-history rewrite of something pushed.
 
 ## Done
 
