@@ -91,7 +91,7 @@ runs without one) are green on its head commit. Run `task check` locally only wh
    - `task regen`;
    - implement the handler in `crates/conductor` against the generated types.
 
-   Never edit `crates/conductor-model` by hand; `task check` fails on any byte that differs from a
+   Never edit `crates/conductor-model` by hand, and format with `cargo fmt`, never `cargo fmt --all` (it reformats that crate); `task check` fails on any byte that differs from a
    fresh generation. A change the specification cannot express is reported, not hand-written beside
    it. The `ess` version the specification needs is `requires:` in `spec/ess-inputs.yaml`.
 2. **clap derive only.** The CLI parses arguments with clap's derive API. No hand-rolled argument
