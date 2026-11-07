@@ -6,7 +6,7 @@ status: active
 title: The watch names an unanswered report and disk coming back
 relations:
 - decomposes: epic:loop-without-handwork
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T13:13:52Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T13:13:52Z", actor: "human:timo", revision: 4}
@@ -40,3 +40,10 @@ waited about 1 h.
   code (AGENTS.md rule 4); with no key set, the journal line alone is written.
 - A test over the watch with one unanswered request older than `cadence.watch` reads one journal
   line and one delivery to the configured session; an answered one reads neither.
+
+## Open requests list (added 2026-11-07)
+
+From the host supervisor, 2026-11-07, relaying the operator: a NEED waited 2.5 h unanswered on a second instance (mailbox 12:06Z), and 25 requests with no answer were found at 14:37Z, by a host script outside any repository.
+
+- `conductor dispatch requests --open` lists every `[NEED]` and `[DECISION-REQUEST]` with no answer, with its age, its repository and its mailbox file; a test with one answered and one open request lists only the open one.
+- The loop writes that list to its journal each watch tick while it is not empty; it replaces the host script and its hand-kept answered file.
