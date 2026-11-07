@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use conductor_cli::collect::Collector;
@@ -51,6 +52,15 @@ const PLANTED: usize = 1500;
 /// The observations the smaller of the two snapshots records; the larger records ten times as
 /// many.
 const FEW: usize = 8;
+
+/// Held by every case for its whole run: `/proc/self/io` counts every thread of this process,
+/// so a case that writes while another measures adds its bytes to that measurement.
+static IO: Mutex<()> = Mutex::new(());
+
+/// The lock on this process's I/O counters, taken again after a case that panicked holding it.
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    IO.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// A fresh state directory for the case `name`.
 fn case(name: &str) -> PathBuf {
@@ -245,6 +255,7 @@ fn fixture(state: &Path) -> Rc<Beside> {
 #[cfg(target_os = "linux")]
 #[test]
 fn ten_times_the_observations_read_less_than_the_store_once_more() {
+    let _io = one_at_a_time();
     let few = case("few");
     let many = case("many");
     let few_beside = fixture(&few);
@@ -318,6 +329,7 @@ fn state_of(state: &Path, id: &str) -> (SnapshotState, Option<String>) {
 /// with the reason `process gone`; the next snapshot completes.
 #[test]
 fn the_next_start_fails_a_snapshot_left_collecting_by_a_process_that_is_gone() {
+    let _io = one_at_a_time();
     let state = case("gone");
     let first = snapshot::take_in(&state, &[]).expect("a first snapshot");
     assert_eq!(first.state, SnapshotState::Complete, "{first:?}");
@@ -344,6 +356,7 @@ fn the_next_start_fails_a_snapshot_left_collecting_by_a_process_that_is_gone() {
 #[cfg(target_os = "linux")]
 #[test]
 fn each_collector_run_records_the_bytes_read_and_written_while_it_ran() {
+    let _io = one_at_a_time();
     let state = case("bytes");
     let beside = fixture(&state);
     let taken = snapshot::take_in(
@@ -420,6 +433,7 @@ fn both_complete(state: &Path, outer: &Taken, seen: &Rc<RefCell<Option<(String, 
 /// completes; so does the one started beside it.
 #[test]
 fn a_start_beside_a_running_snapshot_leaves_it_collecting() {
+    let _io = one_at_a_time();
     let state = case("beside");
     let seen = Rc::default();
     let outer = snapshot::take_in(&state, &[starts_another(&state, &seen)])
@@ -431,6 +445,7 @@ fn a_start_beside_a_running_snapshot_leaves_it_collecting() {
 /// handed to the driver ([`snapshot::take_from`]), which knows no state directory.
 #[test]
 fn a_start_beside_a_snapshot_over_a_handed_store_leaves_it_collecting() {
+    let _io = one_at_a_time();
     let state = case("handed");
     let seen = Rc::default();
     let outer = snapshot::take_from(
@@ -467,6 +482,7 @@ const LIVE: [(&str, usize); 8] = [
 #[test]
 #[ignore = "a measurement over a copy of a live store"]
 fn measure_a_snapshot_over_a_live_copy() {
+    let _io = one_at_a_time();
     active::isolate();
     let state = PathBuf::from(
         std::env::var("SNAPSHOT_COST_STATE").expect("SNAPSHOT_COST_STATE names the copy"),
