@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>conductor · Configuration (mock-up v2)</title>
+<style>
+:root{--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--xs:11px;--sm:12px;--md:13px;--base:14px;--lg:16px;--r-sm:6px;--r:10px;--pill:99px;--font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;--mono:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace}
+:root[data-theme='light']{color-scheme:light;--bg:#f6f7f9;--header:#fff;--surface:#fff;--chip:#e6edf5;--chip-b:#9fb3c8;--border:#dde1e6;--row:#e8ebef;--input:#c9cfd6;--text:#1a1f26;--soft:#2f3742;--dim:#4a5562;--muted:#5b6573;--link:#0b62b0;--blue:#1a64ad;--blue-bg:#dcecfa;--green:#1a7a4c;--green-bg:#ddf3e8;--amber:#965609;--amber-bg:#fbeccf;--warn:#fff8ec;--warn-b:#e8c98f;--red:#c42b40;--red-bg:#fbe1e5;--danger:#fff3f4;--danger-b:#eeb2ba}
+:root[data-theme='dark']{color-scheme:dark;--bg:#0f1216;--header:#12161b;--surface:#151a20;--chip:#1d2630;--chip-b:#3b4a5c;--border:#232a33;--row:#1e252e;--input:#2b3440;--text:#e6e9ee;--soft:#c8cfd8;--dim:#aab3bf;--muted:#8a94a3;--link:#7cc4ff;--blue:#7cc4ff;--blue-bg:#14283a;--green:#4cc38a;--green-bg:#123325;--amber:#f0b45a;--amber-bg:#3a2a10;--warn:#221b0f;--warn-b:#5a4520;--red:#ff7b8a;--red-bg:#3a1418;--danger:#24141a;--danger-b:#5a2530}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:var(--base)/1.45 var(--font)}
+a{color:var(--link)}
+.top{display:flex;align-items:center;gap:var(--s4);padding:var(--s3) var(--s5);background:var(--header);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5}
+.brand{font-weight:650;display:flex;gap:var(--s2);align-items:center}
+.brand-mark{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--blue),var(--green))}
+.views{display:flex;gap:var(--s1);margin-left:var(--s4)}
+.views a{padding:6px 12px;border-radius:var(--pill);color:var(--dim);text-decoration:none;font-size:var(--md);border:1px solid transparent}
+.views a.on{background:var(--chip);border-color:var(--chip-b);color:var(--text)}
+.views .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amber);margin-left:5px;vertical-align:middle}
+.head-right{margin-left:auto;display:flex;gap:var(--s3);align-items:center;font-size:var(--sm);color:var(--muted)}
+select,input,button{font:inherit;color:inherit}
+select,input[type=text],input[type=number],input[type=search]{background:var(--bg);border:1px solid var(--input);border-radius:var(--r-sm);padding:5px 8px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+button{cursor:pointer;border-radius:var(--r-sm);border:1px solid var(--input);background:var(--surface);padding:6px 12px}
+button.primary{background:var(--blue);border-color:var(--blue);color:var(--bg);font-weight:600}
+button.primary:disabled{opacity:.45;cursor:not-allowed}
+button.ghost{background:transparent;border-color:transparent;color:var(--dim)}
+button.ghost:hover{border-color:var(--input)}
+button.link{background:none;border:0;padding:0;color:var(--link);font-size:var(--xs)}
+.layout{display:grid;grid-template-columns:220px minmax(0,1fr) 360px;gap:var(--s5);padding:var(--s5);max-width:1560px;margin:0 auto}
+.side{position:sticky;top:70px;align-self:start}
+.side h3{font-size:var(--xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:var(--s4) 0 var(--s2)}
+.side h3:first-child{margin-top:0}
+.inst{display:block;padding:var(--s2) var(--s3);border-radius:var(--r-sm);margin-bottom:2px;color:var(--soft);text-decoration:none;border:1px solid transparent;cursor:pointer}
+.inst.on{background:var(--chip);border-color:var(--chip-b);color:var(--text)}
+.inst small{display:block;color:var(--muted);font-size:var(--xs);font-family:var(--mono)}
+.sec{display:flex;justify-content:space-between;padding:5px var(--s3);color:var(--dim);text-decoration:none;font-size:var(--md);border-left:2px solid var(--border)}
+.sec:hover{color:var(--text);border-left-color:var(--blue)}
+.sec .n{color:var(--amber);font-size:var(--xs);font-weight:700}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:var(--s4) var(--s5);margin-bottom:var(--s5);scroll-margin-top:80px}
+.card-h{display:flex;align-items:baseline;gap:var(--s3)}
+.card h2{font-size:var(--lg);margin:0}
+.card .sub{color:var(--muted);font-size:var(--sm);margin:2px 0 var(--s4)}
+.yaml{font-family:var(--mono);font-size:var(--xs);color:var(--muted)}
+.right{margin-left:auto}
+table{width:100%;border-collapse:collapse;font-size:var(--md)}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:var(--xs);text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--border)}
+td{padding:6px 8px;border-bottom:1px solid var(--row);vertical-align:middle}
+tr.changed td{background:var(--warn)}
+tr.new td{background:var(--blue-bg)}
+.pill{display:inline-block;padding:1px 8px;border-radius:var(--pill);font-size:var(--xs);font-weight:600;white-space:nowrap}
+.g{background:var(--green-bg);color:var(--green)}.m{background:var(--chip);color:var(--muted)}.a{background:var(--amber-bg);color:var(--amber)}.b{background:var(--blue-bg);color:var(--blue)}.r{background:var(--red-bg);color:var(--red)}
+.switch{width:34px;height:20px;border-radius:10px;background:var(--input);position:relative;border:0;padding:0;vertical-align:middle}
+.switch::after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;background:var(--surface);top:2px;left:2px;transition:left .12s}
+.switch[aria-checked=true]{background:var(--green)}.switch[aria-checked=true]::after{left:16px}
+.toolbar{display:flex;gap:var(--s2);align-items:center;margin-bottom:var(--s3);flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--input);border-radius:var(--r-sm);overflow:hidden}
+.seg button{border:0;border-radius:0;padding:4px 10px;font-size:var(--sm);background:transparent;color:var(--dim)}
+.seg button.on{background:var(--chip);color:var(--text)}
+.group{font-size:var(--xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:var(--s4) 0 var(--s2);padding-top:var(--s2);border-top:1px solid var(--row)}
+.group:first-of-type{border-top:0;margin-top:0;padding-top:0}
+.fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:var(--s3) var(--s5)}
+.field label{display:flex;gap:6px;align-items:center;font-size:var(--sm);font-weight:600;margin-bottom:3px;font-family:var(--mono)}
+.field .row{display:flex;gap:var(--s2);align-items:center}
+.field input{width:110px}
+.field .hint{font-size:var(--xs);color:var(--muted);margin-top:3px}
+.field.changed input{border-color:var(--amber);background:var(--warn)}
+.field.bad input{border-color:var(--red);background:var(--danger)}
+.field .err{font-size:var(--xs);color:var(--red);margin-top:3px;font-family:var(--mono)}
+.eff{font-size:10px;padding:0 6px;border-radius:var(--pill);font-weight:600;font-family:var(--font)}
+.eff.t{background:var(--green-bg);color:var(--green)}.eff.c{background:var(--blue-bg);color:var(--blue)}.eff.x{background:var(--amber-bg);color:var(--amber)}
+.def{font-size:10px;color:var(--muted);font-weight:400;font-family:var(--font)}
+.add{display:grid;grid-template-columns:110px 1.3fr 1fr 1fr auto;gap:var(--s2);align-items:end;margin-top:var(--s4);padding:var(--s3);border:1px dashed var(--input);border-radius:var(--r-sm)}
+.add label{font-size:var(--xs);color:var(--muted);display:block;margin-bottom:2px}
+.add input,.add select{width:100%}
+.add .probe{grid-column:1/-1;font-size:var(--xs);color:var(--muted)}
+.rail{position:sticky;top:70px;align-self:start}
+.diff{font-family:var(--mono);font-size:var(--xs);background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:var(--s3);white-space:pre;overflow:auto;max-height:280px;line-height:1.6;min-height:60px}
+.diff .p{color:var(--green)}.diff .mi{color:var(--red)}.diff .c{color:var(--muted)}
+.checks div{font-size:var(--sm);padding:2px 0}
+.ok{color:var(--green)}.bad-t{color:var(--red)}
+.note{font-size:var(--xs);color:var(--muted);margin-top:var(--s3)}
+.banner{background:var(--warn);border:1px solid var(--warn-b);border-radius:var(--r-sm);padding:var(--s2) var(--s3);font-size:var(--sm);margin-bottom:var(--s4);display:flex;gap:var(--s3);align-items:center}
+.mock{position:fixed;bottom:12px;left:12px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--warn-b);padding:4px 10px;border-radius:var(--pill);font-size:var(--xs);font-weight:700}
+.kv{display:grid;grid-template-columns:160px 1fr;gap:5px var(--s4);font-size:var(--md)}
+.kv dt{color:var(--muted);font-family:var(--mono);font-size:var(--sm)}.kv dd{margin:0;font-family:var(--mono);font-size:var(--sm)}
+.legend{display:flex;gap:var(--s3);font-size:var(--xs);color:var(--muted);align-items:center}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:20}
+.modal-bg.on{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:var(--s5);width:560px;max-width:92vw}
+.modal h2{margin:0 0 var(--s2);font-size:var(--lg)}
+.rec{font-family:var(--mono);font-size:var(--xs);background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:var(--s3);white-space:pre-wrap;margin:var(--s3) 0}
+.toast{position:fixed;bottom:16px;right:16px;background:var(--green-bg);color:var(--green);border:1px solid var(--green);padding:8px 14px;border-radius:var(--r-sm);font-size:var(--sm);display:none}
+.toast.on{display:block}
+.empty{color:var(--muted);font-size:var(--sm);font-style:italic}
+.cmp td.diffv{color:var(--amber);font-weight:600}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="brand-mark"></span>conductor</div>
+  <nav class="views" aria-label="Views">
+    <a href="#">Overview</a><a href="#">Repositories</a><a href="#">Decisions</a><a href="#">KPIs</a><a href="#">Health</a><a href="#" class="on">Configuration<span class="dot" id="navdot" hidden></span></a>
+  </nav>
+  <div class="head-right">
+    <input type="search" id="q" placeholder="Find a setting… (/)" aria-label="Find a setting" style="width:200px">
+    <button class="ghost" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">Theme</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="side">
+    <h3>Instances on this host</h3>
+    <div id="insts"></div>
+    <button class="ghost" style="width:100%;margin-top:6px;border:1px dashed var(--input)">+ New instance…</button>
+    <h3>Sections</h3>
+    <nav id="secnav"></nav>
+    <h3>Takes effect</h3>
+    <div class="legend" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <span><span class="eff t">tick</span> next watch tick</span>
+      <span><span class="eff c">cycle</span> next cycle</span>
+      <span><span class="eff x">restart</span> loop restart (offered)</span>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="banner" id="banner"></div>
+
+    <section class="card" id="s-instance">
+      <div class="card-h"><h2>Instance</h2><span class="yaml right">instances[0]</span></div>
+      <p class="sub">Name, prefix and paths are fixed here; <span class="yaml">conductor config migrate</span> moves them.</p>
+      <dl class="kv" id="kv"></dl>
+    </section>
+
+    <section class="card" id="s-repos">
+      <div class="card-h"><h2>Sources &amp; repositories</h2><span class="yaml right">sources[*], repositories.*</span></div>
+      <p class="sub" id="srcline"></p>
+      <div class="toolbar">
+        <div class="seg" role="tablist" id="rfilter">
+          <button data-f="all">All</button><button data-f="Active" class="on">Active</button><button data-f="Inactive">Inactive</button><button data-f="changed">Changed</button>
+        </div>
+        <input type="search" id="rq" placeholder="Filter repositories" style="width:200px">
+        <span class="right yaml" id="rcount"></span>
+      </div>
+      <table>
+        <thead><tr><th>repository</th><th>active</th><th>releases</th><th>decided by</th><th>reason</th><th></th></tr></thead>
+        <tbody id="rbody"></tbody>
+      </table>
+      <div class="add">
+        <div><label for="af">forge</label><select id="af"><option>GitHub</option><option>GitLab</option></select></div>
+        <div><label for="an">owner/name or URL</label><input type="text" id="an" placeholder="alpha/new-service"></div>
+        <div><label for="ap">checkout under the root</label><input type="text" id="ap" placeholder="(same as name)"></div>
+        <div><label for="ar">reason</label><input type="text" id="ar" placeholder="why it is Active"></div>
+        <div><button id="addbtn">Add</button></div>
+        <div class="probe" id="probe">Checks on Add: the project exists on the forge and the bot route can write to it; the checkout is cloned if missing (shown as a step in the write).</div>
+      </div>
+    </section>
+
+    <div id="dyn"></div>
+
+    <section class="card" id="s-compare">
+      <div class="card-h"><h2>Compare instances</h2><span class="yaml right">read-only</span></div>
+      <p class="sub">Keys whose value differs between the host's instances.</p>
+      <table class="cmp"><thead><tr><th>key</th><th>alpha</th><th>beta</th><th>gamma</th></tr></thead>
+      <tbody>
+        <tr><td class="yaml">controllers.max_working</td><td>8</td><td class="diffv">4</td><td class="diffv">3</td></tr>
+        <tr><td class="yaml">forge.route</td><td>gates</td><td class="diffv">direct</td><td>gates</td></tr>
+        <tr><td class="yaml">cadence.daily</td><td>08:07</td><td class="diffv">07:30</td><td>08:07</td></tr>
+        <tr><td class="yaml">thresholds.context_handover</td><td>200k</td><td class="diffv">150k</td><td class="diffv">150k</td></tr>
+        <tr><td class="yaml">authority.class_c</td><td>conductor</td><td class="diffv">operator</td><td>conductor</td></tr>
+      </tbody></table>
+    </section>
+  </main>
+
+  <aside class="rail">
+    <section class="card">
+      <div class="card-h"><h2>Staged changes</h2><span class="pill a" id="ncount">0</span><button class="link right" id="discard">Discard all</button></div>
+      <p class="sub">The YAML that will be written to <span class="yaml">~/.b10x/conductor/conductor.yaml</span>.</p>
+      <div class="diff" id="diff"></div>
+      <div class="checks" style="margin-top:12px" id="checks"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="primary" id="write" disabled>Review &amp; write</button>
+      </div>
+      <p class="note">Writes only from 127.0.0.1 with the page token. Keeps the old file as <span class="yaml">conductor.yaml.&lt;time&gt;.bak</span> and records one decision with the diff.</p>
+    </section>
+    <section class="card">
+      <h2 style="font-size:var(--lg);margin:0 0 8px">History</h2>
+      <table><tbody>
+        <tr><td class="yaml">11-07 09:24</td><td>9 KPI targets set</td><td><button class="link">revert</button></td></tr>
+        <tr><td class="yaml">11-07 08:02</td><td>5 repositories Active</td><td><button class="link">revert</button></td></tr>
+        <tr><td class="yaml">11-06 17:40</td><td>disk_low 100G → 200G</td><td><button class="link">revert</button></td></tr>
+      </tbody></table>
+      <p class="note">Each row is a decision in the records; revert stages its inverse.</p>
+    </section>
+  </aside>
+</div>
+
+<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mh">
+  <h2 id="mh">Write the configuration?</h2>
+  <div id="msum" style="font-size:var(--sm)"></div>
+  <div class="rec" id="mrec"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="ghost" id="mcancel">Cancel</button>
+    <button id="mwrite">Write</button>
+    <button class="primary" id="mwrite2">Write &amp; restart loop</button>
+  </div>
+</div></div>
+<div class="toast" id="toast"></div>
+<div class="mock">MOCK-UP v2 · nothing here is live</div>
+
+<script>
+const insts=[{n:'alpha',port:7313,prefix:'alpha',loop:'running',forge:'GitHub'},{n:'beta',port:7333,prefix:'b',loop:'running',forge:'GitLab'},{n:'gamma',port:7315,prefix:'gamma',loop:'stopped',forge:'GitHub'}];
+const repos=[
+ ['atlas',true,'Releases','Operator','operator\'s selection 2026-11-07'],['ess',true,'Releases','Operator','operator\'s selection 2026-11-07'],
+ ['spindle',true,'tags','Operator','operator\'s selection 2026-11-07'],['inference',true,'Releases','Operator','operator\'s selection 2026-11-07'],
+ ['codespec',true,'Releases','Operator','operator\'s selection 2026-11-07'],['conductor',true,'Releases','Operator','the product'],
+ ['aep',false,'Releases','Operator','operator\'s selection 2026-11-07'],['agentplugins',false,'Releases','Operator','operator\'s selection 2026-11-07'],
+ ['assistant',false,'Releases','Operator','operator\'s selection 2026-11-07'],['website-docs',false,'none','Operator','docs published on merge'],
+ ['a2a',false,'Releases','Snapshot',''],['agency',false,'Releases','Snapshot',''],['agent-stack',false,'tags','Snapshot',''],['worktree',false,'Releases','Snapshot','']
+].map(r=>({name:r[0],active:r[1],orig:r[1],rel:r[2],origRel:r[2],by:r[3],reason:r[4],origReason:r[4]}));
+const E={t:'tick',c:'cycle',x:'restart'};
+const S=[
+ {id:'controllers',title:'Controllers',sub:'How much work runs at once.',groups:[[null,[
+  ['max_working',8,8,'c','int>=1','controllers working at once; red-CI work may go 2 over'],
+  ['max_subagents',6,6,'c','int>=0','sub-agents per controller'],
+  ['max_open_reviews',3,3,'c','int>=1','open pull requests per repository']]]]},
+ {id:'cadence',title:'Cadence',sub:'When the loop looks and acts. Times are UTC.',groups:[[null,[
+  ['watch','180s','180s','x','dur','watch tick'],['cycle','2h','2h','x','dur','compare and dispatch'],
+  ['daily','08:07','08:07','x','hhmm','records committed, KPIs computed'],['ci','900s','900s','x','dur','CI read interval']]]]},
+ {id:'thresholds',title:'Thresholds',sub:'Disk, builds and sessions.',groups:[
+  ['Disk',[['disk_path','/','/','t','text','filesystem watched'],['disk_low','200G','100G','t','size','free below this: the loop frees disk'],['disk_clear','220G','110G','t','size','free above this: back to normal'],['disk_admit','15G','15G','t','size','a build starts only above this'],['gate_stop','15G','15G','t','size','a running gate stops below this'],['gate_resume','17G','17G','t','size','a stopped gate resumes above this']]],
+  ['Builds',[['build_slots',3,3,'t','int>=1','builds at once'],['cpu_reserve',2,2,'t','int>=0','cores kept free of builds'],['build_slot','60G','60G','t','size','disk one slot may take'],['build_size','10G','10G','t','size','a build\'s default reservation'],['short_lane_slots',1,1,'t','int>=0','slots for short builds'],['short_lane_max','3m','3m','t','dur','longest short build'],['build_queued','30m','30m','t','dur','a queued build is reported after'],['lean_debuginfo',true,true,'t','bool','line tables only'],['repo_cache','on','on','t','onoff','shared fetch cache'],['repo_cache_size','2G','2G','t','size','its size']]],
+  ['Sessions',[['context_handover','200k','150k','c','tokens','controllers hand over at this context'],['silent_session','30m','30m','t','dur','no event for this: reported'],['stalled_session','45m','45m','t','dur','no progress for this: reported'],['watchdog_every','10s','10s','t','dur','disk watchdog interval'],['tree_stale','48h','48h','t','dur','an idle tree is stale after']]]]},
+ {id:'roles',title:'Roles & models',sub:'Which model each role starts on; a running session keeps its model until it restarts.',groups:[[null,[
+  ['conductor.model','opus','opus','x','model','alpha-conductor'],['maintainer.model','opus','opus','x','model','alpha-conductor-dev'],['controller.model','opus','opus','c','model','alpha-<repository>']]]]},
+ {id:'authority',title:'Authority',sub:'Who takes each decision class.',groups:[[null,[
+  ['class_c','conductor','conductor','c','who','reversible decisions'],['class_o','operator','operator','c','who','one-way decisions']]]]},
+ {id:'kpis',title:'KPI targets',sub:'Targets the daily tick judges readings against (metric set-metric-target).',groups:[[null,[
+  ['K1','0.10','0.10','t','num','operator touches per merged PR, at most'],['K4.p90','3','3','t','num','intent to merged, p90 hours, at most'],['K5.p90','4','4','t','num','merged to released, p90 hours, at most'],['K5.unreleased','0','0','t','num','merged and not released, at most'],['K6.ci_failed','0.10','0.10','t','num','failed CI runs per merged PR, at most']]]]}
+];
+const state={};S.forEach(s=>s.groups.forEach(g=>g[1].forEach(f=>state[s.id+'.'+f[0]]={v:f[1],o:f[1],d:f[2],e:f[3],t:f[4],h:f[5],sec:s.id,k:f[0]})));
+let rf='Active';
+const $=id=>document.getElementById(id);
+function valid(f){const v=String(f.v).trim();
+ if(f.t.startsWith('int')){const n=Number(v),min=Number(f.t.split('>=')[1]);if(!/^\d+$/.test(v))return'must be a whole number';if(n<min)return'must be at least '+min;}
+ if(f.t==='size'&&!/^\d+(\.\d+)?[GMT]$/.test(v))return'a size such as 200G';
+ if(f.t==='dur'&&!/^\d+(s|m|h)$/.test(v))return'a duration such as 30m';
+ if(f.t==='hhmm'&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(v))return'a UTC time such as 08:07';
+ if(f.t==='tokens'&&!/^\d+k$/.test(v))return'tokens such as 150k';
+ if(f.t==='num'&&isNaN(Number(v)))return'a number';
+ if(f.sec==='thresholds'&&(f.k==='disk_clear')&&parseFloat(v)<=parseFloat(state['thresholds.disk_low'].v))return'must be above disk_low';
+ return null}
+function input(key,f){
+ if(f.t==='bool')return `<select data-k="${key}"><option ${f.v===true?'selected':''} value="true">true</option><option ${f.v===false?'selected':''} value="false">false</option></select>`;
+ if(f.t==='onoff')return `<select data-k="${key}"><option ${f.v==='on'?'selected':''}>on</option><option ${f.v==='off'?'selected':''}>off</option></select>`;
+ if(f.t==='model')return `<select data-k="${key}">${['opus','sonnet','haiku'].map(m=>`<option ${f.v===m?'selected':''}>${m}</option>`).join('')}</select>`;
+ if(f.t==='who')return `<select data-k="${key}">${['conductor','operator'].map(m=>`<option ${f.v===m?'selected':''}>${m}</option>`).join('')}</select>`;
+ return `<input type="text" data-k="${key}" value="${f.v}" aria-label="${f.k}">`}
+function renderDyn(){const q=$('q').value.toLowerCase();
+ $('dyn').innerHTML=S.map(s=>{let any=false;const body=s.groups.map(([gname,fs])=>{
+  const items=fs.filter(f=>!q||(s.id+'.'+f[0]+' '+f[5]).toLowerCase().includes(q)).map(f=>{any=true;const key=s.id+'.'+f[0],st=state[key],err=valid(st),ch=String(st.v)!==String(st.o);
+   return `<div class="field ${err?'bad':ch?'changed':''}"><label>${f[0]} <span class="eff ${st.e}">${E[st.e]}</span></label><div class="row">${input(key,st)}${String(st.v)!==String(st.d)?`<span class="def">default ${st.d}</span> <button class="link" data-reset="${key}">reset</button>`:''}${ch?` <button class="link" data-undo="${key}">undo</button>`:''}</div>${err?`<div class="err">${s.id}.${f[0]}: ${err}</div>`:`<div class="hint">${f[5]}</div>`}</div>`}).join('');
+  return items?(gname?`<div class="group">${gname}</div>`:'')+`<div class="fields">${items}</div>`:''}).join('');
+  if(q&&!any)return'';
+  const n=Object.values(state).filter(f=>f.sec===s.id&&String(f.v)!==String(f.o)).length;
+  return `<section class="card" id="s-${s.id}"><div class="card-h"><h2>${s.title}</h2>${n?`<span class="pill a">${n} changed</span>`:''}<span class="yaml right">${s.id==='roles'?'roles[*]':s.id==='kpis'?'metric targets (store)':s.id+'.*'}</span></div><p class="sub">${s.sub}</p>${body}</section>`}).join('');
+ document.querySelectorAll('#dyn [data-k]').forEach(el=>el.addEventListener(el.tagName==='SELECT'?'change':'input',e=>{const st=state[el.dataset.k];st.v=el.value==='true'?true:el.value==='false'?false:el.value;refresh(el.dataset.k)}));
+ document.querySelectorAll('[data-reset]').forEach(b=>b.onclick=()=>{state[b.dataset.reset].v=state[b.dataset.reset].d;refresh()});
+ document.querySelectorAll('[data-undo]').forEach(b=>b.onclick=()=>{state[b.dataset.undo].v=state[b.dataset.undo].o;refresh()})}
+function renderRepos(){const q=$('rq').value.toLowerCase();
+ const rows=repos.filter(r=>(rf==='all'||(rf==='changed'?(r.active!==r.orig||r.isNew||r.rel!==r.origRel||r.reason!==r.origReason):((r.active?'Active':'Inactive')===rf)))&&(!q||r.name.includes(q)));
+ $('rcount').textContent=`${repos.filter(r=>r.active).length} Active · ${repos.filter(r=>!r.active).length} Inactive · ${repos.length} found`;
+ $('rbody').innerHTML=rows.length?rows.map(r=>{const i=repos.indexOf(r),ch=!r.isNew&&(r.active!==r.orig||r.rel!==r.origRel||r.reason!==r.origReason);
+  return `<tr class="${r.isNew?'new':ch?'changed':''}"><td>${r.name} ${r.isNew?'<span class="pill b">new</span>':''}</td>
+  <td><button class="switch" role="switch" aria-checked="${r.active}" aria-label="${r.name} active" data-tog="${i}"></button> ${r.active!==r.orig&&!r.isNew?`<span class="pill a">${r.orig?'→ Inactive':'→ Active'}</span>`:''}</td>
+  <td><select data-rel="${i}" aria-label="${r.name} releases"><option value="Releases" ${r.rel==='Releases'?'selected':''}>Releases</option><option value="tags" ${r.rel==='tags'?'selected':''}>semver tags</option><option value="none" ${r.rel==='none'?'selected':''}>ships without releases</option></select></td>
+  <td>${r.by}</td><td><input type="text" data-rsn="${i}" value="${r.reason}" placeholder="${r.active!==r.orig?'reason required':''}" style="width:100%;${r.active!==r.orig&&!r.reason?'border-color:var(--red)':''}"></td>
+  <td>${ch||r.isNew?`<button class="link" data-rundo="${i}">undo</button>`:`<button class="ghost" title="Exclude from the source">⋯</button>`}</td></tr>`}).join(''):`<tr><td colspan="6" class="empty">No repository matches.</td></tr>`;
+ document.querySelectorAll('[data-tog]').forEach(b=>b.onclick=()=>{const r=repos[b.dataset.tog];r.active=!r.active;if(r.active!==r.orig&&r.reason===r.origReason)r.reason='';if(r.active===r.orig)r.reason=r.origReason;refresh()});
+ document.querySelectorAll('[data-rel]').forEach(s=>s.onchange=()=>{repos[s.dataset.rel].rel=s.value;refresh()});
+ document.querySelectorAll('[data-rsn]').forEach(s=>s.oninput=()=>{repos[s.dataset.rsn].reason=s.value;renderDiff()});
+ document.querySelectorAll('[data-rundo]').forEach(b=>b.onclick=()=>{const i=+b.dataset.rundo,r=repos[i];if(r.isNew)repos.splice(i,1);else{r.active=r.orig;r.rel=r.origRel;r.reason=r.origReason}refresh()})}
+function changes(){const out=[];
+ Object.entries(state).forEach(([k,f])=>{if(String(f.v)!==String(f.o))out.push({k,f})});return out}
+function repoChanges(){return repos.filter(r=>r.isNew||r.active!==r.orig||r.rel!==r.origRel||r.reason!==r.origReason)}
+function renderDiff(){const cs=changes(),rc=repoChanges();let lines=[];let last='';
+ cs.forEach(({k,f})=>{if(f.sec!==last){lines.push(`<span class="c">  ${f.sec==='kpis'?'# metric targets':f.sec+':'}</span>`);last=f.sec}lines.push(`<span class="mi">-   ${f.k}: ${f.o}</span>`,`<span class="p">+   ${f.k}: ${f.v}</span>`)});
+ if(rc.length){lines.push('<span class="c">  repositories:</span>');rc.forEach(r=>{lines.push(`<span class="p">+   ${r.name}:</span>`);if(r.isNew)lines.push(`<span class="p">+     clone: ${r.clone}</span>`);if(r.active!==r.orig||r.isNew)lines.push(`<span class="p">+     activity: ${r.active?'active':'inactive'}</span>`);if(r.rel!==r.origRel)lines.push(`<span class="p">+     releases: ${r.rel}</span>`);if(r.reason!==r.origReason||r.isNew)lines.push(`<span class="p">+     reason: ${r.reason||'<missing>'}</span>`)})}
+ $('diff').innerHTML=lines.length?lines.join('\n'):'<span class="c">No changes.</span>';
+ const n=cs.length+rc.length;$('ncount').textContent=n;$('navdot').hidden=!n;
+ const errs=cs.filter(({f})=>valid(f)).map(({k,f})=>`${k}: ${valid(f)}`).concat(rc.filter(r=>(r.active!==r.orig||r.isNew)&&!r.reason).map(r=>`repositories.${r.name}.reason: required when activity changes`));
+ const restart=cs.some(({f})=>f.e==='x'),cyc=cs.some(({f})=>f.e==='c');
+ $('checks').innerHTML=n?`${errs.length?errs.map(e=>`<div class="bad-t">✗ ${e}</div>`).join(''):'<div class="ok">✓ conductor config validate: no problem</div>'}<div class="ok">✓ no other instance's keys touched</div><div>Takes effect: ${restart?'<span class="eff x">restart</span> loop restart needed':cyc?'<span class="eff c">cycle</span> next cycle':'<span class="eff t">tick</span> next watch tick'}</div>`:'';
+ $('write').disabled=!n||errs.length>0;
+ $('banner').innerHTML=n?`<span><b>${n}</b> staged change${n>1?'s':''} on <b>alpha</b>, not written yet.</span><button class="link right" onclick="document.getElementById('write').scrollIntoView()">review</button>`:`<span>Editing <b>alpha</b>. Changes are staged on the right and written only after <span class="yaml">conductor config validate</span> passes.</span>`;
+ renderNav()}
+function renderNav(){const counts={instance:0,repos:repoChanges().length};S.forEach(s=>counts[s.id]=Object.values(state).filter(f=>f.sec===s.id&&String(f.v)!==String(f.o)).length);
+ const secs=[['instance','Instance'],['repos','Repositories']].concat(S.map(s=>[s.id,s.title])).concat([['compare','Compare instances']]);
+ $('secnav').innerHTML=secs.map(([id,t])=>`<a class="sec" href="#s-${id}">${t}${counts[id]?`<span class="n">${counts[id]}</span>`:''}</a>`).join('')}
+function refresh(focusKey){renderDyn();renderRepos();renderDiff();if(focusKey){const el=document.querySelector(`[data-k="${focusKey}"]`);if(el){el.focus();if(el.setSelectionRange){const l=el.value.length;el.setSelectionRange(l,l)}}}}
+$('insts').innerHTML=insts.map((i,k)=>`<a class="inst ${k?'':'on'}">${i.n} <span class="pill ${i.loop==='running'?'g':'a'}">loop ${i.loop}</span><small>:${i.port} · ${i.prefix} · ${i.forge}</small></a>`).join('');
+$('kv').innerHTML=[['name','alpha'],['session_prefix','alpha'],['dashboard_port','7313'],['checkouts.root','~/alpha'],['checkouts.trees','~/.local/state/worktree/trees/alpha'],['records','~/.b10x/conductor/alpha/records'],['state','~/.b10x/conductor/alpha/state'],['forge.route','gates']].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('');
+$('srcline').innerHTML='The source finds repositories; each is Active (a controller works it) or Inactive. Source: <span class="yaml">github: alpha</span>.';
+$('rfilter').querySelectorAll('button').forEach(b=>b.onclick=()=>{rf=b.dataset.f;$('rfilter').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderRepos()});
+$('rq').oninput=renderRepos;$('q').oninput=()=>renderDyn();
+document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement.tagName!=='INPUT'){e.preventDefault();$('q').focus()}if(e.key==='Escape')$('modal').classList.remove('on')});
+$('an').oninput=()=>{const v=$('an').value.trim();$('probe').innerHTML=v?(/^[\w.-]+\/[\w.-]+$/.test(v)||v.startsWith('http')?`<span class="ok">✓ ${v} found on ${$('af').value} · bot route can write · will clone to ~/alpha/${$('ap').value||v.split('/').pop()}</span>`:`<span class="bad-t">✗ write owner/name or a URL</span>`):'Checks on Add: the project exists on the forge and the bot route can write to it; the checkout is cloned if missing.'};
+$('addbtn').onclick=()=>{const v=$('an').value.trim();if(!/\//.test(v))return;const name=$('ap').value||v.split('/').pop();repos.push({name,active:true,orig:false,rel:'Releases',origRel:'Releases',by:'Operator',reason:$('ar').value,origReason:'',isNew:true,clone:v});$('an').value='';$('ap').value='';$('ar').value='';rf='changed';$('rfilter').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.f==='changed'));refresh()};
+$('discard').onclick=()=>{Object.values(state).forEach(f=>f.v=f.o);for(let i=repos.length-1;i>=0;i--){const r=repos[i];if(r.isNew)repos.splice(i,1);else{r.active=r.orig;r.rel=r.origRel;r.reason=r.origReason}}refresh()};
+$('write').onclick=()=>{const cs=changes(),rc=repoChanges(),restart=cs.some(({f})=>f.e==='x');
+ $('msum').innerHTML=`${cs.length+rc.length} change(s) to <span class="yaml">~/.b10x/conductor/conductor.yaml</span>.${restart?' <b>A loop restart is needed</b> for '+cs.filter(({f})=>f.e==='x').map(({k})=>k).join(', ')+'.':''}`;
+ $('mrec').textContent=`decision  class C, decided by the operator (dashboard)\nwhat      config: ${cs.map(({k,f})=>`${k} ${f.o} -> ${f.v}`).concat(rc.map(r=>`${r.name} ${r.isNew?'added':''}${r.active!==r.orig?(r.active?' Active':' Inactive'):''}${r.rel!==r.origRel?' releases='+r.rel:''}`)).join('; ')}\nevidence  the diff, and conductor.yaml.<time>.bak`;
+ $('mwrite2').hidden=!restart;$('modal').classList.add('on')};
+$('mcancel').onclick=()=>$('modal').classList.remove('on');
+const done=(t)=>{$('modal').classList.remove('on');$('toast').textContent=t;$('toast').classList.add('on');setTimeout(()=>$('toast').classList.remove('on'),3500);Object.values(state).forEach(f=>f.o=f.v);repos.forEach(r=>{r.orig=r.active;r.origRel=r.rel;r.origReason=r.reason;r.isNew=false});refresh()};
+$('mwrite').onclick=()=>done('Written. Decision recorded. (mock)');$('mwrite2').onclick=()=>done('Written; loop restarting. (mock)');
+refresh();
+</script>
+</body>
+</html>
