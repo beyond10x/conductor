@@ -128,6 +128,7 @@ A key path written `a[].b` is the key `b` of each element of the list `a`. A def
 | `secret_syncs[].command` | string | required |  |
 | `secret_syncs[].dry_run` | string | none |  |
 | `gates_policy` | string | none |  |
+| `forge.route` | `gates` \| `direct` | `gates` |  |
 | `conductor.served_by` | [InstanceName](#instancename) | derived |  |
 | `conductor.session_name` | [SessionName](#sessionname) | derived |  |
 
@@ -342,6 +343,18 @@ Keys: `owner`, `repository`, `name`. Specified as `conductor.config.ForgeSecret`
 How the instance reads its harness accounts' usage. `probe` is a command, run with `sh -c` on each snapshot, that prints the accounts as one JSON object: `accounts`, a list, each with `id` (the account; conductor keeps nothing else of it, never an e-mail address or a name), `active` (whether it is the account in use), `health` (`exhausted` for one with nothing left) and `usage.windows`, a list of `{name, used_percent, resets_at}`; every other key is ignored. `watcher` is the systemd user unit that rotates the accounts, which `conductor doctor` reports running or not. Conductor names no tool: both are the operator's. Absent, neither is set: no probe runs and doctor reports no watcher.
 
 Keys: `probe`, `watcher`. Specified as `conductor.config.Usage`.
+
+### ForgeRoute
+
+The route the instance's forge writes take. The file writes it in lower case. `gates`: through the bot route `b10x-gates`; the guard leaves `gh` and `glab` reading only, and `conductor run` commits and pushes the records with `b10x-gates bot`. `direct`: with the forge's own CLI and git; the guard lets a session open, update, comment on and merge (auto-merge included) the pull or merge requests of its own repository with `gh pr` or `glab mr`, the repository named with `-R`/`--repo`, and `conductor run` commits and pushes the records with plain git. Under either, every other forge write (another repository's, a credential's, an API write) is denied as before.
+
+One of `gates` | `direct`. Specified as `conductor.config.ForgeRoute`.
+
+### Forge
+
+How the instance writes to its forge: the `route`. Absent, it is `gates`.
+
+Keys: `route`. Specified as `conductor.config.Forge`.
 
 ### RoleGrant
 

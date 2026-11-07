@@ -499,6 +499,24 @@ types:
       - {name: probe, type: Optional<String>}
       - {name: watcher, type: Optional<String>}
 
+  # The route the instance's forge writes take (story:forge-route). The file writes it in lower
+  # case. `gates`: through the bot route `b10x-gates`; the guard leaves `gh` and `glab` reading
+  # only, and `conductor run` commits and pushes the records with `b10x-gates bot`. `direct`: with
+  # the forge's own CLI and git; the guard lets a session open, update, comment on and merge (auto-merge
+  # included) the pull or merge requests of its own repository with `gh pr` or `glab mr`,
+  # the repository named with `-R`/`--repo`, and `conductor run` commits and pushes the records
+  # with plain git. Under either, every other forge write (another repository's, a credential's,
+  # an API write) is denied as before.
+  - name: conductor.config.ForgeRoute
+    kind: enum
+    variants: [Gates, Direct]
+
+  # How the instance writes to its forge (story:forge-route): the `route`. Absent, it is `gates`.
+  - name: conductor.config.Forge
+    kind: struct
+    fields:
+      - {name: route, type: conductor.config.ForgeRoute}
+
   # One instance. A path is written absolute or under `~`, which is the home directory; the
   # effective path is absolute. `operator` is how sessions name the person who decides class O.
   # `session_prefix` is the prefix of every session the instance starts, and of its slice and its
@@ -544,6 +562,8 @@ types:
       # checkout's hooks with (`b10x-gates install --policy`); absent, it installs none
       # (story:gates-hooks-fresh).
       - {name: gates_policy, type: Optional<String>}
+      # The route of the instance's forge writes (story:forge-route); absent, `gates`.
+      - {name: forge, type: conductor.config.Forge}
       - {name: conductor, type: conductor.config.ConductorSession}
     invariants:
       - dashboard_port >= 1

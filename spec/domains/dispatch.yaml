@@ -199,7 +199,8 @@ types:
   # low`; `decision-sent`, an answered request's `[DECISION]` delivered to the controller that
   # raised it; `cycle`, one per cycle tick, after `snapshot start-snapshot`, `publish-board`,
   # `records check` and dispatch v1 ran (story:run-daemon acceptance 5); `records-committed`, the
-  # records directory committed (and pushed, when it has an `origin`) through the bot route by the
+  # records directory committed (and pushed, when it has an `origin`) through the route
+  # `forge.route` names (the bot route or plain git, story:forge-route) by the
   # daily tick or `conductor run --once --commit-records`, and `records-commit-refused`, that
   # commit or push refused, once, never retried in a loop (story:records-committed-by-daemon). A
   # tick of the daemon (`conductor.session.RunTick`) lists the lines it wrote by these names, and

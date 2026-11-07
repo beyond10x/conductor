@@ -78,3 +78,5 @@ instances:
       - {match: legacy-service, activity: inactive}
     retention:
       snapshots: 24
+    forge:
+      route: direct

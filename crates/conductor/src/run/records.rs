@@ -1,6 +1,7 @@
-//! The records committed through the bot route (`story:records-committed-by-daemon`,
-//! docs/design/conductor-run.md § 3): [`commit_records`], which the daily tick runs after `metric
-//! compute` and the brief, and `conductor run --once --commit-records` runs alone.
+//! The records committed through the instance's forge route (`story:records-committed-by-daemon`,
+//! `story:forge-route`, docs/design/conductor-run.md § 3): [`commit_records`], which the daily tick
+//! runs after `metric compute` and the brief, and `conductor run --once --commit-records` runs
+//! alone. Under `forge.route: gates` the bot route commits and pushes; under `direct`, plain git.
 //!
 //! In order, each step once:
 //! 1. `records check`, a run of the conductor binary with the daemon's global flags; a check that
@@ -9,11 +10,13 @@
 //!    around it is staged.
 //! 3. Of the paths the records commit ([`PATHS`]), those with changes (`git status --porcelain`)
 //!    are staged (`git add --all`); none changed is nothing to commit, and no line is written.
-//! 4. The bot route commits them, `b10x-gates bot -- commit -F <file> -- <paths>`, with the
+//! 4. The route commits them, `b10x-gates bot -- commit -F <file> -- <paths>` (under `direct`,
+//!    `git commit -F <file> -- <paths>`), with the
 //!    message `Conductor: records of <day>: <n> dispatch lines, <m> decision lines`, which counts
 //!    the lines of each log whose `at` falls on the UTC day `day` ([`message`]). The commit's id
 //!    is the one the route printed (git's `[<branch> <id>] <title>`), else `HEAD`'s.
-//! 5. With an `origin`, the bot route pushes: `b10x-gates bot -- push origin main`.
+//! 5. With an `origin`, the route pushes: `b10x-gates bot -- push origin main` (under `direct`,
+//!    `git push origin main`).
 //!
 //! The answer ([`Committed`]) is one dispatch line ([`Committed::line`]): `records-committed`
 //! with the commit and whether it was pushed, or `records-commit-refused` with the step that
@@ -25,6 +28,7 @@ use std::process::{Command, Output};
 use std::time::Duration;
 
 use anyhow::Result;
+use conductor_model::config::ForgeRoute;
 use conductor_model::dispatch::{DispatchLogEvent, DispatchLogLine};
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -48,11 +52,13 @@ pub const SHOWN: usize = 10;
 /// How long one step may run: the bot route scans before it commits and pushes over the network.
 const BOUND: Duration = Duration::from_secs(600);
 
-/// What commits the records: the bot route, and the conductor binary that checks them first.
+/// What commits the records: the bot route or plain git, and the conductor binary that checks
+/// them first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route {
-    /// The bot route's program: `b10x-gates`, found on `PATH`.
-    pub gates: PathBuf,
+    /// The bot route's program, `b10x-gates` found on `PATH`, under `forge.route: gates`; `None`
+    /// under `direct`, where git commits and pushes (`story:forge-route`).
+    pub gates: Option<PathBuf>,
     /// The conductor binary `records check` runs.
     pub program: PathBuf,
     /// The global `--config` it runs with, when given.
@@ -63,11 +69,20 @@ pub struct Route {
 }
 
 impl Route {
-    /// The route of `b10x-gates` on `PATH`, checking with `program` and the global flags given.
+    /// The route the instance's `forge.route` names, `b10x-gates` on `PATH` or plain git, checking
+    /// with `program` and the global flags given.
     #[must_use]
-    pub fn new(program: &Path, config: Option<&Path>, state: Option<&Path>) -> Self {
+    pub fn new(
+        forge: ForgeRoute,
+        program: &Path,
+        config: Option<&Path>,
+        state: Option<&Path>,
+    ) -> Self {
         Self {
-            gates: PathBuf::from(crate::gates::PROGRAM),
+            gates: match forge {
+                ForgeRoute::Gates => Some(PathBuf::from(crate::gates::PROGRAM)),
+                ForgeRoute::Direct => None,
+            },
             program: program.to_owned(),
             config: config.map(Path::to_owned),
             state: state.map(Path::to_owned),
@@ -177,7 +192,7 @@ pub fn commit_records(records: &Path, route: &Route, day: &str) -> Committed {
         Ok(file) => file,
         Err(error) => return refused("commit", one_line(&format!("{error:#}"))),
     };
-    let mut words = vec!["bot".to_owned(), "--".to_owned(), "commit".to_owned()];
+    let mut words = vec!["commit".to_owned()];
     words.push("-F".to_owned());
     words.push(file.display().to_string());
     words.push("--".to_owned());
@@ -201,7 +216,7 @@ pub fn commit_records(records: &Path, route: &Route, day: &str) -> Committed {
             pushed: false,
         };
     }
-    let push: Vec<String> = ["bot", "--", "push", "origin", "main"]
+    let push: Vec<String> = ["push", "origin", "main"]
         .into_iter()
         .map(str::to_owned)
         .collect();
@@ -359,13 +374,19 @@ fn git(records: &Path, args: &[&str]) -> std::result::Result<Output, String> {
     succeeded(crate::collect::run(&mut command, BOUND), "git")
 }
 
-/// `<route> <words>` in `records`: its output when it succeeds, else the last line it printed.
+/// The git `words` run through `route` in `records`: `b10x-gates bot -- <words>`, or `git
+/// <words>` under `forge.route: direct`; its output when it succeeds, else the last line it
+/// printed.
 fn bot(records: &Path, route: &Route, words: &[String]) -> std::result::Result<Output, String> {
-    let mut command = Command::new(&route.gates);
-    command.args(words).current_dir(records);
+    let Some(gates) = &route.gates else {
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        return git(records, &words);
+    };
+    let mut command = Command::new(gates);
+    command.args(["bot", "--"]).args(words).current_dir(records);
     succeeded(
         crate::collect::run(&mut command, BOUND),
-        &route.gates.display().to_string(),
+        &gates.display().to_string(),
     )
 }
 

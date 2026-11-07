@@ -111,6 +111,7 @@ pub fn services(state: &Path, host: &Path, instance: &Instance) -> Services {
             sources,
         }),
         bot: BotRoute {
+            route: instance.forge.route,
             program: PathBuf::from(crate::gates::PROGRAM),
             policy: std::env::var_os(POLICY_VARIABLE)
                 .filter(|policy| !policy.is_empty())

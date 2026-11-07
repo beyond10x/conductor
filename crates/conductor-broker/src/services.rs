@@ -6,6 +6,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use conductor_model::config::ForgeRoute;
+
 use crate::ReportStatus;
 
 /// One build the broker asks the host ledger to run: `command` in `cwd`, for `session` of
@@ -35,11 +37,13 @@ pub trait Ledger: Send + Sync {
     fn run(&self, job: &BuildJob) -> BuildEnd;
 }
 
-/// The bot route `commit` commits through: `<program> bot --repo <workdir> -- commit …`, with
-/// `B10X_GATES_POLICY` naming `policy`. None: the broker holds no policy, and every commit is
-/// refused.
+/// The route `commit` commits through, as the instance's `forge.route` names it
+/// (`story:forge-route`). Under `gates`, the bot route: `<program> bot --repo <workdir> -- commit
+/// …`, with `B10X_GATES_POLICY` naming `policy`; no policy, and every commit is refused. Under
+/// `direct`, `git commit` in the working directory, needing neither.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BotRoute {
+    pub route: ForgeRoute,
     pub program: PathBuf,
     pub policy: Option<PathBuf>,
 }
@@ -112,6 +116,7 @@ impl Services {
         Self {
             ledger: Arc::new(Missing),
             bot: BotRoute {
+                route: ForgeRoute::Gates,
                 program: PathBuf::from("b10x-gates"),
                 policy: None,
             },

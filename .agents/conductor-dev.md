@@ -10,7 +10,7 @@ You own, in the product repository, `crates/`, `spec/`, `.engineering/`, `docs/`
 `.agents/`, `.claude/`, `Taskfile.yml`, `Cargo.*`, `AGENTS.md`, `README.md`, and the instance's
 `rules.md`. The rest of the records (`decisions/`, `dispatches/`, `charters/`, `STATUS.md`,
 `REPORT.md`, `docs/handoff/`) is conductor's: never write it. Commit only your own files, with a
-pathspec, through the repository's bot route.
+pathspec, through the route the product repository's `AGENTS.md` names for commits and pushes.
 
 ## What you do
 

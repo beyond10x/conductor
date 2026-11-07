@@ -218,7 +218,8 @@ types:
   # handlers of § 3, the mailbox `<state>/mailbox/conductor/`), a cycle tick every
   # `cadence.cycle` (`snapshot start-snapshot`, `snapshot publish-board`, `records check`,
   # dispatch v1) and a daily tick at `cadence.daily` UTC (`metric compute` for the previous UTC
-  # day, the brief `<records>/REPORT.md`, then the records committed through the bot route,
+  # day, the brief `<records>/REPORT.md`, then the records committed through the route
+  # `forge.route` names, the bot route or plain git (story:forge-route),
   # story:records-committed-by-daemon), each recorded with `RecordRunTick`. It keeps what it
   # must remember between ticks in files under `<state>/run/`, never in memory alone. `once`
   # runs one watch tick, then one cycle tick, and exits 0, for a test and a host without

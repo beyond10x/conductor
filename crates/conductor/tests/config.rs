@@ -538,6 +538,12 @@ fn show_without_a_file_prints_todays_constants() {
     assert_eq!(instance["catalog"], Value::Null, "{shown:#}");
     // story:gates-hooks-fresh: nor a Gates policy; `refresh-hooks --apply` installs none.
     assert_eq!(instance["gates_policy"], Value::Null, "{shown:#}");
+    // story:forge-route: forge writes take the bot route unless the file names another.
+    assert_eq!(
+        instance["forge"],
+        serde_json::json!({"route": "gates"}),
+        "{shown:#}"
+    );
     // story:instance-session-names: nor a session prefix; its sessions keep today's names.
     assert_eq!(instance["session_prefix"], Value::Null, "{shown:#}");
     // story:instance-scoped-tasks: src/dashboard.rs, `DEFAULT_PORT`, the port `task dashboard`
@@ -560,6 +566,7 @@ fn show_without_a_file_prints_todays_constants() {
         "checkouts",
         "confinement",
         "controllers",
+        "forge",
         "gates_policy",
         "name",
         "operator",
@@ -627,6 +634,45 @@ fn the_most_controllers_working_is_five_when_absent_and_zero_is_refused() {
             problems.contains("instances[0].controllers.max_working: "),
             "{name}: {problems}"
         );
+    }
+}
+
+/// `story:forge-route`: `forge.route` is `gates` when absent (the key or the mapping), `direct`
+/// when written so, and any other word is refused by its YAML path.
+#[test]
+fn the_forge_route_is_gates_when_absent_and_another_word_is_refused() {
+    let case = Case::new("forge-route");
+    for (name, extra, expected) in [
+        ("absent", "", "gates"),
+        ("empty", "\x20   forge: {}\n", "gates"),
+        ("gates", "\x20   forge: {route: gates}\n", "gates"),
+        ("direct", "\x20   forge: {route: direct}\n", "direct"),
+    ] {
+        let file = case.write(&format!("{name}.yaml"), &one_instance(extra));
+        let validated = case.with_file(&file, &["config", "validate"]);
+        assert_eq!(validated.status.code(), Some(0), "{}", describe(&validated));
+        let shown = case.show(&file, &[]);
+        assert_eq!(
+            instance(&shown)["forge"]["route"],
+            expected,
+            "{name}: {shown:#}"
+        );
+    }
+    for (name, extra, path) in [
+        (
+            "word",
+            "\x20   forge: {route: sideways}\n",
+            "instances[0].forge.route: ",
+        ),
+        (
+            "key",
+            "\x20   forge: {route: direct, via: x}\n",
+            "instances[0].forge",
+        ),
+    ] {
+        let file = case.write(&format!("bad-{name}.yaml"), &one_instance(extra));
+        let problems = refused(&case, &file);
+        assert!(problems.contains(path), "{name}: {problems}");
     }
 }
 

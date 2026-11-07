@@ -6151,3 +6151,251 @@ fn a_controller_is_denied_session_deliver() {
         assert_verdict(&bash(&home, CONDUCTOR, command), Verdict::Allow, "");
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// story:forge-route: `forge.route: direct` lets a session write its own repository's pull or merge
+// requests with `gh pr` or `glab mr`, the repository named with `-R`; `gates`, the default, keeps
+// every `gh` and `glab` write denied.
+// -------------------------------------------------------------------------------------------------
+
+/// A config file's places beside `home` whose instance writes `forge` (none when `None`), with a
+/// controller's checkout `{root}/widget` and the records, each a git repository whose `origin` is
+/// `widget_origin` and `records_origin`. Answers the places, the checkout and the records.
+fn forge_layout(
+    home: &Path,
+    forge: Option<&str>,
+    widget_origin: &str,
+    records_origin: &str,
+) -> (Places, PathBuf, PathBuf) {
+    let case = home.parent().expect("the case's directory");
+    let (root, trees, records) = (case.join("root"), case.join("trees"), case.join("records"));
+    let widget = root.join("widget");
+    for (dir, url) in [(&widget, widget_origin), (&records, records_origin)] {
+        fs::create_dir_all(dir.join(".git")).expect("create the .git directory");
+        fs::write(
+            dir.join(".git/config"),
+            format!(
+                "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = {url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n"
+            ),
+        )
+        .expect("write the git config");
+    }
+    fs::create_dir_all(&trees).expect("create the trees");
+    let mut text = config_text(&root, &trees, &records);
+    if let Some(route) = forge {
+        text.push_str(&format!("\x20   forge: {{route: {route}}}\n"));
+    }
+    (places_from_file(home, &text), widget, records)
+}
+
+/// The decision on the recorded Bash payload running `command` from `cwd`, by `places`.
+fn bash_by(home: &Path, places: &Places, cwd: &Path, command: &str) -> Decision {
+    let mut raw = localise(fixture("bash"), home);
+    raw["cwd"] = Value::String(cwd.display().to_string());
+    raw["tool_input"]["command"] = Value::String(command.to_owned());
+    guard::decide_in(&raw, places, &SessionList::default())
+}
+
+#[test]
+fn under_the_direct_route_a_controller_writes_its_own_pull_requests_with_gh() {
+    let home = home("forge-direct-gh");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "https://github.com/example-org/widget.git",
+        "https://github.com/example-org/records.git",
+    );
+    for command in [
+        "gh pr create -R example-org/widget --fill --base main",
+        "gh pr create --repo=example-org/widget --title t --body-file body.md",
+        "gh pr edit 3 -R github.com/example-org/widget --title t",
+        "gh pr comment 3 --repo example-org/widget --body done",
+        "gh pr merge 3 --auto --squash -R example-org/widget",
+        "gh pr ready 3 -R Example-Org/Widget",
+        "git push -u origin feat/x && gh pr create -R example-org/widget --fill",
+        "git push origin HEAD:feat/x",
+    ] {
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Allow,
+            "",
+        );
+    }
+}
+
+#[test]
+fn under_the_direct_route_every_other_gh_write_is_still_denied() {
+    let home = home("forge-direct-gh-deny");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "https://github.com/example-org/widget.git",
+        "https://github.com/example-org/records.git",
+    );
+    for (command, because) in [
+        ("gh pr create --fill", "names no repository"),
+        ("gh pr merge 3 -R example-org/other", "names the repository"),
+        (
+            "gh pr merge 3 -R example-org/widget -R example-org/other",
+            "names the repository",
+        ),
+        (
+            "gh pr merge https://github.com/example-org/other/pull/3 -R example-org/widget",
+            "another repository's request",
+        ),
+        (
+            "GH_REPO=example-org/other gh pr merge 3 -R example-org/widget",
+            "assigns GH_REPO",
+        ),
+        (
+            "GH_HOST=example.invalid gh pr merge 3 -R example-org/widget",
+            "assigns GH_HOST",
+        ),
+        (
+            "gh pr close 3 -R example-org/widget",
+            "under forge.route direct",
+        ),
+        (
+            "gh pr --flag merge 3 -R example-org/widget",
+            "under forge.route direct",
+        ),
+        (
+            "gh release create v1.0.0 -R example-org/widget",
+            "under forge.route direct",
+        ),
+        (
+            "gh api -X POST repos/example-org/widget/pulls",
+            "under forge.route direct",
+        ),
+        (
+            "gh repo delete example-org/widget --yes",
+            "under forge.route direct",
+        ),
+        ("g=gh; $g pr merge 3 -R example-org/widget", "GitHub write"),
+        (
+            "gh secret set TOKEN -R example-org/widget --body x",
+            "GitHub write of a credential",
+        ),
+    ] {
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Deny,
+            because,
+        );
+    }
+}
+
+#[test]
+fn under_the_direct_route_a_controller_writes_its_own_merge_requests_with_glab() {
+    let home = home("forge-direct-glab");
+    let (places, widget, _) = forge_layout(
+        &home,
+        Some("direct"),
+        "git@gitlab.example.com:example-group/widget.git",
+        "https://gitlab.example.com/example-group/records.git",
+    );
+    for command in [
+        "glab mr create -R example-group/widget --fill --yes",
+        "glab mr update 3 --ready -R example-group/widget",
+        "glab mr note 3 -m done -R gitlab.example.com/example-group/widget",
+        "glab mr merge 3 --auto-merge --yes -R example-group/widget",
+        "glab mr merge 3 --repo https://gitlab.example.com/example-group/widget",
+    ] {
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Allow,
+            "",
+        );
+    }
+    for (command, because) in [
+        ("glab mr merge 3 --yes", "names no repository"),
+        (
+            "glab mr merge 3 -R example-group/other",
+            "names the repository",
+        ),
+        (
+            "glab mr approve 3 -R example-group/widget",
+            "under forge.route direct",
+        ),
+        (
+            "glab release create v1.0.0 -R example-group/widget",
+            "under forge.route direct",
+        ),
+        (
+            "glab api -X POST projects/1/merge_requests",
+            "under forge.route direct",
+        ),
+        (
+            "GITLAB_HOST=example.invalid glab mr merge 3 -R example-group/widget",
+            "assigns GITLAB_HOST",
+        ),
+        (
+            "glab variable set TOKEN x -R example-group/widget",
+            "GitLab write of a credential",
+        ),
+    ] {
+        assert_verdict(
+            &bash_by(&home, &places, &widget, command),
+            Verdict::Deny,
+            because,
+        );
+    }
+}
+
+#[test]
+fn under_the_direct_route_conductor_writes_the_pull_requests_of_its_records() {
+    let home = home("forge-direct-conductor");
+    let (places, _, records) = forge_layout(
+        &home,
+        Some("direct"),
+        "https://github.com/example-org/widget.git",
+        "https://github.com/example-org/records.git",
+    );
+    assert_verdict(
+        &bash_by(
+            &home,
+            &places,
+            &records,
+            "gh pr merge 3 --squash -R example-org/records",
+        ),
+        Verdict::Allow,
+        "",
+    );
+    assert_verdict(
+        &bash_by(
+            &home,
+            &places,
+            &records,
+            "gh pr merge 3 --squash -R example-org/widget",
+        ),
+        Verdict::Deny,
+        "names the repository",
+    );
+}
+
+#[test]
+fn under_the_gates_route_and_by_default_every_gh_and_glab_write_is_denied() {
+    for (case, forge) in [("forge-default", None), ("forge-gates", Some("gates"))] {
+        let home = home(case);
+        let (places, widget, records) = forge_layout(
+            &home,
+            forge,
+            "https://github.com/example-org/widget.git",
+            "https://github.com/example-org/records.git",
+        );
+        for cwd in [&widget, &records] {
+            for (command, because) in [
+                ("gh pr create -R example-org/widget --fill", "GitHub write"),
+                (
+                    "gh pr merge 3 --auto -R example-org/records",
+                    "GitHub write",
+                ),
+                ("glab mr merge 3 -R example-org/widget", "GitLab write"),
+            ] {
+                let decision = bash_by(&home, &places, cwd, command);
+                assert_verdict(&decision, Verdict::Deny, because);
+                assert_verdict(&decision, Verdict::Deny, "bot route");
+            }
+        }
+    }
+}

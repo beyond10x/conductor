@@ -146,6 +146,8 @@ instances:
         command: example-sync publish ci/policy.json
         dry_run: example-sync publish ci/policy.json --dry-run
     gates_policy: ~/example-org/gates/policy.json
+    forge:
+      route: direct
 ";
 
 /// One type of the specification: its declaration and the comment above it.

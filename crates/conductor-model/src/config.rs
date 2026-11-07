@@ -1,6 +1,6 @@
 // generated from conductor v1
-// model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
-// contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
+// model digest bbbbbd42168bae21d9a60277667354a6b549354364fc9440cb71bd1ac656bd92
+// contract digest c0603c7f8348557a9db997aeb6fa8d86e6ae93c70366ad88854dca2723bb8a74
 // do not edit: regenerate with `ess synthesize --layout crate`
 
 //! Config — `conductor.config`.
@@ -153,6 +153,13 @@ pub struct DoctorReport {
     pub verdict: String,
 }
 
+/// Forge — `conductor.config.Forge`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Forge {
+    /// `route` — `conductor.config.ForgeRoute`.
+    pub route: ForgeRoute,
+}
+
 /// ForgeLogin — `conductor.config.ForgeLogin`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgeLogin {
@@ -173,6 +180,15 @@ pub enum ForgeLoginState {
     LoggedIn,
     /// `NotLoggedIn`.
     NotLoggedIn,
+}
+
+/// ForgeRoute — `conductor.config.ForgeRoute`: one of a closed set of names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForgeRoute {
+    /// `Gates`.
+    Gates,
+    /// `Direct`.
+    Direct,
 }
 
 /// ForgeSecret — `conductor.config.ForgeSecret`.
@@ -274,6 +290,8 @@ pub struct Instance {
     pub secret_syncs: Vec<SecretSync>,
     /// `gates_policy` — `Optional<String>`.
     pub gates_policy: Option<String>,
+    /// `forge` — `conductor.config.Forge`.
+    pub forge: Forge,
     /// `conductor` — `conductor.config.ConductorSession`.
     pub conductor: ConductorSession,
 }

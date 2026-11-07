@@ -29,7 +29,8 @@ summary: >
   directory through the host ledger, at nice 19, as `conductor build run --reserve auto` runs a
   command: the reservation is the measured peak of that command, and a run waits in the ledger's
   queue for its turn. `commit` stages the named paths and commits them through the bot route
-  (`b10x-gates bot`) with the instance's Gates policy, which only the broker holds. `send` and
+  (`b10x-gates bot`) with the instance's Gates policy, which only the broker holds, or, under
+  `forge.route: direct` (story:forge-route), with `git commit` and no policy. `send` and
   `report` record a `conductor.dispatch.Message`: `send` to a session of the caller's team, and
   `report` to the session one level above the caller, moving the caller's open dispatch as
   `conductor dispatch report-*` does when the caller is a team's lead. The broker cannot drive the

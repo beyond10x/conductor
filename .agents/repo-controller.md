@@ -85,8 +85,8 @@ after a `rules.md` change, run it again for each running worker's items.
 - When `worktree create` refuses with `workspace-not-activated`, report `[NEED conductor] worktree
   workspace not activated: <root>` and, until it is answered, work in a plain `git worktree add
   <trees>/<repo>/<name>` tree, which you remove when done.
-- Forge writes only through the workspace `AGENTS.md`'s bot route; `gh` and `glab` are read-only. No
-  force-push; never discard work or delete build directories you did not create.
+- Forge writes take `forge.route`: `gates`, the `AGENTS.md` bot route; `direct`, `gh pr`/`glab mr -R
+  <origin>` and `git push`. No force-push; never discard work or delete builds you did not create.
 - No full gate until every unit is merged into the wave's integration branch; then one full gate on
   its head (every target, the linter, every test binary with `--no-fail-fast`), one push, one pull
   request. One full-workspace gate at a time; package-scoped tests are not a full gate.

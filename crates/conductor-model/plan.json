@@ -2,8 +2,8 @@
   "provenance": {
     "system": "conductor",
     "specification_version": "v1",
-    "source_digest": "6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303",
-    "contract_digest": "670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23"
+    "source_digest": "bbbbbd42168bae21d9a60277667354a6b549354364fc9440cb71bd1ac656bd92",
+    "contract_digest": "c0603c7f8348557a9db997aeb6fa8d86e6ae93c70366ad88854dca2723bb8a74"
   },
   "scope": {
     "profile": "component-skeletons",
@@ -103,6 +103,13 @@
     },
     {
       "kind": "domain_type",
+      "source": "conductor.config.Forge",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
       "source": "conductor.config.ForgeLogin",
       "disposition": {
         "disposition": "generated"
@@ -111,6 +118,13 @@
     {
       "kind": "domain_type",
       "source": "conductor.config.ForgeLoginState",
+      "disposition": {
+        "disposition": "generated"
+      }
+    },
+    {
+      "kind": "domain_type",
+      "source": "conductor.config.ForgeRoute",
       "disposition": {
         "disposition": "generated"
       }

@@ -161,10 +161,27 @@ accepted, defaulted and shown by `config show`.
 | `catalog` | catalog | none | repositories collector | the instance's catalog of repositories (below) |
 | `secret_syncs` | list of secret sync | `[]` | secrets collector, board, conductor profile | the files the organization's own tool publishes into GitHub Actions secrets, whose drift the snapshot reads (below) |
 | `gates_policy` | path | none | `conductor repository refresh-hooks --apply` | the Gates policy file each checkout's hooks are installed with (`b10x-gates install --policy`); without it `--apply` installs none |
+| `forge.route` | `gates` \| `direct` | `gates` | guard, `conductor run` (records commit), broker `commit`, `conductor status` | how the instance writes to its forge (below) |
 
 An instance may leave out every key but `name`, `sources` and `checkouts`. Inside `controllers`,
 `cadence`, `thresholds`, `retention`, `authority`, `confinement` and each `limits`, each absent
 key takes its own default.
+
+## Forge route
+
+`forge.route` names how the instance's sessions and `conductor run` write to the forge.
+
+| route | pull and merge requests | records commit and push | broker `commit` |
+|---|---|---|---|
+| `gates` (default) | `gh` and `glab` only read; writes go through the bot route `b10x-gates` | `b10x-gates bot -- commit`, `b10x-gates bot -- push origin main` | `b10x-gates bot`, with the policy in `B10X_GATES_POLICY` |
+| `direct` | the guard admits `gh pr create\|edit\|comment\|merge\|ready` and `glab mr create\|update\|note\|merge` (auto-merge included) of the session's own repository, named with `-R`/`--repo` | `git commit`, `git push origin main` | `git commit` |
+
+Under either route the guard denies a write to another repository, a URL naming a request, an
+assignment of `GH_HOST`, `GH_REPO`, `GITLAB_HOST`, `GL_HOST`, `GITLAB_URI` or `GITLAB_REPO` on a
+direct write, a credential write (class H), an API write, and every other `gh` or `glab` write. A
+`git push` from the session's own checkout or managed trees is allowed under both. Gates hooks
+are reported stale on the board only under `gates` or with a `gates_policy`. An instance without
+`b10x-gates` on its host writes `forge: {route: direct}`.
 
 ## Usage
 

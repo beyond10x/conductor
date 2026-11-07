@@ -28,7 +28,7 @@
 //! only, those of every other file the host registry lists (`story:instance-names-unique`,
 //! [`Places::with_registered`]): a conductor without a prefix is no longer alone when another
 //! file's instance is registered, and a message to that instance's session is denied.
-//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
+//! | Bash | a `cd`, `pushd` or `git -C` (`--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) reaches another repository's checkout or managed worktrees, or `<records>`; a git subcommand that writes ([`git_reads`]) has a target (the directory `-C` leaves it in, else the cwd; `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) outside `<root>/<repo>/`, `<trees>/<repo>/` and the session's scratch; a `gh` or `glab` call that is not a read ([`forge_write`]), except, under `forge.route: direct`, `gh pr create|edit|comment|merge|ready` and `glab mr create|update|note|merge` naming the repository the checkout's `origin` names with `-R` ([`Session::direct_denial`]); a run of the bot route `b10x-gates gh` that is not `release create|upload|edit|view`, `run rerun` or `workflow run` with `--repository` naming the repository the checkout's `origin` names ([`bot_route`]); the command writes a `.claude/` settings file or a `<settings>` ([`Places::writes_settings`]); the command writes a `<profile>` ([`Places::writes_profile`]); the command names `<config>` and holds a write form ([`Places::names_config`], [`holds_write_form`]); it runs a `conductor` leaf the command tree does not declare a controller may run ([`cli::LEAVES`], [`conductor_run`]), or one whose leaf a shell expansion, `xargs` or a program word a substitution names decides at run time; or the command writes `<records>` or a path under it ([`Places::writes_records`]) | a `gh` or `glab` call that is not a read, except a direct write as for a controller, its own repository the one the `origin` of `<records>` names; a run of the bot route as for a controller, its own repository the one the `origin` of `<records>` names; the command writes a `.claude/` settings file or a `<settings>`; the command writes a `<profile>` |
 //!
 //! A Bash command that kills by pattern, name or group is denied for every role, before the rows
 //! above ([`kill_denial`], `story:guard-no-pattern-kill`): `pkill`, `killall`, and a `kill` that
@@ -71,7 +71,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use conductor_model::config::{Instance, RoleName, SessionPrefix};
+use conductor_model::config::{ForgeRoute, Instance, RoleName, SessionPrefix};
 use conductor_model::dispatch::Verdict;
 use serde_json::Value;
 
@@ -172,6 +172,9 @@ pub struct Places {
     /// The instance's `dashboard_port`: a Bash call that posts to it is denied
     /// (`story:decisions-batch-answer`).
     dashboard_port: i64,
+    /// The instance's `forge.route` (`story:forge-route`): under `direct` a session's own pull or
+    /// merge requests are written with `gh` or `glab` ([`Session::direct_denial`]).
+    forge_route: ForgeRoute,
 }
 
 impl Places {
@@ -260,6 +263,7 @@ impl Places {
                     .collect()
             }),
             dashboard_port: instance.dashboard_port,
+            forge_route: instance.forge.route,
         }
     }
 
@@ -740,6 +744,27 @@ const ROUTE_CARRIES: [(&str, &[&str]); 3] = [
     ("workflow", &["run"]),
 ];
 
+/// The forge writes `forge.route: direct` admits (`story:forge-route`), each group with its verbs,
+/// for the session's own repository only, named with `-R`/`--repo`: a pull request's open,
+/// update, comment and merge (auto-merge included) through `gh`, a merge request's through
+/// `glab`.
+const DIRECT_CARRIES_GH: [(&str, &[&str]); 1] =
+    [("pr", &["create", "edit", "comment", "merge", "ready"])];
+
+/// The `glab` counterpart of [`DIRECT_CARRIES_GH`].
+const DIRECT_CARRIES_GLAB: [(&str, &[&str]); 1] = [("mr", &["create", "update", "note", "merge"])];
+
+/// The variables that point `gh` or `glab` at another host or repository than its `-R` names: a
+/// direct write that assigns one is denied.
+const FORGE_TARGET_VARIABLES: [&str; 6] = [
+    "GH_HOST",
+    "GH_REPO",
+    "GITLAB_HOST",
+    "GL_HOST",
+    "GITLAB_URI",
+    "GITLAB_REPO",
+];
+
 /// The options of `b10x-gates gh` that take the next word as their value.
 const ROUTE_VALUES: [&str; 5] = ["--repo", "--repository", "--policy", "--key", "--gitleaks"];
 
@@ -824,6 +849,14 @@ impl Forge {
         match self {
             Self::GitHub => "GitHub",
             Self::GitLab => "GitLab",
+        }
+    }
+
+    /// The writes `forge.route: direct` admits for the session's own repository.
+    fn direct_carries(self) -> &'static [(&'static str, &'static [&'static str])] {
+        match self {
+            Self::GitHub => &DIRECT_CARRIES_GH,
+            Self::GitLab => &DIRECT_CARRIES_GLAB,
         }
     }
 
@@ -1492,6 +1525,12 @@ impl Session<'_> {
                         ),
                     );
                 }
+                if self.places.forge_route == ForgeRoute::Direct {
+                    match self.direct_denial(words, forge, &write) {
+                        None => continue,
+                        Some(reason) => return (Verdict::Deny, reason),
+                    }
+                }
                 return (
                     Verdict::Deny,
                     format!(
@@ -1642,6 +1681,118 @@ impl Session<'_> {
              checkout and managed worktrees, and no GitHub or GitLab write"
                 .to_owned(),
         )
+    }
+
+    /// The session's own repository, `(host, <owner>/<name>)` as the `origin` of its checkout
+    /// names it (conductor's: of its records); `Err` names the checkout whose origin names none.
+    fn own_repository(&self) -> Result<(String, String), String> {
+        let checkout = match self.rules {
+            Rules::Controller => self.checkout(),
+            Rules::Conductor => self.places.records(),
+        };
+        collect::gitlab::origin(&checkout).ok_or_else(|| {
+            format!(
+                "the origin of {} names no repository",
+                self.places.shown(&checkout)
+            )
+        })
+    }
+
+    /// Why the forge write `write` of the simple command `words` is denied under `forge.route:
+    /// direct` (`story:forge-route`), if it is. Admitted: a call of the forge's program by its
+    /// name, not through a variable, whose group and verb [`Forge::direct_carries`] names (`gh pr
+    /// create|edit|comment|merge|ready`, `glab mr create|update|note|merge`), with no flag between
+    /// the group and the verb, naming with `-R`/`--repo` the session's own repository and no
+    /// other, with no operand that is a URL (which may name another repository's request), and
+    /// assigning none of [`FORGE_TARGET_VARIABLES`]. Everything else stays denied.
+    fn direct_denial(&self, words: &[String], forge: Forge, write: &str) -> Option<String> {
+        let program = forge.program();
+        let carried: Vec<String> = forge
+            .direct_carries()
+            .iter()
+            .map(|(group, verbs)| format!("`{program} {group} {}`", verbs.join("|")))
+            .collect();
+        let carried = format!(
+            "under forge.route direct a session writes only {} of its own repository, named with \
+             -R; {program} otherwise only reads ({})",
+            carried.join(", "),
+            forge.reads()
+        );
+        let denied = || Some(format!("`{write}` is a {} write: {carried}", forge.name()));
+        let Some(at) = words.iter().position(|word| forge.runs(word)) else {
+            return denied();
+        };
+        if let Some(variable) = words[..at].iter().find_map(|word| {
+            word.split_once('=')
+                .map(|(name, _)| name)
+                .filter(|name| is_assignment(word) && FORGE_TARGET_VARIABLES.contains(name))
+        }) {
+            return Some(format!(
+                "`{write}` assigns {variable}, which may point {program} at another repository: \
+                 {carried}"
+            ));
+        }
+        let rest = &words[at + 1..];
+        let mut operands: Vec<&str> = Vec::new();
+        let mut repos: Vec<&str> = Vec::new();
+        let mut flag_before_verb = false;
+        let mut next = 0;
+        while let Some(word) = rest.get(next) {
+            next += 1;
+            if word == "-R" || word == "--repo" {
+                repos.extend(rest.get(next).map(String::as_str));
+                next += 1;
+            } else if let Some(repo) = word.strip_prefix("--repo=") {
+                repos.push(repo);
+            } else if word.starts_with('-') && word.len() > 1 {
+                flag_before_verb |= operands.len() == 1;
+            } else {
+                operands.push(word);
+            }
+        }
+        let group = operands.first().copied().unwrap_or_default();
+        let verb = operands.get(1).copied().unwrap_or_default();
+        let carries = forge
+            .direct_carries()
+            .iter()
+            .any(|(name, verbs)| *name == group && verbs.contains(&verb));
+        if !carries || flag_before_verb {
+            return denied();
+        }
+        if let Some(url) = operands
+            .iter()
+            .find(|word| word.starts_with("http://") || word.starts_with("https://"))
+        {
+            return Some(format!(
+                "`{write}` names {url}, which may be another repository's request: name the \
+                 request by its number or branch; {carried}"
+            ));
+        }
+        let (host, own) = match self.own_repository() {
+            Ok(own) => own,
+            Err(why) => return Some(format!("`{write}` is denied: {why}; {carried}")),
+        };
+        let is_own = |named: &str| {
+            let named = named.trim_end_matches('/');
+            let named = named
+                .strip_prefix("https://")
+                .or_else(|| named.strip_prefix("http://"))
+                .unwrap_or(named);
+            let named = named.strip_suffix(".git").unwrap_or(named);
+            named.eq_ignore_ascii_case(&own) || named.eq_ignore_ascii_case(&format!("{host}/{own}"))
+        };
+        if repos.is_empty() {
+            return Some(format!(
+                "`{write}` names no repository: {carried}, written as `{program} {group} {verb} \
+                 -R {own} …`"
+            ));
+        }
+        if let Some(other) = repos.iter().find(|repo| !is_own(repo)) {
+            return Some(format!(
+                "`{write}` names the repository {other}: {carried}, {own}"
+            ));
+        }
+        None
     }
 
     /// Why a run of the bot route, `b10x-gates gh`, is denied, if it is (the operator's decision

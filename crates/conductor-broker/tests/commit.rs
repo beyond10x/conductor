@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use conductor_broker::{BotRoute, CallOutcome, FAILURE_LINES, Services, SessionGrant};
+use conductor_model::config::ForgeRoute;
 use conductor_model::tool::Verb;
 use serde_json::json;
 use support::{Case, INSTANCE, ask, grant, lines};
@@ -78,7 +79,11 @@ fn route(case: &Case, refusal: Option<&str>) -> PathBuf {
 
 fn services(program: PathBuf, policy: Option<PathBuf>) -> Services {
     Services {
-        bot: BotRoute { program, policy },
+        bot: BotRoute {
+            route: ForgeRoute::Gates,
+            program,
+            policy,
+        },
         ..Services::none()
     }
 }
@@ -281,4 +286,41 @@ fn a_commit_without_a_message_or_a_path_runs_nothing() {
     assert_eq!(no_message.exit, 1, "{}", no_message.text);
     assert_eq!(no_path.exit, 1, "{}", no_path.text);
     assert!(route_log(&case).is_none());
+}
+
+/// Under `forge.route: direct` (`story:forge-route`) the broker commits with plain git: no Gates
+/// policy is needed and the bot route never runs.
+#[test]
+fn under_the_direct_route_commit_uses_git_and_needs_no_gates_policy() {
+    let mut case = Case::new();
+    let dir = repository(&case, "r");
+    fs::write(dir.join("a.txt"), "alpha, changed\n").expect("change a tracked file");
+    fs::write(dir.join("b.txt"), "beta, changed\n").expect("change another tracked file");
+    let socket = case.register("example-org-a", INSTANCE, &dir, grant(&[Verb::Commit]));
+    let program = route(&case, Some("the bot route must not run"));
+    case.serve_with(Services {
+        bot: BotRoute {
+            route: ForgeRoute::Direct,
+            program,
+            policy: None,
+        },
+        ..Services::none()
+    });
+
+    let answer = ask(
+        &socket,
+        "commit",
+        json!({"message": "feat: change a", "paths": ["a.txt"]}),
+    );
+
+    assert_eq!(answer.exit, 0, "{}", answer.text);
+    let head = git(&dir, &["rev-parse", "--short=12", "HEAD"]);
+    assert_eq!(answer.text, format!("{} 1 files\n", head.trim()));
+    assert_eq!(
+        git(&dir, &["log", "-1", "--format=%s"]).trim(),
+        "feat: change a"
+    );
+    assert_eq!(git(&dir, &["status", "--porcelain"]), " M b.txt\n");
+    assert!(route_log(&case).is_none(), "the bot route never ran");
+    assert_eq!(case.recorder.calls()[0].outcome, CallOutcome::Done);
 }

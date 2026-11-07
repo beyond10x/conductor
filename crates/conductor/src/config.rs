@@ -62,6 +62,7 @@
 //!   more (`Limits`'s invariants), and a role's limit lies at or under the instance's of the same
 //!   key, where the instance sets one; a role's `writable` entry is a place's word
 //!   ([`PLACES`]) or a path, and its `network` is `open`;
+//! - `forge.route` (`story:forge-route`) is `gates` or `direct`;
 //! - `usage.probe` (`story:usage-probe`) is a command, not empty, and `usage.watcher` a systemd
 //!   unit name ([`unit_name`]);
 //! - the file holds no secret: a value that looks like a token (a word starting `ghp_`,
@@ -71,6 +72,7 @@
 //! `state` and `cache` are `~/.b10x/conductor/<name>/records`, `~/.b10x/conductor/<name>/state`
 //! and `~/.cache/b10x/conductor/<name>`; `roles`, `controllers`, `cadence`, `thresholds`,
 //! `retention` and `authority`, and each key of the last five, are the built-in defaults;
+//! `forge.route` is `gates`;
 //! `dashboard_port` is 7313 plus the instance's index in the file ([`dashboard_port`]);
 //! `repositories`, `reports` and `secret_syncs` are empty; `operator`, `catalog`, `gates_policy`,
 //! `usage.probe`, `usage.watcher`, `session_prefix`, and a role's
@@ -105,11 +107,11 @@ use std::sync::OnceLock;
 use anyhow::{Context as _, Result, anyhow, bail};
 use conductor_model::config::{
     Authority, Cadence, Catalog, CatalogNames, Checkouts, CommandWord, ConductorSession, Config,
-    Confinement, ConfinementMode, ConfinementProvider, Controllers, ForgeSecret, Gibibytes,
-    GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource, Network,
-    RepoCache, Report, RepositoryRule, Retention, Role, RoleName, SecretSource, SecretSync,
-    SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens, Usage,
-    WorkspaceMember, Writable,
+    Confinement, ConfinementMode, ConfinementProvider, Controllers, Forge, ForgeRoute, ForgeSecret,
+    Gibibytes, GitHubSource, GitLabSource, Harness, Instance, InstanceName, Limits, LocalSource,
+    Network, RepoCache, Report, RepositoryRule, Retention, Role, RoleName, SecretSource,
+    SecretSync, SessionName, SessionPrefix, Source, SuggestedPrefix, Thresholds, TimeOfDay, Tokens,
+    Usage, WorkspaceMember, Writable,
 };
 use conductor_model::decision::Decider;
 use conductor_model::direction::Activity;
@@ -358,7 +360,7 @@ pub const TREE_STALE_HOURS: u64 = 48;
 
 /// The keys of each mapping the file holds, in the order `config show` writes them.
 const CONFIG_KEYS: [&str; 3] = ["version", "default", "instances"];
-const INSTANCE_KEYS: [&str; 23] = [
+const INSTANCE_KEYS: [&str; 24] = [
     "name",
     "session_prefix",
     "dashboard_port",
@@ -381,6 +383,7 @@ const INSTANCE_KEYS: [&str; 23] = [
     "catalog",
     "secret_syncs",
     "gates_policy",
+    "forge",
     "conductor",
 ];
 const CONDUCTOR_KEYS: [&str; 2] = ["served_by", "session_name"];
@@ -454,6 +457,12 @@ const FORGE_SECRET_KEYS: [&str; 3] = ["owner", "repository", "name"];
 const SECRET_SOURCE_BRANCH: &str = "main";
 
 const USAGE_KEYS: [&str; 2] = ["probe", "watcher"];
+
+const FORGE_KEYS: [&str; 1] = ["route"];
+
+/// How the file writes each `conductor.config.ForgeRoute` (`story:forge-route`).
+pub const FORGE_ROUTES: [(&str, ForgeRoute); 2] =
+    [("gates", ForgeRoute::Gates), ("direct", ForgeRoute::Direct)];
 
 /// The suffixes of a systemd unit name: what `usage.watcher` ends with (`story:usage-probe`).
 const UNIT_TYPES: [&str; 11] = [
@@ -1424,6 +1433,8 @@ pub fn built_in(home: &Path, cwd: &Path) -> Instance {
         secret_syncs: Vec::new(),
         // A Gates policy is named only by a user (story:gates-hooks-fresh).
         gates_policy: None,
+        // Forge writes take the bot route unless a user names another (story:forge-route).
+        forge: default_forge(),
         // Its own conductor, the built-in director role's session, under the role's old name for
         // this release (story:instance-session-names, story:role-name-aliases).
         conductor: ConductorSession {
@@ -1681,6 +1692,23 @@ pub fn unit_name(unit: &str) -> bool {
         && unit.rsplit_once('.').is_some_and(|(name, kind)| {
             !name.is_empty() && !name.starts_with('-') && UNIT_TYPES.contains(&kind)
         })
+}
+
+/// The bot route for forge writes: what an instance that writes no `forge` has
+/// (`story:forge-route`).
+fn default_forge() -> Forge {
+    Forge {
+        route: ForgeRoute::Gates,
+    }
+}
+
+/// The word the file writes for `route` ([`FORGE_ROUTES`]).
+#[must_use]
+pub fn forge_route_word(route: ForgeRoute) -> &'static str {
+    FORGE_ROUTES
+        .iter()
+        .find(|(_, meaning)| *meaning == route)
+        .map_or("gates", |(word, _)| word)
 }
 
 /// No usage probe and no watcher: what an instance that names neither has (`story:usage-probe`).
@@ -2644,6 +2672,10 @@ impl Reader<'_> {
             Some(value) => self.path(value, &join(path, "gates_policy")).map(Some),
             None => Some(None),
         };
+        let forge = match Self::get(map, "forge") {
+            Some(value) => self.forge(value, &join(path, "forge")),
+            None => Some(default_forge()),
+        };
         // The conductor that serves the instance is derived once every instance is read
         // (`Reader::conductors`); until then, its own.
         let conductor = ConductorSession {
@@ -2674,6 +2706,7 @@ impl Reader<'_> {
             catalog: catalog?,
             secret_syncs: secret_syncs?,
             gates_policy: gates_policy?,
+            forge: forge?,
         })
     }
 
@@ -3624,6 +3657,17 @@ impl Reader<'_> {
         })
     }
 
+    /// `conductor.config.Forge` (`story:forge-route`): `route`, `gates` or `direct`; `gates` when
+    /// not written.
+    fn forge(&mut self, value: &Value, path: &str) -> Option<Forge> {
+        let map = self.mapping(value, path, &FORGE_KEYS)?;
+        let route = match Self::get(map, "route") {
+            Some(value) => self.word(value, &join(path, "route"), &FORGE_ROUTES),
+            None => Some(default_forge().route),
+        };
+        Some(Forge { route: route? })
+    }
+
     fn authority(&mut self, value: &Value, path: &str) -> Option<Authority> {
         let map = self.mapping(value, path, &AUTHORITY_KEYS)?;
         let defaults = default_authority();
@@ -4119,6 +4163,10 @@ pub fn document(instance: &Instance) -> Yaml {
             ),
         ),
         ("gates_policy", optional(instance.gates_policy.as_ref())),
+        (
+            "forge",
+            mapping([("route", text(forge_route_word(instance.forge.route)))]),
+        ),
         (
             "conductor",
             mapping([

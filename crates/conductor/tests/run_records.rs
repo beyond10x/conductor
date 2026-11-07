@@ -647,3 +647,56 @@ fn the_daily_tick_commits_the_records_after_metric_compute_and_the_brief() {
     assert_eq!(lines[0]["tick_id"], tick["tick_id"]);
     assert_eq!(lines[0]["commit"], COMMIT);
 }
+
+/// `story:forge-route`: under `forge.route: direct` the records are committed and pushed with
+/// plain git; the bot route never runs.
+#[test]
+fn under_the_direct_route_the_records_are_committed_and_pushed_with_git() {
+    let case = Case::new("direct", true);
+    let config = fs::read_to_string(case.config()).expect("read the config file");
+    write(
+        &case.config(),
+        &format!("{config}\x20   forge: {{route: direct}}\n"),
+    );
+    case.git(&["config", "user.name", "example"]);
+    case.git(&["config", "user.email", "example@example.invalid"]);
+    case.git(&["config", "commit.gpgsign", "false"]);
+    let origin = case.dir.join("origin.git");
+    let made = Command::new("git")
+        .args(["init", "--quiet", "--bare", "--initial-branch", "main"])
+        .arg(&origin)
+        .env("HOME", case.home())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdin(Stdio::null())
+        .output()
+        .expect("git runs");
+    assert!(made.status.success(), "{}", describe(&made));
+    case.git(&["remote", "add", "origin", &origin.display().to_string()]);
+    let day = today();
+    case.lines_of(&day);
+
+    let output = case.conductor(&["run", "--once", "--commit-records"]);
+    assert!(output.status.success(), "{}", describe(&output));
+
+    assert!(
+        case.calls().is_empty(),
+        "the bot route ran: {:?}",
+        case.calls()
+    );
+    let message = format!("Conductor: records of {day}: 2 dispatch lines, 1 decision lines");
+    let pushed = Command::new("git")
+        .args(["log", "-1", "--format=%s", "main"])
+        .current_dir(&origin)
+        .env("HOME", case.home())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdin(Stdio::null())
+        .output()
+        .expect("git runs");
+    assert!(pushed.status.success(), "{}", describe(&pushed));
+    assert_eq!(String::from_utf8_lossy(&pushed.stdout).trim(), message);
+    let lines = case.commit_lines();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["event"], "records-committed");
+    assert_eq!(lines[0]["line"], message.as_str());
+    assert_eq!(lines[0]["evidence"], "pushed origin main");
+}

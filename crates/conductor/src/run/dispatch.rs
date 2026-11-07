@@ -248,7 +248,12 @@ pub fn daily_tick(
     );
     let records = Path::new(&tick.instance().records);
     write_file(&records.join("REPORT.md"), &brief)?;
-    let route = Route::new(&tick.seams.program, tick.config, tick.state);
+    let route = Route::new(
+        tick.instance().forge.route,
+        &tick.seams.program,
+        tick.config,
+        tick.state,
+    );
     if let Some(mut line) = commit_records(records, &route, day).line()? {
         line.tick_id = Some(tick.id.clone());
         tick.write(&line)?;

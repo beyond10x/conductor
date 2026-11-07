@@ -1,14 +1,14 @@
 <!--
   generated from conductor v1
-  model digest 6c4af053c24bc9c6a181dbaebd71d00cc9c508fd7c3c9865cd09b9c508d08303
-  contract digest 670f64163e3ed1c1ffe26024d3e070d306960ad6f0e75b1b599e0a52a6562f23
+  model digest bbbbbd42168bae21d9a60277667354a6b549354364fc9440cb71bd1ac656bd92
+  contract digest c0603c7f8348557a9db997aeb6fa8d86e6ae93c70366ad88854dca2723bb8a74
   do not edit: regenerate with `ess synthesize --layout crate`
 -->
 # Synthesis plan — conductor v1
 
 Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regenerate with `ess synthesize --layout crate`.
 
-684 capabilities: **667 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
+686 capabilities: **669 generated**, **4 obligations**, **13 refused**. An obligation is yours to implement against its contract; a refusal is a fact about this synthesis scope, not about the specification.
 
 ## Generated
 
@@ -27,8 +27,10 @@ Scope: `component-skeletons`, laid out as `crate`, planned by `ess-synth`. Regen
 | domain type | `conductor.config.ConfinementProvider` |
 | domain type | `conductor.config.Controllers` |
 | domain type | `conductor.config.DoctorReport` |
+| domain type | `conductor.config.Forge` |
 | domain type | `conductor.config.ForgeLogin` |
 | domain type | `conductor.config.ForgeLoginState` |
+| domain type | `conductor.config.ForgeRoute` |
 | domain type | `conductor.config.ForgeSecret` |
 | domain type | `conductor.config.Gibibytes` |
 | domain type | `conductor.config.GitHubSource` |

@@ -18,7 +18,9 @@
 //!    `failing checks` by number with every failing check named, `story:pr-check-names`), one
 //!    open more than 14 days, unreleased
 //!    commits, no checkout, a specification missing or refused, a Gates hook whose version
-//!    differs from the `b10x-gates` on `PATH` (`stale gates hooks`, `story:gates-hooks-fresh`),
+//!    differs from the `b10x-gates` on `PATH` (`stale gates hooks`, `story:gates-hooks-fresh`;
+//!    only while the instance's `forge.route` is `gates` or it names a `gates_policy`,
+//!    `story:forge-route`),
 //!    a newest wave narrower than both the ready units its store offers and
 //!    `controllers.max_subagents` whose wave page gives no reason (`narrow wave`,
 //!    `story:wave-width`, [`narrow_wave`]); and, on the row of a secret sync's source repository,
@@ -960,7 +962,11 @@ pub(crate) fn unlisted_repositories(store: &Store, held: &SnapshotSnapshot) -> V
 /// deviations and delta, and [`repository_figures`].
 fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
     let started = instant(&observed.started_at);
-    let max_subagents = crate::config::active().instance.controllers.max_subagents;
+    let instance = &crate::config::active().instance;
+    let max_subagents = instance.controllers.max_subagents;
+    // Gates hooks matter only where the instance uses Gates (story:forge-route).
+    let gates_hooks = instance.forge.route == conductor_model::config::ForgeRoute::Gates
+        || instance.gates_policy.is_some();
     let mut out = BTreeMap::new();
     for repository in observed.repositories.iter().filter(|held| !held.archived) {
         let name = &repository.repository.0;
@@ -1010,10 +1016,12 @@ fn figures(observed: &Observed) -> BTreeMap<String, Figures> {
                 deviations.push(SPECIFICATION_REFUSED);
             }
         }
-        if crate::gates::stale(
-            repository.gates_hooks_version.as_deref(),
-            repository.gates_version.as_deref(),
-        ) {
+        if gates_hooks
+            && crate::gates::stale(
+                repository.gates_hooks_version.as_deref(),
+                repository.gates_version.as_deref(),
+            )
+        {
             deviations.push(STALE_GATES_HOOKS);
         }
         if narrow_wave(repository, max_subagents) {

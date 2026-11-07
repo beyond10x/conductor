@@ -2,13 +2,15 @@
 //! is checked against the grant before anything is staged: one outside the grant's paths or the
 //! caller's working directory refuses the whole call `NotGranted`. Then the broker stages the
 //! paths, new files included, and commits exactly them through the bot route, `b10x-gates bot`,
-//! with the instance's Gates policy in `B10X_GATES_POLICY`, which only the broker holds. It
+//! with the instance's Gates policy in `B10X_GATES_POLICY`, which only the broker holds; under
+//! `forge.route: direct` (`story:forge-route`), with `git commit`, needing no policy. It
 //! answers `<sha> <n> files`; a commit the route refuses is `CommitRefused`, naming the route's
 //! first line, and the paths stay staged.
 
 use std::path::Path;
 use std::process::{Command, Output};
 
+use conductor_model::config::ForgeRoute;
 use serde_json::Value;
 
 use crate::grant::Refusal;
@@ -47,13 +49,15 @@ pub(crate) fn run(context: &Context<'_>, args: &Value) -> Result<Answer, Refusal
         });
     }
     let bot = &context.services.bot;
-    let Some(policy) = &bot.policy else {
+    let direct = bot.route == ForgeRoute::Direct;
+    let policy = bot.policy.as_ref();
+    if !direct && policy.is_none() {
         return Ok(refused(
             "the broker holds no Gates policy: start conductor broker serve with \
              B10X_GATES_POLICY naming the instance's policy",
             "",
         ));
-    };
+    }
     let before = head(workdir);
     let staged = git(workdir, &["add", "-A", "--"], &relative);
     match &staged {
@@ -66,15 +70,24 @@ pub(crate) fn run(context: &Context<'_>, args: &Value) -> Result<Answer, Refusal
         }
         Err(error) => return Ok(refused(&format!("git cannot run: {error}"), "")),
     }
-    let committed = Command::new(&bot.program)
-        .arg("bot")
-        .arg("--repo")
-        .arg(workdir)
-        .args(["--", "commit", "-m", message, "--"])
-        .args(&relative)
-        .current_dir(workdir)
-        .env("B10X_GATES_POLICY", policy)
-        .output();
+    let committed = match policy {
+        Some(policy) if !direct => Command::new(&bot.program)
+            .arg("bot")
+            .arg("--repo")
+            .arg(workdir)
+            .args(["--", "commit", "-m", message, "--"])
+            .args(&relative)
+            .current_dir(workdir)
+            .env("B10X_GATES_POLICY", policy)
+            .output(),
+        _ => Command::new("git")
+            .arg("-C")
+            .arg(workdir)
+            .args(["commit", "-m", message, "--"])
+            .args(&relative)
+            .current_dir(workdir)
+            .output(),
+    };
     let output = match committed {
         Ok(output) => output,
         Err(error) => {
