@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-07T05:32:42Z",
+  "actor": "human:timo",
+  "artifact": "story:nested-repository-session-names",
+  "kind": "story",
+  "revision": 3,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "task check, https://github.com/beyond10x/conductor/actions/runs/42341785270",
+    "reference": "bada993004471c408f2e2ecf5cd1c4c9238411cc"
+  }
+}

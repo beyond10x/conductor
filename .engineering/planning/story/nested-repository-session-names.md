@@ -2,13 +2,14 @@
 format: aep.planning-md/3
 id: story:nested-repository-session-names
 kind: story
-status: active
+status: implemented
 title: A repository nested as group/repo gets a session name the broker accepts
 summary: session_name writes / as -, as the workspace does
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T04:18:05Z", actor: "human:timo", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-07T04:18:05Z", actor: "human:timo", revision: 3}
+- {from: "active", to: "implemented", at: "2026-11-07T05:32:45Z", actor: "human:timo", revision: 4, decided_on: {"recorded":{"test_result":1}}}
 ---
 ## Why
 
