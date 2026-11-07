@@ -4,7 +4,7 @@ id: story:merge-policy-in-config
 kind: story
 status: active
 title: Who merges is an instance config key, and unwatched open pull requests are listed
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-07T16:46:10Z", actor: "human:timo", revision: 3}
 - {from: "proposed", to: "active", at: "2026-11-07T16:46:11Z", actor: "human:timo", revision: 4}
@@ -16,5 +16,6 @@ The operator, 2026-11-07: "shouldnt we be able to configure the system to config
 ## Acceptance
 
 - The instance config has a key `merge` (`controller` | `human`, default `controller`) and each `repositories[]` entry may override it; `conductor config show` prints both, and dispatch reads the effective value instead of the charter's `merge:` line.
-- Under `controller`, the controller profile tells the controller to set auto-merge on its pull request once its pipeline is green, and to merge it itself where the forge has no auto-merge.
-- The watch tick writes one line per open pull request or merge request older than 24 h in a repository of the instance's sources that has no running controller, naming repository, number and age; a test reads that line from a fixture of forge answers.
+- Under `controller`, the controller profile tells the controller to set auto-merge on a pull request it opened itself once its pipeline is green, and to merge it itself where the forge has no auto-merge.
+- The watch tick writes one line per open pull request or merge request that the instance shipped (opened by one of its controller sessions, as recorded in a dispatch report or the instance's merge-request body record), older than 24 h, whose repository has no running controller, naming repository, number and age; a test reads that line from a fixture of forge answers.
+- Scope (the operator, 2026-11-07: "the rules must only relate to the things shipped by conductor"): neither the merge policy nor the watch line ever applies to a pull or merge request the instance did not ship. Nothing scans an organization or group of the instance's sources for open requests; a test holds that a request in the fixture with no record of the instance is neither listed nor merged.
