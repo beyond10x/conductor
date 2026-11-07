@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:loop-tells-escalation-session
 kind: story
-status: draft
+status: active
 title: The loop tells a session of the events it cannot handle
 summary: refusals and over-threshold lines reach no session
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T13:11:39Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 

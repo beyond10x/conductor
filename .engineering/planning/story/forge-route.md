@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:forge-route
 kind: story
-status: draft
+status: active
 title: An instance names its forge-write route; direct writes its own requests with gh or glab and git
 relations:
 - decomposes: epic:forge-neutral
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T13:11:41Z", actor: "human:timo", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-07T13:11:41Z", actor: "human:timo", revision: 3}
 ---
 ## Why
 

@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:deliver-to-stopped-controller
 kind: story
-status: draft
+status: active
 title: A delivery to a stopped controller is kept for its next start, not retried
 summary: SessionNotReachable deliveries to controllers stopped hours earlier
-revision: 3
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 4}
+- {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 5}
 ---
 ## Why
 

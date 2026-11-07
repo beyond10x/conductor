@@ -2,10 +2,13 @@
 format: aep.planning-md/3
 id: story:doctor-checks-guard-forge-writes
 kind: story
-status: draft
+status: active
 title: conductor doctor checks the guard allows each role's forge writes
 summary: doctor said ready while the guard denied every forge write
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-07T13:11:40Z", actor: "human:timo", revision: 4}
 ---
 ## Why
 
