@@ -32,7 +32,7 @@ use conductor_cli::collect::Collector;
 use conductor_cli::collect::gitlab::Forge;
 use conductor_cli::config;
 use conductor_cli::disk;
-use conductor_cli::gc::reclaim::{ReclaimReport, floor_bytes};
+use conductor_cli::gc::reclaim::{READINGS_VARIABLE, ReclaimReport, floor_bytes};
 use conductor_cli::host;
 use conductor_cli::snapshot;
 use conductor_cli::store;
@@ -2647,6 +2647,16 @@ impl Case {
     /// naming `home/` and `PATH` naming `bin/`. `CONDUCTOR_CONFIG` names `config` when one is
     /// given and is removed otherwise; `CONDUCTOR_INSTANCE` is removed.
     fn start_watch(&self, config: Option<&Path>, args: &[&str]) -> Child {
+        self.start_watch_with(config, args, &[])
+    }
+
+    /// [`Case::start_watch`] with `envs` set on the watch's process.
+    fn start_watch_with(
+        &self,
+        config: Option<&Path>,
+        args: &[&str],
+        envs: &[(&str, &Path)],
+    ) -> Child {
         let (home, work, bin) = self.binary_dirs();
         let mut command = common::conductor(&home);
         command
@@ -2662,6 +2672,7 @@ impl Case {
         if let Some(config) = config {
             command.env(config::CONFIG_VARIABLE, config);
         }
+        command.envs(envs.iter().copied());
         command.spawn().expect("the conductor binary starts")
     }
 }
@@ -2826,16 +2837,23 @@ fn the_binary_reports_disk_low_under_100g_without_a_file_and_under_the_instances
 }
 
 /// W4 decision 2: the interval is the instance's `cadence.watch`, and `--every` overrides it.
-/// Each watch follows, so a disk-low line on the real `/` does not end it, and a pass is a run
-/// of the session list.
+/// Each watch follows, and a pass is a run of the session list. Free disk is read as 1 TiB: on a
+/// host whose `/` is low the watch reclaims, and reclaim reads the live sessions too, which would
+/// count as passes.
 #[test]
 fn the_binary_passes_at_the_instances_cadence_and_a_flag_overrides_it() {
     let start = |name: &str, extra: Option<&str>, args: &[&str]| {
         let case = Case::new(name);
         let (_, _, bin) = case.binary_dirs();
         fake_claude(&bin, &case.dir.join("claude-calls.txt"));
+        let readings = case.dir.join("free-disk.txt");
+        fs::write(&readings, format!("{}\n", 1_u64 << 40)).expect("write the disk readings");
         let config = extra.map(|extra| case.config(&acme_config(extra)));
-        let watch = case.start_watch(config.as_deref(), &[args, &["--follow"]].concat());
+        let watch = case.start_watch_with(
+            config.as_deref(),
+            &[args, &["--follow"]].concat(),
+            &[(READINGS_VARIABLE, &readings)],
+        );
         (case, watch)
     };
     let cases = [
