@@ -10,7 +10,7 @@
 //!
 //! | first line | what the tick does |
 //! |---|---|
-//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines |
+//! | `[REPORT <repo> <dispatch-id>] started\|blocked\|unblocked\|done\|failed <rest>` | moves the dispatch as `dispatch report-<verb>` does, `<rest>` its reason or evidence (`story:report-to-state`); `-` for the dispatch is the repository's one open dispatch, and with none open the report moves nothing and is not refused; `blocked handover <path>` is a report like any. A `blocked`, `done` or `failed` on a dispatch still `Sent` is reported `started` first, so the log holds both lines; a `started` on a `Blocked` dispatch is recorded `unblocked`, as a controller restarted after a hand-over reports |
 //! | `[HANDOVER <repo>] <rest>` | recorded as a report: the repository's open dispatch is reported blocked, `handover: <rest>` |
 //! | `[NEED <repo> <request-id>] <other-repo> <what>` | the whole message delivered to the running controller of `<other-repo>` (`relayed`), else kept for its next start |
 //! | `[DECISION-REQUEST <repo> <request-id>] <question>` | handed whole to `decide::handle_request` ([`super::handle_request`]), which raises it with the rule that classified it, answers and records class C and escalates class O and H; a decided request's `[DECISION]` is delivered to the controller that raised it (`decision-sent`), else kept for its next start. With no decider seam ([`super::HandleRequest`]), raised (`decision raise-decision-request`) and escalated as class O, one of the options its body lists (`A) <label>: <cost>`), its `Recommendation:` line's letter recommended and the default, the deadline 48 hours out |
@@ -209,7 +209,8 @@ fn open_dispatch(tick: &Tick<'_, '_>, repo: &str) -> Result<String> {
 
 /// `[REPORT <repo> <dispatch>] <verb> <rest>`: the dispatch moved as `dispatch report-<verb>`
 /// does; `progress` and `ready` move nothing. A `blocked`, `done` or `failed` on a dispatch still
-/// `Sent` reports it `started` first (`story:report-on-sent-dispatch`). With `-` for the dispatch
+/// `Sent` reports it `started` first, and a `started` on a `Blocked` one reports it `unblocked`
+/// (`story:report-on-sent-dispatch`). With `-` for the dispatch
 /// and no dispatch of the repository open, the report moves nothing and is not refused: a
 /// controller started with no dispatch reports so (`story:spawn-without-dispatch-reports`).
 fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Result<bool> {
@@ -226,7 +227,8 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
     let said = Some(said.trim().to_owned()).filter(|said| !said.is_empty());
     let state = tick.state;
     let id = Some(dispatch.clone());
-    if matches!(verb, "blocked" | "done" | "failed") && sent(tick, &dispatch)? {
+    let held = state_of(tick, &dispatch)?;
+    if matches!(verb, "blocked" | "done" | "failed") && held == Some(DispatchState::Sent) {
         crate::dispatch::report_started(
             state,
             ReportStartedArgs {
@@ -237,6 +239,18 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
         tick.wrote(DispatchLogEvent::Started);
     }
     let event = match verb {
+        // A controller restarted after a hand-over reports `started` on its blocked dispatch: it
+        // works it again.
+        "started" if held == Some(DispatchState::Blocked) => {
+            crate::dispatch::report_unblocked(
+                state,
+                ReportUnblockedArgs {
+                    dispatch_id: id,
+                    input_json: None,
+                },
+            )?;
+            DispatchLogEvent::Unblocked
+        }
         "started" => {
             crate::dispatch::report_started(
                 state,
@@ -297,12 +311,12 @@ fn report(tick: &mut Tick<'_, '_>, repo: &str, dispatch: &str, rest: &str) -> Re
     Ok(true)
 }
 
-/// Whether the store holds the dispatch `id` in `Sent`.
-fn sent(tick: &Tick<'_, '_>, id: &str) -> Result<bool> {
+/// The state the store holds the dispatch `id` in; `None` when it holds no such dispatch.
+fn state_of(tick: &Tick<'_, '_>, id: &str) -> Result<Option<DispatchState>> {
     let store = crate::state::open(tick.state)?;
     let held = DispatchStorage::get(&store, &DispatchId(id.to_owned()));
     store.check().context("read the dispatch")?;
-    Ok(held.is_some_and(|held| held.state == DispatchState::Sent))
+    Ok(held.map(|held| held.state))
 }
 
 /// `[NEED <repo> <request>] <other-repo> <what>`: the whole message to `<other-repo>`'s running

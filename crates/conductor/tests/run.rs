@@ -1560,6 +1560,51 @@ fn a_report_on_an_unknown_dispatch_reaches_its_sender_with_the_open_dispatch() {
     }
 }
 
+/// `story:report-on-sent-dispatch`: a controller restarted after a `blocked handover` report sends
+/// `started`; on its Blocked dispatch that moves it to Started, recorded as `unblocked`. A
+/// `started` on a Done dispatch is still refused, and its sender is told.
+#[test]
+fn a_started_report_on_a_blocked_dispatch_unblocks_it_and_on_a_done_one_is_refused() {
+    let case = Case::new("mail-started-blocked");
+    case.spawn("alpha", FIRST);
+    let id = case.dispatch("alpha");
+    case.mail("0001", &format!("[REPORT alpha {id}] started\n"));
+    case.mail(
+        "0002",
+        &format!("[REPORT alpha {id}] blocked handover docs/handoff/a.md\n"),
+    );
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Blocked");
+
+    case.mail("0003", &format!("[REPORT alpha {id}] started again\n"));
+    let tick = case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Started", "{tick}");
+    assert_eq!(actions(&tick), ["unblocked"], "{tick}");
+    assert_eq!(
+        events_of(&case, &id),
+        ["sent", "started", "blocked", "unblocked"]
+    );
+    assert!(case.deliveries().is_empty(), "{:?}", case.deliveries());
+
+    case.mail("0004", &format!("[REPORT alpha {id}] done PR 3 merged\n"));
+    case.mail("0005", &format!("[REPORT alpha {id}] started late\n"));
+    case.tick(&[]);
+    assert_eq!(case.dispatch_state(&id), "Done");
+    let deliveries = case.deliveries();
+    assert_eq!(deliveries.len(), 1, "{deliveries:?}");
+    assert_eq!(deliveries[0].0, "ex-alpha");
+    for said in [
+        "DispatchStateConflict",
+        &format!("[REPORT alpha {id}] started late"),
+    ] {
+        assert!(
+            deliveries[0].1.contains(said),
+            "names {said}: {:?}",
+            deliveries[0].1
+        );
+    }
+}
+
 /// `story:report-on-sent-dispatch`, acceptance 2: a report the loop still refuses reaches its
 /// sender with the reason and the expected form.
 #[test]

@@ -75,7 +75,8 @@ Mailbox: a controller reports with `conductor message send --to conductor --from
 `FORMAT`), records the message (`receive-message`, transport `Mailbox`, `body_path`) and leaves the
 body under `<state>/mailbox/conductor/<ulid>.md`. The daemon reads new files each tick:
 `[REPORT]` moves the dispatch (`report-to-state`), and a `blocked`, `done` or `failed` on a dispatch
-still `Sent` reports it `started` first, both lines in the log; `[NEED]` is routed; `[DECISION-REQUEST]` goes to
+still `Sent` reports it `started` first, both lines in the log, and a `started` on a `Blocked`
+dispatch (a controller restarted after a hand-over) is recorded `unblocked`; `[NEED]` is routed; `[DECISION-REQUEST]` goes to
 decide; `[RESOURCE]` is answered "use conductor build run"; `[HANDOVER]` from a controller
 (`blocked handover <path>`) is a report. A message the daemon refuses is answered to the
 controller of the repository it names, as one message: `[REPORT <repo> -] refused: <reason>`, the
